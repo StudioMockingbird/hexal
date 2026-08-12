@@ -1,0 +1,444 @@
+package checker
+
+import (
+	"go/constant"
+
+	compilerTypes "hexal/compiler/types"
+)
+
+// BindingID is a compilation-scoped identity for one value declaration or
+// parameter. Source names are insufficient once sibling blocks shadow one
+// another, so checked references carry this identity into generation.
+type BindingID uint64
+
+// OperandKind distinguishes checked constants, variables, objects, and
+// structured expressions. Keeping the tag explicit prevents generation from
+// guessing from spelling.
+type OperandKind uint8
+
+const (
+	InvalidOperand OperandKind = iota
+	ConstantOperand
+	VariableOperand
+	ObjectOperand
+	ExpressionOperand
+)
+
+// ExpressionKind is the small checked expression language understood by the
+// generator. Source identifiers stay as source spellings here; C lowering is
+// deliberately owned by the generator.
+type ExpressionKind uint8
+
+const (
+	InvalidExpression ExpressionKind = iota
+	VariableExpression
+	AddressOfExpression
+	DereferenceExpression
+	MemberExpression
+	ObjectExpression
+	ConstantExpression
+	UnaryOperationExpression
+	BinaryOperationExpression
+	// FunctionReferenceExpression is a declared function's name used as a
+	// Fun<...> value. It is not a variable read: no storage exists for it.
+	FunctionReferenceExpression
+	// CallExpression applies Operand to Arguments. ResultType is the zero Type
+	// when the callee returns no value, which only a call statement accepts.
+	CallExpression
+	// MethodCallExpression calls the method Name declared on Owner. Operand is
+	// the receiver already adapted to the method's target form, so the checked
+	// tree carries any dereference or address-of the adaptation inserted and
+	// the generator only spells the call.
+	MethodCallExpression
+	// NilExpression is the singleton Nil literal. It carries no go/constant
+	// value: Nil has exactly one value, which the generator lowers directly.
+	NilExpression
+	// EosExpression is the RFC 0031 end-of-stream singleton literal. Like
+	// NilExpression it carries no go/constant: EoS has exactly one value.
+	EosExpression
+	// NullTestExpression tests a nullable operand against Nil with == or !=
+	// and yields Bool. The checked node is normalized so Operand always holds
+	// the nullable side, which makes nil == maybe share the shape of
+	// maybe == nil. OperandType is the nullable union type.
+	NullTestExpression
+	// UnionInjectionExpression constructs one member of a tagged or nullable
+	// union without source-level constructor syntax.
+	UnionInjectionExpression
+	// UnionWidenExpression converts a source union to a wider destination union.
+	UnionWidenExpression
+	// UnionTestExpression asks whether one exact union member is active.
+	UnionTestExpression
+	// UnionPayloadExpression reads a member after flow narrowing proved its tag.
+	UnionPayloadExpression
+	// UnionEqualityExpression compares two identical canonical union values.
+	UnionEqualityExpression
+	// HeapAllocateExpression allocates one T from a Heap and initializes it.
+	HeapAllocateExpression
+	// HeapFreeExpression releases a Heap allocation identified by a pointer.
+	HeapFreeExpression
+	// AdtConstructExpression constructs one variant of a nominal ADT.
+	AdtConstructExpression
+	// AdtPayloadExpression reads one payload field after a tag proof.
+	AdtPayloadExpression
+	// MatchExpression evaluates a scrutinee once and selects one arm.
+	MatchExpression
+	// ArrayLiteralExpression constructs one fixed inline Array<T, N> value.
+	// OperandType is the element type; Arguments holds the elements.
+	ArrayLiteralExpression
+	// IndexExpression reads or writes one element of an Array<T, N>. Operand
+	// is the array place, Arguments holds the single index operand, and
+	// OperandType is the array type.
+	IndexExpression
+	// CollectionMethodCallExpression is one built-in Array or View method:
+	// length, is_empty, or at. Name selects the operation; Arguments carries
+	// the single at index; Element is the element type.
+	CollectionMethodCallExpression
+	// CollectionSliceExpression builds a View<T> from an Array or View
+	// receiver. OperandType is the receiver type, Arguments holds the two
+	// index operands, and ViewRoots records the receiver's root chain for
+	// lexical lifetime checking.
+	CollectionSliceExpression
+	// StringLiteralExpression is a static-provenance String literal; Name
+	// carries the decoded payload bytes.
+	StringLiteralExpression
+	// StringMethodCallExpression is one built-in String method: bytes,
+	// slice, to_string, concat, or free. Name selects the operation; Element
+	// is the byte view element type for bytes and slice.
+	StringMethodCallExpression
+	// StringFromBytesExpression constructs a fresh owning String by copying
+	// a View<Byte> payload through a Heap.
+	StringFromBytesExpression
+	// StringFromRunesExpression constructs a fresh owning String by
+	// validating and encoding a View<Rune> payload through a Heap (RFC
+	// 0044).
+	StringFromRunesExpression
+	// ListNewExpression constructs a fresh owning List<T> header through a
+	// Heap; Element is T.
+	ListNewExpression
+	// DictNewExpression constructs a fresh owning Dict<K, V> header through
+	// a Heap; Element is V.
+	DictNewExpression
+	// StreamConstructorExpression constructs a Stream<T>: "new" is the
+	// canonical empty handle and "produce" allocates one header-and-State
+	// node. OperandType is the Stream type; Element is T.
+	StreamConstructorExpression
+	// StreamMethodCallExpression is one built-in Stream or List-source
+	// operation: next, filter, map, take, free, or list_stream. Name selects
+	// the operation; OperandType is the receiver type; Element is the source
+	// element type T.
+	StreamMethodCallExpression
+	// BitCastExpression reinterprets the receiver's exact representation
+	// bits as the same-width destination scalar (RFC 0032).
+	BitCastExpression
+	// EndianConversionExpression converts a fixed-width integer to or from
+	// its explicit-endian byte sequence (RFC 0032). Name is "to" or "from";
+	// MemberIndex is 0 for little endian and 1 for big endian; Element is
+	// the integer type; Operand is the receiver (or the type marker for
+	// from) and Arguments carries the bytes for from.
+	EndianConversionExpression
+	// TryExpression propagates an Error from the enclosing function (RFC
+	// 0029). OperandType is the source union; MemberIndex is the Error
+	// member's index; ResultType is the normalized success value or union;
+	// Element is the enclosing function's declared result type.
+	TryExpression
+	// PrintExpression is one checked print call; it produces no value and
+	// carries the ordered argument operands (RFC 0030).
+	PrintExpression
+	// DeepEqualityExpression compares two non-scalar values through the
+	// per-type equality helper. OperandType is the compared type; Left and
+	// Right hold the operands; Operator is Equal or NotEqual.
+	DeepEqualityExpression
+	// StringCompareExpression applies an ordering operator to two String or
+	// Strand values through the per-type bytewise compare helper.
+	StringCompareExpression
+	// WideningExpression casts an operand to a proven lossless numeric
+	// common type; OperandType is the source type and ResultType the
+	// destination.
+	WideningExpression
+	// ConversionExpression applies a built-in destination-named numeric
+	// conversion method; OperandType is the source type, ResultType the
+	// destination, and MemberIndex the conversion mode.
+	ConversionExpression
+	// SpawnExpression starts one new Task<R> running a named function
+	// (RFC 0037). Operand is the checked call node; OperandType is the Task
+	// handle type; ResultType is Task<R> | Error; Element is R.
+	SpawnExpression
+	// TaskYieldExpression is the Task.yield() intrinsic: a hint that parks
+	// the current task so other tasks may run.
+	TaskYieldExpression
+	// TaskMethodCallExpression is one Task handle method: join (yields R) or
+	// detach (yields Nil). Operand is the handle; OperandType is the Task
+	// type; Element is R.
+	TaskMethodCallExpression
+	// ChannelConstructorExpression is Channel<T>.new(heap, capacity), which
+	// yields Channel<T> | Error. Arguments holds heap and capacity;
+	// OperandType is the Channel type; Element is T.
+	ChannelConstructorExpression
+	// ChannelMethodCallExpression is one Channel handle method: send,
+	// receive, close, length, capacity, is_closed, or free. Operand is the
+	// handle; OperandType is the Channel type; Element is T.
+	ChannelMethodCallExpression
+	// MutexConstructorExpression is Mutex.new(heap), which yields Mutex |
+	// Error. Arguments holds the heap.
+	MutexConstructorExpression
+	// MutexMethodCallExpression is one Mutex handle method: lock, unlock, or
+	// free. Operand is the handle.
+	MutexMethodCallExpression
+	// AtomicConstructorExpression is Atomic<T>.new(initial), which yields an
+	// inline Atomic<T>. Arguments holds the initial value; OperandType is the
+	// Atomic type; Element is T.
+	AtomicConstructorExpression
+	// AtomicMethodCallExpression is one Atomic method: load, store, exchange,
+	// fetch_add, fetch_sub, or compare_exchange. Operand is the Atomic
+	// lvalue; OperandType is the Atomic type; Element is T.
+	AtomicMethodCallExpression
+	// LayoutExpression is size_of<T>() or align_of<T>() (RFC 0042). Name
+	// selects the query; OperandType is the measured type; ResultType is
+	// Size.
+	LayoutExpression
+	// VolatileReadExpression reads one integer through a volatile-qualified
+	// pointer (RFC 0042). Operand is the Ptr or MutPtr receiver; OperandType
+	// is the pointer type; Element is the integer element.
+	VolatileReadExpression
+	// VolatileWriteExpression writes one integer through a
+	// volatile-qualified MutPtr (RFC 0042). Operand is the receiver;
+	// Arguments holds the written value; OperandType is the pointer type;
+	// Element is the integer element.
+	VolatileWriteExpression
+	// ViewBridgeExpression is View<T>.from_pointer(pointer, length) or
+	// View<T>.empty() (RFC 0043). Name selects the form; Arguments holds the
+	// pointer and length for from_pointer; OperandType is the View type;
+	// Element is T.
+	ViewBridgeExpression
+	// RuneCursorMethodCallExpression is one RuneCursor method: has_next or
+	// next (RFC 0044). Operand is the cursor descriptor; OperandType is the
+	// RuneCursor type.
+	RuneCursorMethodCallExpression
+	// FileModeLiteralExpression is one FileMode variant: Read, Write, or
+	// Append (RFC 0040). Name selects the variant.
+	FileModeLiteralExpression
+	// FileOpenExpression is File.open(path, mode) (RFC 0040). Arguments
+	// holds the path and mode operands; ResultType is File | Error.
+	FileOpenExpression
+	// StdioCallExpression is Stdio.stdin(), Stdio.stdout(), or
+	// Stdio.stderr() (RFC 0040). Name selects the stream; ResultType is
+	// File.
+	StdioCallExpression
+	// FileMethodCallExpression is one File method: read_bytes, read_text,
+	// write, write_text, flush, or close (RFC 0040). Operand is the File
+	// receiver; Arguments holds the operation operands; ResultType varies;
+	// Element is the byte element of read_bytes.
+	FileMethodCallExpression
+)
+
+// Operator is the resolved semantic operator carried by a checked operation.
+// It deliberately contains no lexer token or generated C spelling.
+type Operator uint8
+
+const (
+	InvalidOperator Operator = iota
+	NegateOperator
+	LogicalNotOperator
+	BitwiseNotOperator
+	AddOperator
+	SubtractOperator
+	MultiplyOperator
+	DivideOperator
+	RemainderOperator
+	BitwiseAndOperator
+	BitwiseXorOperator
+	BitwiseOrOperator
+	ShiftLeftOperator
+	ShiftRightOperator
+	EqualOperator
+	NotEqualOperator
+	LessOperator
+	LessEqualOperator
+	GreaterOperator
+	GreaterEqualOperator
+	LogicalAndOperator
+	LogicalOrOperator
+)
+
+// String returns the Seawitch spelling of a resolved operator.
+func (operator Operator) String() string {
+	switch operator {
+	case NegateOperator:
+		return "-"
+	case LogicalNotOperator:
+		return "!"
+	case AddOperator:
+		return "+"
+	case SubtractOperator:
+		return "-"
+	case MultiplyOperator:
+		return "*"
+	case BitwiseAndOperator:
+		return "&"
+	case BitwiseXorOperator:
+		return "^"
+	case BitwiseOrOperator:
+		return "|"
+	case ShiftLeftOperator:
+		return "<<"
+	case ShiftRightOperator:
+		return ">>"
+	case BitwiseNotOperator:
+		return "~"
+	case DivideOperator:
+		return "/"
+	case RemainderOperator:
+		return "%"
+	case EqualOperator:
+		return "=="
+	case NotEqualOperator:
+		return "!="
+	case LessOperator:
+		return "<"
+	case LessEqualOperator:
+		return "<="
+	case GreaterOperator:
+		return ">"
+	case GreaterEqualOperator:
+		return ">="
+	case LogicalAndOperator:
+		return "and"
+	case LogicalOrOperator:
+		return "or"
+	default:
+		return "invalid operator"
+	}
+}
+
+// Expression is a structured checked expression. Composite C fragments are
+// never stored here, which keeps naming and C syntax in one backend.
+type Expression struct {
+	Kind     ExpressionKind
+	Name     string
+	Binding  BindingID
+	Member   *compilerTypes.ObjectMember
+	Operand  *Expression
+	Left     *Expression
+	Right    *Expression
+	Object   *ObjectValue
+	Constant *Operand
+	// Owner is the nominal object a MethodCallExpression's method belongs to.
+	Owner        *compilerTypes.ObjectType
+	Arguments    []Operand // call expressions only, in written order
+	Operator     Operator
+	OperandType  compilerTypes.Type
+	ResultType   compilerTypes.Type
+	MemberIndex  int
+	VariantIndex int
+	TestType     compilerTypes.Type
+	MemberMap    []int
+	Element      compilerTypes.Type
+	// ViewRoots is the ordered binding chain a View-producing expression is
+	// borrowed from, outermost root first (RFC 0020).
+	ViewRoots []BindingID
+	// SourceLine and SourceColumn name the source site of compiler-built
+	// runtime failures: the Error constructed when a spawn, Channel, or
+	// Mutex operation fails (RFC 0037). Zero for all other kinds.
+	SourceLine   int
+	SourceColumn int
+}
+
+// ObjectValue is a complete checked object literal. Initializers are kept in
+// source-written order so future effectful expressions can preserve their
+// evaluation order; the generator chooses declaration order for designators.
+type ObjectValue struct {
+	Type         compilerTypes.Type
+	Initializers []ObjectMemberValue
+}
+
+type ObjectMemberValue struct {
+	Member *compilerTypes.ObjectMember
+	Source Operand
+}
+
+// LiteralRadix records the source radix retained for readable integer
+// lowering. It is metadata, not a source-trust shortcut: the exact value is
+// still authoritative in Constant.
+type LiteralRadix uint8
+
+const (
+	DecimalRadix LiteralRadix = iota
+	HexadecimalRadix
+	BinaryRadix
+	OctalRadix
+)
+
+// Operand is the shared checked representation used by declarations and
+// assignments. Constant values use go/constant so all widths share one exact
+// representation until the generator selects the target C spelling.
+type Operand struct {
+	Kind        OperandKind
+	Type        compilerTypes.Type
+	Constant    constant.Value
+	Literal     string
+	Name        string // source spelling retained for diagnostics
+	Binding     BindingID
+	Node        Expression
+	Addressable bool
+	Writable    bool
+	Radix       LiteralRadix
+	Negative    bool
+	FloatBits   uint64
+	Object      *ObjectValue
+}
+
+func constantOperand(typ compilerTypes.Type, value constant.Value, literal string) Operand {
+	negative := value != nil && value.Kind() == constant.Int && constant.Sign(value) < 0
+	return Operand{Kind: ConstantOperand, Type: typ, Constant: value, Literal: literal, Negative: negative}
+}
+
+// nilOperand builds the checked Nil singleton literal. The kind stays
+// ConstantOperand so immutable Nil bindings retain a known value, while the
+// node kind marks the literal for null-test normalization and nullptr
+// lowering. Nil has one value, so no go/constant is carried.
+func nilOperand(literal string) Operand {
+	return Operand{
+		Kind:    ConstantOperand,
+		Type:    compilerTypes.Nil,
+		Literal: literal,
+		Node:    Expression{Kind: NilExpression, ResultType: compilerTypes.Nil},
+	}
+}
+
+// eosOperand builds the checked RFC 0031 end-of-stream singleton. The kind
+// stays ConstantOperand so immutable eos bindings retain a known value, and
+// the node kind marks the literal for EoS equality folding and union
+// narrowing. EoS has one value, so no go/constant is carried.
+func eosOperand(literal string) Operand {
+	return Operand{
+		Kind:    ConstantOperand,
+		Type:    compilerTypes.EoS,
+		Literal: literal,
+		Node:    Expression{Kind: EosExpression, ResultType: compilerTypes.EoS},
+	}
+}
+
+func constantNode(source Operand) Expression {
+	return Expression{Kind: ConstantExpression, Constant: &source, ResultType: source.Type}
+}
+
+func operationUnaryNode(operator Operator, operand Expression, operandType, resultType compilerTypes.Type) Expression {
+	return Expression{
+		Kind:        UnaryOperationExpression,
+		Operand:     &operand,
+		Operator:    operator,
+		OperandType: operandType,
+		ResultType:  resultType,
+	}
+}
+
+func operationBinaryNode(operator Operator, left, right Expression, operandType, resultType compilerTypes.Type) Expression {
+	return Expression{
+		Kind:        BinaryOperationExpression,
+		Left:        &left,
+		Right:       &right,
+		Operator:    operator,
+		OperandType: operandType,
+		ResultType:  resultType,
+	}
+}

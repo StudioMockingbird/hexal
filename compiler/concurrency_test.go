@@ -1,0 +1,223 @@
+package compiler
+
+import (
+	"strings"
+	"testing"
+)
+
+// RFC 0037 concurrency integration tests: spawn, Task join/detach/yield,
+// Channel, Mutex, and Atomic programs compile end to end, and invalid uses
+// fail with the specified diagnostics. The gcc build-and-run coverage lives
+// behind the c23 build tag (c23_concurrency_smoke_test.go).
+
+func TestSpawnAndJoinCompile(t *testing.T) {
+	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	if !strings.Contains(result.MainC, "sw_task_spawn(") {
+		t.Fatalf("generated C lacks the spawn call:\n%s", result.MainC)
+	}
+	if !strings.Contains(result.MainC, "sw_task_join_Int32(") {
+		t.Fatalf("generated C lacks the typed join call:\n%s", result.MainC)
+	}
+	if !strings.Contains(result.MainH, "sw_scheduler_init") {
+		t.Fatalf("generated header lacks the scheduler runtime:\n%s", result.MainH)
+	}
+	if !strings.Contains(result.MainC, "sw_scheduler_init();") {
+		t.Fatalf("generated main does not initialize the scheduler:\n%s", result.MainC)
+	}
+	if !strings.Contains(result.MainC, "sw_task_complete(sw_root_task);") {
+		t.Fatalf("generated main does not complete the root task:\n%s", result.MainC)
+	}
+}
+
+func TestSpawnNilResultCompiles(t *testing.T) {
+	source := "fun worker(): Nil\n    Task.yield()\n    return nil\nend\nfun run(): Int32 | Error\n    task: Task<Nil> = try spawn worker()\n    task.join()\n    return 1\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	if !strings.Contains(result.MainC, "sw_task_join_Nil(") {
+		t.Fatalf("generated C lacks the Nil join call:\n%s", result.MainC)
+	}
+}
+
+func TestChannelPipelineCompiles(t *testing.T) {
+	source := "fun produce(ch: Channel<Int32>): Nil\n    ch.send(1)\n    ch.send(2)\n    ch.close()\n    return nil\nend\nfun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    defer ch.free(h)\n    producer: Task<Nil> = try spawn produce(ch)\n    producer.join()\n    mut total: Int32 = 0\n    while true do\n        step: Int32 | EoS = ch.receive()\n        if step is EoS\n            break\n        end\n        total = total + step\n        Task.yield()\n    end\n    return total\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	for _, fragment := range []string{
+		"sw_chan_new_Int32(",
+		"sw_chan_send_Int32(",
+		"sw_chan_recv_Int32(",
+		"sw_chan_close_Int32(",
+		"sw_chan_free_Int32(",
+		"sw_chan_length",
+	} {
+		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
+			t.Fatalf("generated output lacks %s:\n%s", fragment, result.MainC)
+		}
+	}
+}
+
+func TestMutexCompiles(t *testing.T) {
+	source := "fun worker(m: Mutex): Nil\n    m.lock()\n    m.unlock()\n    return nil\nend\nfun run(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    defer m.free(h)\n    mutex_task: Task<Nil> = try spawn worker(m)\n    mutex_task.join()\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	if !strings.Contains(result.MainH, "sw_mutex_lock_sw_mutex(") {
+		t.Fatalf("generated header lacks the mutex helpers:\n%s", result.MainH)
+	}
+}
+
+func TestAtomicOperationsCompile(t *testing.T) {
+	source := "fun run(): Bool\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    old: Int32 = counter.fetch_add(1)\n    counter.fetch_sub(1)\n    counter.store(5)\n    loaded: Int32 = counter.load()\n    swapped: Int32 = counter.exchange(6)\n    expected: Bool = counter.compare_exchange(6, 7)\n    mut flag: Atomic<Bool> = Atomic<Bool>.new(true)\n    ready: Bool = flag.load()\n    return ready and expected\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	for _, fragment := range []string{
+		"sw_atomic_Int32_new(",
+		"sw_atomic_Int32_fetch_add(",
+		"sw_atomic_Int32_fetch_sub(",
+		"sw_atomic_Int32_store(",
+		"sw_atomic_Int32_load(",
+		"sw_atomic_Int32_exchange(",
+		"sw_atomic_Int32_compare_exchange(",
+		"sw_atomic_Bool_load(",
+	} {
+		if !strings.Contains(result.MainH, fragment) && !strings.Contains(result.MainC, fragment) {
+			t.Fatalf("generated output lacks %s", fragment)
+		}
+	}
+}
+
+func TestTaskMethodCallsRequireCorrectArity(t *testing.T) {
+	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    task: Task<Int32> = try spawn square(6)\n    return task.join(1)\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "join expects no arguments") {
+		t.Fatalf("want join arity diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestTaskHasNoUnknownMethods(t *testing.T) {
+	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    task: Task<Int32> = try spawn square(6)\n    task.cancel()\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Task has no method cancel") {
+		t.Fatalf("want unknown-method diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestSpawnRejectsNonDirectCall(t *testing.T) {
+	for _, source := range []string{
+		"fun run(): Int32 | Error\n    task: Task<Int32> = try spawn 5\n    return 0\nend\n",
+		"type Point = { x: Int32, }\nfun scale(point: Point, factor: Int32): Int32\n    return point.x * factor\nend\nfun run(): Int32 | Error\n    point: Point = Point { x = 2 }\n    task: Task<Int32> = try spawn point.scale(3)\n    return 0\nend\n",
+	} {
+		result := Compile(source)
+		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "spawn requires a direct call") {
+			t.Fatalf("want direct-call diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		}
+	}
+}
+
+func TestSpawnRejectsNonCopyableArguments(t *testing.T) {
+	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    task: Task<Int32> = try spawn square(0)\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("atomic not passed to spawn should still compile: %v", result.Stderr)
+	}
+	bad := "fun take_atomic(counter: Atomic<Int32>): Int32\n    return 0\nend\nfun run(): Int32 | Error\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    task: Task<Int32> = try spawn take_atomic(counter)\n    return 0\nend\n"
+	result = Compile(bad)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "shallow-copyable") {
+		t.Fatalf("want atomic-argument diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestSpawnRejectsAtomicResult(t *testing.T) {
+	source := "fun make_atomic(): Atomic<Int32>\n    return Atomic<Int32>.new(0)\nend\nfun run(): Int32 | Error\n    task: Task<Atomic<Int32>> = try spawn make_atomic()\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "shallow-copyable") {
+		t.Fatalf("want atomic-result diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestChannelRejectsInvalidElements(t *testing.T) {
+	for _, source := range []string{
+		"fun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32 | EoS> = try Channel<Int32 | EoS>.new(h, 4)\n    return 0\nend\n",
+		"fun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Atomic<Int32>> = try Channel<Atomic<Int32>>.new(h, 4)\n    return 0\nend\n",
+	} {
+		result := Compile(source)
+		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 {
+			t.Fatalf("want channel element diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		}
+	}
+}
+
+func TestChannelZeroCapacityRejectedAtCompileTime(t *testing.T) {
+	source := "fun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 0)\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "capacity must be positive") {
+		t.Fatalf("want capacity diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestAtomicRejectsUnsupportedElements(t *testing.T) {
+	source := "fun run(): Atomic<Float64>\n    return Atomic<Float64>.new(1.5)\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Atomic element type is not supported") {
+		t.Fatalf("want atomic element diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestAtomicFetchAddUnavailableForBool(t *testing.T) {
+	source := "fun run(): Bool\n    flag: Atomic<Bool> = Atomic<Bool>.new(true)\n    old: Bool = flag.fetch_add(true)\n    return old\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "unavailable for Bool") {
+		t.Fatalf("want Bool fetch diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestSpawnRejectedInsideDefer(t *testing.T) {
+	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    defer spawn square(1)\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "not permitted inside defer") {
+		t.Fatalf("want defer diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestWhileTrueWithoutYieldRejectedWhenSchedulerLinked(t *testing.T) {
+	source := "fun worker(): Nil\n    while true do\n    end\n    return nil\nend\nfun run(): Int32 | Error\n    task: Task<Nil> = try spawn worker()\n    task.join()\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "while true loop must execute Task.yield()") {
+		t.Fatalf("want starvation diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestWhileTrueWithYieldOnEveryRepeatingPathAccepted(t *testing.T) {
+	source := "fun worker(): Nil\n    while true do\n        if false\n            break\n        end\n        Task.yield()\n    end\n    return nil\nend\nfun run(): Int32 | Error\n    task: Task<Nil> = try spawn worker()\n    task.join()\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+}
+
+func TestWhileTrueWithoutSchedulerIsUnchecked(t *testing.T) {
+	source := "fun spin(): Int32\n    while true do\n    end\n    return 0\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("a program without the scheduler must not apply the starvation rule: %v", result.Stderr)
+	}
+}
+
+func TestTaskTypesAreProtected(t *testing.T) {
+	source := "type Task = { value: Int32, }\n"
+	result := Compile(source)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot be redeclared") {
+		t.Fatalf("want protected-name diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}

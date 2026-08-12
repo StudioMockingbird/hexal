@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seawitch Workbench</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #111318;
+      --panel: #1a1d24;
+      --panel-alt: #15171d;
+      --border: #303541;
+      --text: #e6e9ef;
+      --muted: #9aa3b2;
+      --accent: #84a9ff;
+      --good: #77d69b;
+      --bad: #ff8e8e;
+      --syntax-keyword: #c792ea;
+      --syntax-type: #82aaff;
+      --syntax-number: #f78c6c;
+      --syntax-string: #c3e88d;
+      --syntax-comment: #676e95;
+      --syntax-punctuation: #89ddff;
+      --syntax-constant: #ffcb6b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    main {
+      width: min(1500px, 100%);
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    h1, h2 { margin: 0; font-weight: 600; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+
+    .hint { color: var(--muted); font-size: 12px; }
+
+    .editor-panel, .output-panel, .stats-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .editor-panel { margin-bottom: 16px; }
+
+    select, textarea, pre {
+      width: 100%;
+      margin: 12px 0 0;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--panel-alt);
+      color: var(--text);
+      font: inherit;
+    }
+
+    select {
+      min-height: 38px;
+      padding: 8px 10px;
+      outline: none;
+    }
+
+    select:focus {
+      border-color: var(--accent);
+    }
+
+    .source-editor {
+      position: relative;
+      min-height: 150px;
+      margin-top: 12px;
+    }
+
+    .source-highlight,
+    .source-editor textarea {
+      min-height: 150px;
+      margin: 0;
+      padding: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+    }
+
+    .source-highlight {
+      position: absolute;
+      inset: 0;
+      overflow: auto;
+      pointer-events: none;
+    }
+
+    .source-editor textarea {
+      position: relative;
+      z-index: 1;
+      resize: vertical;
+      outline: none;
+      background: transparent;
+      color: transparent;
+      caret-color: var(--text);
+      -webkit-text-fill-color: transparent;
+    }
+
+    .source-editor textarea::selection {
+      background: rgba(132, 169, 255, .25);
+    }
+
+    .syntax-keyword { color: var(--syntax-keyword); }
+    .syntax-type { color: var(--syntax-type); }
+    .syntax-number { color: var(--syntax-number); }
+    .syntax-string { color: var(--syntax-string); }
+    .syntax-comment { color: var(--syntax-comment); }
+    .syntax-punctuation { color: var(--syntax-punctuation); }
+    .syntax-constant { color: var(--syntax-constant); }
+
+    textarea {
+      min-height: 150px;
+      padding: 12px;
+      resize: vertical;
+      outline: none;
+    }
+
+    textarea:focus { border-color: var(--accent); }
+
+    button {
+      margin-top: 12px;
+      border: 0;
+      border-radius: 5px;
+      padding: 8px 14px;
+      background: var(--accent);
+      color: #10131a;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+
+    button:disabled { opacity: .6; cursor: wait; }
+
+    .status { margin-left: 10px; color: var(--muted); }
+    .status.good { color: var(--good); }
+    .status.bad { color: var(--bad); }
+
+    .files {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .file-panel { min-width: 0; }
+    pre { min-height: 180px; padding: 12px; overflow: auto; white-space: pre-wrap; }
+
+    .mapping-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .mapping-toggle input {
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .error-panel {
+      border-color: #6a3038;
+      background: #24181c;
+    }
+
+    .error-panel pre { color: var(--bad); }
+
+    .stats-panel { margin-top: 16px; }
+    .stats-output {
+      min-height: 160px;
+      margin-top: 12px;
+      white-space: pre;
+    }
+
+    [hidden] { display: none !important; }
+
+    @media (max-width: 800px) {
+      main { padding: 14px; }
+      header { display: block; }
+      .hint { display: block; margin-top: 6px; }
+      .files { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Seawitch Workbench</h1>
+      <span class="hint">Ctrl+Enter to compile</span>
+    </header>
+
+    <section class="editor-panel">
+      <h2>Source</h2>
+      <select id="snippet" aria-label="Language snippet">
+        <option value="" selected>Choose a positive language snippet...</option>
+      </select>
+      <div class="source-editor">
+        <pre id="source-highlight" class="source-highlight" aria-hidden="true"></pre>
+        <textarea id="source" spellcheck="false">x: Int32 = 13</textarea>
+      </div>
+      <button id="compile">Compile</button>
+      <span id="status" class="status">Ready</span>
+    </section>
+
+    <section id="files" class="output-panel" hidden>
+      <h2>Generated files</h2>
+      <label class="mapping-toggle">
+        <input id="show-line-mappings" type="checkbox" checked>
+        Show #line mappings
+      </label>
+      <div class="files">
+        <div class="file-panel">
+          <h2>main.c</h2>
+          <pre id="main-c"></pre>
+        </div>
+        <div class="file-panel">
+          <h2>main.h</h2>
+          <pre id="main-h"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="errors" class="output-panel error-panel" hidden>
+      <h2>std.err</h2>
+      <pre id="stderr"></pre>
+    </section>
+
+    <section class="stats-panel">
+      <h2>Compilation stats</h2>
+      <pre id="stats-output" class="stats-output">Compile to see stats.</pre>
+    </section>
+  </main>
+
+  <script>
+    const source = document.querySelector('#source');
+    const sourceHighlight = document.querySelector('#source-highlight');
+    const snippetSelect = document.querySelector('#snippet');
+    const compileButton = document.querySelector('#compile');
+    const files = document.querySelector('#files');
+    const errors = document.querySelector('#errors');
+    const mainC = document.querySelector('#main-c');
+    const mainH = document.querySelector('#main-h');
+    const stderr = document.querySelector('#stderr');
+    const status = document.querySelector('#status');
+    const statsOutput = document.querySelector('#stats-output');
+    const showLineMappings = document.querySelector('#show-line-mappings');
+    let generatedC = '';
+    let generatedH = '';
+
+    function escapeHTML(value) {
+      return value.replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[character]));
+    }
+
+    function highlightedTokens(value, pattern, classify) {
+      let output = '';
+      let cursor = 0;
+      for (const match of value.matchAll(pattern)) {
+        output += escapeHTML(value.slice(cursor, match.index));
+        const token = match[0];
+        const className = classify(token);
+        output += className
+          ? `<span class="${className}">${escapeHTML(token)}</span>`
+          : escapeHTML(token);
+        cursor = match.index + token.length;
+      }
+      return output + escapeHTML(value.slice(cursor));
+    }
+
+    function highlightHexal(value) {
+      const pattern = /--\[[\s\S]*?\]--|---[^\n]*|--[^\n]*|0[xXbBoO][0-9A-Fa-f_]+|\d[\d_]*(?:\.[\d_]+)?(?:[eE][+-]?[\d_]+)?|\b(?:true|false|mut|ref|type|and|or|if|elseif|else|while|break|continue|fun|impl|end|return)\b|\b(?:UInt8|UInt16|UInt32|UInt64|Int8|Int16|Int32|Int64|Float32|Float64|Bool|Ptr|MutPtr)\b|\b[A-Za-z][A-Za-z0-9_]*\b|!=|==|<=|>=|[{}:,=<>.!+\-*\/%()]/g;
+      return highlightedTokens(value, pattern, token => {
+        if (/^--/.test(token)) return 'syntax-comment';
+        if (/^b'/.test(token)) return 'syntax-string';
+        if (/^0[xXbBoO]|^\d/.test(token)) return 'syntax-number';
+        if (/^(true|false|mut|ref|type|and|or|if|elseif|else|while|break|continue|fun|impl|end|return)$/.test(token)) return 'syntax-keyword';
+         if (/^(UInt8|UInt16|UInt32|UInt64|Int8|Int16|Int32|Int64|Float32|Float64|Bool|Ptr|MutPtr)$/.test(token)) return 'syntax-type';
+         if (/^(?:!=|==|<=|>=|[{}:,=<>.!+\-*\/%()])$/.test(token)) return 'syntax-punctuation';
+        return '';
+      });
+    }
+
+    function highlightC(value) {
+      const pattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|#[^\n]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b(?:uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|float|double|size_t|bool|void)\b|\b(?:int|return|static|struct|typedef|if|else)\b|\b(?:EXIT_SUCCESS|EXIT_FAILURE|NULL|stderr|FLT_RADIX|DBL_MANT_DIG|FLT_MANT_DIG)\b|\b(?:0[xXbB][0-9A-Fa-f_]+|\d[\d_]*(?:\.[\d_]*(?:[eE][+-]?[\d_]+)?)?)\b|[{}()\[\];,.*=<>:+-]|\b[A-Za-z_][A-Za-z0-9_]*\b/g;
+      return highlightedTokens(value, pattern, token => {
+        if (/^\/\//.test(token) || /^\/\*/.test(token)) return 'syntax-comment';
+        if (/^#/.test(token)) return 'syntax-keyword';
+        if (/^["']/.test(token)) return 'syntax-string';
+        if (/^(uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|float|double|size_t|bool|void)$/.test(token)) return 'syntax-type';
+        if (/^(int|return|static|struct|typedef|if|else)$/.test(token)) return 'syntax-keyword';
+        if (/^(EXIT_SUCCESS|EXIT_FAILURE|NULL|stderr)$/.test(token)) return 'syntax-constant';
+        if (/^(0x|\d)/.test(token)) return 'syntax-number';
+        if (/^[{}()\[\];,.*=<>:+-]$/.test(token)) return 'syntax-punctuation';
+        return '';
+      });
+    }
+
+    function updateSourceHighlight() {
+      sourceHighlight.innerHTML = highlightHexal(source.value) || ' ';
+      sourceHighlight.scrollTop = source.scrollTop;
+      sourceHighlight.scrollLeft = source.scrollLeft;
+    }
+
+    source.addEventListener('input', updateSourceHighlight);
+    source.addEventListener('scroll', updateSourceHighlight);
+    updateSourceHighlight();
+
+    const snippets = [
+      {
+        name: 'Basic Int32',
+        source: 'count: Int32 = 13'
+      },
+      {
+        name: 'Generated names',
+        source: 'main: Int32 = 1\nint: Int32 = 2\nrestrict: Int32 = 3\nINT32_MAX: Int32 = 4\nsw_v_score: Int32 = 5'
+      },
+      {
+        name: 'Type aliases',
+        source: 'type Coordinate = Int32\ntype CoordinatePtr = Ptr<Coordinate>\nmut value: Coordinate = 1\npointer: CoordinatePtr = ref value\nread: Coordinate = pointer.value'
+      },
+      {
+        name: 'Object values',
+        source: 'type Point = { mut x: Int32, y: Int32, }\nmut point: Point = Point { y = 2, x = 1, }\npoint.x = 10\nread: Int32 = point.y'
+      },
+      {
+        name: 'Types and literals',
+        source: 'letter: UInt8 = 0x41\ncount: UInt32 = 123_000\nlarge: Int64 = -9_000_000_000\nratio: Float32 = 3.14\nprecise: Float64 = 6.02e23\nenabled: Bool = true'
+      },
+      {
+        name: 'Reassignment',
+        source: 'count: Int32 = 13\ncount = 14\nenabled: Bool = true\nenabled = false'
+      },
+      {
+        name: 'Mutable pointers',
+        source: 'mut value: Int32 = 13\nreader: Ptr<Int32> = ref value\nwriter: MutPtr<Int32> = ref value\nwriter.value = 14\nread: Int32 = reader.value'
+      },
+      {
+        name: 'Core operators',
+         source: 'mut left: Int32 = 7\nmut right: Int32 = 3\nsum: Int32 = left + right\ndifference: Int32 = left - right\nproduct: Int32 = left * right\nquotient: Int32 = left / right\nremainder: Int32 = left % right\nnegative: Int32 = -left\nequal: Bool = left == right\nnotEqual: Bool = left != right\nless: Bool = left < right\nlessEqual: Bool = left <= right\ngreater: Bool = left > right\ngreaterEqual: Bool = left >= right\nmut ready: Bool = true\nmut loaded: Bool = false\nnotReady: Bool = !ready\nboth: Bool = ready and loaded\neither: Bool = ready or loaded\ngrouped: Int32 = (left + right) * 2 -- parentheses and operators'
+      },
+      {
+        name: 'Structured control flow',
+        source: 'mut remaining: Int32 = 3\nwhile remaining > 0\n    if remaining == 1\n        break\n    elseif remaining == 2\n        remaining = remaining - 1\n        continue\n    else\n        remaining = remaining - 1\n    end\nend'
+      },
+      {
+        name: 'Whitespace-agnostic statements',
+        source: 'count:Int32=13 count=14 enabled:Bool=true enabled=false'
+      },
+      {
+        name: 'Comments',
+        source: '--- Counter declaration\ncount: Int32 = 13 -- initial value\n\n--[ This comment spans\n    more than one line. ]--\nenabled: Bool = true\nenabled = false'
+      },
+      {
+        name: 'Complete example',
+        source: 'count: Int32 = 13\nmask: Int32 = 0xFF\nenabled: Bool = true\ncount = 14\nenabled = false'
+      }
+    ];
+
+    for (const [index, snippet] of snippets.entries()) {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = snippet.name;
+      snippetSelect.append(option);
+    }
+
+    snippetSelect.addEventListener('change', () => {
+      const snippet = snippets[Number(snippetSelect.value)];
+      if (!snippet) return;
+      source.value = snippet.source;
+      updateSourceHighlight();
+      compile();
+    });
+
+    compileButton.addEventListener('click', compile);
+    showLineMappings.addEventListener('change', renderGeneratedFiles);
+    source.addEventListener('keydown', event => {
+      if (event.ctrlKey && event.key === 'Enter') {
+        event.preventDefault();
+        compile();
+      }
+    });
+
+    async function compile() {
+      compileButton.disabled = true;
+      status.className = 'status';
+      status.textContent = 'Compiling...';
+
+      try {
+        const response = await fetch('/api/compile', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({source: source.value})
+        });
+        const result = await response.json();
+        render(result);
+      } catch (error) {
+        render({
+          exitCode: 1,
+          stderr: ['workbench: ' + error.message],
+          stats: {tokenCount: 0, phases: []}
+        });
+      } finally {
+        compileButton.disabled = false;
+      }
+    }
+
+    function render(result) {
+      const failed = result.stderr && result.stderr.length > 0;
+      files.hidden = failed;
+      errors.hidden = !failed;
+
+      if (failed) {
+        generatedC = '';
+        generatedH = '';
+        stderr.textContent = result.stderr.join('\n');
+        status.className = 'status bad';
+        status.textContent = 'Compilation failed';
+      } else {
+        generatedC = result.mainC || '';
+        generatedH = result.mainH || '';
+        renderGeneratedFiles();
+        status.className = 'status good';
+        status.textContent = 'Compilation succeeded';
+      }
+
+      renderStats(result.stats || {tokenCount: 0, phases: []});
+    }
+
+    function renderGeneratedFiles() {
+      const c = showLineMappings.checked ? generatedC : withoutLineMappings(generatedC);
+      const h = showLineMappings.checked ? generatedH : withoutLineMappings(generatedH);
+      mainC.innerHTML = highlightC(c);
+      mainH.innerHTML = highlightC(h);
+    }
+
+    function withoutLineMappings(value) {
+      return value.replace(/^#line[^\n]*(?:\n|$)/gm, '');
+    }
+
+    function renderStats(stats) {
+      const lines = ['--- Phase Timings ---'];
+      for (const phase of stats.phases || []) {
+        const detail = phase.detail ? `   (${phase.detail})` : '';
+        lines.push(`${phase.name.padEnd(22)} ${phase.milliseconds.toFixed(2).padStart(7)} ms${detail}`);
+      }
+      lines.push('---------------------------------------------------');
+      lines.push(`Total Time:           ${Number(stats.totalMs || 0).toFixed(2).padStart(7)} ms`);
+      statsOutput.textContent = lines.join('\n');
+    }
+  </script>
+</body>
+</html>

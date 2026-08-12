@@ -1,6 +1,7 @@
 /lib/
 /bin/
-/oven/
+/.vscode/
+/.oven/
 /.shards/
 *.dwarf
 *.lock

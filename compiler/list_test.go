@@ -1,0 +1,147 @@
+package compiler
+
+import (
+	"strings"
+	"testing"
+)
+
+// RFC 0020 Phase D: List<T> — owning growable sequences, affine ownership,
+// and the List<String> nested-String element rules.
+
+func TestListLifecycle(t *testing.T) {
+	result := Compile("fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    count: UInt64 = values.length()\n    empty: Bool = values.is_empty()\n    first: Int32 = values.at(0)\n    second: Int32 = values[1]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\nend")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+	for _, want := range []string{
+		"typedef struct sw_list_Int32 {",
+		"int32_t *data;",
+		"size_t length;",
+		"sw_v_values = sw_list_new_Int32(sw_v_h);",
+		"sw_list_push_Int32(sw_v_values, 1);",
+		"(sw_v_values)->length",
+		"(sw_v_values)->length == 0",
+		"*sw_list_at_Int32(sw_v_values, (size_t)(0))",
+		"*sw_list_at_mut_Int32(sw_v_values, (size_t)(1)) = 5;",
+		"sw_v_last = sw_list_pop_Int32(sw_v_values);",
+		"sw_list_clear_Int32(sw_v_values);",
+		"sw_list_free_Int32(sw_defer_capture_2, sw_defer_capture_1);",
+	} {
+		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		}
+	}
+}
+
+func TestListViewDerivationAndInvalidation(t *testing.T) {
+	result := Compile("fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    view: View<Int32> = values.slice(0, 2)\n    total: Int32 = view[0] + view[1]\n    values.set(0, 9)\nend")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+	if !strings.Contains(result.MainC, "const sw_view_Int32 sw_v_view = sw_list_slice_Int32(sw_v_values, (size_t)(0), (size_t)(2));") {
+		t.Fatalf("main.c = %q, want list slice", result.MainC)
+	}
+}
+
+// RFC 0035: views are plain descriptors; mutating or freeing the source List
+// while a view is live is now the programmer's responsibility.
+func TestListViewAfterStructuralMutationIsValid(t *testing.T) {
+	for _, source := range []string{
+		"fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> = values.slice(0, 1)\n    values.push(1)\nend",
+		"fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> = values.slice(0, 1)\n    dropped: Int32 = values.pop()\nend",
+		"fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> = values.slice(0, 1)\n    values.clear()\nend",
+		"fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    view: View<Int32> = values.slice(0, 1)\n    values.free(h)\nend",
+	} {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
+		}
+	}
+}
+
+func TestListShallowCopySemantics(t *testing.T) {
+	for _, source := range []string{
+		"fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    other: List<Int32> = values\nend",
+		"fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\nend",
+		"fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    values.free(h)\n    values.free(h)\nend",
+		"fun demo(h: Heap)\n    List<Int32>.new(h)\nend",
+		"fun demo(h: Heap)\n    mut values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values = List<Int32>.new(h)\nend",
+		"fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    values.free(h)\n    values.push(1)\nend",
+		"fun demo(h: Heap, values: List<Int32>)\n    values.free(h)\nend",
+		"fun make_values(h: Heap, values: List<Int32>): List<Int32>\n    return values\nend",
+		"fun demo(h: Heap, release: Bool)\n    values: List<Int32> = List<Int32>.new(h)\n    if release\n        values.free(h)\n    end\n    values.push(1)\nend",
+	} {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
+		}
+	}
+}
+
+func TestListBorrowParameterMutatesCaller(t *testing.T) {
+	result := Compile("fun append_default(values: List<Int32>)\n    values.push(0)\nend\nfun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    append_default(values)\nend")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+}
+
+func TestListReturnHandoff(t *testing.T) {
+	result := Compile("fun make_values(h: Heap): List<Int32>\n    values: List<Int32> = List<Int32>.new(h)\n    values.push(1)\n    return values\nend\nfun demo(h: Heap)\n    values: List<Int32> = make_values(h)\n    values.free(h)\nend")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+}
+
+func TestListOfStrings(t *testing.T) {
+	result := Compile("fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    names.push(\"bob\")\n    names.set(0, \"carol\")\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names.at(0)\nend")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+	for _, want := range []string{
+		"sw_list_push_String(sw_v_names, &sw_lit_0);",
+		"sw_list_push_String(sw_v_names, &sw_lit_1);",
+		"sw_list_set_String(sw_v_names, (size_t)(0), &sw_lit_2);",
+		"sw_v_popped = sw_list_pop_String(sw_v_names);",
+		"sw_string_free(sw_v_h, sw_v_popped);",
+	} {
+		if !strings.Contains(result.MainC, want) {
+			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		}
+	}
+}
+
+// RFC 0035: List<String> reads copy String handles; destructive operations
+// while a read handle is live are the programmer's responsibility.
+func TestListStringMutationAfterReadIsValid(t *testing.T) {
+	for _, source := range []string{
+		"fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names.set(0, \"b\")\nend",
+		"fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    dropped: String = names.pop()\nend",
+		"fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names.clear()\nend",
+		"fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names.free(h)\nend",
+		"fun demo(h: Heap)\n    mut names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names = List<String>.new(h)\nend",
+		"fun inspect(names: List<String>)\nend\nfun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    inspect(names)\nend",
+		"fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names.push(\"b\")\nend",
+	} {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
+		}
+	}
+}
+
+func TestListRestrictions(t *testing.T) {
+	// RFC 0035: an object member List is an ordinary shallow handle.
+	if result := Compile("type Holder = { values: List<Int32>, }\nfun demo(h: Heap)\n    holder: Holder = Holder { values = List<Int32>.new(h), }\n    holder.values.push(1)\nend"); result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want 0", result.ExitCode, result.Stderr)
+	}
+	for _, testCase := range []struct {
+		source string
+		want   string
+	}{
+		{"fun demo()\n    pointer: Ptr<List<Int32>> = nil\nend", "could not construct pointer type"},
+		{"fun demo(h: Heap)\n    nested: List<List<Int32>> = List<List<Int32>>.new(h)\nend", "not a list element type"},
+		{"fun demo(h: Heap)\n    refs: List<View<Int32>> = List<View<Int32>>.new(h)\nend", "not a list element type"},
+	} {
+		result := Compile(testCase.source)
+		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
+			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
+		}
+	}
+}
