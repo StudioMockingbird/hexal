@@ -98,8 +98,8 @@ func writeDivisionDefinitions(result *strings.Builder, types []compilerTypes.Typ
 	if len(types) == 0 {
 		return
 	}
-	result.WriteString("\n#ifndef SW_NUMERIC_TRAP_DEFINED\n#define SW_NUMERIC_TRAP_DEFINED\n")
-	result.WriteString("static void sw_numeric_trap(void) {\n")
+	result.WriteString("\n#ifndef HEX_NUMERIC_TRAP_DEFINED\n#define HEX_NUMERIC_TRAP_DEFINED\n")
+	result.WriteString("static void hex_numeric_trap(void) {\n")
 	result.WriteString("    fputs(\"[Runtime Error] numeric operation failed\\n\", stderr);\n    abort();\n}\n")
 	result.WriteString("#endif\n")
 	for _, typ := range types {
@@ -110,8 +110,8 @@ func writeDivisionDefinitions(result *strings.Builder, types []compilerTypes.Typ
 
 func writeDivisionHelper(result *strings.Builder, typ compilerTypes.Type, operator checker.Operator, suffix string) {
 	cName := typ.CName
-	fmt.Fprintf(result, "\nstatic inline %s sw_%s_%s(%s left, %s right) {\n", cName, suffix, cName, cName, cName)
-	result.WriteString("    if (right == 0) {\n        sw_numeric_trap();\n    }\n")
+	fmt.Fprintf(result, "\nstatic inline %s hex_%s_%s(%s left, %s right) {\n", cName, suffix, cName, cName, cName)
+	result.WriteString("    if (right == 0) {\n        hex_numeric_trap();\n    }\n")
 	if compilerTypes.IsSignedInteger(typ) {
 		fmt.Fprintf(result, "    if (left == %s && right == -1) {\n", signedMinimumMacro(typ))
 		if operator == checker.RemainderOperator {
@@ -130,9 +130,9 @@ func writeDivisionHelper(result *strings.Builder, typ compilerTypes.Type, operat
 // renderDivisionOperation routes integer division and remainder through the
 // guarded helpers; floating division keeps its defined IEC behavior inline.
 func renderDivisionOperation(node checker.Expression, left, right string) (string, error) {
-	helper := "sw_div_" + node.OperandType.CName
+	helper := "hex_div_" + node.OperandType.CName
 	if node.Operator == checker.RemainderOperator {
-		helper = "sw_rem_" + node.OperandType.CName
+		helper = "hex_rem_" + node.OperandType.CName
 	}
 	return helper + "(" + left + ", " + right + ")", nil
 }

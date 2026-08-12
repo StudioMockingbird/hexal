@@ -22,7 +22,7 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 	writeLineDirective(body, statement.SourceLine)
 
 	state.loopCounter++
-	loop := fmt.Sprintf("sw_for_%d", state.loopCounter)
+	loop := fmt.Sprintf("hex_for_%d", state.loopCounter)
 
 	// Allocate every binder name once; each iteration redeclares it as a
 	// fresh immutable const.
@@ -89,15 +89,15 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, lo
 			fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
 		}
 		length = fmt.Sprintf("(size_t)(%d)", sourceType.Array.Length)
-		elementAccess = fmt.Sprintf("*sw_array_at_%s(%s, (size_t)(%s_index))", arrayAccessorSuffix(sourceType), loop, loop)
+		elementAccess = fmt.Sprintf("*hex_array_at_%s(%s, (size_t)(%s_index))", arrayAccessorSuffix(sourceType), loop, loop)
 	case sourceType.View != nil:
 		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
 		length = fmt.Sprintf("%s.length", loop)
-		elementAccess = fmt.Sprintf("*sw_view_at_%s(%s, (size_t)(%s_index))", strings.TrimPrefix(sourceType.CName, "sw_view_"), loop, loop)
+		elementAccess = fmt.Sprintf("*hex_view_at_%s(%s, (size_t)(%s_index))", strings.TrimPrefix(sourceType.CName, "hex_view_"), loop, loop)
 	case sourceType.List != nil:
 		fmt.Fprintf(body, "%sconst %s *const %s = %s;\n", indent, sourceType.CName, loop, source)
 		length = fmt.Sprintf("%s->length", loop)
-		elementAccess = fmt.Sprintf("*sw_list_at_%s(%s, (size_t)(%s_index))", listSuffix(sourceType), loop, loop)
+		elementAccess = fmt.Sprintf("*hex_list_at_%s(%s, (size_t)(%s_index))", listSuffix(sourceType), loop, loop)
 	default:
 		return unknownExpressionDiagnostic("unknown for-in sequence kind")
 	}
@@ -146,7 +146,7 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, loop s
 		fmt.Fprintf(body, "%ssize_t %s = (size_t)-1;\n", indent, ordinalVariable)
 	}
 	fmt.Fprintf(body, "%swhile (%s < %s) {\n", indent, offsetVariable, byteLength)
-	fmt.Fprintf(body, "%s    uint64_t %s = sw_utf8_next(%s, %s, &%s);\n", indent, runeVariable, data, byteLength, offsetVariable)
+	fmt.Fprintf(body, "%s    uint64_t %s = hex_utf8_next(%s, %s, &%s);\n", indent, runeVariable, data, byteLength, offsetVariable)
 	if hasIndex {
 		fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
 	}

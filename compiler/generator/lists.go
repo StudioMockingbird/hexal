@@ -291,7 +291,7 @@ func discoverGeneratedLists(program checker.Program) (*generatedListState, error
 
 // listSuffix returns the element-derived suffix of one list type's C names.
 func listSuffix(list compilerTypes.Type) string {
-	return strings.TrimPrefix(list.CName, "sw_list_")
+	return strings.TrimPrefix(list.CName, "hex_list_")
 }
 
 // writeListDefinitions emits one header struct plus the element helpers per
@@ -309,30 +309,30 @@ func writeListDefinitions(result *strings.Builder, lists *generatedListState, vi
 		suffix := listSuffix(list)
 		fmt.Fprintf(result, "\ntypedef struct %s {\n    %s *data;\n    size_t length;\n    size_t capacity;\n    uintptr_t allocator;\n} %s;\n", list.CName, elementSpelling, list.CName)
 		writeListGrowHelper(result, list, elementSpelling, stringElement)
-		fmt.Fprintf(result, "static inline %s *sw_list_new_%s(sw_heap h) {\n", list.CName, suffix)
-		result.WriteString("    " + list.CName + " *header = sw_heap_raw_allocate(h.identity, sizeof(" + list.CName + "), _Alignof(" + list.CName + "));\n")
+		fmt.Fprintf(result, "static inline %s *hex_list_new_%s(hex_heap h) {\n", list.CName, suffix)
+		result.WriteString("    " + list.CName + " *header = hex_heap_raw_allocate(h.identity, sizeof(" + list.CName + "), _Alignof(" + list.CName + "));\n")
 		result.WriteString("    header->data = NULL;\n    header->length = 0;\n    header->capacity = 0;\n    header->allocator = h.identity;\n")
 		fmt.Fprintf(result, "    return header;\n}\n")
-		fmt.Fprintf(result, "static inline void sw_list_push_%s(%s *list, %s value) {\n", suffix, list.CName, elementSpelling)
-		fmt.Fprintf(result, "    if (list->length == list->capacity) {\n        sw_list_grow_%s(list);\n    }\n", suffix)
+		fmt.Fprintf(result, "static inline void hex_list_push_%s(%s *list, %s value) {\n", suffix, list.CName, elementSpelling)
+		fmt.Fprintf(result, "    if (list->length == list->capacity) {\n        hex_list_grow_%s(list);\n    }\n", suffix)
 		if stringElement {
-			result.WriteString("    const sw_string *copy = sw_string_from_bytes((sw_heap){ list->allocator }, value->data, value->byte_length);\n")
+			result.WriteString("    const hex_string *copy = hex_string_from_bytes((hex_heap){ list->allocator }, value->data, value->byte_length);\n")
 			result.WriteString("    list->data[list->length++] = copy;\n")
 		} else {
 			result.WriteString("    list->data[list->length++] = value;\n")
 		}
 		result.WriteString("}\n")
-		fmt.Fprintf(result, "static inline void sw_list_set_%s(%s *list, size_t index, %s value) {\n", suffix, list.CName, elementSpelling)
+		fmt.Fprintf(result, "static inline void hex_list_set_%s(%s *list, size_t index, %s value) {\n", suffix, list.CName, elementSpelling)
 		writeListBoundsGuard(result, list)
 		if stringElement {
-			result.WriteString("    const sw_string *copy = sw_string_from_bytes((sw_heap){ list->allocator }, value->data, value->byte_length);\n")
-			result.WriteString("    sw_string_free((sw_heap){ list->allocator }, list->data[index]);\n")
+			result.WriteString("    const hex_string *copy = hex_string_from_bytes((hex_heap){ list->allocator }, value->data, value->byte_length);\n")
+			result.WriteString("    hex_string_free((hex_heap){ list->allocator }, list->data[index]);\n")
 			result.WriteString("    list->data[index] = copy;\n")
 		} else {
 			result.WriteString("    list->data[index] = value;\n")
 		}
 		result.WriteString("}\n")
-		fmt.Fprintf(result, "static inline %s sw_list_pop_%s(%s *list) {\n", elementSpelling, suffix, list.CName)
+		fmt.Fprintf(result, "static inline %s hex_list_pop_%s(%s *list) {\n", elementSpelling, suffix, list.CName)
 		fmt.Fprintf(result, "    if (list->length == 0) {\n        fputs(\"[Runtime Error] list index out of bounds\\n\", stderr);\n        abort();\n    }\n")
 		result.WriteString("    " + elementSpelling + " value = list->data[list->length - 1];\n")
 		if stringElement {
@@ -340,10 +340,10 @@ func writeListDefinitions(result *strings.Builder, lists *generatedListState, vi
 			result.WriteString("    list->data[list->length - 1] = NULL;\n")
 		}
 		result.WriteString("    list->length--;\n    return value;\n}\n")
-		fmt.Fprintf(result, "static inline void sw_list_clear_%s(%s *list) {\n", suffix, list.CName)
+		fmt.Fprintf(result, "static inline void hex_list_clear_%s(%s *list) {\n", suffix, list.CName)
 		if stringElement {
 			result.WriteString("    for (size_t index = 0; index < list->length; index++) {\n")
-			result.WriteString("        sw_string_free((sw_heap){ list->allocator }, list->data[index]);\n")
+			result.WriteString("        hex_string_free((hex_heap){ list->allocator }, list->data[index]);\n")
 			result.WriteString("    }\n")
 		}
 		result.WriteString("    list->length = 0;\n}\n")
@@ -354,24 +354,24 @@ func writeListDefinitions(result *strings.Builder, lists *generatedListState, vi
 		if strings.Contains(elementSpelling, "*") {
 			atReadReturn = elementSpelling + " *"
 		}
-		fmt.Fprintf(result, "static inline %s sw_list_at_%s(const %s *list, size_t index) {\n", atReadReturn, suffix, list.CName)
+		fmt.Fprintf(result, "static inline %s hex_list_at_%s(const %s *list, size_t index) {\n", atReadReturn, suffix, list.CName)
 		writeListBoundsGuard(result, list)
 		result.WriteString("    return &list->data[index];\n}\n")
-		fmt.Fprintf(result, "static inline %s *sw_list_at_mut_%s(%s *list, size_t index) {\n", elementSpelling, suffix, list.CName)
+		fmt.Fprintf(result, "static inline %s *hex_list_at_mut_%s(%s *list, size_t index) {\n", elementSpelling, suffix, list.CName)
 		writeListBoundsGuard(result, list)
 		result.WriteString("    return &list->data[index];\n}\n")
-		fmt.Fprintf(result, "static inline void sw_list_free_%s(sw_heap h, %s *list) {\n", suffix, list.CName)
+		fmt.Fprintf(result, "static inline void hex_list_free_%s(hex_heap h, %s *list) {\n", suffix, list.CName)
 		result.WriteString("    if (list == NULL || list->allocator != h.identity) {\n")
 		result.WriteString("        fputs(\"[Runtime Error] deallocation used the wrong allocator\\n\", stderr);\n        abort();\n    }\n")
 		if stringElement {
 			result.WriteString("    for (size_t index = 0; index < list->length; index++) {\n")
-			result.WriteString("        sw_string_free((sw_heap){ list->allocator }, list->data[index]);\n")
+			result.WriteString("        hex_string_free((hex_heap){ list->allocator }, list->data[index]);\n")
 			result.WriteString("    }\n")
 		}
 		result.WriteString("    free(list->data);\n")
 		result.WriteString("    free(list);\n}\n")
 		if view := matchingView(views, element); view != (compilerTypes.Type{}) {
-			fmt.Fprintf(result, "static inline %s sw_list_slice_%s(const %s *list, uint64_t start, uint64_t end) {\n", view.CName, suffix, list.CName)
+			fmt.Fprintf(result, "static inline %s hex_list_slice_%s(const %s *list, uint64_t start, uint64_t end) {\n", view.CName, suffix, list.CName)
 			fmt.Fprintf(result, "    if (!(start <= end && end <= list->length)) {\n        fputs(\"[Runtime Error] list slice bounds out of range\\n\", stderr);\n        abort();\n    }\n")
 			fmt.Fprintf(result, "    return (%s){&list->data[start], end - start};\n}\n", view.CName)
 		}
@@ -388,11 +388,11 @@ func writeListBoundsGuard(result *strings.Builder, list compilerTypes.Type) {
 // String objects), and release of the old region.
 func writeListGrowHelper(result *strings.Builder, list compilerTypes.Type, elementSpelling string, stringElement bool) {
 	suffix := listSuffix(list)
-	fmt.Fprintf(result, "static inline void sw_list_grow_%s(%s *list) {\n", suffix, list.CName)
+	fmt.Fprintf(result, "static inline void hex_list_grow_%s(%s *list) {\n", suffix, list.CName)
 	result.WriteString("    uint64_t next = list->capacity == 0 ? 1 : list->capacity * 2;\n")
 	result.WriteString("    if (next < list->capacity || next > SIZE_MAX / sizeof(" + elementSpelling + ")) {\n")
 	result.WriteString("        fputs(\"[Runtime Error] list capacity is not representable\\n\", stderr);\n        abort();\n    }\n")
-	result.WriteString("    " + elementSpelling + " *region = sw_heap_raw_allocate(list->allocator, next * sizeof(" + elementSpelling + "), _Alignof(" + elementSpelling + "));\n")
+	result.WriteString("    " + elementSpelling + " *region = hex_heap_raw_allocate(list->allocator, next * sizeof(" + elementSpelling + "), _Alignof(" + elementSpelling + "));\n")
 	result.WriteString("    for (size_t index = 0; index < list->length; index++) {\n")
 	result.WriteString("        region[index] = list->data[index];\n")
 	result.WriteString("    }\n")

@@ -1,4 +1,4 @@
-// Package lexer converts Seawitch source text into tokens.
+// Package lexer converts Hexal source text into tokens.
 package lexer
 
 import (

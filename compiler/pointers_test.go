@@ -15,8 +15,8 @@ func TestRefIsTypedByPlaceWritability(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"int32_t *const sw_v_writer = &sw_v_score;",
-		"const int32_t *const sw_v_look = &sw_v_answer;",
+		"int32_t *const hex_v_writer = &hex_v_score;",
+		"const int32_t *const hex_v_look = &hex_v_answer;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -42,8 +42,8 @@ func TestFixedMutPtrBindingWritesPointeeButRejectsRepointing(t *testing.T) {
 		t.Fatalf("fixed MutPtr pointee write failed: %#v", valid)
 	}
 	for _, want := range []string{
-		"int32_t *const sw_v_fixed = &sw_v_first;",
-		"*sw_v_fixed = 2;",
+		"int32_t *const hex_v_fixed = &hex_v_first;",
+		"*hex_v_fixed = 2;",
 	} {
 		if !strings.Contains(valid.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", valid.MainC, want)
@@ -61,7 +61,7 @@ func TestFixedMutPtrMemberWritesPointeeButRejectsMutableReference(t *testing.T) 
 	if valid.ExitCode != ExitSuccess {
 		t.Fatalf("fixed MutPtr member pointee write failed: %#v", valid)
 	}
-	if !strings.Contains(valid.MainC, "*sw_v_holder.sw_m_pointer = 2;") {
+	if !strings.Contains(valid.MainC, "*hex_v_holder.hex_m_pointer = 2;") {
 		t.Fatalf("main.c = %q, want fixed member pointee write", valid.MainC)
 	}
 
@@ -76,7 +76,7 @@ func TestObjectCopyRetainsMemberMutabilityContract(t *testing.T) {
 	if valid.ExitCode != ExitSuccess {
 		t.Fatalf("mutable object copy failed: %#v", valid)
 	}
-	if !strings.Contains(valid.MainC, "sw_v_copy.sw_m_health = 50;") {
+	if !strings.Contains(valid.MainC, "hex_v_copy.hex_m_health = 50;") {
 		t.Fatalf("main.c = %q, want mutable member assignment in copy", valid.MainC)
 	}
 
@@ -95,7 +95,7 @@ func TestFixedObjectBindingRejectsMutableMemberWrite(t *testing.T) {
 
 func TestWholeObjectReplacementRespectsBindingMutability(t *testing.T) {
 	valid := Compile("type Player = { id: Int32, mut health: Int32, } mut first: Player = Player { id = 1, health = 100, } second: Player = Player { id = 2, health = 200, } first = second")
-	if valid.ExitCode != ExitSuccess || !strings.Contains(valid.MainC, "sw_v_first = sw_v_second;") {
+	if valid.ExitCode != ExitSuccess || !strings.Contains(valid.MainC, "hex_v_first = hex_v_second;") {
 		t.Fatalf("mutable object replacement = %#v, want complete object assignment", valid)
 	}
 
@@ -111,8 +111,8 @@ func TestFixedObjectAndReferenceLowerToConst(t *testing.T) {
 		t.Fatalf("fixed object compilation failed: %#v", result)
 	}
 	for _, want := range []string{
-		"const sw_t_Point sw_v_point = (sw_t_Point){",
-		"const sw_t_Point *const sw_v_view = &sw_v_point;",
+		"const hex_t_Point hex_v_point = (hex_t_Point){",
+		"const hex_t_Point *const hex_v_view = &hex_v_point;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -126,9 +126,9 @@ func TestWeakeningDeclarationAndAssignment(t *testing.T) {
 		t.Fatalf("weakening compilation failed: %#v", valid.Stderr)
 	}
 	for _, want := range []string{
-		"const int32_t *const sw_v_observer = sw_v_writer;",
-		"const int32_t *sw_v_reader = &sw_v_score;",
-		"sw_v_reader = sw_v_writer;",
+		"const int32_t *const hex_v_observer = hex_v_writer;",
+		"const int32_t *hex_v_reader = &hex_v_score;",
+		"hex_v_reader = hex_v_writer;",
 	} {
 		if !strings.Contains(valid.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", valid.MainC, want)
@@ -146,7 +146,7 @@ func TestWeakeningIsOutermostLayerOnly(t *testing.T) {
 	if valid.ExitCode != ExitSuccess {
 		t.Fatalf("outermost weakening compilation failed: %#v", valid.Stderr)
 	}
-	if !strings.Contains(valid.MainC, "int32_t *const *const sw_v_ok = sw_v_outer;") {
+	if !strings.Contains(valid.MainC, "int32_t *const *const hex_v_ok = hex_v_outer;") {
 		t.Fatalf("main.c = %q, want weakened outermost pointer copy", valid.MainC)
 	}
 
@@ -161,7 +161,7 @@ func TestWeakeningThroughObjectMemberInitializer(t *testing.T) {
 	if valid.ExitCode != ExitSuccess {
 		t.Fatalf("member weakening compilation failed: %#v", valid.Stderr)
 	}
-	if !strings.Contains(valid.MainC, ".sw_m_name = &sw_v_buffer,") {
+	if !strings.Contains(valid.MainC, ".hex_m_name = &hex_v_buffer,") {
 		t.Fatalf("main.c = %q, want weakened member pointer initializer", valid.MainC)
 	}
 
@@ -191,10 +191,10 @@ func TestSelfRecursiveObjectLowersSplitStruct(t *testing.T) {
 		t.Fatalf("self-recursive object compilation failed: %#v", result.Stderr)
 	}
 	for _, want := range []string{
-		"typedef struct sw_t_Node sw_t_Node;",
-		"struct sw_t_Node {",
-		"int32_t sw_m_value;",
-		"sw_t_Node *sw_m_next;",
+		"typedef struct hex_t_Node hex_t_Node;",
+		"struct hex_t_Node {",
+		"int32_t hex_m_value;",
+		"hex_t_Node *hex_m_next;",
 	} {
 		if !strings.Contains(result.MainH, want) {
 			t.Fatalf("main.h = %q, want %q", result.MainH, want)
@@ -208,8 +208,8 @@ func TestSelfRecursiveReadOnlyPointerMemberLowers(t *testing.T) {
 		t.Fatalf("read-only self-recursive object compilation failed: %v", result.Stderr)
 	}
 	for _, want := range []string{
-		"typedef struct sw_t_Node sw_t_Node;",
-		"const sw_t_Node *sw_m_next;",
+		"typedef struct hex_t_Node hex_t_Node;",
+		"const hex_t_Node *hex_m_next;",
 	} {
 		if !strings.Contains(result.MainH, want) {
 			t.Fatalf("main.h = %q, want %q", result.MainH, want)
@@ -245,11 +245,11 @@ func TestPointersAndAliasing(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d: %v", result.ExitCode, result.Stderr, ExitSuccess, result.Stderr)
 	}
 	for _, want := range []string{
-		"int32_t sw_v_x = 42;",
-		"int32_t *const sw_v_writer = &sw_v_x;",
-		"int32_t *const sw_v_alias = sw_v_writer;",
-		"*sw_v_alias = 100;",
-		"const int32_t sw_v_y = *sw_v_writer;",
+		"int32_t hex_v_x = 42;",
+		"int32_t *const hex_v_writer = &hex_v_x;",
+		"int32_t *const hex_v_alias = hex_v_writer;",
+		"*hex_v_alias = 100;",
+		"const int32_t hex_v_y = *hex_v_writer;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -265,7 +265,7 @@ func TestNestedPointers(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d: %v", result.ExitCode, result.Stderr, ExitSuccess, result.Stderr)
 	}
-	for _, want := range []string{"int32_t *const *const sw_v_writer_pointer = &sw_v_writer;", "const int32_t sw_v_z = *(*sw_v_writer_pointer);"} {
+	for _, want := range []string{"int32_t *const *const hex_v_writer_pointer = &hex_v_writer;", "const int32_t hex_v_z = *(*hex_v_writer_pointer);"} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
 		}
@@ -277,7 +277,7 @@ func TestAddressOfDereferencePlace(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	for _, want := range []string{"int32_t *const *const sw_v_q = &(*sw_v_pp);", "*sw_v_pp = sw_v_p;"} {
+	for _, want := range []string{"int32_t *const *const hex_v_q = &(*hex_v_pp);", "*hex_v_pp = hex_v_p;"} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
 		}
@@ -289,7 +289,7 @@ func TestPointerAccessAndRebindingModes(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d: %v", result.ExitCode, result.Stderr, ExitSuccess, result.Stderr)
 	}
-	for _, want := range []string{"const int32_t *sw_v_reader = &sw_v_y;", "sw_v_reader = &sw_v_z;"} {
+	for _, want := range []string{"const int32_t *hex_v_reader = &hex_v_y;", "hex_v_reader = &hex_v_z;"} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
 		}
@@ -301,7 +301,7 @@ func TestPointerValuedStorePreservesWritability(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d: %v", result.ExitCode, result.Stderr, ExitSuccess, result.Stderr)
 	}
-	for _, want := range []string{"int32_t **sw_v_slot_pointer = &sw_v_slot;", "*sw_v_slot_pointer = sw_v_other_writer;"} {
+	for _, want := range []string{"int32_t **hex_v_slot_pointer = &hex_v_slot;", "*hex_v_slot_pointer = hex_v_other_writer;"} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
 		}
@@ -310,7 +310,7 @@ func TestPointerValuedStorePreservesWritability(t *testing.T) {
 
 func TestBindingsAreConstantUnlessMutable(t *testing.T) {
 	result := Compile("mut x: Int32 = 13 x = 14")
-	if result.ExitCode != ExitSuccess || !strings.Contains(result.MainC, "int32_t sw_v_x = 13;") || !strings.Contains(result.MainC, "sw_v_x = 14;") {
+	if result.ExitCode != ExitSuccess || !strings.Contains(result.MainC, "int32_t hex_v_x = 13;") || !strings.Contains(result.MainC, "hex_v_x = 14;") {
 		t.Fatalf("Compile returned %#v, want mutable binding", result)
 	}
 
@@ -346,12 +346,12 @@ func TestPointerNestingCombinations(t *testing.T) {
 		want         string
 		runtimeCheck string
 	}{
-		{name: "Ptr", source: "mut value: Int32 = 0 pointer: Ptr<Int32> = ref value", want: "const int32_t *const sw_v_pointer = &sw_v_value;", runtimeCheck: "sw_v_pointer == &sw_v_value && *sw_v_pointer == sw_v_value"},
-		{name: "MutPtr", source: "mut value: Int32 = 0 pointer: MutPtr<Int32> = ref value", want: "int32_t *const sw_v_pointer = &sw_v_value;", runtimeCheck: "sw_v_pointer == &sw_v_value && *sw_v_pointer == sw_v_value"},
-		{name: "PtrPtr", source: "mut value: Int32 = 0 inner: Ptr<Int32> = ref value outer: Ptr<Ptr<Int32>> = ref inner", want: "const int32_t *const *const sw_v_outer = &sw_v_inner;", runtimeCheck: "sw_v_outer == &sw_v_inner && *sw_v_outer == sw_v_inner && **sw_v_outer == sw_v_value"},
-		{name: "MutPtrPtr", source: "mut value: Int32 = 0 mut inner: Ptr<Int32> = ref value outer: MutPtr<Ptr<Int32>> = ref inner", want: "const int32_t **const sw_v_outer = &sw_v_inner;", runtimeCheck: "sw_v_outer == &sw_v_inner && *sw_v_outer == sw_v_inner && **sw_v_outer == sw_v_value"},
-		{name: "PtrMutPtr", source: "mut value: Int32 = 0 inner: MutPtr<Int32> = ref value outer: Ptr<MutPtr<Int32>> = ref inner", want: "int32_t *const *const sw_v_outer = &sw_v_inner;", runtimeCheck: "sw_v_outer == &sw_v_inner && *sw_v_outer == sw_v_inner && **sw_v_outer == sw_v_value"},
-		{name: "MutPtrMutPtr", source: "mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value outer: MutPtr<MutPtr<Int32>> = ref inner", want: "int32_t **const sw_v_outer = &sw_v_inner;", runtimeCheck: "sw_v_outer == &sw_v_inner && *sw_v_outer == sw_v_inner && **sw_v_outer == sw_v_value"},
+		{name: "Ptr", source: "mut value: Int32 = 0 pointer: Ptr<Int32> = ref value", want: "const int32_t *const hex_v_pointer = &hex_v_value;", runtimeCheck: "hex_v_pointer == &hex_v_value && *hex_v_pointer == hex_v_value"},
+		{name: "MutPtr", source: "mut value: Int32 = 0 pointer: MutPtr<Int32> = ref value", want: "int32_t *const hex_v_pointer = &hex_v_value;", runtimeCheck: "hex_v_pointer == &hex_v_value && *hex_v_pointer == hex_v_value"},
+		{name: "PtrPtr", source: "mut value: Int32 = 0 inner: Ptr<Int32> = ref value outer: Ptr<Ptr<Int32>> = ref inner", want: "const int32_t *const *const hex_v_outer = &hex_v_inner;", runtimeCheck: "hex_v_outer == &hex_v_inner && *hex_v_outer == hex_v_inner && **hex_v_outer == hex_v_value"},
+		{name: "MutPtrPtr", source: "mut value: Int32 = 0 mut inner: Ptr<Int32> = ref value outer: MutPtr<Ptr<Int32>> = ref inner", want: "const int32_t **const hex_v_outer = &hex_v_inner;", runtimeCheck: "hex_v_outer == &hex_v_inner && *hex_v_outer == hex_v_inner && **hex_v_outer == hex_v_value"},
+		{name: "PtrMutPtr", source: "mut value: Int32 = 0 inner: MutPtr<Int32> = ref value outer: Ptr<MutPtr<Int32>> = ref inner", want: "int32_t *const *const hex_v_outer = &hex_v_inner;", runtimeCheck: "hex_v_outer == &hex_v_inner && *hex_v_outer == hex_v_inner && **hex_v_outer == hex_v_value"},
+		{name: "MutPtrMutPtr", source: "mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value outer: MutPtr<MutPtr<Int32>> = ref inner", want: "int32_t **const hex_v_outer = &hex_v_inner;", runtimeCheck: "hex_v_outer == &hex_v_inner && *hex_v_outer == hex_v_inner && **hex_v_outer == hex_v_value"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := Compile(testCase.source)
@@ -371,9 +371,9 @@ func TestRecursivePtrAndMutPtrObjects(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful recursive object program", result)
 	}
 	for _, want := range []string{
-		"typedef struct sw_t_Node sw_t_Node;",
-		"const sw_t_Node *sw_m_next;",
-		"sw_t_Node *sw_m_child;",
+		"typedef struct hex_t_Node hex_t_Node;",
+		"const hex_t_Node *hex_m_next;",
+		"hex_t_Node *hex_m_child;",
 	} {
 		if !strings.Contains(result.MainH, want) {
 			t.Fatalf("main.h = %q, want %q", result.MainH, want)
@@ -387,8 +387,8 @@ func TestPointerMemberAutoDereferences(t *testing.T) {
 		t.Fatalf("auto-dereference compilation failed: %#v", result.Stderr)
 	}
 	for _, want := range []string{
-		"const int32_t sw_v_a = (*sw_v_p).sw_m_y;",
-		"(*sw_v_p).sw_m_y = 5;",
+		"const int32_t hex_v_a = (*hex_v_p).hex_m_y;",
+		"(*hex_v_p).hex_m_y = 5;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -418,7 +418,7 @@ func TestAutoDereferenceAppliesOneLayerOnly(t *testing.T) {
 	if explicit.ExitCode != ExitSuccess {
 		t.Fatalf("explicit two-layer dereference failed: %#v", explicit.Stderr)
 	}
-	if !strings.Contains(explicit.MainC, "const int32_t sw_v_a = (*(*sw_v_outer)).sw_m_x;") {
+	if !strings.Contains(explicit.MainC, "const int32_t hex_v_a = (*(*hex_v_outer)).hex_m_x;") {
 		t.Fatalf("main.c = %q, want explicit two-layer member read", explicit.MainC)
 	}
 }
@@ -429,8 +429,8 @@ func TestPointerValuePropertyWinsOverMember(t *testing.T) {
 		t.Fatalf("value member behind pointer failed: %#v", result.Stderr)
 	}
 	for _, want := range []string{
-		"const sw_t_Box sw_v_whole = *sw_v_p;",
-		"const int32_t sw_v_inner = (*sw_v_p).sw_m_value;",
+		"const hex_t_Box hex_v_whole = *hex_v_p;",
+		"const int32_t hex_v_inner = (*hex_v_p).hex_m_value;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -443,7 +443,7 @@ func TestRefThroughAutoDereferencedMember(t *testing.T) {
 	if writable.ExitCode != ExitSuccess {
 		t.Fatalf("ref through auto-dereference failed: %#v", writable.Stderr)
 	}
-	if !strings.Contains(writable.MainC, "int32_t *const sw_v_q = &(*sw_v_p).sw_m_y;") {
+	if !strings.Contains(writable.MainC, "int32_t *const hex_v_q = &(*hex_v_p).hex_m_y;") {
 		t.Fatalf("main.c = %q, want reference to auto-dereferenced member", writable.MainC)
 	}
 

@@ -11,10 +11,10 @@ func TestGenerateGenericFunctionSpecialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainC, "sw_f_identity_Int32") {
+	if !strings.Contains(mainC, "hex_f_identity_Int32") {
 		t.Fatalf("main.c = %q, want specialized function name", mainC)
 	}
-	if strings.Count(mainC, "sw_f_identity_Int32") < 2 {
+	if strings.Count(mainC, "hex_f_identity_Int32") < 2 {
 		t.Fatalf("main.c = %q, want prototype and definition", mainC)
 	}
 }
@@ -25,10 +25,10 @@ func TestGenerateGenericObjectSpecialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainH, "sw_t_Box_Int32") {
+	if !strings.Contains(mainH, "hex_t_Box_Int32") {
 		t.Fatalf("main.h = %q, want specialized object struct", mainH)
 	}
-	if !strings.Contains(mainC, "sw_v_box") {
+	if !strings.Contains(mainC, "hex_v_box") {
 		t.Fatalf("main.c = %q, want specialized binding", mainC)
 	}
 }
@@ -39,10 +39,10 @@ func TestGenerateGenericMethodSpecialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainH, "sw_t_Box_Int32") {
+	if !strings.Contains(mainH, "hex_t_Box_Int32") {
 		t.Fatalf("main.h = %q, want specialized object struct", mainH)
 	}
-	if !strings.Contains(mainC, "sw_f_Box_Int32__get") && !strings.Contains(mainC, "sw_f_Box_Int32_get") {
+	if !strings.Contains(mainC, "hex_f_Box_Int32__get") && !strings.Contains(mainC, "hex_f_Box_Int32_get") {
 		t.Fatalf("main.c = %q, want specialized method definition", mainC)
 	}
 }

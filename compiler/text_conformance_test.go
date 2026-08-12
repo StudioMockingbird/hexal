@@ -14,7 +14,7 @@ func TestByteAliasIsUInt8(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "const uint8_t sw_v_byte = 65;") {
+	if !strings.Contains(result.MainC, "const uint8_t hex_v_byte = 65;") {
 		t.Fatalf("generated C lacks the Byte value:\n%s", result.MainC)
 	}
 }
@@ -60,12 +60,12 @@ func TestStringSurfaceCompiles(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, fragment := range []string{
-		"sw_string_rune_length(",
-		"sw_string_is_empty(",
-		"sw_string_at_rune(",
-		"sw_string_rune_cursor(",
-		"sw_rune_cursor_has_next(",
-		"sw_rune_cursor_next(",
+		"hex_string_rune_length(",
+		"hex_string_is_empty(",
+		"hex_string_at_rune(",
+		"hex_string_rune_cursor(",
+		"hex_rune_cursor_has_next(",
+		"hex_rune_cursor_next(",
 	} {
 		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
@@ -82,12 +82,12 @@ func TestRuneCursorIterationCompiles(t *testing.T) {
 }
 
 func TestStrandSurfaceCompiles(t *testing.T) {
-	source := "fun demo(h: Heap): Bool\n    label: Strand = \"Seawitch\"\n    count: Size = label.length()\n    empty: Bool = label.is_empty()\n    first: Rune = label.at(0)\n    indexed: Rune = label[1]\n    text: String = label.to_string(h)\n    text.free(h)\n    return empty\nend\n"
+	source := "fun demo(h: Heap): Bool\n    label: Strand = \"hexal\"\n    count: Size = label.length()\n    empty: Bool = label.is_empty()\n    first: Rune = label.at(0)\n    indexed: Rune = label[1]\n    text: String = label.to_string(h)\n    text.free(h)\n    return empty\nend\n"
 	result := Compile(source)
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "(sw_strand){{ 83, 101, 97, 119, 105, 116, 99, 104, 0 }}") {
+	if !strings.Contains(result.MainC, "(hex_strand){{ 104, 101, 120, 97, 108, 0 }}") {
 		t.Fatalf("generated C lacks the inline Strand literal:\n%s", result.MainC)
 	}
 }
@@ -120,7 +120,7 @@ func TestStringFromBytesAndFromRunesCompile(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	for _, fragment := range []string{"sw_string_from_bytes(", "sw_string_from_runes("} {
+	for _, fragment := range []string{"hex_string_from_bytes(", "hex_string_from_runes("} {
 		if !strings.Contains(result.MainC, fragment) {
 			t.Fatalf("generated C lacks %s:\n%s", fragment, result.MainC)
 		}

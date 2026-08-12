@@ -290,7 +290,7 @@ func TestTruthiness(t *testing.T) {
 }
 
 func TestHeapBuiltinType(t *testing.T) {
-	if Heap.Name != "Heap" || Heap.CName != "sw_heap" || Heap.Incomplete {
+	if Heap.Name != "Heap" || Heap.CName != "hex_heap" || Heap.Incomplete {
 		t.Fatalf("Heap = %#v, want complete builtin", Heap)
 	}
 	if !IsCompleteValue(Heap) || !IsCanonical(Heap) {

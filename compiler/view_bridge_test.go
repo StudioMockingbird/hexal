@@ -13,7 +13,7 @@ func TestViewFromPointerCompiles(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "(sw_view_Int32){") {
+	if !strings.Contains(result.MainC, "(hex_view_Int32){") {
 		t.Fatalf("generated C lacks the View descriptor initialization:\n%s", result.MainC)
 	}
 }

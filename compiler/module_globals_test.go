@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// RFC 0041 (ADR): Seawitch has no module-global or process-global values.
+// RFC 0041 (ADR): Hexal has no module-global or process-global values.
 // Root executable bindings lower as entry-body locals, functions cannot
 // capture root locals, and no accepted declaration emits user value storage
 // at C file scope.
@@ -16,10 +16,10 @@ func TestRootBindingsLowerAsLocals(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "int32_t sw_v_counter") {
+	if !strings.Contains(result.MainC, "int32_t hex_v_counter") {
 		t.Fatalf("root binding did not lower as a local:\n%s", result.MainC)
 	}
-	if strings.Contains(result.MainH, "sw_v_counter") {
+	if strings.Contains(result.MainH, "hex_v_counter") {
 		t.Fatalf("root binding leaked into the header (file scope):\n%s", result.MainH)
 	}
 }
@@ -40,7 +40,7 @@ func TestNoNativeModuleConstantsOrStatics(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if strings.Contains(result.MainH, "sw_v_static") || strings.Contains(result.MainH, "sw_v_global") {
+	if strings.Contains(result.MainH, "hex_v_static") || strings.Contains(result.MainH, "hex_v_global") {
 		t.Fatalf("root bindings emitted file-scope storage:\n%s", result.MainH)
 	}
 }

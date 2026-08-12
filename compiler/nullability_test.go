@@ -16,7 +16,7 @@ func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
 	}
 	for _, want := range []string{
 		"#include <stddef.h>",
-		"const nullptr_t sw_v_nothing = nullptr;",
+		"const nullptr_t hex_v_nothing = nullptr;",
 	} {
 		if !strings.Contains(result.MainH, want) && !strings.Contains(result.MainC, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainH, result.MainC, want)
@@ -30,8 +30,8 @@ func TestNullablePointerUsesTheNullNiche(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const int32_t *const sw_v_maybe = nullptr;",
-		"const int32_t *const sw_v_present = &sw_v_value;",
+		"const int32_t *const hex_v_maybe = nullptr;",
+		"const int32_t *const hex_v_present = &hex_v_value;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -45,9 +45,9 @@ func TestNullTestsLowerToNullPointerComparison(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const bool sw_v_equal = sw_v_maybe == nullptr;",
-		"const bool sw_v_notEqual = sw_v_maybe != nullptr;",
-		"const bool sw_v_commuted = sw_v_maybe == nullptr;",
+		"const bool hex_v_equal = hex_v_maybe == nullptr;",
+		"const bool hex_v_notEqual = hex_v_maybe != nullptr;",
+		"const bool hex_v_commuted = hex_v_maybe == nullptr;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -61,8 +61,8 @@ func TestNullTestAsConditionNarrowsReads(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"if (sw_v_maybe != nullptr) {",
-		"const int32_t sw_v_result = *sw_v_maybe;",
+		"if (hex_v_maybe != nullptr) {",
+		"const int32_t hex_v_result = *hex_v_maybe;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -76,10 +76,10 @@ func TestNullableAssignmentStoresNullAndPointer(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"int32_t *sw_v_maybe = nullptr;",
-		"sw_v_maybe = &sw_v_value;",
-		"sw_v_maybe = nullptr;",
-		"sw_v_maybe = &sw_v_other;",
+		"int32_t *hex_v_maybe = nullptr;",
+		"hex_v_maybe = &hex_v_value;",
+		"hex_v_maybe = nullptr;",
+		"hex_v_maybe = &hex_v_other;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -93,8 +93,8 @@ func TestNullableObjectMemberUsesNullNiche(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"sw_t_Node *sw_m_next;",
-		".sw_m_next = nullptr,",
+		"hex_t_Node *hex_m_next;",
+		".hex_m_next = nullptr,",
 	} {
 		if !strings.Contains(result.MainH, want) && !strings.Contains(result.MainC, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainH, result.MainC, want)
@@ -108,9 +108,9 @@ func TestNullableFunctionResultReturnsNullptr(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static int32_t * sw_f_absent(void) {",
+		"static int32_t * hex_f_absent(void) {",
 		"return nullptr;",
-		"int32_t *const sw_v_nothing = sw_f_absent();",
+		"int32_t *const hex_v_nothing = hex_f_absent();",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -124,9 +124,9 @@ func TestErasedUnknownPointersLowerToVoidPointers(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const void *const sw_v_erased = sw_v_reader;",
-		"const int32_t *const sw_v_restored = sw_v_erased;",
-		"void *const sw_v_maybe_erased = nullptr;",
+		"const void *const hex_v_erased = hex_v_reader;",
+		"const int32_t *const hex_v_restored = hex_v_erased;",
+		"void *const hex_v_maybe_erased = nullptr;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)

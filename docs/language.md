@@ -1,8 +1,8 @@
-# Seawitch Language Notes
+# Hexal Language Notes
 
 ## Core scalar types
 
-Seawitch has eleven fixed-width scalar types. The integer ranges are exact and
+Hexal has eleven fixed-width scalar types. The integer ranges are exact and
 target-independent; byte order and ABI placement remain target properties.
 
 | Type | Range or format | C23 |
@@ -55,7 +55,7 @@ type-checked. If a known constant left operand determines the result, the
 unreachable right operand is not folded and static diagnostics from its
 unevaluated operations, such as a zero divisor, are not emitted:
 
-```seawitch
+```hexal
 always: Bool = true or (1 / 0 == 0)  // valid; RHS is unreachable
 never: Bool = false and (1 / 0 == 0) // valid; RHS is unreachable
 bad: Bool = true or (1 and 2)        // Error: and requires Bool operands
@@ -68,7 +68,7 @@ Every binary operator requires identical canonical operand types after alias
 resolution. Typed values are never promoted or converted, so mixed widths and
 mixed signedness are errors:
 
-```seawitch
+```hexal
 small: Int16 = 1
 large: Int32 = 2
 bad: Int32 = small + large // Error: Int16 and Int32 do not mix
@@ -96,7 +96,7 @@ left-associative; unary operators are right-associative.
 
 Parentheses override precedence:
 
-```seawitch
+```hexal
 value: Int32 = 2 + 3 * 4       // 14
 grouped: Int32 = (2 + 3) * 4   // 20
 check: Bool = a + 1 > b and !done
@@ -113,7 +113,7 @@ range-checked against it. When all operands are untyped, a usable expected type
 from the surrounding declaration propagates through the operation tree before
 range checking:
 
-```seawitch
+```hexal
 count: UInt8 = 200
 next: UInt8 = count + 1       // 1 is UInt8; exact result is 201
 over: UInt8 = count + 100     // Error: exact result 300 is out of range
@@ -130,7 +130,7 @@ integers fall back to `Int32` and decimal literals to `Float64`.
 Unary `-` folds a direct untyped literal as one exact mathematical value before
 the destination range check. This keeps signed minima writable:
 
-```seawitch
+```hexal
 minimum: Int8 = -128
 minimum64: Int64 = -9_223_372_036_854_775_808
 ```
@@ -143,7 +143,7 @@ An immutable binding retains its exact checked constant value. Operations whose
 operands are statically known are folded exactly and range-checked against the
 declared result type before runtime wrapping is considered:
 
-```seawitch
+```hexal
 count: UInt8 = 200
 valid: UInt8 = count + 1       // folded to 201
 invalid: UInt8 = count + 100   // Error: exact result 300 is out of range
@@ -153,7 +153,7 @@ An operation depending on a mutable or otherwise unknown value is left for
 runtime. Integer runtime arithmetic wraps modulo `2^n` for every width and
 signedness:
 
-```seawitch
+```hexal
 mut value: Int8 = 127
 wrapped: Int8 = value + 1      // runtime result is -128
 ```
@@ -171,7 +171,7 @@ operand is still type-checked. The checker also rejects a statically known
 signed minimum divided or remaindered by `-1`, because that result is not
 representable:
 
-```seawitch
+```hexal
 mut total: Int32 = 10
 bad: Int32 = total / (2 - 2) // Error: division by zero
 minimum: Int8 = -128
@@ -275,7 +275,7 @@ Conditions follow RFC 0023 truthiness (see the next section), so `if count`
 is valid for any value-producing `count`; `false` and `nil` are falsey and
 every other value is truthy.
 
-```seawitch
+```hexal
 mut remaining: Int32 = 3
 while remaining > 0 do
     if remaining == 1
@@ -296,7 +296,7 @@ its body: `while condition do ... end`. The former delimiter-free `while`
 form is removed rather than retained as an alias. `for` adds compiler-owned
 iteration over Array, View, List, String, Strand, Dict, and Stream sources:
 
-```seawitch
+```hexal
 for value in values do
     total = total + value
 end
@@ -420,23 +420,23 @@ RFC 0026's unrecoverable behavior.
 Source identifiers are case-sensitive and use the letter-led grammar
 `[A-Za-z][A-Za-z0-9_]*`. Leading underscores and digit-led names are
 rejected. `main`, C keywords, and C macro spellings remain ordinary
-Seawitch identifiers.
+Hexal identifiers.
 
-Seawitch-owned private C names apply one fixed prefix to the complete source
+Hexal-owned private C names apply one fixed prefix to the complete source
 spelling:
 
 | Declaration kind | Generated prefix | Example |
 | --- | --- | --- |
-| value binding | `sw_v_` | `score` → `sw_v_score` |
-| nominal type | `sw_t_` | `Point` → `sw_t_Point` |
-| object member | `sw_m_` | `x` → `sw_m_x` |
+| value binding | `hex_v_` | `score` → `hex_v_score` |
+| nominal type | `hex_t_` | `Point` → `hex_t_Point` |
+| object member | `hex_m_` | `x` → `hex_m_x` |
 
-The mapping is unconditional: `int` becomes `sw_v_int`,
-`INT32_MAX` becomes `sw_v_INT32_MAX`, and `sw_v_score` becomes
-`sw_v_sw_v_score`. Names are never hashed, truncated, or conditionally
+The mapping is unconditional: `int` becomes `hex_v_int`,
+`INT32_MAX` becomes `hex_v_INT32_MAX`, and `hex_v_score` becomes
+`hex_v_hex_v_score`. Names are never hashed, truncated, or conditionally
 escaped. Foreign C names are outside this rule.
 
-```seawitch
+```hexal
 main: Int32 = 1
 int: Int32 = 2
 mut pointer: MutPtr<Int32> = ref int
@@ -444,10 +444,10 @@ value: Int32 = pointer.value
 ```
 
 ```c
-const int32_t sw_v_main = 1;
-const int32_t sw_v_int = 2;
-int32_t *sw_v_pointer = &sw_v_int;
-const int32_t sw_v_value = *sw_v_pointer;
+const int32_t hex_v_main = 1;
+const int32_t hex_v_int = 2;
+int32_t *hex_v_pointer = &hex_v_int;
+const int32_t hex_v_value = *hex_v_pointer;
 ```
 
 Checked expressions retain declaration identities and structured address-of
@@ -458,7 +458,7 @@ private C identifiers and renders those operations.
 
 Top-level aliases introduce a second spelling for an already declared type:
 
-```seawitch
+```hexal
 type Coordinate = Int32
 type CoordinatePtr = Ptr<Coordinate>
 
@@ -483,7 +483,7 @@ statements.
 An object type is a nominal, ordered collection of scalar or previously
 declared object members:
 
-```seawitch
+```hexal
 type Point = { mut x: Int32, y: Int32, }
 type Box = { point: Point, }
 
@@ -530,7 +530,7 @@ Generated C uses exact hexadecimal floating constants (`f` is added for
 
 Every declaration creates a constant binding unless it is prefixed by `mut`:
 
-```seawitch
+```hexal
 x: Int32 = 42
 mut y: Int32 = 42
 
@@ -545,7 +545,7 @@ pointer whose pointee is read-only; `MutPtr<T>` is the same shape whose pointee
 is writable. They are distinct types with distinct C spellings, and the
 distinction is carried entirely by the type.
 
-```seawitch
+```hexal
 answer: Int32 = 42
 mut score: Int32 = 0
 
@@ -561,7 +561,7 @@ writability: a writable place yields `MutPtr<T>`, a fixed place yields
 `Ptr<T>`. Unlike the former capability model, `ref` never rejects a read-only
 place; a fixed place simply produces a read-only pointer.
 
-```seawitch
+```hexal
 mut value: Int32 = 42
 writer: MutPtr<Int32> = ref value   // writable place, writable pointee
 reader: Ptr<Int32> = ref value      // weakening: MutPtr<T> accepts Ptr<T>
@@ -572,7 +572,7 @@ layer only, with every layer below identical. The reverse, upgrading a `Ptr<T>`
 to `MutPtr<T>`, is rejected as an ordinary type mismatch. Weakening never leaks
 into deeper pointer layers.
 
-```seawitch
+```hexal
 observer: Ptr<Int32> = writer              // valid: outermost weakening
 promoted: MutPtr<Int32> = look             // Error: cannot upgrade
 ok: Ptr<MutPtr<Int32>> = outer             // valid: outermost only
@@ -590,7 +590,7 @@ replaceable; object literals supply values only. `mut` on a binding marks the
 storage slot replaceable; it does not change a `Ptr<T>`'s pointee read-only
 contract.
 
-```seawitch
+```hexal
 type Player = {
     id: UInt64,
     mut health: Int32,
@@ -604,7 +604,7 @@ player.id = 2         // Error: id is a fixed member
 Pointer-valued object members are supported. A nominal object may reach itself
 behind at least one pointer layer:
 
-```seawitch
+```hexal
 type Node = {
     value: Int32,
     mut next: MutPtr<Node>,   // the link may be repointed
@@ -616,7 +616,7 @@ still rejected because RFC 0005 resolves declarations in source order.
 
 ## No source-level pointer arithmetic (RFC 0033)
 
-Each `Ptr<T>` or `MutPtr<T>` value refers to one typed object. Seawitch
+Each `Ptr<T>` or `MutPtr<T>` value refers to one typed object. Hexal
 source exposes reference, dereference, ordinary copying and reassignment,
 outermost weakening, identity equality under RFC 0024, RFC 0010 nullable
 narrowing and Unknown erasure/recovery, and explicit deallocation — and
@@ -633,7 +633,7 @@ a value and then indexing that value remains valid. Trusted compiler-owned
 generated and runtime C may step pointers internally, but a rejected source
 pointer operation never reaches generated C — reaching generation with one
 is an Unknown Error. A future C FFI may import an address but cannot
-advance, order, convert, or index it in Seawitch source.
+advance, order, convert, or index it in Hexal source.
 
 ## C23 lowering and target profile
 
@@ -648,7 +648,7 @@ pointee qualification derived from the type chain alone. A `Ptr` layer adds
 `const` to its pointee; a `MutPtr` layer does not. The binding contributes a
 trailing `const` when it is not `mut`:
 
-| Seawitch | C23 |
+| Hexal | C23 |
 |---|---|
 | `Ptr<Int32>` | `const int32_t *` |
 | `MutPtr<Int32>` | `int32_t *` |
@@ -661,14 +661,14 @@ Because `ref` never writes through a fixed place and weakening only reads, the
 generator never emits a qualifier-discarding cast. A fixed binding of `Ptr<T>`
 lowers to `const T * const`; a `mut` binding of `MutPtr<T>` lowers to `T *`.
 
-```seawitch
+```hexal
 mut value: Int32 = 42
 writer: MutPtr<Int32> = ref value
 ```
 
 ```c
-int32_t sw_v_value = INT32_C(42);
-int32_t *sw_v_writer = &sw_v_value;
+int32_t hex_v_value = INT32_C(42);
+int32_t *hex_v_writer = &hex_v_value;
 ```
 
 Object members are unqualified members whatever their member mode; only the
@@ -677,11 +677,11 @@ forward `typedef` region followed by a source-ordered definition region, so
 recursive and non-recursive objects share one shape:
 
 ```c
-typedef struct sw_t_Node sw_t_Node;
+typedef struct hex_t_Node hex_t_Node;
 
-struct sw_t_Node {
-    int32_t sw_m_value;
-    sw_t_Node *sw_m_next;
+struct hex_t_Node {
+    int32_t hex_m_value;
+    hex_t_Node *hex_m_next;
 };
 ```
 
@@ -693,7 +693,7 @@ pointer-like base. `nil` initializes `P | Nil`, and a nullable value may be
 reassigned from `nil` to a pointer and back, but never implicitly loses
 `Nil`:
 
-```seawitch
+```hexal
 mut maybe: Ptr<Int32> | Nil = nil
 if maybe != nil
     result: Int32 = maybe.value
@@ -715,7 +715,7 @@ erasure and recovery converts between `Ptr<T>` and `Ptr<Unknown>` (and the
 `MutPtr` forms) as explicit widening or narrowing. `Ptr<Unknown>` lowers to
 `const void *` and `MutPtr<Unknown>` lowers to `void *`:
 
-| Seawitch | C23 |
+| Hexal | C23 |
 |---|---|
 | `Ptr<Unknown>` | `const void *` |
 | `MutPtr<Unknown>` | `void *` |
@@ -724,7 +724,7 @@ erasure and recovery converts between `Ptr<T>` and `Ptr<Unknown>` (and the
 
 Union types are structural and transparent:
 
-```seawitch
+```hexal
 type Number = Int32 | Float64
 mut value: Number = 1
 value = 2.5
@@ -767,7 +767,7 @@ Bool member supplies the result, and every other active member is truthy.
 
 Generic declarations abstract over types:
 
-```seawitch
+```hexal
 type Box<T> = { value: T }
 
 fun identity<T>(value: T): T
@@ -800,9 +800,9 @@ reuse an active specialization with unchanged arguments and reject cycles that
 change arguments. Unused generic declarations generate no C.
 
 Reachable specializations are monomorphized: generic objects become concrete
-structs with deterministic sanitized names such as `sw_t_Box_Int32_`, and
+structs with deterministic sanitized names such as `hex_t_Box_Int32_`, and
 generic functions become concrete definitions with specialization suffixes
-such as `sw_f_identity_Int32`. A prototype region precedes the specialized
+such as `hex_f_identity_Int32`. A prototype region precedes the specialized
 definitions so cross-references remain dependency-safe. No runtime type tags,
 `void *` erasure, or unchecked casts represent a type parameter.
 
@@ -812,7 +812,7 @@ definitions so cross-references remain dependency-safe. No runtime type tags,
 allocator at compile time and performs no runtime allocation. Allocation is
 explicit and checked:
 
-```seawitch
+```hexal
 h: Heap = Heap.new()
 p: MutPtr<Int32> = h.allocate<Int32>(0)
 p.value = 42
@@ -843,7 +843,7 @@ A `defer` that is never reached is never registered.
 
 Allocation and deallocation lower through checked helpers: a header records
 allocator identity, size, payload offset, and live state, and a per-type
-`sw_heap_allocate_<T>` helper validates and initializes before exposing the
+`hex_heap_allocate_<T>` helper validates and initializes before exposing the
 pointer. No plain C `free` and no omitted cleanup are emitted.
 
 ### Algebraic Data Types and Match
@@ -851,7 +851,7 @@ pointer. No plain C `free` and no omitted cleanup are emitted.
 Algebraic data types are nominal closed sums with unit and named-record
 variants:
 
-```seawitch
+```hexal
 type Shape =
     | Circle as { r: Int32 }
     | Square as { a: Int32 }
@@ -893,7 +893,7 @@ Generated headers include checks for 8-bit bytes, exact-width integer types,
 and the binary32/binary64 value-set properties used by the program. A target
 must provide the canonical C23 integer types and compatible IEC 60559 float
 formats; a C assertion or target validation failure must not silently change a
-Seawitch type's meaning.
+Hexal type's meaning.
 
 Allocation provenance, alignment, bounds, aliasing, casts, arithmetic,
 conversions, slices, and imported C contracts remain future features.
@@ -932,7 +932,7 @@ in module data, or pointed to, and cannot be rooted in a temporary Array.
 
 ### Strings
 
-A String value is a `const sw_string *` handle to an immutable
+A String value is a `const hex_string *` handle to an immutable
 pointer-plus-count header. Runtime strings occupy one combined
 header-and-bytes allocation; literals are allocation-free static objects and
 may live at module level. Under RFC 0035 every String binding copies its
@@ -1146,7 +1146,7 @@ under RFC 0035's C-style lifetime model. `Task`, `Channel`, `Mutex`, and
 The runtime owns one process M:N scheduler: tasks are stackful fibers with
 guarded 1 MiB virtual stack reservations, scheduled over C23 `<threads.h>`
 worker threads (Windows x64 Fibers, POSIX x86-64 System V context switch).
-The Seawitch entry point is the root Task pinned to worker zero; returning
+The Hexal entry point is the root Task pinned to worker zero; returning
 from it does not implicitly join live source tasks. Scheduler-owned storage
 never takes a user allocator, and no scheduler is linked when no task
 feature is used. Scheduling is cooperative: a CPU loop that neither blocks

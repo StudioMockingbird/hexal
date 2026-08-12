@@ -13,14 +13,14 @@ func TestConditionalAndLoopLowering(t *testing.T) {
 		t.Fatalf("control-flow compilation failed: %#v", result)
 	}
 	for _, want := range []string{
-		"if (sw_v_ready) {",
+		"if (hex_v_ready) {",
 		"} else if (false) {",
 		"} else {",
-		"while ((sw_v_count < 3)) {",
+		"while ((hex_v_count < 3)) {",
 		"continue;",
 		"break;",
-		"sw_v_count = ((uint64_t)",
-		"sw_v_local",
+		"hex_v_count = ((uint64_t)",
+		"hex_v_local",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -33,7 +33,7 @@ func TestControlFlowScopesAndShadowing(t *testing.T) {
 	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("scoped declarations failed: %#v", result)
 	}
-	if !strings.Contains(result.MainC, "sw_v_value_2") || !strings.Contains(result.MainC, "sw_v_value_3") {
+	if !strings.Contains(result.MainC, "hex_v_value_2") || !strings.Contains(result.MainC, "hex_v_value_3") {
 		t.Fatalf("shadowed C names are not deterministic: %q", result.MainC)
 	}
 
@@ -157,10 +157,10 @@ func TestMethodControlFlowLowering(t *testing.T) {
 		t.Fatalf("method control-flow compilation failed: %#v", result)
 	}
 	for _, want := range []string{
-		"static int32_t sw_f_Counter_step",
-		"if ((sw_v_amount > 0)) {",
-		"(*sw_v_self).sw_m_count =",
-		"sw_f_Counter_step(&sw_v_counter, 2)",
+		"static int32_t hex_f_Counter_step",
+		"if ((hex_v_amount > 0)) {",
+		"(*hex_v_self).hex_m_count =",
+		"hex_f_Counter_step(&hex_v_counter, 2)",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)

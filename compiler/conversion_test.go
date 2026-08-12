@@ -13,14 +13,14 @@ func TestConversionMethods(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static inline int8_t sw_convert_int64_t_int8_t(int64_t value) {",
-		"sw_v_narrowed = sw_convert_int64_t_int8_t(sw_v_wide);",
-		"const int32_t sw_v_whole = 3;",
-		"sw_convert_int8_t_size_t(sw_v_small)",
-		"sw_convert_size_t_uint32_t(sw_v_size)",
-		"static inline uint32_t sw_convert_int64_t_rune(int64_t value) {",
-		"sw_v_letter = sw_convert_int64_t_rune(sw_v_wide);",
-		"sw_convert_rune_uint32_t(sw_v_letter)",
+		"static inline int8_t hex_convert_int64_t_int8_t(int64_t value) {",
+		"hex_v_narrowed = hex_convert_int64_t_int8_t(hex_v_wide);",
+		"const int32_t hex_v_whole = 3;",
+		"hex_convert_int8_t_size_t(hex_v_small)",
+		"hex_convert_size_t_uint32_t(hex_v_size)",
+		"static inline uint32_t hex_convert_int64_t_rune(int64_t value) {",
+		"hex_v_letter = hex_convert_int64_t_rune(hex_v_wide);",
+		"hex_convert_rune_uint32_t(hex_v_letter)",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)

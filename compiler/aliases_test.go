@@ -13,9 +13,9 @@ func TestAliasesLowerCanonically(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"int32_t sw_v_value = 1;",
-		"const int32_t *const sw_v_pointer = &sw_v_value;",
-		"const int32_t sw_v_read = *sw_v_pointer;",
+		"int32_t hex_v_value = 1;",
+		"const int32_t *const hex_v_pointer = &hex_v_value;",
+		"const int32_t hex_v_read = *hex_v_pointer;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -32,9 +32,9 @@ func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"int32_t *sw_v_pointer = &sw_v_value;",
-		"int32_t *const *const sw_v_pointerPointer = &sw_v_pointer;",
-		"const int32_t sw_v_read = *(*sw_v_pointerPointer);",
+		"int32_t *hex_v_pointer = &hex_v_value;",
+		"int32_t *const *const hex_v_pointerPointer = &hex_v_pointer;",
+		"const int32_t hex_v_read = *(*hex_v_pointerPointer);",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -92,7 +92,7 @@ func TestTypeEnvironmentDoesNotLeakAcrossCompilations(t *testing.T) {
 	if first.ExitCode != ExitSuccess || second.ExitCode != ExitSuccess {
 		t.Fatalf("compilations failed: first=%#v second=%#v", first, second)
 	}
-	if !strings.Contains(first.MainC, "int32_t *const sw_v_pointer") || !strings.Contains(second.MainC, "bool *const sw_v_pointer") {
+	if !strings.Contains(first.MainC, "int32_t *const hex_v_pointer") || !strings.Contains(second.MainC, "bool *const hex_v_pointer") {
 		t.Fatalf("pointer type leaked across compilations: first=%q second=%q", first.MainC, second.MainC)
 	}
 }

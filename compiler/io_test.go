@@ -15,11 +15,11 @@ func TestFileOpenAndWriteCompile(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, fragment := range []string{
-		"sw_file_open(",
-		"SW_FILE_WRITE",
-		"sw_file_write_text(",
-		"sw_file_flush(",
-		"sw_file_close(",
+		"hex_file_open(",
+		"HEX_FILE_WRITE",
+		"hex_file_write_text(",
+		"hex_file_flush(",
+		"hex_file_close(",
 	} {
 		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
@@ -33,7 +33,7 @@ func TestFileReadTextAndBytesCompile(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	for _, fragment := range []string{"sw_file_read_text(", "sw_file_read_bytes_UInt8(", "sw_list_push_UInt8("} {
+	for _, fragment := range []string{"hex_file_read_text(", "hex_file_read_bytes_UInt8(", "hex_list_push_UInt8("} {
 		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
@@ -46,7 +46,7 @@ func TestFileAppendAndWriteViewCompile(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "SW_FILE_APPEND") || !strings.Contains(result.MainC, "sw_file_write_bytes(") {
+	if !strings.Contains(result.MainC, "HEX_FILE_APPEND") || !strings.Contains(result.MainC, "hex_file_write_bytes(") {
 		t.Fatalf("generated C lacks the append surface:\n%s", result.MainC)
 	}
 }
@@ -57,7 +57,7 @@ func TestFileModeValuesCompileAndCompare(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	for _, fragment := range []string{"SW_FILE_READ", "SW_FILE_WRITE", "SW_FILE_APPEND", "sw_equal_sw_file_mode"} {
+	for _, fragment := range []string{"HEX_FILE_READ", "HEX_FILE_WRITE", "HEX_FILE_APPEND", "hex_equal_hex_file_mode"} {
 		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
@@ -70,7 +70,7 @@ func TestStdioCompiles(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	for _, fragment := range []string{"(sw_file){ stdout, SW_FILE_WRITE, false }", "(sw_file){ stderr, SW_FILE_WRITE, false }"} {
+	for _, fragment := range []string{"(hex_file){ stdout, HEX_FILE_WRITE, false }", "(hex_file){ stderr, HEX_FILE_WRITE, false }"} {
 		if !strings.Contains(result.MainC, fragment) {
 			t.Fatalf("generated C lacks %s:\n%s", fragment, result.MainC)
 		}

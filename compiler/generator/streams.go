@@ -55,7 +55,7 @@ func (state *generatedStreamState) add(stream compilerTypes.Type) {
 }
 
 func streamSuffix(stream compilerTypes.Type) string {
-	return strings.TrimPrefix(stream.CName, "sw_stream_")
+	return strings.TrimPrefix(stream.CName, "hex_stream_")
 }
 
 // discoverGeneratedStreams walks every checked statement and expression for
@@ -262,12 +262,12 @@ func writeStreamBase(result *strings.Builder, stream compilerTypes.Type, streams
 	element := stream.Stream.Element
 	suffix := streamSuffix(stream)
 	elementSpelling := typeSpelling(element)
-	fmt.Fprintf(result, "\ntypedef struct sw_stream_ops_%s {\n    bool (*next)(void *object, %s *out);\n    void (*destroy)(void *object);\n} sw_stream_ops_%s;\n", suffix, elementSpelling, suffix)
-	fmt.Fprintf(result, "typedef struct %s {\n    const sw_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n} %s;\n", stream.CName, suffix, stream.CName)
-	fmt.Fprintf(result, "static bool sw_stream_empty_next_%s(void *object, %s *out) {\n    (void)object;\n    (void)out;\n    return false;\n}\n", suffix, elementSpelling)
-	fmt.Fprintf(result, "static void sw_stream_empty_destroy_%s(void *object) {\n    (void)object;\n}\n", suffix)
-	fmt.Fprintf(result, "static const sw_stream_ops_%s sw_stream_empty_ops_%s = { sw_stream_empty_next_%s, sw_stream_empty_destroy_%s };\n", suffix, suffix, suffix, suffix)
-	fmt.Fprintf(result, "static const %s sw_stream_empty_%s = { &sw_stream_empty_ops_%s, 0, false };\n", stream.CName, suffix, suffix)
+	fmt.Fprintf(result, "\ntypedef struct hex_stream_ops_%s {\n    bool (*next)(void *object, %s *out);\n    void (*destroy)(void *object);\n} hex_stream_ops_%s;\n", suffix, elementSpelling, suffix)
+	fmt.Fprintf(result, "typedef struct %s {\n    const hex_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n} %s;\n", stream.CName, suffix, stream.CName)
+	fmt.Fprintf(result, "static bool hex_stream_empty_next_%s(void *object, %s *out) {\n    (void)object;\n    (void)out;\n    return false;\n}\n", suffix, elementSpelling)
+	fmt.Fprintf(result, "static void hex_stream_empty_destroy_%s(void *object) {\n    (void)object;\n}\n", suffix)
+	fmt.Fprintf(result, "static const hex_stream_ops_%s hex_stream_empty_ops_%s = { hex_stream_empty_next_%s, hex_stream_empty_destroy_%s };\n", suffix, suffix, suffix, suffix)
+	fmt.Fprintf(result, "static const %s hex_stream_empty_%s = { &hex_stream_empty_ops_%s, 0, false };\n", stream.CName, suffix, suffix)
 
 	stepUnion := compilerTypes.Type{}
 	for _, record := range streams.stepUnions {
@@ -282,10 +282,10 @@ func writeStreamBase(result *strings.Builder, stream compilerTypes.Type, streams
 	elementIndex := unionMemberIndex(stepUnion, element)
 	eosIndex := unionMemberIndex(stepUnion, compilerTypes.EoS)
 	if elementIndex >= 0 && eosIndex >= 0 {
-		fmt.Fprintf(result, "\nstatic inline %s sw_stream_next_%s(%s *stream) {\n    %s step;\n    %s value;\n    if (stream->ops->next((void *)stream, &value)) {\n        step = (%s){ .tag = %s, .payload.member_%d = value };\n    } else {\n        step = (%s){ .tag = %s };\n    }\n    return step;\n}\n",
+		fmt.Fprintf(result, "\nstatic inline %s hex_stream_next_%s(%s *stream) {\n    %s step;\n    %s value;\n    if (stream->ops->next((void *)stream, &value)) {\n        step = (%s){ .tag = %s, .payload.member_%d = value };\n    } else {\n        step = (%s){ .tag = %s };\n    }\n    return step;\n}\n",
 			stepUnion.CName, suffix, stream.CName, stepUnion.CName, elementSpelling, stepUnion.CName, unionTagName(stepUnion, elementIndex), elementIndex, stepUnion.CName, unionTagName(stepUnion, eosIndex))
 	}
-	fmt.Fprintf(result, "\nstatic inline void sw_stream_free_%s(sw_heap h, %s *stream) {\n    if (stream == NULL || stream == &sw_stream_empty_%s) {\n        return;\n    }\n    if (stream->allocator != h.identity) {\n        fputs(\"[Runtime Error] deallocation used the wrong allocator\\n\", stderr);\n        abort();\n    }\n    stream->ops->destroy((void *)stream);\n    sw_heap_free(stream, h.identity);\n}\n", suffix, stream.CName, suffix)
+	fmt.Fprintf(result, "\nstatic inline void hex_stream_free_%s(hex_heap h, %s *stream) {\n    if (stream == NULL || stream == &hex_stream_empty_%s) {\n        return;\n    }\n    if (stream->allocator != h.identity) {\n        fputs(\"[Runtime Error] deallocation used the wrong allocator\\n\", stderr);\n        abort();\n    }\n    stream->ops->destroy((void *)stream);\n    hex_heap_free(stream, h.identity);\n}\n", suffix, stream.CName, suffix)
 }
 
 // stepUnionFor reconstructs the checked T | EoS union for one stream type
@@ -306,12 +306,12 @@ func writeStreamListFamily(result *strings.Builder, listType compilerTypes.Type)
 	}
 	suffix := streamSuffix(streamType)
 	elementSpelling := typeSpelling(element)
-	nodeName := "sw_stream_list_" + listSuffix(listType)
-	fmt.Fprintf(result, "\ntypedef struct %s {\n    const sw_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s *list;\n    size_t index;\n    size_t length;\n} %s;\n\n", nodeName, suffix, listType.CName, nodeName)
-	fmt.Fprintf(result, "static bool %s_next(void *object, %s *out) {\n    %s *node = (%s *)object;\n    if (node->index >= node->length) {\n        return false;\n    }\n    *out = *sw_list_at_%s(node->list, node->index);\n    node->index++;\n    return true;\n}\n", nodeName, elementSpelling, nodeName, nodeName, listSuffix(listType))
+	nodeName := "hex_stream_list_" + listSuffix(listType)
+	fmt.Fprintf(result, "\ntypedef struct %s {\n    const hex_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s *list;\n    size_t index;\n    size_t length;\n} %s;\n\n", nodeName, suffix, listType.CName, nodeName)
+	fmt.Fprintf(result, "static bool %s_next(void *object, %s *out) {\n    %s *node = (%s *)object;\n    if (node->index >= node->length) {\n        return false;\n    }\n    *out = *hex_list_at_%s(node->list, node->index);\n    node->index++;\n    return true;\n}\n", nodeName, elementSpelling, nodeName, nodeName, listSuffix(listType))
 	fmt.Fprintf(result, "static void %s_destroy(void *object) {\n    (void)object;\n}\n", nodeName)
-	fmt.Fprintf(result, "static const sw_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
-	fmt.Fprintf(result, "static inline %s *%s_new(sw_heap h, %s *list) {\n    %s *node = sw_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->list = list;\n    node->index = 0;\n    node->length = list->length;\n    return (%s *)node;\n}\n", streamType.CName, nodeName, listType.CName, nodeName, nodeName, nodeName, nodeName, streamType.CName)
+	fmt.Fprintf(result, "static const hex_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
+	fmt.Fprintf(result, "static inline %s *%s_new(hex_heap h, %s *list) {\n    %s *node = hex_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->list = list;\n    node->index = 0;\n    node->length = list->length;\n    return (%s *)node;\n}\n", streamType.CName, nodeName, listType.CName, nodeName, nodeName, nodeName, nodeName, streamType.CName)
 }
 
 // writeStreamFilterFamily emits the filter adapter node: upstream handle and
@@ -320,12 +320,12 @@ func writeStreamFilterFamily(result *strings.Builder, stream compilerTypes.Type)
 	element := stream.Stream.Element
 	suffix := streamSuffix(stream)
 	elementSpelling := typeSpelling(element)
-	nodeName := "sw_stream_filter_" + suffix
-	fmt.Fprintf(result, "\ntypedef struct %s {\n    const sw_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s *upstream;\n    bool (*predicate)(%s);\n} %s;\n\n", nodeName, suffix, stream.CName, elementSpelling, nodeName)
+	nodeName := "hex_stream_filter_" + suffix
+	fmt.Fprintf(result, "\ntypedef struct %s {\n    const hex_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s *upstream;\n    bool (*predicate)(%s);\n} %s;\n\n", nodeName, suffix, stream.CName, elementSpelling, nodeName)
 	fmt.Fprintf(result, "static bool %s_next(void *object, %s *out) {\n    %s *node = (%s *)object;\n    %s value;\n    while (true) {\n        if (!node->upstream->ops->next((void *)node->upstream, &value)) {\n            return false;\n        }\n        if (node->predicate(value)) {\n            *out = value;\n            return true;\n        }\n    }\n}\n", nodeName, elementSpelling, nodeName, nodeName, elementSpelling)
-	fmt.Fprintf(result, "static void %s_destroy(void *object) {\n    %s *node = (%s *)object;\n    sw_stream_free_%s((sw_heap){ node->allocator }, node->upstream);\n}\n", nodeName, nodeName, nodeName, suffix)
-	fmt.Fprintf(result, "static const sw_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
-	fmt.Fprintf(result, "static inline %s *%s_new(sw_heap h, %s *upstream, bool (*predicate)(%s)) {\n    %s *node = sw_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->upstream = upstream;\n    node->predicate = predicate;\n    return (%s *)node;\n}\n", stream.CName, nodeName, stream.CName, elementSpelling, nodeName, nodeName, nodeName, nodeName, stream.CName)
+	fmt.Fprintf(result, "static void %s_destroy(void *object) {\n    %s *node = (%s *)object;\n    hex_stream_free_%s((hex_heap){ node->allocator }, node->upstream);\n}\n", nodeName, nodeName, nodeName, suffix)
+	fmt.Fprintf(result, "static const hex_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
+	fmt.Fprintf(result, "static inline %s *%s_new(hex_heap h, %s *upstream, bool (*predicate)(%s)) {\n    %s *node = hex_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->upstream = upstream;\n    node->predicate = predicate;\n    return (%s *)node;\n}\n", stream.CName, nodeName, stream.CName, elementSpelling, nodeName, nodeName, nodeName, nodeName, stream.CName)
 }
 
 // writeStreamTakeFamily emits the take adapter node: upstream handle plus a
@@ -334,12 +334,12 @@ func writeStreamTakeFamily(result *strings.Builder, stream compilerTypes.Type) {
 	element := stream.Stream.Element
 	suffix := streamSuffix(stream)
 	elementSpelling := typeSpelling(element)
-	nodeName := "sw_stream_take_" + suffix
-	fmt.Fprintf(result, "\ntypedef struct %s {\n    const sw_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s *upstream;\n    size_t remaining;\n} %s;\n\n", nodeName, suffix, stream.CName, nodeName)
+	nodeName := "hex_stream_take_" + suffix
+	fmt.Fprintf(result, "\ntypedef struct %s {\n    const hex_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s *upstream;\n    size_t remaining;\n} %s;\n\n", nodeName, suffix, stream.CName, nodeName)
 	fmt.Fprintf(result, "static bool %s_next(void *object, %s *out) {\n    %s *node = (%s *)object;\n    if (node->remaining == 0) {\n        return false;\n    }\n    %s value;\n    if (!node->upstream->ops->next((void *)node->upstream, &value)) {\n        return false;\n    }\n    node->remaining--;\n    *out = value;\n    return true;\n}\n", nodeName, elementSpelling, nodeName, nodeName, elementSpelling)
-	fmt.Fprintf(result, "static void %s_destroy(void *object) {\n    %s *node = (%s *)object;\n    sw_stream_free_%s((sw_heap){ node->allocator }, node->upstream);\n}\n", nodeName, nodeName, nodeName, suffix)
-	fmt.Fprintf(result, "static const sw_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
-	fmt.Fprintf(result, "static inline %s *%s_new(sw_heap h, %s *upstream, size_t remaining) {\n    %s *node = sw_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->upstream = upstream;\n    node->remaining = remaining;\n    return (%s *)node;\n}\n", stream.CName, nodeName, stream.CName, nodeName, nodeName, nodeName, nodeName, stream.CName)
+	fmt.Fprintf(result, "static void %s_destroy(void *object) {\n    %s *node = (%s *)object;\n    hex_stream_free_%s((hex_heap){ node->allocator }, node->upstream);\n}\n", nodeName, nodeName, nodeName, suffix)
+	fmt.Fprintf(result, "static const hex_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
+	fmt.Fprintf(result, "static inline %s *%s_new(hex_heap h, %s *upstream, size_t remaining) {\n    %s *node = hex_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->upstream = upstream;\n    node->remaining = remaining;\n    return (%s *)node;\n}\n", stream.CName, nodeName, stream.CName, nodeName, nodeName, nodeName, nodeName, stream.CName)
 }
 
 // writeStreamMapFamily emits the map adapter node for one concrete
@@ -352,12 +352,12 @@ func writeStreamMapFamily(result *strings.Builder, spec streamMapSpec) {
 	suffix := streamSuffix(streamType)
 	elementSpelling := typeSpelling(element)
 	mappedSpelling := typeSpelling(mapped)
-	nodeName := "sw_stream_map_" + streamSuffix(sourceType) + "_" + suffix
-	fmt.Fprintf(result, "\ntypedef struct %s {\n    const sw_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s *upstream;\n    %s (*mapper)(%s);\n} %s;\n\n", nodeName, suffix, sourceType.CName, mappedSpelling, elementSpelling, nodeName)
+	nodeName := "hex_stream_map_" + streamSuffix(sourceType) + "_" + suffix
+	fmt.Fprintf(result, "\ntypedef struct %s {\n    const hex_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s *upstream;\n    %s (*mapper)(%s);\n} %s;\n\n", nodeName, suffix, sourceType.CName, mappedSpelling, elementSpelling, nodeName)
 	fmt.Fprintf(result, "static bool %s_next(void *object, %s *out) {\n    %s *node = (%s *)object;\n    %s value;\n    if (!node->upstream->ops->next((void *)node->upstream, &value)) {\n        return false;\n    }\n    *out = node->mapper(value);\n    return true;\n}\n", nodeName, mappedSpelling, nodeName, nodeName, elementSpelling)
-	fmt.Fprintf(result, "static void %s_destroy(void *object) {\n    %s *node = (%s *)object;\n    sw_stream_free_%s((sw_heap){ node->allocator }, node->upstream);\n}\n", nodeName, nodeName, nodeName, streamSuffix(sourceType))
-	fmt.Fprintf(result, "static const sw_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
-	fmt.Fprintf(result, "static inline %s *%s_new(sw_heap h, %s *upstream, %s (*mapper)(%s)) {\n    %s *node = sw_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->upstream = upstream;\n    node->mapper = mapper;\n    return (%s *)node;\n}\n", streamType.CName, nodeName, sourceType.CName, mappedSpelling, elementSpelling, nodeName, nodeName, nodeName, nodeName, streamType.CName)
+	fmt.Fprintf(result, "static void %s_destroy(void *object) {\n    %s *node = (%s *)object;\n    hex_stream_free_%s((hex_heap){ node->allocator }, node->upstream);\n}\n", nodeName, nodeName, nodeName, streamSuffix(sourceType))
+	fmt.Fprintf(result, "static const hex_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
+	fmt.Fprintf(result, "static inline %s *%s_new(hex_heap h, %s *upstream, %s (*mapper)(%s)) {\n    %s *node = hex_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->upstream = upstream;\n    node->mapper = mapper;\n    return (%s *)node;\n}\n", streamType.CName, nodeName, sourceType.CName, mappedSpelling, elementSpelling, nodeName, nodeName, nodeName, nodeName, streamType.CName)
 }
 
 // writeStreamProduceFamily emits the produce node for one concrete
@@ -370,7 +370,7 @@ func writeStreamProduceFamily(result *strings.Builder, spec streamProduceSpec) {
 	stateType := spec.stateType
 	suffix := streamSuffix(streamType)
 	stateSpelling := typeSpelling(stateType)
-	nodeName := "sw_stream_produce_" + strings.TrimPrefix(stateType.CName, "sw_") + "_" + suffix
+	nodeName := "hex_stream_produce_" + strings.TrimPrefix(stateType.CName, "hex_") + "_" + suffix
 	stepUnion := spec.stepUnion
 	elementIndex := unionMemberIndex(stepUnion, element)
 	eosIndex := unionMemberIndex(stepUnion, compilerTypes.EoS)
@@ -380,11 +380,11 @@ func writeStreamProduceFamily(result *strings.Builder, spec streamProduceSpec) {
 	// The callback is a static function in main.c; the header prototype
 	// makes the node's next helper call it before its definition appears.
 	fmt.Fprintf(result, "\nstatic %s %s(%s *);\n", stepUnion.CName, spec.callbackName, stateType.CName)
-	fmt.Fprintf(result, "typedef struct %s {\n    const sw_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s state;\n} %s;\n\n", nodeName, suffix, stateSpelling, nodeName)
+	fmt.Fprintf(result, "typedef struct %s {\n    const hex_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s state;\n} %s;\n\n", nodeName, suffix, stateSpelling, nodeName)
 	fmt.Fprintf(result, "static bool %s_next(void *object, %s *out) {\n    %s *node = (%s *)object;\n    %s step = %s(&(node->state));\n    if (step.tag == %s) {\n        return false;\n    }\n    *out = step.payload.member_%d;\n    return true;\n}\n", nodeName, typeSpelling(element), nodeName, nodeName, stepUnion.CName, spec.callbackName, unionTagName(stepUnion, eosIndex), elementIndex)
 	fmt.Fprintf(result, "static void %s_destroy(void *object) {\n    (void)object;\n}\n", nodeName)
-	fmt.Fprintf(result, "static const sw_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
-	fmt.Fprintf(result, "static inline %s *%s_new(sw_heap h, %s initial) {\n    %s *node = sw_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->state = initial;\n    return (%s *)node;\n}\n", streamType.CName, nodeName, stateSpelling, nodeName, nodeName, nodeName, nodeName, streamType.CName)
+	fmt.Fprintf(result, "static const hex_stream_ops_%s %s_ops = { %s_next, %s_destroy };\n", suffix, nodeName, nodeName, nodeName)
+	fmt.Fprintf(result, "static inline %s *%s_new(hex_heap h, %s initial) {\n    %s *node = hex_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n    node->ops = &%s_ops;\n    node->allocator = h.identity;\n    node->exhausted = false;\n    node->state = initial;\n    return (%s *)node;\n}\n", streamType.CName, nodeName, stateSpelling, nodeName, nodeName, nodeName, nodeName, streamType.CName)
 }
 
 // validateStreamConstructor verifies a checked Stream constructor node.
@@ -456,7 +456,7 @@ func validateStreamMethod(node checker.Expression, expected compilerTypes.Type, 
 // produce() to one header-and-State allocation.
 func renderStreamConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Name == "new" {
-		return "(&sw_stream_empty_" + streamSuffix(node.ResultType) + ")", nil
+		return "(&hex_stream_empty_" + streamSuffix(node.ResultType) + ")", nil
 	}
 	heap, err := renderOperandWithState(node.Arguments[0], state)
 	if err != nil {
@@ -468,7 +468,7 @@ func renderStreamConstructor(node checker.Expression, state *expressionValidatio
 	}
 	stateType := node.Arguments[1].Type
 	suffix := streamSuffix(node.ResultType)
-	nodeName := "sw_stream_produce_" + strings.TrimPrefix(stateType.CName, "sw_") + "_" + suffix
+	nodeName := "hex_stream_produce_" + strings.TrimPrefix(stateType.CName, "hex_") + "_" + suffix
 	return fmt.Sprintf("%s_new(%s, %s)", nodeName, heap, initial), nil
 }
 
@@ -487,20 +487,20 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 	}
 	switch node.Name {
 	case "next":
-		return "sw_stream_next_" + streamSuffix(node.OperandType) + "(" + receiver + ")", nil
+		return "hex_stream_next_" + streamSuffix(node.OperandType) + "(" + receiver + ")", nil
 	case "free":
 		heap, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
 			return "", err
 		}
-		return "sw_stream_free_" + streamSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
+		return "hex_stream_free_" + streamSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
 	case "list_stream":
 		heap, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
 			return "", err
 		}
 		listType := node.OperandType
-		return fmt.Sprintf("sw_stream_list_%s_new(%s, %s)", listSuffix(listType), heap, receiver), nil
+		return fmt.Sprintf("hex_stream_list_%s_new(%s, %s)", listSuffix(listType), heap, receiver), nil
 	case "filter":
 		heap, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
@@ -510,7 +510,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("sw_stream_filter_%s_new(%s, %s, %s)", streamSuffix(node.ResultType), heap, receiver, callback), nil
+		return fmt.Sprintf("hex_stream_filter_%s_new(%s, %s, %s)", streamSuffix(node.ResultType), heap, receiver, callback), nil
 	case "take":
 		heap, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
@@ -520,7 +520,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("sw_stream_take_%s_new(%s, %s, %s)", streamSuffix(node.ResultType), heap, receiver, count), nil
+		return fmt.Sprintf("hex_stream_take_%s_new(%s, %s, %s)", streamSuffix(node.ResultType), heap, receiver, count), nil
 	case "map":
 		heap, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
@@ -530,7 +530,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		if err != nil {
 			return "", err
 		}
-		nodeName := "sw_stream_map_" + streamSuffix(node.OperandType) + "_" + streamSuffix(node.ResultType)
+		nodeName := "hex_stream_map_" + streamSuffix(node.OperandType) + "_" + streamSuffix(node.ResultType)
 		return fmt.Sprintf("%s_new(%s, %s, %s)", nodeName, heap, receiver, callback), nil
 	default:
 		return "", unknownExpressionDiagnostic("unknown stream method")

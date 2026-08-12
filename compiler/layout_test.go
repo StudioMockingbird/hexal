@@ -16,8 +16,8 @@ func TestLayoutQueriesCompile(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		"(size_t)sizeof(int32_t)",
-		"(size_t)alignof(sw_t_Node)",
-		"(size_t)sizeof(const sw_string *)",
+		"(size_t)alignof(hex_t_Node)",
+		"(size_t)sizeof(const hex_string *)",
 	} {
 		if !strings.Contains(result.MainC, fragment) {
 			t.Fatalf("generated C lacks %s:\n%s", fragment, result.MainC)

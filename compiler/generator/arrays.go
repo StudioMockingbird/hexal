@@ -297,10 +297,10 @@ func writeArrayDefinitions(result *strings.Builder, arrays *generatedArrayState,
 		element := array.Array.Element
 		length := array.Array.Length
 		fmt.Fprintf(result, "\ntypedef struct %s {\n    %s data[%d];\n} %s;\n", array.CName, pointerSpelling(element), length, array.CName)
-		fmt.Fprintf(result, "static inline const %s *sw_array_at_%s(const %s *array, size_t index) {\n", pointerSpelling(element), arrayAccessorSuffix(array), array.CName)
+		fmt.Fprintf(result, "static inline const %s *hex_array_at_%s(const %s *array, size_t index) {\n", pointerSpelling(element), arrayAccessorSuffix(array), array.CName)
 		writeArrayBoundsGuard(result, length)
 		result.WriteString("    return &array->data[index];\n}\n")
-		fmt.Fprintf(result, "static inline %s *sw_array_at_mut_%s(%s *array, size_t index) {\n", pointerSpelling(element), arrayAccessorSuffix(array), array.CName)
+		fmt.Fprintf(result, "static inline %s *hex_array_at_mut_%s(%s *array, size_t index) {\n", pointerSpelling(element), arrayAccessorSuffix(array), array.CName)
 		writeArrayBoundsGuard(result, length)
 		result.WriteString("    return &array->data[index];\n}\n")
 		if view := matchingView(views, element); view != (compilerTypes.Type{}) {
@@ -329,15 +329,15 @@ func writeArrayBoundsGuard(result *strings.Builder, length uint64) {
 }
 
 func arrayAccessorSuffix(array compilerTypes.Type) string {
-	return strings.TrimPrefix(array.CName, "sw_array_")
+	return strings.TrimPrefix(array.CName, "hex_array_")
 }
 
 // arrayAccessorCName selects the read or write accessor for one array type;
 // writable selects the mutable variant.
 func arrayAccessorCName(array compilerTypes.Type, writable bool) string {
-	name := "sw_array_at_" + arrayAccessorSuffix(array)
+	name := "hex_array_at_" + arrayAccessorSuffix(array)
 	if writable {
-		name = "sw_array_at_mut_" + arrayAccessorSuffix(array)
+		name = "hex_array_at_mut_" + arrayAccessorSuffix(array)
 	}
 	return name
 }

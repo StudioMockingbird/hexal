@@ -16,19 +16,19 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "sw_task_spawn(") {
+	if !strings.Contains(result.MainC, "hex_task_spawn(") {
 		t.Fatalf("generated C lacks the spawn call:\n%s", result.MainC)
 	}
-	if !strings.Contains(result.MainC, "sw_task_join_Int32(") {
+	if !strings.Contains(result.MainC, "hex_task_join_Int32(") {
 		t.Fatalf("generated C lacks the typed join call:\n%s", result.MainC)
 	}
-	if !strings.Contains(result.MainH, "sw_scheduler_init") {
+	if !strings.Contains(result.MainH, "hex_scheduler_init") {
 		t.Fatalf("generated header lacks the scheduler runtime:\n%s", result.MainH)
 	}
-	if !strings.Contains(result.MainC, "sw_scheduler_init();") {
+	if !strings.Contains(result.MainC, "hex_scheduler_init();") {
 		t.Fatalf("generated main does not initialize the scheduler:\n%s", result.MainC)
 	}
-	if !strings.Contains(result.MainC, "sw_task_complete(sw_root_task);") {
+	if !strings.Contains(result.MainC, "hex_task_complete(hex_root_task);") {
 		t.Fatalf("generated main does not complete the root task:\n%s", result.MainC)
 	}
 }
@@ -39,7 +39,7 @@ func TestSpawnNilResultCompiles(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "sw_task_join_Nil(") {
+	if !strings.Contains(result.MainC, "hex_task_join_Nil(") {
 		t.Fatalf("generated C lacks the Nil join call:\n%s", result.MainC)
 	}
 }
@@ -51,12 +51,12 @@ func TestChannelPipelineCompiles(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, fragment := range []string{
-		"sw_chan_new_Int32(",
-		"sw_chan_send_Int32(",
-		"sw_chan_recv_Int32(",
-		"sw_chan_close_Int32(",
-		"sw_chan_free_Int32(",
-		"sw_chan_length",
+		"hex_chan_new_Int32(",
+		"hex_chan_send_Int32(",
+		"hex_chan_recv_Int32(",
+		"hex_chan_close_Int32(",
+		"hex_chan_free_Int32(",
+		"hex_chan_length",
 	} {
 		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
 			t.Fatalf("generated output lacks %s:\n%s", fragment, result.MainC)
@@ -70,7 +70,7 @@ func TestMutexCompiles(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainH, "sw_mutex_lock_sw_mutex(") {
+	if !strings.Contains(result.MainH, "hex_mutex_lock_hex_mutex(") {
 		t.Fatalf("generated header lacks the mutex helpers:\n%s", result.MainH)
 	}
 }
@@ -82,14 +82,14 @@ func TestAtomicOperationsCompile(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, fragment := range []string{
-		"sw_atomic_Int32_new(",
-		"sw_atomic_Int32_fetch_add(",
-		"sw_atomic_Int32_fetch_sub(",
-		"sw_atomic_Int32_store(",
-		"sw_atomic_Int32_load(",
-		"sw_atomic_Int32_exchange(",
-		"sw_atomic_Int32_compare_exchange(",
-		"sw_atomic_Bool_load(",
+		"hex_atomic_Int32_new(",
+		"hex_atomic_Int32_fetch_add(",
+		"hex_atomic_Int32_fetch_sub(",
+		"hex_atomic_Int32_store(",
+		"hex_atomic_Int32_load(",
+		"hex_atomic_Int32_exchange(",
+		"hex_atomic_Int32_compare_exchange(",
+		"hex_atomic_Bool_load(",
 	} {
 		if !strings.Contains(result.MainH, fragment) && !strings.Contains(result.MainC, fragment) {
 			t.Fatalf("generated output lacks %s", fragment)

@@ -150,7 +150,7 @@ func (environment *Environment) ArrayType(element Type, length uint64) Type {
 	array := &ArrayInfo{Element: element, Length: length}
 	typ := Type{
 		Name:     name,
-		CName:    "sw_array_" + SanitizeIdentifier(element.Name) + "_" + strconv.FormatUint(length, 10),
+		CName:    "hex_array_" + SanitizeIdentifier(element.Name) + "_" + strconv.FormatUint(length, 10),
 		Array:    array,
 		identity: newTypeIdentity(environment.identity),
 	}
@@ -182,7 +182,7 @@ func (environment *Environment) ViewType(element Type) Type {
 	identity.signature = key
 	typ := Type{
 		Name:     "View<" + element.Name + ">",
-		CName:    "sw_view_" + SanitizeIdentifier(element.Name),
+		CName:    "hex_view_" + SanitizeIdentifier(element.Name),
 		View:     &ViewInfo{Element: element},
 		identity: identity,
 	}
@@ -206,7 +206,7 @@ func (environment *Environment) ListType(element Type) Type {
 	identity.signature = key
 	typ := Type{
 		Name:     "List<" + element.Name + ">",
-		CName:    "sw_list_" + SanitizeIdentifier(element.Name),
+		CName:    "hex_list_" + SanitizeIdentifier(element.Name),
 		List:     &ListInfo{Element: element},
 		identity: identity,
 	}
@@ -246,7 +246,7 @@ func (environment *Environment) StreamType(element Type) Type {
 	identity.signature = key
 	typ := Type{
 		Name:     "Stream<" + element.Name + ">",
-		CName:    "sw_stream_" + SanitizeIdentifier(element.Name),
+		CName:    "hex_stream_" + SanitizeIdentifier(element.Name),
 		Stream:   &StreamInfo{Element: element},
 		identity: identity,
 	}
@@ -312,7 +312,7 @@ func (environment *Environment) TaskType(result Type) Type {
 	identity.signature = key
 	typ := Type{
 		Name:     "Task<" + result.Name + ">",
-		CName:    "sw_task_" + SanitizeIdentifier(result.Name),
+		CName:    "hex_task_" + SanitizeIdentifier(result.Name),
 		Task:     &TaskInfo{Result: result},
 		identity: identity,
 	}
@@ -339,7 +339,7 @@ func (environment *Environment) ChannelType(element Type) Type {
 	identity.signature = key
 	typ := Type{
 		Name:     "Channel<" + element.Name + ">",
-		CName:    "sw_channel_" + SanitizeIdentifier(element.Name),
+		CName:    "hex_channel_" + SanitizeIdentifier(element.Name),
 		Channel:  &ChannelInfo{Element: element},
 		identity: identity,
 	}
@@ -370,7 +370,7 @@ func (environment *Environment) AtomicType(element Type) Type {
 	identity.signature = key
 	typ := Type{
 		Name:     "Atomic<" + element.Name + ">",
-		CName:    "sw_atomic_" + SanitizeIdentifier(element.Name),
+		CName:    "hex_atomic_" + SanitizeIdentifier(element.Name),
 		Atomic:   &AtomicInfo{Element: element},
 		identity: identity,
 	}
@@ -403,7 +403,7 @@ func (environment *Environment) DictType(key, value Type) Type {
 	identity.signature = keyName
 	typ := Type{
 		Name:     "Dict<" + key.Name + ", " + value.Name + ">",
-		CName:    "sw_dict_" + SanitizeIdentifier(key.Name) + "_" + SanitizeIdentifier(value.Name),
+		CName:    "hex_dict_" + SanitizeIdentifier(key.Name) + "_" + SanitizeIdentifier(value.Name),
 		Dict:     &DictInfo{Key: key, Value: value},
 		identity: identity,
 	}

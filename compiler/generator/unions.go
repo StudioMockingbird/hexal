@@ -37,7 +37,7 @@ func (state *generatedUnionState) addWidening(node checker.Expression) {
 }
 
 func unionHelperName(ordinal int) string {
-	return fmt.Sprintf("sw_internal_union_%d", ordinal)
+	return fmt.Sprintf("hex_internal_union_%d", ordinal)
 }
 
 func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, error) {
@@ -300,7 +300,7 @@ func unionTagName(union compilerTypes.Type, memberIndex int) string {
 }
 
 func unionWidenHelperName(source, destination compilerTypes.Type) string {
-	return "sw_internal_widen_" + source.CName + "_to_" + destination.CName
+	return "hex_internal_widen_" + source.CName + "_to_" + destination.CName
 }
 
 func writeUnionWidening(result *strings.Builder, widening unionWidening) {
@@ -506,7 +506,7 @@ func unionEqualityCall(typ compilerTypes.Type, left, right string) string {
 }
 
 func unionWidenCall(source, destination compilerTypes.Type, rendered string) string {
-	return "sw_internal_widen_" + source.CName + "_to_" + destination.CName + "(" + rendered + ")"
+	return "hex_internal_widen_" + source.CName + "_to_" + destination.CName + "(" + rendered + ")"
 }
 
 func renderUnionInjection(node checker.Expression, state *expressionValidation) (string, error) {

@@ -10,7 +10,7 @@ func TestADTDeclarationWithRecordVariants(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "sw_Shape_tag") || !strings.Contains(result.MainC, ".payload.Circle") {
+	if !strings.Contains(result.MainH, "hex_Shape_tag") || !strings.Contains(result.MainC, ".payload.Circle") {
 		t.Fatalf("generated output = H:%q C:%q, want ADT tag and payload", result.MainH, result.MainC)
 	}
 }
@@ -20,7 +20,7 @@ func TestADTUnitVariantEnumBehavior(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "sw_Direction_North") || strings.Contains(result.MainH, "payload") {
+	if !strings.Contains(result.MainH, "hex_Direction_North") || strings.Contains(result.MainH, "payload") {
 		t.Fatalf("generated header = %q, want tag-only unit variants", result.MainH)
 	}
 }
@@ -58,7 +58,7 @@ func TestMatchValueModeBooleanPatterns(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_match_scrutinee_1") {
+	if !strings.Contains(result.MainC, "hex_match_scrutinee_1") {
 		t.Fatalf("generated C = %q, want match lowering", result.MainC)
 	}
 }
@@ -68,7 +68,7 @@ func TestMatchTypeModeVariantArmsNarrowPayload(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, ".tag == sw_Shape_Circle") || !strings.Contains(result.MainC, ".payload.Circle.sw_m_r") {
+	if !strings.Contains(result.MainC, ".tag == hex_Shape_Circle") || !strings.Contains(result.MainC, ".payload.Circle.hex_m_r") {
 		t.Fatalf("generated C = %q, want narrowed variant payload", result.MainC)
 	}
 }
@@ -99,7 +99,7 @@ func TestMatchScrutineeEvaluatedOnce(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if strings.Count(result.MainC, "sw_match_scrutinee_1 = sw_f_read_value()") != 1 {
+	if strings.Count(result.MainC, "hex_match_scrutinee_1 = hex_f_read_value()") != 1 {
 		t.Fatalf("generated C = %q, want one scrutinee evaluation", result.MainC)
 	}
 }
@@ -109,7 +109,7 @@ func TestGeneratedADTTagLayoutAndInvalidTagTrap(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "sw_Shape_tag") || !strings.Contains(result.MainH, "typedef struct sw_Shape") {
+	if !strings.Contains(result.MainH, "hex_Shape_tag") || !strings.Contains(result.MainH, "typedef struct hex_Shape") {
 		t.Fatalf("generated header = %q, want deterministic tag-and-payload layout", result.MainH)
 	}
 }
@@ -126,7 +126,7 @@ func TestGenericADTSpecializesAndMatches(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "sw_Result_Int32__Bool__tag") || !strings.Contains(result.MainC, ".payload.Ok.sw_m_value") {
+	if !strings.Contains(result.MainH, "hex_Result_Int32__Bool__tag") || !strings.Contains(result.MainC, ".payload.Ok.hex_m_value") {
 		t.Fatalf("generated output = H:%q C:%q, want specialized ADT and match", result.MainH, result.MainC)
 	}
 }
@@ -136,7 +136,7 @@ func TestGenericADTUnitVariantNoPayload(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "sw_Maybe_Int32_") {
+	if !strings.Contains(result.MainH, "hex_Maybe_Int32_") {
 		t.Fatalf("generated header = %q, want specialized unit variant ADT", result.MainH)
 	}
 }

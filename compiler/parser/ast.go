@@ -3,7 +3,7 @@ package parser
 
 import "hexal/compiler/lexer"
 
-// Program is the syntax tree for a complete Seawitch source file.
+// Program is the syntax tree for a complete Hexal source file.
 type Program struct {
 	Items      []TopLevelItem
 	Statements []Statement

@@ -295,12 +295,12 @@ func writeViewDefinitions(result *strings.Builder, views *generatedViewState) {
 	}
 	for _, view := range views.views {
 		element := view.View.Element
-		suffix := strings.TrimPrefix(view.CName, "sw_view_")
+		suffix := strings.TrimPrefix(view.CName, "hex_view_")
 		fmt.Fprintf(result, "\ntypedef struct %s {\n    const %s *data;\n    size_t length;\n} %s;\n", view.CName, pointerSpelling(element), view.CName)
-		fmt.Fprintf(result, "static inline const %s *sw_view_at_%s(%s view, size_t index) {\n", pointerSpelling(element), suffix, view.CName)
+		fmt.Fprintf(result, "static inline const %s *hex_view_at_%s(%s view, size_t index) {\n", pointerSpelling(element), suffix, view.CName)
 		writeViewBoundsGuard(result)
 		result.WriteString("    return &view.data[index];\n}\n")
-		fmt.Fprintf(result, "static inline %s sw_view_slice_%s(%s view, uint64_t start, uint64_t end) {\n", view.CName, suffix, view.CName)
+		fmt.Fprintf(result, "static inline %s hex_view_slice_%s(%s view, uint64_t start, uint64_t end) {\n", view.CName, suffix, view.CName)
 		writeViewSliceGuard(result)
 		fmt.Fprintf(result, "    return (%s){&view.data[start], end - start};\n}\n", view.CName)
 	}
@@ -322,7 +322,7 @@ func writeViewSliceGuard(result *strings.Builder) {
 func writeArraySliceHelper(result *strings.Builder, array compilerTypes.Type, view compilerTypes.Type) {
 	length := array.Array.Length
 	suffix := arrayAccessorSuffix(array)
-	fmt.Fprintf(result, "\nstatic inline %s sw_array_slice_%s(const %s *array, uint64_t start, uint64_t end) {\n", view.CName, suffix, array.CName)
+	fmt.Fprintf(result, "\nstatic inline %s hex_array_slice_%s(const %s *array, uint64_t start, uint64_t end) {\n", view.CName, suffix, array.CName)
 	fmt.Fprintf(result, "    if (!(start <= end && end <= UINT64_C(%d))) {\n", length)
 	result.WriteString("        fputs(\"[Runtime Error] array slice bounds out of range\\n\", stderr);\n        abort();\n    }\n")
 	fmt.Fprintf(result, "    return (%s){&array->data[start], end - start};\n}\n", view.CName)
@@ -335,7 +335,7 @@ func ensureViewUInt8(state *generatedViewState) {
 		return
 	}
 	for _, view := range state.views {
-		if view.CName == "sw_view_UInt8" {
+		if view.CName == "hex_view_UInt8" {
 			return
 		}
 	}
@@ -346,5 +346,5 @@ func ensureViewUInt8(state *generatedViewState) {
 
 // viewCName returns the C struct name of the view type over one element.
 func viewCName(element compilerTypes.Type) string {
-	return "sw_view_" + compilerTypes.SanitizeIdentifier(element.Name)
+	return "hex_view_" + compilerTypes.SanitizeIdentifier(element.Name)
 }

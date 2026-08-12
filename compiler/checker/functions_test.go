@@ -513,7 +513,7 @@ func TestImplTargetCannotBeNullable(t *testing.T) {
 		"impl requires T, Ptr<T>, or MutPtr<T>; got MutPtr<Node> | Nil")
 }
 
-// sw_f_ name encoding is not injective, so the checker owns the clash.
+// hex_f_ name encoding is not injective, so the checker owns the clash.
 func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
 	requireDiagnostic(t, point+
 		"impl Point.translate()\n    return\nend\n"+

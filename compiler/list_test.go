@@ -14,18 +14,18 @@ func TestListLifecycle(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_list_Int32 {",
+		"typedef struct hex_list_Int32 {",
 		"int32_t *data;",
 		"size_t length;",
-		"sw_v_values = sw_list_new_Int32(sw_v_h);",
-		"sw_list_push_Int32(sw_v_values, 1);",
-		"(sw_v_values)->length",
-		"(sw_v_values)->length == 0",
-		"*sw_list_at_Int32(sw_v_values, (size_t)(0))",
-		"*sw_list_at_mut_Int32(sw_v_values, (size_t)(1)) = 5;",
-		"sw_v_last = sw_list_pop_Int32(sw_v_values);",
-		"sw_list_clear_Int32(sw_v_values);",
-		"sw_list_free_Int32(sw_defer_capture_2, sw_defer_capture_1);",
+		"hex_v_values = hex_list_new_Int32(hex_v_h);",
+		"hex_list_push_Int32(hex_v_values, 1);",
+		"(hex_v_values)->length",
+		"(hex_v_values)->length == 0",
+		"*hex_list_at_Int32(hex_v_values, (size_t)(0))",
+		"*hex_list_at_mut_Int32(hex_v_values, (size_t)(1)) = 5;",
+		"hex_v_last = hex_list_pop_Int32(hex_v_values);",
+		"hex_list_clear_Int32(hex_v_values);",
+		"hex_list_free_Int32(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -38,7 +38,7 @@ func TestListViewDerivationAndInvalidation(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "const sw_view_Int32 sw_v_view = sw_list_slice_Int32(sw_v_values, (size_t)(0), (size_t)(2));") {
+	if !strings.Contains(result.MainC, "const hex_view_Int32 hex_v_view = hex_list_slice_Int32(hex_v_values, (size_t)(0), (size_t)(2));") {
 		t.Fatalf("main.c = %q, want list slice", result.MainC)
 	}
 }
@@ -96,11 +96,11 @@ func TestListOfStrings(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"sw_list_push_String(sw_v_names, &sw_lit_0);",
-		"sw_list_push_String(sw_v_names, &sw_lit_1);",
-		"sw_list_set_String(sw_v_names, (size_t)(0), &sw_lit_2);",
-		"sw_v_popped = sw_list_pop_String(sw_v_names);",
-		"sw_string_free(sw_v_h, sw_v_popped);",
+		"hex_list_push_String(hex_v_names, &hex_lit_0);",
+		"hex_list_push_String(hex_v_names, &hex_lit_1);",
+		"hex_list_set_String(hex_v_names, (size_t)(0), &hex_lit_2);",
+		"hex_v_popped = hex_list_pop_String(hex_v_names);",
+		"hex_string_free(hex_v_h, hex_v_popped);",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)

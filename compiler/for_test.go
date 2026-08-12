@@ -13,12 +13,12 @@ func TestForInSequenceLoops(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"sw_array_Int32_3 *const sw_for_1 = &(sw_v_fixed);",
-		"for (size_t sw_for_1_index = 0; sw_for_1_index < (size_t)(3); sw_for_1_index++) {",
-		"const int32_t sw_v_value = *sw_array_at_Int32_3(sw_for_1, (size_t)(sw_for_1_index));",
-		"const size_t sw_v_i = sw_for_2_index;",
-		"const sw_view_Int32 sw_for_3 = sw_v_view;",
-		"const sw_list_Int32 *const sw_for_1 = sw_v_values;",
+		"hex_array_Int32_3 *const hex_for_1 = &(hex_v_fixed);",
+		"for (size_t hex_for_1_index = 0; hex_for_1_index < (size_t)(3); hex_for_1_index++) {",
+		"const int32_t hex_v_value = *hex_array_at_Int32_3(hex_for_1, (size_t)(hex_for_1_index));",
+		"const size_t hex_v_i = hex_for_2_index;",
+		"const hex_view_Int32 hex_for_3 = hex_v_view;",
+		"const hex_list_Int32 *const hex_for_1 = hex_v_values;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -31,7 +31,7 @@ func TestForInTemporaryArraySource(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "const sw_array_Int32_2 sw_for_1 = sw_f_make_fixed();") {
+	if !strings.Contains(result.MainC, "const hex_array_Int32_2 hex_for_1 = hex_f_make_fixed();") {
 		t.Fatalf("main.c = %q, want materialized temporary Array source", result.MainC)
 	}
 }
@@ -42,12 +42,12 @@ func TestForInTextRunes(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const sw_string *const sw_for_1 = sw_v_text;",
-		"while (sw_for_1_offset < sw_for_1->byte_length) {",
-		"sw_utf8_next(sw_for_1->data, sw_for_1->byte_length, &sw_for_1_offset)",
-		"const uint32_t sw_v_rune = (sw_for_1_rune);",
-		"const size_t sw_v_i = sw_for_2_ordinal;",
-		"const sw_strand sw_for_3 = sw_v_strand;",
+		"const hex_string *const hex_for_1 = hex_v_text;",
+		"while (hex_for_1_offset < hex_for_1->byte_length) {",
+		"hex_utf8_next(hex_for_1->data, hex_for_1->byte_length, &hex_for_1_offset)",
+		"const uint32_t hex_v_rune = (hex_for_1_rune);",
+		"const size_t hex_v_i = hex_for_2_ordinal;",
+		"const hex_strand hex_for_3 = hex_v_strand;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -61,12 +61,12 @@ func TestForInDictEntries(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const sw_dict_Int32_Int32 *const sw_for_1 = sw_v_scores;",
-		"for (size_t sw_for_1_bucket = 0; sw_for_1_bucket < sw_for_1->capacity; sw_for_1_bucket++) {",
-		"if (!sw_for_1->buckets[sw_for_1_bucket].active) {",
-		"const int32_t sw_v_key = sw_for_1->buckets[sw_for_1_bucket].key;",
-		"const int32_t sw_v_value = sw_for_1->buckets[sw_for_1_bucket].value;",
-		"const size_t sw_v_i = sw_for_2_ordinal;",
+		"const hex_dict_Int32_Int32 *const hex_for_1 = hex_v_scores;",
+		"for (size_t hex_for_1_bucket = 0; hex_for_1_bucket < hex_for_1->capacity; hex_for_1_bucket++) {",
+		"if (!hex_for_1->buckets[hex_for_1_bucket].active) {",
+		"const int32_t hex_v_key = hex_for_1->buckets[hex_for_1_bucket].key;",
+		"const int32_t hex_v_value = hex_for_1->buckets[hex_for_1_bucket].value;",
+		"const size_t hex_v_i = hex_for_2_ordinal;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -122,7 +122,7 @@ func TestForInSourceEvaluatedOnce(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if strings.Count(result.MainC, "sw_f_count_calls()") != 1 {
+	if strings.Count(result.MainC, "hex_f_count_calls()") != 1 {
 		t.Fatalf("main.c = %q, want exactly one source evaluation", result.MainC)
 	}
 }

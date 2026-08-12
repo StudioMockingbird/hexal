@@ -263,7 +263,7 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 		return unknownExpressionDiagnostic("try expression has invalid checked metadata")
 	}
 	state.tryCounter++
-	temp := fmt.Sprintf("sw_try_%d", state.tryCounter)
+	temp := fmt.Sprintf("hex_try_%d", state.tryCounter)
 	if state.hoistedTries == nil {
 		state.hoistedTries = make(map[*checker.Expression]string)
 	}
@@ -310,7 +310,7 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 	// Multiple success members: a switch materializes the narrowed success
 	// union into one named temporary.
 	state.tryCounter++
-	resultTemp := fmt.Sprintf("sw_try_result_%d", state.tryCounter)
+	resultTemp := fmt.Sprintf("hex_try_result_%d", state.tryCounter)
 	fmt.Fprintf(&builder, "%s%s %s;\n", indent, declaration(success, resultTemp, false), "")
 	builder.Reset()
 	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, operandUnion.CName, temp, operand)

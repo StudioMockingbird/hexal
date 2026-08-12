@@ -17,7 +17,7 @@ func TestLosslessNumericComparisonWidening(t *testing.T) {
 		"((int64_t)((1)) == INT64_C(2))",
 		"((int64_t)((1)) == (int64_t)((3)))",
 		"((double)((1)) < (double)((0x1.4p+0f)))",
-		"sw_v_narrow = (1 == (int16_t)((2)));",
+		"hex_v_narrow = (1 == (int16_t)((2)));",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -46,7 +46,7 @@ func TestPointerIdentityEquality(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "(sw_v_left == sw_v_right)") {
+	if !strings.Contains(result.MainC, "(hex_v_left == hex_v_right)") {
 		t.Fatalf("main.c = %q, want pointer identity comparison", result.MainC)
 	}
 }
@@ -64,10 +64,10 @@ func TestObjectEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool sw_equal_sw_t_Point(sw_t_Point *left, sw_t_Point *right) {",
-		"if (!((*left).sw_m_x == (*right).sw_m_x)) return false;",
-		"sw_v_same = sw_equal_sw_t_Point(&(sw_v_left), &(sw_v_right));",
-		"(!sw_equal_sw_t_Point(&(sw_v_left), &(sw_v_right)))",
+		"static bool hex_equal_hex_t_Point(hex_t_Point *left, hex_t_Point *right) {",
+		"if (!((*left).hex_m_x == (*right).hex_m_x)) return false;",
+		"hex_v_same = hex_equal_hex_t_Point(&(hex_v_left), &(hex_v_right));",
+		"(!hex_equal_hex_t_Point(&(hex_v_left), &(hex_v_right)))",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -96,15 +96,15 @@ func TestStringEqualityAndOrdering(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool sw_equal_sw_string(const sw_string *left, const sw_string *right) {",
-		"static int sw_compare_sw_string(const sw_string *left, const sw_string *right) {",
-		"static int sw_compare_sw_strand(sw_strand left, sw_strand right) {",
-		"sw_v_same = sw_equal_sw_string(sw_v_left, sw_v_right);",
-		"(sw_compare_sw_string(sw_v_left, sw_v_right) < 0)",
-		"(sw_compare_sw_string(sw_v_left, sw_v_right) <= 0)",
-		"(sw_compare_sw_string(sw_v_left, sw_v_right) > 0)",
-		"(sw_compare_sw_string(sw_v_left, sw_v_right) >= 0)",
-		"(sw_compare_sw_strand(sw_v_a, sw_v_b) < 0)",
+		"static bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {",
+		"static int hex_compare_hex_string(const hex_string *left, const hex_string *right) {",
+		"static int hex_compare_hex_strand(hex_strand left, hex_strand right) {",
+		"hex_v_same = hex_equal_hex_string(hex_v_left, hex_v_right);",
+		"(hex_compare_hex_string(hex_v_left, hex_v_right) < 0)",
+		"(hex_compare_hex_string(hex_v_left, hex_v_right) <= 0)",
+		"(hex_compare_hex_string(hex_v_left, hex_v_right) > 0)",
+		"(hex_compare_hex_string(hex_v_left, hex_v_right) >= 0)",
+		"(hex_compare_hex_strand(hex_v_a, hex_v_b) < 0)",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -125,9 +125,9 @@ func TestSequenceEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool sw_equal_sw_array_Int32_2(sw_array_Int32_2 *left, sw_array_Int32_2 *right) {",
+		"static bool hex_equal_hex_array_Int32_2(hex_array_Int32_2 *left, hex_array_Int32_2 *right) {",
 		"if (!((*left).data[0] == (*right).data[0])) return false;",
-		"sw_v_same = sw_equal_sw_array_Int32_2(&(sw_v_fixed), &(sw_v_other));",
+		"hex_v_same = hex_equal_hex_array_Int32_2(&(hex_v_fixed), &(hex_v_other));",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -155,9 +155,9 @@ func TestAdtEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool sw_equal_sw_Shape(sw_Shape *left, sw_Shape *right) {",
+		"static bool hex_equal_hex_Shape(hex_Shape *left, hex_Shape *right) {",
 		"if ((*left).tag != (*right).tag) return false;",
-		"if (!((*left).payload.Circle.sw_m_r == (*right).payload.Circle.sw_m_r)) return false;",
+		"if (!((*left).payload.Circle.hex_m_r == (*right).payload.Circle.hex_m_r)) return false;",
 	} {
 		if !strings.Contains(result.MainH, want) {
 			t.Fatalf("main.h = %q, want %q", result.MainH, want)
@@ -170,7 +170,7 @@ func TestUnionEqualityWithObjectMember(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "static bool sw_internal_union_1_equal(sw_internal_union_1 left, sw_internal_union_1 right) {") {
+	if !strings.Contains(result.MainH, "static bool hex_internal_union_1_equal(hex_internal_union_1 left, hex_internal_union_1 right) {") {
 		t.Fatalf("main.h = %q, want recursive union equality helper", result.MainH)
 	}
 }
@@ -196,7 +196,7 @@ func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "sw_equal_sw_string") {
+	if !strings.Contains(result.MainH, "hex_equal_hex_string") {
 		t.Fatalf("main.h = %q, want specialized String equality helper", result.MainH)
 	}
 }

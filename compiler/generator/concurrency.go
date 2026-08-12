@@ -345,17 +345,17 @@ func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Ty
 
 // taskSuffix returns the per-result C suffix of a Task<R> type.
 func taskSuffix(task compilerTypes.Type) string {
-	return strings.TrimPrefix(task.CName, "sw_task_")
+	return strings.TrimPrefix(task.CName, "hex_task_")
 }
 
 // channelSuffix returns the per-element C suffix of a Channel<T> type.
 func channelSuffix(channel compilerTypes.Type) string {
-	return strings.TrimPrefix(channel.CName, "sw_channel_")
+	return strings.TrimPrefix(channel.CName, "hex_channel_")
 }
 
 // atomicSuffix returns the per-element C suffix of an Atomic<T> type.
 func atomicSuffix(atomic compilerTypes.Type) string {
-	return strings.TrimPrefix(atomic.CName, "sw_atomic_")
+	return strings.TrimPrefix(atomic.CName, "hex_atomic_")
 }
 
 // messageLiteral returns the C literal object name of one failure message.
@@ -366,20 +366,20 @@ func (state *generatedConcurrencyState) messageLiteral(strings *generatedStringS
 	return state.fileLiteral
 }
 
-// sw_sched_error_spelling is the runtime Error-construction helper, emitted
+// hex_sched_error_spelling is the runtime Error-construction helper, emitted
 // once before any operation family that can fail.
 func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder) {
-	fmt.Fprintf(result, "\nstatic inline sw_t_Error sw_sched_error(size_t line, size_t column, const sw_string *message) {\n")
-	fmt.Fprintf(result, "    return (sw_t_Error){\n")
-	fmt.Fprintf(result, "        .sw_m_file = &%s,\n", state.fileLiteral)
-	fmt.Fprintf(result, "        .sw_m_line = line,\n")
-	fmt.Fprintf(result, "        .sw_m_column = column,\n")
-	fmt.Fprintf(result, "        .sw_m_header = (sw_strand){{")
+	fmt.Fprintf(result, "\nstatic inline hex_t_Error hex_sched_error(size_t line, size_t column, const hex_string *message) {\n")
+	fmt.Fprintf(result, "    return (hex_t_Error){\n")
+	fmt.Fprintf(result, "        .hex_m_file = &%s,\n", state.fileLiteral)
+	fmt.Fprintf(result, "        .hex_m_line = line,\n")
+	fmt.Fprintf(result, "        .hex_m_column = column,\n")
+	fmt.Fprintf(result, "        .hex_m_header = (hex_strand){{")
 	for _, character := range []byte("Scheduler") {
 		fmt.Fprintf(result, " %d,", character)
 	}
 	fmt.Fprintf(result, " 0 }},\n")
-	fmt.Fprintf(result, "        .sw_m_message = message,\n")
+	fmt.Fprintf(result, "        .hex_m_message = message,\n")
 	fmt.Fprintf(result, "    };\n}\n")
 }
 
@@ -393,23 +393,23 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 		return
 	}
 	result.WriteString("\n/* RFC 0037 handle typedefs */\n")
-	result.WriteString("typedef struct sw_task sw_task;\n")
-	result.WriteString("typedef struct sw_chan sw_chan;\n")
-	result.WriteString("typedef struct sw_mutex_control sw_mutex;\n")
+	result.WriteString("typedef struct hex_task hex_task;\n")
+	result.WriteString("typedef struct hex_chan hex_chan;\n")
+	result.WriteString("typedef struct hex_mutex_control hex_mutex;\n")
 	for _, task := range state.taskTypes {
-		fmt.Fprintf(result, "typedef sw_task *sw_task_%s;\n", taskSuffix(task))
+		fmt.Fprintf(result, "typedef hex_task *hex_task_%s;\n", taskSuffix(task))
 	}
 	for _, channel := range state.channels {
-		fmt.Fprintf(result, "typedef sw_chan *sw_channel_%s;\n", channelSuffix(channel))
+		fmt.Fprintf(result, "typedef hex_chan *hex_channel_%s;\n", channelSuffix(channel))
 	}
 	if len(state.atomics) > 0 {
 		result.WriteString("#include <stdatomic.h>\n")
 		for _, atomic := range state.atomics {
-			fmt.Fprintf(result, "typedef _Atomic(%s) sw_atomic_%s;\n", typeSpelling(atomic.Atomic.Element), atomicSuffix(atomic))
+			fmt.Fprintf(result, "typedef _Atomic(%s) hex_atomic_%s;\n", typeSpelling(atomic.Atomic.Element), atomicSuffix(atomic))
 		}
 	}
 	for _, site := range state.spawns {
-		fmt.Fprintf(result, "static void sw_task_entry_%s(sw_task *task);\n", site.function)
+		fmt.Fprintf(result, "static void hex_task_entry_%s(hex_task *task);\n", site.function)
 	}
 }
 
@@ -446,66 +446,66 @@ func writeSchedulerRuntime(result *strings.Builder) {
 #include <string.h>
 
 #if defined(__STDC_NO_THREADS__)
-#error "Seawitch Task runtime requires C23 threads (<threads.h>); this toolchain defines __STDC_NO_THREADS__"
+#error "Hexal Task runtime requires C23 threads (<threads.h>); this toolchain defines __STDC_NO_THREADS__"
 #endif
 
-#define SW_TASK_READY 1
-#define SW_TASK_RUNNING 2
-#define SW_TASK_PARKED 3
-#define SW_TASK_DONE 4
-#define SW_TASK_ROOT 1u
-#define SW_TASK_DETACH 2u
+#define HEX_TASK_READY 1
+#define HEX_TASK_RUNNING 2
+#define HEX_TASK_PARKED 3
+#define HEX_TASK_DONE 4
+#define HEX_TASK_ROOT 1u
+#define HEX_TASK_DETACH 2u
 
-typedef void (*sw_task_entry)(sw_task *task);
+typedef void (*hex_task_entry)(hex_task *task);
 
-struct sw_task {
-    sw_task *ready_next;
-    sw_task *wait_next;
+struct hex_task {
+    hex_task *ready_next;
+    hex_task *wait_next;
     int64_t id;
     uint8_t state;
     uint8_t wake_error;
     uint8_t flags;
-    sw_task *joiner;
+    hex_task *joiner;
     void *fiber;
     void *scheduler_fiber;
-    sw_task_entry entry;
+    hex_task_entry entry;
     void *args;
     void *result;
 };
 
 #if defined(_WIN32)
-typedef LPVOID sw_context;
+typedef LPVOID hex_context;
 
 // The Windows backend uses the verified Fiber APIs. Worker threads convert
 // themselves once; every Task gets a fresh CreateFiberEx stack. x64 uses one
 // calling convention, so the CALLBACK cast is exact.
-static int sw_logical_processors(void) {
+static int hex_logical_processors(void) {
     SYSTEM_INFO info;
     GetSystemInfo(&info);
     DWORD count = info.dwNumberOfProcessors;
     return count > 0 ? (int)count : 1;
 }
-static sw_context sw_context_create(void (*entry)(void *), void *param) {
+static hex_context hex_context_create(void (*entry)(void *), void *param) {
     return CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)entry, param);
 }
-static sw_context sw_context_current(void) {
+static hex_context hex_context_current(void) {
     // The calling thread must already be a fiber; the scheduler establishes
     // that before any task runs.
     return GetCurrentFiber();
 }
-static sw_context sw_context_thread(void) {
+static hex_context hex_context_thread(void) {
     return ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
 }
-static void sw_context_switch(sw_context from, sw_context to) {
+static void hex_context_switch(hex_context from, hex_context to) {
     (void)from;
     SwitchToFiber(to);
 }
-static void sw_context_destroy(sw_context context) {
+static void hex_context_destroy(hex_context context) {
     DeleteFiber(context);
 }
 #else
-typedef struct sw_context_impl sw_context_impl;
-struct sw_context_impl {
+typedef struct hex_context_impl hex_context_impl;
+struct hex_context_impl {
     ucontext_t context;
     void *stack;
 };
@@ -513,13 +513,13 @@ struct sw_context_impl {
 // The POSIX backend uses System V ucontext with one caller-allocated stack
 // per Task. The scheduler thread's own context is captured once and reused
 // for every switch back into the worker loop.
-static int sw_logical_processors(void) {
+static int hex_logical_processors(void) {
     long count = sysconf(_SC_NPROCESSORS_ONLN);
     return count > 0 ? (int)count : 1;
 }
-static sw_context_impl *sw_context_create(void (*entry)(void *), void *param) {
+static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) {
     const size_t stack_size = 1u << 20;
-    sw_context_impl *context = (sw_context_impl *)malloc(sizeof(sw_context_impl));
+    hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
     if (context == NULL) {
         return NULL;
     }
@@ -539,8 +539,8 @@ static sw_context_impl *sw_context_create(void (*entry)(void *), void *param) {
     makecontext(&context->context, (void (*)(void))entry, 1, param);
     return context;
 }
-static sw_context_impl *sw_context_current(void) {
-    sw_context_impl *context = (sw_context_impl *)malloc(sizeof(sw_context_impl));
+static hex_context_impl *hex_context_current(void) {
+    hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
     if (context != NULL) {
         context->stack = NULL;
         if (getcontext(&context->context) != 0) {
@@ -550,11 +550,11 @@ static sw_context_impl *sw_context_current(void) {
     }
     return context;
 }
-static sw_context_impl *sw_context_thread(void) {
+static hex_context_impl *hex_context_thread(void) {
     // The thread's ordinary context is its own scheduler context.
-    return sw_context_current();
+    return hex_context_current();
 }
-static void sw_context_switch(sw_context_impl *from, sw_context_impl *to) {
+static void hex_context_switch(hex_context_impl *from, hex_context_impl *to) {
     if (from == NULL || to == NULL) {
         abort();
     }
@@ -562,188 +562,188 @@ static void sw_context_switch(sw_context_impl *from, sw_context_impl *to) {
         abort();
     }
 }
-static void sw_context_destroy(sw_context_impl *context) {
+static void hex_context_destroy(hex_context_impl *context) {
     if (context != NULL) {
         free(context->stack);
         free(context);
     }
 }
-typedef sw_context_impl *sw_context;
+typedef hex_context_impl *hex_context;
 #endif
 
-static _Thread_local sw_task *sw_current_task;
-static sw_task *sw_ready_head;
-static sw_task *sw_ready_tail;
-static mtx_t sw_ready_mutex;
-static cnd_t sw_ready_cond;
-static _Atomic int sw_shutdown;
-static _Atomic int64_t sw_next_task_id;
-static sw_task *sw_root_task;
+static _Thread_local hex_task *hex_current_task;
+static hex_task *hex_ready_head;
+static hex_task *hex_ready_tail;
+static mtx_t hex_ready_mutex;
+static cnd_t hex_ready_cond;
+static _Atomic int hex_shutdown;
+static _Atomic int64_t hex_next_task_id;
+static hex_task *hex_root_task;
 
-static void sw_sched_fatal(const char *message) {
+static void hex_sched_fatal(const char *message) {
     fputs("[Runtime Error] ", stderr);
     fputs(message, stderr);
     fputs("\n", stderr);
     abort();
 }
 
-static void sw_ready_push(sw_task *task) {
-    mtx_lock(&sw_ready_mutex);
+static void hex_ready_push(hex_task *task) {
+    mtx_lock(&hex_ready_mutex);
     task->ready_next = NULL;
-    if (sw_ready_tail != NULL) {
-        sw_ready_tail->ready_next = task;
+    if (hex_ready_tail != NULL) {
+        hex_ready_tail->ready_next = task;
     } else {
-        sw_ready_head = task;
+        hex_ready_head = task;
     }
-    sw_ready_tail = task;
-    cnd_signal(&sw_ready_cond);
-    mtx_unlock(&sw_ready_mutex);
+    hex_ready_tail = task;
+    cnd_signal(&hex_ready_cond);
+    mtx_unlock(&hex_ready_mutex);
 }
 
-static sw_task *sw_ready_pop(void) {
-    sw_task *task = sw_ready_head;
+static hex_task *hex_ready_pop(void) {
+    hex_task *task = hex_ready_head;
     if (task != NULL) {
-        sw_ready_head = task->ready_next;
-        if (sw_ready_head == NULL) {
-            sw_ready_tail = NULL;
+        hex_ready_head = task->ready_next;
+        if (hex_ready_head == NULL) {
+            hex_ready_tail = NULL;
         }
     }
     return task;
 }
 
-static void sw_task_release(sw_task *task) {
-    if (task->flags & SW_TASK_ROOT) {
+static void hex_task_release(hex_task *task) {
+    if (task->flags & HEX_TASK_ROOT) {
         return;
     }
     if (task->fiber != NULL) {
-        sw_context_destroy((sw_context)task->fiber);
+        hex_context_destroy((hex_context)task->fiber);
     }
     free(task->args);
     free(task->result);
     free(task);
 }
 
-// sw_task_complete marks the task done, wakes one joiner, stops the
+// hex_task_complete marks the task done, wakes one joiner, stops the
 // scheduler when the root completes, and hands the worker back to its
 // dispatch loop. The trampoline and the root epilogue both end here; the
 // task's fiber never returns through an invalid stack.
-static void sw_task_complete(sw_task *task) {
-    task->state = SW_TASK_DONE;
+static void hex_task_complete(hex_task *task) {
+    task->state = HEX_TASK_DONE;
     if (task->joiner != NULL) {
-        sw_task *joiner = task->joiner;
+        hex_task *joiner = task->joiner;
         task->joiner = NULL;
-        joiner->state = SW_TASK_READY;
-        sw_ready_push(joiner);
+        joiner->state = HEX_TASK_READY;
+        hex_ready_push(joiner);
     }
-    if (task->flags & SW_TASK_ROOT) {
-        atomic_store(&sw_shutdown, 1);
-        cnd_broadcast(&sw_ready_cond);
+    if (task->flags & HEX_TASK_ROOT) {
+        atomic_store(&hex_shutdown, 1);
+        cnd_broadcast(&hex_ready_cond);
     }
-    sw_current_task = NULL;
-    sw_context_switch((sw_context)task->fiber, (sw_context)task->scheduler_fiber);
+    hex_current_task = NULL;
+    hex_context_switch((hex_context)task->fiber, (hex_context)task->scheduler_fiber);
 }
 
-// sw_task_trampoline is the one shared Task entry: every fiber begins here,
+// hex_task_trampoline is the one shared Task entry: every fiber begins here,
 // runs the typed adapter, and never returns (a fiber function that returns
 // would terminate its thread).
-static void sw_task_trampoline(void *param) {
-    sw_task *task = (sw_task *)param;
+static void hex_task_trampoline(void *param) {
+    hex_task *task = (hex_task *)param;
     task->entry(task);
     abort();
 }
 
-// sw_worker_loop is the dispatcher of one worker. Worker zero (the initial
+// hex_worker_loop is the dispatcher of one worker. Worker zero (the initial
 // process thread) switches back into the root fiber when the scheduler stops
 // so generated main returns normally; other workers return from their thread
 // function.
-static void sw_worker_loop(void *param) {
+static void hex_worker_loop(void *param) {
     const int is_worker_zero = (param != NULL);
-    sw_context loop_context = sw_context_current();
+    hex_context loop_context = hex_context_current();
     for (;;) {
-        mtx_lock(&sw_ready_mutex);
-        while (sw_ready_head == NULL && !atomic_load(&sw_shutdown)) {
-            cnd_wait(&sw_ready_cond, &sw_ready_mutex);
+        mtx_lock(&hex_ready_mutex);
+        while (hex_ready_head == NULL && !atomic_load(&hex_shutdown)) {
+            cnd_wait(&hex_ready_cond, &hex_ready_mutex);
         }
-        if (atomic_load(&sw_shutdown)) {
-            mtx_unlock(&sw_ready_mutex);
+        if (atomic_load(&hex_shutdown)) {
+            mtx_unlock(&hex_ready_mutex);
             if (is_worker_zero) {
-                sw_context_switch(loop_context, (sw_context)sw_root_task->fiber);
+                hex_context_switch(loop_context, (hex_context)hex_root_task->fiber);
             }
             return;
         }
-        sw_task *task = sw_ready_pop();
-        mtx_unlock(&sw_ready_mutex);
-        sw_current_task = task;
-        task->state = SW_TASK_RUNNING;
+        hex_task *task = hex_ready_pop();
+        mtx_unlock(&hex_ready_mutex);
+        hex_current_task = task;
+        task->state = HEX_TASK_RUNNING;
         task->scheduler_fiber = (void *)loop_context;
-        sw_context_switch(loop_context, (sw_context)task->fiber);
-        if (task->state == SW_TASK_DONE && (task->flags & SW_TASK_DETACH)) {
-            sw_task_release(task);
+        hex_context_switch(loop_context, (hex_context)task->fiber);
+        if (task->state == HEX_TASK_DONE && (task->flags & HEX_TASK_DETACH)) {
+            hex_task_release(task);
         }
     }
 }
 
-static int sw_worker_thread(void *unused) {
+static int hex_worker_thread(void *unused) {
     (void)unused;
-    sw_current_task = NULL;
-    (void)sw_context_thread();
-    sw_worker_loop(NULL);
+    hex_current_task = NULL;
+    (void)hex_context_thread();
+    hex_worker_loop(NULL);
     return 0;
 }
 
-// sw_scheduler_init establishes the root task on the initial process thread
+// hex_scheduler_init establishes the root task on the initial process thread
 // (worker zero), creates the remaining workers, and starts dispatch. The
 // root fiber is the converted main thread context; its statements run as the
-// Seawitch entry point.
-static void sw_scheduler_init(void) {
-    if (mtx_init(&sw_ready_mutex, mtx_plain) != thrd_success) {
-        sw_sched_fatal("scheduler mutex initialization failed");
+// Hexal entry point.
+static void hex_scheduler_init(void) {
+    if (mtx_init(&hex_ready_mutex, mtx_plain) != thrd_success) {
+        hex_sched_fatal("scheduler mutex initialization failed");
     }
-    if (cnd_init(&sw_ready_cond) != thrd_success) {
-        sw_sched_fatal("scheduler condition variable initialization failed");
+    if (cnd_init(&hex_ready_cond) != thrd_success) {
+        hex_sched_fatal("scheduler condition variable initialization failed");
     }
-    sw_root_task = (sw_task *)calloc(1, sizeof(sw_task));
-    if (sw_root_task == NULL) {
-        sw_sched_fatal("scheduler allocation failed");
+    hex_root_task = (hex_task *)calloc(1, sizeof(hex_task));
+    if (hex_root_task == NULL) {
+        hex_sched_fatal("scheduler allocation failed");
     }
-    sw_root_task->fiber = (void *)sw_context_thread();
-    if (sw_root_task->fiber == NULL) {
-        sw_sched_fatal("scheduler fiber initialization failed");
+    hex_root_task->fiber = (void *)hex_context_thread();
+    if (hex_root_task->fiber == NULL) {
+        hex_sched_fatal("scheduler fiber initialization failed");
     }
-    sw_root_task->id = atomic_fetch_add(&sw_next_task_id, 1);
-    sw_root_task->state = SW_TASK_READY;
-    sw_root_task->flags = SW_TASK_ROOT;
-    sw_root_task->scheduler_fiber = (void *)sw_context_create(sw_worker_loop, (void *)1);
-    if (sw_root_task->scheduler_fiber == NULL) {
-        sw_sched_fatal("scheduler worker-zero context creation failed");
+    hex_root_task->id = atomic_fetch_add(&hex_next_task_id, 1);
+    hex_root_task->state = HEX_TASK_READY;
+    hex_root_task->flags = HEX_TASK_ROOT;
+    hex_root_task->scheduler_fiber = (void *)hex_context_create(hex_worker_loop, (void *)1);
+    if (hex_root_task->scheduler_fiber == NULL) {
+        hex_sched_fatal("scheduler worker-zero context creation failed");
     }
-    sw_current_task = sw_root_task;
-    int logical = sw_logical_processors();
+    hex_current_task = hex_root_task;
+    int logical = hex_logical_processors();
     if (logical < 1) {
         logical = 1;
     }
     for (int index = 1; index < logical; index++) {
         thrd_t thread;
-        if (thrd_create(&thread, sw_worker_thread, NULL) != thrd_success) {
-            sw_sched_fatal("scheduler worker creation failed");
+        if (thrd_create(&thread, hex_worker_thread, NULL) != thrd_success) {
+            hex_sched_fatal("scheduler worker creation failed");
         }
         thrd_detach(thread);
     }
-    sw_context_switch((sw_context)sw_root_task->fiber, (sw_context)sw_root_task->scheduler_fiber);
+    hex_context_switch((hex_context)hex_root_task->fiber, (hex_context)hex_root_task->scheduler_fiber);
 }
 
-static void sw_task_yield(void) {
-    sw_task *self = sw_current_task;
-    self->state = SW_TASK_READY;
-    sw_ready_push(self);
-    sw_context_switch((sw_context)self->fiber, (sw_context)self->scheduler_fiber);
+static void hex_task_yield(void) {
+    hex_task *self = hex_current_task;
+    self->state = HEX_TASK_READY;
+    hex_ready_push(self);
+    hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
 }
 
-// sw_task_spawn allocates the argument frame and task control block,
+// hex_task_spawn allocates the argument frame and task control block,
 // shallow-copies the arguments, creates the Task fiber, and publishes the
 // task to the ready queue. Any partial allocation failure releases every
 // resource and returns NULL, which the spawn site turns into Error.
-static sw_task *sw_task_spawn(sw_task_entry entry, size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align) {
+static hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align) {
     (void)args_align;
     (void)result_align;
     void *args_frame = NULL;
@@ -754,7 +754,7 @@ static sw_task *sw_task_spawn(sw_task_entry entry, size_t args_size, size_t args
         }
         memcpy(args_frame, args, args_size);
     }
-    sw_task *task = (sw_task *)calloc(1, sizeof(sw_task));
+    hex_task *task = (hex_task *)calloc(1, sizeof(hex_task));
     if (task == NULL) {
         free(args_frame);
         return NULL;
@@ -768,46 +768,46 @@ static sw_task *sw_task_spawn(sw_task_entry entry, size_t args_size, size_t args
             return NULL;
         }
     }
-    task->fiber = (void *)sw_context_create(sw_task_trampoline, task);
+    task->fiber = (void *)hex_context_create(hex_task_trampoline, task);
     if (task->fiber == NULL) {
         free(result_frame);
         free(task);
         free(args_frame);
         return NULL;
     }
-    task->id = atomic_fetch_add(&sw_next_task_id, 1);
-    task->state = SW_TASK_READY;
+    task->id = atomic_fetch_add(&hex_next_task_id, 1);
+    task->state = HEX_TASK_READY;
     task->entry = entry;
     task->args = args_frame;
     task->result = result_frame;
-    sw_ready_push(task);
+    hex_ready_push(task);
     return task;
 }
 
-// sw_task_join waits for the task to finish and returns its result frame.
+// hex_task_join waits for the task to finish and returns its result frame.
 // The joining task parks on the target's joiner slot while waiting. Joining
 // the current task through its own alias is a cheaply detectable misuse and
 // traps.
-static void *sw_task_join(sw_task *task) {
+static void *hex_task_join(hex_task *task) {
     for (;;) {
-        if (task->state == SW_TASK_DONE) {
+        if (task->state == HEX_TASK_DONE) {
             return task->result;
         }
-        sw_task *self = sw_current_task;
+        hex_task *self = hex_current_task;
         if (task == self) {
             fputs("[Runtime Error] cannot join the current task\n", stderr);
             abort();
         }
-        self->state = SW_TASK_PARKED;
+        self->state = HEX_TASK_PARKED;
         task->joiner = self;
-        sw_context_switch((sw_context)self->fiber, (sw_context)self->scheduler_fiber);
+        hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
     }
 }
 
-static void sw_task_detach(sw_task *task) {
-    task->flags |= SW_TASK_DETACH;
-    if (task->state == SW_TASK_DONE) {
-        sw_task_release(task);
+static void hex_task_detach(hex_task *task) {
+    task->flags |= HEX_TASK_DETACH;
+    if (task->state == HEX_TASK_DONE) {
+        hex_task_release(task);
     }
 }
 `)
@@ -824,11 +824,11 @@ func writeTaskTypeHelpers(result *strings.Builder, state *generatedConcurrencySt
 	for _, task := range state.joinTypes {
 		suffix := taskSuffix(task)
 		if task.Task.Result == (compilerTypes.Type{}) || compilerTypes.Equal(task.Task.Result, compilerTypes.Nil) {
-			fmt.Fprintf(result, "static inline void sw_task_join_%s(sw_task *task) {\n    (void)sw_task_join(task);\n    sw_task_release(task);\n}\n", suffix)
+			fmt.Fprintf(result, "static inline void hex_task_join_%s(hex_task *task) {\n    (void)hex_task_join(task);\n    hex_task_release(task);\n}\n", suffix)
 			continue
 		}
 		resultType := task.Task.Result
-		fmt.Fprintf(result, "static inline %s sw_task_join_%s(sw_task *task) {\n    %s *frame = (%s *)sw_task_join(task);\n    %s value = *frame;\n    sw_task_release(task);\n    return value;\n}\n", typeSpelling(resultType), suffix, typeSpelling(resultType), typeSpelling(resultType), typeSpelling(resultType))
+		fmt.Fprintf(result, "static inline %s hex_task_join_%s(hex_task *task) {\n    %s *frame = (%s *)hex_task_join(task);\n    %s value = *frame;\n    hex_task_release(task);\n    return value;\n}\n", typeSpelling(resultType), suffix, typeSpelling(resultType), typeSpelling(resultType), typeSpelling(resultType))
 	}
 }
 
@@ -843,9 +843,9 @@ func writeSpawnAdapters(result *strings.Builder, state *generatedConcurrencyStat
 		return
 	}
 	for _, site := range state.spawns {
-		fmt.Fprintf(result, "\nstatic void sw_task_entry_%s(sw_task *task) {\n", site.function)
+		fmt.Fprintf(result, "\nstatic void hex_task_entry_%s(hex_task *task) {\n", site.function)
 		if len(site.params) > 0 {
-			fmt.Fprintf(result, "    sw_task_args_%s *args = (sw_task_args_%s *)task->args;\n", site.function, site.function)
+			fmt.Fprintf(result, "    hex_task_args_%s *args = (hex_task_args_%s *)task->args;\n", site.function, site.function)
 		}
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			fmt.Fprintf(result, "    %s result = %s(", typeSpelling(site.result), site.function)
@@ -856,7 +856,7 @@ func writeSpawnAdapters(result *strings.Builder, state *generatedConcurrencyStat
 			writeSpawnArguments(result, site)
 			fmt.Fprintf(result, ");\n")
 		}
-		fmt.Fprintf(result, "    sw_task_complete(task);\n}\n")
+		fmt.Fprintf(result, "    hex_task_complete(task);\n}\n")
 	}
 }
 
@@ -879,11 +879,11 @@ func writeSpawnArgFrames(result *strings.Builder, state *generatedConcurrencySta
 		if len(site.params) == 0 {
 			continue
 		}
-		fmt.Fprintf(result, "\ntypedef struct sw_task_args_%s {\n", site.function)
+		fmt.Fprintf(result, "\ntypedef struct hex_task_args_%s {\n", site.function)
 		for index, parameter := range site.params {
 			fmt.Fprintf(result, "    %s;\n", declaration(parameter, fmt.Sprintf("a%d", index+1), true))
 		}
-		fmt.Fprintf(result, "} sw_task_args_%s;\n", site.function)
+		fmt.Fprintf(result, "} hex_task_args_%s;\n", site.function)
 	}
 }
 
@@ -908,23 +908,23 @@ func writeChannelHelpers(result *strings.Builder, state *generatedConcurrencySta
 		state.writeErrorHelper(result)
 	}
 	result.WriteString(`
-typedef struct sw_chan {
+typedef struct hex_chan {
     mtx_t mutex;
-    sw_task *wait_send;
-    sw_task *wait_recv;
+    hex_task *wait_send;
+    hex_task *wait_recv;
     size_t capacity;
     size_t length;
     size_t head;
     size_t element_size;
     uint8_t closed;
     uint8_t *slots;
-} sw_chan;
+} hex_chan;
 
-static sw_chan *sw_chan_new(size_t capacity, size_t element_size) {
+static hex_chan *hex_chan_new(size_t capacity, size_t element_size) {
     if (capacity == 0 || element_size > SIZE_MAX / capacity) {
         return NULL;
     }
-    sw_chan *channel = (sw_chan *)calloc(1, sizeof(sw_chan));
+    hex_chan *channel = (hex_chan *)calloc(1, sizeof(hex_chan));
     if (channel == NULL) {
         return NULL;
     }
@@ -945,8 +945,8 @@ static sw_chan *sw_chan_new(size_t capacity, size_t element_size) {
 
 // send shallow-copies one element into the ring, parking while the channel
 // is full and open. A wake from close, or a send after close, fails.
-static bool sw_chan_send(sw_chan *channel, const void *value) {
-    sw_task *self = sw_current_task;
+static bool hex_chan_send(hex_chan *channel, const void *value) {
+    hex_task *self = hex_current_task;
     for (;;) {
         mtx_lock(&channel->mutex);
         if (channel->closed) {
@@ -956,12 +956,12 @@ static bool sw_chan_send(sw_chan *channel, const void *value) {
         if (channel->length < channel->capacity) {
             break;
         }
-        self->state = SW_TASK_PARKED;
+        self->state = HEX_TASK_PARKED;
         self->wake_error = 0;
         self->wait_next = channel->wait_send;
         channel->wait_send = self;
         mtx_unlock(&channel->mutex);
-        sw_context_switch((sw_context)self->fiber, (sw_context)self->scheduler_fiber);
+        hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
         if (self->wake_error) {
             return false;
         }
@@ -969,11 +969,11 @@ static bool sw_chan_send(sw_chan *channel, const void *value) {
     size_t tail = (channel->head + channel->length) % channel->capacity;
     memcpy(channel->slots + tail * channel->element_size, value, channel->element_size);
     channel->length++;
-    sw_task *waiter = channel->wait_recv;
+    hex_task *waiter = channel->wait_recv;
     if (waiter != NULL) {
         channel->wait_recv = waiter->wait_next;
-        waiter->state = SW_TASK_READY;
-        sw_ready_push(waiter);
+        waiter->state = HEX_TASK_READY;
+        hex_ready_push(waiter);
     }
     mtx_unlock(&channel->mutex);
     return true;
@@ -981,8 +981,8 @@ static bool sw_chan_send(sw_chan *channel, const void *value) {
 
 // receive copies the oldest element out, parking while the channel is empty
 // and open. Closed-and-drained is the one recoverable failure (EoS).
-static bool sw_chan_receive(sw_chan *channel, void *out) {
-    sw_task *self = sw_current_task;
+static bool hex_chan_receive(hex_chan *channel, void *out) {
+    hex_task *self = hex_current_task;
     for (;;) {
         mtx_lock(&channel->mutex);
         if (channel->length > 0) {
@@ -992,22 +992,22 @@ static bool sw_chan_receive(sw_chan *channel, void *out) {
             mtx_unlock(&channel->mutex);
             return false;
         }
-        self->state = SW_TASK_PARKED;
+        self->state = HEX_TASK_PARKED;
         self->wake_error = 0;
         self->wait_next = channel->wait_recv;
         channel->wait_recv = self;
         mtx_unlock(&channel->mutex);
-        sw_context_switch((sw_context)self->fiber, (sw_context)self->scheduler_fiber);
+        hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
     }
     memcpy(out, channel->slots + channel->head * channel->element_size, channel->element_size);
     channel->head = (channel->head + 1) % channel->capacity;
     channel->length--;
-    sw_task *waiter = channel->wait_send;
+    hex_task *waiter = channel->wait_send;
     if (waiter != NULL) {
         channel->wait_send = waiter->wait_next;
         waiter->wake_error = 0;
-        waiter->state = SW_TASK_READY;
-        sw_ready_push(waiter);
+        waiter->state = HEX_TASK_READY;
+        hex_ready_push(waiter);
     }
     mtx_unlock(&channel->mutex);
     return true;
@@ -1015,41 +1015,41 @@ static bool sw_chan_receive(sw_chan *channel, void *out) {
 
 // close is idempotent: it wakes every blocked sender (with an Error) and
 // receiver (with EoS) and never discards queued values.
-static void sw_chan_close(sw_chan *channel) {
+static void hex_chan_close(hex_chan *channel) {
     mtx_lock(&channel->mutex);
     channel->closed = true;
-    sw_task *waiter = channel->wait_send;
+    hex_task *waiter = channel->wait_send;
     while (waiter != NULL) {
-        sw_task *next = waiter->wait_next;
+        hex_task *next = waiter->wait_next;
         waiter->wake_error = 1;
-        waiter->state = SW_TASK_READY;
-        sw_ready_push(waiter);
+        waiter->state = HEX_TASK_READY;
+        hex_ready_push(waiter);
         waiter = next;
     }
     channel->wait_send = NULL;
     waiter = channel->wait_recv;
     while (waiter != NULL) {
-        sw_task *next = waiter->wait_next;
-        waiter->state = SW_TASK_READY;
-        sw_ready_push(waiter);
+        hex_task *next = waiter->wait_next;
+        waiter->state = HEX_TASK_READY;
+        hex_ready_push(waiter);
         waiter = next;
     }
     channel->wait_recv = NULL;
     mtx_unlock(&channel->mutex);
 }
 
-static size_t sw_chan_length(sw_chan *channel) {
+static size_t hex_chan_length(hex_chan *channel) {
     mtx_lock(&channel->mutex);
     size_t length = channel->length;
     mtx_unlock(&channel->mutex);
     return length;
 }
 
-static size_t sw_chan_capacity(sw_chan *channel) {
+static size_t hex_chan_capacity(hex_chan *channel) {
     return channel->capacity;
 }
 
-static bool sw_chan_is_closed(sw_chan *channel) {
+static bool hex_chan_is_closed(hex_chan *channel) {
     mtx_lock(&channel->mutex);
     bool closed = channel->closed;
     mtx_unlock(&channel->mutex);
@@ -1058,7 +1058,7 @@ static bool sw_chan_is_closed(sw_chan *channel) {
 
 // free requires a closed, empty channel with no blocked tasks; any other
 // state is a cheaply detectable programmer error and traps.
-static void sw_chan_free(sw_chan *channel) {
+static void hex_chan_free(hex_chan *channel) {
     if (channel->wait_send != NULL || channel->wait_recv != NULL) {
         fputs("[Runtime Error] channel free while tasks are blocked on it\n", stderr);
         abort();
@@ -1083,7 +1083,7 @@ static void sw_chan_free(sw_chan *channel) {
 				channelIndex := unionMemberIndex(union, channel)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 				message := state.messageLiteral(strings, channelCreationFailed)
-				fmt.Fprintf(result, "\nstatic inline %s sw_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const sw_string *message) {\n    (void)heap_identity;\n    (void)message;\n    sw_chan *channel = sw_chan_new(capacity, sizeof(%s));\n    if (channel != NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = channel };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = sw_sched_error(line, column, &%s) };\n}\n",
+				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = channel };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, channelIndex), channelIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
 			}
 		}
@@ -1093,7 +1093,7 @@ static void sw_chan_free(sw_chan *channel) {
 				nilIndex := unionMemberIndex(union, compilerTypes.Nil)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 				message := state.messageLiteral(strings, channelSendFailed)
-				fmt.Fprintf(result, "\nstatic inline %s sw_chan_send_%s(sw_chan *channel, %s value, size_t line, size_t column, const sw_string *message) {\n    (void)message;\n    if (sw_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = sw_sched_error(line, column, &%s) };\n}\n",
+				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, nilIndex), union.CName, unionTagName(union, errorIndex), errorIndex, message)
 			}
 		}
@@ -1105,14 +1105,14 @@ static void sw_chan_free(sw_chan *channel) {
 		if receiveUnion != (compilerTypes.Type{}) {
 			elementIndex := unionMemberIndex(receiveUnion, element)
 			eosIndex := unionMemberIndex(receiveUnion, compilerTypes.EoS)
-			fmt.Fprintf(result, "\nstatic inline %s sw_chan_recv_%s(sw_chan *channel) {\n    %s value;\n    if (sw_chan_receive(channel, &value)) {\n        return (%s){ .tag = %s, .payload.member_%d = value };\n    }\n    return (%s){ .tag = %s };\n}\n",
+			fmt.Fprintf(result, "\nstatic inline %s hex_chan_recv_%s(hex_chan *channel) {\n    %s value;\n    if (hex_chan_receive(channel, &value)) {\n        return (%s){ .tag = %s, .payload.member_%d = value };\n    }\n    return (%s){ .tag = %s };\n}\n",
 				receiveUnion.CName, suffix, elementSpelling, receiveUnion.CName, unionTagName(receiveUnion, elementIndex), elementIndex, receiveUnion.CName, unionTagName(receiveUnion, eosIndex))
 		}
-		fmt.Fprintf(result, "\nstatic inline void sw_chan_close_%s(sw_chan *channel) {\n    sw_chan_close(channel);\n}\n", suffix)
-		fmt.Fprintf(result, "static inline size_t sw_chan_length_%s(sw_chan *channel) {\n    return sw_chan_length(channel);\n}\n", suffix)
-		fmt.Fprintf(result, "static inline size_t sw_chan_capacity_%s(sw_chan *channel) {\n    return sw_chan_capacity(channel);\n}\n", suffix)
-		fmt.Fprintf(result, "static inline bool sw_chan_is_closed_%s(sw_chan *channel) {\n    return sw_chan_is_closed(channel);\n}\n", suffix)
-		fmt.Fprintf(result, "static inline void sw_chan_free_%s(uintptr_t heap_identity, sw_chan *channel) {\n    (void)heap_identity;\n    sw_chan_free(channel);\n}\n", suffix)
+		fmt.Fprintf(result, "\nstatic inline void hex_chan_close_%s(hex_chan *channel) {\n    hex_chan_close(channel);\n}\n", suffix)
+		fmt.Fprintf(result, "static inline size_t hex_chan_length_%s(hex_chan *channel) {\n    return hex_chan_length(channel);\n}\n", suffix)
+		fmt.Fprintf(result, "static inline size_t hex_chan_capacity_%s(hex_chan *channel) {\n    return hex_chan_capacity(channel);\n}\n", suffix)
+		fmt.Fprintf(result, "static inline bool hex_chan_is_closed_%s(hex_chan *channel) {\n    return hex_chan_is_closed(channel);\n}\n", suffix)
+		fmt.Fprintf(result, "static inline void hex_chan_free_%s(uintptr_t heap_identity, hex_chan *channel) {\n    (void)heap_identity;\n    hex_chan_free(channel);\n}\n", suffix)
 	}
 }
 
@@ -1128,14 +1128,14 @@ func writeMutexHelpers(result *strings.Builder, state *generatedConcurrencyState
 		state.writeErrorHelper(result)
 	}
 	result.WriteString(`
-struct sw_mutex_control {
+struct hex_mutex_control {
     mtx_t mutex;
-    sw_task *owner;
-    sw_task *wait_list;
+    hex_task *owner;
+    hex_task *wait_list;
 };
 
-static sw_mutex *sw_mutex_new(void) {
-    sw_mutex *mutex = (sw_mutex *)calloc(1, sizeof(sw_mutex));
+static hex_mutex *hex_mutex_new(void) {
+    hex_mutex *mutex = (hex_mutex *)calloc(1, sizeof(hex_mutex));
     if (mutex == NULL) {
         return NULL;
     }
@@ -1146,8 +1146,8 @@ static sw_mutex *sw_mutex_new(void) {
     return mutex;
 }
 
-static void sw_mutex_lock(sw_mutex *mutex) {
-    sw_task *self = sw_current_task;
+static void hex_mutex_lock(hex_mutex *mutex) {
+    hex_task *self = hex_current_task;
     for (;;) {
         mtx_lock(&mutex->mutex);
         if (mutex->owner == NULL) {
@@ -1160,34 +1160,34 @@ static void sw_mutex_lock(sw_mutex *mutex) {
             fputs("[Runtime Error] recursive mutex lock\n", stderr);
             abort();
         }
-        self->state = SW_TASK_PARKED;
+        self->state = HEX_TASK_PARKED;
         self->wait_next = mutex->wait_list;
         mutex->wait_list = self;
         mtx_unlock(&mutex->mutex);
-        sw_context_switch((sw_context)self->fiber, (sw_context)self->scheduler_fiber);
+        hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
     }
 }
 
-static void sw_mutex_unlock(sw_mutex *mutex) {
+static void hex_mutex_unlock(hex_mutex *mutex) {
     mtx_lock(&mutex->mutex);
-    if (mutex->owner != sw_current_task) {
+    if (mutex->owner != hex_current_task) {
         mtx_unlock(&mutex->mutex);
         fputs("[Runtime Error] mutex unlock by a non-owner\n", stderr);
         abort();
     }
-    sw_task *waiter = mutex->wait_list;
+    hex_task *waiter = mutex->wait_list;
     if (waiter != NULL) {
         mutex->wait_list = waiter->wait_next;
         mutex->owner = waiter;
-        waiter->state = SW_TASK_READY;
-        sw_ready_push(waiter);
+        waiter->state = HEX_TASK_READY;
+        hex_ready_push(waiter);
     } else {
         mutex->owner = NULL;
     }
     mtx_unlock(&mutex->mutex);
 }
 
-static void sw_mutex_free(sw_mutex *mutex) {
+static void hex_mutex_free(hex_mutex *mutex) {
     if (mutex->owner != NULL || mutex->wait_list != NULL) {
         fputs("[Runtime Error] mutex free while locked or awaited\n", stderr);
         abort();
@@ -1202,13 +1202,13 @@ static void sw_mutex_free(sw_mutex *mutex) {
 			mutexIndex := unionMemberIndex(union, compilerTypes.MutexType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 			message := state.messageLiteral(strings, mutexCreationFailed)
-			fmt.Fprintf(result, "\nstatic inline %s sw_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const sw_string *message) {\n    (void)heap_identity;\n    (void)message;\n    sw_mutex *mutex = sw_mutex_new();\n    if (mutex != NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = mutex };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = sw_sched_error(line, column, &%s) };\n}\n",
+			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = mutex };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 				union.CName, union.CName, unionTagName(union, mutexIndex), mutexIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
 		}
 	}
-	fmt.Fprintf(result, "\nstatic inline void sw_mutex_lock_sw_mutex(sw_mutex *mutex) {\n    sw_mutex_lock(mutex);\n}\n")
-	fmt.Fprintf(result, "static inline void sw_mutex_unlock_sw_mutex(sw_mutex *mutex) {\n    sw_mutex_unlock(mutex);\n}\n")
-	fmt.Fprintf(result, "static inline void sw_mutex_free_sw_mutex(sw_mutex *mutex) {\n    sw_mutex_free(mutex);\n}\n")
+	fmt.Fprintf(result, "\nstatic inline void hex_mutex_lock_hex_mutex(hex_mutex *mutex) {\n    hex_mutex_lock(mutex);\n}\n")
+	fmt.Fprintf(result, "static inline void hex_mutex_unlock_hex_mutex(hex_mutex *mutex) {\n    hex_mutex_unlock(mutex);\n}\n")
+	fmt.Fprintf(result, "static inline void hex_mutex_free_hex_mutex(hex_mutex *mutex) {\n    hex_mutex_free(mutex);\n}\n")
 }
 
 // writeAtomicHelpers emits the inline Atomic<T> wrapper: a typedef over C23
@@ -1224,7 +1224,7 @@ func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyStat
 		suffix := atomicSuffix(atomic)
 		element := atomic.Atomic.Element
 		elementSpelling := typeSpelling(element)
-		atomicSpelling := "sw_atomic_" + suffix
+		atomicSpelling := "hex_atomic_" + suffix
 		fmt.Fprintf(result, "typedef _Atomic(%s) %s;\n", elementSpelling, atomicSpelling)
 		fmt.Fprintf(result, "static inline %s %s_new(%s value) {\n    return (%s)value;\n}\n", atomicSpelling, atomicSpelling, elementSpelling, atomicSpelling)
 		fmt.Fprintf(result, "static inline %s %s_load(%s *atomic) {\n    return atomic_load_explicit(atomic, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling)
@@ -1349,13 +1349,13 @@ func hoistSpawn(node *checker.Expression, body *strings.Builder, state *expressi
 		return err
 	}
 	state.spawnCounter++
-	temp := fmt.Sprintf("sw_spawn_args_%d", state.spawnCounter)
-	taskTemp := fmt.Sprintf("sw_spawn_task_%d", state.spawnCounter)
+	temp := fmt.Sprintf("hex_spawn_args_%d", state.spawnCounter)
+	taskTemp := fmt.Sprintf("hex_spawn_task_%d", state.spawnCounter)
 	if state.hoistedSpawns == nil {
 		state.hoistedSpawns = make(map[*checker.Expression]string)
 	}
 	if len(site.params) > 0 {
-		argsType := "sw_task_args_" + site.function
+		argsType := "hex_task_args_" + site.function
 		fmt.Fprintf(body, "%s%s %s;\n", indent, argsType, temp)
 		for index, argument := range call.Arguments {
 			rendered, renderErr := renderOperandWithState(argument, state)
@@ -1369,13 +1369,13 @@ func hoistSpawn(node *checker.Expression, body *strings.Builder, state *expressi
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			resultArgs = fmt.Sprintf("sizeof(%s), _Alignof(%s)", typeSpelling(site.result), typeSpelling(site.result))
 		}
-		fmt.Fprintf(body, "%ssw_task *%s = sw_task_spawn(sw_task_entry_%s, %s, %s);\n", indent, taskTemp, site.function, spawnArgs, resultArgs)
+		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, %s, %s);\n", indent, taskTemp, site.function, spawnArgs, resultArgs)
 	} else {
 		resultArgs := "0, 0"
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			resultArgs = fmt.Sprintf("sizeof(%s), _Alignof(%s)", typeSpelling(site.result), typeSpelling(site.result))
 		}
-		fmt.Fprintf(body, "%ssw_task *%s = sw_task_spawn(sw_task_entry_%s, 0, 0, NULL, %s);\n", indent, taskTemp, site.function, resultArgs)
+		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, 0, 0, NULL, %s);\n", indent, taskTemp, site.function, resultArgs)
 	}
 	state.hoistedSpawns[node.Operand] = taskTemp
 	return nil
@@ -1404,7 +1404,7 @@ func renderSpawnExpression(node checker.Expression, state *expressionValidation)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("(%s ? (%s){ .tag = %s, .payload.member_%d = %s } : (%s){ .tag = %s, .payload.member_%d = sw_sched_error(%d, %d, &%s) })",
+	return fmt.Sprintf("(%s ? (%s){ .tag = %s, .payload.member_%d = %s } : (%s){ .tag = %s, .payload.member_%d = hex_sched_error(%d, %d, &%s) })",
 		taskTemp, union.CName, unionTagName(union, taskIndex), taskIndex, taskTemp,
 		union.CName, unionTagName(union, errorIndex), errorIndex, node.SourceLine, node.SourceColumn, message), nil
 }
@@ -1434,9 +1434,9 @@ func renderTaskMethod(node checker.Expression, state *expressionValidation) (str
 	switch node.Name {
 	case "join":
 		suffix := taskSuffix(node.OperandType)
-		return "sw_task_join_" + suffix + "(" + receiver + ")", nil
+		return "hex_task_join_" + suffix + "(" + receiver + ")", nil
 	case "detach":
-		return "sw_task_detach(" + receiver + ")", nil
+		return "hex_task_detach(" + receiver + ")", nil
 	}
 	return "", unknownExpressionDiagnostic("unknown task method " + node.Name)
 }
@@ -1459,7 +1459,7 @@ func renderChannelConstructor(node checker.Expression, state *expressionValidati
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("sw_chan_new_%s((%s).identity, (size_t)(%s), %d, %d, &%s)",
+	return fmt.Sprintf("hex_chan_new_%s((%s).identity, (size_t)(%s), %d, %d, &%s)",
 		channelSuffix(node.OperandType), heap, capacity, node.SourceLine, node.SourceColumn, message), nil
 }
 
@@ -1486,17 +1486,17 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 		if messageErr != nil {
 			return "", messageErr
 		}
-		return fmt.Sprintf("sw_chan_send_%s(%s, %s, %d, %d, &%s)", suffix, receiver, value, node.SourceLine, node.SourceColumn, message), nil
+		return fmt.Sprintf("hex_chan_send_%s(%s, %s, %d, %d, &%s)", suffix, receiver, value, node.SourceLine, node.SourceColumn, message), nil
 	case "receive":
-		return "sw_chan_recv_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_recv_" + suffix + "(" + receiver + ")", nil
 	case "close":
-		return "sw_chan_close_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_close_" + suffix + "(" + receiver + ")", nil
 	case "length":
-		return "sw_chan_length_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_length_" + suffix + "(" + receiver + ")", nil
 	case "capacity":
-		return "sw_chan_capacity_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_capacity_" + suffix + "(" + receiver + ")", nil
 	case "is_closed":
-		return "sw_chan_is_closed_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_is_closed_" + suffix + "(" + receiver + ")", nil
 	case "free":
 		if len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("channel free without a checked heap")
@@ -1505,7 +1505,7 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return fmt.Sprintf("sw_chan_free_%s((%s).identity, %s)", suffix, heap, receiver), nil
+		return fmt.Sprintf("hex_chan_free_%s((%s).identity, %s)", suffix, heap, receiver), nil
 	}
 	return "", unknownExpressionDiagnostic("unknown channel method " + node.Name)
 }
@@ -1523,7 +1523,7 @@ func renderMutexConstructor(node checker.Expression, state *expressionValidation
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("sw_mutex_new_mutex((%s).identity, %d, %d, &%s)", heap, node.SourceLine, node.SourceColumn, message), nil
+	return fmt.Sprintf("hex_mutex_new_mutex((%s).identity, %d, %d, &%s)", heap, node.SourceLine, node.SourceColumn, message), nil
 }
 
 // renderMutexMethod renders one Mutex handle method call.
@@ -1537,11 +1537,11 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 	}
 	switch node.Name {
 	case "lock":
-		return "sw_mutex_lock_sw_mutex(" + receiver + ")", nil
+		return "hex_mutex_lock_hex_mutex(" + receiver + ")", nil
 	case "unlock":
-		return "sw_mutex_unlock_sw_mutex(" + receiver + ")", nil
+		return "hex_mutex_unlock_hex_mutex(" + receiver + ")", nil
 	case "free":
-		return "sw_mutex_free_sw_mutex(" + receiver + ")", nil
+		return "hex_mutex_free_hex_mutex(" + receiver + ")", nil
 	}
 	return "", unknownExpressionDiagnostic("unknown mutex method " + node.Name)
 }
@@ -1555,7 +1555,7 @@ func renderAtomicConstructor(node checker.Expression, state *expressionValidatio
 	if err != nil {
 		return "", err
 	}
-	return "sw_atomic_" + atomicSuffix(node.OperandType) + "_new(" + initial + ")", nil
+	return "hex_atomic_" + atomicSuffix(node.OperandType) + "_new(" + initial + ")", nil
 }
 
 // renderAtomicMethod renders one Atomic method on the receiver's address.
@@ -1567,7 +1567,7 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 	if err != nil {
 		return "", err
 	}
-	helper := "sw_atomic_" + atomicSuffix(node.OperandType) + "_" + node.Name
+	helper := "hex_atomic_" + atomicSuffix(node.OperandType) + "_" + node.Name
 	switch node.Name {
 	case "load":
 		return helper + "(&(" + receiver + "))", nil

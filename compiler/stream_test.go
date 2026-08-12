@@ -14,11 +14,11 @@ func TestStreamEmptyNew(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_stream_ops_Int32 {",
-		"sw_stream_empty_ops_Int32",
-		"(&sw_stream_empty_Int32)",
-		"static inline sw_internal_union_1 sw_stream_next_Int32(sw_stream_Int32 *stream) {",
-		"step = (sw_internal_union_1){ .tag = sw_internal_union_1_tag_member_1 }",
+		"typedef struct hex_stream_ops_Int32 {",
+		"hex_stream_empty_ops_Int32",
+		"(&hex_stream_empty_Int32)",
+		"static inline hex_internal_union_1 hex_stream_next_Int32(hex_stream_Int32 *stream) {",
+		"step = (hex_internal_union_1){ .tag = hex_internal_union_1_tag_member_1 }",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -31,7 +31,7 @@ func TestStreamEmptyFreeIsNoOp(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "if (stream == NULL || stream == &sw_stream_empty_Int32) {") {
+	if !strings.Contains(result.MainH, "if (stream == NULL || stream == &hex_stream_empty_Int32) {") {
 		t.Fatalf("main.h = %q, want empty-free no-op guard", result.MainH)
 	}
 }
@@ -42,12 +42,12 @@ func TestStreamProduce(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_stream_produce_t_Counter_Int32 {",
-		"sw_f_counter_next(&(node->state))",
+		"typedef struct hex_stream_produce_t_Counter_Int32 {",
+		"hex_f_counter_next(&(node->state))",
 		"node->state = initial;",
-		"sw_v_numbers = sw_stream_produce_t_Counter_Int32_new(sw_v_h, sw_v_initial);",
-		"sw_stream_next_Int32(sw_v_numbers)",
-		"sw_v_total = ((uint64_t)(uint32_t)((uint64_t)sw_v_total + (uint64_t)sw_v_step.payload.member_0)",
+		"hex_v_numbers = hex_stream_produce_t_Counter_Int32_new(hex_v_h, hex_v_initial);",
+		"hex_stream_next_Int32(hex_v_numbers)",
+		"hex_v_total = ((uint64_t)(uint32_t)((uint64_t)hex_v_total + (uint64_t)hex_v_step.payload.member_0)",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -61,9 +61,9 @@ func TestStreamListSource(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_stream_list_Int32 {",
+		"typedef struct hex_stream_list_Int32 {",
 		"node->length = list->length;",
-		"sw_v_source = sw_stream_list_Int32_new(sw_v_h, sw_v_values);",
+		"hex_v_source = hex_stream_list_Int32_new(hex_v_h, hex_v_values);",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -77,14 +77,14 @@ func TestStreamAdapters(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_stream_filter_Int32 {",
-		"sw_f_is_even",
-		"typedef struct sw_stream_map_Int32_Int32 {",
-		"sw_f_double",
-		"typedef struct sw_stream_take_Int32 {",
+		"typedef struct hex_stream_filter_Int32 {",
+		"hex_f_is_even",
+		"typedef struct hex_stream_map_Int32_Int32 {",
+		"hex_f_double",
+		"typedef struct hex_stream_take_Int32 {",
 		"node->remaining = remaining;",
-		"sw_stream_free_Int32((sw_heap){ node->allocator }, node->upstream)",
-		"sw_v_limited = sw_stream_take_Int32_new(sw_v_h, sw_v_doubled, 1);",
+		"hex_stream_free_Int32((hex_heap){ node->allocator }, node->upstream)",
+		"hex_v_limited = hex_stream_take_Int32_new(hex_v_h, hex_v_doubled, 1);",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -98,10 +98,10 @@ func TestStreamForIteration(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"sw_stream_Int32 *const sw_for_1 = sw_v_source;",
-		"while (sw_for_1->ops->next((void *)sw_for_1, &sw_for_1_value)) {",
-		"sw_for_2_ordinal++",
-		"const size_t sw_v_i = sw_for_2_ordinal;",
+		"hex_stream_Int32 *const hex_for_1 = hex_v_source;",
+		"while (hex_for_1->ops->next((void *)hex_for_1, &hex_for_1_value)) {",
+		"hex_for_2_ordinal++",
+		"const size_t hex_v_i = hex_for_2_ordinal;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -136,9 +136,9 @@ func TestEosSingletonSemantics(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef uint8_t sw_eos;",
-		"const bool sw_v_same = true;",
-		"const bool sw_v_different = false;",
+		"typedef uint8_t hex_eos;",
+		"const bool hex_v_same = true;",
+		"const bool hex_v_different = false;",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)

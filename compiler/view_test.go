@@ -14,15 +14,15 @@ func TestViewSliceReadOperations(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_view_Int32 {",
+		"typedef struct hex_view_Int32 {",
 		"const int32_t *data;",
 		"size_t length;",
-		"const sw_view_Int32 sw_v_view = sw_array_slice_Int32_3(&sw_v_fixed, (size_t)(0), (size_t)(2));",
-		"(sw_v_view).length",
-		"(sw_v_view).length == 0",
-		"*sw_view_at_Int32(sw_v_view, (size_t)(0))",
-		"*sw_view_at_Int32(sw_v_view, (size_t)(1))",
-		"sw_v_tail = sw_view_slice_Int32(sw_v_view, (size_t)(1), (size_t)(2));",
+		"const hex_view_Int32 hex_v_view = hex_array_slice_Int32_3(&hex_v_fixed, (size_t)(0), (size_t)(2));",
+		"(hex_v_view).length",
+		"(hex_v_view).length == 0",
+		"*hex_view_at_Int32(hex_v_view, (size_t)(0))",
+		"*hex_view_at_Int32(hex_v_view, (size_t)(1))",
+		"hex_v_tail = hex_view_slice_Int32(hex_v_view, (size_t)(1), (size_t)(2));",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -111,9 +111,9 @@ func TestViewPassedToFunctionParameter(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static int32_t sw_f_sum(const sw_view_Int32 sw_v_values)",
-		"*sw_view_at_Int32(sw_v_values, (size_t)(0))",
-		"sw_v_total = sw_f_sum(sw_array_slice_Int32_2(&sw_v_fixed, (size_t)(0), (size_t)(2)));",
+		"static int32_t hex_f_sum(const hex_view_Int32 hex_v_values)",
+		"*hex_view_at_Int32(hex_v_values, (size_t)(0))",
+		"hex_v_total = hex_f_sum(hex_array_slice_Int32_2(&hex_v_fixed, (size_t)(0), (size_t)(2)));",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -126,7 +126,7 @@ func TestViewPreservesMutPtrPointeeCapability(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_v_view") {
+	if !strings.Contains(result.MainC, "hex_v_view") {
 		t.Fatalf("main.c = %q, want view-based pointee write", result.MainC)
 	}
 }

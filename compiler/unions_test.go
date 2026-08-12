@@ -10,7 +10,7 @@ func TestUnionAliasesNormalizeAndInject(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "typedef enum sw_internal_union_1_tag") || !strings.Contains(result.MainC, "sw_v_value") {
+	if !strings.Contains(result.MainH, "typedef enum hex_internal_union_1_tag") || !strings.Contains(result.MainC, "hex_v_value") {
 		t.Fatalf("generated union output = H:%q C:%q", result.MainH, result.MainC)
 	}
 }
@@ -20,7 +20,7 @@ func TestUnionContextUsesWrittenCandidateOrder(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile rejected candidate-order source: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "sw_internal_union_1_tag_member_0") || !strings.Contains(result.MainC, "sw_internal_union_2_tag_member_1") {
+	if !strings.Contains(result.MainC, "hex_internal_union_1_tag_member_0") || !strings.Contains(result.MainC, "hex_internal_union_2_tag_member_1") {
 		t.Fatalf("candidate tags missing from generated C: %q", result.MainC)
 	}
 }
@@ -30,7 +30,7 @@ func TestUnionWideningPreservesSourceEvaluation(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile rejected widening source: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainH, "sw_internal_widen_") || strings.Count(result.MainC, "sw_internal_widen_") != 1 {
+	if !strings.Contains(result.MainH, "hex_internal_widen_") || strings.Count(result.MainC, "hex_internal_widen_") != 1 {
 		t.Fatalf("widening helper output = H:%q C:%q", result.MainH, result.MainC)
 	}
 }
@@ -70,7 +70,7 @@ func TestNullablePointerUnionKeepsNullNiche(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile rejected nullable pointer source: %v", result.Stderr)
 	}
-	if strings.Contains(result.MainH, "sw_internal_union_") || !strings.Contains(result.MainC, "nullptr") {
+	if strings.Contains(result.MainH, "hex_internal_union_") || !strings.Contains(result.MainC, "nullptr") {
 		t.Fatalf("nullable pointer was tagged: H:%q C:%q", result.MainH, result.MainC)
 	}
 }
@@ -80,7 +80,7 @@ func TestUnionNestedPointerAndFunctionPositions(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile rejected nested/function union source: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainH, "sw_internal_union_") || !strings.Contains(result.MainC, "sw_f_identity") {
+	if !strings.Contains(result.MainH, "hex_internal_union_") || !strings.Contains(result.MainC, "hex_f_identity") {
 		t.Fatalf("nested/function union output = H:%q C:%q", result.MainH, result.MainC)
 	}
 }

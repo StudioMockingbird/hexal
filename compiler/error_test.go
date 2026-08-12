@@ -13,16 +13,16 @@ func TestErrorNewConstruction(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_t_Error sw_t_Error;",
-		"struct sw_t_Error {",
-		"const sw_string *sw_m_file;",
-		"size_t sw_m_line;",
-		"sw_strand sw_m_header;",
-		"const sw_string *sw_m_message;",
-		"sw_v_err = (sw_t_Error){",
-		".sw_m_file = &sw_lit_0,",
-		".sw_m_line = 2,",
-		".sw_m_column = 18,",
+		"typedef struct hex_t_Error hex_t_Error;",
+		"struct hex_t_Error {",
+		"const hex_string *hex_m_file;",
+		"size_t hex_m_line;",
+		"hex_strand hex_m_header;",
+		"const hex_string *hex_m_message;",
+		"hex_v_err = (hex_t_Error){",
+		".hex_m_file = &hex_lit_0,",
+		".hex_m_line = 2,",
+		".hex_m_column = 18,",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -36,10 +36,10 @@ func TestTryExpression(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const sw_internal_union_1 sw_try_1 = sw_f_read_count();",
-		"if (sw_try_1.tag == sw_internal_union_1_tag_member_1) {",
-		"return (sw_internal_union_1){ .tag = sw_internal_union_1_tag_member_1, .payload.member_1 = sw_try_1.payload.member_1 };",
-		"sw_v_count = sw_try_1.payload.member_0;",
+		"const hex_internal_union_1 hex_try_1 = hex_f_read_count();",
+		"if (hex_try_1.tag == hex_internal_union_1_tag_member_1) {",
+		"return (hex_internal_union_1){ .tag = hex_internal_union_1_tag_member_1, .payload.member_1 = hex_try_1.payload.member_1 };",
+		"hex_v_count = hex_try_1.payload.member_0;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -53,9 +53,9 @@ func TestTryMultipleSuccessMembers(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const sw_internal_union_1 sw_try_1 = sw_f_read_number();",
-		"sw_internal_union_3 sw_try_result_2;",
-		"switch (sw_try_1.tag) {",
+		"const hex_internal_union_1 hex_try_1 = hex_f_read_number();",
+		"hex_internal_union_3 hex_try_result_2;",
+		"switch (hex_try_1.tag) {",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -77,7 +77,7 @@ func TestErrdeferRunsOnErrorReturn(t *testing.T) {
 	}
 	// The try error path unwinds with errorExit=true: both the errdefer and
 	// the defer run.
-	if !strings.Contains(result.MainC, "sw_f_cleanup(sw_defer_capture_1);") || !strings.Contains(result.MainC, "sw_f_cleanup(sw_defer_capture_2);") {
+	if !strings.Contains(result.MainC, "hex_f_cleanup(hex_defer_capture_1);") || !strings.Contains(result.MainC, "hex_f_cleanup(hex_defer_capture_2);") {
 		t.Fatalf("main.c = %q, want errdefer and defer on the error path", result.MainC)
 	}
 }
@@ -89,13 +89,13 @@ func TestErrdeferSkippedOnSuccessReturn(t *testing.T) {
 	}
 	// The success return classifies the exit: the defer runs unconditionally
 	// and the errdefer is guarded by the runtime Error test.
-	if !strings.Contains(result.MainC, "const bool sw_err_2 = (sw_return_1.tag == sw_internal_union_1_tag_member_1);") {
+	if !strings.Contains(result.MainC, "const bool hex_err_2 = (hex_return_1.tag == hex_internal_union_1_tag_member_1);") {
 		t.Fatalf("main.c = %q, want success exit classification", result.MainC)
 	}
-	if !strings.Contains(result.MainC, "if (sw_err_2) {") {
+	if !strings.Contains(result.MainC, "if (hex_err_2) {") {
 		t.Fatalf("main.c = %q, want guarded errdefer", result.MainC)
 	}
-	if !strings.Contains(result.MainC, "sw_f_cleanup(sw_defer_capture_2);") {
+	if !strings.Contains(result.MainC, "hex_f_cleanup(hex_defer_capture_2);") {
 		t.Fatalf("main.c = %q, defer must run on success", result.MainC)
 	}
 }
@@ -105,7 +105,7 @@ func TestErrdeferRuntimeUnionReturn(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "const bool sw_err_") {
+	if !strings.Contains(result.MainC, "const bool hex_err_") {
 		t.Fatalf("main.c = %q, want runtime exit classification", result.MainC)
 	}
 }

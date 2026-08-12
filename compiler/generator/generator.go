@@ -1,4 +1,4 @@
-// Package generator emits readable C23 from checked Seawitch data.
+// Package generator emits readable C23 from checked Hexal data.
 package generator
 
 import (
@@ -16,7 +16,7 @@ import (
 const mainHeaderPrefix = "#ifndef HEXAL_MAIN_H\n#define HEXAL_MAIN_H\n\n#include <stdint.h>\n#include <stdbool.h>\n#include <limits.h>\n#include <stdlib.h>\n"
 const sourceFilename = "main.hexal"
 
-// NameKind identifies the Seawitch-owned declaration namespace lowered by the
+// NameKind identifies the Hexal-owned declaration namespace lowered by the
 // generator. The mapping is deliberately stateless and never consults a C
 // keyword list or a name registry.
 type NameKind uint8
@@ -31,14 +31,14 @@ const (
 // PrivateCName applies the RFC 0004 private C prefix exactly once at the
 // declaration/reference rendering boundary.
 func PrivateCName(kind NameKind, source string) string {
-	prefix := "sw_v_"
+	prefix := "hex_v_"
 	switch kind {
 	case TypeName:
-		prefix = "sw_t_"
+		prefix = "hex_t_"
 	case MemberName:
-		prefix = "sw_m_"
+		prefix = "hex_m_"
 	case FunctionName:
-		prefix = "sw_f_"
+		prefix = "hex_f_"
 	}
 	return prefix + source
 }
@@ -157,7 +157,7 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 		// RFC 0037: the task runtime needs the String and Strand typedefs and
 		// the Error object for the failure Errors every recoverable
 		// operation constructs; the discovery pass registered the literals.
-		// The Channel and Mutex helpers take a sw_heap argument, so the heap
+		// The Channel and Mutex helpers take a hex_heap argument, so the heap
 		// machinery is required too.
 		stringState.used = true
 		stringState.needStrand = true
@@ -213,10 +213,10 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 
 	body.WriteString("int main(void) {\n")
 	if concurrencyState.used {
-		// RFC 0037: the scheduler initializes before any Seawitch source
+		// RFC 0037: the scheduler initializes before any Hexal source
 		// runs; the module statements execute as the root Task on worker
-		// zero, and sw_task_complete below hands the process back to main.
-		body.WriteString("    sw_scheduler_init();\n")
+		// zero, and hex_task_complete below hands the process back to main.
+		body.WriteString("    hex_scheduler_init();\n")
 	}
 	renderState := &expressionValidation{
 		variables:      make(map[string]generatedBinding),
@@ -239,7 +239,7 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 		// workers, and switches back to main so it returns normally. Tasks
 		// still active are abandoned to process termination, as the spec
 		// requires.
-		body.WriteString("    sw_task_complete(sw_root_task);\n")
+		body.WriteString("    hex_task_complete(hex_root_task);\n")
 	}
 
 	body.WriteString("    return EXIT_SUCCESS;\n}\n")
@@ -525,12 +525,12 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 	// defers (RFC 0029).
 	if hasPendingActions(state) {
 		state.returnCounter++
-		name := fmt.Sprintf("sw_return_%d", state.returnCounter)
+		name := fmt.Sprintf("hex_return_%d", state.returnCounter)
 		var builder strings.Builder
 		fmt.Fprintf(&builder, "%s%s = %s;\n", indent, declaration(*result, name, false), value)
 		if hasPendingErrDefers(state) {
 			state.returnCounter++
-			errorName := fmt.Sprintf("sw_err_%d", state.returnCounter)
+			errorName := fmt.Sprintf("hex_err_%d", state.returnCounter)
 			fmt.Fprintf(&builder, "%sconst bool %s = %s;\n", indent, errorName, returnErrorExit(statement.Value.Type, name))
 			if err := unwindAllDefers(&builder, state, indent, errorName); err != nil {
 				return "", err
@@ -1166,7 +1166,7 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 		return true
 	}
 	object := typ.Object
-	if state.declaredObjects != nil && !state.declaredObjects[object] || !validSourceName(compilerTypes.SanitizeIdentifier(object.Name)) || object.CName != "sw_t_"+compilerTypes.SanitizeIdentifier(object.Name) {
+	if state.declaredObjects != nil && !state.declaredObjects[object] || !validSourceName(compilerTypes.SanitizeIdentifier(object.Name)) || object.CName != "hex_t_"+compilerTypes.SanitizeIdentifier(object.Name) {
 		return false
 	}
 	if state.activeObjects == nil {
@@ -1218,8 +1218,8 @@ type expressionValidation struct {
 	returnCounter  int
 	captures       map[*checker.Operand][]string
 	matchCounter   int
-	loopCounter    int // unique sw_for_N stem for for-in lowering (RFC 0028)
-	tryCounter     int // unique sw_try_N stems for RFC 0029 hoisting
+	loopCounter    int // unique hex_for_N stem for for-in lowering (RFC 0028)
+	tryCounter     int // unique hex_try_N stems for RFC 0029 hoisting
 	hoistedTries   map[*checker.Expression]string
 	// spawnCounter and hoistedSpawns carry RFC 0037 spawn prologues: each
 	// spawn's argument frame and task handle are declared before the
@@ -1230,7 +1230,7 @@ type expressionValidation struct {
 	// processed, in registration order. A try error branch may render
 	// earlier than a later defer statement, and must not run it (RFC 0029).
 	registeredDefers []checker.DeferredAction
-	printCounter     int                   // unique sw_print_arg_N stems for RFC 0030
+	printCounter     int                   // unique hex_print_arg_N stems for RFC 0030
 	strings          *generatedStringState // literal index lookup for rendering
 }
 
@@ -3051,11 +3051,11 @@ func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 	}
 	if compilerTypes.IsString(typ) {
 		// A source String value is a pointer-sized handle to an immutable
-		// sw_string object; the binding's own const follows the pointer.
+		// hex_string object; the binding's own const follows the pointer.
 		if mutable {
-			return "const sw_string *" + name
+			return "const hex_string *" + name
 		}
-		return "const sw_string *const " + name
+		return "const hex_string *const " + name
 	}
 	if compilerTypes.IsList(typ) {
 		// A source List value is a pointer-sized owning handle to a mutable
@@ -3140,7 +3140,7 @@ func typeSpelling(typ compilerTypes.Type) string {
 		return funDeclaration(typ, "", true)
 	}
 	if compilerTypes.IsString(typ) {
-		return "const sw_string *"
+		return "const hex_string *"
 	}
 	if compilerTypes.IsList(typ) {
 		return typ.CName + " *"
@@ -3178,7 +3178,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 	case checker.NilExpression:
 		return "nullptr", nil
 	case checker.EosExpression:
-		return "((sw_eos){ 0 })", nil
+		return "((hex_eos){ 0 })", nil
 	case checker.VariableExpression:
 		if node.Name == "" {
 			return "", unknownExpressionDiagnostic("variable without a source name")
@@ -3290,19 +3290,19 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", indexErr
 		}
 		if node.OperandType.View != nil {
-			return "*sw_view_at_" + strings.TrimPrefix(node.OperandType.CName, "sw_view_") + "(" + receiver + ", (size_t)(" + index + "))", nil
+			return "*hex_view_at_" + strings.TrimPrefix(node.OperandType.CName, "hex_view_") + "(" + receiver + ", (size_t)(" + index + "))", nil
 		}
 		if node.OperandType.List != nil {
 			if place.writable {
-				return "*sw_list_at_mut_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
+				return "*hex_list_at_mut_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
 			}
-			return "*sw_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
+			return "*hex_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
 		}
 		if compilerTypes.IsString(node.OperandType) {
-			return "sw_string_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
+			return "hex_string_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
 		}
 		if compilerTypes.IsStrand(node.OperandType) {
-			return "sw_strand_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
+			return "hex_strand_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
 		}
 		return "*" + arrayAccessorCName(node.OperandType, place.writable) + "(&" + receiver + ", (size_t)(" + index + "))", nil
 	case checker.ArrayLiteralExpression:
@@ -3369,10 +3369,10 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				return "", indexErr
 			}
 			if node.OperandType.View != nil {
-				return "*sw_view_at_" + strings.TrimPrefix(node.OperandType.CName, "sw_view_") + "(" + receiver + ", (size_t)(" + index + "))", nil
+				return "*hex_view_at_" + strings.TrimPrefix(node.OperandType.CName, "hex_view_") + "(" + receiver + ", (size_t)(" + index + "))", nil
 			}
 			if node.OperandType.List != nil {
-				return "*sw_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
+				return "*hex_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
 			}
 			return "*" + arrayAccessorCName(node.OperandType, false) + "(&" + receiver + ", (size_t)(" + index + "))", nil
 		case "push", "set", "clear", "pop":
@@ -3396,7 +3396,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				if valueErr != nil {
 					return "", valueErr
 				}
-				return "sw_list_push_" + suffix + "(" + receiver + ", " + value + ")", nil
+				return "hex_list_push_" + suffix + "(" + receiver + ", " + value + ")", nil
 			case "set":
 				if len(node.Arguments) != 2 {
 					return "", unknownExpressionDiagnostic("list set without checked operands")
@@ -3409,11 +3409,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				if valueErr != nil {
 					return "", valueErr
 				}
-				return "sw_list_set_" + suffix + "(" + receiver + ", (size_t)(" + index + "), " + value + ")", nil
+				return "hex_list_set_" + suffix + "(" + receiver + ", (size_t)(" + index + "), " + value + ")", nil
 			case "clear":
-				return "sw_list_clear_" + suffix + "(" + receiver + ")", nil
+				return "hex_list_clear_" + suffix + "(" + receiver + ")", nil
 			case "pop":
-				return "sw_list_pop_" + suffix + "(" + receiver + ")", nil
+				return "hex_list_pop_" + suffix + "(" + receiver + ")", nil
 			}
 		case "free":
 			if node.Operand == nil || len(node.Arguments) != 1 {
@@ -3431,10 +3431,10 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				return "", heapErr
 			}
 			if node.OperandType.List != nil {
-				return "sw_list_free_" + listSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
+				return "hex_list_free_" + listSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
 			}
 			if node.OperandType.Dict != nil {
-				return "sw_dict_free_" + dictSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
+				return "hex_dict_free_" + dictSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
 			}
 			return "", unknownExpressionDiagnostic("collection free without a list or dictionary receiver")
 		case "insert", "get", "contains", "remove":
@@ -3462,7 +3462,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				if valueErr != nil {
 					return "", valueErr
 				}
-				return "sw_dict_insert_" + suffix + "(" + receiver + ", " + key + ", " + value + ")", nil
+				return "hex_dict_insert_" + suffix + "(" + receiver + ", " + key + ", " + value + ")", nil
 			case "get", "remove":
 				if len(node.Arguments) != 1 {
 					return "", unknownExpressionDiagnostic("dictionary lookup without a checked key")
@@ -3471,7 +3471,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				if keyErr != nil {
 					return "", keyErr
 				}
-				return "sw_dict_" + node.Name + "_" + suffix + "(" + receiver + ", " + key + ")", nil
+				return "hex_dict_" + node.Name + "_" + suffix + "(" + receiver + ", " + key + ")", nil
 			case "contains":
 				if len(node.Arguments) != 1 {
 					return "", unknownExpressionDiagnostic("dictionary contains without a checked key")
@@ -3480,7 +3480,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				if keyErr != nil {
 					return "", keyErr
 				}
-				return "sw_dict_contains_" + suffix + "(" + receiver + ", " + key + ")", nil
+				return "hex_dict_contains_" + suffix + "(" + receiver + ", " + key + ")", nil
 			}
 		}
 		return "", unknownExpressionDiagnostic("unknown collection method")
@@ -3504,12 +3504,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", endErr
 		}
 		if node.OperandType.View != nil {
-			return "sw_view_slice_" + strings.TrimPrefix(node.OperandType.CName, "sw_view_") + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+			return "hex_view_slice_" + strings.TrimPrefix(node.OperandType.CName, "hex_view_") + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		}
 		if node.OperandType.List != nil {
-			return "sw_list_slice_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+			return "hex_list_slice_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		}
-		return "sw_array_slice_" + arrayAccessorSuffix(node.OperandType) + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+		return "hex_array_slice_" + arrayAccessorSuffix(node.OperandType) + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 	case checker.StringLiteralExpression:
 		if state.strings == nil {
 			return "", unknownExpressionDiagnostic("string literal without the string literal registry")
@@ -3522,7 +3522,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			// RFC 0044: a Strand is a 32-byte zero-padded inline value.
 			payload := node.Name
 			var builder strings.Builder
-			builder.WriteString("(sw_strand){{")
+			builder.WriteString("(hex_strand){{")
 			for _, character := range []byte(payload) {
 				fmt.Fprintf(&builder, " %d,", character)
 			}
@@ -3544,14 +3544,14 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		switch node.Name {
 		case "length":
 			if compilerTypes.IsStrand(node.OperandType) {
-				return "sw_strand_rune_length(" + receiver + ")", nil
+				return "hex_strand_rune_length(" + receiver + ")", nil
 			}
-			return "sw_string_rune_length(" + receiver + ")", nil
+			return "hex_string_rune_length(" + receiver + ")", nil
 		case "is_empty":
 			if compilerTypes.IsStrand(node.OperandType) {
-				return "sw_strand_is_empty(" + receiver + ")", nil
+				return "hex_strand_is_empty(" + receiver + ")", nil
 			}
-			return "sw_string_is_empty(" + receiver + ")", nil
+			return "hex_string_is_empty(" + receiver + ")", nil
 		case "at":
 			if len(node.Arguments) != 1 {
 				return "", unknownExpressionDiagnostic("string at without a checked index")
@@ -3561,13 +3561,13 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				return "", indexErr
 			}
 			if compilerTypes.IsStrand(node.OperandType) {
-				return "sw_strand_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
+				return "hex_strand_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
 			}
-			return "sw_string_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
+			return "hex_string_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
 		case "rune_cursor":
-			return "sw_string_rune_cursor(" + receiver + ")", nil
+			return "hex_string_rune_cursor(" + receiver + ")", nil
 		case "bytes":
-			return "sw_string_bytes(" + receiver + ")", nil
+			return "hex_string_bytes(" + receiver + ")", nil
 		case "slice":
 			if len(node.Arguments) != 2 {
 				return "", unknownExpressionDiagnostic("string slice without checked bounds")
@@ -3580,7 +3580,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			if endErr != nil {
 				return "", endErr
 			}
-			return "sw_string_slice(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+			return "hex_string_slice(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		case "to_string":
 			if len(node.Arguments) != 1 {
 				return "", unknownExpressionDiagnostic("string to_string without a checked heap")
@@ -3590,9 +3590,9 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				return "", heapErr
 			}
 			if compilerTypes.IsStrand(node.OperandType) {
-				return "sw_strand_to_string(" + heap + ", " + receiver + ")", nil
+				return "hex_strand_to_string(" + heap + ", " + receiver + ")", nil
 			}
-			return "sw_string_to_string(" + heap + ", " + receiver + ")", nil
+			return "hex_string_to_string(" + heap + ", " + receiver + ")", nil
 		case "concat":
 			if len(node.Arguments) != 2 {
 				return "", unknownExpressionDiagnostic("string concat without checked operands")
@@ -3605,7 +3605,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			if otherErr != nil {
 				return "", otherErr
 			}
-			return "sw_string_concat(" + heap + ", " + receiver + ", " + other + ")", nil
+			return "hex_string_concat(" + heap + ", " + receiver + ", " + other + ")", nil
 		case "free":
 			if len(node.Arguments) != 1 {
 				return "", unknownExpressionDiagnostic("string free without a checked heap")
@@ -3614,7 +3614,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			if heapErr != nil {
 				return "", heapErr
 			}
-			return "sw_string_free(" + heap + ", " + receiver + ")", nil
+			return "hex_string_free(" + heap + ", " + receiver + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("unknown string method")
 	case checker.StringFromBytesExpression:
@@ -3629,7 +3629,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if viewErr != nil {
 			return "", viewErr
 		}
-		return "sw_string_from_bytes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
+		return "hex_string_from_bytes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
 	case checker.StringFromRunesExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("String.from_runes without checked operands")
@@ -3642,7 +3642,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if viewErr != nil {
 			return "", viewErr
 		}
-		return "sw_string_from_runes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
+		return "hex_string_from_runes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
 	case checker.FileModeLiteralExpression:
 		return renderFileModeLiteral(node)
 	case checker.FileOpenExpression:
@@ -3661,9 +3661,9 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		switch node.Name {
 		case "has_next":
-			return "sw_rune_cursor_has_next(" + receiver + ")", nil
+			return "hex_rune_cursor_has_next(" + receiver + ")", nil
 		case "next":
-			return "sw_rune_cursor_next(&(" + receiver + "))", nil
+			return "hex_rune_cursor_next(&(" + receiver + "))", nil
 		}
 		return "", unknownExpressionDiagnostic("unknown rune cursor method " + node.Name)
 	case checker.ListNewExpression:
@@ -3674,7 +3674,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return "sw_list_new_" + listSuffix(node.ResultType) + "(" + heap + ")", nil
+		return "hex_list_new_" + listSuffix(node.ResultType) + "(" + heap + ")", nil
 	case checker.DictNewExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("Dict<K, V>.new without a checked heap")
@@ -3683,7 +3683,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return "sw_dict_new_" + dictSuffix(node.ResultType) + "(" + heap + ")", nil
+		return "hex_dict_new_" + dictSuffix(node.ResultType) + "(" + heap + ")", nil
 	case checker.WideningExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("widening without an operand")
@@ -3729,9 +3729,9 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if rightErr != nil {
 			return "", rightErr
 		}
-		helper := "sw_compare_sw_string"
+		helper := "hex_compare_hex_string"
 		if compilerTypes.IsStrand(node.OperandType) {
-			helper = "sw_compare_sw_strand"
+			helper = "hex_compare_hex_strand"
 		}
 		comparison := " < 0"
 		switch node.Operator {
@@ -3758,7 +3758,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 	case checker.SpawnExpression:
 		return renderSpawnExpression(node, state)
 	case checker.TaskYieldExpression:
-		return "sw_task_yield()", nil
+		return "hex_task_yield()", nil
 	case checker.TaskMethodCallExpression:
 		return renderTaskMethod(node, state)
 	case checker.ChannelConstructorExpression:
@@ -4461,15 +4461,15 @@ func header(float32Used, float64Used, nilUsed bool, objects []*compilerTypes.Obj
 func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState) string {
 	var result strings.Builder
 	result.WriteString(mainHeaderPrefix)
-	result.WriteString("\nstatic_assert(CHAR_BIT == 8, \"Seawitch requires 8-bit bytes\");\n")
-	result.WriteString("static_assert(sizeof(uint8_t) * CHAR_BIT == 8 && UINT8_MAX == 255, \"Seawitch requires UInt8\");\n")
-	result.WriteString("static_assert(sizeof(uint16_t) * CHAR_BIT == 16 && UINT16_MAX == 65535, \"Seawitch requires UInt16\");\n")
-	result.WriteString("static_assert(sizeof(uint32_t) * CHAR_BIT == 32 && UINT32_MAX == 4294967295u, \"Seawitch requires UInt32\");\n")
-	result.WriteString("static_assert(sizeof(uint64_t) * CHAR_BIT == 64 && UINT64_MAX == UINT64_C(18446744073709551615), \"Seawitch requires UInt64\");\n")
-	result.WriteString("static_assert(sizeof(int8_t) * CHAR_BIT == 8 && INT8_MIN == -128 && INT8_MAX == 127, \"Seawitch requires Int8\");\n")
-	result.WriteString("static_assert(sizeof(int16_t) * CHAR_BIT == 16 && INT16_MIN == -32768 && INT16_MAX == 32767, \"Seawitch requires Int16\");\n")
-	result.WriteString("static_assert(sizeof(int32_t) * CHAR_BIT == 32 && INT32_MIN == (-2147483647 - 1) && INT32_MAX == 2147483647, \"Seawitch requires Int32\");\n")
-	result.WriteString("static_assert(sizeof(int64_t) * CHAR_BIT == 64 && INT64_MIN == (-INT64_C(9223372036854775807) - 1) && INT64_MAX == INT64_C(9223372036854775807), \"Seawitch requires Int64\");\n")
+	result.WriteString("\nstatic_assert(CHAR_BIT == 8, \"Hexal requires 8-bit bytes\");\n")
+	result.WriteString("static_assert(sizeof(uint8_t) * CHAR_BIT == 8 && UINT8_MAX == 255, \"Hexal requires UInt8\");\n")
+	result.WriteString("static_assert(sizeof(uint16_t) * CHAR_BIT == 16 && UINT16_MAX == 65535, \"Hexal requires UInt16\");\n")
+	result.WriteString("static_assert(sizeof(uint32_t) * CHAR_BIT == 32 && UINT32_MAX == 4294967295u, \"Hexal requires UInt32\");\n")
+	result.WriteString("static_assert(sizeof(uint64_t) * CHAR_BIT == 64 && UINT64_MAX == UINT64_C(18446744073709551615), \"Hexal requires UInt64\");\n")
+	result.WriteString("static_assert(sizeof(int8_t) * CHAR_BIT == 8 && INT8_MIN == -128 && INT8_MAX == 127, \"Hexal requires Int8\");\n")
+	result.WriteString("static_assert(sizeof(int16_t) * CHAR_BIT == 16 && INT16_MIN == -32768 && INT16_MAX == 32767, \"Hexal requires Int16\");\n")
+	result.WriteString("static_assert(sizeof(int32_t) * CHAR_BIT == 32 && INT32_MIN == (-2147483647 - 1) && INT32_MAX == 2147483647, \"Hexal requires Int32\");\n")
+	result.WriteString("static_assert(sizeof(int64_t) * CHAR_BIT == 64 && INT64_MIN == (-INT64_C(9223372036854775807) - 1) && INT64_MAX == INT64_C(9223372036854775807), \"Hexal requires Int64\");\n")
 	// RFC 0010: nullptr_t and the nullptr predefined constant live in
 	// <stddef.h>, included only when a written name needs them.
 	if nilUsed {
@@ -4481,22 +4481,22 @@ func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedU
 		result.WriteString("#include <stdio.h>\n\n")
 		// RFC 0036: the v1 target profile is a 64-bit size_t; the generated
 		// C rejects an ABI mismatch before executing the program.
-		result.WriteString("static_assert(sizeof(size_t) == 8, \"Seawitch Size requires a 64-bit size_t target\");\n\n")
+		result.WriteString("static_assert(sizeof(size_t) == 8, \"Hexal Size requires a 64-bit size_t target\");\n\n")
 	}
 	if float32Used || float64Used {
 		result.WriteString("#include <float.h>\n#include <math.h>\n\n")
-		result.WriteString("static_assert(FLT_RADIX == 2, \"Seawitch requires binary floating point\");\n")
+		result.WriteString("static_assert(FLT_RADIX == 2, \"Hexal requires binary floating point\");\n")
 	}
 	if float32Used {
-		result.WriteString("static_assert(sizeof(float) == 4 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, \"Seawitch Float32 requires the binary32 value set\");\n")
-		result.WriteString("#if !defined(FLT_IS_IEC_60559) || FLT_IS_IEC_60559 != 1\n#error \"Seawitch Float32 requires IEC 60559\"\n#endif\n")
+		result.WriteString("static_assert(sizeof(float) == 4 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, \"Hexal Float32 requires the binary32 value set\");\n")
+		result.WriteString("#if !defined(FLT_IS_IEC_60559) || FLT_IS_IEC_60559 != 1\n#error \"Hexal Float32 requires IEC 60559\"\n#endif\n")
 	}
 	if float64Used {
-		result.WriteString("static_assert(sizeof(double) == 8 && DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024, \"Seawitch Float64 requires the binary64 value set\");\n")
-		result.WriteString("#if !defined(DBL_IS_IEC_60559) || DBL_IS_IEC_60559 != 1\n#error \"Seawitch Float64 requires IEC 60559\"\n#endif\n")
+		result.WriteString("static_assert(sizeof(double) == 8 && DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024, \"Hexal Float64 requires the binary64 value set\");\n")
+		result.WriteString("#if !defined(DBL_IS_IEC_60559) || DBL_IS_IEC_60559 != 1\n#error \"Hexal Float64 requires IEC 60559\"\n#endif\n")
 	}
 	// RFC 0031: the EoS singleton lowers to one compiler-owned byte.
-	result.WriteString("typedef uint8_t sw_eos;\n\n")
+	result.WriteString("typedef uint8_t hex_eos;\n\n")
 	writeConcurrencyTypePrelude(&result, concurrency)
 	writeIOPrelude(&result, io)
 	writeAdtDefinitions(&result, adts)
@@ -4862,12 +4862,12 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 		// EoS is the RFC 0031 singleton: its one value is the tag-only
 		// marker and carries no go/constant.
 		if compilerTypes.IsEoS(source.Type) {
-			return "((sw_eos){ 0 })", nil
+			return "((hex_eos){ 0 })", nil
 		}
 		// Heap is a singleton handle: Heap.new() selects the default
 		// allocator identity and performs no allocation.
 		if compilerTypes.IsHeap(source.Type) {
-			return "((sw_heap){ .identity = SW_HEAP_DEFAULT })", nil
+			return "((hex_heap){ .identity = HEX_HEAP_DEFAULT })", nil
 		}
 		if source.Constant == nil {
 			return "", unknownExpressionDiagnostic("constant operand without a checked value")

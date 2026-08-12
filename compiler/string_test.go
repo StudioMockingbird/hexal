@@ -6,7 +6,7 @@ import (
 )
 
 // RFC 0020 Phase C: String revision — literals, affine ownership, the
-// sw_string handle representation, and the byte-view operations.
+// hex_string handle representation, and the byte-view operations.
 
 func TestStringLiteralBinding(t *testing.T) {
 	result := Compile("greeting: String = \"hello\"")
@@ -14,12 +14,12 @@ func TestStringLiteralBinding(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_string {",
+		"typedef struct hex_string {",
 		"const uint8_t *data;",
 		"size_t byte_length;",
-		"static const uint8_t sw_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };",
-		"static const sw_string sw_lit_0 = { sw_lit_0_bytes, 5 };",
-		"const sw_string *const sw_v_greeting = &sw_lit_0;",
+		"static const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };",
+		"static const hex_string hex_lit_0 = { hex_lit_0_bytes, 5 };",
+		"const hex_string *const hex_v_greeting = &hex_lit_0;",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -32,7 +32,7 @@ func TestStringLiteralEscapes(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "static const uint8_t sw_lit_0_bytes[12] = { 97, 34, 98, 92, 99, 10, 100, 9, 101, 13, 102, 0 };") {
+	if !strings.Contains(result.MainH, "static const uint8_t hex_lit_0_bytes[12] = { 97, 34, 98, 92, 99, 10, 100, 9, 101, 13, 102, 0 };") {
 		t.Fatalf("main.h = %q, want escaped payload bytes", result.MainH)
 	}
 }
@@ -43,10 +43,10 @@ func TestStringBytesAndSlice(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const sw_view_UInt8 sw_v_raw = sw_string_bytes(sw_v_text);",
-		"*sw_view_at_UInt8(sw_v_raw, (size_t)(0))",
-		"const sw_view_UInt8 sw_v_part = sw_string_slice(sw_v_text, (size_t)(1), (size_t)(3));",
-		"*sw_view_at_UInt8(sw_v_part, (size_t)(0))",
+		"const hex_view_UInt8 hex_v_raw = hex_string_bytes(hex_v_text);",
+		"*hex_view_at_UInt8(hex_v_raw, (size_t)(0))",
+		"const hex_view_UInt8 hex_v_part = hex_string_slice(hex_v_text, (size_t)(1), (size_t)(3));",
+		"*hex_view_at_UInt8(hex_v_part, (size_t)(0))",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -60,11 +60,11 @@ func TestStringOwningLifecycle(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"return sw_string_to_string(sw_v_h, &sw_lit_0);",
-		"sw_v_text = sw_f_make_text(sw_v_h);",
-		"sw_v_loud = sw_string_concat(sw_v_h, sw_v_text, &sw_lit_1);",
-		"sw_string_free(sw_v_h, sw_v_loud);",
-		"sw_string_free(sw_defer_capture_2, sw_defer_capture_1);",
+		"return hex_string_to_string(hex_v_h, &hex_lit_0);",
+		"hex_v_text = hex_f_make_text(hex_v_h);",
+		"hex_v_loud = hex_string_concat(hex_v_h, hex_v_text, &hex_lit_1);",
+		"hex_string_free(hex_v_h, hex_v_loud);",
+		"hex_string_free(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -77,7 +77,7 @@ func TestStringFromBytes(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_v_copy = sw_string_from_bytes(sw_v_h, (sw_v_raw).data, (sw_v_raw).length);") {
+	if !strings.Contains(result.MainC, "hex_v_copy = hex_string_from_bytes(hex_v_h, (hex_v_raw).data, (hex_v_raw).length);") {
 		t.Fatalf("main.c = %q, want from_bytes call", result.MainC)
 	}
 }

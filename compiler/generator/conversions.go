@@ -156,8 +156,8 @@ func writeConversionDefinitions(result *strings.Builder, specs []conversionSpec)
 	}
 	// The trap is shared with RFC 0017's guarded division helpers; the
 	// include guard keeps the definition single even when both writers run.
-	result.WriteString("\n#ifndef SW_NUMERIC_TRAP_DEFINED\n#define SW_NUMERIC_TRAP_DEFINED\n")
-	result.WriteString("static void sw_numeric_trap(void) {\n")
+	result.WriteString("\n#ifndef HEX_NUMERIC_TRAP_DEFINED\n#define HEX_NUMERIC_TRAP_DEFINED\n")
+	result.WriteString("static void hex_numeric_trap(void) {\n")
 	result.WriteString("    fputs(\"[Runtime Error] numeric operation failed\\n\", stderr);\n    abort();\n}\n")
 	result.WriteString("#endif\n")
 	for _, spec := range specs {
@@ -185,7 +185,7 @@ func conversionHelperName(spec conversionSpec) string {
 	if compilerTypes.IsRune(spec.target) {
 		targetSuffix = "rune"
 	}
-	return "sw_convert_" + sourceSuffix + "_" + targetSuffix
+	return "hex_convert_" + sourceSuffix + "_" + targetSuffix
 }
 
 func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
@@ -199,7 +199,7 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 		// RFC 0038: Integer-to-Rune checks Unicode scalar validity, not just
 		// the 32-bit range: the value must be in U+0000..U+10FFFF and
 		// outside the surrogate range.
-		body = "    if (value < 0 || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {\n        sw_numeric_trap();\n    }\n"
+		body = "    if (value < 0 || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {\n        hex_numeric_trap();\n    }\n"
 		body += "    return (" + targetC + ")value;\n"
 	case compilerTypes.IsInteger(source) && compilerTypes.IsInteger(target):
 		if integerRangeFits(source, target) {
@@ -220,7 +220,7 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 			body = "    return value;\n"
 		} else {
 			body = "    " + targetC + " result = (" + targetC + ")value;\n"
-			body += "    if (isfinite(value) && isinf(result)) {\n        sw_numeric_trap();\n    }\n"
+			body += "    if (isfinite(value) && isinf(result)) {\n        hex_numeric_trap();\n    }\n"
 			body += "    return result;\n"
 		}
 	}
@@ -270,17 +270,17 @@ func writeCheckedIntegerConversion(source, target compilerTypes.Type) string {
 	} else {
 		condition = high
 	}
-	return "    if (!(" + condition + ")) {\n        sw_numeric_trap();\n    }\n    return (" + target.CName + ")value;\n"
+	return "    if (!(" + condition + ")) {\n        hex_numeric_trap();\n    }\n    return (" + target.CName + ")value;\n"
 }
 
 func writeFloatToIntegerConversion(source, target compilerTypes.Type) string {
 	minimum := integerMinimumMacro(target)
 	maximum := integerMaximumMacro(target)
-	body := "    if (isnan(value) || isinf(value)) {\n        sw_numeric_trap();\n    }\n"
+	body := "    if (isnan(value) || isinf(value)) {\n        hex_numeric_trap();\n    }\n"
 	if compilerTypes.IsSignedInteger(target) {
-		body += "    if (!(value >= " + minimum + " && value <= " + maximum + ")) {\n        sw_numeric_trap();\n    }\n"
+		body += "    if (!(value >= " + minimum + " && value <= " + maximum + ")) {\n        hex_numeric_trap();\n    }\n"
 	} else {
-		body += "    if (!(value >= 0.0 && value <= " + maximum + ")) {\n        sw_numeric_trap();\n    }\n"
+		body += "    if (!(value >= 0.0 && value <= " + maximum + ")) {\n        hex_numeric_trap();\n    }\n"
 	}
 	return body + "    return (" + target.CName + ")value;\n"
 }

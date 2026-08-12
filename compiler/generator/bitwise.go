@@ -106,8 +106,8 @@ func writeShiftDefinitions(result *strings.Builder, specs []shiftSpec) {
 	if len(specs) == 0 {
 		return
 	}
-	result.WriteString("\n#ifndef SW_NUMERIC_TRAP_DEFINED\n#define SW_NUMERIC_TRAP_DEFINED\n")
-	result.WriteString("static void sw_numeric_trap(void) {\n")
+	result.WriteString("\n#ifndef HEX_NUMERIC_TRAP_DEFINED\n#define HEX_NUMERIC_TRAP_DEFINED\n")
+	result.WriteString("static void hex_numeric_trap(void) {\n")
 	result.WriteString("    fputs(\"[Runtime Error] numeric operation failed\\n\", stderr);\n    abort();\n}\n")
 	result.WriteString("#endif\n")
 	for _, spec := range specs {
@@ -116,9 +116,9 @@ func writeShiftDefinitions(result *strings.Builder, specs []shiftSpec) {
 }
 
 func shiftHelperName(spec shiftSpec) string {
-	prefix := "sw_shl_"
+	prefix := "hex_shl_"
 	if spec.operator == checker.ShiftRightOperator {
-		prefix = "sw_shr_"
+		prefix = "hex_shr_"
 	}
 	return prefix + spec.typ.CName
 }
@@ -153,7 +153,7 @@ func writeShiftHelper(result *strings.Builder, spec shiftSpec) {
 		shifted = reconstructed
 	}
 	fmt.Fprintf(result, "\nstatic inline %s %s(%s left, uint64_t count) {\n", typ.CName, shiftHelperName(spec), typ.CName)
-	fmt.Fprintf(result, "    if (!(count < %dULL)) {\n        sw_numeric_trap();\n    }\n", width)
+	fmt.Fprintf(result, "    if (!(count < %dULL)) {\n        hex_numeric_trap();\n    }\n", width)
 	fmt.Fprintf(result, "    return %s;\n}\n", shifted)
 }
 
@@ -219,7 +219,7 @@ type bitCastSpec struct {
 }
 
 func bitCastHelperName(spec bitCastSpec) string {
-	return "sw_bitcast_" + spec.source.CName + "_" + spec.target.CName
+	return "hex_bitcast_" + spec.source.CName + "_" + spec.target.CName
 }
 
 // discoverGeneratedBitCasts collects the bit_cast<T>() pairs the program
@@ -349,9 +349,9 @@ func endianHelperName(spec endianSpec) string {
 	if spec.bigEnd {
 		order = "be"
 	}
-	prefix := "sw_to_" + order + "_bytes_"
+	prefix := "hex_to_" + order + "_bytes_"
 	if spec.from {
-		prefix = "sw_from_" + order + "_bytes_"
+		prefix = "hex_from_" + order + "_bytes_"
 	}
 	return prefix + spec.typ.CName
 }

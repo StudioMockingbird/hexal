@@ -14,11 +14,11 @@ func TestBitwiseOperators(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const uint32_t sw_v_masked = 0;",
-		"const uint32_t sw_v_xor = 61680;",
-		"const uint8_t sw_v_combined = 255;",
-		"const uint8_t sw_v_complement = 240;",
-		"const uint16_t sw_v_widened = 0;",
+		"const uint32_t hex_v_masked = 0;",
+		"const uint32_t hex_v_xor = 61680;",
+		"const uint8_t hex_v_combined = 255;",
+		"const uint8_t hex_v_complement = 240;",
+		"const uint16_t hex_v_widened = 0;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -32,8 +32,8 @@ func TestBitwiseSignedReconstruction(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const int8_t sw_v_mask = -1;",
-		"const int8_t sw_v_signed = 15;",
+		"const int8_t hex_v_mask = -1;",
+		"const int8_t hex_v_signed = 15;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -47,13 +47,13 @@ func TestShiftOperators(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"sw_shl_uint32_t(sw_v_value, (uint64_t)(4))",
-		"sw_shr_uint32_t(sw_v_shifted, (uint64_t)(2))",
-		"sw_v_wrapped = sw_shl_int8_t(sw_v_signed, (uint64_t)(1));",
-		"sw_v_halved = sw_shr_int8_t(sw_v_negative, (uint64_t)(1));",
-		"static inline int8_t sw_shl_int8_t(int8_t left, uint64_t count) {",
+		"hex_shl_uint32_t(hex_v_value, (uint64_t)(4))",
+		"hex_shr_uint32_t(hex_v_shifted, (uint64_t)(2))",
+		"hex_v_wrapped = hex_shl_int8_t(hex_v_signed, (uint64_t)(1));",
+		"hex_v_halved = hex_shr_int8_t(hex_v_negative, (uint64_t)(1));",
+		"static inline int8_t hex_shl_int8_t(int8_t left, uint64_t count) {",
 		"if (!(count < 8ULL)) {",
-		"static inline int8_t sw_shr_int8_t(int8_t left, uint64_t count) {",
+		"static inline int8_t hex_shr_int8_t(int8_t left, uint64_t count) {",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -101,11 +101,11 @@ func TestBitCast(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static inline uint64_t sw_bitcast_double_uint64_t(double value) {",
+		"static inline uint64_t hex_bitcast_double_uint64_t(double value) {",
 		"memcpy(&result, &(value), sizeof(result));",
-		"sw_v_bits = sw_bitcast_double_uint64_t(sw_v_floating);",
-		"sw_v_unsigned = sw_bitcast_int32_t_uint32_t(sw_v_signed);",
-		"static inline uint32_t sw_bitcast_float_uint32_t(float value) {",
+		"hex_v_bits = hex_bitcast_double_uint64_t(hex_v_floating);",
+		"hex_v_unsigned = hex_bitcast_int32_t_uint32_t(hex_v_signed);",
+		"static inline uint32_t hex_bitcast_float_uint32_t(float value) {",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -136,14 +136,14 @@ func TestEndianByteConversion(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static inline sw_array_UInt8_4 sw_to_le_bytes_uint32_t(uint32_t value) {",
+		"static inline hex_array_UInt8_4 hex_to_le_bytes_uint32_t(uint32_t value) {",
 		"result.data[0] = (uint8_t)((uint32_t)value >> 0);",
 		"result.data[3] = (uint8_t)((uint32_t)value >> 24);",
 		"result.data[0] = (uint8_t)((uint32_t)value >> 24);",
-		"sw_v_little = sw_to_le_bytes_uint32_t(sw_v_value);",
-		"sw_v_from_little = sw_from_le_bytes_uint32_t(&(sw_v_little));",
-		"sw_v_from_big = sw_from_be_bytes_uint32_t(&(sw_v_big));",
-		"static inline int16_t sw_from_le_bytes_int16_t(const sw_array_UInt8_2 *bytes) {",
+		"hex_v_little = hex_to_le_bytes_uint32_t(hex_v_value);",
+		"hex_v_from_little = hex_from_le_bytes_uint32_t(&(hex_v_little));",
+		"hex_v_from_big = hex_from_be_bytes_uint32_t(&(hex_v_big));",
+		"static inline int16_t hex_from_le_bytes_int16_t(const hex_array_UInt8_2 *bytes) {",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -173,7 +173,7 @@ func TestBitwisePrecedence(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"const uint32_t sw_v_packed = 66051;",
+		"const uint32_t hex_v_packed = 66051;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)

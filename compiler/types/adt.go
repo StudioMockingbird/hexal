@@ -30,7 +30,7 @@ func (environment *Environment) BeginADT(name string, sourceLine, sourceColumn i
 	identity := newTypeIdentity(environment.identity)
 	adt := &AdtType{
 		Name:         name,
-		CName:        "sw_" + SanitizeIdentifier(name),
+		CName:        "hex_" + SanitizeIdentifier(name),
 		SourceLine:   sourceLine,
 		SourceColumn: sourceColumn,
 		identity:     identity,

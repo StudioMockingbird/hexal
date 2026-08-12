@@ -99,7 +99,7 @@ func (environment *Environment) UnionType(members []Type) Type {
 	info := &UnionInfo{Members: append([]Type(nil), unique...)}
 	union := Type{
 		Name:     unionName(unique),
-		CName:    fmt.Sprintf("sw_internal_union_%d", environment.unionOrdinal+1),
+		CName:    fmt.Sprintf("hex_internal_union_%d", environment.unionOrdinal+1),
 		Union:    info,
 		identity: newTypeIdentity(environment.identity),
 	}

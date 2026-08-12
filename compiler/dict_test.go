@@ -14,16 +14,16 @@ func TestDictInt32Lifecycle(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_dict_entry_Int32_Int32 {",
+		"typedef struct hex_dict_entry_Int32_Int32 {",
 		"bool active;",
 		"int32_t key;",
 		"int32_t value;",
-		"sw_v_scores = sw_dict_new_Int32_Int32(sw_v_h);",
-		"sw_dict_insert_Int32_Int32(sw_v_scores, 1, 10);",
-		"sw_dict_contains_Int32_Int32(sw_v_scores, 1)",
-		"sw_v_first = sw_dict_get_Int32_Int32(sw_v_scores, 1);",
-		"sw_v_removed = sw_dict_remove_Int32_Int32(sw_v_scores, 2);",
-		"sw_dict_free_Int32_Int32(sw_defer_capture_2, sw_defer_capture_1);",
+		"hex_v_scores = hex_dict_new_Int32_Int32(hex_v_h);",
+		"hex_dict_insert_Int32_Int32(hex_v_scores, 1, 10);",
+		"hex_dict_contains_Int32_Int32(hex_v_scores, 1)",
+		"hex_v_first = hex_dict_get_Int32_Int32(hex_v_scores, 1);",
+		"hex_v_removed = hex_dict_remove_Int32_Int32(hex_v_scores, 2);",
+		"hex_dict_free_Int32_Int32(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -37,13 +37,13 @@ func TestDictStrandKeys(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_strand {",
+		"typedef struct hex_strand {",
 		"uint8_t data[32];",
-		"sw_dict_insert_Strand_Int32(sw_v_labels, (sw_strand){{ 97, 108, 105, 99, 101, 0 }}, 1);",
-		"sw_dict_contains_Strand_Int32(sw_v_labels, (sw_strand){{ 97, 108, 105, 99, 101, 0 }})",
-		"sw_v_score = sw_dict_get_Strand_Int32(sw_v_labels, (sw_strand){{ 98, 111, 98, 0 }});",
-		"sw_dict_insert_Strand_Int32(sw_v_labels, sw_v_key, 3);",
-		"sw_hash_Strand",
+		"hex_dict_insert_Strand_Int32(hex_v_labels, (hex_strand){{ 97, 108, 105, 99, 101, 0 }}, 1);",
+		"hex_dict_contains_Strand_Int32(hex_v_labels, (hex_strand){{ 97, 108, 105, 99, 101, 0 }})",
+		"hex_v_score = hex_dict_get_Strand_Int32(hex_v_labels, (hex_strand){{ 98, 111, 98, 0 }});",
+		"hex_dict_insert_Strand_Int32(hex_v_labels, hex_v_key, 3);",
+		"hex_hash_Strand",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -57,10 +57,10 @@ func TestDictStringValues(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"sw_dict_insert_Int32_String(sw_v_people, 1, &sw_lit_0);",
-		"sw_v_name = sw_dict_get_Int32_String(sw_v_people, 1);",
-		"sw_v_removed = sw_dict_remove_Int32_String(sw_v_people, 1);",
-		"sw_string_free(sw_v_h, sw_v_removed);",
+		"hex_dict_insert_Int32_String(hex_v_people, 1, &hex_lit_0);",
+		"hex_v_name = hex_dict_get_Int32_String(hex_v_people, 1);",
+		"hex_v_removed = hex_dict_remove_Int32_String(hex_v_people, 1);",
+		"hex_string_free(hex_v_h, hex_v_removed);",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)

@@ -1,4 +1,4 @@
-# Seawitch Grammar
+# Hexal Grammar
 
 This document records the grammar implemented by the current compiler slice.
 Whitespace and comments may separate tokens; statements do not require a
@@ -275,7 +275,7 @@ the rune binder (text).
 Identifiers are case-sensitive, must begin with an ASCII letter, and may use
 digits or underscores after that first letter. All reserved words are excluded
 after lexing. Boolean literals are also keyword tokens.
-`main`, C keywords, and C macro spellings remain valid Seawitch identifiers.
+`main`, C keywords, and C macro spellings remain valid Hexal identifiers.
 
 The operator tokens are maximal-munch lexed: `!=`, `==`, `<=`, `>=`, `<<`,
 and `>>` are single tokens, never a pair of punctuation tokens. `<` and `>`

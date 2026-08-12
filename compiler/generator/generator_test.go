@@ -23,7 +23,7 @@ func TestGenerateInt32Declaration(t *testing.T) {
 		}},
 	}
 
-	wantC := "#include \"main.h\"\n\nint main(void) {\n    const int32_t sw_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
+	wantC := "#include \"main.h\"\n\nint main(void) {\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
 	gotC, _ := Generate(program)
 	if gotC != wantC {
 		t.Fatalf("main.c = %q, want %q", gotC, wantC)
@@ -55,7 +55,7 @@ func TestGenerateTaggedUnionDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainH, "sw_internal_union_1") || !strings.Contains(mainC, ".tag") {
+	if !strings.Contains(mainH, "hex_internal_union_1") || !strings.Contains(mainC, ".tag") {
 		t.Fatalf("generated union output = C:%q H:%q, want tagged representation", mainC, mainH)
 	}
 }
@@ -77,7 +77,7 @@ func TestDiscoverGeneratedUnionHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.order) != 1 || state.order[0].CName != "sw_internal_union_1" {
+	if len(state.order) != 1 || state.order[0].CName != "hex_internal_union_1" {
 		t.Fatalf("union state = %#v, want one deterministic helper", state)
 	}
 }
@@ -89,7 +89,7 @@ func TestSupportedGeneratedUnionTypeRejectsForgedMetadata(t *testing.T) {
 		t.Fatal("canonical tagged union was rejected")
 	}
 	forged := union
-	forged.CName = "sw_internal_union_forged"
+	forged.CName = "hex_internal_union_forged"
 	if supportedGeneratedType(forged) {
 		t.Fatal("forged tagged union metadata was accepted")
 	}
@@ -102,11 +102,11 @@ func TestGenerateUnionOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"typedef enum sw_internal_union_1_tag",
-		"typedef struct sw_internal_union_1",
-		".tag == sw_internal_union_1_tag_member_0",
-		"sw_internal_union_3_equal",
-		"sw_internal_widen_sw_internal_union_3_to_sw_internal_union_4",
+		"typedef enum hex_internal_union_1_tag",
+		"typedef struct hex_internal_union_1",
+		".tag == hex_internal_union_1_tag_member_0",
+		"hex_internal_union_3_equal",
+		"hex_internal_widen_hex_internal_union_3_to_hex_internal_union_4",
 	} {
 		if !strings.Contains(mainC, want) && !strings.Contains(mainH, want) {
 			t.Fatalf("generated output does not contain %q: C=%q H=%q", want, mainC, mainH)
@@ -120,7 +120,7 @@ func TestGenerateUnionTruthiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainC, "sw_internal_union_1_truthy") || !strings.Contains(mainH, "static bool sw_internal_union_1_truthy") {
+	if !strings.Contains(mainC, "hex_internal_union_1_truthy") || !strings.Contains(mainH, "static bool hex_internal_union_1_truthy") {
 		t.Fatalf("truthiness output = C:%q H:%q, want tagged truthiness helper", mainC, mainH)
 	}
 }
@@ -131,7 +131,7 @@ func TestGenerateNarrowedUnionPayloadRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainC, "sw_v_value.payload.member_0") {
+	if !strings.Contains(mainC, "hex_v_value.payload.member_0") {
 		t.Fatalf("generated C = %q, want narrowed payload read", mainC)
 	}
 }
@@ -176,7 +176,7 @@ func TestGenerateBoolDeclaration(t *testing.T) {
 		}},
 	}
 
-	want := "#include \"main.h\"\n\nint main(void) {\n    const bool sw_v_enabled = true;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"main.h\"\n\nint main(void) {\n    const bool hex_v_enabled = true;\n    return EXIT_SUCCESS;\n}\n"
 	gotC, _ := Generate(program)
 	if gotC != want {
 		t.Fatalf("main.c = %q, want %q", gotC, want)
@@ -192,7 +192,7 @@ func TestGenerateHexadecimalInt32Declaration(t *testing.T) {
 		}},
 	}
 
-	want := "#include \"main.h\"\n\nint main(void) {\n    const int32_t sw_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"main.h\"\n\nint main(void) {\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
 	gotC, _ := Generate(program)
 	if gotC != want {
 		t.Fatalf("main.c = %q, want %q", gotC, want)
@@ -207,7 +207,7 @@ func TestGenerateStatementsInOrder(t *testing.T) {
 		},
 	}
 
-	want := "#include \"main.h\"\n\nint main(void) {\n    int32_t sw_v_x = 13;\n    sw_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"main.h\"\n\nint main(void) {\n    int32_t hex_v_x = 13;\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
 	gotC, _ := Generate(program)
 	if gotC != want {
 		t.Fatalf("main.c = %q, want %q", gotC, want)
@@ -237,10 +237,10 @@ func TestGeneratePointerDeclarationAndAssignments(t *testing.T) {
 
 	wantC := "#include \"main.h\"\n\n" +
 		"int main(void) {\n" +
-		"    int32_t sw_v_x = 13;\n" +
-		"    int32_t *sw_v_p = &sw_v_x;\n" +
-		"    *sw_v_p = 14;\n" +
-		"    sw_v_p = &sw_v_x;\n" +
+		"    int32_t hex_v_x = 13;\n" +
+		"    int32_t *hex_v_p = &hex_v_x;\n" +
+		"    *hex_v_p = 14;\n" +
+		"    hex_v_p = &hex_v_x;\n" +
 		"    return EXIT_SUCCESS;\n" +
 		"}\n"
 	gotC, _ := Generate(program)
@@ -259,7 +259,7 @@ func TestGenerateNestedPointerExpressions(t *testing.T) {
 		checker.Declaration{Name: "y", Type: compilerTypes.Int32, Source: checker.Operand{Kind: checker.VariableOperand, Type: compilerTypes.Int32, Node: nestedDereferenceNode("pp")}},
 	}}
 	gotC, _ := Generate(program)
-	for _, want := range []string{"int32_t sw_v_x = 1;", "int32_t *const sw_v_p = &sw_v_x;", "int32_t *const *const sw_v_pp = &sw_v_p;", "const int32_t sw_v_y = *(*sw_v_pp);"} {
+	for _, want := range []string{"int32_t hex_v_x = 1;", "int32_t *const hex_v_p = &hex_v_x;", "int32_t *const *const hex_v_pp = &hex_v_p;", "const int32_t hex_v_y = *(*hex_v_pp);"} {
 		if !strings.Contains(gotC, want) {
 			t.Fatalf("main.c = %q, want %q", gotC, want)
 		}
@@ -376,18 +376,18 @@ func TestGeneratePointerDeclaratorCombinations(t *testing.T) {
 		mutable bool
 		want    string
 	}{
-		{compilerTypes.PtrType(compilerTypes.Int32), false, "const int32_t *const sw_v_a;"},
-		{compilerTypes.MutPtrType(compilerTypes.Int32), false, "int32_t *const sw_v_b;"},
-		{compilerTypes.PtrType(compilerTypes.PtrType(compilerTypes.Int32)), false, "const int32_t *const *const sw_v_c;"},
-		{compilerTypes.MutPtrType(compilerTypes.PtrType(compilerTypes.Int32)), false, "const int32_t **const sw_v_d;"},
-		{compilerTypes.PtrType(compilerTypes.MutPtrType(compilerTypes.Int32)), false, "int32_t *const *const sw_v_e;"},
-		{compilerTypes.MutPtrType(compilerTypes.MutPtrType(compilerTypes.Int32)), false, "int32_t **const sw_v_f;"},
-		{compilerTypes.PtrType(compilerTypes.Int32), true, "const int32_t *sw_v_g;"},
-		{compilerTypes.MutPtrType(compilerTypes.Int32), true, "int32_t *sw_v_h;"},
+		{compilerTypes.PtrType(compilerTypes.Int32), false, "const int32_t *const hex_v_a;"},
+		{compilerTypes.MutPtrType(compilerTypes.Int32), false, "int32_t *const hex_v_b;"},
+		{compilerTypes.PtrType(compilerTypes.PtrType(compilerTypes.Int32)), false, "const int32_t *const *const hex_v_c;"},
+		{compilerTypes.MutPtrType(compilerTypes.PtrType(compilerTypes.Int32)), false, "const int32_t **const hex_v_d;"},
+		{compilerTypes.PtrType(compilerTypes.MutPtrType(compilerTypes.Int32)), false, "int32_t *const *const hex_v_e;"},
+		{compilerTypes.MutPtrType(compilerTypes.MutPtrType(compilerTypes.Int32)), false, "int32_t **const hex_v_f;"},
+		{compilerTypes.PtrType(compilerTypes.Int32), true, "const int32_t *hex_v_g;"},
+		{compilerTypes.MutPtrType(compilerTypes.Int32), true, "int32_t *hex_v_h;"},
 	}
 	for index, testCase := range testCases {
 		name := []string{"a", "b", "c", "d", "e", "f", "g", "h"}[index]
-		if got := declaration(testCase.typ, "sw_v_"+name, testCase.mutable) + ";"; got != testCase.want {
+		if got := declaration(testCase.typ, "hex_v_"+name, testCase.mutable) + ";"; got != testCase.want {
 			t.Fatalf("declarator for %q (mutable=%v) = %q, want %q", testCase.typ.Name, testCase.mutable, got, testCase.want)
 		}
 	}
@@ -398,7 +398,7 @@ func TestGenerateLineDirectives(t *testing.T) {
 		checker.Declaration{Name: "x", Type: compilerTypes.Int32, Source: intSource(compilerTypes.Int32, 13, "13"), SourceLine: 4, SourceColumn: 1},
 	}}
 	gotC, _ := Generate(program)
-	if !strings.Contains(gotC, "#line 4 \"main.hexal\"\n    const int32_t sw_v_x = 13;") {
+	if !strings.Contains(gotC, "#line 4 \"main.hexal\"\n    const int32_t hex_v_x = 13;") {
 		t.Fatalf("main.c = %q, want a line directive before the declaration", gotC)
 	}
 }
@@ -409,12 +409,12 @@ func TestPrivateCNameUsesOneUnconditionalPrefix(t *testing.T) {
 		source string
 		want   string
 	}{
-		{ValueName, "main", "sw_v_main"},
-		{ValueName, "int", "sw_v_int"},
-		{ValueName, "INT32_MAX", "sw_v_INT32_MAX"},
-		{ValueName, "sw_v_score", "sw_v_sw_v_score"},
-		{TypeName, "Point", "sw_t_Point"},
-		{MemberName, "x", "sw_m_x"},
+		{ValueName, "main", "hex_v_main"},
+		{ValueName, "int", "hex_v_int"},
+		{ValueName, "INT32_MAX", "hex_v_INT32_MAX"},
+		{ValueName, "hex_v_score", "hex_v_hex_v_score"},
+		{TypeName, "Point", "hex_t_Point"},
+		{MemberName, "x", "hex_m_x"},
 	}
 	for _, testCase := range testCases {
 		if got := PrivateCName(testCase.kind, testCase.source); got != testCase.want {
@@ -824,8 +824,8 @@ func TestRenderExpressionOperand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderOperand() error = %v", err)
 	}
-	if got != "sw_v_value" {
-		t.Fatalf("rendered expression operand = %q, want %q", got, "sw_v_value")
+	if got != "hex_v_value" {
+		t.Fatalf("rendered expression operand = %q, want %q", got, "hex_v_value")
 	}
 }
 
@@ -851,7 +851,7 @@ func TestRenderSignedInt8Addition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderOperand() error = %v", err)
 	}
-	want := "((uint64_t)(uint8_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) - (uint64_t)INT8_MAX - (uint64_t)1))"
+	want := "((uint64_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT8_MAX - (uint64_t)1))"
 	if got != want {
 		t.Fatalf("signed Int8 addition = %q, want %q", got, want)
 	}
@@ -877,7 +877,7 @@ func TestRenderSignedArithmeticUsesPromotionSafeUnsignedIntermediate(t *testing.
 				t.Fatalf("renderExpression(%s, %s) error = %v", testCase.typ.Name, operator, err)
 			}
 			operatorText, _ := binaryCOperator(operator)
-			unsignedResult := fmt.Sprintf("(%s)((uint64_t)sw_v_left %s (uint64_t)sw_v_right)", testCase.unsigned, operatorText)
+			unsignedResult := fmt.Sprintf("(%s)((uint64_t)hex_v_left %s (uint64_t)hex_v_right)", testCase.unsigned, operatorText)
 			want := fmt.Sprintf("((uint64_t)%s <= (uint64_t)%s ? (%s)%s : %s + (%s)((uint64_t)%s - (uint64_t)%s - (uint64_t)1))", unsignedResult, testCase.maximum, testCase.typ.CName, unsignedResult, testCase.minimum, testCase.typ.CName, unsignedResult, testCase.maximum)
 			if got != want {
 				t.Errorf("signed %s %s = %q, want %q", testCase.typ.Name, operator, got, want)
@@ -889,7 +889,7 @@ func TestRenderSignedArithmeticUsesPromotionSafeUnsignedIntermediate(t *testing.
 		if err != nil {
 			t.Fatalf("renderExpression(%s unary -) error = %v", testCase.typ.Name, err)
 		}
-		unsignedResult := fmt.Sprintf("(%s)((uint64_t)0 - (uint64_t)sw_v_value)", testCase.unsigned)
+		unsignedResult := fmt.Sprintf("(%s)((uint64_t)0 - (uint64_t)hex_v_value)", testCase.unsigned)
 		want := fmt.Sprintf("((uint64_t)%s <= (uint64_t)%s ? (%s)%s : %s + (%s)((uint64_t)%s - (uint64_t)%s - (uint64_t)1))", unsignedResult, testCase.maximum, testCase.typ.CName, unsignedResult, testCase.minimum, testCase.typ.CName, unsignedResult, testCase.maximum)
 		if got != want {
 			t.Errorf("signed %s negation = %q, want %q", testCase.typ.Name, got, want)
@@ -910,7 +910,7 @@ func TestRenderUnsignedArithmeticCastsOperandsAndResult(t *testing.T) {
 		} else {
 			intermediate = compilerTypes.UInt64.CName
 		}
-		want := fmt.Sprintf("(%s)((%s)sw_v_left + (%s)sw_v_right)", typ.CName, intermediate, intermediate)
+		want := fmt.Sprintf("(%s)((%s)hex_v_left + (%s)hex_v_right)", typ.CName, intermediate, intermediate)
 		if got != want {
 			t.Errorf("unsigned %s addition = %q, want %q", typ.Name, got, want)
 		}
@@ -924,7 +924,7 @@ func TestRenderUnsignedNarrowMultiplicationUsesUInt32Intermediate(t *testing.T) 
 		if err != nil {
 			t.Fatalf("renderExpression(%s) error = %v", typ.Name, err)
 		}
-		want := fmt.Sprintf("(%s)((uint32_t)sw_v_left * (uint32_t)sw_v_right)", typ.CName)
+		want := fmt.Sprintf("(%s)((uint32_t)hex_v_left * (uint32_t)hex_v_right)", typ.CName)
 		if got != want {
 			t.Errorf("unsigned %s multiplication = %q, want %q", typ.Name, got, want)
 		}
@@ -937,10 +937,10 @@ func TestRenderUnsignedNarrowMultiplicationUsesUInt32Intermediate(t *testing.T) 
 func TestFloatTargetAssertionsFailClosed(t *testing.T) {
 	mainH := header(true, true, false, nil)
 	for _, want := range []string{
-		"static_assert(sizeof(float) == 4 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, \"Seawitch Float32 requires the binary32 value set\");",
-		"#if !defined(FLT_IS_IEC_60559) || FLT_IS_IEC_60559 != 1\n#error \"Seawitch Float32 requires IEC 60559\"\n#endif",
-		"static_assert(sizeof(double) == 8 && DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024, \"Seawitch Float64 requires the binary64 value set\");",
-		"#if !defined(DBL_IS_IEC_60559) || DBL_IS_IEC_60559 != 1\n#error \"Seawitch Float64 requires IEC 60559\"\n#endif",
+		"static_assert(sizeof(float) == 4 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, \"Hexal Float32 requires the binary32 value set\");",
+		"#if !defined(FLT_IS_IEC_60559) || FLT_IS_IEC_60559 != 1\n#error \"Hexal Float32 requires IEC 60559\"\n#endif",
+		"static_assert(sizeof(double) == 8 && DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024, \"Hexal Float64 requires the binary64 value set\");",
+		"#if !defined(DBL_IS_IEC_60559) || DBL_IS_IEC_60559 != 1\n#error \"Hexal Float64 requires IEC 60559\"\n#endif",
 	} {
 		if !strings.Contains(mainH, want) {
 			t.Fatalf("main.h = %q, want %q", mainH, want)
@@ -1007,15 +1007,15 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	wantWrapped := "((uint64_t)(uint8_t)((uint64_t)sw_v_value + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)sw_v_value + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)sw_v_value + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))"
+	wantWrapped := "((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))"
 	if !strings.Contains(mainC, wantWrapped) {
 		t.Fatalf("main.c = %q, want conditional signed wrap for Int8 127 + 1", mainC)
 	}
 	// The wrap operands must never reach C as a plain narrowing conversion of a
 	// signed value, which is implementation-defined before C23.
 	for _, forbidden := range []string{
-		"const int8_t sw_v_wrapped = (int8_t)(uint8_t)((uint64_t)sw_v_value + (uint64_t)1);",
-		"const int8_t sw_v_negated = (int8_t)(uint64_t)((uint64_t)0 - (uint64_t)sw_v_minimum);",
+		"const int8_t hex_v_wrapped = (int8_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1);",
+		"const int8_t hex_v_negated = (int8_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum);",
 	} {
 		if strings.Contains(mainC, forbidden) {
 			t.Fatalf("main.c contains implementation-defined signed conversion %q", forbidden)
@@ -1034,21 +1034,21 @@ func TestRenderEveryOperationOperator(t *testing.T) {
 		node checker.Expression
 		want string
 	}{
-		{"negate", unaryExpression(checker.NegateOperator, compilerTypes.Int32, compilerTypes.Int32, left), "((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)sw_v_left) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)0 - (uint64_t)sw_v_left) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)sw_v_left) - (uint64_t)INT32_MAX - (uint64_t)1))"},
-		{"logical not", unaryExpression(checker.LogicalNotOperator, compilerTypes.Bool, compilerTypes.Bool, left), "(!sw_v_left)"},
-		{"add", binaryExpression(checker.AddOperator, compilerTypes.Float64, compilerTypes.Float64, left, right), "(sw_v_left + sw_v_right)"},
-		{"subtract", binaryExpression(checker.SubtractOperator, compilerTypes.Float64, compilerTypes.Float64, left, right), "(sw_v_left - sw_v_right)"},
-		{"multiply", binaryExpression(checker.MultiplyOperator, compilerTypes.Float64, compilerTypes.Float64, left, right), "(sw_v_left * sw_v_right)"},
-		{"divide", binaryExpression(checker.DivideOperator, compilerTypes.Int32, compilerTypes.Int32, left, right), "sw_div_int32_t(sw_v_left, sw_v_right)"},
-		{"remainder", binaryExpression(checker.RemainderOperator, compilerTypes.Int32, compilerTypes.Int32, left, right), "sw_rem_int32_t(sw_v_left, sw_v_right)"},
-		{"equal", binaryExpression(checker.EqualOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(sw_v_left == sw_v_right)"},
-		{"not equal", binaryExpression(checker.NotEqualOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(sw_v_left != sw_v_right)"},
-		{"less", binaryExpression(checker.LessOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(sw_v_left < sw_v_right)"},
-		{"less equal", binaryExpression(checker.LessEqualOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(sw_v_left <= sw_v_right)"},
-		{"greater", binaryExpression(checker.GreaterOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(sw_v_left > sw_v_right)"},
-		{"greater equal", binaryExpression(checker.GreaterEqualOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(sw_v_left >= sw_v_right)"},
-		{"logical and", binaryExpression(checker.LogicalAndOperator, compilerTypes.Bool, compilerTypes.Bool, left, right), "(sw_v_left && sw_v_right)"},
-		{"logical or", binaryExpression(checker.LogicalOrOperator, compilerTypes.Bool, compilerTypes.Bool, left, right), "(sw_v_left || sw_v_right)"},
+		{"negate", unaryExpression(checker.NegateOperator, compilerTypes.Int32, compilerTypes.Int32, left), "((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) - (uint64_t)INT32_MAX - (uint64_t)1))"},
+		{"logical not", unaryExpression(checker.LogicalNotOperator, compilerTypes.Bool, compilerTypes.Bool, left), "(!hex_v_left)"},
+		{"add", binaryExpression(checker.AddOperator, compilerTypes.Float64, compilerTypes.Float64, left, right), "(hex_v_left + hex_v_right)"},
+		{"subtract", binaryExpression(checker.SubtractOperator, compilerTypes.Float64, compilerTypes.Float64, left, right), "(hex_v_left - hex_v_right)"},
+		{"multiply", binaryExpression(checker.MultiplyOperator, compilerTypes.Float64, compilerTypes.Float64, left, right), "(hex_v_left * hex_v_right)"},
+		{"divide", binaryExpression(checker.DivideOperator, compilerTypes.Int32, compilerTypes.Int32, left, right), "hex_div_int32_t(hex_v_left, hex_v_right)"},
+		{"remainder", binaryExpression(checker.RemainderOperator, compilerTypes.Int32, compilerTypes.Int32, left, right), "hex_rem_int32_t(hex_v_left, hex_v_right)"},
+		{"equal", binaryExpression(checker.EqualOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(hex_v_left == hex_v_right)"},
+		{"not equal", binaryExpression(checker.NotEqualOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(hex_v_left != hex_v_right)"},
+		{"less", binaryExpression(checker.LessOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(hex_v_left < hex_v_right)"},
+		{"less equal", binaryExpression(checker.LessEqualOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(hex_v_left <= hex_v_right)"},
+		{"greater", binaryExpression(checker.GreaterOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(hex_v_left > hex_v_right)"},
+		{"greater equal", binaryExpression(checker.GreaterEqualOperator, compilerTypes.Int32, compilerTypes.Bool, left, right), "(hex_v_left >= hex_v_right)"},
+		{"logical and", binaryExpression(checker.LogicalAndOperator, compilerTypes.Bool, compilerTypes.Bool, left, right), "(hex_v_left && hex_v_right)"},
+		{"logical or", binaryExpression(checker.LogicalOrOperator, compilerTypes.Bool, compilerTypes.Bool, left, right), "(hex_v_left || hex_v_right)"},
 	}
 	for _, testCase := range testCases {
 		got, err := renderExpression(testCase.node)
@@ -1069,7 +1069,7 @@ func TestRenderOperationsAlwaysParenthesizeNestedExpressions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderExpression() error = %v", err)
 	}
-	want := "((sw_v_left + sw_v_right) * sw_v_scale)"
+	want := "((hex_v_left + hex_v_right) * hex_v_scale)"
 	if got != want {
 		t.Fatalf("nested operation = %q, want %q", got, want)
 	}
@@ -1387,7 +1387,7 @@ func TestGenerateCheckedValidatesPlaceMetadata(t *testing.T) {
 					Node: addressNode("x"),
 				}},
 			}},
-			wantC: "const int32_t *const sw_v_p = &sw_v_x;",
+			wantC: "const int32_t *const hex_v_p = &hex_v_x;",
 		},
 	}
 
@@ -1454,7 +1454,7 @@ func TestGenerateCheckedValidatesNestedPlaceMetadataAndIgnoresOperandFlags(t *te
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	if !strings.Contains(mainC, "(*(*sw_v_pp)).sw_m_x = 2;") {
+	if !strings.Contains(mainC, "(*(*hex_v_pp)).hex_m_x = 2;") {
 		t.Fatalf("main.c = %q, want nested dereference/member assignment", mainC)
 	}
 }
@@ -1686,7 +1686,7 @@ func TestRenderTruthinessConditions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writeStatementsAt() error = %v", err)
 	}
-	if !strings.Contains(body.String(), "if ((sw_v_maybe != NULL)) {") {
+	if !strings.Contains(body.String(), "if ((hex_v_maybe != NULL)) {") {
 		t.Fatalf("body = %q, want a nullable null-test condition", body.String())
 	}
 }
@@ -1848,8 +1848,8 @@ func TestGenerateFunctionDefinition(t *testing.T) {
 	program := checker.Program{Statements: []checker.Statement{identityDeclaration(fun, &result)}}
 
 	want := "#include \"main.h\"\n\n" +
-		"static int32_t sw_f_identity(const int32_t sw_v_x) {\n" +
-		"    return sw_v_x;\n" +
+		"static int32_t hex_f_identity(const int32_t hex_v_x) {\n" +
+		"    return hex_v_x;\n" +
 		"}\n\n" +
 		"int main(void) {\n    return EXIT_SUCCESS;\n}\n"
 	gotC, _, err := GenerateChecked(program)
@@ -1871,7 +1871,7 @@ func TestGenerateNoReturnFunctionLowersToVoid(t *testing.T) {
 		Body:       []checker.Statement{checker.ReturnStatement{}},
 	}}}
 
-	want := "static void sw_f_reset(const int32_t sw_v_x) {\n    return;\n}\n"
+	want := "static void hex_f_reset(const int32_t hex_v_x) {\n    return;\n}\n"
 	gotC, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -1896,7 +1896,7 @@ func TestGenerateZeroParameterFunction(t *testing.T) {
 		}}},
 	}}}
 
-	want := "static int32_t sw_f_zero(void) {\n    return 0;\n}\n"
+	want := "static int32_t hex_f_zero(void) {\n    return 0;\n}\n"
 	gotC, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -1924,8 +1924,8 @@ func TestGenerateFunctionPointerObjects(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	for _, want := range []string{
-		"    int32_t (*const sw_v_callback)(int32_t) = sw_f_identity;\n",
-		"    int32_t (*sw_v_selected)(int32_t) = sw_f_identity;\n",
+		"    int32_t (*const hex_v_callback)(int32_t) = hex_f_identity;\n",
+		"    int32_t (*hex_v_selected)(int32_t) = hex_f_identity;\n",
 	} {
 		if !strings.Contains(gotC, want) {
 			t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
@@ -1954,8 +1954,8 @@ func TestGenerateFunctionPointerParameter(t *testing.T) {
 		}},
 	}}}
 
-	want := "static int32_t sw_f_apply(int32_t (*const sw_v_callback)(int32_t), const int32_t sw_v_value) {\n" +
-		"    return sw_v_callback(sw_v_value);\n}\n"
+	want := "static int32_t hex_f_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n" +
+		"    return hex_v_callback(hex_v_value);\n}\n"
 	gotC, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -1977,7 +1977,7 @@ func TestGenerateCallExpression(t *testing.T) {
 		}},
 	}}
 
-	want := "    const int32_t sw_v_total = sw_f_identity(13);\n"
+	want := "    const int32_t hex_v_total = hex_f_identity(13);\n"
 	gotC, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2000,7 +2000,7 @@ func TestGenerateCallStatement(t *testing.T) {
 		checker.CallStatement{Call: checker.Operand{Kind: checker.ExpressionOperand, Node: call}},
 	}}
 
-	want := "    sw_f_reset(13);\n"
+	want := "    hex_f_reset(13);\n"
 	gotC, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2025,7 +2025,7 @@ func TestGenerateSelfRecursiveFunction(t *testing.T) {
 		}},
 	}}}
 
-	want := "static int32_t sw_f_loop(const int32_t sw_v_n) {\n    return sw_f_loop(sw_v_n);\n}\n"
+	want := "static int32_t hex_f_loop(const int32_t hex_v_n) {\n    return hex_f_loop(hex_v_n);\n}\n"
 	gotC, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2058,13 +2058,13 @@ func TestGenerateFunctionDefinitionsPrecedeMainInSourceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	first := strings.Index(gotC, "sw_f_identity")
-	next := strings.Index(gotC, "sw_f_second")
+	first := strings.Index(gotC, "hex_f_identity")
+	next := strings.Index(gotC, "hex_f_second")
 	main := strings.Index(gotC, "int main(void)")
 	if first < 0 || next < first || main < next {
-		t.Fatalf("main.c = %q, want sw_f_identity then sw_f_second then main", gotC)
+		t.Fatalf("main.c = %q, want hex_f_identity then hex_f_second then main", gotC)
 	}
-	if !strings.Contains(gotH, "struct sw_t_Point {") {
+	if !strings.Contains(gotH, "struct hex_t_Point {") {
 		t.Fatalf("main.h = %q, want the object definition region", gotH)
 	}
 }
@@ -2086,8 +2086,8 @@ func TestGenerateFunctionBodyLineDirectives(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	for _, want := range []string{
-		"#line 3 \"main.hexal\"\nstatic int32_t sw_f_identity(",
-		"#line 4 \"main.hexal\"\n    return sw_v_x;",
+		"#line 3 \"main.hexal\"\nstatic int32_t hex_f_identity(",
+		"#line 4 \"main.hexal\"\n    return hex_v_x;",
 	} {
 		if !strings.Contains(gotC, want) {
 			t.Fatalf("main.c = %q, want it to contain %q", gotC, want)

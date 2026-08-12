@@ -260,7 +260,7 @@ const (
 	LogicalOrOperator
 )
 
-// String returns the Seawitch spelling of a resolved operator.
+// String returns the Hexal spelling of a resolved operator.
 func (operator Operator) String() string {
 	switch operator {
 	case NegateOperator:

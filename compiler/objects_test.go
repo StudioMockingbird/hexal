@@ -13,23 +13,23 @@ func TestObjectValuesAndMembers(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_t_Point sw_t_Point;",
-		"struct sw_t_Point {",
-		"int32_t sw_m_x;",
-		"int32_t sw_m_y;",
-		"const int32_t sw_v_read = sw_v_point.sw_m_x;",
-		"sw_v_point.sw_m_y = 3;",
-		".sw_m_x = 1,",
-		".sw_m_y = 2,",
+		"typedef struct hex_t_Point hex_t_Point;",
+		"struct hex_t_Point {",
+		"int32_t hex_m_x;",
+		"int32_t hex_m_y;",
+		"const int32_t hex_v_read = hex_v_point.hex_m_x;",
+		"hex_v_point.hex_m_y = 3;",
+		".hex_m_x = 1,",
+		".hex_m_y = 2,",
 	} {
 		if !strings.Contains(result.MainH+result.MainC, want) {
 			t.Fatalf("generated output = %q, want %q", result.MainH+result.MainC, want)
 		}
 	}
-	if strings.Index(result.MainH, "sw_m_x") > strings.Index(result.MainH, "sw_m_y") {
+	if strings.Index(result.MainH, "hex_m_x") > strings.Index(result.MainH, "hex_m_y") {
 		t.Fatalf("member definitions are not in declaration order: %q", result.MainH)
 	}
-	if strings.Index(result.MainC, ".sw_m_x") > strings.Index(result.MainC, ".sw_m_y") {
+	if strings.Index(result.MainC, ".hex_m_x") > strings.Index(result.MainC, ".hex_m_y") {
 		t.Fatalf("literal designators are not in declaration order: %q", result.MainC)
 	}
 }
@@ -52,8 +52,8 @@ func TestNestedObjectsAndPointers(t *testing.T) {
 		t.Fatalf("nested object compilation failed: %#v", result)
 	}
 	for _, want := range []string{
-		"sw_v_box.sw_m_point.sw_m_x = 3;",
-		"const int32_t sw_v_read = (*sw_v_reader).sw_m_point.sw_m_x;",
+		"hex_v_box.hex_m_point.hex_m_x = 3;",
+		"const int32_t hex_v_read = (*hex_v_reader).hex_m_point.hex_m_x;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -67,8 +67,8 @@ func TestObjectMemberReferencesAndPointerWrites(t *testing.T) {
 		t.Fatalf("object member pointer compilation failed: %#v", result)
 	}
 	for _, want := range []string{
-		"(*sw_v_writer).sw_m_x = 10;",
-		"int32_t *const sw_v_x_pointer = &sw_v_point.sw_m_x;",
+		"(*hex_v_writer).hex_m_x = 10;",
+		"int32_t *const hex_v_x_pointer = &hex_v_point.hex_m_x;",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -81,7 +81,7 @@ func TestCompleteObjectReplacement(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("complete object replacement failed: %#v", result)
 	}
-	if !strings.Contains(result.MainC, "sw_v_first = sw_v_second;") {
+	if !strings.Contains(result.MainC, "hex_v_first = hex_v_second;") {
 		t.Fatalf("main.c = %q, want complete object assignment", result.MainC)
 	}
 
@@ -99,7 +99,7 @@ func TestObjectFloatDependency(t *testing.T) {
 	for _, want := range []string{
 		"static_assert(sizeof(float) == 4",
 		"FLT_MANT_DIG == 24",
-		"float sw_m_ratio;",
+		"float hex_m_ratio;",
 	} {
 		if !strings.Contains(result.MainH, want) {
 			t.Fatalf("main.h = %q, want %q", result.MainH, want)
@@ -133,7 +133,7 @@ func TestAddrMemberAndTemporaryRead(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("object member named addr failed: %#v", result)
 	}
-	if !strings.Contains(result.MainC, "sw_m_addr") {
+	if !strings.Contains(result.MainC, "hex_m_addr") {
 		t.Fatalf("main.c = %q, want ordinary addr member access", result.MainC)
 	}
 
@@ -155,14 +155,14 @@ func TestObjectHeaderOrdering(t *testing.T) {
 	}
 
 	forwards := []string{
-		"typedef struct sw_t_First sw_t_First;",
-		"typedef struct sw_t_Second sw_t_Second;",
-		"typedef struct sw_t_Third sw_t_Third;",
+		"typedef struct hex_t_First hex_t_First;",
+		"typedef struct hex_t_Second hex_t_Second;",
+		"typedef struct hex_t_Third hex_t_Third;",
 	}
 	definitions := []string{
-		"struct sw_t_First {",
-		"struct sw_t_Second {",
-		"struct sw_t_Third {",
+		"struct hex_t_First {",
+		"struct hex_t_Second {",
+		"struct hex_t_Third {",
 	}
 	firstDefinition := strings.Index(result.MainH, definitions[0])
 	previous := -1

@@ -133,7 +133,7 @@ func (state *expressionValidation) captureOperand(body *strings.Builder, operand
 		return "", unknownExpressionDiagnostic("deferred capture has an unsupported type")
 	}
 	state.captureCounter++
-	name := fmt.Sprintf("sw_defer_capture_%d", state.captureCounter)
+	name := fmt.Sprintf("hex_defer_capture_%d", state.captureCounter)
 	fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(operand.Type, name, false), rendered)
 	return name, nil
 }
@@ -240,14 +240,14 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		if len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred heap free without captured arguments")
 		}
-		return "sw_heap_free(" + arguments[0] + ", " + arguments[1] + ")", nil
+		return "hex_heap_free(" + arguments[0] + ", " + arguments[1] + ")", nil
 	case checker.StringMethodCallExpression:
 		if node.Name != "free" || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred string free without captured arguments")
 		}
 		// The captures hold the receiver (the owning handle) first and the
 		// heap second; the helper takes them in the opposite order.
-		return "sw_string_free(" + arguments[1] + ", " + arguments[0] + ")", nil
+		return "hex_string_free(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.CollectionMethodCallExpression:
 		if node.Name != "free" || node.OperandType.List == nil && node.OperandType.Dict == nil || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred collection free without captured arguments")
@@ -255,46 +255,46 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		// The captures hold the receiver (the owning header) first and the
 		// heap second; the helper takes them in the opposite order.
 		if node.OperandType.List != nil {
-			return "sw_list_free_" + listSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
+			return "hex_list_free_" + listSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 		}
-		return "sw_dict_free_" + dictSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
+		return "hex_dict_free_" + dictSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.StreamMethodCallExpression:
 		if node.Name != "free" || node.OperandType.Stream == nil || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred stream free without captured arguments")
 		}
 		// The captures hold the receiver (the Stream handle) first and the
 		// heap second; the helper takes them in the opposite order.
-		return "sw_stream_free_" + streamSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
+		return "hex_stream_free_" + streamSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.ChannelMethodCallExpression:
 		if node.Name != "free" || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred channel free without captured arguments")
 		}
 		// The captures hold the receiver (the Channel handle) first and the
 		// heap second; the helper takes the heap's identity token.
-		return "sw_chan_free_" + channelSuffix(node.OperandType) + "(" + arguments[1] + ".identity, " + arguments[0] + ")", nil
+		return "hex_chan_free_" + channelSuffix(node.OperandType) + "(" + arguments[1] + ".identity, " + arguments[0] + ")", nil
 	case checker.MutexMethodCallExpression:
 		switch node.Name {
 		case "lock":
-			return "sw_mutex_lock_sw_mutex(" + arguments[0] + ")", nil
+			return "hex_mutex_lock_hex_mutex(" + arguments[0] + ")", nil
 		case "unlock":
-			return "sw_mutex_unlock_sw_mutex(" + arguments[0] + ")", nil
+			return "hex_mutex_unlock_hex_mutex(" + arguments[0] + ")", nil
 		case "free":
-			return "sw_mutex_free_sw_mutex(" + arguments[0] + ")", nil
+			return "hex_mutex_free_hex_mutex(" + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred mutex method without a captured receiver")
 	case checker.TaskMethodCallExpression:
 		switch node.Name {
 		case "join":
-			return "sw_task_join_" + taskSuffix(node.OperandType) + "(" + arguments[0] + ")", nil
+			return "hex_task_join_" + taskSuffix(node.OperandType) + "(" + arguments[0] + ")", nil
 		case "detach":
-			return "sw_task_detach(" + arguments[0] + ")", nil
+			return "hex_task_detach(" + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred task method without a captured receiver")
 	case checker.FileMethodCallExpression:
 		if node.Name != "close" {
 			return "", unknownExpressionDiagnostic("deferred file method must be close")
 		}
-		return "sw_file_close(" + arguments[0] + ")", nil
+		return "hex_file_close(" + arguments[0] + ")", nil
 	default:
 		return "", unknownExpressionDiagnostic("unsupported deferred call node")
 	}

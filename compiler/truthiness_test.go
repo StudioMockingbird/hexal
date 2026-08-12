@@ -18,7 +18,7 @@ func TestTruthinessConditions(t *testing.T) {
 		{"if 0 end", "if ((0, true)) {"},
 		{"if nil end", "if (false) {"},
 		{"if true end", "if (true) {"},
-		{"mut count: Int32 = 1 if count count = count - 1 end", "if ((sw_v_count, true)) {"},
+		{"mut count: Int32 = 1 if count count = count - 1 end", "if ((hex_v_count, true)) {"},
 	} {
 		result := Compile(testCase.source)
 		if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
@@ -37,7 +37,7 @@ func TestTruthinessConditionLoweringPreservesBranches(t *testing.T) {
 	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want successful nil-condition program", result)
 	}
-	if !strings.Contains(result.MainC, "if (false) {") || !strings.Contains(result.MainC, "const int32_t sw_v_missing = 1;") {
+	if !strings.Contains(result.MainC, "if (false) {") || !strings.Contains(result.MainC, "const int32_t hex_v_missing = 1;") {
 		t.Fatalf("main.c = %q, want the nil branch emitted verbatim", result.MainC)
 	}
 }
@@ -51,9 +51,9 @@ func TestNullableTruthinessCondition(t *testing.T) {
 		t.Fatalf("Compile = %#v, want a successful nullable truthiness program", result)
 	}
 	for _, want := range []string{
-		"int32_t *sw_v_maybe = &sw_v_value;",
-		"if ((sw_v_maybe != NULL)) {",
-		"} else if ((sw_v_maybe != NULL)) {",
+		"int32_t *hex_v_maybe = &hex_v_value;",
+		"if ((hex_v_maybe != NULL)) {",
+		"} else if ((hex_v_maybe != NULL)) {",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -66,10 +66,10 @@ func TestTruthinessLogicalOperators(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"mut count: Int32 = 1 mut ready: Bool = true flag: Bool = count and ready", "((sw_v_count, true) && sw_v_ready)"},
-		{"mut count: Int32 = 1 flag: Bool = count or nil", "((sw_v_count, true) || false)"},
-		{"mut count: Int32 = 1 flag: Bool = !count", "(!(sw_v_count, true))"},
-		{"mut value: Float64 = 0.0 flag: Bool = !value", "(!(sw_v_value, true))"},
+		{"mut count: Int32 = 1 mut ready: Bool = true flag: Bool = count and ready", "((hex_v_count, true) && hex_v_ready)"},
+		{"mut count: Int32 = 1 flag: Bool = count or nil", "((hex_v_count, true) || false)"},
+		{"mut count: Int32 = 1 flag: Bool = !count", "(!(hex_v_count, true))"},
+		{"mut value: Float64 = 0.0 flag: Bool = !value", "(!(hex_v_value, true))"},
 	} {
 		result := Compile(testCase.source)
 		if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
@@ -86,7 +86,7 @@ func TestTruthinessConstantFolding(t *testing.T) {
 	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want a folded truthiness constant", result)
 	}
-	if !strings.Contains(result.MainC, "const bool sw_v_flag = true;") {
+	if !strings.Contains(result.MainC, "const bool hex_v_flag = true;") {
 		t.Fatalf("main.c = %q, want 1 and 2 folded to true", result.MainC)
 	}
 
@@ -94,10 +94,10 @@ func TestTruthinessConstantFolding(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"flag: Bool = 0 and nil", "const bool sw_v_flag = false;"},
-		{"flag: Bool = nil or 0", "const bool sw_v_flag = true;"},
-		{"flag: Bool = !0", "const bool sw_v_flag = false;"},
-		{"flag: Bool = !nil", "const bool sw_v_flag = true;"},
+		{"flag: Bool = 0 and nil", "const bool hex_v_flag = false;"},
+		{"flag: Bool = nil or 0", "const bool hex_v_flag = true;"},
+		{"flag: Bool = !0", "const bool hex_v_flag = false;"},
+		{"flag: Bool = !nil", "const bool hex_v_flag = true;"},
 	} {
 		result := Compile(testCase.source)
 		if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {

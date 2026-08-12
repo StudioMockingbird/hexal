@@ -13,9 +13,9 @@ import (
 
 // fileModeVariants maps each FileMode variant to its C enum spelling.
 var fileModeVariants = map[string]string{
-	"Read":   "SW_FILE_READ",
-	"Write":  "SW_FILE_WRITE",
-	"Append": "SW_FILE_APPEND",
+	"Read":   "HEX_FILE_READ",
+	"Write":  "HEX_FILE_WRITE",
+	"Append": "HEX_FILE_APPEND",
 }
 
 // checkFileModeVariant resolves FileMode.Read, FileMode.Write, and

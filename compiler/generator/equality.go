@@ -344,7 +344,7 @@ func discoverEqualityTypes(program checker.Program) (*generatedEqualityState, er
 
 // equalityHelperName returns the equality helper name for one compared type.
 func equalityHelperName(typ compilerTypes.Type) string {
-	return "sw_equal_" + typ.CName
+	return "hex_equal_" + typ.CName
 }
 
 // writeEqualityDefinitions emits one equality helper per collected type plus
@@ -357,12 +357,12 @@ func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityS
 	// The byte-compare helpers come first: per-type helpers reference them
 	// for String and Strand members.
 	if state.needString {
-		writeByteCompareHelpers(result, "sw_string", "left->byte_length", "left->data")
+		writeByteCompareHelpers(result, "hex_string", "left->byte_length", "left->data")
 	}
 	if state.needStrand {
 		// RFC 0044: a Strand is 32 zero-padded inline bytes with no NUL in
 		// its payload, so full-width comparison is exact.
-		result.WriteString("\nstatic bool sw_equal_sw_strand(sw_strand left, sw_strand right) {\n")
+		result.WriteString("\nstatic bool hex_equal_hex_strand(hex_strand left, hex_strand right) {\n")
 		result.WriteString("    for (size_t index = 0; index < 32; index++) {\n")
 		result.WriteString("        if (left.data[index] != right.data[index]) {\n            return false;\n        }\n    }\n")
 		result.WriteString("    return true;\n}\n")
@@ -384,15 +384,15 @@ func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityS
 func writeByteCompareHelpers(result *strings.Builder, handle, lengthSpelling, dataSpelling string) {
 	parameter := handle + " left, " + handle + " right"
 	rightLength := strings.Replace(lengthSpelling, "left.", "right.", 1)
-	if handle == "sw_string" {
-		parameter = "const sw_string *left, const sw_string *right"
+	if handle == "hex_string" {
+		parameter = "const hex_string *left, const hex_string *right"
 		rightLength = "right->byte_length"
 	}
 	rightData := strings.Replace(dataSpelling, "left.", "right.", 1)
-	if handle == "sw_string" {
+	if handle == "hex_string" {
 		rightData = "right->data"
 	}
-	fmt.Fprintf(result, "\nstatic bool sw_equal_%s(%s) {\n", handle, parameter)
+	fmt.Fprintf(result, "\nstatic bool hex_equal_%s(%s) {\n", handle, parameter)
 	fmt.Fprintf(result, "    if (%s != %s) {\n        return false;\n    }\n", lengthSpelling, rightLength)
 	fmt.Fprintf(result, "    for (size_t index = 0; index < %s; index++) {\n", lengthSpelling)
 	fmt.Fprintf(result, "        if (%s[index] != %s[index]) {\n            return false;\n        }\n    }\n", dataSpelling, rightData)
@@ -411,7 +411,7 @@ func writeOrderingHelpers(result *strings.Builder, state *generatedEqualityState
 // writeStringCompare emits the lexicographic unsigned-byte compare for
 // String handles.
 func writeStringCompare(result *strings.Builder) {
-	result.WriteString("\nstatic int sw_compare_sw_string(const sw_string *left, const sw_string *right) {\n")
+	result.WriteString("\nstatic int hex_compare_hex_string(const hex_string *left, const hex_string *right) {\n")
 	result.WriteString("    size_t limit = left->byte_length < right->byte_length ? left->byte_length : right->byte_length;\n")
 	result.WriteString("    for (size_t index = 0; index < limit; index++) {\n")
 	result.WriteString("        if (left->data[index] != right->data[index]) {\n")
@@ -427,7 +427,7 @@ func writeStringCompare(result *strings.Builder) {
 // values. Payloads are NUL-free and zero-padded, so the first zero byte in
 // either side bounds the meaningful region.
 func writeStrandCompare(result *strings.Builder) {
-	result.WriteString("\nstatic int sw_compare_sw_strand(sw_strand left, sw_strand right) {\n")
+	result.WriteString("\nstatic int hex_compare_hex_strand(hex_strand left, hex_strand right) {\n")
 	result.WriteString("    for (size_t index = 0; index < 32; index++) {\n")
 	result.WriteString("        if (left.data[index] == 0 || right.data[index] == 0) {\n")
 	result.WriteString("            if (left.data[index] != right.data[index]) {\n")
@@ -513,9 +513,9 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		writeEqualityComparisons(body, left+".data[index]", right+".data[index]", typ.List.Element, indent+"    ")
 		fmt.Fprintf(body, "%s}\n", indent)
 	case compilerTypes.IsString(typ):
-		fmt.Fprintf(body, "%sif (!sw_equal_sw_string(%s, %s)) return false;\n", indent, left, right)
+		fmt.Fprintf(body, "%sif (!hex_equal_hex_string(%s, %s)) return false;\n", indent, left, right)
 	case compilerTypes.IsStrand(typ):
-		fmt.Fprintf(body, "%sif (!sw_equal_sw_strand(%s, %s)) return false;\n", indent, left, right)
+		fmt.Fprintf(body, "%sif (!hex_equal_hex_strand(%s, %s)) return false;\n", indent, left, right)
 	case typ.Element != nil:
 		fmt.Fprintf(body, "%sif (!(%s == %s)) return false;\n", indent, left, right)
 	default:

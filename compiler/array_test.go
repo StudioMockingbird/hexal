@@ -14,9 +14,9 @@ func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_array_Int32_3 {",
+		"typedef struct hex_array_Int32_3 {",
 		"int32_t data[3];",
-		"const sw_array_Int32_3 sw_v_fixed = (sw_array_Int32_3){{10, 20, 30}};",
+		"const hex_array_Int32_3 hex_v_fixed = (hex_array_Int32_3){{10, 20, 30}};",
 		"UINT64_C(3)",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
@@ -24,8 +24,8 @@ func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"*sw_array_at_Int32_3(&sw_v_fixed, (size_t)(0))",
-		"*sw_array_at_Int32_3(&sw_v_fixed, (size_t)(2))",
+		"*hex_array_at_Int32_3(&hex_v_fixed, (size_t)(0))",
+		"*hex_array_at_Int32_3(&hex_v_fixed, (size_t)(2))",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -39,7 +39,7 @@ func TestArrayMutableElementWrite(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"*sw_array_at_mut_Int32_2(&sw_v_fixed, (size_t)(0)) = 7;",
+		"*hex_array_at_mut_Int32_2(&hex_v_fixed, (size_t)(0)) = 7;",
 		"if (index >= UINT64_C(2))",
 		"\"[Runtime Error] array index out of bounds\\n\"",
 	} {
@@ -113,11 +113,11 @@ func TestArrayMembersAndFunctions(t *testing.T) {
 	}
 	for _, want := range []string{
 		"int32_t data[2];",
-		"*sw_array_at_mut_Int32_2(&sw_v_pair.sw_m_values, (size_t)(0))",
-		"*sw_array_at_Int32_2(&sw_v_pair.sw_m_values, (size_t)(1))",
-		"*sw_array_at_mut_Int32_2(&sw_v_pair.sw_m_values, (size_t)(1)) = 9;",
-		"*sw_array_at_Int32_3(&sw_v_values, (size_t)(0))",
-		"sw_v_head = sw_f_first((sw_array_Int32_3){{5, 6, 7}});",
+		"*hex_array_at_mut_Int32_2(&hex_v_pair.hex_m_values, (size_t)(0))",
+		"*hex_array_at_Int32_2(&hex_v_pair.hex_m_values, (size_t)(1))",
+		"*hex_array_at_mut_Int32_2(&hex_v_pair.hex_m_values, (size_t)(1)) = 9;",
+		"*hex_array_at_Int32_3(&hex_v_values, (size_t)(0))",
+		"hex_v_head = hex_f_first((hex_array_Int32_3){{5, 6, 7}});",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -131,11 +131,11 @@ func TestNestedArrays(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct sw_array_Int32_2 {",
-		"typedef struct sw_array_Array_Int32__2__2 {",
-		"sw_array_Int32_2 data[2];",
-		"const sw_array_Array_Int32__2__2 sw_v_grid = (sw_array_Array_Int32__2__2){{(sw_array_Int32_2){{1, 2}}, (sw_array_Int32_2){{3, 4}}}};",
-		"*sw_array_at_Int32_2(&*sw_array_at_Array_Int32__2__2(&sw_v_grid, (size_t)(1)), (size_t)(0))",
+		"typedef struct hex_array_Int32_2 {",
+		"typedef struct hex_array_Array_Int32__2__2 {",
+		"hex_array_Int32_2 data[2];",
+		"const hex_array_Array_Int32__2__2 hex_v_grid = (hex_array_Array_Int32__2__2){{(hex_array_Int32_2){{1, 2}}, (hex_array_Int32_2){{3, 4}}}};",
+		"*hex_array_at_Int32_2(&*hex_array_at_Array_Int32__2__2(&hex_v_grid, (size_t)(1)), (size_t)(0))",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -148,7 +148,7 @@ func TestArrayTrailingCommaLiteral(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "(sw_array_Int32_3){{10, 20, 30}}") {
+	if !strings.Contains(result.MainC, "(hex_array_Int32_3){{10, 20, 30}}") {
 		t.Fatalf("main.c = %q, want trailing-comma array literal", result.MainC)
 	}
 }

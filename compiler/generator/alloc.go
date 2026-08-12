@@ -149,23 +149,23 @@ func writeHeapDefinitions(result *strings.Builder, state *heapHelpers) {
 		return
 	}
 	result.WriteString("\n")
-	result.WriteString("typedef struct sw_heap {\n    uintptr_t identity;\n} sw_heap;\n\n")
-	result.WriteString("#define SW_HEAP_DEFAULT 0\n\n")
+	result.WriteString("typedef struct hex_heap {\n    uintptr_t identity;\n} hex_heap;\n\n")
+	result.WriteString("#define HEX_HEAP_DEFAULT 0\n\n")
 	// The header's last size_t slot is the offset marker every free reads
 	// at (pointer - sizeof(size_t)). The live flag must not share that
 	// region: the marker write at base + offset - 8 would clobber it.
-	result.WriteString("typedef struct sw_heap_header {\n    uintptr_t allocator;\n    size_t size;\n    size_t offset;\n    bool live;\n    size_t marker;\n} sw_heap_header;\n\n")
-	result.WriteString("static void *sw_heap_raw_allocate(uintptr_t allocator, size_t size, size_t align) {\n")
+	result.WriteString("typedef struct hex_heap_header {\n    uintptr_t allocator;\n    size_t size;\n    size_t offset;\n    bool live;\n    size_t marker;\n} hex_heap_header;\n\n")
+	result.WriteString("static void *hex_heap_raw_allocate(uintptr_t allocator, size_t size, size_t align) {\n")
 	result.WriteString("    if (size == 0 || (align & (align - 1)) != 0) {\n")
 	result.WriteString("        fputs(\"[Runtime Error] allocation size is not representable\\n\", stderr);\n        abort();\n    }\n")
-	result.WriteString("    size_t offset = (sizeof(sw_heap_header) + align - 1) & ~(align - 1);\n")
+	result.WriteString("    size_t offset = (sizeof(hex_heap_header) + align - 1) & ~(align - 1);\n")
 	result.WriteString("    size_t total = offset + size;\n")
 	result.WriteString("    if (total < size) {\n")
 	result.WriteString("        fputs(\"[Runtime Error] allocation size is not representable\\n\", stderr);\n        abort();\n    }\n")
 	result.WriteString("    unsigned char *base = (unsigned char *)malloc(total);\n")
 	result.WriteString("    if (base == NULL) {\n")
 	result.WriteString("        fputs(\"[Runtime Error] heap allocation failed\\n\", stderr);\n        abort();\n    }\n")
-	result.WriteString("    sw_heap_header *header = (sw_heap_header *)base;\n")
+	result.WriteString("    hex_heap_header *header = (hex_heap_header *)base;\n")
 	result.WriteString("    header->allocator = allocator;\n")
 	result.WriteString("    header->size = size;\n")
 	result.WriteString("    header->offset = offset;\n")
@@ -173,11 +173,11 @@ func writeHeapDefinitions(result *strings.Builder, state *heapHelpers) {
 	result.WriteString("    *((size_t *)(base + offset - sizeof(size_t))) = offset;\n")
 	result.WriteString("    return base + offset;\n")
 	result.WriteString("}\n\n")
-	result.WriteString("static void sw_heap_free(void *pointer, uintptr_t allocator) {\n")
+	result.WriteString("static void hex_heap_free(void *pointer, uintptr_t allocator) {\n")
 	result.WriteString("    if (pointer == NULL) {\n")
 	result.WriteString("        fputs(\"[Runtime Error] double deallocation\\n\", stderr);\n        abort();\n    }\n")
 	result.WriteString("    size_t offset = *((size_t *)((unsigned char *)pointer - sizeof(size_t)));\n")
-	result.WriteString("    sw_heap_header *header = (sw_heap_header *)((unsigned char *)pointer - offset);\n")
+	result.WriteString("    hex_heap_header *header = (hex_heap_header *)((unsigned char *)pointer - offset);\n")
 	result.WriteString("    if (header->allocator != allocator) {\n")
 	result.WriteString("        fputs(\"[Runtime Error] deallocation used the wrong allocator\\n\", stderr);\n        abort();\n    }\n")
 	result.WriteString("    if (!header->live) {\n")
@@ -186,16 +186,16 @@ func writeHeapDefinitions(result *strings.Builder, state *heapHelpers) {
 	result.WriteString("    free(header);\n")
 	result.WriteString("}\n")
 	for _, element := range state.elements {
-		helper := "sw_heap_allocate_" + compilerTypes.SanitizeIdentifier(element.Name)
-		fmt.Fprintf(result, "\nstatic %s %s(sw_heap h, %s initial) {\n", typeSpelling(compilerTypes.MutPtrType(element)), helper, typeSpelling(element))
-		fmt.Fprintf(result, "    %s *pointer = sw_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n", typeSpelling(element), typeSpelling(element), typeSpelling(element))
+		helper := "hex_heap_allocate_" + compilerTypes.SanitizeIdentifier(element.Name)
+		fmt.Fprintf(result, "\nstatic %s %s(hex_heap h, %s initial) {\n", typeSpelling(compilerTypes.MutPtrType(element)), helper, typeSpelling(element))
+		fmt.Fprintf(result, "    %s *pointer = hex_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n", typeSpelling(element), typeSpelling(element), typeSpelling(element))
 		fmt.Fprintf(result, "    *pointer = initial;\n")
 		fmt.Fprintf(result, "    return pointer;\n}\n")
 	}
 }
 
 func heapAllocateHelper(element compilerTypes.Type) string {
-	return "sw_heap_allocate_" + compilerTypes.SanitizeIdentifier(element.Name)
+	return "hex_heap_allocate_" + compilerTypes.SanitizeIdentifier(element.Name)
 }
 
 func renderHeapAllocate(node checker.Expression, state *expressionValidation) (string, error) {
@@ -225,5 +225,5 @@ func renderHeapFree(node checker.Expression, state *expressionValidation) (strin
 	if err != nil {
 		return "", err
 	}
-	return "sw_heap_free(" + value + ", " + receiver + ".identity)", nil
+	return "hex_heap_free(" + value + ", " + receiver + ".identity)", nil
 }

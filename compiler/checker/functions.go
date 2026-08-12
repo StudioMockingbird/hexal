@@ -409,7 +409,7 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 	} else if names.declaredHere(name) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, name+" is already declared"))
 	} else if method, taken := names.methods.cNames[name]; taken {
-		// sw_f_ is not injective: Point_translate and impl Point.translate
+		// hex_f_ is not injective: Point_translate and impl Point.translate
 		// share one private C spelling, so one of them has to go.
 		diagnostics = append(diagnostics, collisionDiagnostic(name, method, declaration.Name))
 	}
@@ -514,7 +514,7 @@ type methodTable struct {
 	byObject map[*compilerTypes.ObjectType]map[string]*MethodDeclaration
 	// cNames maps the private C spelling stem a method produces
 	// (Point_translate for impl Point.translate) to that method's source
-	// spelling. The sw_f_ encoding is not injective, so this is what lets a
+	// spelling. The hex_f_ encoding is not injective, so this is what lets a
 	// colliding free function name both declarations (RFC 0008, C23 lowering).
 	cNames map[string]string
 }

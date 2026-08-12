@@ -1,4 +1,4 @@
-# Seawitch Status
+# Hexal Status
 
 ## Implemented
 
@@ -83,7 +83,7 @@
     with root-chain tracking, and rejection of temporary roots, module
     data, storage, unions, pointers, and `ref`.
   - String revision: allocation-free static literals with escapes, the
-    `sw_string` pointer handle and combined `sw_string_storage` runtime
+    `hex_string` pointer handle and combined `hex_string_storage` runtime
     allocation, affine ownership (static/owning/borrow provenance),
     `bytes`/rune-bounded `slice` returning `View<UInt8>`,
     `to_string`/`concat`/`String.from_bytes` owning copies, `free`, and
@@ -96,7 +96,7 @@
     `clear`, and `free`.
   - `Dict<K, V>` owning dictionaries with exactly `Int32` and `Strand`
     keys: `new`, `insert`, `get`, `contains`, `remove`, `free`, inline
-    `sw_strand` literal values, open-addressing C23 lowering with
+    `hex_strand` literal values, open-addressing C23 lowering with
     infallible hashing, and `Dict<K, String>` borrow and move-out rules.
   - A shared affine ownership flow: `uninitialized`/`live`/`freed` states,
     exact control-flow merge agreement, loop back-edge invariants, scope
@@ -127,7 +127,7 @@
 - RFC 0017 defined integer arithmetic: mixed numeric arithmetic computed in
   the unique lossless common type, constant folding with modular wrapping at
   the result width (including `IntN_MIN / -1` folding to `IntN_MIN`), and
-  runtime-guarded `sw_div_*`/`sw_rem_*` helpers for every integer division
+  runtime-guarded `hex_div_*`/`hex_rem_*` helpers for every integer division
   and remainder.
 - RFC 0035 C-style copying and manual lifetimes: assignment, argument
   passing, return, object construction, ADT construction, and collection
@@ -230,6 +230,12 @@
   with validate-before-allocate traps, `String.from_runes`, `RuneCursor`,
   and all text lengths lowered through `Size`/`size_t` without UInt64
   remnants.
+- RFC 0045 project rename to Hexal: every live reference to the former name
+  "Seawitch" (prose, source comments, generated-C diagnostics and
+  static-assert texts, and workbench UI) now reads "Hexal", live-doc code
+  fences use the ```hexal tag, and the private C namespace prefix is `hex_`
+  (uppercase macros `HEX_`) for every emitted helper, type CName, and guard
+  macro. Closed specs retain their original spellings and are untouched.
 
 ## Known follow-ups
 

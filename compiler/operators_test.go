@@ -45,29 +45,29 @@ func TestCompleteOperatorProgram(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"((uint64_t)(uint32_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) - (uint64_t)INT32_MAX - (uint64_t)1))",
-		"sw_div_int32_t(sw_v_left, sw_v_right)",
-		"sw_rem_int32_t(sw_v_left, sw_v_right)",
-		"((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)sw_v_left) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)0 - (uint64_t)sw_v_left) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)sw_v_left) - (uint64_t)INT32_MAX - (uint64_t)1))",
-		"(sw_v_left == sw_v_right)",
-		"(sw_v_left != sw_v_right)",
-		"(sw_v_left < sw_v_right)",
-		"(sw_v_left <= sw_v_right)",
-		"(sw_v_left > sw_v_right)",
-		"(sw_v_left >= sw_v_right)",
-		"(!sw_v_ready)",
-		"(sw_v_ready && sw_v_loaded)",
-		"(sw_v_ready || sw_v_loaded)",
-		"(sw_v_ready == sw_v_loaded)",
-		"(sw_v_f32Left + sw_v_f32Right)",
-		"(sw_v_f32Left < sw_v_f32Right)",
-		"(sw_v_first + sw_v_second)",
-		"(sw_v_first < sw_v_second)",
-		"(sw_v_first == sw_v_second)",
-		"(sw_v_first + (sw_v_second * sw_v_third))",
-		"((sw_v_first + sw_v_second) * sw_v_third)",
-		"(uint32_t)((uint64_t)sw_v_unsignedLeft + (uint64_t)sw_v_unsignedRight)",
-		"sw_rem_uint32_t(sw_v_unsignedLeft, sw_v_unsignedRight)",
+		"((uint64_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT32_MAX - (uint64_t)1))",
+		"hex_div_int32_t(hex_v_left, hex_v_right)",
+		"hex_rem_int32_t(hex_v_left, hex_v_right)",
+		"((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) - (uint64_t)INT32_MAX - (uint64_t)1))",
+		"(hex_v_left == hex_v_right)",
+		"(hex_v_left != hex_v_right)",
+		"(hex_v_left < hex_v_right)",
+		"(hex_v_left <= hex_v_right)",
+		"(hex_v_left > hex_v_right)",
+		"(hex_v_left >= hex_v_right)",
+		"(!hex_v_ready)",
+		"(hex_v_ready && hex_v_loaded)",
+		"(hex_v_ready || hex_v_loaded)",
+		"(hex_v_ready == hex_v_loaded)",
+		"(hex_v_f32Left + hex_v_f32Right)",
+		"(hex_v_f32Left < hex_v_f32Right)",
+		"(hex_v_first + hex_v_second)",
+		"(hex_v_first < hex_v_second)",
+		"(hex_v_first == hex_v_second)",
+		"(hex_v_first + (hex_v_second * hex_v_third))",
+		"((hex_v_first + hex_v_second) * hex_v_third)",
+		"(uint32_t)((uint64_t)hex_v_unsignedLeft + (uint64_t)hex_v_unsignedRight)",
+		"hex_rem_uint32_t(hex_v_unsignedLeft, hex_v_unsignedRight)",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want fragment %q", result.MainC, want)
@@ -89,8 +89,8 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful mutable wrapping program", result)
 	}
 	for _, want := range []string{
-		"(uint8_t)((uint32_t)sw_v_unsigned + (uint32_t)100)",
-		"((uint64_t)(uint8_t)((uint64_t)sw_v_signed + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)sw_v_signed + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)sw_v_signed + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))",
+		"(uint8_t)((uint32_t)hex_v_unsigned + (uint32_t)100)",
+		"((uint64_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want runtime wrapping fragment %q", result.MainC, want)
@@ -100,21 +100,21 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 
 func TestFoldsImmutableArithmeticAndWrapsOverflow(t *testing.T) {
 	result := Compile("count: UInt8 = 200 next: UInt8 = count + 1")
-	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(result.MainC, "const uint8_t sw_v_next = 201;") {
+	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(result.MainC, "const uint8_t hex_v_next = 201;") {
 		t.Fatalf("Compile returned %#v, want folded UInt8 value 201", result)
 	}
 
 	// RFC 0017: integer overflow wraps at the result type during folding.
 	result = Compile("count: UInt8 = 200 over: UInt8 = count + 100")
-	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(result.MainC, "const uint8_t sw_v_over = 44;") {
+	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(result.MainC, "const uint8_t hex_v_over = 44;") {
 		t.Fatalf("Compile returned %#v, want folded wrapped value 44", result)
 	}
 
 	// RFC 0017: signed minimum divided by -1 folds to the signed minimum.
 	result = Compile("minimum: Int8 = -128 quotient: Int8 = minimum / -1 remainder: Int8 = minimum % -1")
 	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 ||
-		!strings.Contains(result.MainC, "const int8_t sw_v_quotient = INT8_MIN;") ||
-		!strings.Contains(result.MainC, "const int8_t sw_v_remainder = 0;") {
+		!strings.Contains(result.MainC, "const int8_t hex_v_quotient = INT8_MIN;") ||
+		!strings.Contains(result.MainC, "const int8_t hex_v_remainder = 0;") {
 		t.Fatalf("Compile returned %#v, want folded minimum/-1 quotient and remainder", result)
 	}
 }
@@ -124,7 +124,7 @@ func TestPrecedenceChain(t *testing.T) {
 	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful precedence-chain program", result)
 	}
-	want := "(!(((((sw_v_first + (sw_v_second * sw_v_third)) < sw_v_limit) == sw_v_expected) && sw_v_all) || sw_v_either))"
+	want := "(!(((((hex_v_first + (hex_v_second * hex_v_third)) < hex_v_limit) == hex_v_expected) && hex_v_all) || hex_v_either))"
 	if !strings.Contains(result.MainC, want) {
 		t.Fatalf("main.c = %q, want precedence-chain fragment %q", result.MainC, want)
 	}
@@ -184,14 +184,14 @@ func TestAllIntegerWidths(t *testing.T) {
 		typ  string
 		want string
 	}{
-		{"UInt8", "(uint8_t)((uint32_t)sw_v_left + (uint32_t)sw_v_right)"},
-		{"UInt16", "(uint16_t)((uint32_t)sw_v_left + (uint32_t)sw_v_right)"},
-		{"UInt32", "(uint32_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right)"},
-		{"UInt64", "(uint64_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right)"},
-		{"Int8", "((uint64_t)(uint8_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) - (uint64_t)INT8_MAX - (uint64_t)1))"},
-		{"Int16", "((uint64_t)(uint16_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) <= (uint64_t)INT16_MAX ? (int16_t)(uint16_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) : INT16_MIN + (int16_t)((uint64_t)(uint16_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) - (uint64_t)INT16_MAX - (uint64_t)1))"},
-		{"Int32", "((uint64_t)(uint32_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) - (uint64_t)INT32_MAX - (uint64_t)1))"},
-		{"Int64", "((uint64_t)(uint64_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) <= (uint64_t)INT64_MAX ? (int64_t)(uint64_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) : INT64_MIN + (int64_t)((uint64_t)(uint64_t)((uint64_t)sw_v_left + (uint64_t)sw_v_right) - (uint64_t)INT64_MAX - (uint64_t)1))"},
+		{"UInt8", "(uint8_t)((uint32_t)hex_v_left + (uint32_t)hex_v_right)"},
+		{"UInt16", "(uint16_t)((uint32_t)hex_v_left + (uint32_t)hex_v_right)"},
+		{"UInt32", "(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right)"},
+		{"UInt64", "(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right)"},
+		{"Int8", "((uint64_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT8_MAX - (uint64_t)1))"},
+		{"Int16", "((uint64_t)(uint16_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT16_MAX ? (int16_t)(uint16_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT16_MIN + (int16_t)((uint64_t)(uint16_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT16_MAX - (uint64_t)1))"},
+		{"Int32", "((uint64_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT32_MAX - (uint64_t)1))"},
+		{"Int64", "((uint64_t)(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT64_MAX ? (int64_t)(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT64_MIN + (int64_t)((uint64_t)(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT64_MAX - (uint64_t)1))"},
 	} {
 		t.Run(testCase.typ, func(t *testing.T) {
 			source := fmt.Sprintf("mut left: %s = 1 mut right: %s = 2 result: %s = left + right", testCase.typ, testCase.typ, testCase.typ)
@@ -212,9 +212,9 @@ func TestSignedWrappingBoundaries(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful signed boundary program", result)
 	}
 	for _, old := range []string{
-		"const int8_t sw_v_wrapped8 = (int8_t)(uint8_t)((uint64_t)sw_v_signed8 + (uint64_t)1);",
-		"const int64_t sw_v_wrapped64 = (int64_t)(uint64_t)((uint64_t)sw_v_minimum64 - (uint64_t)INT64_C(1));",
-		"const int64_t sw_v_negative64 = (int64_t)(uint64_t)((uint64_t)0 - (uint64_t)sw_v_minimum64);",
+		"const int8_t hex_v_wrapped8 = (int8_t)(uint8_t)((uint64_t)hex_v_signed8 + (uint64_t)1);",
+		"const int64_t hex_v_wrapped64 = (int64_t)(uint64_t)((uint64_t)hex_v_minimum64 - (uint64_t)INT64_C(1));",
+		"const int64_t hex_v_negative64 = (int64_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum64);",
 	} {
 		if strings.Contains(result.MainC, old) {
 			t.Fatalf("main.c contains implementation-defined signed conversion %q: %q", old, result.MainC)
@@ -228,8 +228,8 @@ func TestShortCircuitRuntime(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful short-circuit program", result)
 	}
 	for _, want := range []string{
-		"(sw_v_guardOr || (sw_div_int32_t(sw_v_zero, sw_v_zero) > 0))",
-		"(sw_v_guardAnd && (sw_div_int32_t(sw_v_zero, sw_v_zero) > 0))",
+		"(hex_v_guardOr || (hex_div_int32_t(hex_v_zero, hex_v_zero) > 0))",
+		"(hex_v_guardAnd && (hex_div_int32_t(hex_v_zero, hex_v_zero) > 0))",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want short-circuit fragment %q", result.MainC, want)
@@ -243,11 +243,11 @@ func TestNaNComparisons(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful NaN comparison program", result)
 	}
 	for _, want := range []string{
-		"((sw_v_zero32 / sw_v_zero32) == (sw_v_zero32 / sw_v_zero32))",
-		"((sw_v_zero32 / sw_v_zero32) != (sw_v_zero32 / sw_v_zero32))",
-		"((sw_v_zero32 / sw_v_zero32) < (sw_v_zero32 / sw_v_zero32))",
-		"((sw_v_zero / sw_v_zero) == (sw_v_zero / sw_v_zero))",
-		"((sw_v_zero / sw_v_zero) != (sw_v_zero / sw_v_zero))",
+		"((hex_v_zero32 / hex_v_zero32) == (hex_v_zero32 / hex_v_zero32))",
+		"((hex_v_zero32 / hex_v_zero32) != (hex_v_zero32 / hex_v_zero32))",
+		"((hex_v_zero32 / hex_v_zero32) < (hex_v_zero32 / hex_v_zero32))",
+		"((hex_v_zero / hex_v_zero) == (hex_v_zero / hex_v_zero))",
+		"((hex_v_zero / hex_v_zero) != (hex_v_zero / hex_v_zero))",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want NaN comparison fragment %q", result.MainC, want)

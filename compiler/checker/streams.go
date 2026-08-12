@@ -366,7 +366,7 @@ func checkListStreamCall(call parser.CallExpression, callee parser.PropertyExpre
 }
 
 // resolveStreamCallback resolves a callback argument to a concrete named
-// function value. Seawitch has no closures, so every Stream callback must be
+// function value. Hexal has no closures, so every Stream callback must be
 // an ordinary named function reference.
 func resolveStreamCallback(argument parser.Expression, fallback lexer.Token, environment *scope, typeEnvironment *compilerTypes.Environment) (Operand, *compilerTypes.Diagnostic) {
 	checked := checkValue(argument, environment, typeEnvironment)

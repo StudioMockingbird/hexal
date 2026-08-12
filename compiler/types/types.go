@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ScalarKind enumerates the scalar types Seawitch supports. ScalarNone is the
+// ScalarKind enumerates the scalar types Hexal supports. ScalarNone is the
 // zero value shared by every non-scalar type.
 type ScalarKind int
 
@@ -37,7 +37,7 @@ func newTypeIdentity(scope *typeIdentity) *typeIdentity {
 	return &typeIdentity{serial: typeSerialCounter, parent: scope}
 }
 
-// Type is the interned identity of one Seawitch type. Every field except the
+// Type is the interned identity of one Hexal type. Every field except the
 // identity is descriptive metadata; identity decides equality and interning.
 type Type struct {
 	// Name is the user-facing name of the type, used in diagnostics.
@@ -332,7 +332,7 @@ func (environment *Environment) BeginObject(name string, sourceLine, sourceColum
 	identity.signature = "object:" + name
 	object := &ObjectType{
 		Name:         name,
-		CName:        "sw_t_" + SanitizeIdentifier(name),
+		CName:        "hex_t_" + SanitizeIdentifier(name),
 		SourceLine:   sourceLine,
 		SourceColumn: sourceColumn,
 		identity:     identity,
@@ -900,8 +900,8 @@ func isCanonicalUnion(environment *Environment, typ Type, state *canonicalTypeSt
 		return false
 	}
 	// The C name embeds the union ordinal; a forged name cannot match the
-	// deterministic "sw_internal_union_<n>" scheme.
-	suffix := strings.TrimPrefix(typ.CName, "sw_internal_union_")
+	// deterministic "hex_internal_union_<n>" scheme.
+	suffix := strings.TrimPrefix(typ.CName, "hex_internal_union_")
 	if suffix == typ.CName {
 		return false
 	}
@@ -1035,7 +1035,7 @@ var (
 	// alternative.
 	EoS = Type{
 		Name:     "EoS",
-		CName:    "sw_eos",
+		CName:    "hex_eos",
 		identity: newTypeIdentity(nil),
 	}
 	Unknown = Type{
@@ -1046,17 +1046,17 @@ var (
 	}
 	Heap = Type{
 		Name:     "Heap",
-		CName:    "sw_heap",
+		CName:    "hex_heap",
 		identity: newTypeIdentity(nil),
 	}
 	StringType = Type{
 		Name:     "String",
-		CName:    "sw_string",
+		CName:    "hex_string",
 		identity: newTypeIdentity(nil),
 	}
 	StrandType = Type{
 		Name:     "Strand",
-		CName:    "sw_strand",
+		CName:    "hex_strand",
 		identity: newTypeIdentity(nil),
 	}
 	// SizeType is the target-sized unsigned integer corresponding to C's
@@ -1079,7 +1079,7 @@ var (
 	// Mutex.new.
 	MutexType = Type{
 		Name:     "Mutex",
-		CName:    "sw_mutex",
+		CName:    "hex_mutex",
 		identity: newTypeIdentity(nil),
 	}
 	// RuneCursorType is the RFC 0044 non-owning UTF-8 cursor: one descriptor
@@ -1087,7 +1087,7 @@ var (
 	// It is an inline value with one canonical identity.
 	RuneCursorType = Type{
 		Name:     "RuneCursor",
-		CName:    "sw_rune_cursor",
+		CName:    "hex_rune_cursor",
 		identity: newTypeIdentity(nil),
 	}
 	// FileModeType is the RFC 0040 protected mode ADT with exactly the Read,
@@ -1095,7 +1095,7 @@ var (
 	// equality-comparable like an ordinary unit-variant ADT.
 	FileModeType = Type{
 		Name:     "FileMode",
-		CName:    "sw_file_mode",
+		CName:    "hex_file_mode",
 		identity: newTypeIdentity(nil),
 	}
 	// FileType is the RFC 0040 inline File handle: one small struct naming a
@@ -1103,7 +1103,7 @@ var (
 	// literal, default, or equality.
 	FileType = Type{
 		Name:     "File",
-		CName:    "sw_file",
+		CName:    "hex_file",
 		identity: newTypeIdentity(nil),
 	}
 )
@@ -1113,7 +1113,7 @@ var (
 func errorType() Type {
 	object := &ObjectType{
 		Name:  "Error",
-		CName: "sw_t_Error",
+		CName: "hex_t_Error",
 		Members: []ObjectMember{
 			{Name: "file", Type: StringType},
 			{Name: "line", Type: SizeType},
@@ -1125,7 +1125,7 @@ func errorType() Type {
 	identity := newTypeIdentity(nil)
 	identity.object = object
 	object.identity = identity
-	return Type{Name: "Error", CName: "sw_t_Error", Object: object, identity: identity}
+	return Type{Name: "Error", CName: "hex_t_Error", Object: object, identity: identity}
 }
 
 // builtinTypes is the canonical registry of every builtin type name: scalars,

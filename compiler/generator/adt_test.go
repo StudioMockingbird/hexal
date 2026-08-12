@@ -11,7 +11,7 @@ func TestGenerateADTDefinitionAndConstruction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"sw_Shape_tag", "sw_Shape_Circle", ".payload.Circle", "sw_m_r"} {
+	for _, want := range []string{"hex_Shape_tag", "hex_Shape_Circle", ".payload.Circle", "hex_m_r"} {
 		if !strings.Contains(mainC, want) && !strings.Contains(mainH, want) {
 			t.Fatalf("generated output does not contain %q: C=%q H=%q", want, mainC, mainH)
 		}
@@ -24,10 +24,10 @@ func TestGenerateADTUnitVariantsHaveNoPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainH, "sw_Direction_East") || strings.Contains(mainH, "payload") {
+	if !strings.Contains(mainH, "hex_Direction_East") || strings.Contains(mainH, "payload") {
 		t.Fatalf("generated header = %q, want tag-only unit variant", mainH)
 	}
-	if !strings.Contains(mainC, ".tag = sw_Direction_East") {
+	if !strings.Contains(mainC, ".tag = hex_Direction_East") {
 		t.Fatalf("generated C = %q, want unit construction", mainC)
 	}
 }
@@ -38,7 +38,7 @@ func TestGenerateMatchTypeMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainC, ".tag == sw_Shape_Circle") || !strings.Contains(mainC, ".payload.Circle.sw_m_r") {
+	if !strings.Contains(mainC, ".tag == hex_Shape_Circle") || !strings.Contains(mainC, ".payload.Circle.hex_m_r") {
 		t.Fatalf("generated C = %q, want tag test and narrowed payload read", mainC)
 	}
 }
@@ -49,7 +49,7 @@ func TestGenerateMatchValueMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainC, "sw_v_ready") || !strings.Contains(mainC, "sw_match_result_1") {
+	if !strings.Contains(mainC, "hex_v_ready") || !strings.Contains(mainC, "hex_match_result_1") {
 		t.Fatalf("generated C = %q, want value-mode comparison", mainC)
 	}
 }

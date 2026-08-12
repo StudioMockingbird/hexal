@@ -13,14 +13,14 @@ func TestPrintScalars(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static void sw_print_bytes(const uint8_t *data, size_t length) {",
-		"sw_print_int32(sw_print_arg_2);",
-		"sw_print_bool(sw_print_arg_4);",
-		"sw_print_bool(sw_print_arg_5);",
-		"sw_print_nil();",
-		"sw_print_float64(sw_print_arg_7);",
-		"sw_print_rune(sw_print_arg_11);",
-		"sw_print_size(sw_print_arg_12);",
+		"static void hex_print_bytes(const uint8_t *data, size_t length) {",
+		"hex_print_int32(hex_print_arg_2);",
+		"hex_print_bool(hex_print_arg_4);",
+		"hex_print_bool(hex_print_arg_5);",
+		"hex_print_nil();",
+		"hex_print_float64(hex_print_arg_7);",
+		"hex_print_rune(hex_print_arg_11);",
+		"hex_print_size(hex_print_arg_12);",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -34,11 +34,11 @@ func TestPrintStringsDirectAndNested(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"sw_print_text(sw_print_arg_1->data, sw_print_arg_1->byte_length);",
-		"static void sw_print_nested_sw_list_Int32(const void *value) {",
-		"sw_print_text((const uint8_t *)\"[\", 1);",
-		"static void sw_print_nested_sw_t_Point(const void *value) {",
-		"sw_print_text((const uint8_t *)\"Point { \", 8);",
+		"hex_print_text(hex_print_arg_1->data, hex_print_arg_1->byte_length);",
+		"static void hex_print_nested_hex_list_Int32(const void *value) {",
+		"hex_print_text((const uint8_t *)\"[\", 1);",
+		"static void hex_print_nested_hex_t_Point(const void *value) {",
+		"hex_print_text((const uint8_t *)\"Point { \", 8);",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -52,9 +52,9 @@ func TestPrintNestedStringQuoting(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static void sw_print_nested_sw_list_String(const void *value) {",
-		"static void sw_print_nested_sw_string(const void *value) {",
-		"sw_print_quoted_text(text->data, text->byte_length);",
+		"static void hex_print_nested_hex_list_String(const void *value) {",
+		"static void hex_print_nested_hex_string(const void *value) {",
+		"hex_print_quoted_text(text->data, text->byte_length);",
 	} {
 		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
@@ -67,7 +67,7 @@ func TestPrintError(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "sw_print_error_direct") || !strings.Contains(result.MainC, "sw_print_error_direct(sw_print_arg_1);") {
+	if !strings.Contains(result.MainH, "hex_print_error_direct") || !strings.Contains(result.MainC, "hex_print_error_direct(hex_print_arg_1);") {
 		t.Fatalf("generated output = %q %q, want direct Error print", result.MainC, result.MainH)
 	}
 }
@@ -106,8 +106,8 @@ func TestPrintDeferred(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"sw_defer_capture_2 = sw_v_text;",
-		"sw_print_text(sw_defer_capture_1->data, sw_defer_capture_1->byte_length);",
+		"hex_defer_capture_2 = hex_v_text;",
+		"hex_print_text(hex_defer_capture_1->data, hex_defer_capture_1->byte_length);",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)

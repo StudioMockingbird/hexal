@@ -207,12 +207,12 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 	}
 	generated := withoutLineDirectives(result.MainC)
 	for _, want := range []string{
-		"static int32_t sw_f_Point_length_squared(const sw_t_Point sw_v_self) {",
-		"static bool sw_f_Point_is_origin(const sw_t_Point *const sw_v_self) {",
-		"static void sw_f_Point_translate(sw_t_Point *const sw_v_self, const int32_t sw_v_dx, const int32_t sw_v_dy) {",
-		"sw_f_Point_translate(&sw_v_here, 5, 5);",
-		"sw_f_Point_length_squared(sw_v_here)",
-		"sw_f_Point_is_origin(&sw_v_here)",
+		"static int32_t hex_f_Point_length_squared(const hex_t_Point hex_v_self) {",
+		"static bool hex_f_Point_is_origin(const hex_t_Point *const hex_v_self) {",
+		"static void hex_f_Point_translate(hex_t_Point *const hex_v_self, const int32_t hex_v_dx, const int32_t hex_v_dy) {",
+		"hex_f_Point_translate(&hex_v_here, 5, 5);",
+		"hex_f_Point_length_squared(hex_v_here)",
+		"hex_f_Point_is_origin(&hex_v_here)",
 	} {
 		if !strings.Contains(generated, want) {
 			t.Fatalf("main.c = %q, want %q", generated, want)
@@ -223,19 +223,19 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {
 	requireGeneratedC(t,
 		"fun identity(value: Int32): Int32\n    return value\nend\n",
-		"#include \"main.h\"\n\nstatic int32_t sw_f_identity(const int32_t sw_v_value) {\n    return sw_v_value;\n}\n\nint main(void) {\n")
+		"#include \"main.h\"\n\nstatic int32_t hex_f_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint main(void) {\n")
 }
 
 func TestGeneratedNoReturnFunctionIsVoid(t *testing.T) {
 	requireGeneratedC(t,
 		"fun reset(counter: MutPtr<Int32>)\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n",
-		"static void sw_f_reset(int32_t *const sw_v_counter) {\n    *sw_v_counter = 0;\n}\n")
+		"static void hex_f_reset(int32_t *const hex_v_counter) {\n    *hex_v_counter = 0;\n}\n")
 }
 
 func TestGeneratedZeroParameterFunctionTakesVoid(t *testing.T) {
 	requireGeneratedC(t,
 		"fun seed(): Int32\n    return 7\nend\n",
-		"static int32_t sw_f_seed(void) {\n    return 7;\n}\n")
+		"static int32_t hex_f_seed(void) {\n    return 7;\n}\n")
 }
 
 // The stored pointer type carries unqualified parameters even though the
@@ -244,8 +244,8 @@ func TestGeneratedZeroParameterFunctionTakesVoid(t *testing.T) {
 func TestGeneratedFunctionPointerObjectsKeepUnqualifiedParameters(t *testing.T) {
 	source := "fun identity(value: Int32): Int32\n    return value\nend\n" +
 		"callback: Fun<(Int32) : Int32> = identity\nmut selected: Fun<(Int32) : Int32> = identity\n"
-	requireGeneratedC(t, source, "    int32_t (*const sw_v_callback)(int32_t) = sw_f_identity;\n")
-	requireGeneratedC(t, source, "    int32_t (*sw_v_selected)(int32_t) = sw_f_identity;\n")
+	requireGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_identity;\n")
+	requireGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_identity;\n")
 	if got := Compile(source).MainC; strings.Contains(got, ")(const int32_t)") {
 		t.Fatalf("main.c = %q, function-pointer parameters must stay unqualified", got)
 	}
@@ -256,24 +256,24 @@ func TestGeneratedFunctionPointerParameterAndCall(t *testing.T) {
 		"fun square(value: Int32): Int32\n    return value * value\nend\n"+
 			"fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32\n    return callback(value)\nend\n"+
 			"result: Int32 = apply(square, 5)\n",
-		"static int32_t sw_f_apply(int32_t (*const sw_v_callback)(int32_t), const int32_t sw_v_value) {\n"+
-			"    return sw_v_callback(sw_v_value);\n}\n")
+		"static int32_t hex_f_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n"+
+			"    return hex_v_callback(hex_v_value);\n}\n")
 }
 
 func TestGeneratedCallExpressionAndCallStatement(t *testing.T) {
 	requireGeneratedC(t,
 		"fun adder(dx: Int32, dy: Int32): Int32\n    return dx\nend\ntotal: Int32 = adder(2, 3)\n",
-		"    const int32_t sw_v_total = sw_f_adder(2, 3);\n")
+		"    const int32_t hex_v_total = hex_f_adder(2, 3);\n")
 	requireGeneratedC(t,
 		"fun reset(counter: MutPtr<Int32>)\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n",
-		"    sw_f_reset(&sw_v_count);\n")
+		"    hex_f_reset(&hex_v_count);\n")
 }
 
 func TestGeneratedSelfRecursionNeedsNoPrototype(t *testing.T) {
 	source := "fun countdown(value: Int32): Int32\n    return countdown(value)\nend\n"
 	requireGeneratedC(t, source,
-		"static int32_t sw_f_countdown(const int32_t sw_v_value) {\n    return sw_f_countdown(sw_v_value);\n}\n")
-	if got := Compile(source).MainC; strings.Contains(got, "sw_f_countdown(const int32_t sw_v_value);") {
+		"static int32_t hex_f_countdown(const int32_t hex_v_value) {\n    return hex_f_countdown(hex_v_value);\n}\n")
+	if got := Compile(source).MainC; strings.Contains(got, "hex_f_countdown(const int32_t hex_v_value);") {
 		t.Fatalf("main.c = %q, want no forward prototype region", got)
 	}
 }
@@ -288,14 +288,14 @@ func TestGeneratedDefinitionsAreOrderedBeforeMain(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
-	first := strings.Index(result.MainC, "sw_f_first")
-	second := strings.Index(result.MainC, "sw_f_second")
+	first := strings.Index(result.MainC, "hex_f_first")
+	second := strings.Index(result.MainC, "hex_f_second")
 	main := strings.Index(result.MainC, "int main(void)")
-	origin := strings.Index(result.MainC, "sw_v_origin")
+	origin := strings.Index(result.MainC, "hex_v_origin")
 	if first < 0 || second < first || main < second || origin < main {
 		t.Fatalf("main.c = %q, want first, second, main, then module storage", result.MainC)
 	}
-	if !strings.Contains(result.MainH, "struct sw_t_Point {") {
+	if !strings.Contains(result.MainH, "struct hex_t_Point {") {
 		t.Fatalf("main.h = %q, want the object definition region", result.MainH)
 	}
 }
@@ -305,7 +305,7 @@ func TestGeneratedFunctionBodiesKeepLineDirectives(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "#line 2 \"main.hexal\"\n    return sw_v_value;") {
+	if !strings.Contains(result.MainC, "#line 2 \"main.hexal\"\n    return hex_v_value;") {
 		t.Fatalf("main.c = %q, want a line directive inside the function body", result.MainC)
 	}
 }

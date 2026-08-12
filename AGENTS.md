@@ -1,6 +1,6 @@
-# Seawitch Lang
+# Hexal Lang
 
-Seawitch is a high-level "syntax sugar" language with Lua-like syntax and a C23 compilation target. It aims to be a "better c", with close mapping of c concepts but with some modern niceties like;
+Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 compilation target. It aims to be a "better c", with close mapping of c concepts but with some modern niceties like;
 
 - Sum types
 - Match expressions
@@ -23,7 +23,7 @@ Seawitch is a high-level "syntax sugar" language with Lua-like syntax and a C23 
   behavior, ask one focused question before implementing.
 - **Workbench validation.** Once code implementation is complete, rebuild the workbench
   binary into `bin/` and restart the running workbench before handoff.
-- **Pushback.** When a request is wrong or a poor fit for Seawitch, push back with
+- **Pushback.** When a request is wrong or a poor fit for Hexal, push back with
   evidence and rationale.
 - **Architecture and style.** Align the compiler's architecture and coding
   style with the 'Clox' compiler tutorials in *Crafting Interpreters* by Robert
@@ -43,15 +43,15 @@ Seawitch is a high-level "syntax sugar" language with Lua-like syntax and a C23 
 
 ## Language Goals & Philosophy
 
-1. Seawitch should feel intuitive.
+1. Hexal should feel intuitive.
 2. There should only be one obvious way to do things.
 3. The language surface must remain small and clean.
 4. Prioritize simplicity, elegance, expressiveness, and composability.
-5. Seawitch is a high-level systems programming language. Users should be able to
-   do everything with Seawitch that they can do with C.
+5. Hexal is a high-level systems programming language. Users should be able to
+   do everything with Hexal that they can do with C.
 6. Static typing.
 7. Compiles to human-readable, formatted C23 with `#line` source mapping back
-   to Seawitch.
+   to Hexal.
 8. Can import C code and headers.
 9. Trivial import of C libraries and tools.
 10. Incremental compiler. Only recompile the module that changed.

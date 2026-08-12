@@ -217,7 +217,7 @@ func discoverGeneratedADTs(program checker.Program) (*generatedAdtState, error) 
 }
 
 func adtTagName(adt *compilerTypes.AdtType, index int) string {
-	return "sw_" + compilerTypes.SanitizeIdentifier(adt.Name) + "_" + compilerTypes.SanitizeIdentifier(adt.Variants[index].Name)
+	return "hex_" + compilerTypes.SanitizeIdentifier(adt.Name) + "_" + compilerTypes.SanitizeIdentifier(adt.Variants[index].Name)
 }
 
 func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
@@ -232,9 +232,9 @@ func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
 		for index := range adt.Variants {
 			fmt.Fprintf(result, "    %s,\n", adtTagName(adt, index))
 		}
-		fmt.Fprintf(result, "} sw_%s_tag;\n", name)
-		fmt.Fprintf(result, "typedef struct sw_%s {\n", name)
-		fmt.Fprintf(result, "    sw_%s_tag tag;\n", name)
+		fmt.Fprintf(result, "} hex_%s_tag;\n", name)
+		fmt.Fprintf(result, "typedef struct hex_%s {\n", name)
+		fmt.Fprintf(result, "    hex_%s_tag tag;\n", name)
 		hasPayload := false
 		for _, variant := range adt.Variants {
 			if len(variant.Payload) > 0 {
@@ -256,7 +256,7 @@ func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
 			}
 			fmt.Fprintf(result, "    } payload;\n")
 		}
-		fmt.Fprintf(result, "} sw_%s;\n", name)
+		fmt.Fprintf(result, "} hex_%s;\n", name)
 	}
 }
 
@@ -268,7 +268,7 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 	variant := &adt.Variants[node.VariantIndex]
 	base := compilerTypes.SanitizeIdentifier(adt.Name)
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "(sw_%s){ .tag = %s", base, adtTagName(adt, node.VariantIndex))
+	fmt.Fprintf(&builder, "(hex_%s){ .tag = %s", base, adtTagName(adt, node.VariantIndex))
 	if len(variant.Payload) > 0 {
 		if len(node.Arguments) != len(variant.Payload) {
 			return "", unknownExpressionDiagnostic("ADT construction payload count does not match its variant")
@@ -315,8 +315,8 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 		return "", unknownExpressionDiagnostic("match expression has invalid checked metadata")
 	}
 	state.matchCounter++
-	temp := fmt.Sprintf("sw_match_scrutinee_%d", state.matchCounter)
-	result := fmt.Sprintf("sw_match_result_%d", state.matchCounter)
+	temp := fmt.Sprintf("hex_match_scrutinee_%d", state.matchCounter)
+	result := fmt.Sprintf("hex_match_result_%d", state.matchCounter)
 	scrutinee, err := renderExpressionExpectedWithState(*node.Operand, node.OperandType, true, state)
 	if err != nil {
 		return "", err

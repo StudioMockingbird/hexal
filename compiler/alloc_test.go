@@ -10,7 +10,7 @@ func TestHeapNewPerformsNoAllocation(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if strings.Contains(result.MainC, "malloc") || !strings.Contains(result.MainC, "SW_HEAP_DEFAULT") {
+	if strings.Contains(result.MainC, "malloc") || !strings.Contains(result.MainC, "HEX_HEAP_DEFAULT") {
 		t.Fatalf("generated C = %q, want no allocation in Heap.new()", result.MainC)
 	}
 }
@@ -20,7 +20,7 @@ func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "sw_heap_allocate_Int32") || !strings.Contains(result.MainC, "*sw_v_p = 42") {
+	if !strings.Contains(result.MainH, "hex_heap_allocate_Int32") || !strings.Contains(result.MainC, "*hex_v_p = 42") {
 		t.Fatalf("generated output = H:%q C:%q, want checked allocation and write", result.MainH, result.MainC)
 	}
 }
@@ -30,7 +30,7 @@ func TestHeapFreeAcceptsReadOnlyAndWritablePointers(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_heap_free(") {
+	if !strings.Contains(result.MainC, "hex_heap_free(") {
 		t.Fatalf("generated C = %q, want checked deallocation", result.MainC)
 	}
 	result = Compile("h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) reader: Ptr<Int32> = p defer h.free(reader)")
@@ -51,7 +51,7 @@ func TestDeferCapturesDirectCallArguments(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_defer_capture_1 = sw_v_value;") {
+	if !strings.Contains(result.MainC, "hex_defer_capture_1 = hex_v_value;") {
 		t.Fatalf("generated C = %q, want registration-time capture", result.MainC)
 	}
 }
@@ -61,7 +61,7 @@ func TestDeferEvaluatesOtherExpressionsAtExit(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "(void)(sw_v_value);") {
+	if !strings.Contains(result.MainC, "(void)(hex_v_value);") {
 		t.Fatalf("generated C = %q, want exit-time expression evaluation", result.MainC)
 	}
 }
@@ -71,8 +71,8 @@ func TestDeferRunsInReverseRegistrationOrder(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	call2 := strings.Index(result.MainC, "record(sw_defer_capture_2)")
-	call1 := strings.Index(result.MainC, "record(sw_defer_capture_1)")
+	call2 := strings.Index(result.MainC, "record(hex_defer_capture_2)")
+	call1 := strings.Index(result.MainC, "record(hex_defer_capture_1)")
 	if call2 < 0 || call1 < 0 || call2 > call1 {
 		t.Fatalf("generated C = %q, want capture 2 before capture 1", result.MainC)
 	}
@@ -83,7 +83,7 @@ func TestDeferRunsOnBranchCompletion(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_f_record(sw_defer_capture_1);") {
+	if !strings.Contains(result.MainC, "hex_f_record(hex_defer_capture_1);") {
 		t.Fatalf("generated C = %q, want branch-completion cleanup", result.MainC)
 	}
 }
@@ -93,7 +93,7 @@ func TestDeferRunsOnLoopIterationCompletion(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_f_record(sw_defer_capture_1);") {
+	if !strings.Contains(result.MainC, "hex_f_record(hex_defer_capture_1);") {
 		t.Fatalf("generated C = %q, want iteration-completion cleanup", result.MainC)
 	}
 }
@@ -103,7 +103,7 @@ func TestDeferRunsOnReturn(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_return_1") || !strings.Contains(result.MainC, "sw_f_record(sw_defer_capture_1);") {
+	if !strings.Contains(result.MainC, "hex_return_1") || !strings.Contains(result.MainC, "hex_f_record(hex_defer_capture_1);") {
 		t.Fatalf("generated C = %q, want return-path cleanup", result.MainC)
 	}
 }
@@ -113,7 +113,7 @@ func TestDeferRunsOnBreakAndContinue(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "sw_f_record(sw_defer_capture_1);\n        break;") {
+	if !strings.Contains(result.MainC, "hex_f_record(hex_defer_capture_1);\n        break;") {
 		t.Fatalf("generated C = %q, want break-path cleanup", result.MainC)
 	}
 }
@@ -123,8 +123,8 @@ func TestDeferNestedScopesUnwindInnerToOuter(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	capture2 := strings.Index(result.MainC, "record(sw_defer_capture_2)")
-	capture1 := strings.Index(result.MainC, "record(sw_defer_capture_1)")
+	capture2 := strings.Index(result.MainC, "record(hex_defer_capture_2)")
+	capture1 := strings.Index(result.MainC, "record(hex_defer_capture_1)")
 	if capture2 < 0 || capture1 < 0 || capture2 > capture1 {
 		t.Fatalf("generated C = %q, want inner cleanup before outer cleanup", result.MainC)
 	}
