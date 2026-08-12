@@ -143,3 +143,28 @@ func TestListRestrictions(t *testing.T) {
 		}
 	}
 }
+
+func TestListStringElementsAreShallow(t *testing.T) {
+	source := "fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    text: String = \"hi\".to_string(h)\n    names.push(text)\n    names.free(h)\n    text.free(h)\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	if strings.Contains(result.MainC, "hex_string_from_bytes") {
+		t.Fatalf("List<String> push must not deep-copy:\n%s", result.MainC)
+	}
+}
+
+func TestListFreeReleasesOnlyContainerStorage(t *testing.T) {
+	source := "fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    names.free(h)\nend\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	if !strings.Contains(result.MainC, "hex_list_free_String") {
+		t.Fatalf("missing hex_list_free_String helper:\n%s", result.MainC)
+	}
+	if strings.Contains(result.MainC, "hex_string_free") {
+		t.Fatalf("List<String> free must not destroy element Strings:\n%s", result.MainC)
+	}
+}

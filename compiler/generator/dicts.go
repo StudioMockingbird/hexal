@@ -316,7 +316,6 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		value := dict.Dict.Value
 		keySpelling := typeSpelling(key)
 		valueSpelling := typeSpelling(value)
-		stringValue := compilerTypes.IsString(value)
 		suffix := dictSuffix(dict)
 		entryName := "hex_dict_entry_" + suffix
 		fmt.Fprintf(result, "\ntypedef struct %s {\n    bool active;\n    %s key;\n    %s value;\n} %s;\n", entryName, keySpelling, valueSpelling, entryName)
@@ -368,23 +367,11 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		fmt.Fprintf(result, "static inline void hex_dict_insert_%s(%s *dict, %s key, %s value) {\n", suffix, dict.CName, keySpelling, valueSpelling)
 		result.WriteString("    if (dict->capacity == 0 || (dict->length + 1) * 10 >= dict->capacity * 7) {\n        hex_dict_grow_" + suffix + "(dict);\n    }\n")
 		result.WriteString("    size_t index = hex_dict_probe_" + suffix + "(dict, key);\n")
-		if stringValue {
-			result.WriteString("    const hex_string *copy = hex_string_from_bytes((hex_heap){ dict->allocator }, value->data, value->byte_length);\n")
-		}
 		fmt.Fprintf(result, "    if (dict->buckets[index].active) {\n")
-		if stringValue {
-			result.WriteString("        hex_string_free((hex_heap){ dict->allocator }, dict->buckets[index].value);\n")
-			result.WriteString("        dict->buckets[index].value = copy;\n")
-		} else {
-			result.WriteString("        dict->buckets[index].value = value;\n")
-		}
+		result.WriteString("        dict->buckets[index].value = value;\n")
 		result.WriteString("        return;\n    }\n")
 		fmt.Fprintf(result, "    dict->buckets[index].active = true;\n    dict->buckets[index].key = key;\n")
-		if stringValue {
-			result.WriteString("    dict->buckets[index].value = copy;\n")
-		} else {
-			result.WriteString("    dict->buckets[index].value = value;\n")
-		}
+		result.WriteString("    dict->buckets[index].value = value;\n")
 		result.WriteString("    dict->length++;\n}\n")
 		fmt.Fprintf(result, "static inline %s hex_dict_get_%s(const %s *dict, %s key) {\n", valueSpelling, suffix, dict.CName, keySpelling)
 		fmt.Fprintf(result, "    if (dict->capacity == 0) {\n        fputs(\"[Runtime Error] dictionary key not found\\n\", stderr);\n        abort();\n    }\n")
@@ -400,22 +387,10 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		result.WriteString("    size_t index = hex_dict_probe_" + suffix + "(dict, key);\n")
 		fmt.Fprintf(result, "    if (!dict->buckets[index].active) {\n        fputs(\"[Runtime Error] dictionary key not found\\n\", stderr);\n        abort();\n    }\n")
 		result.WriteString("    " + valueSpelling + " value = dict->buckets[index].value;\n")
-		if stringValue {
-			// Move-out: the vacated slot is cleared without destroying the
-			// String object.
-			result.WriteString("    dict->buckets[index].value = NULL;\n")
-		}
 		result.WriteString("    dict->buckets[index].active = false;\n    dict->length--;\n    return value;\n}\n")
 		fmt.Fprintf(result, "static inline void hex_dict_free_%s(hex_heap h, %s *dict) {\n", suffix, dict.CName)
 		result.WriteString("    if (dict == NULL || dict->allocator != h.identity) {\n")
 		result.WriteString("        fputs(\"[Runtime Error] deallocation used the wrong allocator\\n\", stderr);\n        abort();\n    }\n")
-		if stringValue {
-			result.WriteString("    for (size_t index = 0; index < dict->capacity; index++) {\n")
-			result.WriteString("        if (dict->buckets[index].active) {\n")
-			result.WriteString("            hex_string_free((hex_heap){ dict->allocator }, dict->buckets[index].value);\n")
-			result.WriteString("        }\n")
-			result.WriteString("    }\n")
-		}
 		result.WriteString("    free(dict->buckets);\n    free(dict);\n}\n")
 	}
 }
