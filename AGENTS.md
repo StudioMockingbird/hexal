@@ -98,10 +98,13 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 Keep these three canonical documents updated once per feature, after behavior
 stabilizes—not repeatedly while it is still changing:
 
-1. `docs/grammar.md` — formal grammar in EBNF format.
-2. `docs/language.md` — cross-cutting rationale, semantic rules, and key
-   language decisions that cannot be inferred easily from the code.
-3. `docs/status.md` — project checklist and known follow-ups.
+1. `docs/reference.md` — sole normative language semantics and rationale.
+2. `docs/grammar.ebnf` — formal syntax in EBNF; it does not define semantics.
+3. `docs/status.md` — implementation checklist and known follow-ups; it does
+   not define semantics.
+
+`docs/language.md` is retained as historical working commentary. Do not add
+new semantic rules there; migrate still-relevant content into `reference.md`.
 
 ## Workflow
 

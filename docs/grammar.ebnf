@@ -1,0 +1,207 @@
+program = { top-level-item } ;
+
+top-level-item = type-declaration | function-declaration
+                 | implementation-declaration | statement ;
+type-declaration = "type" , identifier , [ generic-parameter-list ]
+                   , "=" , type-definition-expression ;
+function-declaration = "fun" , identifier , [ generic-parameter-list ]
+                       , signature , block , "end" ;
+implementation-declaration = "impl" , type-expression , "." , identifier
+                             , [ generic-parameter-list ] , signature
+                             , block , "end" ;
+signature = "(" , [ parameter-list ] , ")" , [ ":" , type-expression ] ;
+parameter-list = parameter , { "," , parameter } ;
+parameter = identifier , ":" , type-expression ;
+generic-parameter-list = "<" , identifier , { "," , identifier } , ">" ;
+
+statement = declaration | assignment | call-statement | return-statement
+            | if-statement | while-statement | for-statement
+            | "break" | "continue" | defer-statement | errdefer-statement ;
+block = { statement } ;
+declaration = [ "mut" ] , identifier , ":" , type-expression
+              , "=" , expression ;
+assignment = assignment-target , "=" , expression ;
+assignment-target = place-expression ;
+call-statement = call-expression ;
+return-statement = "return" , [ expression ] ;
+defer-statement = "defer" , expression ;
+errdefer-statement = "errdefer" , expression ;
+if-statement = "if" , expression , block
+               , { "elseif" , expression , block }
+               , [ "else" , block ] , "end" ;
+while-statement = "while" , expression , "do" , block , "end" ;
+for-statement = "for" , for-binders , "in" , expression
+                , "do" , block , "end" ;
+for-binders = identifier
+              | identifier , "," , identifier
+              | identifier , "," , identifier , "," , identifier ;
+
+type-definition-expression = object-type-expression
+                             | adt-type-expression | type-expression ;
+object-type-expression = "{" , member-declaration
+                         , { "," , member-declaration } , [ "," ] , "}" ;
+member-declaration = [ "mut" ] , identifier , ":" , type-expression ;
+adt-type-expression = adt-variant , adt-variant , { adt-variant } ;
+adt-variant = "|" , identifier , [ "as" , adt-payload ] ;
+adt-payload = "{" , payload-member
+              , { "," , payload-member } , [ "," ] , "}" ;
+payload-member = identifier , ":" , type-expression ;
+
+type-expression = union-type-expression ;
+union-type-expression = primary-type-expression
+                        , { "|" , primary-type-expression } ;
+primary-type-expression = identifier | generic-type | array-type
+                          | pointer-type | function-type-expression
+                          | "(" , type-expression , ")" ;
+generic-type = identifier , type-argument-list ;
+type-argument-list = "<" , type-expression
+                     , { "," , type-expression } , ">" ;
+array-type = "Array" , "<" , type-expression
+             , "," , positive-decimal-literal , ">" ;
+pointer-type = pointer-constructor , "<" , type-expression , ">" ;
+pointer-constructor = "Ptr" | "MutPtr" ;
+function-type-expression = "Fun" , "<" , "(" , [ type-list ] , ")"
+                           , [ ":" , type-expression ] , ">" ;
+type-list = type-expression , { "," , type-expression } ;
+
+expression = or-expression ;
+or-expression = and-expression , { "or" , and-expression } ;
+and-expression = bitwise-or-expression , { "and" , bitwise-or-expression } ;
+bitwise-or-expression = bitwise-xor-expression
+                        , { "|" , bitwise-xor-expression } ;
+bitwise-xor-expression = bitwise-and-expression
+                         , { "^" , bitwise-and-expression } ;
+bitwise-and-expression = equality-expression
+                         , { "&" , equality-expression } ;
+equality-expression = type-test-expression
+                      , { equality-operator , type-test-expression } ;
+type-test-expression = relational-expression , [ "is" , type-expression ] ;
+relational-expression = shift-expression
+                        , { relational-operator , shift-expression } ;
+shift-expression = additive-expression , { shift-operator , additive-expression } ;
+additive-expression = multiplicative-expression
+                      , { additive-operator , multiplicative-expression } ;
+multiplicative-expression = unary-expression
+                            , { multiplicative-operator , unary-expression } ;
+unary-expression = unary-operator , unary-expression
+                   | "try" , unary-expression
+                   | "spawn" , call-expression
+                   | "ref" , reference-place-expression
+                   | postfix-expression ;
+
+place-expression = place-primary , { place-suffix } ;
+place-primary = identifier | "self" ;
+place-suffix = "." , identifier | index-suffix ;
+reference-place-expression = identifier , { "." , identifier }
+                             , { index-suffix } ;
+postfix-expression = primary-expression , { postfix-suffix } ;
+postfix-suffix = "." , identifier | call-arguments
+                 | type-argument-list , call-arguments
+                 | type-argument-list , "." , identifier
+                   , [ variant-payload | call-arguments ]
+                 | index-suffix ;
+call-expression = primary-expression , { postfix-suffix } , call-arguments ;
+call-arguments = "(" , [ argument-list ] , ")" ;
+argument-list = expression , { "," , expression } ;
+index-suffix = "[" , expression , "]" ;
+
+primary-expression = identifier | "self" | object-literal
+                     | qualified-variant | array-literal | match-expression
+                     | integer-literal | decimal-floating-literal
+                     | byte-literal | rune-literal | string-literal
+                     | "true" | "false" | "nil" | "eos"
+                     | "(" , expression , ")" ;
+object-literal = identifier , [ type-argument-list ]
+                 , "{" , [ member-initializer-list ] , "}" ;
+qualified-variant = identifier , [ type-argument-list ]
+                    , "." , identifier , [ variant-payload ] ;
+variant-payload = "{" , [ member-initializer-list ] , "}" ;
+member-initializer-list = member-initializer
+                          , { "," , member-initializer } , [ "," ] ;
+member-initializer = identifier , "=" , expression ;
+array-literal = "[" , [ expression-list , [ "," ] ] , "]" ;
+expression-list = expression , { "," , expression } ;
+
+match-expression = "match" , relational-expression , [ "is" ]
+                   , match-arm , { match-arm } , "end" ;
+match-arm = "|" , match-pattern , "then" , match-arm-expression ;
+match-arm-expression = bitwise-xor-expression ;
+match-pattern = "else" | "true" | "false"
+                | qualified-variant-pattern | primary-type-expression ;
+qualified-variant-pattern = identifier , [ type-argument-list ]
+                            , "." , identifier ;
+
+unary-operator = "-" | "!" | "~" ;
+multiplicative-operator = "*" | "/" | "%" ;
+additive-operator = "+" | "-" ;
+shift-operator = "<<" | ">>" ;
+relational-operator = "<" | "<=" | ">" | ">=" ;
+equality-operator = "==" | "!=" ;
+
+identifier = identifier-text - reserved-word ;
+identifier-text = ASCII-letter , { ASCII-letter | decimal-digit | "_" } ;
+reserved-word = "true" | "false" | "nil" | "eos" | "mut" | "ref"
+                | "type" | "and" | "or" | "is" | "fun" | "impl"
+                | "end" | "return" | "if" | "elseif" | "else"
+                | "while" | "break" | "continue" | "defer" | "try"
+                | "errdefer" | "spawn" | "as" | "match" | "then"
+                | "self" | "for" | "in" | "do" ;
+positive-decimal-literal = nonzero-decimal-digit
+                           , { decimal-digit | "_" , decimal-digit } ;
+integer-literal = decimal-integer | hexadecimal-integer
+                  | binary-integer | octal-integer ;
+decimal-integer = "0" | nonzero-decimal-digit
+                  , { decimal-digit | "_" , decimal-digit } ;
+hexadecimal-integer = "0x" , hex-digit
+                      , { hex-digit | "_" , hex-digit } ;
+binary-integer = "0b" , binary-digit
+                 , { binary-digit | "_" , binary-digit } ;
+octal-integer = "0o" , octal-digit
+                , { octal-digit | "_" , octal-digit } ;
+decimal-floating-literal = decimal-integer , "." , decimal-digit-sequence
+                           , [ exponent-part ]
+                           | decimal-integer , exponent-part ;
+exponent-part = ( "e" | "E" ) , [ "+" | "-" ]
+                , decimal-digit-sequence ;
+decimal-digit-sequence = decimal-digit
+                         , { decimal-digit | "_" , decimal-digit } ;
+
+string-literal = '"' , { string-character | string-escape } , '"' ;
+string-escape = '\' , ( "'" | '"' | '\' | "n" | "r" | "t" | "0"
+                | unicode-escape ) ;
+byte-literal = "b" , "'" , byte-literal-body , "'" ;
+byte-literal-body = printable-ASCII-character | byte-escape ;
+byte-escape = '\' , ( '\' | "'" | "n" | "r" | "t" | "0"
+              | "x" , hex-digit , hex-digit ) ;
+rune-literal = "'" , rune-literal-body , "'" ;
+rune-literal-body = Unicode-scalar | rune-escape ;
+rune-escape = '\' , ( '\' | "'" | '"' | "n" | "r" | "t" | "0"
+              | unicode-escape ) ;
+unicode-escape = "u{" , hex-digit , { hex-digit } , "}" ;
+
+line-comment = "--" , { non-newline-character } ;
+multiline-comment = "--[" , { comment-character } , "]--" ;
+whitespace = " " | horizontal-tab | carriage-return | newline ;
+string-character = ? any Unicode scalar except '"', "\", CR, or LF ? ;
+printable-ASCII-character = ? one ASCII byte from 0x20 through 0x7E,
+                              except "'" or "\" ? ;
+Unicode-scalar = ? one Unicode scalar except "'", "\", CR, or LF ? ;
+non-newline-character = ? any character except CR or LF ? ;
+comment-character = ? any character not beginning the sequence "]--" ? ;
+horizontal-tab = ? U+0009 ? ;
+carriage-return = ? U+000D ? ;
+newline = ? U+000A ? ;
+
+ASCII-letter = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I"
+               | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R"
+               | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
+               | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i"
+               | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r"
+               | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" ;
+nonzero-decimal-digit = "1" | "2" | "3" | "4" | "5"
+                        | "6" | "7" | "8" | "9" ;
+decimal-digit = "0" | nonzero-decimal-digit ;
+binary-digit = "0" | "1" ;
+octal-digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
+            | "A" | "B" | "C" | "D" | "E" | "F" ;

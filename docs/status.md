@@ -1,5 +1,8 @@
 # Hexal Status
 
+> This file tracks implementation status, not language semantics. The normative
+> language contract is [`reference.md`](reference.md).
+
 ## Implemented
 
 - RFC 0003 core scalar types and canonical C23 mappings.
@@ -238,6 +241,17 @@
   macro. Closed specs retain their original spellings and are untouched.
 
 ## Known follow-ups
+
+### Reference-audit conformance gaps
+
+Tracked by draft RFC 0046, Post-Migration Conformance Cleanup.
+
+- Atomic non-copyability is enforced for Task/Channel boundaries but not yet
+  for ordinary copy, assignment, `ref`, Array storage, or Stream elements and
+  producer state.
+- `Stream` is not yet rejected as a redeclared or shadowed protected type name.
+- On the required 64-bit target, `UInt64` does not yet widen implicitly to the
+  equal-range `Size`; mixed operations already prefer `Size` correctly.
 
 - RFC 0015 structured control flow is implemented and conforming:
   `if`/`elseif`/`else`, `while`, `break`, `continue`, lexical block scopes,

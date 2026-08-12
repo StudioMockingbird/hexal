@@ -1,5 +1,8 @@
 # Hexal Language Notes
 
+> Historical, non-normative working notes. The current language contract is
+> [`reference.md`](reference.md); when this file disagrees, the reference wins.
+
 ## Core scalar types
 
 Hexal has eleven fixed-width scalar types. The integer ranges are exact and
