@@ -139,6 +139,7 @@ func IsInlineElement(typ Type) bool {
 func (environment *Environment) ArrayType(element Type, length uint64) Type {
 	if environment == nil || length == 0 ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		ContainsAtomic(element) ||
 		!ContainsTypeParameter(element) && !IsInlineElement(element) {
 		return Type{}
 	}
@@ -171,6 +172,7 @@ func arrayKey(element Type, length uint64) string {
 func (environment *Environment) ViewType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		ContainsAtomic(element) ||
 		IsManaged(element) || !IsInlineElement(element) {
 		return Type{}
 	}
@@ -195,6 +197,7 @@ func (environment *Environment) ViewType(element Type) Type {
 func (environment *Environment) ListType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		ContainsAtomic(element) ||
 		!IsCollectionElement(element) {
 		return Type{}
 	}
@@ -235,6 +238,7 @@ func IsCollectionElement(typ Type) bool {
 func (environment *Environment) StreamType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		ContainsAtomic(element) ||
 		!IsCompleteValue(element) || IsEoS(element) || UnionContainsEoS(element) {
 		return Type{}
 	}
@@ -266,8 +270,10 @@ func UnionContainsEoS(typ Type) bool {
 }
 
 // ContainsAtomic reports whether typ contains an inline Atomic<T> value
-// recursively through objects, ADTs, and arrays. Atomic values cannot be
-// copied, so any shallow-copy position that reaches one is invalid (RFC 0037).
+// recursively through objects, ADTs, arrays, and unions. Atomic values cannot
+// be copied, so any shallow-copy position that reaches one is invalid (RFC
+// 0037, RFC 0046). It stops at every indirection: copying a Ptr<T>, MutPtr<T>,
+// or a handle copies the pointer, never the pointee.
 func ContainsAtomic(typ Type) bool {
 	if typ.Atomic != nil {
 		return true
@@ -290,6 +296,13 @@ func ContainsAtomic(typ Type) bool {
 	}
 	if typ.Array != nil {
 		return ContainsAtomic(typ.Array.Element)
+	}
+	if typ.Union != nil || typ.NullableBase != nil {
+		for _, member := range UnionMembers(typ) {
+			if ContainsAtomic(member) {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -392,6 +405,7 @@ func (environment *Environment) DictType(key, value Type) Type {
 		!isCanonicalForEnvironment(environment, key, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
 		!IsDictKey(key) ||
 		!isCanonicalForEnvironment(environment, value, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		ContainsAtomic(value) ||
 		!IsCollectionElement(value) {
 		return Type{}
 	}

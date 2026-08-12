@@ -246,5 +246,8 @@ func listElementArgument(expression parser.Expression, fallback lexer.Token, ele
 		diagnostic := typeErrorAt(checked.token, "list element requires "+element.Name+"; got "+checked.typ.Name)
 		return Operand{}, &diagnostic
 	}
+	if diagnostic := atomicCopyDiagnostic(checked.source, fallback); diagnostic != nil {
+		return Operand{}, diagnostic
+	}
 	return checked.source, nil
 }

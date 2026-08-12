@@ -133,7 +133,7 @@ func TestSpawnRejectsNonCopyableArguments(t *testing.T) {
 	}
 	bad := "fun take_atomic(counter: Atomic<Int32>): Int32\n    return 0\nend\nfun run(): Int32 | Error\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    task: Task<Int32> = try spawn take_atomic(counter)\n    return 0\nend\n"
 	result = Compile(bad)
-	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "shallow-copyable") {
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Atomic") {
 		t.Fatalf("want atomic-argument diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
@@ -219,5 +219,31 @@ func TestTaskTypesAreProtected(t *testing.T) {
 	result := Compile(source)
 	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot be redeclared") {
 		t.Fatalf("want protected-name diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestAtomicNonCopyability(t *testing.T) {
+	rejected := []string{
+		"counter: Atomic<Int32> = Atomic<Int32>.new(0)\ncopy: Atomic<Int32> = counter\n",
+		"counter: Atomic<Int32> = Atomic<Int32>.new(0)\nmut other: Atomic<Int32> = Atomic<Int32>.new(1)\nother = counter\n",
+		"counter: Atomic<Int32> = Atomic<Int32>.new(0)\npointer: MutPtr<Atomic<Int32>> = ref counter\n",
+		"items: Array<Atomic<Int32>, 1> = [Atomic<Int32>.new(0)]\n",
+		"type Bad = | V as { a: Atomic<Int32> }\n",
+		"counter: Atomic<Int32> = Atomic<Int32>.new(0)\nvalue: Atomic<Int32> | Nil = counter\n",
+	}
+	for _, source := range rejected {
+		if result := Compile(source); result.ExitCode != ExitFailure {
+			t.Fatalf("want reject, got accept:\n%s", source)
+		}
+	}
+	accepted := []string{
+		"counter: Atomic<Int32> = Atomic<Int32>.new(0)\n",
+		"type Shared = { count: Atomic<Int32> }\nshared: Shared = Shared { count = Atomic<Int32>.new(0) }\n",
+		"type Shared = { count: Atomic<Int32> }\nshared: Shared = Shared { count = Atomic<Int32>.new(0) }\npointer: Ptr<Shared> = ref shared\n",
+	}
+	for _, source := range accepted {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+		}
 	}
 }

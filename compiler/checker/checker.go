@@ -486,8 +486,9 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 			continue
 		}
 		// RFC 0035: String, List, Dict, and View members are ordinary inline
-		// handle descriptors; only genuinely layoutless values are rejected.
-		if !compilerTypes.IsNil(resolved) && !compilerTypes.IsUnion(resolved) && resolved.Object == nil && resolved.Element == nil && resolved.Array == nil && resolved.View == nil && !compilerTypes.IsString(resolved) && !compilerTypes.IsList(resolved) && !compilerTypes.IsDict(resolved) && resolved.ScalarKind == compilerTypes.ScalarNone {
+		// handle descriptors; Atomic is RFC 0037's object member shared by
+		// pointer. Only genuinely layoutless values are rejected.
+		if !compilerTypes.IsNil(resolved) && !compilerTypes.IsUnion(resolved) && resolved.Object == nil && resolved.Element == nil && resolved.Array == nil && resolved.View == nil && resolved.Atomic == nil && !compilerTypes.IsString(resolved) && !compilerTypes.IsList(resolved) && !compilerTypes.IsDict(resolved) && resolved.ScalarKind == compilerTypes.ScalarNone {
 			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 				Category: compilerTypes.TypeError,
 				Stage:    "checker",
@@ -697,6 +698,11 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
+	if len(diagnostics) == 0 {
+		if diagnostic := atomicCopyDiagnostic(initializer.source, declaration.Name); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
+	}
 	if len(diagnostics) == 0 && declaredType.Name != "" && !assignable(declaredType, initializer.typ) {
 		diagnostics = append(diagnostics, bindingMismatchDiagnostic(declaration.Name.Lexeme, declaredType, initializer.typ, initializer.token))
 	}
@@ -769,6 +775,11 @@ func checkAssignment(assignment parser.Assignment, environment *scope, typeEnvir
 	initializer := checkInitializer(assignment.Initializer, targetUse, assignment.Name, environment, typeEnvironment)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
+	}
+	if len(diagnostics) == 0 {
+		if diagnostic := atomicCopyDiagnostic(initializer.source, assignment.Name); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
 	}
 	if len(diagnostics) == 0 && initializer.typ != (compilerTypes.Type{}) && !assignable(targetType, initializer.typ) {
 		diagnostics = append(diagnostics, bindingMismatchDiagnostic(assignment.Name.Lexeme, targetType, initializer.typ, initializer.token))
@@ -2741,6 +2752,10 @@ func checkReference(expression parser.RefExpression, environment *scope, typeEnv
 	}
 	if place.typ.View != nil {
 		diagnostic := typeErrorAt(place.token, "ref cannot take the address of a View binding")
+		return checkedExpression{token: place.token, diagnostic: &diagnostic}
+	}
+	if place.typ.Atomic != nil {
+		diagnostic := typeErrorAt(place.token, "Atomic values cannot be copied, assigned, addressed, or stored here")
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
 	// ref names the binding's declared storage slot, not a narrowed read

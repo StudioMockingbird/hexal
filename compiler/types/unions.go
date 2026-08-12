@@ -61,12 +61,12 @@ func (environment *Environment) UnionType(members []Type) Type {
 		// placeholder.
 		//
 		// Owning pointer-sized handles (String, List, Dict, Stream, Task,
-		// Channel, Mutex) are ordinary union members: RFC 0040's File reads
-		// return String | Error and List<Byte> | Error. Borrowed Views stay
-		// rejected because a copied temporary View could make its data
-		// pointer escape the actual storage.
+		// Channel, Mutex) and the read-only View descriptor are ordinary union
+		// members: RFC 0040's File reads return String | Error and
+		// List<Byte> | Error. Atomic values are non-copyable and are rejected
+		// here because union injection copies by definition (RFC 0046).
 		if !ContainsTypeParameter(member) &&
-			(!isCanonicalForEnvironment(environment, member, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) || !IsCompleteValue(member) || member.View != nil) {
+			(!isCanonicalForEnvironment(environment, member, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) || !IsCompleteValue(member) || ContainsAtomic(member)) {
 			return Type{}
 		}
 		found := false

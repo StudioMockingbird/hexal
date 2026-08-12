@@ -1225,6 +1225,11 @@ func checkReturnStatement(statement parser.ReturnStatement, names *scope, typeEn
 		return checked, compilerTypes.Diagnostics{typeErrorAt(value.token,
 			fmt.Sprintf("%s returns %s; got %s", names.owner, names.result.Name, value.typ.Name))}
 	}
+	if value.typ != (compilerTypes.Type{}) {
+		if diagnostic := atomicCopyDiagnostic(value.source, statement.Keyword); diagnostic != nil {
+			return checked, compilerTypes.Diagnostics{*diagnostic}
+		}
+	}
 	source := value.source
 	checked.Value = &source
 	// RFC 0035: a collection return value is an ordinary shallow copy; the
@@ -1367,6 +1372,10 @@ func checkArguments(callee string, expected []compilerTypes.TypeUse, written []p
 		if checked.typ != (compilerTypes.Type{}) && !assignable(want.Type, checked.typ) {
 			diagnostics = append(diagnostics, typeErrorAt(checked.token,
 				fmt.Sprintf("%s argument %d requires %s, got %s", callee, index+1, want.Type.Name, checked.typ.Name)))
+			continue
+		}
+		if diagnostic := atomicCopyDiagnostic(checked.source, token); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
 			continue
 		}
 		arguments = append(arguments, checked.source)
