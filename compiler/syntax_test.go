@@ -45,7 +45,7 @@ func TestMultipleStatements(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
-	want := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hexal\"\n    int32_t hex_v_x = 13;\n#line 1 \"main.hexal\"\n    hex_v_x = 14;\n#line 2 \"main.hexal\"\n    bool hex_v_flag = true;\n#line 2 \"main.hexal\"\n    hex_v_flag = false;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hex\"\n    int32_t hex_v_x = 13;\n#line 1 \"main.hex\"\n    hex_v_x = 14;\n#line 2 \"main.hex\"\n    bool hex_v_flag = true;\n#line 2 \"main.hex\"\n    hex_v_flag = false;\n    return EXIT_SUCCESS;\n}\n"
 	if result.MainC != want {
 		t.Fatalf("main.c = %q, want %q", result.MainC, want)
 	}
@@ -71,7 +71,7 @@ func TestComments(t *testing.T) {
 		t.Fatalf("Compile comments stderr = %#v, want empty", result.Stderr)
 	}
 
-	want := "#include \"main.h\"\n\nint main(void) {\n#line 2 \"main.hexal\"\n    int32_t hex_v_x = 13;\n#line 4 \"main.hexal\"\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"main.h\"\n\nint main(void) {\n#line 2 \"main.hex\"\n    int32_t hex_v_x = 13;\n#line 4 \"main.hex\"\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
 	if result.MainC != want {
 		t.Fatalf("commented main.c = %q, want %q", result.MainC, want)
 	}

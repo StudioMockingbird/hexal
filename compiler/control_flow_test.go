@@ -86,10 +86,10 @@ func TestControlFlowNestedLoopsAndLineMappings(t *testing.T) {
 		t.Fatalf("nested loop lowering = %q, want two loops, two breaks, and one continue", result.MainC)
 	}
 	for _, want := range []string{
-		"#line 2 \"main.hexal\"",
-		"#line 4 \"main.hexal\"",
-		"#line 7 \"main.hexal\"",
-		"#line 12 \"main.hexal\"",
+		"#line 2 \"main.hex\"",
+		"#line 4 \"main.hex\"",
+		"#line 7 \"main.hex\"",
+		"#line 12 \"main.hex\"",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want %q", result.MainC, want)
@@ -103,9 +103,9 @@ func TestControlFlowConditionLineMappings(t *testing.T) {
 		t.Fatalf("multiline control-flow conditions failed: %#v", result)
 	}
 	for _, want := range []string{
-		"#line 3 \"main.hexal\"",
-		"#line 5 \"main.hexal\"",
-		"#line 8 \"main.hexal\"",
+		"#line 3 \"main.hex\"",
+		"#line 5 \"main.hex\"",
+		"#line 8 \"main.hex\"",
 	} {
 		if !strings.Contains(result.MainC, want) {
 			t.Fatalf("main.c = %q, want condition mapping %q", result.MainC, want)

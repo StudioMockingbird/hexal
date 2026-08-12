@@ -305,7 +305,7 @@ func TestGeneratedFunctionBodiesKeepLineDirectives(t *testing.T) {
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "#line 2 \"main.hexal\"\n    return hex_v_value;") {
+	if !strings.Contains(result.MainC, "#line 2 \"main.hex\"\n    return hex_v_value;") {
 		t.Fatalf("main.c = %q, want a line directive inside the function body", result.MainC)
 	}
 }

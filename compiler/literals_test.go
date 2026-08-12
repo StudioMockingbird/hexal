@@ -209,7 +209,7 @@ func TestInt32Declaration(t *testing.T) {
 		t.Fatalf("Compile stderr = %#v, want empty", result.Stderr)
 	}
 
-	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hexal\"\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
+	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hex\"\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
 	if result.MainC != wantC {
 		t.Fatalf("main.c = %q, want %q", result.MainC, wantC)
 	}
@@ -227,7 +227,7 @@ func TestBoolDeclaration(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 
-	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hexal\"\n    const bool hex_v_flag = true;\n    return EXIT_SUCCESS;\n}\n"
+	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hex\"\n    const bool hex_v_flag = true;\n    return EXIT_SUCCESS;\n}\n"
 	if result.MainC != wantC {
 		t.Fatalf("main.c = %q, want %q", result.MainC, wantC)
 	}
@@ -319,7 +319,7 @@ func TestHexLiteralPreservesSpelling(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 
-	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hexal\"\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
+	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hex\"\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
 	if result.MainC != wantC {
 		t.Fatalf("main.c = %q, want %q", result.MainC, wantC)
 	}

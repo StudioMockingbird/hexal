@@ -14,7 +14,7 @@ import (
 
 // sourceFilename is the logical source-unit name used by diagnostics and C
 // #line output; Error.file records the same name (RFC 0029).
-const sourceFilename = "main.hexal"
+const sourceFilename = "main.hex"
 
 // resultAcceptsError reports whether a function result type can carry an
 // Error value: exactly Error, or a union containing an Error member.

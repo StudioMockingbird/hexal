@@ -14,7 +14,7 @@ import (
 )
 
 const mainHeaderPrefix = "#ifndef HEXAL_MAIN_H\n#define HEXAL_MAIN_H\n\n#include <stdint.h>\n#include <stdbool.h>\n#include <limits.h>\n#include <stdlib.h>\n"
-const sourceFilename = "main.hexal"
+const sourceFilename = "main.hex"
 
 // NameKind identifies the Hexal-owned declaration namespace lowered by the
 // generator. The mapping is deliberately stateless and never consults a C

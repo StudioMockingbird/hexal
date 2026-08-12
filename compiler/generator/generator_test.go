@@ -398,7 +398,7 @@ func TestGenerateLineDirectives(t *testing.T) {
 		checker.Declaration{Name: "x", Type: compilerTypes.Int32, Source: intSource(compilerTypes.Int32, 13, "13"), SourceLine: 4, SourceColumn: 1},
 	}}
 	gotC, _ := Generate(program)
-	if !strings.Contains(gotC, "#line 4 \"main.hexal\"\n    const int32_t hex_v_x = 13;") {
+	if !strings.Contains(gotC, "#line 4 \"main.hex\"\n    const int32_t hex_v_x = 13;") {
 		t.Fatalf("main.c = %q, want a line directive before the declaration", gotC)
 	}
 }
@@ -2086,8 +2086,8 @@ func TestGenerateFunctionBodyLineDirectives(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	for _, want := range []string{
-		"#line 3 \"main.hexal\"\nstatic int32_t hex_f_identity(",
-		"#line 4 \"main.hexal\"\n    return hex_v_x;",
+		"#line 3 \"main.hex\"\nstatic int32_t hex_f_identity(",
+		"#line 4 \"main.hex\"\n    return hex_v_x;",
 	} {
 		if !strings.Contains(gotC, want) {
 			t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
