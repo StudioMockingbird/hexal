@@ -249,6 +249,27 @@
 
 ## Known follow-ups
 
+### Conformance gaps against `reference.md`
+
+`reference.md` is normative, so each item below is an implementation bug rather
+than a language rule. Verified against the compiler on 2026-08-13; RFC 0046
+resolved the migration gaps but explicitly scoped these out.
+
+- Only a 64-bit `Size` target profile exists. RFC 0036's 16- and 32-bit
+  profiles are unimplemented, so the range-based `Size` common-type rules
+  cannot be exercised on a narrower target.
+- `match` scrutinees and arm results parse at a restricted precedence level, so
+  unparenthesized `and`/`or` is rejected in both positions although
+  `reference.md` permits it. `match a and b` and `| true then a and b` both
+  fail with a syntax error; parenthesizing works around it.
+- `ref` accepts member steps followed by index steps (`ref pair.values[0]`) but
+  rejects an index step followed by a member step (`ref rows[0].field`).
+  `reference.md` places no such ordering restriction on `ref`.
+- The lexer accepts a raw newline inside a String literal, which the lexical
+  rules reject.
+
+### Other follow-ups
+
 - RFC 0015 structured control flow is implemented and conforming:
   `if`/`elseif`/`else`, `while`, `break`, `continue`, lexical block scopes,
   definite-return analysis, delimiter-aware parser recovery, generator

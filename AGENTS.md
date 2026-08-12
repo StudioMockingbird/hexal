@@ -98,7 +98,7 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 Keep these three canonical documents updated once per feature, after behavior
 stabilizes—not repeatedly while it is still changing:
 
-1. `docs/reference.md` — sole normative language semantics and rationale.
+1. `docs/reference.md` — sole normative language semantic contract.
 2. `docs/grammar.ebnf` — formal syntax in EBNF; it does not define semantics.
 3. `docs/status.md` — implementation checklist and known follow-ups; it does
    not define semantics.
@@ -107,22 +107,23 @@ These three are the only canonical documents. `docs/language.md` was retired
 after its still-relevant content was migrated into `reference.md`; do not
 recreate it or add a fourth prose document alongside these.
 
-## Workflow
+`docs/reference.md` is primarily an input to agentic development workflows and
+secondarily a lookup document for humans. Optimize it for precise retrieval:
 
-Choose the lightest workflow that fits the task:
+- Include only current rules and semantic contracts.
+- Exclude tutorials, walkthroughs, historical narrative, and illustrative
+  examples.
+- Express information as general rules, exact signatures, tables, acceptance
+  conditions, or rejection conditions. Replace any proposed example with the
+  rule it demonstrates.
+- Keep each rule in one authoritative location. Prefer explicit, dense wording
+  over explanatory prose while preserving every semantic edge case.
 
-- **Small (<50 LOC):** Implement directly.
-- **Medium:** Write a brief implementation plan.
-- **Large** (new feature, parser, type checker, or runtime):
-  1. Write a full specification.
-  2. Review the design.
-  3. Write an implementation plan.
-  4. Get explicit user sign-off.
-  5. Follow test-driven development.
-  6. Implement the code.
-  7. Verify the result.
-  8. Set the spec's `Status:` to `Implemented`, and delete its execution plan.
-     A finished plan left in place is indistinguishable from unstarted work.
+Closed specs are historical records, superseded wherever they disagree with
+`docs/reference.md`. Several contain syntax the language never had — `:=`
+inference (RFCs 0016, 0017, 0029, 0036) and `if cond then` (RFCs 0029, 0037,
+0043). Do not reintroduce either, and do not copy a rule out of a spec without
+checking it against `reference.md` first.
 
 ## Testing
 
