@@ -13,7 +13,7 @@ var losslessWideningTargets = map[string][]string{
 	"UInt8":   {"UInt16", "UInt32", "UInt64", "Int16", "Int32", "Int64", "Float32", "Float64"},
 	"UInt16":  {"UInt32", "UInt64", "Int32", "Int64", "Float32", "Float64"},
 	"UInt32":  {"UInt64", "Int64", "Float64"},
-	"UInt64":  {},
+	"UInt64":  {"Size"}, // equal-range on the 64-bit Size profile; narrower profiles reject this direction
 	"Float32": {"Float64"},
 	"Float64": {},
 	// RFC 0036: on every supported target Size widens losslessly to UInt64.

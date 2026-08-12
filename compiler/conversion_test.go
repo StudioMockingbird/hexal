@@ -97,3 +97,20 @@ func TestConversionAliasCanonicalizes(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 }
+
+func TestSizeAndUInt64WidenBidirectionally(t *testing.T) {
+	sources := []string{
+		"raw: UInt64 = 42\ncount: Size = raw\n",
+		"count: Size = 1\nraw: UInt64 = count\n",
+		"count: Size = 1\nraw: UInt64 = 2\ntotal: Size = count + raw\n",
+	}
+	for _, source := range sources {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
+		}
+	}
+	bad := "a: Array<Size, 2> = [1, 2]\nb: Array<UInt64, 2> = a\n"
+	if result := Compile(bad); result.ExitCode != ExitFailure {
+		t.Fatalf("want Array<Size> and Array<UInt64> distinct, got accept")
+	}
+}
