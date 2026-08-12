@@ -103,8 +103,9 @@ stabilizes—not repeatedly while it is still changing:
 3. `docs/status.md` — implementation checklist and known follow-ups; it does
    not define semantics.
 
-`docs/language.md` is retained as historical working commentary. Do not add
-new semantic rules there; migrate still-relevant content into `reference.md`.
+These three are the only canonical documents. `docs/language.md` was retired
+after its still-relevant content was migrated into `reference.md`; do not
+recreate it or add a fourth prose document alongside these.
 
 ## Workflow
 

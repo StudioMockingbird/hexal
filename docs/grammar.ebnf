@@ -1,7 +1,23 @@
-program = { top-level-item } ;
+(* Hexal formal syntax. Companion to docs/reference.md, which is the sole
+   normative source for semantics. This file defines shape only: it does not
+   state typing, storability, exhaustiveness, or lifetime rules, and a form
+   accepted here may still be rejected by the checker.
+
+   Two rules cannot be expressed in EBNF and are stated here instead:
+   - Operator tokens are lexed by maximal munch, but while parsing nested
+     type-argument lists one ">>" token may close two levels, so
+     "Ptr<Ptr<Int32>>" and "Ptr<Ptr<Int32> >" are equivalent. A ">>" in
+     expression position is never two relational operators.
+   - "|" is a union separator in type position and bitwise-or in expression
+     position; parser context separates the two grammars. *)
+
+program = lexical-separation , { top-level-item } ;
+lexical-separation = ? whitespace and comments are discarded between tokens,
+                       except where same-line is required ? ;
+same-line = ? no line break occurs before the next token ? ;
 
 top-level-item = type-declaration | function-declaration
-                 | implementation-declaration | statement ;
+                 | implementation-declaration | non-return-statement ;
 type-declaration = "type" , identifier , [ generic-parameter-list ]
                    , "=" , type-definition-expression ;
 function-declaration = "fun" , identifier , [ generic-parameter-list ]
@@ -14,16 +30,22 @@ parameter-list = parameter , { "," , parameter } ;
 parameter = identifier , ":" , type-expression ;
 generic-parameter-list = "<" , identifier , { "," , identifier } , ">" ;
 
-statement = declaration | assignment | call-statement | return-statement
-            | if-statement | while-statement | for-statement
-            | "break" | "continue" | defer-statement | errdefer-statement ;
+statement = non-control-statement | return-statement
+            | if-statement | while-statement | for-statement ;
+non-control-statement = declaration | assignment | call-statement
+                        | "break" | "continue"
+                        | defer-statement | errdefer-statement ;
 block = { statement } ;
+non-return-statement = non-control-statement | non-return-if-statement
+                       | non-return-while-statement
+                       | non-return-for-statement ;
+non-return-block = { non-return-statement } ;
 declaration = [ "mut" ] , identifier , ":" , type-expression
               , "=" , expression ;
 assignment = assignment-target , "=" , expression ;
 assignment-target = place-expression ;
-call-statement = call-expression ;
-return-statement = "return" , [ expression ] ;
+call-statement = ? call-expression whose first token is identifier or "self" ? ;
+return-statement = "return" , [ same-line , expression ] ;
 defer-statement = "defer" , expression ;
 errdefer-statement = "errdefer" , expression ;
 if-statement = "if" , expression , block
@@ -32,6 +54,13 @@ if-statement = "if" , expression , block
 while-statement = "while" , expression , "do" , block , "end" ;
 for-statement = "for" , for-binders , "in" , expression
                 , "do" , block , "end" ;
+non-return-if-statement = "if" , expression , non-return-block
+                          , { "elseif" , expression , non-return-block }
+                          , [ "else" , non-return-block ] , "end" ;
+non-return-while-statement = "while" , expression , "do"
+                             , non-return-block , "end" ;
+non-return-for-statement = "for" , for-binders , "in" , expression
+                           , "do" , non-return-block , "end" ;
 for-binders = identifier
               | identifier , "," , identifier
               | identifier , "," , identifier , "," , identifier ;
@@ -41,7 +70,7 @@ type-definition-expression = object-type-expression
 object-type-expression = "{" , member-declaration
                          , { "," , member-declaration } , [ "," ] , "}" ;
 member-declaration = [ "mut" ] , identifier , ":" , type-expression ;
-adt-type-expression = adt-variant , adt-variant , { adt-variant } ;
+adt-type-expression = adt-variant , { adt-variant } ;
 adt-variant = "|" , identifier , [ "as" , adt-payload ] ;
 adt-payload = "{" , payload-member
               , { "," , payload-member } , [ "," ] , "}" ;
@@ -50,14 +79,19 @@ payload-member = identifier , ":" , type-expression ;
 type-expression = union-type-expression ;
 union-type-expression = primary-type-expression
                         , { "|" , primary-type-expression } ;
-primary-type-expression = identifier | generic-type | array-type
+primary-type-expression = named-type | generic-type | array-type
                           | pointer-type | function-type-expression
                           | "(" , type-expression , ")" ;
-generic-type = identifier , type-argument-list ;
+named-type = identifier - special-form-type-constructor ;
+generic-type = generic-type-name , type-argument-list ;
+generic-type-name = identifier - special-form-type-constructor ;
+special-form-type-constructor = "Array" | "Ptr" | "MutPtr" | "Fun" ;
 type-argument-list = "<" , type-expression
                      , { "," , type-expression } , ">" ;
 array-type = "Array" , "<" , type-expression
              , "," , positive-decimal-literal , ">" ;
+positive-decimal-literal = nonzero-decimal-digit
+                           , { decimal-digit | "_" , decimal-digit } ;
 pointer-type = pointer-constructor , "<" , type-expression , ">" ;
 pointer-constructor = "Ptr" | "MutPtr" ;
 function-type-expression = "Fun" , "<" , "(" , [ type-list ] , ")"
@@ -86,35 +120,34 @@ multiplicative-expression = unary-expression
 unary-expression = unary-operator , unary-expression
                    | "try" , unary-expression
                    | "spawn" , call-expression
-                   | "ref" , reference-place-expression
+                   | "ref" , place-expression
                    | postfix-expression ;
 
 place-expression = place-primary , { place-suffix } ;
 place-primary = identifier | "self" ;
 place-suffix = "." , identifier | index-suffix ;
-reference-place-expression = identifier , { "." , identifier }
-                             , { index-suffix } ;
-postfix-expression = primary-expression , { postfix-suffix } ;
-postfix-suffix = "." , identifier | call-arguments
-                 | type-argument-list , call-arguments
-                 | type-argument-list , "." , identifier
-                   , [ variant-payload | call-arguments ]
-                 | index-suffix ;
-call-expression = primary-expression , { postfix-suffix } , call-arguments ;
-call-arguments = "(" , [ argument-list ] , ")" ;
+postfix-expression = postfix-base , { postfix-suffix } ;
+postfix-base = primary-expression | type-qualified-primary ;
+postfix-suffix = member-suffix | index-suffix | call-suffix ;
+member-suffix = "." , identifier ;
+type-qualified-primary = identifier , type-argument-list
+                         , "." , identifier , [ variant-payload ] ;
+call-suffix = call-arguments | type-argument-list , call-arguments ;
+call-expression = postfix-base , { postfix-suffix } , call-suffix ;
+call-arguments = same-line , "(" , [ argument-list ] , ")" ;
 argument-list = expression , { "," , expression } ;
 index-suffix = "[" , expression , "]" ;
 
 primary-expression = identifier | "self" | object-literal
-                     | qualified-variant | array-literal | match-expression
+                     | qualified-record-variant
+                     | array-literal | match-expression
                      | integer-literal | decimal-floating-literal
                      | byte-literal | rune-literal | string-literal
                      | "true" | "false" | "nil" | "eos"
                      | "(" , expression , ")" ;
 object-literal = identifier , [ type-argument-list ]
                  , "{" , [ member-initializer-list ] , "}" ;
-qualified-variant = identifier , [ type-argument-list ]
-                    , "." , identifier , [ variant-payload ] ;
+qualified-record-variant = identifier , "." , identifier , variant-payload ;
 variant-payload = "{" , [ member-initializer-list ] , "}" ;
 member-initializer-list = member-initializer
                           , { "," , member-initializer } , [ "," ] ;
@@ -122,10 +155,13 @@ member-initializer = identifier , "=" , expression ;
 array-literal = "[" , [ expression-list , [ "," ] ] , "]" ;
 expression-list = expression , { "," , expression } ;
 
-match-expression = "match" , relational-expression , [ "is" ]
+match-expression = "match" , match-scrutinee , [ "is" ]
                    , match-arm , { match-arm } , "end" ;
 match-arm = "|" , match-pattern , "then" , match-arm-expression ;
-match-arm-expression = bitwise-xor-expression ;
+match-scrutinee = ? expression ending before the first unparenthesized
+                    "is" type-mode marker or match-arm "|" ? ;
+match-arm-expression = ? expression ending before the next unparenthesized
+                         match-arm "|" or the matching "end" ? ;
 match-pattern = "else" | "true" | "false"
                 | qualified-variant-pattern | primary-type-expression ;
 qualified-variant-pattern = identifier , [ type-argument-list ]
@@ -146,8 +182,6 @@ reserved-word = "true" | "false" | "nil" | "eos" | "mut" | "ref"
                 | "while" | "break" | "continue" | "defer" | "try"
                 | "errdefer" | "spawn" | "as" | "match" | "then"
                 | "self" | "for" | "in" | "do" ;
-positive-decimal-literal = nonzero-decimal-digit
-                           , { decimal-digit | "_" , decimal-digit } ;
 integer-literal = decimal-integer | hexadecimal-integer
                   | binary-integer | octal-integer ;
 decimal-integer = "0" | nonzero-decimal-digit
