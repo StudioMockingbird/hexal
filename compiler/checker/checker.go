@@ -485,10 +485,10 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "Fun<…> object members are not supported"))
 			continue
 		}
-		// RFC 0035: String, List, Dict, and View members are ordinary inline
-		// handle descriptors; Atomic is RFC 0037's object member shared by
-		// pointer. Only genuinely layoutless values are rejected.
-		if !compilerTypes.IsNil(resolved) && !compilerTypes.IsUnion(resolved) && resolved.Object == nil && resolved.Element == nil && resolved.Array == nil && resolved.View == nil && resolved.Atomic == nil && !compilerTypes.IsString(resolved) && !compilerTypes.IsList(resolved) && !compilerTypes.IsDict(resolved) && resolved.ScalarKind == compilerTypes.ScalarNone {
+		// RFC 0046 item 2: any complete, finitely sized value may be an object
+		// member except Fun, Unknown, and Atomic at non-construction positions.
+		// An open type parameter defers to specialization rechecking.
+		if !compilerTypes.ContainsTypeParameter(resolved) && !compilerTypes.Storable(resolved, compilerTypes.PositionObjectMember) {
 			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 				Category: compilerTypes.TypeError,
 				Stage:    "checker",
@@ -712,9 +712,6 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		use:     declaredUse,
 		mutable: declaration.Mutable,
 		id:      environment.newBindingID(),
-	}
-	if declaredType.View != nil && !environment.inFunction() {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "a view cannot be placed in module data; views borrow storage that is not static"))
 	}
 	if len(diagnostics) == 0 && !declaration.Mutable && initializer.source.Kind == ConstantOperand {
 		known := initializer.source

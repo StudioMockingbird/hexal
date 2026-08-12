@@ -918,14 +918,14 @@ func isCanonicalUnion(environment *Environment, typ Type, state *canonicalTypeSt
 }
 
 func isCanonicalArray(environment *Environment, typ Type, state *canonicalTypeState) bool {
-	if typ.Array == nil || typ.Array.Length == 0 || !IsInlineElement(typ.Array.Element) {
+	if typ.Array == nil || typ.Array.Length == 0 || !storageEligible(typ.Array.Element, PositionArrayElement) {
 		return false
 	}
 	return isCanonicalForEnvironment(environment, typ.Array.Element, state, false)
 }
 
 func isCanonicalView(environment *Environment, typ Type, state *canonicalTypeState) bool {
-	if typ.View == nil || typ.View.Element == (Type{}) || IsManaged(typ.View.Element) || !IsInlineElement(typ.View.Element) {
+	if typ.View == nil || typ.View.Element == (Type{}) || !storageEligible(typ.View.Element, PositionViewElement) {
 		return false
 	}
 	key := "view:" + strconv.FormatUint(typ.View.Element.identity.serial, 10)
@@ -936,7 +936,7 @@ func isCanonicalView(environment *Environment, typ Type, state *canonicalTypeSta
 }
 
 func isCanonicalList(environment *Environment, typ Type, state *canonicalTypeState) bool {
-	if typ.List == nil || typ.List.Element == (Type{}) || !IsCollectionElement(typ.List.Element) {
+	if typ.List == nil || typ.List.Element == (Type{}) || !storageEligible(typ.List.Element, PositionListElement) {
 		return false
 	}
 	key := "list:" + strconv.FormatUint(typ.List.Element.identity.serial, 10)
@@ -947,7 +947,7 @@ func isCanonicalList(environment *Environment, typ Type, state *canonicalTypeSta
 }
 
 func isCanonicalDict(environment *Environment, typ Type, state *canonicalTypeState) bool {
-	if typ.Dict == nil || typ.Dict.Key == (Type{}) || typ.Dict.Value == (Type{}) || !IsDictKey(typ.Dict.Key) || !IsCollectionElement(typ.Dict.Value) {
+	if typ.Dict == nil || typ.Dict.Key == (Type{}) || typ.Dict.Value == (Type{}) || !IsDictKey(typ.Dict.Key) || !storageEligible(typ.Dict.Value, PositionDictValue) {
 		return false
 	}
 	key := "dict:" + strconv.FormatUint(typ.Dict.Key.identity.serial, 10) + "," + strconv.FormatUint(typ.Dict.Value.identity.serial, 10)

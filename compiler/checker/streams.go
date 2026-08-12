@@ -104,7 +104,7 @@ func checkStreamTypeCall(call parser.CallExpression, callee lexer.Token, names *
 		if diagnostics := initializerDiagnostics(state); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
 		}
-		if !compilerTypes.IsCompleteValue(state.typ) || compilerTypes.IsUnknown(state.typ) || compilerTypes.ContainsTypeParameter(state.typ) || compilerTypes.ContainsAtomic(state.typ) {
+		if !compilerTypes.Storable(state.typ, compilerTypes.PositionStreamState) {
 			return checkedExpression{token: state.token, diagnostic: &compilerTypes.Diagnostic{
 				Category: compilerTypes.TypeError,
 				Stage:    "checker",

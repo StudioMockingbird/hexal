@@ -77,10 +77,8 @@ func TestViewRestrictions(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"module data", "view: View<Int32> = [1, 2].slice(0, 1)", "a view cannot be placed in module data"},
 		{"ref of view", "fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    view: View<Int32> = fixed.slice(0, 1)\n    result: Int32 = ref view\nend", "ref cannot take the address of a View binding"},
 		{"pointer to view", "fun demo()\n    pointer: Ptr<View<Int32>> = nil\nend", "could not construct pointer type"},
-		{"view of view", "fun demo()\n    nested: View<View<Int32>> = [1]\nend", "not an inline view element type"},
 		{"view of function", "fun demo()\n    callbacks: View<Fun<(Int32)>> = [1]\nend", "not an inline view element type"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -86,6 +86,10 @@ func resolveADTPayload(adtName string, expression parser.ObjectTypeExpression, t
 			diagnostics = append(diagnostics, typeErrorAt(member.Name, "Atomic values cannot be copied, assigned, addressed, or stored here"))
 			continue
 		}
+		if !compilerTypes.ContainsTypeParameter(resolvedUse.Type) && !compilerTypes.Storable(resolvedUse.Type, compilerTypes.PositionADTPayload) {
+			diagnostics = append(diagnostics, typeErrorAt(member.Name, "unsupported ADT payload field type "+resolvedUse.Type.Name))
+			continue
+		}
 		members = append(members, compilerTypes.ObjectMember{
 			Name:         member.Name.Lexeme,
 			Type:         resolvedUse.Type,

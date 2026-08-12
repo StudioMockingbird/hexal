@@ -136,8 +136,6 @@ func TestListRestrictions(t *testing.T) {
 		want   string
 	}{
 		{"fun demo()\n    pointer: Ptr<List<Int32>> = nil\nend", "could not construct pointer type"},
-		{"fun demo(h: Heap)\n    nested: List<List<Int32>> = List<List<Int32>>.new(h)\nend", "not a list element type"},
-		{"fun demo(h: Heap)\n    refs: List<View<Int32>> = List<View<Int32>>.new(h)\nend", "not a list element type"},
 	} {
 		result := Compile(testCase.source)
 		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

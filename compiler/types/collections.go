@@ -87,60 +87,12 @@ func IsAtomic(typ Type) bool { return typ.Atomic != nil }
 // IsString reports whether typ is the canonical String type.
 func IsString(typ Type) bool { return typ.identity != nil && typ.identity == StringType.identity }
 
-// IsInlineElement reports whether typ is storable inline in an array or view:
-// scalars, pointers, inline arrays, unions of inline members, and objects or
-// ADTs whose members and payloads are all inline elements. Owning or borrowed
-// values (String, List, Dict, View, functions) are not inline elements in v1.
-func IsInlineElement(typ Type) bool {
-	if IsManaged(typ) {
-		return false
-	}
-	if typ.Array != nil {
-		return IsInlineElement(typ.Array.Element)
-	}
-	if typ.Element != nil {
-		// Pointer types are inline values regardless of pointee.
-		return true
-	}
-	if typ.Signature != nil {
-		return false
-	}
-	if typ.Object != nil {
-		for _, member := range typ.Object.Members {
-			if !IsInlineElement(member.Type) {
-				return false
-			}
-		}
-		return true
-	}
-	if typ.Adt != nil {
-		for _, variant := range typ.Adt.Variants {
-			for _, member := range variant.Payload {
-				if !IsInlineElement(member.Type) {
-					return false
-				}
-			}
-		}
-		return true
-	}
-	if typ.Union != nil || typ.NullableBase != nil {
-		for _, member := range UnionMembers(typ) {
-			if !IsInlineElement(member) {
-				return false
-			}
-		}
-		return true
-	}
-	return IsCompleteValue(typ)
-}
-
 // ArrayType constructs or retrieves the canonical Array<T, N> type for one
 // element and positive length.
 func (environment *Environment) ArrayType(element Type, length uint64) Type {
 	if environment == nil || length == 0 ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		ContainsAtomic(element) ||
-		!ContainsTypeParameter(element) && !IsInlineElement(element) {
+		!storageEligible(element, PositionArrayElement) {
 		return Type{}
 	}
 	key := arrayKey(element, length)
@@ -172,8 +124,7 @@ func arrayKey(element Type, length uint64) string {
 func (environment *Environment) ViewType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		ContainsAtomic(element) ||
-		IsManaged(element) || !IsInlineElement(element) {
+		!storageEligible(element, PositionViewElement) {
 		return Type{}
 	}
 	key := "view:" + strconv.FormatUint(element.identity.serial, 10)
@@ -197,8 +148,7 @@ func (environment *Environment) ViewType(element Type) Type {
 func (environment *Environment) ListType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		ContainsAtomic(element) ||
-		!IsCollectionElement(element) {
+		!storageEligible(element, PositionListElement) {
 		return Type{}
 	}
 	key := "list:" + strconv.FormatUint(element.identity.serial, 10)
@@ -217,20 +167,6 @@ func (environment *Environment) ListType(element Type) Type {
 	return typ
 }
 
-// IsCollectionElement reports whether typ may be stored in a List or Dict
-// slot in v1: an inline element or a direct String. Nested collections,
-// views, function values, and aggregates containing any of those are
-// rejected.
-func IsCollectionElement(typ Type) bool {
-	if IsString(typ) {
-		return true
-	}
-	if IsManaged(typ) {
-		return false
-	}
-	return IsInlineElement(typ)
-}
-
 // StreamType constructs or retrieves the canonical Stream<T> type. The
 // element must be complete and finite-sized, and it must not be EoS or a
 // union containing EoS as a top-level member: the produced-value and
@@ -238,8 +174,7 @@ func IsCollectionElement(typ Type) bool {
 func (environment *Environment) StreamType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		ContainsAtomic(element) ||
-		!IsCompleteValue(element) || IsEoS(element) || UnionContainsEoS(element) {
+		!storageEligible(element, PositionStreamElement) || IsEoS(element) || UnionContainsEoS(element) {
 		return Type{}
 	}
 	key := "stream:" + strconv.FormatUint(element.identity.serial, 10)
@@ -267,6 +202,58 @@ func UnionContainsEoS(typ Type) bool {
 		}
 	}
 	return false
+}
+
+// Position is one storing position from RFC 0046's position model. Storage
+// restrictions are stated against an explicit position set so no aggregate or
+// generic specialization can bypass one by accident.
+type Position int
+
+const (
+	PositionBinding Position = iota
+	PositionObjectMember
+	PositionADTPayload
+	PositionUnionMember
+	PositionArrayElement
+	PositionViewElement
+	PositionListElement
+	PositionDictValue
+	PositionFunctionParam
+	PositionFunctionResult
+	PositionTaskArgument
+	PositionTaskResult
+	PositionChannelElement
+	PositionStreamElement
+	PositionStreamState
+)
+
+func isConstructionPosition(position Position) bool {
+	return position == PositionBinding || position == PositionObjectMember
+}
+
+// Storable reports whether typ may occupy position under RFC 0046 item 2:
+// complete and finite, not Unknown, not an unspecialized type parameter, and
+// Fun only in Binding, UnionMember, or FunctionParam. Atomic is storable only
+// in a construction position (Binding or ObjectMember); every other position
+// acquires its value by copying and is governed by the separate Copyable rule.
+func Storable(typ Type, position Position) bool {
+	if !IsCompleteValue(typ) || IsUnknown(typ) || ContainsTypeParameter(typ) {
+		return false
+	}
+	if typ.Signature != nil {
+		return position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam
+	}
+	if typ.Atomic != nil && !isConstructionPosition(position) {
+		return false
+	}
+	return true
+}
+
+// storageEligible reports whether a concrete element may be stored at position:
+// it must be storable and copyable. An open type parameter defers to
+// specialization rechecking and is always eligible here.
+func storageEligible(element Type, position Position) bool {
+	return ContainsTypeParameter(element) || (Storable(element, position) && !ContainsAtomic(element))
 }
 
 // ContainsAtomic reports whether typ contains an inline Atomic<T> value
@@ -405,8 +392,7 @@ func (environment *Environment) DictType(key, value Type) Type {
 		!isCanonicalForEnvironment(environment, key, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
 		!IsDictKey(key) ||
 		!isCanonicalForEnvironment(environment, value, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		ContainsAtomic(value) ||
-		!IsCollectionElement(value) {
+		!storageEligible(value, PositionDictValue) {
 		return Type{}
 	}
 	keyName := "dict:" + strconv.FormatUint(key.identity.serial, 10) + "," + strconv.FormatUint(value.identity.serial, 10)

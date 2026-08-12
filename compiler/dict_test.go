@@ -107,7 +107,6 @@ func TestDictShallowCopySemantics(t *testing.T) {
 		want   string
 	}{
 		{"fun demo(h: Heap)\n    scores: Dict<Bool, Int32> = Dict<Bool, Int32>.new(h)\nend", "dictionary key type must be Int32 or Strand"},
-		{"fun demo(h: Heap)\n    refs: Dict<Int32, List<Int32>> = Dict<Int32, List<Int32>>.new(h)\nend", "not a dictionary value type"},
 	} {
 		result := Compile(testCase.source)
 		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

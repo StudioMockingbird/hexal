@@ -66,7 +66,7 @@ func (environment *Environment) UnionType(members []Type) Type {
 		// List<Byte> | Error. Atomic values are non-copyable and are rejected
 		// here because union injection copies by definition (RFC 0046).
 		if !ContainsTypeParameter(member) &&
-			(!isCanonicalForEnvironment(environment, member, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) || !IsCompleteValue(member) || ContainsAtomic(member)) {
+			(!isCanonicalForEnvironment(environment, member, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) || !Storable(member, PositionUnionMember)) {
 			return Type{}
 		}
 		found := false
