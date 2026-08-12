@@ -44,3 +44,24 @@ func TestReferencesUsePrivateValueNames(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamNameIsProtected(t *testing.T) {
+	rejected := []string{
+		"type Stream = Int32",
+		"Stream: Int32 = 1",
+		"fun use<Stream>(value: Stream): Stream\n    return value\nend\n",
+	}
+	for _, source := range rejected {
+		if result := Compile(source); result.ExitCode != ExitFailure {
+			t.Fatalf("want Stream redeclaration rejected, got accept:\n%s", source)
+		}
+	}
+	result := Compile("type Stream = Int32")
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Stream") {
+		t.Fatalf("want a Stream-named diagnostic, got %v", result.Stderr)
+	}
+	result = Compile("s: Stream<Int32> = Stream<Int32>.new()\n")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("ordinary Stream<T> use must compile: %v", result.Stderr)
+	}
+}
