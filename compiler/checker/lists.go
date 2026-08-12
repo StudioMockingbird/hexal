@@ -148,6 +148,10 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			ResultType:  viewType,
 			Element:     element,
 		}
+		if root := baseBindingID(&receiver.source.Node); root != 0 {
+			node.ViewRoots = []BindingID{root}
+			node.RootKind = ViewRootBindings
+		}
 		source := Operand{Kind: ExpressionOperand, Type: viewType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: viewType, token: callee.Property}
 	case "push", "set", "clear", "pop":

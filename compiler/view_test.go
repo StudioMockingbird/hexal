@@ -127,3 +127,32 @@ func TestViewPreservesMutPtrPointeeCapability(t *testing.T) {
 		t.Fatalf("main.c = %q, want view-based pointee write", result.MainC)
 	}
 }
+
+func TestViewReturnRules(t *testing.T) {
+	accepted := []string{
+		"fun empty_demo(): View<Int32>\n    return View<Int32>.empty()\nend\n",
+		"type Packet = { bytes: String }\nfun payload(packet: Ptr<Packet>): View<Byte>\n    return packet.bytes.slice(0, 4)\nend\n",
+		"fun adopt(pointer: Ptr<Int32>, count: Size): View<Int32>\n    return View<Int32>.from_pointer(pointer, count)\nend\n",
+		"fun slice_of_param(xs: List<Int32>): View<Int32>\n    return xs.slice(0, 1)\nend\n",
+	}
+	for _, source := range accepted {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+		}
+	}
+	rejected := []string{
+		"fun head(): View<Int32>\n    fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
+		"fun head(): View<Int32>\n    fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    view: View<Int32> = fixed.slice(0, 2)\n    return view\nend\n",
+	}
+	for _, source := range rejected {
+		if result := Compile(source); result.ExitCode != ExitFailure {
+			t.Fatalf("want reject, got accept:\n%s", source)
+		}
+	}
+	// Documented limitation: a View nested inside a returned aggregate is not
+	// diagnosed; the escape analysis RFC 0035 removed would be required.
+	nested := "type Window = { visible: View<Int32> }\nfun bad(): Window\n    fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return Window { visible = fixed.slice(0, 2) }\nend\n"
+	if result := Compile(nested); result.ExitCode != ExitSuccess {
+		t.Fatalf("nested View return must compile by design: %v", result.Stderr)
+	}
+}

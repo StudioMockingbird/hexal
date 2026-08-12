@@ -182,6 +182,14 @@ type binding struct {
 	parameter  bool // fixed function parameter: readable, never assignable
 	loopBinder bool // a for-in binder: fresh and immutable (RFC 0028)
 	id         BindingID
+	// viewRoots and viewRootKind record a View binding's root so a later
+	// return of the binding can classify it (RFC 0046 item 4).
+	viewRoots    []BindingID
+	viewRootKind ViewRootKind
+	// fromRef records that this binding's value originated from a `ref`
+	// expression in this function body, so from_pointer can reject it
+	// (RFC 0046 item 4).
+	fromRef bool
 }
 
 // Check resolves declared types, checks initializers, binding modes, pointer
@@ -712,6 +720,13 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		use:     declaredUse,
 		mutable: declaration.Mutable,
 		id:      environment.newBindingID(),
+	}
+	if initializer.source.Node.Kind == AddressOfExpression {
+		declaredBinding.fromRef = true
+	}
+	if declaredType.View != nil {
+		declaredBinding.viewRoots = initializer.source.Node.ViewRoots
+		declaredBinding.viewRootKind = initializer.source.Node.RootKind
 	}
 	if len(diagnostics) == 0 && !declaration.Mutable && initializer.source.Kind == ConstantOperand {
 		known := initializer.source
@@ -2532,13 +2547,18 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 		if variant, ok := environment.flow.narrowedVariant(binding.id); ok {
 			narrowedVariant = variant
 		}
+		node := variableNodeWithBinding(expression.Name.Lexeme, binding.id)
+		if binding.viewRootKind != ViewRootNone {
+			node.ViewRoots = binding.viewRoots
+			node.RootKind = binding.viewRootKind
+		}
 		return checkedExpression{
 			source: Operand{
 				Kind:        VariableOperand,
 				Type:        placeType,
 				Name:        expression.Name.Lexeme,
 				Binding:     binding.id,
-				Node:        variableNodeWithBinding(expression.Name.Lexeme, binding.id),
+				Node:        node,
 				Addressable: true,
 				Writable:    binding.mutable,
 			},
@@ -2829,6 +2849,23 @@ func unaryNode(kind ExpressionKind, operand Expression) Expression {
 
 func memberNode(operand Expression, member *compilerTypes.ObjectMember) Expression {
 	return Expression{Kind: MemberExpression, Operand: &operand, Member: member}
+}
+
+// baseBindingID walks a place expression's checked node chain back to its
+// root variable binding. Member, pointer-dereference, and index steps all
+// keep the same storage root. It returns 0 for temporaries and foreign roots.
+func baseBindingID(node *Expression) BindingID {
+	for node != nil {
+		switch node.Kind {
+		case VariableExpression:
+			return node.Binding
+		case MemberExpression, DereferenceExpression, IndexExpression:
+			node = node.Operand
+		default:
+			return 0
+		}
+	}
+	return 0
 }
 
 // assignable reports whether source may initialize or assign to target. The

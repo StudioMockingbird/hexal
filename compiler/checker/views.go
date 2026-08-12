@@ -96,6 +96,36 @@ func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpressi
 		ResultType:  viewType,
 		Element:     element,
 	}
+	if receiver.typ.View != nil {
+		// Slicing a View preserves its recorded root chain.
+		node.ViewRoots = receiver.source.Node.ViewRoots
+		node.RootKind = receiver.source.Node.RootKind
+	} else if root := baseBindingID(&receiver.source.Node); root != 0 {
+		node.ViewRoots = []BindingID{root}
+		node.RootKind = ViewRootBindings
+	}
 	source := Operand{Kind: ExpressionOperand, Type: viewType, Name: "slice", Node: node}
 	return checkedExpression{source: source, typ: viewType, token: callee.Property}
+}
+
+// viewReturnDiagnostic rejects a returned View rooted in a local binding of
+// this function. Parameter-reachable, foreign (from_pointer), and rootless
+// (empty) Views are permitted; a local binding's storage dies at the return
+// (RFC 0046 item 4).
+func viewReturnDiagnostic(node Expression, token lexer.Token, names *scope) *compilerTypes.Diagnostic {
+	if node.RootKind != ViewRootBindings {
+		return nil
+	}
+	for _, root := range node.ViewRoots {
+		if bound, ok := names.lookupBinding(root); ok && !bound.parameter && root != names.selfID {
+			return &compilerTypes.Diagnostic{
+				Category: compilerTypes.TypeError,
+				Stage:    "checker",
+				Line:     token.Line,
+				Column:   token.Column,
+				Message:  "a View cannot be returned when it borrows a local of this function",
+			}
+		}
+	}
+	return nil
 }

@@ -1229,6 +1229,11 @@ func checkReturnStatement(statement parser.ReturnStatement, names *scope, typeEn
 		if diagnostic := atomicCopyDiagnostic(value.source, statement.Keyword); diagnostic != nil {
 			return checked, compilerTypes.Diagnostics{*diagnostic}
 		}
+		if value.typ.View != nil {
+			if diagnostic := viewReturnDiagnostic(value.source.Node, statement.Keyword, names); diagnostic != nil {
+				return checked, compilerTypes.Diagnostics{*diagnostic}
+			}
+		}
 	}
 	source := value.source
 	checked.Value = &source

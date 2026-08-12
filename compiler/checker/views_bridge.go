@@ -66,7 +66,10 @@ func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *
 				Message: "View length cannot be represented as Size",
 			}}
 		}
-		node := Expression{Kind: ViewBridgeExpression, Name: "from_pointer", Arguments: []Operand{pointer.source, length.source}, OperandType: viewUse.Type, ResultType: viewUse.Type, Element: element}
+		if diagnostic := fromPointerRefTrace(pointer, names); diagnostic != nil {
+			return checkedExpression{token: pointer.token, diagnostic: diagnostic}
+		}
+		node := Expression{Kind: ViewBridgeExpression, Name: "from_pointer", Arguments: []Operand{pointer.source, length.source}, OperandType: viewUse.Type, ResultType: viewUse.Type, Element: element, RootKind: ViewRootForeign}
 		source := Operand{Kind: ExpressionOperand, Type: viewUse.Type, Name: "from_pointer", Node: node}
 		return checkedExpression{source: source, typ: viewUse.Type, token: property}
 	case "empty":
@@ -77,7 +80,7 @@ func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *
 				Message: "View.empty expects no arguments",
 			}}
 		}
-		node := Expression{Kind: ViewBridgeExpression, Name: "empty", OperandType: viewUse.Type, ResultType: viewUse.Type, Element: element}
+		node := Expression{Kind: ViewBridgeExpression, Name: "empty", OperandType: viewUse.Type, ResultType: viewUse.Type, Element: element, RootKind: ViewRootNone}
 		source := Operand{Kind: ExpressionOperand, Type: viewUse.Type, Name: "empty", Node: node}
 		return checkedExpression{source: source, typ: viewUse.Type, token: property}
 	}
@@ -86,4 +89,40 @@ func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *
 		Line: property.Line, Column: property.Column,
 		Message: "View has no such operation; use from_pointer or empty",
 	}}
+}
+
+// fromPointerRefTrace rejects a from_pointer pointer argument that traces,
+// within this function body, to a ref of local storage. The walk follows
+// member, dereference, and index steps and local bindings initialized from a
+// ref; parameters, heap allocations, and opaque call results pass.
+func fromPointerRefTrace(pointer checkedExpression, names *scope) *compilerTypes.Diagnostic {
+	if nodeTracesToRef(&pointer.source.Node, names) {
+		return &compilerTypes.Diagnostic{
+			Category: compilerTypes.TypeError, Stage: "checker",
+			Line: pointer.token.Line, Column: pointer.token.Column,
+			Message: "from_pointer does not accept a pointer into this function's local storage",
+		}
+	}
+	return nil
+}
+
+func nodeTracesToRef(node *Expression, names *scope) bool {
+	for node != nil {
+		switch node.Kind {
+		case AddressOfExpression:
+			return true
+		case VariableExpression:
+			if node.Binding != 0 {
+				if bound, ok := names.lookupBinding(node.Binding); ok && bound.fromRef {
+					return true
+				}
+			}
+			return false
+		case MemberExpression, DereferenceExpression, IndexExpression:
+			node = node.Operand
+		default:
+			return false
+		}
+	}
+	return false
 }

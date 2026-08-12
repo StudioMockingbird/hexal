@@ -68,3 +68,30 @@ func TestViewFromPointerRejectsManagedElements(t *testing.T) {
 		t.Fatalf("want element diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
+
+func TestFromPointerRejectsStackRoots(t *testing.T) {
+	rejected := []string{
+		"fun f()\n    mut value: Int32 = 1\n    view: View<Int32> = View<Int32>.from_pointer(ref value, 1)\nend\n",
+		"fun f()\n    value: Int32 = 1\n    p: Ptr<Int32> = ref value\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
+	}
+	for _, source := range rejected {
+		if result := Compile(source); result.ExitCode != ExitFailure {
+			t.Fatalf("want reject, got accept:\n%s", source)
+		}
+	}
+	accepted := []string{
+		"fun f(h: Heap)\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
+		"fun wrap(p: Ptr<Int32>, n: Size): View<Int32>\n    return View<Int32>.from_pointer(p, n)\nend\n",
+	}
+	for _, source := range accepted {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+		}
+	}
+	// Documented caller-side hole: wrap(ref local, 1) is not caught because the
+	// callee sees an opaque parameter; RFC 0043's trust-boundary contract owns it.
+	caller := "fun wrap(p: Ptr<Int32>, n: Size): View<Int32>\n    return View<Int32>.from_pointer(p, n)\nend\nfun f()\n    value: Int32 = 1\n    view: View<Int32> = wrap(ref value, 1)\nend\n"
+	if result := Compile(caller); result.ExitCode != ExitSuccess {
+		t.Fatalf("caller-side from_pointer hole must compile by design: %v", result.Stderr)
+	}
+}

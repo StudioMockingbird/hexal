@@ -334,14 +334,27 @@ type Expression struct {
 	MemberMap    []int
 	Element      compilerTypes.Type
 	// ViewRoots is the ordered binding chain a View-producing expression is
-	// borrowed from, outermost root first (RFC 0020).
+	// borrowed from, outermost root first (RFC 0020, RFC 0046 item 4).
 	ViewRoots []BindingID
+	// RootKind classifies a View's root at its return site: no root (empty),
+	// a foreign from_pointer region, or the bindings in ViewRoots.
+	RootKind ViewRootKind
 	// SourceLine and SourceColumn name the source site of compiler-built
 	// runtime failures: the Error constructed when a spawn, Channel, or
 	// Mutex operation fails (RFC 0037). Zero for all other kinds.
 	SourceLine   int
 	SourceColumn int
 }
+
+// ViewRootKind classifies the root of a View-producing expression for the
+// return check (RFC 0046 item 4).
+type ViewRootKind uint8
+
+const (
+	ViewRootNone     ViewRootKind = iota // empty(): no root; any return is safe
+	ViewRootForeign                      // from_pointer: opaque foreign region
+	ViewRootBindings                     // roots listed in ViewRoots
+)
 
 // ObjectValue is a complete checked object literal. Initializers are kept in
 // source-written order so future effectful expressions can preserve their

@@ -256,6 +256,10 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			ResultType:  view,
 			Element:     compilerTypes.UInt8,
 		}
+		if root := baseBindingID(&receiver.source.Node); root != 0 {
+			node.ViewRoots = []BindingID{root}
+			node.RootKind = ViewRootBindings
+		}
 		source := Operand{Kind: ExpressionOperand, Type: view, Name: name, Node: node}
 		return checkedExpression{source: source, typ: view, token: callee.Property}
 	case "slice":
@@ -280,6 +284,10 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			OperandType: compilerTypes.StringType,
 			ResultType:  view,
 			Element:     compilerTypes.UInt8,
+		}
+		if root := baseBindingID(&receiver.source.Node); root != 0 {
+			node.ViewRoots = []BindingID{root}
+			node.RootKind = ViewRootBindings
 		}
 		source := Operand{Kind: ExpressionOperand, Type: view, Name: name, Node: node}
 		return checkedExpression{source: source, typ: view, token: callee.Property}
