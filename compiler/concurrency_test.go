@@ -247,3 +247,15 @@ func TestAtomicNonCopyability(t *testing.T) {
 		}
 	}
 }
+
+func TestChannelAndTaskRejectFunElement(t *testing.T) {
+	rejected := []string{
+		"fun identity(x: Int32): Int32\n    return x\nend\nfun f(h: Heap): Nil | Error\n    ch: Channel<Fun<(Int32) : Int32>> = try Channel<Fun<(Int32) : Int32>>.new(h, 2)\n    return nil\nend\n",
+		"fun identity(x: Int32): Int32\n    return x\nend\nfun f(h: Heap): Nil | Error\n    t: Task<Fun<(Int32) : Int32>> = try spawn identity(1)\n    return nil\nend\n",
+	}
+	for _, source := range rejected {
+		if result := Compile(source); result.ExitCode != ExitFailure {
+			t.Fatalf("want Fun excluded from Channel/Task, got accept:\n%s", source)
+		}
+	}
+}

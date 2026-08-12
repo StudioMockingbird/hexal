@@ -301,7 +301,7 @@ func ContainsAtomic(typ Type) bool {
 func (environment *Environment) TaskType(result Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, result, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!IsCompleteValue(result) || ContainsAtomic(result) {
+		!storageEligible(result, PositionTaskResult) {
 		return Type{}
 	}
 	key := "task:" + strconv.FormatUint(result.identity.serial, 10)
@@ -328,7 +328,8 @@ func (environment *Environment) TaskType(result Type) Type {
 func (environment *Environment) ChannelType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!IsCompleteValue(element) || IsEoS(element) || UnionContainsEoS(element) || ContainsAtomic(element) {
+		IsEoS(element) || UnionContainsEoS(element) ||
+		!storageEligible(element, PositionChannelElement) {
 		return Type{}
 	}
 	key := "channel:" + strconv.FormatUint(element.identity.serial, 10)
