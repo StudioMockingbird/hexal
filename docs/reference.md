@@ -19,7 +19,7 @@ this file is a conformance bug, not a new language rule.
 - Closed specs are historical records. When they disagree with this reference,
   the later implemented decision summarized here is authoritative.
 - `grammar.ebnf` is the formal syntax companion and `status.md` tracks delivery;
-  neither defines semantics. `language.md` is historical working commentary.
+  neither defines semantics.
 - Execution plans, compiler-internal architecture, and test organization are
   intentionally omitted unless they impose a visible language guarantee.
 
@@ -82,27 +82,19 @@ Conflicts between specs, resolved here:
 Known conformance gaps, where the compiler does not yet match this file. This
 file is authoritative; each is an implementation bug:
 
-- Collections still deep-copy and destroy direct `String` elements, and
-  `status.md` plus the collection tests still assert that behavior.
-- RFC 0020's placement bans are still enforced, so these are rejected where
-  this file allows them: handles in Arrays; nested collections; Views as
-  collection elements; `View<String>` and therefore `List<String>.slice`;
-  `File`, `EoS`, `Task`, `Channel`, `Mutex`, and `Stream` as object or ADT
-  members. A View as an object member is already accepted.
-- A root-level `View` binding is rejected as "module data", though root
-  bindings are ordinary locals under RFC 0041.
-- Returning a `View` is unrestricted, so a local-rooted return is not
-  diagnosed, and `from_pointer` accepts a `ref`-derived pointer.
-- Atomic non-copyability is enforced at Task and Channel boundaries but not at
-  every copy boundary, and an `Atomic` object member is rejected although
-  RFC 0037 permits it.
-- `Stream` is missing from the protected-name set and can be redeclared.
-- `UInt64` does not widen implicitly to an equal-range `Size`.
 - Only a 64-bit `Size` target profile exists, so RFC 0036's 16- and 32-bit
-  profiles are unimplemented rather than merely untested.
-- The synthetic filename is still `main.hexal`.
+  profiles are unimplemented rather than merely untested. RFC 0046 explicitly
+  leaves them out of scope.
+- Match scrutinees and arm results are parsed at restricted precedence levels,
+  so unparenthesized `and` and `or` expressions are rejected where this file
+  permits them.
+- `ref` accepts member steps followed by index steps, but not a general mixed
+  place such as `ref rows[0].field`.
+- Raw newlines inside String literals are accepted by the lexer although the
+  lexical rules reject them.
 
-RFC 0046 specifies every item above.
+RFC 0046 resolved the migration gaps above; only the 16- and 32-bit `Size`
+profiles and the three syntax gaps remain.
 
 ## Lexical rules
 
@@ -157,9 +149,20 @@ RFC 0046 specifies every item above.
   `Fun`, `Array`, `View`, `List`, `Dict`, `Stream`, `Task`, `Channel`, and
   `Atomic`. `print`, `size_of`, `align_of`, and the intrinsic qualifier
   `Stdio` are protected value/operation names.
-- Generated private C names use the `hex_` namespace (`HEX_` for macros), with
-  fixed kind prefixes such as `hex_v_`, `hex_t_`, and `hex_m_`. Names are not
-  conditionally escaped, hashed, or truncated.
+- Generated private C names use the `hex_` namespace (`HEX_` for macros). One
+  fixed prefix is applied to the complete source spelling:
+
+| Declaration kind | Prefix | Example |
+| --- | --- | --- |
+| value binding | `hex_v_` | `score` → `hex_v_score` |
+| nominal type | `hex_t_` | `Point` → `hex_t_Point` |
+| object member | `hex_m_` | `x` → `hex_m_x` |
+| function or method | `hex_f_` | `add` → `hex_f_add` |
+
+- The mapping is unconditional. `int` becomes `hex_v_int`, `INT32_MAX` becomes
+  `hex_v_INT32_MAX`, and an already-prefixed `hex_v_score` becomes
+  `hex_v_hex_v_score`. Names are never conditionally escaped, hashed, or
+  truncated, and foreign C names are outside the rule.
 - The synthetic source filename, used by diagnostics, `#line` output, and
   `Error.file` when no name is supplied, is `main.hex`. `.hex` is the intended
   source extension; file loading is not yet specified, so nothing currently
@@ -474,6 +477,8 @@ end
 - Arms are single expressions: `| pattern then expression`. `else` is the final
   catch-all. Every match must be exhaustive and all arm results must agree,
   unless an expected result type makes each arm assignable.
+- In match context, an unparenthesized `|` starts the next arm. Parenthesize a
+  scrutinee or arm result that uses bitwise-or.
 - Arms are tested in source order. Duplicate patterns and patterns that cannot
   match any remaining value or member are rejected, not ignored.
 - An `is` immediately after the scrutinee is the type-mode marker, so a
@@ -1097,7 +1102,26 @@ pointer: Ptr<Shared> = ref shared    -- share by pointer, never by copy
 - Fixed-width integer and IEC floating assumptions are checked in generated
   headers. `Size` use checks the target `size_t` width.
 - Objects and ADTs lower to source-ordered structs; unions to checked tagged
-  values except nullable-pointer niches; generics are monomorphized.
+  values except nullable-pointer niches; generics are monomorphized. Each object
+  emits a source-ordered forward `typedef` region and then a source-ordered
+  definition region, so recursive and non-recursive objects share one shape.
+- Pointee qualification derives from the type chain alone: a `Ptr` layer adds
+  `const` to its pointee, a `MutPtr` layer does not, and a fixed binding adds a
+  trailing `const`. No qualifier-discarding cast is ever emitted.
+
+| Hexal | C23 |
+| --- | --- |
+| `Ptr<Int32>` | `const int32_t *` |
+| `MutPtr<Int32>` | `int32_t *` |
+| `Ptr<Ptr<Int32>>` | `const int32_t *const *` |
+| `MutPtr<Ptr<Int32>>` | `const int32_t **` |
+| `Ptr<MutPtr<Int32>>` | `int32_t *const *` |
+| `MutPtr<MutPtr<Int32>>` | `int32_t **` |
+| `Ptr<Unknown>` | `const void *` |
+| `MutPtr<Unknown>` | `void *` |
+
+- Object members are unqualified whatever their member mode; only the pointer
+  type contributes pointee `const`.
 - Generated operations retain structured checked identities until generation;
   the checker never hands opaque source-derived C fragments to the generator.
 - Syntax errors belong to lexing/parsing; type and semantic errors belong to

@@ -94,13 +94,11 @@
   - `List<T>` growable owning sequences: `new`, `push`, `pop`, `set`,
     `clear`, `free`, indexing through any live reference, `slice` views,
     borrowed parameters with mutation, terminal return handoff,
-    freed-to-fresh-owner reuse, and `List<String>` with nested-String
-    copy-in, borrowed reads, move-out `pop`, and destruction on `set`,
-    `clear`, and `free`.
+    freed-to-fresh-owner reuse, and shallow `List<String>` element storage.
   - `Dict<K, V>` owning dictionaries with exactly `Int32` and `Strand`
     keys: `new`, `insert`, `get`, `contains`, `remove`, `free`, inline
     `hex_strand` literal values, open-addressing C23 lowering with
-    infallible hashing, and `Dict<K, String>` borrow and move-out rules.
+    infallible hashing, and shallow `Dict<K, String>` value storage.
   - A shared affine ownership flow: `uninitialized`/`live`/`freed` states,
     exact control-flow merge agreement, loop back-edge invariants, scope
     exit leak checks, deferred-cleanup obligation tracking, and
@@ -239,19 +237,17 @@
   fences use the ```hexal tag, and the private C namespace prefix is `hex_`
   (uppercase macros `HEX_`) for every emitted helper, type CName, and guard
   macro. Closed specs retain their original spellings and are untouched.
+- RFC 0046 reference reconciliation: the synthetic filename is `main.hex`;
+  one storability rule replaces the per-container element bans (handles in
+  Arrays, nested collections, Views in collection and union positions, and
+  `File`/`EoS`/`Task`/`Channel`/`Mutex`/`Stream` as object and ADT members are
+  all valid); collections store every element by shallow copy; a View may be
+  returned when its root outlives the call and `from_pointer` rejects a
+  pointer traceable to `ref`; Atomic non-copyability is enforced at every copy
+  boundary; `Stream` is a protected name; and `UInt64`/`Size` widen
+  bidirectionally at equal range.
 
 ## Known follow-ups
-
-### Reference-audit conformance gaps
-
-Tracked by draft RFC 0046, Post-Migration Conformance Cleanup.
-
-- Atomic non-copyability is enforced for Task/Channel boundaries but not yet
-  for ordinary copy, assignment, `ref`, Array storage, or Stream elements and
-  producer state.
-- `Stream` is not yet rejected as a redeclared or shadowed protected type name.
-- On the required 64-bit target, `UInt64` does not yet widen implicitly to the
-  equal-range `Size`; mixed operations already prefer `Size` correctly.
 
 - RFC 0015 structured control flow is implemented and conforming:
   `if`/`elseif`/`else`, `while`, `break`, `continue`, lexical block scopes,
