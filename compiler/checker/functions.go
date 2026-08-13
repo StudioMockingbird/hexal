@@ -692,6 +692,14 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
 		}
+		// RFC 0049 item 8.4: parameters copy their values at every call, so
+		// they go through the shared position model like every other
+		// copy-requiring position.
+		if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionParam) {
+			diagnostics = append(diagnostics, typeErrorAt(parameter.Name,
+				"function parameter "+resolved.Name+" is not shallow-copyable"))
+			continue
+		}
 		seen[parameterName] = true
 		parameters = append(parameters, FunctionParameter{
 			Name:         parameterName,
@@ -722,6 +730,11 @@ func checkResultType(written parser.TypeExpression, fallback lexer.Token, typeEn
 		// Supported-position whitelist: a Fun<...> result needs C declarator
 		// rules this RFC defers.
 		return nil, nil, compilerTypes.Diagnostics{typeErrorAt(fallback, "returning "+resolved.Name+" is not supported")}
+	}
+	// RFC 0049 item 8.4: a result is returned by value, so it goes through
+	// the shared position model like every other copy-requiring position.
+	if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionResult) {
+		return nil, nil, compilerTypes.Diagnostics{typeErrorAt(fallback, "function result "+resolved.Name+" is not shallow-copyable")}
 	}
 	return &resolved, &resolvedUse, nil
 }

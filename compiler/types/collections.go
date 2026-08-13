@@ -92,7 +92,7 @@ func IsString(typ Type) bool { return typ.identity != nil && typ.identity == Str
 func (environment *Environment) ArrayType(element Type, length uint64) Type {
 	if environment == nil || length == 0 ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!storageEligible(element, PositionArrayElement) {
+		!Eligible(element, PositionArrayElement) {
 		return Type{}
 	}
 	key := arrayKey(element, length)
@@ -124,7 +124,7 @@ func arrayKey(element Type, length uint64) string {
 func (environment *Environment) ViewType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!storageEligible(element, PositionViewElement) {
+		!Eligible(element, PositionViewElement) {
 		return Type{}
 	}
 	key := "view:" + strconv.FormatUint(element.identity.serial, 10)
@@ -148,7 +148,7 @@ func (environment *Environment) ViewType(element Type) Type {
 func (environment *Environment) ListType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!storageEligible(element, PositionListElement) {
+		!Eligible(element, PositionListElement) {
 		return Type{}
 	}
 	key := "list:" + strconv.FormatUint(element.identity.serial, 10)
@@ -174,7 +174,7 @@ func (environment *Environment) ListType(element Type) Type {
 func (environment *Environment) StreamType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!storageEligible(element, PositionStreamElement) || IsEoS(element) || UnionContainsEoS(element) {
+		!Eligible(element, PositionStreamElement) || IsEoS(element) || UnionContainsEoS(element) {
 		return Type{}
 	}
 	key := "stream:" + strconv.FormatUint(element.identity.serial, 10)
@@ -225,6 +225,8 @@ const (
 	PositionChannelElement
 	PositionStreamElement
 	PositionStreamState
+	PositionPointee
+	PositionHeapAllocation
 )
 
 func isConstructionPosition(position Position) bool {
@@ -253,10 +255,11 @@ func Storable(typ Type, position Position) bool {
 	return true
 }
 
-// storageEligible reports whether a concrete element may be stored at position:
-// it must be storable and copyable. An open type parameter defers to
-// specialization rechecking and is always eligible here.
-func storageEligible(element Type, position Position) bool {
+// Eligible reports whether a concrete element may be stored at position: it
+// must be storable and copyable. An open type parameter defers to
+// specialization rechecking and is always eligible here. This is the shared
+// position model every compiler stage consults (RFC 0046, RFC 0049 item 8.4).
+func Eligible(element Type, position Position) bool {
 	return ContainsTypeParameter(element) || (Storable(element, position) && !ContainsAtomic(element))
 }
 
@@ -305,7 +308,7 @@ func ContainsAtomic(typ Type) bool {
 func (environment *Environment) TaskType(result Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, result, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!storageEligible(result, PositionTaskResult) {
+		!Eligible(result, PositionTaskResult) {
 		return Type{}
 	}
 	key := "task:" + strconv.FormatUint(result.identity.serial, 10)
@@ -333,7 +336,7 @@ func (environment *Environment) ChannelType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
 		IsEoS(element) || UnionContainsEoS(element) ||
-		!storageEligible(element, PositionChannelElement) {
+		!Eligible(element, PositionChannelElement) {
 		return Type{}
 	}
 	key := "channel:" + strconv.FormatUint(element.identity.serial, 10)
@@ -397,7 +400,7 @@ func (environment *Environment) DictType(key, value Type) Type {
 		!isCanonicalForEnvironment(environment, key, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
 		!IsDictKey(key) ||
 		!isCanonicalForEnvironment(environment, value, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!storageEligible(value, PositionDictValue) {
+		!Eligible(value, PositionDictValue) {
 		return Type{}
 	}
 	keyName := "dict:" + strconv.FormatUint(key.identity.serial, 10) + "," + strconv.FormatUint(value.identity.serial, 10)

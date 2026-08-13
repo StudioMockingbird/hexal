@@ -135,8 +135,12 @@ func checkSpawnExpression(expression parser.SpawnExpression, environment *scope,
 			Message: "spawn requires a direct call to a named function",
 		}}
 	}
+	// RFC 0049 item 8.4: spawn arguments are copied into the task frame and
+	// then into the entry function, so each argument must be eligible in both
+	// positions.
 	for _, argument := range checked.source.Node.Arguments {
-		if !compilerTypes.IsCompleteValue(argument.Type) || compilerTypes.IsUnknown(argument.Type) || compilerTypes.ContainsAtomic(argument.Type) {
+		if !compilerTypes.Eligible(argument.Type, compilerTypes.PositionTaskArgument) ||
+			!compilerTypes.Eligible(argument.Type, compilerTypes.PositionFunctionParam) {
 			return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
 				Category: compilerTypes.TypeError, Stage: "checker",
 				Line: expression.Keyword.Line, Column: expression.Keyword.Column,
@@ -148,7 +152,10 @@ func checkSpawnExpression(expression parser.SpawnExpression, environment *scope,
 	if resultType == (compilerTypes.Type{}) {
 		resultType = compilerTypes.Nil
 	}
-	if !compilerTypes.IsCompleteValue(resultType) || compilerTypes.ContainsAtomic(resultType) {
+	// RFC 0049 item 8.4: the spawned task returns its function's result and
+	// stores it in the task frame, so it must be eligible in both positions.
+	if !compilerTypes.Eligible(resultType, compilerTypes.PositionFunctionResult) ||
+		!compilerTypes.Eligible(resultType, compilerTypes.PositionTaskResult) {
 		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
 			Category: compilerTypes.TypeError, Stage: "checker",
 			Line: expression.Keyword.Line, Column: expression.Keyword.Column,

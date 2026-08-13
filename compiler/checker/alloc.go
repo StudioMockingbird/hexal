@@ -88,7 +88,7 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
 	element := elementUse.Type
-	if !compilerTypes.IsCompleteValue(element) || compilerTypes.IsUnknown(element) || element.Signature != nil || compilerTypes.ContainsAtomic(element) {
+	if !compilerTypes.Eligible(element, compilerTypes.PositionHeapAllocation) {
 		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
 			Category: compilerTypes.TypeError,
 			Stage:    "checker",
