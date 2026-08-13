@@ -347,6 +347,10 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return callErr
 			}
 			fmt.Fprintf(body, "%s%s;\n", indent, call)
+		case checker.TryStatement:
+			// RFC 0049 item 8.3: the prologue already hoisted above; the
+			// success value is discarded, so the statement renders nothing.
+			writeLineDirective(body, statement.SourceLine)
 		case checker.ReturnStatement:
 			if !inFunction {
 				return unknownExpressionDiagnostic("return outside a function body")
@@ -919,6 +923,12 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				return nil
 			}
 			if _, err := renderCallStatement(statement, state); err != nil {
+				return err
+			}
+		case checker.TryStatement:
+			// RFC 0049 item 8.3: the operand carries the try propagation
+			// metadata and validates its own subtree.
+			if err := validateCheckedOperandWithState(statement.Expression, state); err != nil {
 				return err
 			}
 		case checker.DeferStatement:

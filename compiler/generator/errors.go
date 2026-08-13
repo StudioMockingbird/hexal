@@ -218,6 +218,10 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 		return walkOperand(&statement.Target)
 	case checker.CallStatement:
 		return walkExpression(&statement.Call.Node)
+	case checker.TryStatement:
+		// RFC 0049 item 8.3: the statement's operand is the try expression
+		// whose prologue hoists; the success value renders nothing.
+		return walkOperand(&statement.Expression)
 	case checker.ReturnStatement:
 		if statement.Value != nil {
 			return walkOperand(statement.Value)

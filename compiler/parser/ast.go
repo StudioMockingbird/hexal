@@ -168,6 +168,17 @@ type WhileStatement struct {
 func (WhileStatement) topLevelItemNode() {}
 func (WhileStatement) statementNode()    {}
 
+// TryStatement discards the success value of an RFC 0029 `try` operand: the
+// operand propagates Error from the enclosing function exactly like a try
+// expression, and the normalized success value is unused.
+type TryStatement struct {
+	Keyword lexer.Token
+	Operand Expression
+}
+
+func (TryStatement) topLevelItemNode() {}
+func (TryStatement) statementNode()    {}
+
 // ForStatement iterates one built-in collection or text source. Binders are
 // fresh immutable names in a fresh body scope; the first binder is always the
 // optional Size index (RFC 0028).

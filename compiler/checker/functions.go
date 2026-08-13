@@ -59,6 +59,17 @@ type CallStatement struct {
 
 func (CallStatement) statementNode() {}
 
+// TryStatement discards the success value of an RFC 0029 try operand. The
+// checked Expression is a TryExpression carrying the propagation metadata;
+// the generator hoists its prologue and emits no value use.
+type TryStatement struct {
+	Expression   Operand
+	SourceLine   int
+	SourceColumn int
+}
+
+func (TryStatement) statementNode() {}
+
 // bindingKind separates storage from a declared function. A function name is
 // not a place: it can be read as a Fun<...> value and nothing else.
 type bindingKind uint8
@@ -814,6 +825,19 @@ func checkStatement(statement parser.Statement, names *scope, typeEnvironment *c
 	case parser.ErrdeferStatement:
 		checked, diagnostics := checkErrdeferStatement(statement, names, typeEnvironment)
 		return checked, binding{}, false, diagnostics
+	case parser.TryStatement:
+		// RFC 0049 item 8.3: a try statement reuses the try-expression
+		// validation and propagation metadata; the success value is
+		// discarded.
+		checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, names, typeEnvironment)
+		if diagnostics := initializerDiagnostics(checkedTry); len(diagnostics) > 0 {
+			return nil, binding{}, false, diagnostics
+		}
+		return TryStatement{
+			Expression:   checkedTry.source,
+			SourceLine:   statement.Keyword.Line,
+			SourceColumn: statement.Keyword.Column,
+		}, binding{}, false, nil
 	default:
 		return nil, binding{}, false, compilerTypes.Diagnostics{{
 			Category: compilerTypes.UnknownError,

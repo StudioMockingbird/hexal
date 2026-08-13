@@ -47,6 +47,56 @@ func TestTryExpression(t *testing.T) {
 	}
 }
 
+// RFC 0049 item 8.3: try is a statement as well as an expression. The
+// prologue hoists and propagates Error; the success value is discarded with
+// no normalization temporary.
+func TestTryStatement(t *testing.T) {
+	nilSuccess := Compile("fun fail(): Nil | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    try fail()\n    return 1\nend\n")
+	if nilSuccess.ExitCode != ExitSuccess {
+		t.Fatalf("Nil-success try statement = %v", nilSuccess.Stderr)
+	}
+	for _, want := range []string{
+		"const hex_internal_union_1 hex_try_1 = hex_f_fail();",
+		"if (hex_try_1.tag == ",
+	} {
+		if !strings.Contains(nilSuccess.MainC, want) {
+			t.Fatalf("main.c = %q, want %q", nilSuccess.MainC, want)
+		}
+	}
+	if strings.Contains(nilSuccess.MainC, "hex_try_result_") {
+		t.Fatalf("try statement must not normalize a discarded success value")
+	}
+
+	payload := Compile("fun read(): Int32 | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    try read()\n    return 1\nend\n")
+	if payload.ExitCode != ExitSuccess {
+		t.Fatalf("payload-success try statement = %v", payload.Stderr)
+	}
+}
+
+// RFC 0049 item 8.3: a try statement requires a compatible enclosing
+// function and a union operand with exactly one Error member, and does not
+// admit arbitrary value expressions as statements.
+func TestTryStatementDiagnostics(t *testing.T) {
+	for _, testCase := range []struct {
+		source string
+		want   string
+	}{
+		{"fun demo(): Int32 | Error\n    value: Int32 = 1\n    try value\nend\n", "try requires a union containing Error"},
+		{"fun read(): Int32 | Error\n    return Error.new(\"x\", \"y\")\nend\ntry read()\n", "try requires an enclosing function whose result accepts Error"},
+		{"fun demo(): Int32 | Error\n    try Error.new(\"x\", \"y\")\nend\n", "try requires a union containing Error"},
+	} {
+		result := Compile(testCase.source)
+		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), testCase.want) {
+			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
+		}
+	}
+
+	valueStatement := Compile("fun demo(): Int32 | Error\n    5\nend\n")
+	if valueStatement.ExitCode != ExitFailure {
+		t.Fatalf("a bare value must not be a statement, got accept")
+	}
+}
+
 func TestTryMultipleSuccessMembers(t *testing.T) {
 	result := Compile("fun read_number(): Int32 | Float32 | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    value: Int32 | Float32 = try read_number()\n    return 1\nend")
 	if result.ExitCode != ExitSuccess {

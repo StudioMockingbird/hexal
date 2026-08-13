@@ -252,6 +252,20 @@ func Check(program parser.Program) (Program, error) {
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
+		case parser.TryStatement:
+			// RFC 0049 item 8.3: a try statement reuses the try-expression
+			// validation and propagation metadata; only the success value
+			// differs, and it is discarded.
+			checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, environment, typeEnvironment)
+			if errs := initializerDiagnostics(checkedTry); len(errs) > 0 {
+				diagnostics = append(diagnostics, errs...)
+				continue
+			}
+			checked.Statements = append(checked.Statements, TryStatement{
+				Expression:   checkedTry.source,
+				SourceLine:   statement.Keyword.Line,
+				SourceColumn: statement.Keyword.Column,
+			})
 		case parser.ReturnStatement:
 			_, statementDiagnostics := checkReturnStatement(statement, environment, typeEnvironment)
 			diagnostics = append(diagnostics, statementDiagnostics...)

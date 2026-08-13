@@ -205,6 +205,15 @@ func (parser *Parser) statement() (Statement, error) {
 		return nil, parser.errorAt(parser.peek(), "unexpected 'end' outside a block")
 	case parser.check(lexer.Self):
 		return parser.postfixStatement(VariableExpression{Name: parser.advance()})
+	case parser.check(lexer.Try):
+		// RFC 0049 item 8.3: `try <unary-expression>` is a statement as well
+		// as an expression, with the same unary boundary as prefix try.
+		keyword := parser.advance()
+		operand, err := parser.unaryExpression()
+		if err != nil {
+			return nil, err
+		}
+		return TryStatement{Keyword: keyword, Operand: operand}, nil
 	}
 
 	if parser.check(lexer.Mut) {
