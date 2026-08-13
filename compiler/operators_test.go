@@ -254,3 +254,34 @@ func TestNaNComparisons(t *testing.T) {
 		}
 	}
 }
+
+func TestRuneBinaryArithmeticRejected(t *testing.T) {
+	rejected := []string{
+		"r: Int32 = 'a' + 'b'\n",
+		"r: Int32 = 'a' - 'b'\n",
+		"r: Int32 = 'a' * 'b'\n",
+		"r: Int32 = 'a' / 'b'\n",
+		"r: Int32 = 'a' % 'b'\n",
+		"r: Int32 = 'a' + 1\n",
+		"r: Int32 = 1 + 'a'\n",
+		"letter: Rune = 'a'\nr: Int32 = letter + 1\n",
+		"letter: Rune = 'a'\nr: Int32 = 1 - letter\n",
+	}
+	for _, source := range rejected {
+		result := Compile(source)
+		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires numeric operands") {
+			t.Fatalf("want numeric-operands diagnostic, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
+		}
+	}
+	accepted := []string{
+		"ok: Bool = 'a' < 'b'\n",
+		"ok: Bool = 'a' == 'a'\n",
+		"code: UInt32 = 'a'.to<UInt32>()\n",
+		"code: UInt32 = 'a'.to<UInt32>() + 1\n",
+	}
+	for _, source := range accepted {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+		}
+	}
+}

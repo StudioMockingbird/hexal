@@ -1527,6 +1527,16 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return operationBinaryResult(operator, left, right, left.typ, resultType, expression.Operator)
 	}
 
+	// RFC 0050: Rune is not an arithmetic operand. Reject any binary
+	// arithmetic with a Rune operand before folding or common-type selection,
+	// owning same-type and mixed cases with one diagnostic at the operator.
+	if (operator == AddOperator || operator == SubtractOperator || operator == MultiplyOperator ||
+		operator == DivideOperator || operator == RemainderOperator) &&
+		(compilerTypes.IsRune(left.typ) || compilerTypes.IsRune(right.typ)) {
+		diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("operator %s requires numeric operands; got %s and %s", operator, left.typ.Name, right.typ.Name))
+		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
+	}
+
 	// RFC 0016/0017: mixed numeric arithmetic selects the unique least
 	// lossless common type before the operation; the result has that type
 	// and wraps at it.
