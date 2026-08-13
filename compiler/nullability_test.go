@@ -12,6 +12,7 @@ import (
 func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
 	// RFC 0048: standalone `nothing: Nil = nil` is invalid; null-pointer
 	// lowering survives through the nullable union form.
+	assertRejects(t, "nothing: Nil = nil", "Nil is valid only as a member of a union with a non-Nil type")
 	result := Compile("maybe: Ptr<Int32> | Nil = nil")
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)

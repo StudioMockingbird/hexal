@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// RFC 0020 Phase C: String revision — literals, affine ownership, the
+// RFC 0020 Phase C: String revision — literals, shallow handle copy, the
 // hex_string handle representation, and the byte-view operations.
 
 func TestStringLiteralBinding(t *testing.T) {
@@ -131,9 +131,19 @@ func TestStringParameterCopiesAreValid(t *testing.T) {
 	}
 }
 
-func TestStringInArrayIsRejected(t *testing.T) {
-	result := Compile("fun demo()\n    texts: Array<String, 2>\nend")
-	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 {
-		t.Fatalf("Compile stderr = %#v, want array element rejection", result.Stderr)
+func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
+	// RFC 0048: Array<String, N> is valid; element copies share the String
+	// handle, and the array never frees a stored literal.
+	result := Compile("fun demo()\n    texts: Array<String, 2> = [\"a\", \"b\"]\n    copy: Array<String, 2> = texts\n    first: String = texts.at(0)\nend")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+	for _, want := range []string{
+		"const hex_array_String_2 hex_v_copy = hex_v_texts;",
+		"const hex_string *const hex_v_first = *hex_array_at_String_2",
+	} {
+		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		}
 	}
 }

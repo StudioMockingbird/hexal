@@ -94,8 +94,10 @@ func TestPrintDiagnostics(t *testing.T) {
 }
 
 func TestPrintNoResult(t *testing.T) {
-	result := Compile("fun demo()\n    bad: Nil = print(\"x\")\nend")
-	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 {
+	// RFC 0048: the destination is otherwise valid, so failure proves that
+	// print produces no value rather than that standalone Nil is invalid.
+	result := Compile("fun demo()\n    bad: Int32 = print(\"x\")\nend")
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "print produces no value") {
 		t.Fatalf("Compile stderr = %#v, want no-result rejection", result.Stderr)
 	}
 }

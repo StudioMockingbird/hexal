@@ -12,14 +12,14 @@ func TestGeneratedArrayViewCCompiles(t *testing.T) {
 }
 
 // Smoke-check that an owning List program generates C that gcc accepts with
-// -std=c23: growth, bounds traps, nested String copy-in/move-out/destruction.
+// -std=c23: growth, bounds traps, and shallow String handle copies.
 func TestGeneratedListCCompiles(t *testing.T) {
-	source := "fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values.set(0, 9)\n    first: Int32 = values.at(0)\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> = values.slice(0, 1)\n    total: Int32 = view[0]\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    names.push(\"bob\")\n    popped: String = names.pop()\n    popped.free(h)\n    name: String = names.at(0)\nend"
+	source := "fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values.set(0, 9)\n    first: Int32 = values.at(0)\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> = values.slice(0, 1)\n    total: Int32 = view[0]\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String = names.pop()\n    popped.free(h)\n    name: String = names.at(0)\nend"
 	compileGeneratedC(t, assertCompiles(t, source))
 }
 
 // Smoke-check that an owning Dict program generates C that gcc accepts with
-// -std=c23: hashing, probing, growth, String copy-in/move-out/destruction.
+// -std=c23: hashing, probing, growth, and shallow String value copies.
 func TestGeneratedDictCCompiles(t *testing.T) {
 	source := "fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool = scores.contains(1)\n    first: Int32 = scores.get(1)\n    removed: Int32 = scores.remove(2)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    score: Int32 = labels.get(\"alice\")\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"bob\")\n    name: String = people.get(1)\nend"
 	compileGeneratedC(t, assertCompiles(t, source))
@@ -34,7 +34,7 @@ func TestGeneratedEqualityCCompiles(t *testing.T) {
 }
 
 // Smoke-check that an owning String program generates C that gcc accepts
-// with -std=c23: literals, affine ownership, concat, and byte views.
+// with -std=c23: literals, shallow handle copy, concat, and byte views.
 func TestGeneratedStringCCompiles(t *testing.T) {
 	source := "fun make_text(h: Heap): String\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap)\n    text: String = make_text(h)\n    defer text.free(h)\n    loud: String = text.concat(h, \"!\")\n    raw: View<UInt8> = text.bytes()\n    first: UInt8 = raw[0]\n    part: View<UInt8> = text.slice(0, 2)\n    second: UInt8 = part[1]\n    loud.free(h)\nend"
 	compileGeneratedC(t, assertCompiles(t, source))

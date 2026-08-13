@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-// RFC 0020 Phase D: List<T> — owning growable sequences, affine ownership,
+// RFC 0020 Phase D: List<T> — owning growable sequences, shallow String
+// handles, explicit cleanup, and container-only cleanup.
 // and the List<String> nested-String element rules.
 
 func TestListLifecycle(t *testing.T) {
@@ -91,13 +92,15 @@ func TestListReturnHandoff(t *testing.T) {
 }
 
 func TestListOfStrings(t *testing.T) {
-	result := Compile("fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    names.push(\"bob\")\n    names.set(0, \"carol\")\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names.at(0)\nend")
+	// RFC 0048: a stored literal is never freed by the collection or by a
+	// pop; a runtime String popped out of the list is freed explicitly.
+	result := Compile("fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    names.set(0, \"carol\")\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names.at(0)\nend")
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
 		"hex_list_push_String(hex_v_names, &hex_lit_0);",
-		"hex_list_push_String(hex_v_names, &hex_lit_1);",
+		"hex_list_push_String(hex_v_names, hex_v_runtime);",
 		"hex_list_set_String(hex_v_names, (size_t)(0), &hex_lit_2);",
 		"hex_v_popped = hex_list_pop_String(hex_v_names);",
 		"hex_string_free(hex_v_h, hex_v_popped);",

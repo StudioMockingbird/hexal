@@ -27,6 +27,8 @@ func TestParseNamedTypeExpression(t *testing.T) {
 	}
 }
 
+// RFC 0048: standalone `nothing: Nil = nil` appears here as syntax only; the
+// checker rejects the written standalone Nil type (RFC 0049 item 8.1).
 func TestParseBuiltinNilAndUnknownTypeExpressions(t *testing.T) {
 	if got := fmt.Sprintf("%T", parseAnnotation(t, "nothing: Nil = nil")); got != "parser.NilTypeExpression" {
 		t.Fatalf("Nil annotation type = %q, want parser.NilTypeExpression", got)

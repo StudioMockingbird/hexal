@@ -61,11 +61,13 @@ func TestViewFromPointerRejectsNonSizeLength(t *testing.T) {
 	}
 }
 
-func TestViewFromPointerRejectsManagedElements(t *testing.T) {
+func TestViewFromPointerRejectsStringPointee(t *testing.T) {
+	// RFC 0048: the source fails because Ptr<String> is an invalid pointee,
+	// not because View<String> is invalid.
 	source := "fun bad(data: Ptr<String>, count: Size)\n    items: View<String> = View<String>.from_pointer(data, count)\nend\n"
 	result := Compile(source)
-	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 {
-		t.Fatalf("want element diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "could not construct pointer type") {
+		t.Fatalf("want pointee diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 

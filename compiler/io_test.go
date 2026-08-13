@@ -94,7 +94,7 @@ func TestStdioCompileTimeRejections(t *testing.T) {
 	for _, source := range []string{
 		"fun f(): Nil | Error\n    result: Nil | Error = try Stdio.stdin().write_text(\"x\")\n    return nil\nend\n",
 		"fun f(): Nil | Error\n    result: Nil | Error = try Stdio.stdin().flush()\n    return nil\nend\n",
-		"fun f(): Nil\n    Stdio.stdout().close()\nend\n",
+		"fun f()\n    Stdio.stdout().close()\nend\n",
 		"fun f(h: Heap): Nil | Error\n    result: Nil | Error = try Stdio.stdin().read_bytes(h)\n    return nil\nend\n",
 		"fun f(h: Heap): Nil | Error\n    bytes: Array<UInt8, 1> = [1]\n    view: View<UInt8> = bytes.slice(0, 1)\n    result: Nil | Error = try Stdio.stdout().write(view)\n    return nil\nend\n",
 		"fun f(h: Heap): Nil | Error\n    text: String = try Stdio.stdout().read_text(h)\n    return text\nend\n",

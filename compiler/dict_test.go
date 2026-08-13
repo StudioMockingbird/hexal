@@ -6,7 +6,7 @@ import (
 )
 
 // RFC 0020 Phase E: Dict<K, V> with Int32 and Strand keys, owning
-// dictionaries, and String-value borrow and move-out rules.
+// dictionaries, and String-value shallow-copy and explicit-cleanup rules.
 
 func TestDictInt32Lifecycle(t *testing.T) {
 	result := Compile("fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool = scores.contains(1)\n    first: Int32 = scores.get(1)\n    removed: Int32 = scores.remove(2)\nend")
@@ -52,14 +52,17 @@ func TestDictStrandKeys(t *testing.T) {
 }
 
 func TestDictStringValues(t *testing.T) {
-	result := Compile("fun demo(h: Heap)\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    removed: String = people.remove(1)\n    removed.free(h)\n    people.insert(1, \"bob\")\n    name: String = people.get(1)\nend")
+	// RFC 0048: a stored literal is never freed by the collection or by a
+	// remove; a runtime String removed from the dict is freed explicitly.
+	result := Compile("fun demo(h: Heap)\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    runtime: String = \"bob\".to_string(h)\n    people.insert(2, runtime)\n    removed: String = people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    name: String = people.get(1)\nend")
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
 		"hex_dict_insert_Int32_String(hex_v_people, 1, &hex_lit_0);",
+		"hex_dict_insert_Int32_String(hex_v_people, 2, hex_v_runtime);",
 		"hex_v_name = hex_dict_get_Int32_String(hex_v_people, 1);",
-		"hex_v_removed = hex_dict_remove_Int32_String(hex_v_people, 1);",
+		"hex_v_removed = hex_dict_remove_Int32_String(hex_v_people, 2);",
 		"hex_string_free(hex_v_h, hex_v_removed);",
 	} {
 		if !strings.Contains(result.MainC, want) {
