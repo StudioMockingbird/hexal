@@ -126,6 +126,15 @@ func checkSpawnExpression(expression parser.SpawnExpression, environment *scope,
 	}
 	checked := checkCallValue(call, environment, typeEnvironment)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
+		if checked.typ == (compilerTypes.Type{}) {
+			// RFC 0049 item 8.6: a no-result callee cannot form a Task<R>,
+			// and Hexal does not manufacture a hidden unit value for it.
+			return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
+				Category: compilerTypes.TypeError, Stage: "checker",
+				Line: expression.Keyword.Line, Column: expression.Keyword.Column,
+				Message: "spawn requires a function with a result",
+			}}
+		}
 		return checkedExpression{token: expression.Keyword, diagnostics: diagnostics}
 	}
 	if checked.source.Node.Kind != CallExpression || checked.source.Node.Operand == nil || checked.source.Node.Operand.Kind != FunctionReferenceExpression {

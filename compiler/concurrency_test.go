@@ -33,13 +33,13 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 	}
 }
 
-func TestSpawnNilResultCompiles(t *testing.T) {
-	// RFC 0048: replace the accepted Task<Nil> program with a rejection;
-	// standalone Nil is invalid, so the worker result is rejected.
-	source := "fun worker(): Nil\n    Task.yield()\n    return nil\nend\nfun run(): Int32 | Error\n    task: Task<Nil> = try spawn worker()\n    task.join()\n    return 1\nend\n"
+// RFC 0049 item 8.6: spawning a no-result function is a Type Error because
+// no Task<R> can be formed; effect-only tasks return an explicit payload.
+func TestSpawnRequiresFunctionWithResult(t *testing.T) {
+	source := "fun worker()\n    Task.yield()\nend\nfun run(): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 1\nend\n"
 	result := Compile(source)
-	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Nil is valid only as a member of a union with a non-Nil type") {
-		t.Fatalf("want standalone-Nil diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "spawn requires a function with a result") {
+		t.Fatalf("want spawn-without-result diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
