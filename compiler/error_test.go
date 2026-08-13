@@ -142,3 +142,26 @@ func TestTryInsideBranchAndLoop(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 }
+
+func TestErrdeferAtRootScope(t *testing.T) {
+	bad := "errdefer cleanup()\nfun cleanup()\nend\n"
+	result := Compile(bad)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 ||
+		!strings.Contains(result.Stderr[0], "errdefer requires an enclosing function whose result accepts Error") {
+		t.Fatalf("want root errdefer Type Error, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	}
+	for _, diagnostic := range result.Stderr {
+		if strings.Contains(diagnostic, "Unknown Error") {
+			t.Fatalf("root errdefer must not be Unknown Error: %v", result.Stderr)
+		}
+	}
+	// Function-scoped errdefer remains valid, and root defer is unchanged.
+	valid := "fun cleanup()\nend\nfun run(): Int32 | Error\n    errdefer cleanup()\n    return 1\nend\n"
+	if result := Compile(valid); result.ExitCode != ExitSuccess {
+		t.Fatalf("function errdefer must compile: %v", result.Stderr)
+	}
+	rootDefer := "fun cleanup()\nend\ndefer cleanup()\n"
+	if result := Compile(rootDefer); result.ExitCode != ExitSuccess {
+		t.Fatalf("root defer must still compile: %v", result.Stderr)
+	}
+}

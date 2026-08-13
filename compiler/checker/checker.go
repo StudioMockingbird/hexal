@@ -285,6 +285,13 @@ func Check(program parser.Program) (Program, error) {
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
+		case parser.ErrdeferStatement:
+			// RFC 0049: errdefer is grammatically a statement at root but is
+			// valid only where an enclosing function result accepts Error;
+			// the shared check owns that diagnostic. Never append the invalid
+			// action.
+			_, statementDiagnostics := checkErrdeferStatement(statement, environment, typeEnvironment)
+			diagnostics = append(diagnostics, statementDiagnostics...)
 		case parser.ImplDeclaration:
 			// Like a function, the method is bound before its body is checked,
 			// so it sees itself and nothing declared after it.
