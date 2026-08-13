@@ -1,74 +1,49 @@
-# Spec 0048: Test Helpers, Subtests, and Pure-Go Testing
+# Spec 0048: Reference-Derived Test Conformance
 
-- Kind: project convention
-- Status: Draft; pending approval
-- Scope: test-side only. No compiler, language, or generated-C changes.
-- Supersedes: spec 0013's rule that toolchain-dependent tests sit behind the
-  `c23` build tag, and the matching clause in AGENTS.md's Testing section. Both
-  are removed rather than replaced: no test may require a C toolchain.
-- Related: spec 0013 (test file layout), `docs/status.md` (conformance gaps)
+- Kind: project convention and execution plan
+- Status: Draft; implementation-ready
+- Scope: tests and test infrastructure only; no compiler or language changes
+- Source of truth: `docs/reference.md`
+- Related: specs 0013, 0049, 0050; `docs/status.md`
 
-## Problem
+## Objective
 
-The suite is large and well organised — 69 files, 841 test functions, ~13,500
-lines, one integration file per language facet — but three mechanical problems
-have accumulated.
+- Make the test suite an auditable executable projection of every testable rule
+  and semantic contract in `reference.md`.
+- Replace tests that assert obsolete behavior.
+- Add missing compile-time, generated-C, and runtime coverage.
+- Do not create tests for behavior the reference deliberately leaves
+  unspecified.
 
-### 1. Assertion boilerplate is copied, not shared
+## Baseline
 
-Nearly every integration test asserts one of two things: this source compiles,
-or it fails with a particular diagnostic. Both are written out longhand at
-every call site.
+- 69 test files, 841 test functions, approximately 13,500 lines.
+- `go test ./...` passes.
+- `go test -tags c23 ./compiler` passes.
+- Passing is not conformance: current tests accept standalone `Nil`,
+  `Task<Nil>`, and implicit `Size`/`UInt64` mixing, and one test rejects valid
+  `Array<String,N>` storage.
 
-| Pattern | Occurrences |
-|---|---|
-| `t.Fatalf` | 1374 |
-| `ExitSuccess` check | 404 |
-| `strings.Contains` on stderr | 395 |
-| `ExitFailure` check | 316 |
+## Test layers
 
-The rejection shape repeats verbatim:
+- Lexer tests own tokenization, maximal munch, literal shape, source locations,
+  comments, and raw-character rejection.
+- Parser tests own grammar shape, precedence, associativity, same-line rules,
+  recovery, and syntax diagnostics. A parser may accept a form later rejected
+  semantically.
+- Checker tests own canonical types, placement, copyability, narrowing,
+  assignability, result presence, and earliest static diagnostics.
+- Generator tests own complete fail-closed traversal, C declarators,
+  qualifiers, source mapping, and emitted semantic guards.
+- Integration tests in `compiler/<facet>_test.go` own accepted/rejected public
+  compiler behavior end to end.
+- C23-tagged tests own generated-C validity and observable runtime contracts.
+- A rule normally has one stage-level test at its earliest owner and one
+  integration test. Add runtime coverage only where observation requires it.
 
-```go
-result := Compile(testCase.source)
-if result.ExitCode != ExitFailure || len(result.Stderr) == 0 ||
-    !strings.Contains(result.Stderr[0], testCase.want) {
-    t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
-}
-```
+## Test infrastructure
 
-`helpers_test.go` already exists but holds one function, so the convention is
-established and unused.
-
-### 2. Most table-driven tests do not name their cases
-
-28 files build `[]struct{...}` tables; only 10 wrap the body in `t.Run`. **30
-tables run without subtests**, so a failure reports the parent test name and the
-reader must match the printed source back to a row by eye.
-
-### 3. Toolchain-dependent tests dominate the run
-
-Nine `c23_*_test.go` files invoke `gcc` to compile, and in four cases link and
-execute, the generated C. They are 16 of roughly 401 tests in the package but
-account for most of its wall time:
-
-| Test group | Count | Time |
-|---|---|---|
-| toolchain-dependent | 16 | 3.3s |
-| pure Go | ~385 | 0.6s |
-
-They also carry maintenance weight the project is not ready to pay: two
-different gating mechanisms (`//go:build c23` on three files, `LookPath` +
-`t.Skip` on six), four near-identical copies of the compile-and-run sequence,
-and flag drift — one probe already compiles without `-Wall -Wextra` and so
-cannot fail on a warning the other twelve would catch.
-
-The project is too early to carry a toolchain dependency in its test loop. It is
-removed rather than centralized.
-
-## Decision 1: domain assertion helpers
-
-Add to `compiler/helpers_test.go`:
+Add domain helpers to `compiler/helpers_test.go`:
 
 ```go
 func assertCompiles(t *testing.T, source string) CompileResult
@@ -76,248 +51,418 @@ func assertRejects(t *testing.T, source, want string)
 func assertEmits(t *testing.T, source string, wants ...string)
 ```
 
-- Each calls `t.Helper()` so failures report the caller's line.
-- `assertCompiles` fails when `ExitCode != ExitSuccess` and returns the result
-  for further inspection.
-- `assertRejects` fails unless the compile fails **and** the first diagnostic
-  contains `want`. It keeps the existing message shape, which prints the source
-  and the full `Stderr` slice.
-- `assertEmits` compiles, then requires every `wants` substring in `MainC`.
+- Each helper calls `t.Helper()` and prints the source plus full diagnostics on
+  failure.
+- `assertRejects` requires failure and a matching first diagnostic.
+- Stage packages add local helpers only after repeated use is demonstrated.
+- Every table uses named `t.Run` subtests with unique, stable names.
+- Facet headers cite the relevant `reference.md` section, not archived RFCs.
+- Add a corpus sweep requiring known-invalid programs to produce a classified
+  source diagnostic, never `Unknown Error`.
 
-Helpers encode the domain, which is why they beat a general assertion library:
-the call site drops from four lines to one and still prints the offending
-source.
+## C23 harness
 
-Stage-level packages (`checker`, `parser`, `lexer`, `types`, `generator`) get
-their own helpers only where the same duplication is demonstrable. Do not add a
-helper with one caller.
+- The default `go test ./...` suite remains pure Go.
+- Retain all `compiler/c23_*_test.go` files behind `//go:build c23`.
+- Run them with `go test -tags c23 ./compiler`.
+- Add the build tag to every C23 file and remove `LookPath`/`t.Skip` gating; an
+  explicitly requested tagged run fails when its toolchain is missing.
+- Centralize compile/run behavior in one helper using `-std=c23 -Wall -Wextra`;
+  warnings fail the test.
+- String assertions do not replace execution for traps, exact output,
+  synchronization, or runtime state transitions.
 
-## Decision 2: subtests for every table
+## Existing tests to update
 
-Every `for ... range []struct{...}` table wraps its body in `t.Run(name, ...)`,
-and every table row carries a distinct `name` field. A failing row then reports
-as `TestX/case_name`, and `go test -run 'TestX/case_name'` selects it.
+### Standalone `Nil`
 
-This is stdlib behavior and needs no dependency.
+- `compiler/nullability_test.go`
+  - Replace `TestNilValueAndBindingLowerToNullptr`; `nothing: Nil = nil` rejects.
+  - Preserve null-pointer lowering through `Ptr<Int32> | Nil`.
+- `compiler/checker/nullability_test.go`
+  - Remove accepted `nothing: Nil = nil` from the resolution test.
+  - Add it to the standalone-Nil rejection matrix.
+- `compiler/checker/functions_test.go`
+  - Replace accepted `fun absent(): Nil` with a no-result function.
+  - Make the call-in-value diagnostic prove absence of a result type.
+- `compiler/checker/unions_test.go` and `compiler/unions_test.go`
+  - Replace `missing: Nil = value` in Nil-narrowed branches with permitted
+    direct use such as `print(value)`.
+- `compiler/print_test.go`
+  - Change `TestPrintNoResult` so its destination is otherwise valid; failure
+    must prove that `print` has no result, not that standalone Nil is invalid.
+- `compiler/io_test.go`
+  - `TestStdioCompileTimeRejections` includes `fun f(): Nil` wrapping
+    `Stdio.stdout().close()`. The case still fails after RFC 0049 §8.1, but for
+    the wrong reason: standalone Nil, not the borrowed-standard-File rejection
+    it exists to prove. Change the wrapper to a no-result `fun f()`.
+  - Its other entries use `Nil | Error` results and `result: Nil | Error`
+    bindings, which stay valid. Change only the one standalone case.
+- Parser tests may retain standalone Nil syntax cases but must state that they
+  test syntax only.
 
-## Decision 3: no test may require a C toolchain
+The complete affected set, verified by fixed-string search, is:
+`compiler/nullability_test.go`, `compiler/unions_test.go`,
+`compiler/print_test.go`, `compiler/io_test.go`,
+`compiler/concurrency_test.go`, `compiler/checker/nullability_test.go`,
+`compiler/checker/functions_test.go`, `compiler/checker/unions_test.go`,
+`compiler/parser/type_expressions_test.go`, and
+`compiler/c23_concurrency_smoke_test.go`.
 
-Delete every toolchain-dependent test. All nine files go:
+`compiler/types/nullability_test.go` and `compiler/types/types_test.go`
+reference the canonical `Nil` type in Go-level tables, not Hexal source. RFC
+0049 §8.1 leaves the internal representation unchanged, so both stay as they
+are. `compiler/c23_io_smoke_test.go` uses only `Nil | Error` unions and is
+likewise unaffected.
 
-```text
-compiler/c23_bitwise_smoke_test.go        compiler/c23_print_smoke_test.go
-compiler/c23_concurrency_smoke_test.go    compiler/c23_smoke_test.go
-compiler/c23_error_smoke_test.go          compiler/c23_stream_smoke_test.go
-compiler/c23_io_smoke_test.go             compiler/c23_text_smoke_test.go
-compiler/c23_numeric_smoke_test.go
-```
+### `Task<Nil>` and Nil-result workers
 
-After deletion:
+- In `compiler/concurrency_test.go`, replace `TestSpawnNilResultCompiles` with a
+  rejection test for spawning a no-result function.
+- Change workers in Channel, Mutex, and scheduler-yield tests to return a real
+  copyable result such as Bool or Int32.
+- Make the same change in `compiler/c23_concurrency_smoke_test.go`.
+- Remove every `fun worker(): Nil` and `Task<Nil>` acceptance case.
 
-- No test file imports `os/exec`, and no test invokes `gcc`, `clang`, or `cc`.
-- No `//go:build c23` tag remains anywhere.
-- No test writes to a temp dir to hand files to another process.
-- The whole suite is pure Go and runs in roughly 0.6s.
+### `Size`
 
-Generated C is still tested, at the string level only, through `assertEmits`
-from Decision 1. That verifies the generator emits the intended constructs. It
-does not verify the result is valid C.
+- Replace `TestSizeAndUInt64WidenBidirectionally` in
+  `compiler/conversion_test.go` with the RFC 0049 portable rule: Size has no
+  implicit conversion or binary common type with a distinct numeric type.
+- Change API result bindings from UInt64 to Size in:
+  - `compiler/array_test.go`
+  - `compiler/list_test.go`
+  - `compiler/view_test.go`
+- Keep explicit `to<Size>()` and `size.to<T>()` coverage.
+- Land this group with RFC 0049's Size implementation and reference update.
 
-### What this gives up, and when to revisit
+### Storability and terminology
 
-Recorded so the decision stays traceable rather than looking like neglect. At
-deletion time these 16 tests passed against gcc 15 (mingw64) under
-`-std=c23 -Wall -Wextra` with no warnings, and four of them linked and ran the
-produced binary, asserting on its stdout — covering `print`, file I/O, text, and
-the M:N scheduler.
+- Replace `TestStringInArrayIsRejected` in `compiler/string_test.go` with an
+  acceptance and shallow-copy test; `Array<String,N>` is valid.
+- Rename `TestViewFromPointerRejectsManagedElements` in
+  `compiler/view_bridge_test.go`; the source fails because `Ptr<String>` is an
+  invalid pointee, not because `View<String>` is invalid.
+- Remove stale affine/move/destruction terminology from String, List, Dict, and
+  C23 smoke-test comments. Use shallow copy, alias, explicit cleanup, and
+  container-only cleanup.
+- `TestListOfStrings` and `TestDictStringValues` pop/remove a String literal
+  handle and free it — a runtime trap under shallow semantics that compile-only
+  assertions mask. Rewrite with runtime Strings (`"...".to_string(h)`) freed
+  correctly, and keep a case that a collection never frees a stored literal.
+- `TestGeneratedListCCompiles` claims removed "copy-in/move-out/destruction"
+  behavior in its comment and frees a literal-derived handle in its source; fix
+  both and consider switching from compile-only to compile-and-run.
 
-Deleting them removes the only check that generated C compiles at all. String
-assertions cannot catch a missing declaration, a malformed initializer, a
-type error in a generated helper, or a warning-level defect. That class of bug
-becomes invisible until someone compiles by hand.
+## New compile-time conformance tests
 
-This is an accepted, temporary trade for a fast pure-Go loop. Add a
-`docs/status.md` follow-up recording that generated C is no longer verified to
-compile. Reintroduce toolchain coverage when the C output stabilizes and a CI
-job can carry the cost outside the developer loop — as a separate job, never as
-part of the default `go test ./...`.
+### RFC 0049 regression set
 
-## Decision 4: conformance-gap tripwires
+- Rune arithmetic:
+  - Reject Rune with `+`, `-`, `*`, `/`, and `%`.
+  - Cover Rune/Rune and Rune/fixed-integer in both orders.
+  - Cover literal and binding operands.
+  - Preserve Rune equality, ordering, and explicit conversion.
+- Root `errdefer`:
+  - Parser accepts the statement form.
+  - Checker rejects it at root at the keyword with the specified Type Error.
+  - Valid function-scoped `errdefer` remains accepted.
+- Match boundaries:
+  - Accept `and`/`or` in scrutinees and arm results.
+  - Accept parenthesized bitwise-or and parenthesized scrutinee `is` tests.
+  - Cover nested matches with independent arm boundaries.
+- Mixed `ref` places:
+  - Cover member-then-index, index-then-member, and arbitrary mixed chains.
+  - Derive pointer writability from the final place.
+- Raw String newlines:
+  - Reject LF, CRLF, CR, and backslash followed by a physical newline.
+  - Report the newline location; treat CRLF as one newline.
+  - Preserve escaped `\n` acceptance.
+- Generator traversal:
+  - Visit every checked node and nested type-bearing child.
+  - Include initializer, binary expression, defer, errdefer, try statement,
+    and match.
+  - Unknown nodes produce structured `Unknown Error`, never omission.
 
-`docs/status.md` records four gaps where the compiler does not match
-`reference.md`. They are documented but unguarded, so closing one produces no
-signal and the doc silently rots.
+### Standalone-Nil matrix
 
-Add `compiler/conformance_gaps_test.go` asserting the **current, incorrect**
-behavior of each gap, with a header comment pointing at the `status.md` entry
-and a per-case comment naming the rule in `reference.md` that is not yet met.
+Reject direct use and use through aliases or generic substitution in:
 
-- match scrutinee and arm results reject unparenthesized `and`/`or`
-- `ref` rejects `ref rows[0].field` while accepting `ref pair.values[0]`
-- the lexer accepts a raw newline inside a String literal
+- alias, binding, parameter, function result, object member, ADT payload;
+- Array/View/List element and Dict key/value;
+- generic argument, Ptr/MutPtr pointee, Fun parameter/result;
+- Task result, Channel element, Stream element/state, and Heap allocation;
+- a binding initialized from a value narrowed to Nil.
 
-The 16/32-bit `Size` profile gap has no source-level probe and stays
-documentation-only.
+Accept:
 
-When a gap is fixed the tripwire fails, which is the intended signal: the fixer
-deletes the case and strikes the `status.md` entry in the same change. This file
-is the one deliberate exception to testing intended behavior.
+- unions containing Nil plus a scalar, pointer, handle, aggregate, or multiple
+  non-Nil members;
+- bare `nil` only under such a contextual union or as a `print` argument;
+- direct printing of a union narrowed to Nil.
 
-Spec 0049 fixes several of these gaps, so the file may be short-lived. That is
-the mechanism working, not wasted effort: each tripwire converts into an
-ordinary positive test as its gap closes.
+### No-result matrix
 
-## Decision 5: coverage derived from `reference.md`
+Inspect checked nodes and prove zero result type, not canonical Nil, for:
 
-`reference.md` is the normative contract, so test coverage should be auditable
-against it. Its 181 normative bullets divide into four classes:
+- user no-result function and `print`;
+- List `push`, `set`, `clear`, `free`;
+- Dict `insert`, `free`;
+- String and Stream `free`; File `close`;
+- Task `detach`, `yield`;
+- Channel `close`, `free`;
+- Mutex `lock`, `unlock`, `free`;
+- Atomic `store`; MutPtr `write_volatile`.
 
-| Class | Approx. count | Test form |
-|---|---|---|
-| Rejection rules | 56 | compile, assert failure and message |
-| Acceptance and emission rules | 90 | compile, assert success or `MainC` content |
-| Runtime traps | 13 | requires executing the binary |
-| Deliberately unspecified | 32 | none, by design |
+For every family:
 
-Two consequences follow.
+- accept as a call statement and direct cleanup action where cleanup validity
+  permits it;
+- reject as a binding initializer, argument, return value, condition, operator
+  operand, collection element, or object initializer.
 
-**Not every statement can become a test, and some must not.** The fourth class —
-"operand order is C23-unspecified", "iteration order is unspecified", "runtime
-metadata may catch double-free", "resize invalidation is not tracked" — states
-the *absence* of a guarantee. A test pinning any of them down would freeze an
-implementation detail the language explicitly refuses to promise. These stay
-untested deliberately.
+Retain `Nil | Error` for fallible no-payload File write/write_text/flush and
+Channel send operations.
 
-**The trap class is unverifiable after Decision 3.** Thirteen rules — empty
-`pop`, missing Dict key, out-of-bounds index, zero divisor, shift count, float
-overflow, allocation failure, malformed UTF-8, close failure, Mutex misuse, and
-`print`'s exact output forms — can only be observed by running the generated
-program. String assertions can confirm a trap call is emitted, not that it
-fires. Record this in the `docs/status.md` follow-up from Decision 3.
+### Position eligibility
 
-Add three things:
+Build a table-generated matrix for every reference position:
 
-1. **A diagnostic-class sweep.** One test compiles a corpus of known-invalid
-   sources and fails if any produces `Unknown Error`. AGENTS.md reserves that
-   class for compiler defects, never user errors, and nothing currently enforces
-   it. This directly guards the fail-closed architecture rule.
-2. **A storability matrix test.** `reference.md` defines 15 positions and three
-   exception types (`Atomic`, `Fun`, `Unknown`). Generate the combinations from
-   a table rather than hand-writing samples, so a position added later cannot
-   quietly go unchecked.
-3. **Reference-anchored citations.** Facet files currently cite RFC numbers in
-   their header comments. RFCs are archived history; `reference.md` is the
-   contract. Cite the reference section instead, so coverage can be audited by
-   grepping which sections no test names.
+- Binding, ObjectMember, ADTPayload, UnionMember;
+- ArrayElement, ViewElement, ListElement, DictValue;
+- FunctionParam, FunctionResult, TaskArgument, TaskResult;
+- ChannelElement, StreamElement, StreamState, Pointee, HeapAllocation.
 
-## Expected scale
+Test representative scalar, object, ADT, Array, String/handle, View, Fun,
+Unknown, Nil, Atomic, and Atomic-containing aggregate types. Apply completeness,
+finite-size, copyability, and feature exclusions after aliases and generic
+substitution.
 
-Measured before implementation so the outcome can be checked against it. The
-baseline is 841 top-level test functions and 1,168 reported units, where a
-reported unit is a test function or a named subtest.
+### Pointers and Atomic
 
-| Change | Functions | Reported units |
-|---|---|---|
-| Delete nine `c23_*` files (Decision 3) | −15 | −15 |
-| Bug regressions (spec 0049) | +5 | +22 |
-| Conformance tripwires (Decision 4) | +3 | +3 |
-| Diagnostic-class sweep (Decision 5) | +1 | +1 |
-| Storability matrix (Decision 5) | +2 | ~+40 |
-| Subtests for existing tables (Decision 2) | 0 | ~+131 |
-| **Net** | **≈ −4** | **≈ +182** |
+- Independently reject `Ptr<Atomic<T>>` and `MutPtr<Atomic<T>>` at type
+  composition, including aliases and generic substitution.
+- Independently reject `ref atomicBinding` and `ref object.atomicMember`.
+- Accept Ptr/MutPtr to an enclosing object containing Atomic.
+- Pointee matrix:
+  - reject String, List, Dict, Stream, View, Fun, Nil, and direct Atomic;
+  - accept Task, Channel, Mutex, ordinary complete types, and Unknown;
+  - reject Unknown by value and dereference until recovered through one pointer
+    layer.
 
-Landing near 837 functions and ~1,350 reported units.
+### Function-type placement
 
-Three cautions on reading those numbers:
+- Accept Fun as a binding, parameter, nested Fun parameter, and union member.
+- Reject Fun as result, object/ADT member, collection position, Task
+  argument/result, Channel element, Stream element/state, pointee, Heap
+  allocation, and `ref` target.
+- Repeat critical cases through aliases and generic substitution.
 
-- **Only ~65 assertions are genuinely new**: ~22 bug regressions, ~40 matrix
-  combinations, 3 tripwires. The ~131 from Decision 2 are existing table rows
-  gaining names, which improves failure reporting and adds no coverage. Do not
-  count it as progress.
-- **The 3 tripwires are deliberately temporary.** Each dies when spec 0049 fixes
-  its gap and converts into an ordinary positive test. Their disappearance is
-  not lost coverage.
-- **The 13 runtime trap rules stay unverifiable** under every line above. No
-  item here addresses them; Decision 3 explains why and `docs/status.md` records
-  it.
+### Numeric rules
 
-The storability matrix is the largest single addition and the most mechanical:
-15 positions x 3 exception types, generated from a table so that adding a
-sixteenth position without extending the table becomes a visible omission
-rather than a silent gap.
+- Table every accepted and rejected lossless widening pair.
+- Table binary common-type selection and rejection for every numeric family.
+- Prove surrounding result context does not alter common-type selection.
+- Prove expected numeric types propagate through arithmetic but comparisons and
+  logical contexts use default literal types.
+- Cover signed minima, negative zero, unsigned `-0`, and Rune's lack of implicit
+  widening.
+- Cover explicit conversion identity, aliases, constants, dynamic guards,
+  ties-to-even, truncation, Rune scalar validation, and prohibited Bool/pointer
+  conversions.
 
-## Non-goals
+### Evaluation order
 
-- **A test framework, including `testify/suite`.** `suite` exists for lifecycle
-  and shared fixtures. `Compile` is a pure function of a source string, and the
-  only setup in the entire suite is the temp dir in the C23 tests, which
-  Decision 3 already centralizes. Adopting it would add the module's first
-  dependency, break `go test -run TestName` selection by hiding tests behind a
-  single entry point, and contradict AGENTS.md's preference for plain loops and
-  direct data over frameworks.
-- **A general assertion library.** It cannot express `Compile` + `ExitFailure` +
-  first-diagnostic-contains in fewer lines than Decision 1, and it drops the
-  source from the failure message.
-- **A replacement for the deleted toolchain coverage.** No embedded C parser, no
-  vendored compiler, no CI job in this spec. Decision 3 accepts the gap.
-- Golden-file or snapshot testing of generated C.
-- Benchmarks, fuzzing, and coverage thresholds.
-- Renaming or resplitting test files; spec 0013 owns layout and is unchanged
-  apart from the build-tag clause.
-- Any change to compiler behavior. A test that fails during migration indicates
-  a migration error, not a compiler bug.
+Add observable compile/emission tests only where order is normative:
 
-## Migration
+- Array literal elements: once, left-to-right.
+- Print arguments: once, left-to-right, with output after evaluation.
+- Spawn arguments: once, left-to-right.
+- View.from_pointer: pointer then length, each once.
+- Match scrutinee and for source: once.
 
-Mechanical and incremental. Each step keeps the suite green.
+Do not pin operand, ordinary call-argument, receiver/argument, or object
+initializer order.
 
-1. Delete the nine `c23_*_test.go` files. Confirm no test file still imports
-   `os/exec` and that `//go:build c23` appears nowhere.
-2. Add the `docs/status.md` follow-up recording the lost coverage.
-3. Add the helpers with no call-site changes.
-4. Convert integration files to the helpers, one facet file per change.
-5. Add `t.Run` to the 30 tables that lack it.
-6. Add the tripwire file.
-7. Update AGENTS.md's Testing section: drop the `c23` build-tag rule, state that
-   no test may require a C toolchain, and name the helpers as the expected
-   assertion style.
+### Control flow, cleanup, and errors
 
-Step 1 stands alone and can land immediately. Step 4 is the bulk and may lag the
-others without blocking them.
+- Add lexer/parser/checker/generator/integration coverage for try statements.
+- Accept try statements over Nil-success and payload-success unions; discard
+  success values.
+- Reject try statements at root, in non-Error-result functions, and inside
+  cleanup actions.
+- Cover defer/errdefer shared reverse order on Error exit and result discard.
+- Cover sole-continuing-path narrowing after terminating return, break, and
+  continue alternatives.
+- Cover narrowing invalidation after assignment and writable address escape.
 
-Before deleting, check whether any assertion in the nine files covers a
-behavior no pure-Go test covers. Where one does, add the equivalent string-level
-`assertEmits` case in the matching facet file rather than losing the case
-outright.
+### Remaining static surfaces
+
+- Union formation requires at least two distinct canonical members after
+  flattening and duplicate removal. Reject `Int32 | Int32`, `Nil | Nil`, the
+  same duplicate through a transparent alias, and the same through generic
+  substitution; a collapsing union is a Type Error, never an alias for the
+  surviving member. Accept `Int32 | Float64` and a union written with a
+  redundant member alongside two distinct ones. The compiler accepts the
+  collapsing forms today, so these are new rejection tests landing with RFC
+  0049 §8.1.
+- Complete the exact `for` source/binder matrix and reject every other arity.
+- Complete protected-name coverage for all types, constructors, operations, and
+  `Stdio`.
+- Complete collection API arity/type diagnostics and equality exclusions.
+- Complete Stream element/state/callback restrictions through aliases and
+  generics.
+- Complete printability recursion and require the diagnostic to name the first
+  non-printable member path in declaration order.
+- Print rejects functions, Heap, File, Task, Channel, Mutex, and Atomic, naming
+  the first non-printable member path in declaration order.
+- Array/List element replacement during iteration is accepted.
+- `eos` is truthy; only `false` and `nil` are falsey.
+- Complete File mode/static-path/Stdio restrictions and no-result close rules.
+- Complete layout intrinsic and volatile type/receiver/value restrictions.
+
+## New C23 runtime tests
+
+### Numeric and bounds traps
+
+- Dynamic division/remainder by zero and invalid shift count.
+- Signed `MIN / -1` and `MIN % -1` results.
+- Dynamic conversion overflow, NaN/infinity to integer, and invalid Rune scalar.
+- Dynamic Array/View/List indexing and slice bounds.
+- Empty List pop and missing Dict get/remove.
+
+### Collections and lifetime surface
+
+- Dict insertion replacement and supported-key lookup/hash consistency.
+- Array/View/List equality by length and elements.
+- Container free releases only container storage.
+- Handle copies observe the same List/Dict state.
+- Strand hashing ignores terminator/zero tail.
+- Do not attempt to prove absence of leaks or diagnose every dangling alias.
+
+### Text
+
+- String/Strand length and indexing count Runes, not bytes.
+- String slice translates Rune bounds to zero-copy byte bounds.
+- `String.from_bytes` traps on malformed UTF-8.
+- RuneCursor copies advance independently; next after exhaustion traps.
+- Strand rejects embedded NUL, malformed UTF-8, and more than 31 UTF-8 bytes.
+- Strand exposes no byte View; String and Strand dispatch separately.
+
+### Streams
+
+- Construction is lazy; callbacks run only when pulled.
+- One next returns at most one public value; filter may pull repeatedly.
+- Take stops at its exact count; breaking for permits later pulls.
+- Exhaustion does not free adapters.
+- List source captures length and observes same-length replacement.
+- Aliases share one non-reentrant cursor.
+- Adapter construction consumes upstream and one chain uses one Heap.
+
+### Print
+
+- Assert exact output for objects, unit/record ADTs, Array, View, List, Dict,
+  nested Nil, direct/nested text and Rune, numeric Byte, and direct/nested Error.
+- Cover signed zero, infinities, NaN, empty forms, separators, and absence of an
+  implicit newline.
+- Cover argument evaluation-before-output and atomic calls under concurrent
+  Tasks.
+
+### Files
+
+- Mode mismatches return Error before C access.
+- Malformed UTF-8 from read_text returns Error.
+- Errors expose the specified header and portable message.
+- Closing one File alias invalidates all; copied Stdio handles retain borrowed
+  restrictions.
+- Error.new records one-based line and UTF-8 byte column, and the synthetic
+  `main.hex` file field.
+
+### Tasks, Channel, Mutex, and Atomic
+
+- Spawn arguments evaluate once left-to-right; join returns the exact copied
+  result; one join or detach succeeds across aliases.
+- Detach discards/reclaims the result.
+- Channel covers FIFO, capacity, length, is_closed, dynamic zero capacity,
+  send-after-close Error, idempotent close, queued values after close, and EoS
+  only after closed/drained.
+- Mutex covers recursive lock, wrong-owner/double unlock, and freeing
+  locked/waited live state.
+- Atomic covers every supported T and operation, Bool fetch rejection, strong
+  compare_exchange, and shared-counter synchronization.
+
+### Layout, volatile, and C23 output
+
+- size_of/align_of cover complete type families and source handle sizes.
+- Volatile receiver/value evaluate once and emit volatile access without atomic
+  or synchronization machinery.
+- C name prefixes cover bindings, types, members, functions/methods, and
+  already-prefixed names.
+- `HEX_` is reserved for generated macros: assert `HEX_HEAP_DEFAULT`,
+  `HEX_FILE_READ`/`HEX_FILE_WRITE`/`HEX_FILE_APPEND`, `HEX_TASK_*`, and
+  `HEX_NUMERIC_TRAP_DEFINED` are emitted.
+- Cover every nested Ptr/MutPtr qualifier row from `reference.md`, trailing
+  binding const, unqualified object members, and absence of qualifier-discarding
+  casts.
+- Only pointer-plus-Nil uses the null niche; general Nil/EoS unions retain
+  distinct tags.
+- Representative generated output compiles cleanly under the retained C23
+  harness.
+
+## Deliberately untested guarantees
+
+Do not add tests that impose behavior where the reference states none:
+
+- unspecified ordinary evaluation order;
+- Dict iteration order, hash algorithm, or seed;
+- detection of every leak, stale alias, double-free, or use-after-free;
+- cleanup during traps;
+- physical-media durability after flush;
+- OS scheduling fairness;
+- caller-maintained View lifetime and structural-stability obligations unless
+  the implementation explicitly detects the violation;
+- excluded features beyond focused fail-closed syntax/semantic rejection.
+
+## Migration order
+
+1. Add helpers and named subtests without changing coverage.
+2. Normalize all C23 tests behind one tag and harness.
+3. Fix obsolete/contradictory tests: Nil, Task<Nil>, String storage, pointee
+   wording, and stale terminology.
+4. Land RFC 0049/0050 regression tests with their implementations; do not add
+   known-failure tripwires.
+5. Add standalone-Nil, zero-result, position, pointer/Atomic, and Fun matrices.
+6. Add numeric, control-flow, evaluation-order, and remaining static matrices.
+7. Add runtime suites by facet.
+8. Add the diagnostic-class sweep and reference-section citations.
+9. Run `go test ./...` and `go test -tags c23 ./compiler`.
+
+Each step keeps the applicable suite green. A semantic mismatch found while
+adding a test is a compiler conformance bug and is not hidden by weakening the
+test.
 
 ## Acceptance criteria
 
-1. `assertCompiles`, `assertRejects`, and `assertEmits` exist, call
-   `t.Helper()`, and print the source on failure.
-2. No integration test writes the `ExitFailure` + `len(Stderr)` +
-   `strings.Contains` sequence inline.
-3. Every table-driven test uses `t.Run` with a distinct case name.
-4. No test file invokes `gcc`, `clang`, or `cc`, imports `os/exec`, or carries a
-   `//go:build c23` tag.
-5. `go test ./...` behaves identically with and without a C toolchain installed,
-   and the `compiler` package runs in under one second.
-6. `docs/status.md` records that generated C is no longer verified to compile.
-7. `conformance_gaps_test.go` covers the three probeable gaps and cites its
-   `status.md` entries.
-8. A diagnostic-class sweep exists and no invalid source in it yields
-   `Unknown Error`.
-9. The storability matrix is generated from a table covering every position in
-   `reference.md`, not hand-written samples.
-10. Facet files cite `reference.md` sections rather than RFC numbers.
-11. `go.mod` still declares no dependencies.
-12. Apart from the deliberate removal in Decision 3, coverage does not fall: the
-    migration changes how assertions are written, never which behaviors are
-    asserted.
-13. Final counts land within a reasonable margin of "Expected scale". A
-    materially lower reported-unit count means tables were converted to helpers
-    without subtests; a materially lower function count means cases were dropped
-    rather than rewritten.
+1. No test accepts standalone Nil, Nil-result functions, or Task<Nil>.
+2. No test relies on implicit Size/fixed-width mixing after RFC 0049 lands.
+3. No test rejects a type or position permitted by the reference.
+4. Every reference position is present in a generated eligibility matrix.
+5. Nil, no-result, Fun, Unknown, Atomic, pointee, and copyability exclusions are
+   tested directly and through aliases/generic substitution.
+6. Every specified API has success, arity/type rejection, result-type, and
+   placement coverage appropriate to its contract.
+7. Every specified trap or runtime state transition has a C23-tagged execution
+   test unless listed under Deliberately untested guarantees.
+8. Every table row is a named subtest; repeated integration assertions use the
+   domain helpers.
+9. Known-invalid source never produces Unknown Error.
+10. Facet tests cite `reference.md` sections and contain no stale ownership or
+    archived-behavior claims.
+11. `go test ./...` passes without a C toolchain.
+12. `go test -tags c23 ./compiler` compiles with warnings enabled and passes on
+    a supported C23 toolchain.
+13. No test pins deliberately unspecified behavior.
 
 ## Open questions
 
-None. Every decision is test-side and reversible.
+None.

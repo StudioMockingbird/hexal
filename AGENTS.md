@@ -105,6 +105,14 @@ stabilizes—not repeatedly while it is still changing:
    spec's `Status:` header records what is done. Delete an entry when it
    closes; add one only with a spec to point at.
 
+**Reference synchronization.** Every spec implementation must review
+`docs/reference.md` for affected grammar, semantics, signatures, restrictions,
+and C23 contracts. Apply every required update after behavior stabilizes and
+before marking the spec implemented or closed. If no edit is required,
+explicitly verify that the implemented behavior already matches the reference.
+An implementation is incomplete while code, tests, and `docs/reference.md`
+disagree.
+
 These two are the only canonical documents. `docs/grammar.ebnf` was merged into
 `docs/reference.md`, and `docs/language.md` was retired after its still-relevant
 content was migrated there. Do not recreate either file or add a third prose
