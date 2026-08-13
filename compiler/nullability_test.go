@@ -41,6 +41,27 @@ func TestNullablePointerUsesTheNullNiche(t *testing.T) {
 	}
 }
 
+// RFC 0049 item 8.7: the pointer-plus-Nil null niche applies only to
+// pointers. Handle types like String have no null representation, so their
+// unions lower to tagged unions instead.
+func TestNullableHandleUnionDoesNotUseTheNullNiche(t *testing.T) {
+	result := Compile("text: String | Nil = nil")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+	for _, want := range []string{
+		"const hex_internal_union_1 hex_v_text",
+		".tag = hex_internal_union_1_tag_member_1",
+	} {
+		if !strings.Contains(result.MainC, want) {
+			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		}
+	}
+	if strings.Contains(result.MainC, "nullptr") {
+		t.Fatalf("handle union must not lower through the null niche:\n%s", result.MainC)
+	}
+}
+
 func TestNullTestsLowerToNullPointerComparison(t *testing.T) {
 	result := Compile("mut maybe: Ptr<Int32> | Nil = nil equal: Bool = maybe == nil notEqual: Bool = maybe != nil commuted: Bool = nil == maybe")
 	if result.ExitCode != ExitSuccess {

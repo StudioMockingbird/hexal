@@ -90,6 +90,7 @@ func TestForInDiagnostics(t *testing.T) {
 		{"not iterable", "fun demo()\n    count: Int32 = 3\n    for value in count do\n    end\nend", "value of type Int32 is not iterable"},
 		{"sequence arity", "fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    for a, b, c in fixed do\n    end\nend", "sequence iteration requires one value binder or index and value binders"},
 		{"dict arity", "fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    for key in scores do\n    end\nend", "dictionary iteration requires key and value binders or index, key, and value binders"},
+		{"excess binders", "fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    for i, key, value, extra in scores do\n    end\nend", "a for-in loop takes at most 3 binders"},
 		{"duplicate binder", "fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    for value, value in fixed do\n    end\nend", "duplicate loop binder name value"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

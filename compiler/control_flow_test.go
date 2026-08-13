@@ -180,6 +180,8 @@ func TestControlFlowDiagnostics(t *testing.T) {
 		{"if true else elseif true end", "'elseif' cannot appear after 'else'"},
 		{"if", "expected a condition after 'if'"},
 		{"if true", "expected end to close if"},
+		{"return", "return is only valid inside a function or method body"},
+		{"return 1", "return is only valid inside a function or method body"},
 	} {
 		result := Compile(testCase.source)
 		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), testCase.want) {
