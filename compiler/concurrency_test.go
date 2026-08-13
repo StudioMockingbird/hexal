@@ -247,6 +247,35 @@ func TestAtomicNonCopyability(t *testing.T) {
 	}
 }
 
+// RFC 0049 item 8.5: a direct Atomic element is an invalid Ptr/MutPtr
+// pointee in every spelling, while pointers to an enclosing object stay
+// valid and Atomic operations work through them.
+func TestAtomicDirectPointeeRules(t *testing.T) {
+	rejected := []string{
+		"type AtomicPtr = Ptr<Atomic<Int32>>\n",
+		"type AtomicPtr = MutPtr<Atomic<Int32>>\n",
+		"type AP = Atomic<Int32>\nx: Int32 = 1\npointer: Ptr<AP> = ref x\n",
+		"type Alias<T> = Ptr<T>\nx: Int32 = 1\np: Alias<Atomic<Int32>> = ref x\n",
+		"type Shared = { count: Atomic<Int32> }\nshared: Shared = Shared { count = Atomic<Int32>.new(0) }\np: MutPtr<Atomic<Int32>> = ref shared.count\n",
+		"h: Heap = Heap.new()\np: MutPtr<Atomic<Int32>> = h.allocate<Atomic<Int32>>(Atomic<Int32>.new(0))\n",
+		"type Shared = { count: Atomic<Int32> }\nh: Heap = Heap.new()\np: MutPtr<Shared> = h.allocate<Shared>(Shared { count = Atomic<Int32>.new(0) })\n",
+	}
+	for _, source := range rejected {
+		if result := Compile(source); result.ExitCode != ExitFailure {
+			t.Fatalf("want reject, got accept:\n%s", source)
+		}
+	}
+	accepted := []string{
+		"type Shared = { count: Atomic<Int32> }\nshared: Shared = Shared { count = Atomic<Int32>.new(0) }\npointer: Ptr<Shared> = ref shared\npointer.count.store(1)\n",
+		"type Shared = { count: Atomic<Int32> }\nmut shared: Shared = Shared { count = Atomic<Int32>.new(0) }\npointer: MutPtr<Shared> = ref shared\npointer.count.store(1)\n",
+	}
+	for _, source := range accepted {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+		}
+	}
+}
+
 func TestChannelAndTaskRejectFunElement(t *testing.T) {
 	rejected := []string{
 		"fun identity(x: Int32): Int32\n    return x\nend\nfun f(h: Heap): Nil | Error\n    ch: Channel<Fun<(Int32) : Int32>> = try Channel<Fun<(Int32) : Int32>>.new(h, 2)\n    return nil\nend\n",
