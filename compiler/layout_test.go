@@ -49,6 +49,19 @@ func TestVolatileWriteRequiresMutPtr(t *testing.T) {
 	}
 }
 
+// RFC 0049 item 8.2: write_volatile produces no value, so it is valid as a
+// statement and rejected in value positions with the standard diagnostic.
+func TestVolatileWriteProducesNoValue(t *testing.T) {
+	valid := Compile("mut value: Int32 = 1 slot: MutPtr<Int32> = ref value slot.write_volatile(2)")
+	if valid.ExitCode != ExitSuccess {
+		t.Fatalf("write_volatile as a statement = %v", valid.Stderr)
+	}
+	invalid := Compile("mut value: Int32 = 1 slot: MutPtr<Int32> = ref value bad: Int32 = slot.write_volatile(2)")
+	if invalid.ExitCode != ExitFailure || len(invalid.Stderr) == 0 || !strings.Contains(strings.Join(invalid.Stderr, "\n"), "write_volatile produces no value") {
+		t.Fatalf("write_volatile as an initializer = %#v, want produces-no-value diagnostic", invalid.Stderr)
+	}
+}
+
 func TestVolatileRejectsNonIntegerElements(t *testing.T) {
 	for _, element := range []string{"Float64", "Bool", "Ptr<Int32>"} {
 		source := "fun bad(pointer: MutPtr<" + element + ">)\n    value: " + element + " = pointer.read_volatile()\nend\n"

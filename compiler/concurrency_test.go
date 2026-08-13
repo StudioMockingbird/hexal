@@ -258,3 +258,54 @@ func TestChannelAndTaskRejectFunElement(t *testing.T) {
 		}
 	}
 }
+
+// RFC 0049 item 8.2: no-value commands are valid as call statements and as
+// direct defer/errdefer cleanup actions.
+func TestNoValueCommandsValidAsStatementsAndCleanup(t *testing.T) {
+	source := "fun worker(): Bool\n    Task.yield()\n    return true\nend\n" +
+		"fun run(): Int32 | Error\n" +
+		"    h: Heap = Heap.new()\n" +
+		"    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n" +
+		"    defer ch.free(h)\n" +
+		"    m: Mutex = try Mutex.new(h)\n" +
+		"    defer m.free(h)\n" +
+		"    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n" +
+		"    task: Task<Bool> = try spawn worker()\n" +
+		"    ch.close()\n" +
+		"    m.lock()\n" +
+		"    m.unlock()\n" +
+		"    counter.store(1)\n" +
+		"    task.detach()\n" +
+		"    return 0\n" +
+		"end\n"
+	result := Compile(source)
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("no-value commands as statements/cleanup = %v", result.Stderr)
+	}
+}
+
+// RFC 0049 item 8.2: no-value commands are rejected in value positions with
+// the "<name> produces no value" diagnostic.
+func TestNoValueCommandsRejectedInValuePositions(t *testing.T) {
+	for _, testCase := range []struct {
+		source string
+		want   string
+	}{
+		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    bad: Int32 = ch.close()\n    return 0\nend\n", "close produces no value"},
+		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    bad: Int32 = ch.free(h)\n    return 0\nend\n", "free produces no value"},
+		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.lock()\n    return 0\nend\n", "lock produces no value"},
+		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.unlock()\n    return 0\nend\n", "unlock produces no value"},
+		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.free(h)\n    return 0\nend\n", "free produces no value"},
+		{"counter: Atomic<Int32> = Atomic<Int32>.new(0) bad: Int32 = counter.store(1)", "store produces no value"},
+		{"fun worker(): Bool\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    bad: Int32 = task.detach()\n    return 0\nend\n", "detach produces no value"},
+		{"fun worker(): Bool\n    Task.yield()\n    return true\nend\nfun f(): Int32\n    bad: Int32 = Task.yield()\n    return 0\nend\n", "yield produces no value"},
+		{"fun bad(ch: Channel<Int32>): Int32\n    return ch.close()\nend\n", "close produces no value"},
+		{"fun f(ch: Channel<Int32>): Int32\n    if ch.close() noop: Int32 = 0 end\n    return 0\nend\n", "close produces no value"},
+		{"fun f(ch: Channel<Int32>)\n    print(ch.close())\nend\n", "close produces no value"},
+	} {
+		result := Compile(testCase.source)
+		if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), testCase.want) {
+			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
+		}
+	}
+}

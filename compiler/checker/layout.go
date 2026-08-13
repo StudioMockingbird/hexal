@@ -136,9 +136,9 @@ func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpress
 				Message: fmt.Sprintf("write_volatile requires %s; got %s", element.Name, value.typ.Name),
 			}}
 		}
-		node := Expression{Kind: VolatileWriteExpression, Operand: &receiver.source.Node, Arguments: []Operand{value.source}, OperandType: receiver.typ, ResultType: compilerTypes.Nil, Element: element}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Nil, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Nil, token: callee.Property}
+		node := Expression{Kind: VolatileWriteExpression, Operand: &receiver.source.Node, Arguments: []Operand{value.source}, OperandType: receiver.typ, ResultType: compilerTypes.Type{}, Element: element}
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	}
 	return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
 		Category: compilerTypes.TypeError, Stage: "checker",

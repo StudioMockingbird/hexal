@@ -2296,8 +2296,8 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 		}
 		return nil
 	case checker.TaskYieldExpression:
-		if !compilerTypes.Equal(node.ResultType, compilerTypes.Nil) {
-			return unknownExpressionDiagnostic("Task.yield() result type is not Nil")
+		if node.ResultType != (compilerTypes.Type{}) {
+			return unknownExpressionDiagnostic("Task.yield() result type is not zero")
 		}
 		return nil
 	case checker.TaskMethodCallExpression:
@@ -2310,8 +2310,8 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 				return unknownExpressionDiagnostic("task join result does not match its Task result")
 			}
 		case "detach":
-			if !compilerTypes.Equal(node.ResultType, compilerTypes.Nil) {
-				return unknownExpressionDiagnostic("task detach result type is not Nil")
+			if node.ResultType != (compilerTypes.Type{}) {
+				return unknownExpressionDiagnostic("task detach result type is not zero")
 			}
 		default:
 			return unknownExpressionDiagnostic("unknown task method " + node.Name)
@@ -2348,7 +2348,7 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 				return unknownExpressionDiagnostic("channel receive has invalid checked metadata")
 			}
 		case "close":
-			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Nil) {
+			if len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic("channel close has invalid checked metadata")
 			}
 		case "length", "capacity":
@@ -2360,7 +2360,7 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 				return unknownExpressionDiagnostic("channel is_closed has invalid checked metadata")
 			}
 		case "free":
-			if len(node.Arguments) != 1 || !compilerTypes.Equal(node.ResultType, compilerTypes.Nil) {
+			if len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic("channel free has invalid checked metadata")
 			}
 		default:
@@ -2390,7 +2390,7 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.MutexMethodCallExpression:
-		if node.Operand == nil || !compilerTypes.IsMutex(node.OperandType) || !compilerTypes.Equal(node.ResultType, compilerTypes.Nil) {
+		if node.Operand == nil || !compilerTypes.IsMutex(node.OperandType) || node.ResultType != (compilerTypes.Type{}) {
 			return unknownExpressionDiagnostic("mutex method has invalid checked metadata")
 		}
 		switch node.Name {
@@ -2435,7 +2435,7 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 				return unknownExpressionDiagnostic("atomic load has invalid checked metadata")
 			}
 		case "store":
-			if len(node.Arguments) != 1 || !compilerTypes.Equal(node.ResultType, compilerTypes.Nil) {
+			if len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic("atomic store has invalid checked metadata")
 			}
 		case "exchange", "fetch_add", "fetch_sub":
@@ -2481,7 +2481,7 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.VolatileWriteExpression:
-		if node.Operand == nil || node.OperandType.Element == nil || len(node.Arguments) != 1 || !node.OperandType.PointeeWritable || !volatileEligibleGenerated(node.Element) || !compilerTypes.Equal(node.Element, *node.OperandType.Element) || !compilerTypes.Equal(node.ResultType, compilerTypes.Nil) {
+		if node.Operand == nil || node.OperandType.Element == nil || len(node.Arguments) != 1 || !node.OperandType.PointeeWritable || !volatileEligibleGenerated(node.Element) || !compilerTypes.Equal(node.Element, *node.OperandType.Element) || node.ResultType != (compilerTypes.Type{}) {
 			return unknownExpressionDiagnostic("volatile write has invalid checked metadata")
 		}
 		if hasExpected && !compilerTypes.Equal(expected, node.ResultType) {

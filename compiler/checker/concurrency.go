@@ -186,9 +186,9 @@ func checkTaskTypeCall(call parser.CallExpression, callee lexer.Token, names *sc
 			Message: "Task.yield() is valid only inside a function",
 		}}
 	}
-	node := Expression{Kind: TaskYieldExpression, ResultType: compilerTypes.Nil}
-	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Nil, Node: node}
-	return checkedExpression{source: source, typ: compilerTypes.Nil, token: property}
+	node := Expression{Kind: TaskYieldExpression, ResultType: compilerTypes.Type{}}
+	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Node: node}
+	return checkedExpression{source: source, typ: compilerTypes.Type{}, token: property}
 }
 
 // checkTaskMethodCall resolves the Task handle methods: join and detach.
@@ -216,9 +216,9 @@ func checkTaskMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 				Message: "detach expects no arguments",
 			}}
 		}
-		node := Expression{Kind: TaskMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: taskType, ResultType: compilerTypes.Nil, Element: resultType}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Nil, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Nil, token: callee.Property}
+		node := Expression{Kind: TaskMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: taskType, ResultType: compilerTypes.Type{}, Element: resultType}
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
 		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
 			Category: compilerTypes.TypeError, Stage: "checker",
@@ -328,9 +328,9 @@ func checkChannelMethodCall(call parser.CallExpression, callee parser.PropertyEx
 				Message: "close expects no arguments",
 			}}
 		}
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.Nil, Element: element}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Nil, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Nil, token: callee.Property}
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.Type{}, Element: element}
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	case "length", "capacity":
 		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
 			return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
@@ -372,9 +372,9 @@ func checkChannelMethodCall(call parser.CallExpression, callee parser.PropertyEx
 				Message: "free requires a Heap; got " + heap.typ.Name,
 			}}
 		}
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: channelType, ResultType: compilerTypes.Nil, Element: element}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Nil, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Nil, token: callee.Property}
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: channelType, ResultType: compilerTypes.Type{}, Element: element}
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
 		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
 			Category: compilerTypes.TypeError, Stage: "checker",
@@ -423,9 +423,9 @@ func checkMutexMethodCall(call parser.CallExpression, callee parser.PropertyExpr
 				Message: name + " expects no arguments",
 			}}
 		}
-		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Nil}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Nil, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Nil, token: callee.Property}
+		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Type{}}
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	case "free":
 		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
 			return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
@@ -445,9 +445,9 @@ func checkMutexMethodCall(call parser.CallExpression, callee parser.PropertyExpr
 				Message: "free requires a Heap; got " + heap.typ.Name,
 			}}
 		}
-		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Nil}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Nil, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Nil, token: callee.Property}
+		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Type{}}
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
 		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
 			Category: compilerTypes.TypeError, Stage: "checker",
@@ -521,7 +521,7 @@ func checkAtomicMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		resultType = compilerTypes.Bool
 	}
 	if name == "store" {
-		resultType = compilerTypes.Nil
+		resultType = compilerTypes.Type{}
 	}
 	var arguments []Operand
 	for _, argument := range call.Arguments {
