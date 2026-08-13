@@ -16,99 +16,31 @@ import (
 // generated object definition.
 func discoverErrorUsed(program checker.Program) bool {
 	used := false
-	var walkOperand func(checker.Operand)
-	var walkExpression func(checker.Expression)
-	var walkStatements func([]checker.Statement)
-	walkExpression = func(node checker.Expression) {
-		if compilerTypes.IsError(node.OperandType) || compilerTypes.IsError(node.ResultType) {
-			used = true
-			return
-		}
-		if compilerTypes.IsUnion(node.OperandType) && unionMemberIndex(node.OperandType, compilerTypes.ErrorType) >= 0 {
-			used = true
-			return
-		}
-		if compilerTypes.IsUnion(node.ResultType) && unionMemberIndex(node.ResultType, compilerTypes.ErrorType) >= 0 {
-			used = true
-			return
-		}
-		if node.Operand != nil {
-			walkExpression(*node.Operand)
-		}
-		if node.Left != nil {
-			walkExpression(*node.Left)
-		}
-		if node.Right != nil {
-			walkExpression(*node.Right)
-		}
-		for _, argument := range node.Arguments {
-			walkOperand(argument)
-		}
-	}
-	walkOperand = func(source checker.Operand) {
-		if compilerTypes.IsError(source.Type) || compilerTypes.IsUnion(source.Type) && unionMemberIndex(source.Type, compilerTypes.ErrorType) >= 0 {
-			used = true
-			return
-		}
-		if source.Node.Kind != checker.InvalidExpression {
-			walkExpression(source.Node)
-		}
-	}
-	walkStatements = func(statements []checker.Statement) {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				walkOperand(statement.Source)
-			case checker.Assignment:
-				walkOperand(statement.Source)
-				walkOperand(statement.Target)
-			case checker.CallStatement:
-				walkExpression(statement.Call.Node)
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					walkOperand(*statement.Value)
-				}
-			case checker.IfStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Then)
-				for _, branch := range statement.ElseIf {
-					walkOperand(branch.Condition)
-					walkStatements(branch.Body)
-				}
-				if statement.Else != nil {
-					walkStatements(statement.Else)
-				}
-			case checker.ForStatement:
-				walkOperand(statement.Source)
-				walkStatements(statement.Body)
-			case checker.WhileStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Body)
-			case checker.FunctionDeclaration:
-				if statement.Result != nil {
-					walkOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: *statement.Result})
-				}
-				for _, parameter := range statement.Parameters {
-					walkOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: parameter.Type})
-				}
-				walkStatements(statement.Body)
-			case checker.MethodDeclaration:
-				if statement.Result != nil {
-					walkOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: *statement.Result})
-				}
-				for _, parameter := range statement.Parameters {
-					walkOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: parameter.Type})
-				}
-				walkStatements(statement.Body)
+	visitor := &programVisitor{
+		Type: func(typ compilerTypes.Type) error {
+			if compilerTypes.IsError(typ) || compilerTypes.IsUnion(typ) && unionMemberIndex(typ, compilerTypes.ErrorType) >= 0 {
+				used = true
 			}
-		}
+			return nil
+		},
+		Operand: func(source checker.Operand) error {
+			if compilerTypes.IsError(source.Type) || compilerTypes.IsUnion(source.Type) && unionMemberIndex(source.Type, compilerTypes.ErrorType) >= 0 {
+				used = true
+			}
+			return nil
+		},
+		Expression: func(node checker.Expression) error {
+			if compilerTypes.IsError(node.OperandType) || compilerTypes.IsError(node.ResultType) || compilerTypes.IsUnion(node.OperandType) && unionMemberIndex(node.OperandType, compilerTypes.ErrorType) >= 0 || compilerTypes.IsUnion(node.ResultType) && unionMemberIndex(node.ResultType, compilerTypes.ErrorType) >= 0 {
+				used = true
+			}
+			return nil
+		},
 	}
-	walkStatements(program.Statements)
+	if err := walkProgram(program, visitor); err != nil {
+		panic(err)
+	}
 	return used
 }
-
-// hasPendingErrDefers reports whether any enclosing scope has registered an
-// RFC 0029 errdefer action that must run only on an Error exit.
 func hasPendingErrDefers(state *expressionValidation) bool {
 	for _, scope := range state.deferStack {
 		for _, action := range scope {

@@ -16,206 +16,23 @@ type generatedAdtState struct {
 
 func discoverGeneratedADTs(program checker.Program) (*generatedAdtState, error) {
 	state := &generatedAdtState{seen: make(map[*compilerTypes.AdtType]bool)}
-	seenObjects := make(map[*compilerTypes.ObjectType]bool)
-	var walkType func(compilerTypes.Type) error
-	var walkOperand func(checker.Operand) error
-	var walkExpression func(checker.Expression) error
-	var walkStatements func([]checker.Statement) error
-	walkType = func(typ compilerTypes.Type) error {
-		if typ.Adt != nil {
-			if !state.seen[typ.Adt] {
-				state.seen[typ.Adt] = true
-				state.order = append(state.order, typ)
-				for _, variant := range typ.Adt.Variants {
-					for _, member := range variant.Payload {
-						if err := walkType(member.Type); err != nil {
-							return err
-						}
-					}
+	visitor := &programVisitor{
+		Type: func(typ compilerTypes.Type) error {
+			if typ.Adt != nil {
+				if !state.seen[typ.Adt] {
+					state.seen[typ.Adt] = true
+					state.order = append(state.order, typ)
 				}
 			}
 			return nil
-		}
-		if typ.Union != nil {
-			for _, member := range typ.Union.Members {
-				if err := walkType(member); err != nil {
-					return err
-				}
-			}
-		}
-		if typ.Element != nil {
-			return walkType(*typ.Element)
-		}
-		if typ.Signature != nil {
-			for _, parameter := range typ.Signature.Parameters {
-				if err := walkType(parameter); err != nil {
-					return err
-				}
-			}
-			if typ.Signature.Result != nil {
-				return walkType(*typ.Signature.Result)
-			}
-		}
-		if typ.Object != nil {
-			if seenObjects[typ.Object] {
-				return nil
-			}
-			seenObjects[typ.Object] = true
-			for _, member := range typ.Object.Members {
-				if err := walkType(member.Type); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+		},
 	}
-	walkExpression = func(node checker.Expression) error {
-		if err := walkType(node.OperandType); err != nil {
-			return err
-		}
-		if err := walkType(node.ResultType); err != nil {
-			return err
-		}
-		if node.Operand != nil {
-			if err := walkExpression(*node.Operand); err != nil {
-				return err
-			}
-		}
-		if node.Left != nil {
-			if err := walkExpression(*node.Left); err != nil {
-				return err
-			}
-		}
-		if node.Right != nil {
-			if err := walkExpression(*node.Right); err != nil {
-				return err
-			}
-		}
-		for _, argument := range node.Arguments {
-			if err := walkOperand(argument); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	walkOperand = func(operand checker.Operand) error {
-		if err := walkType(operand.Type); err != nil {
-			return err
-		}
-		return walkExpression(operand.Node)
-	}
-	walkStatements = func(statements []checker.Statement) error {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				if err := walkType(statement.Type); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-			case checker.Assignment:
-				if err := walkOperand(statement.Target); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-			case checker.CallStatement:
-				if err := walkOperand(statement.Call); err != nil {
-					return err
-				}
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					if err := walkOperand(*statement.Value); err != nil {
-						return err
-					}
-				}
-			case checker.DeferStatement:
-				if err := walkOperand(statement.Expression); err != nil {
-					return err
-				}
-			case checker.IfStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Then); err != nil {
-					return err
-				}
-				for _, branch := range statement.ElseIf {
-					if err := walkOperand(branch.Condition); err != nil {
-						return err
-					}
-					if err := walkStatements(branch.Body); err != nil {
-						return err
-					}
-				}
-				if err := walkStatements(statement.Else); err != nil {
-					return err
-				}
-			case checker.ForStatement:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.WhileStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.FunctionDeclaration:
-				if err := walkType(statement.Type); err != nil {
-					return err
-				}
-				for _, parameter := range statement.Parameters {
-					if err := walkType(parameter.Type); err != nil {
-						return err
-					}
-				}
-				if statement.Result != nil {
-					if err := walkType(*statement.Result); err != nil {
-						return err
-					}
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.MethodDeclaration:
-				if err := walkType(statement.SelfType); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-	for _, declaration := range program.TypeDeclarations {
-		if err := walkType(declaration.Type); err != nil {
-			return nil, err
-		}
-	}
-	if err := walkStatements(program.Statements); err != nil {
+	if err := walkProgram(program, visitor); err != nil {
 		return nil, err
 	}
-	for _, function := range program.SpecializedFunctions {
-		if err := walkStatements(function.Body); err != nil {
-			return nil, err
-		}
-	}
-	for _, method := range program.SpecializedMethods {
-		if err := walkStatements(method.Body); err != nil {
-			return nil, err
-		}
-	}
+
 	return state, nil
 }
-
 func adtTagName(adt *compilerTypes.AdtType, index int) string {
 	return "hex_" + compilerTypes.SanitizeIdentifier(adt.Name) + "_" + compilerTypes.SanitizeIdentifier(adt.Variants[index].Name)
 }

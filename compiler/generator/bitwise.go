@@ -22,79 +22,21 @@ type shiftSpec struct {
 func discoverGeneratedShifts(program checker.Program) []shiftSpec {
 	seen := make(map[string]bool)
 	var specs []shiftSpec
-	var walkOperand func(checker.Operand)
-	var walkExpression func(checker.Expression)
-	var walkStatements func([]checker.Statement)
-	walkExpression = func(node checker.Expression) {
-		if node.Kind == checker.BinaryOperationExpression &&
-			(node.Operator == checker.ShiftLeftOperator || node.Operator == checker.ShiftRightOperator) {
-			key := node.Operator.String() + node.OperandType.Name
-			if !seen[key] {
-				seen[key] = true
-				specs = append(specs, shiftSpec{operator: node.Operator, typ: node.OperandType})
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.BinaryOperationExpression &&
+				(node.Operator == checker.ShiftLeftOperator || node.Operator == checker.ShiftRightOperator) {
+				key := node.Operator.String() + node.OperandType.Name
+				if !seen[key] {
+					seen[key] = true
+					specs = append(specs, shiftSpec{operator: node.Operator, typ: node.OperandType})
+				}
 			}
-		}
-		if node.Operand != nil {
-			walkExpression(*node.Operand)
-		}
-		if node.Left != nil {
-			walkExpression(*node.Left)
-		}
-		if node.Right != nil {
-			walkExpression(*node.Right)
-		}
-		for _, argument := range node.Arguments {
-			walkOperand(argument)
-		}
+			return nil
+		},
 	}
-	walkOperand = func(source checker.Operand) {
-		if source.Node.Kind != checker.InvalidExpression {
-			walkExpression(source.Node)
-		}
-	}
-	walkStatements = func(statements []checker.Statement) {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				walkOperand(statement.Source)
-			case checker.Assignment:
-				walkOperand(statement.Source)
-				walkOperand(statement.Target)
-			case checker.CallStatement:
-				walkExpression(statement.Call.Node)
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					walkOperand(*statement.Value)
-				}
-			case checker.IfStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Then)
-				for _, branch := range statement.ElseIf {
-					walkOperand(branch.Condition)
-					walkStatements(branch.Body)
-				}
-				if statement.Else != nil {
-					walkStatements(statement.Else)
-				}
-			case checker.ForStatement:
-				walkOperand(statement.Source)
-				walkStatements(statement.Body)
-			case checker.WhileStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Body)
-			case checker.FunctionDeclaration:
-				walkStatements(statement.Body)
-			case checker.MethodDeclaration:
-				walkStatements(statement.Body)
-			}
-		}
-	}
-	walkStatements(program.Statements)
-	for _, function := range program.SpecializedFunctions {
-		walkStatements(function.Body)
-	}
-	for _, method := range program.SpecializedMethods {
-		walkStatements(method.Body)
+	if err := walkProgram(program, visitor); err != nil {
+		panic(err)
 	}
 	return specs
 }
@@ -227,78 +169,20 @@ func bitCastHelperName(spec bitCastSpec) string {
 func discoverGeneratedBitCasts(program checker.Program) []bitCastSpec {
 	seen := make(map[string]bool)
 	var specs []bitCastSpec
-	var walkOperand func(checker.Operand)
-	var walkExpression func(checker.Expression)
-	var walkStatements func([]checker.Statement)
-	walkExpression = func(node checker.Expression) {
-		if node.Kind == checker.BitCastExpression && node.Operand != nil {
-			key := node.OperandType.Name + ">" + node.ResultType.Name
-			if !seen[key] {
-				seen[key] = true
-				specs = append(specs, bitCastSpec{source: node.OperandType, target: node.ResultType})
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.BitCastExpression && node.Operand != nil {
+				key := node.OperandType.Name + ">" + node.ResultType.Name
+				if !seen[key] {
+					seen[key] = true
+					specs = append(specs, bitCastSpec{source: node.OperandType, target: node.ResultType})
+				}
 			}
-		}
-		if node.Operand != nil {
-			walkExpression(*node.Operand)
-		}
-		if node.Left != nil {
-			walkExpression(*node.Left)
-		}
-		if node.Right != nil {
-			walkExpression(*node.Right)
-		}
-		for _, argument := range node.Arguments {
-			walkOperand(argument)
-		}
+			return nil
+		},
 	}
-	walkOperand = func(source checker.Operand) {
-		if source.Node.Kind != checker.InvalidExpression {
-			walkExpression(source.Node)
-		}
-	}
-	walkStatements = func(statements []checker.Statement) {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				walkOperand(statement.Source)
-			case checker.Assignment:
-				walkOperand(statement.Source)
-				walkOperand(statement.Target)
-			case checker.CallStatement:
-				walkExpression(statement.Call.Node)
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					walkOperand(*statement.Value)
-				}
-			case checker.IfStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Then)
-				for _, branch := range statement.ElseIf {
-					walkOperand(branch.Condition)
-					walkStatements(branch.Body)
-				}
-				if statement.Else != nil {
-					walkStatements(statement.Else)
-				}
-			case checker.ForStatement:
-				walkOperand(statement.Source)
-				walkStatements(statement.Body)
-			case checker.WhileStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Body)
-			case checker.FunctionDeclaration:
-				walkStatements(statement.Body)
-			case checker.MethodDeclaration:
-				walkStatements(statement.Body)
-			}
-		}
-	}
-	walkStatements(program.Statements)
-	for _, function := range program.SpecializedFunctions {
-		walkStatements(function.Body)
-	}
-	for _, method := range program.SpecializedMethods {
-		walkStatements(method.Body)
+	if err := walkProgram(program, visitor); err != nil {
+		panic(err)
 	}
 	return specs
 }
@@ -360,78 +244,20 @@ func endianHelperName(spec endianSpec) string {
 func discoverGeneratedEndian(program checker.Program) []endianSpec {
 	seen := make(map[string]bool)
 	var specs []endianSpec
-	var walkOperand func(checker.Operand)
-	var walkExpression func(checker.Expression)
-	var walkStatements func([]checker.Statement)
-	walkExpression = func(node checker.Expression) {
-		if node.Kind == checker.EndianConversionExpression && node.Element != (compilerTypes.Type{}) {
-			key := node.Name + fmt.Sprint(node.MemberIndex) + node.Element.Name
-			if !seen[key] {
-				seen[key] = true
-				specs = append(specs, endianSpec{typ: node.Element, bigEnd: node.MemberIndex == 1, from: node.Name == "from"})
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.EndianConversionExpression && node.Element != (compilerTypes.Type{}) {
+				key := node.Name + fmt.Sprint(node.MemberIndex) + node.Element.Name
+				if !seen[key] {
+					seen[key] = true
+					specs = append(specs, endianSpec{typ: node.Element, bigEnd: node.MemberIndex == 1, from: node.Name == "from"})
+				}
 			}
-		}
-		if node.Operand != nil {
-			walkExpression(*node.Operand)
-		}
-		if node.Left != nil {
-			walkExpression(*node.Left)
-		}
-		if node.Right != nil {
-			walkExpression(*node.Right)
-		}
-		for _, argument := range node.Arguments {
-			walkOperand(argument)
-		}
+			return nil
+		},
 	}
-	walkOperand = func(source checker.Operand) {
-		if source.Node.Kind != checker.InvalidExpression {
-			walkExpression(source.Node)
-		}
-	}
-	walkStatements = func(statements []checker.Statement) {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				walkOperand(statement.Source)
-			case checker.Assignment:
-				walkOperand(statement.Source)
-				walkOperand(statement.Target)
-			case checker.CallStatement:
-				walkExpression(statement.Call.Node)
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					walkOperand(*statement.Value)
-				}
-			case checker.IfStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Then)
-				for _, branch := range statement.ElseIf {
-					walkOperand(branch.Condition)
-					walkStatements(branch.Body)
-				}
-				if statement.Else != nil {
-					walkStatements(statement.Else)
-				}
-			case checker.ForStatement:
-				walkOperand(statement.Source)
-				walkStatements(statement.Body)
-			case checker.WhileStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Body)
-			case checker.FunctionDeclaration:
-				walkStatements(statement.Body)
-			case checker.MethodDeclaration:
-				walkStatements(statement.Body)
-			}
-		}
-	}
-	walkStatements(program.Statements)
-	for _, function := range program.SpecializedFunctions {
-		walkStatements(function.Body)
-	}
-	for _, method := range program.SpecializedMethods {
-		walkStatements(method.Body)
+	if err := walkProgram(program, visitor); err != nil {
+		panic(err)
 	}
 	return specs
 }

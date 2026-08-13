@@ -53,116 +53,56 @@ const (
 // registers the failure literals.
 func discoverGeneratedIO(program checker.Program, strings *generatedStringState) *generatedIOState {
 	state := &generatedIOState{}
-	var walkOperand func(checker.Operand)
-	var walkExpression func(checker.Expression)
-	var walkStatements func([]checker.Statement)
-	walkExpression = func(node checker.Expression) {
-		switch node.Kind {
-		case checker.FileOpenExpression:
-			state.used = true
-			state.open = true
-			state.openUnion = node.ResultType
-		case checker.StdioCallExpression:
-			state.used = true
-			switch node.Name {
-			case "stdin":
-				state.stdin = true
-			case "stdout":
-				state.stdout = true
-			case "stderr":
-				state.stderr = true
-			}
-		case checker.FileMethodCallExpression:
-			state.used = true
-			switch node.Name {
-			case "read_bytes":
-				state.readBytes = true
-				state.readBytesUnion = node.ResultType
-				for _, member := range compilerTypes.UnionMembers(node.ResultType) {
-					if member.List != nil {
-						state.listType = member
-						break
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			switch node.Kind {
+			case checker.FileOpenExpression:
+				state.used = true
+				state.open = true
+				state.openUnion = node.ResultType
+			case checker.StdioCallExpression:
+				state.used = true
+				switch node.Name {
+				case "stdin":
+					state.stdin = true
+				case "stdout":
+					state.stdout = true
+				case "stderr":
+					state.stderr = true
+				}
+			case checker.FileMethodCallExpression:
+				state.used = true
+				switch node.Name {
+				case "read_bytes":
+					state.readBytes = true
+					state.readBytesUnion = node.ResultType
+					for _, member := range compilerTypes.UnionMembers(node.ResultType) {
+						if member.List != nil {
+							state.listType = member
+							break
+						}
 					}
+				case "read_text":
+					state.readText = true
+					state.readTextUnion = node.ResultType
+				case "write":
+					state.write = true
+					state.writeUnion = node.ResultType
+				case "write_text":
+					state.writeText = true
+					state.writeUnion = node.ResultType
+				case "flush":
+					state.flush = true
+					state.writeUnion = node.ResultType
+				case "close":
+					state.close = true
 				}
-			case "read_text":
-				state.readText = true
-				state.readTextUnion = node.ResultType
-			case "write":
-				state.write = true
-				state.writeUnion = node.ResultType
-			case "write_text":
-				state.writeText = true
-				state.writeUnion = node.ResultType
-			case "flush":
-				state.flush = true
-				state.writeUnion = node.ResultType
-			case "close":
-				state.close = true
 			}
-		}
-		if node.Operand != nil {
-			walkExpression(*node.Operand)
-		}
-		if node.Left != nil {
-			walkExpression(*node.Left)
-		}
-		if node.Right != nil {
-			walkExpression(*node.Right)
-		}
-		for _, argument := range node.Arguments {
-			walkOperand(argument)
-		}
+			return nil
+		},
 	}
-	walkOperand = func(source checker.Operand) {
-		if source.Node.Kind != checker.InvalidExpression {
-			walkExpression(source.Node)
-		}
-	}
-	walkStatements = func(statements []checker.Statement) {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				walkOperand(statement.Source)
-			case checker.Assignment:
-				walkOperand(statement.Source)
-				walkOperand(statement.Target)
-			case checker.CallStatement:
-				walkExpression(statement.Call.Node)
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					walkOperand(*statement.Value)
-				}
-			case checker.IfStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Then)
-				for _, branch := range statement.ElseIf {
-					walkOperand(branch.Condition)
-					walkStatements(branch.Body)
-				}
-				walkStatements(statement.Else)
-			case checker.WhileStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Body)
-			case checker.ForStatement:
-				walkOperand(statement.Source)
-				walkStatements(statement.Body)
-			case checker.DeferStatement:
-				walkOperand(statement.Expression)
-			case checker.ErrdeferStatement:
-				walkOperand(statement.Expression)
-			case checker.FunctionDeclaration:
-				walkStatements(statement.Body)
-			case checker.MethodDeclaration:
-				walkStatements(statement.Body)
-			}
-		}
-	}
-	walkStatements(program.Statements)
-	for _, function := range program.SpecializedFunctions {
-		walkStatements(function.Body)
-	}
-	for _, method := range program.SpecializedMethods {
-		walkStatements(method.Body)
+	if err := walkProgram(program, visitor); err != nil {
+		panic(err)
 	}
 	if state.used && strings != nil {
 		strings.used = true
@@ -175,9 +115,6 @@ func discoverGeneratedIO(program checker.Program, strings *generatedStringState)
 	}
 	return state
 }
-
-// writeIOPrelude emits the complete FileMode enum and File handle before any
-// union that carries File or the read_bytes List as a payload member.
 func writeIOPrelude(result *strings.Builder, state *generatedIOState) {
 	if state == nil || !state.used {
 		return

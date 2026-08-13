@@ -17,77 +17,19 @@ import (
 func discoverGeneratedDivisions(program checker.Program) []compilerTypes.Type {
 	seen := make(map[string]bool)
 	var types []compilerTypes.Type
-	var walkOperand func(checker.Operand)
-	var walkExpression func(checker.Expression)
-	var walkStatements func([]checker.Statement)
-	walkExpression = func(node checker.Expression) {
-		if node.Kind == checker.BinaryOperationExpression &&
-			(node.Operator == checker.DivideOperator || node.Operator == checker.RemainderOperator) &&
-			compilerTypes.IsInteger(node.OperandType) && !seen[node.OperandType.Name] {
-			seen[node.OperandType.Name] = true
-			types = append(types, node.OperandType)
-		}
-		if node.Operand != nil {
-			walkExpression(*node.Operand)
-		}
-		if node.Left != nil {
-			walkExpression(*node.Left)
-		}
-		if node.Right != nil {
-			walkExpression(*node.Right)
-		}
-		for _, argument := range node.Arguments {
-			walkOperand(argument)
-		}
-	}
-	walkOperand = func(source checker.Operand) {
-		if source.Node.Kind != checker.InvalidExpression {
-			walkExpression(source.Node)
-		}
-	}
-	walkStatements = func(statements []checker.Statement) {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				walkOperand(statement.Source)
-			case checker.Assignment:
-				walkOperand(statement.Source)
-				walkOperand(statement.Target)
-			case checker.CallStatement:
-				walkExpression(statement.Call.Node)
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					walkOperand(*statement.Value)
-				}
-			case checker.IfStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Then)
-				for _, branch := range statement.ElseIf {
-					walkOperand(branch.Condition)
-					walkStatements(branch.Body)
-				}
-				if statement.Else != nil {
-					walkStatements(statement.Else)
-				}
-			case checker.ForStatement:
-				walkOperand(statement.Source)
-				walkStatements(statement.Body)
-			case checker.WhileStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Body)
-			case checker.FunctionDeclaration:
-				walkStatements(statement.Body)
-			case checker.MethodDeclaration:
-				walkStatements(statement.Body)
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.BinaryOperationExpression &&
+				(node.Operator == checker.DivideOperator || node.Operator == checker.RemainderOperator) &&
+				compilerTypes.IsInteger(node.OperandType) && !seen[node.OperandType.Name] {
+				seen[node.OperandType.Name] = true
+				types = append(types, node.OperandType)
 			}
-		}
+			return nil
+		},
 	}
-	walkStatements(program.Statements)
-	for _, function := range program.SpecializedFunctions {
-		walkStatements(function.Body)
-	}
-	for _, method := range program.SpecializedMethods {
-		walkStatements(method.Body)
+	if err := walkProgram(program, visitor); err != nil {
+		panic(err)
 	}
 	return types
 }

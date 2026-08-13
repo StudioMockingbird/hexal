@@ -4603,252 +4603,33 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 
 func usedFloatTypes(program checker.Program) (bool, bool, bool) {
 	float32Used, float64Used, nilUsed := false, false, false
-	seenObjects := make(map[*compilerTypes.ObjectType]bool)
-	var walkOperand func(checker.Operand)
-	var walkExpression func(checker.Expression)
-	var walk func(compilerTypes.Type)
-	walk = func(typ compilerTypes.Type) {
-		if typ.Union != nil {
-			for _, member := range typ.Union.Members {
-				walk(member)
+	visitor := &programVisitor{
+		Type: func(typ compilerTypes.Type) error {
+			switch {
+			case compilerTypes.Equal(typ, compilerTypes.Float32):
+				float32Used = true
+			case compilerTypes.Equal(typ, compilerTypes.Float64):
+				float64Used = true
+			case compilerTypes.IsNil(typ):
+				// A written Nil type needs the nullptr_t name from <stddef.h>.
+				nilUsed = true
 			}
-			return
-		}
-		if typ.Signature != nil {
-			for _, parameter := range typ.Signature.Parameters {
-				walk(parameter)
+			return nil
+		},
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.NullTestExpression {
+				// The test writes the nullptr constant even when no written type
+				// needs the nullptr_t name.
+				nilUsed = true
 			}
-			if typ.Signature.Result != nil {
-				walk(*typ.Signature.Result)
-			}
-			return
-		}
-		if typ.Element != nil {
-			walk(*typ.Element)
-			return
-		}
-		if typ.Array != nil {
-			walk(typ.Array.Element)
-			return
-		}
-		if typ.View != nil {
-			walk(typ.View.Element)
-			return
-		}
-		if typ.List != nil {
-			walk(typ.List.Element)
-			return
-		}
-		if typ.Object != nil {
-			if seenObjects[typ.Object] {
-				return
-			}
-			seenObjects[typ.Object] = true
-			for _, member := range typ.Object.Members {
-				walk(member.Type)
-			}
-			return
-		}
-		switch {
-		case compilerTypes.Equal(typ, compilerTypes.Float32):
-			float32Used = true
-		case compilerTypes.Equal(typ, compilerTypes.Float64):
-			float64Used = true
-		case compilerTypes.IsNil(typ):
-			// A written Nil type needs the nullptr_t name from <stddef.h>.
-			nilUsed = true
-		}
+			return nil
+		},
 	}
-	walkExpression = func(node checker.Expression) {
-		switch node.Kind {
-		case checker.VariableExpression:
-			return
-		case checker.NullTestExpression:
-			// The test writes the nullptr constant even when no written type
-			// needs the nullptr_t name.
-			nilUsed = true
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-		case checker.UnionInjectionExpression, checker.UnionWidenExpression,
-			checker.UnionTestExpression, checker.UnionPayloadExpression,
-			checker.UnionEqualityExpression, checker.HeapAllocateExpression,
-			checker.AdtConstructExpression, checker.AdtPayloadExpression,
-			checker.MatchExpression:
-			walk(node.Element)
-			walk(node.OperandType)
-			walk(node.ResultType)
-			walk(node.TestType)
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-			if node.Left != nil {
-				walkExpression(*node.Left)
-			}
-			if node.Right != nil {
-				walkExpression(*node.Right)
-			}
-		case checker.FunctionReferenceExpression:
-			walk(node.ResultType)
-		case checker.CallExpression:
-			walk(node.OperandType)
-			walk(node.ResultType)
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-			for _, argument := range node.Arguments {
-				walkOperand(argument)
-			}
-		case checker.MethodCallExpression:
-			walk(node.OperandType)
-			walk(node.ResultType)
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-			for _, argument := range node.Arguments {
-				walkOperand(argument)
-			}
-		case checker.AddressOfExpression, checker.DereferenceExpression:
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-		case checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
-			walk(node.OperandType)
-			walk(node.ResultType)
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-			for _, argument := range node.Arguments {
-				walkOperand(argument)
-			}
-		case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.RuneCursorMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression,
-			checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.BitCastExpression, checker.EndianConversionExpression, checker.TryExpression,
-			checker.DeepEqualityExpression, checker.StringCompareExpression, checker.WideningExpression, checker.ConversionExpression:
-			walk(node.OperandType)
-			walk(node.ResultType)
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-			for _, argument := range node.Arguments {
-				walkOperand(argument)
-			}
-		case checker.MemberExpression:
-			if node.Member != nil {
-				walk(node.Member.Type)
-			}
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-		case checker.ObjectExpression:
-			if node.Object != nil {
-				walk(node.Object.Type)
-				for _, initializer := range node.Object.Initializers {
-					walkOperand(initializer.Source)
-				}
-			}
-		case checker.ConstantExpression:
-			if node.Constant != nil {
-				walkOperand(*node.Constant)
-			}
-		case checker.UnaryOperationExpression:
-			walk(node.OperandType)
-			walk(node.ResultType)
-			if node.Operand != nil {
-				walkExpression(*node.Operand)
-			}
-		case checker.BinaryOperationExpression:
-			walk(node.OperandType)
-			walk(node.ResultType)
-			if node.Left != nil {
-				walkExpression(*node.Left)
-			}
-			if node.Right != nil {
-				walkExpression(*node.Right)
-			}
-		case checker.InvalidExpression:
-			return
-		default:
-			return
-		}
+	if err := walkProgram(program, visitor); err != nil {
+		panic(err)
 	}
-	walkOperand = func(source checker.Operand) {
-		walk(source.Type)
-		switch source.Kind {
-		case checker.ObjectOperand:
-			if source.Object != nil {
-				walk(source.Object.Type)
-				for _, initializer := range source.Object.Initializers {
-					walkOperand(initializer.Source)
-				}
-			}
-		case checker.VariableOperand, checker.ExpressionOperand:
-			walkExpression(source.Node)
-		case checker.ConstantOperand, checker.InvalidOperand:
-			return
-		default:
-			return
-		}
-	}
-	var walkStatements func([]checker.Statement)
-	walkStatements = func(statements []checker.Statement) {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				walk(statement.Type)
-				walkOperand(statement.Source)
-			case checker.Assignment:
-				walk(statement.Type)
-				walkOperand(statement.Source)
-				walkOperand(statement.Target)
-			case checker.CallStatement:
-				walkExpression(statement.Call.Node)
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					walkOperand(*statement.Value)
-				}
-			case checker.IfStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Then)
-				for _, branch := range statement.ElseIf {
-					walkOperand(branch.Condition)
-					walkStatements(branch.Body)
-				}
-				if statement.Else != nil {
-					walkStatements(statement.Else)
-				}
-			case checker.WhileStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Body)
-			case checker.BreakStatement, checker.ContinueStatement:
-				continue
-			case checker.FunctionDeclaration:
-				walk(statement.Type)
-				for _, parameter := range statement.Parameters {
-					walk(parameter.Type)
-				}
-				if statement.Result != nil {
-					walk(*statement.Result)
-				}
-				walkStatements(statement.Body)
-			case checker.MethodDeclaration:
-				walk(statement.SelfType)
-				for _, parameter := range statement.Parameters {
-					walk(parameter.Type)
-				}
-				if statement.Result != nil {
-					walk(*statement.Result)
-				}
-				walkStatements(statement.Body)
-			}
-		}
-	}
-	for _, declaration := range program.TypeDeclarations {
-		walk(declaration.Type)
-	}
-	walkStatements(program.Statements)
 	return float32Used, float64Used, nilUsed
 }
-
 func renderOperand(source checker.Operand) (string, error) {
 	return renderOperandWithState(source, &expressionValidation{})
 }

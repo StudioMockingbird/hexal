@@ -42,222 +42,32 @@ func unionHelperName(ordinal int) string {
 
 func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, error) {
 	state := &generatedUnionState{names: make(map[*compilerTypes.UnionInfo]string)}
-	seenObjects := make(map[*compilerTypes.ObjectType]bool)
-	var walkType func(compilerTypes.Type) error
-	var walkOperand func(checker.Operand) error
-	var walkExpression func(checker.Expression) error
-	var walkStatements func([]checker.Statement) error
-
-	walkType = func(typ compilerTypes.Type) error {
-		if typ.Union != nil {
-			if _, seen := state.names[typ.Union]; seen {
-				return nil
-			}
-			for _, member := range typ.Union.Members {
-				if err := walkType(member); err != nil {
-					return err
+	visitor := &programVisitor{
+		Type: func(typ compilerTypes.Type) error {
+			if typ.Union != nil {
+				if _, seen := state.names[typ.Union]; seen {
+					return nil
 				}
-			}
-			if typ.CName == "" {
-				return unknownExpressionDiagnostic("union has no generated C name")
-			}
-			state.names[typ.Union] = typ.CName
-			state.order = append(state.order, typ)
-			return nil
-		}
-		if typ.Signature != nil {
-			for _, parameter := range typ.Signature.Parameters {
-				if err := walkType(parameter); err != nil {
-					return err
+				if typ.CName == "" {
+					return unknownExpressionDiagnostic("union has no generated C name")
 				}
-			}
-			if typ.Signature.Result != nil {
-				return walkType(*typ.Signature.Result)
+				state.names[typ.Union] = typ.CName
+				state.order = append(state.order, typ)
 			}
 			return nil
-		}
-		if typ.Element != nil {
-			return walkType(*typ.Element)
-		}
-		if typ.Object != nil {
-			if seenObjects[typ.Object] {
-				return nil
+		},
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.UnionWidenExpression {
+				state.addWidening(node)
 			}
-			seenObjects[typ.Object] = true
-			for _, member := range typ.Object.Members {
-				if err := walkType(member.Type); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+			return nil
+		},
 	}
-
-	walkOperand = func(operand checker.Operand) error {
-		if err := walkType(operand.Type); err != nil {
-			return err
-		}
-		return walkExpression(operand.Node)
-	}
-	walkExpression = func(node checker.Expression) error {
-		if node.Kind == checker.UnionWidenExpression {
-			state.addWidening(node)
-		}
-		if err := walkType(node.OperandType); err != nil {
-			return err
-		}
-		if err := walkType(node.ResultType); err != nil {
-			return err
-		}
-		if err := walkType(node.TestType); err != nil {
-			return err
-		}
-		if node.Member != nil {
-			if err := walkType(node.Member.Type); err != nil {
-				return err
-			}
-		}
-		if node.Object != nil {
-			if err := walkType(node.Object.Type); err != nil {
-				return err
-			}
-			for _, initializer := range node.Object.Initializers {
-				if err := walkOperand(initializer.Source); err != nil {
-					return err
-				}
-			}
-		}
-		if node.Operand != nil {
-			if err := walkExpression(*node.Operand); err != nil {
-				return err
-			}
-		}
-		if node.Left != nil {
-			if err := walkExpression(*node.Left); err != nil {
-				return err
-			}
-		}
-		if node.Right != nil {
-			if err := walkExpression(*node.Right); err != nil {
-				return err
-			}
-		}
-		for _, argument := range node.Arguments {
-			if err := walkOperand(argument); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	walkStatements = func(statements []checker.Statement) error {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				if err := walkType(statement.Type); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-			case checker.Assignment:
-				if err := walkType(statement.Type); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Target); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-			case checker.IfStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Then); err != nil {
-					return err
-				}
-				for _, branch := range statement.ElseIf {
-					if err := walkOperand(branch.Condition); err != nil {
-						return err
-					}
-					if err := walkStatements(branch.Body); err != nil {
-						return err
-					}
-				}
-				if err := walkStatements(statement.Else); err != nil {
-					return err
-				}
-			case checker.ForStatement:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.WhileStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.FunctionDeclaration:
-				for _, parameter := range statement.Parameters {
-					if err := walkType(parameter.Type); err != nil {
-						return err
-					}
-				}
-				if statement.Result != nil {
-					if err := walkType(*statement.Result); err != nil {
-						return err
-					}
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.MethodDeclaration:
-				if err := walkType(statement.SelfType); err != nil {
-					return err
-				}
-				for _, parameter := range statement.Parameters {
-					if err := walkType(parameter.Type); err != nil {
-						return err
-					}
-				}
-				if statement.Result != nil {
-					if err := walkType(*statement.Result); err != nil {
-						return err
-					}
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					if err := walkOperand(*statement.Value); err != nil {
-						return err
-					}
-				}
-			case checker.CallStatement:
-				if err := walkOperand(statement.Call); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-
-	for _, declaration := range program.TypeDeclarations {
-		if err := walkType(declaration.Type); err != nil {
-			return nil, err
-		}
-	}
-	if err := walkStatements(program.Statements); err != nil {
+	if err := walkProgram(program, visitor); err != nil {
 		return nil, err
 	}
 	return state, nil
 }
-
 func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState) {
 	if state == nil {
 		return

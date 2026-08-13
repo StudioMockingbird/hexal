@@ -27,139 +27,34 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 	seen := make(map[string]bool)
 	var sizeLiterals []string
 	seenSize := make(map[string]bool)
-	var walkOperand func(checker.Operand) error
-	var walkExpression func(checker.Expression) error
-	var walkStatements func([]checker.Statement) error
-	walkExpression = func(node checker.Expression) error {
-		if node.Kind == checker.ConversionExpression && node.Operand != nil {
-			key := node.OperandType.Name + ">" + node.ResultType.Name
-			if !seen[key] {
-				seen[key] = true
-				specs = append(specs, conversionSpec{source: node.OperandType, target: node.ResultType})
+	visitor := &programVisitor{
+		// Literal constants carry no checked node (the value lives in the
+		// operand), so the Size target guard runs on every operand.
+		Operand: func(source checker.Operand) error {
+			if compilerTypes.Equal(source.Type, compilerTypes.SizeType) && source.Constant != nil {
+				if unsigned, ok := constant.Uint64Val(source.Constant); ok && unsigned > 65535 {
+					digits := formatInteger(unsigned, checker.DecimalRadix)
+					if !seenSize[digits] {
+						seenSize[digits] = true
+						sizeLiterals = append(sizeLiterals, digits)
+					}
+				}
 			}
-		}
-		if node.Operand != nil {
-			if err := walkExpression(*node.Operand); err != nil {
-				return err
+			return nil
+		},
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.ConversionExpression && node.Operand != nil {
+				key := node.OperandType.Name + ">" + node.ResultType.Name
+				if !seen[key] {
+					seen[key] = true
+					specs = append(specs, conversionSpec{source: node.OperandType, target: node.ResultType})
+				}
 			}
-		}
-		if node.Left != nil {
-			if err := walkExpression(*node.Left); err != nil {
-				return err
-			}
-		}
-		if node.Right != nil {
-			if err := walkExpression(*node.Right); err != nil {
-				return err
-			}
-		}
-		for _, argument := range node.Arguments {
-			if err := walkOperand(argument); err != nil {
-				return err
-			}
-		}
-		return nil
+			return nil
+		},
 	}
-	walkOperand = func(source checker.Operand) error {
-		// Literal constants carry no checked node (Kind is InvalidExpression
-		// and the value lives in Constant), so the Size target guard is
-		// collected before the node-kind dispatch.
-		if compilerTypes.Equal(source.Type, compilerTypes.SizeType) && source.Constant != nil {
-			if unsigned, ok := constant.Uint64Val(source.Constant); ok && unsigned > 65535 {
-				digits := formatInteger(unsigned, checker.DecimalRadix)
-				if !seenSize[digits] {
-					seenSize[digits] = true
-					sizeLiterals = append(sizeLiterals, digits)
-				}
-			}
-		}
-		if source.Node.Kind != checker.InvalidExpression {
-			return walkExpression(source.Node)
-		}
-		return nil
-	}
-	walkStatements = func(statements []checker.Statement) error {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-			case checker.Assignment:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Target); err != nil {
-					return err
-				}
-			case checker.CallStatement:
-				if err := walkExpression(statement.Call.Node); err != nil {
-					return err
-				}
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					if err := walkOperand(*statement.Value); err != nil {
-						return err
-					}
-				}
-			case checker.IfStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Then); err != nil {
-					return err
-				}
-				for _, branch := range statement.ElseIf {
-					if err := walkOperand(branch.Condition); err != nil {
-						return err
-					}
-					if err := walkStatements(branch.Body); err != nil {
-						return err
-					}
-				}
-				if statement.Else != nil {
-					if err := walkStatements(statement.Else); err != nil {
-						return err
-					}
-				}
-			case checker.ForStatement:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.WhileStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.FunctionDeclaration:
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.MethodDeclaration:
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-	if err := walkStatements(program.Statements); err != nil {
+	if err := walkProgram(program, visitor); err != nil {
 		return nil, nil, err
-	}
-	for _, function := range program.SpecializedFunctions {
-		if err := walkStatements(function.Body); err != nil {
-			return nil, nil, err
-		}
-	}
-	for _, method := range program.SpecializedMethods {
-		if err := walkStatements(method.Body); err != nil {
-			return nil, nil, err
-		}
 	}
 	return specs, sizeLiterals, nil
 }

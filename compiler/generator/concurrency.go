@@ -83,208 +83,90 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 		channelSendUnions:    make(map[string]compilerTypes.Type),
 		channelReceiveUnions: make(map[string]compilerTypes.Type),
 	}
-	var walkOperand func(checker.Operand) error
-	var walkExpression func(checker.Expression) error
-	var walkStatements func([]checker.Statement) error
-	walkExpression = func(node checker.Expression) error {
-		switch node.Kind {
-		case checker.SpawnExpression:
-			state.used = true
-			state.spawnFail = true
-			if node.OperandType != (compilerTypes.Type{}) {
-				state.taskTypes[node.OperandType.CName] = node.OperandType
-			}
-			if node.Operand != nil {
-				if err := walkExpression(*node.Operand); err != nil {
-					return err
-				}
-				site, err := spawnSiteFor(*node.Operand, functions)
-				if err != nil {
-					return err
-				}
-				state.spawns = append(state.spawns, site)
-			}
-		case checker.TaskYieldExpression:
-			state.used = true
-			state.yield = true
-		case checker.TaskMethodCallExpression:
-			state.used = true
-			if node.OperandType != (compilerTypes.Type{}) {
-				state.taskTypes[node.OperandType.CName] = node.OperandType
-			}
-			switch node.Name {
-			case "join":
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			switch node.Kind {
+			case checker.SpawnExpression:
+				state.used = true
+				state.spawnFail = true
 				if node.OperandType != (compilerTypes.Type{}) {
-					state.joinTypes[node.OperandType.CName] = node.OperandType
+					state.taskTypes[node.OperandType.CName] = node.OperandType
 				}
-			case "detach":
-				state.detach = true
-			}
-		case checker.ChannelConstructorExpression:
-			state.used = true
-			state.channelNew = true
-			if node.OperandType != (compilerTypes.Type{}) {
-				state.channels[node.OperandType.CName] = node.OperandType
+				if node.Operand != nil {
+					site, err := spawnSiteFor(*node.Operand, functions)
+					if err != nil {
+						return err
+					}
+					state.spawns = append(state.spawns, site)
+				}
+			case checker.TaskYieldExpression:
+				state.used = true
+				state.yield = true
+			case checker.TaskMethodCallExpression:
+				state.used = true
+				if node.OperandType != (compilerTypes.Type{}) {
+					state.taskTypes[node.OperandType.CName] = node.OperandType
+				}
+				switch node.Name {
+				case "join":
+					if node.OperandType != (compilerTypes.Type{}) {
+						state.joinTypes[node.OperandType.CName] = node.OperandType
+					}
+				case "detach":
+					state.detach = true
+				}
+			case checker.ChannelConstructorExpression:
+				state.used = true
+				state.channelNew = true
+				if node.OperandType != (compilerTypes.Type{}) {
+					state.channels[node.OperandType.CName] = node.OperandType
+					if node.ResultType != (compilerTypes.Type{}) {
+						state.channelNewUnions[node.OperandType.CName] = node.ResultType
+					}
+				}
+			case checker.ChannelMethodCallExpression:
+				state.used = true
+				if node.OperandType != (compilerTypes.Type{}) {
+					state.channels[node.OperandType.CName] = node.OperandType
+				}
+				switch node.Name {
+				case "send":
+					state.channelSend = true
+					if node.OperandType != (compilerTypes.Type{}) && node.ResultType != (compilerTypes.Type{}) {
+						state.channelSendUnions[node.OperandType.CName] = node.ResultType
+					}
+				case "receive":
+					if node.OperandType != (compilerTypes.Type{}) && node.ResultType != (compilerTypes.Type{}) {
+						state.channelReceiveUnions[node.OperandType.CName] = node.ResultType
+					}
+				}
+			case checker.MutexConstructorExpression:
+				state.used = true
+				state.mutexNew = true
+				state.mutexCreate = true
 				if node.ResultType != (compilerTypes.Type{}) {
-					state.channelNewUnions[node.OperandType.CName] = node.ResultType
+					state.mutexNewUnion = node.ResultType
+				}
+			case checker.MutexMethodCallExpression:
+				state.used = true
+				switch node.Name {
+				case "lock":
+					state.mutexLock = true
+				case "unlock":
+					state.mutexUnlock = true
+				case "free":
+					state.mutexFree = true
+				}
+			case checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression:
+				if node.OperandType != (compilerTypes.Type{}) {
+					state.atomics[node.OperandType.CName] = node.OperandType
 				}
 			}
-		case checker.ChannelMethodCallExpression:
-			state.used = true
-			if node.OperandType != (compilerTypes.Type{}) {
-				state.channels[node.OperandType.CName] = node.OperandType
-			}
-			switch node.Name {
-			case "send":
-				state.channelSend = true
-				if node.OperandType != (compilerTypes.Type{}) && node.ResultType != (compilerTypes.Type{}) {
-					state.channelSendUnions[node.OperandType.CName] = node.ResultType
-				}
-			case "receive":
-				if node.OperandType != (compilerTypes.Type{}) && node.ResultType != (compilerTypes.Type{}) {
-					state.channelReceiveUnions[node.OperandType.CName] = node.ResultType
-				}
-			}
-		case checker.MutexConstructorExpression:
-			state.used = true
-			state.mutexNew = true
-			state.mutexCreate = true
-			if node.ResultType != (compilerTypes.Type{}) {
-				state.mutexNewUnion = node.ResultType
-			}
-		case checker.MutexMethodCallExpression:
-			state.used = true
-			switch node.Name {
-			case "lock":
-				state.mutexLock = true
-			case "unlock":
-				state.mutexUnlock = true
-			case "free":
-				state.mutexFree = true
-			}
-		case checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression:
-			if node.OperandType != (compilerTypes.Type{}) {
-				state.atomics[node.OperandType.CName] = node.OperandType
-			}
-		}
-		if node.Operand != nil {
-			if err := walkExpression(*node.Operand); err != nil {
-				return err
-			}
-		}
-		if node.Left != nil {
-			if err := walkExpression(*node.Left); err != nil {
-				return err
-			}
-		}
-		if node.Right != nil {
-			if err := walkExpression(*node.Right); err != nil {
-				return err
-			}
-		}
-		for _, argument := range node.Arguments {
-			if err := walkOperand(argument); err != nil {
-				return err
-			}
-		}
-		return nil
+			return nil
+		},
 	}
-	walkOperand = func(source checker.Operand) error {
-		if source.Node.Kind != checker.InvalidExpression {
-			return walkExpression(source.Node)
-		}
-		return nil
-	}
-	walkStatements = func(statements []checker.Statement) error {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-			case checker.Assignment:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Target); err != nil {
-					return err
-				}
-			case checker.CallStatement:
-				if err := walkExpression(statement.Call.Node); err != nil {
-					return err
-				}
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					if err := walkOperand(*statement.Value); err != nil {
-						return err
-					}
-				}
-			case checker.IfStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Then); err != nil {
-					return err
-				}
-				for _, branch := range statement.ElseIf {
-					if err := walkOperand(branch.Condition); err != nil {
-						return err
-					}
-					if err := walkStatements(branch.Body); err != nil {
-						return err
-					}
-				}
-				if statement.Else != nil {
-					if err := walkStatements(statement.Else); err != nil {
-						return err
-					}
-				}
-			case checker.WhileStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.ForStatement:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.DeferStatement:
-				if err := walkOperand(statement.Expression); err != nil {
-					return err
-				}
-			case checker.ErrdeferStatement:
-				if err := walkOperand(statement.Expression); err != nil {
-					return err
-				}
-			case checker.FunctionDeclaration:
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.MethodDeclaration:
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-	if err := walkStatements(program.Statements); err != nil {
+	if err := walkProgram(program, visitor); err != nil {
 		return nil, err
-	}
-	for _, function := range program.SpecializedFunctions {
-		if err := walkStatements(function.Body); err != nil {
-			return nil, err
-		}
-	}
-	for _, method := range program.SpecializedMethods {
-		if err := walkStatements(method.Body); err != nil {
-			return nil, err
-		}
 	}
 	if state.used && strings != nil {
 		strings.used = true

@@ -19,18 +19,15 @@ type generatedPrintState struct {
 }
 
 // discoverGeneratedPrint collects the argument types print needs helpers
-// for, including every recursively nested aggregate type.
+// for, including every recursively nested aggregate type. Only types
+// reachable from print arguments are collected: print's helpers must exist
+// exactly when a print argument could reference them, and not otherwise.
 func discoverGeneratedPrint(program checker.Program) *generatedPrintState {
 	state := &generatedPrintState{}
 	seen := make(map[string]bool)
-	var addType func(typ compilerTypes.Type)
-	var walkOperand func(checker.Operand)
-	var walkExpression func(checker.Expression)
-	var walkStatements func([]checker.Statement)
-
-	addType = func(typ compilerTypes.Type) {
+	addType := func(typ compilerTypes.Type) error {
 		if typ == (compilerTypes.Type{}) {
-			return
+			return nil
 		}
 		key := typ.Name
 		switch {
@@ -44,118 +41,52 @@ func discoverGeneratedPrint(program checker.Program) *generatedPrintState {
 			if !seen[key] {
 				seen[key] = true
 				state.types = append(state.types, typ)
-				for _, member := range typ.Object.Members {
-					addType(member.Type)
-				}
 			}
 		case typ.Adt != nil:
 			if !seen[key] {
 				seen[key] = true
 				state.types = append(state.types, typ)
-				for _, variant := range typ.Adt.Variants {
-					for _, member := range variant.Payload {
-						addType(member.Type)
-					}
-				}
 			}
 		case typ.Array != nil:
 			if !seen[key] {
 				seen[key] = true
 				state.types = append(state.types, typ)
-				addType(typ.Array.Element)
 			}
 		case typ.View != nil:
 			if !seen[key] {
 				seen[key] = true
 				state.types = append(state.types, typ)
-				addType(typ.View.Element)
 			}
 		case typ.List != nil:
 			if !seen[key] {
 				seen[key] = true
 				state.types = append(state.types, typ)
-				addType(typ.List.Element)
 			}
 		case typ.Dict != nil:
 			if !seen[key] {
 				seen[key] = true
 				state.types = append(state.types, typ)
-				addType(typ.Dict.Key)
-				addType(typ.Dict.Value)
 			}
 		}
+		return nil
 	}
-	walkExpression = func(node checker.Expression) {
-		if node.Kind == checker.PrintExpression {
-			state.used = true
-			for _, argument := range node.Arguments {
-				addType(argument.Type)
+	visitor := &programVisitor{
+		// The structural descent from a print argument's type reuses the
+		// walker's type walk, keeping print's argument-scoped criteria.
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.PrintExpression {
+				state.used = true
+				for _, argument := range node.Arguments {
+					if err := walkTypeTree(argument.Type, addType); err != nil {
+						return err
+					}
+				}
 			}
-		}
-		if node.Constant != nil {
-			walkOperand(*node.Constant)
-		}
-		if node.Operand != nil {
-			walkExpression(*node.Operand)
-		}
-		if node.Left != nil {
-			walkExpression(*node.Left)
-		}
-		if node.Right != nil {
-			walkExpression(*node.Right)
-		}
-		for _, argument := range node.Arguments {
-			walkOperand(argument)
-		}
+			return nil
+		},
 	}
-	walkOperand = func(source checker.Operand) {
-		if source.Node.Kind != checker.InvalidExpression {
-			walkExpression(source.Node)
-		}
-	}
-	walkStatements = func(statements []checker.Statement) {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				walkOperand(statement.Source)
-			case checker.Assignment:
-				walkOperand(statement.Source)
-				walkOperand(statement.Target)
-			case checker.CallStatement:
-				walkExpression(statement.Call.Node)
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					walkOperand(*statement.Value)
-				}
-			case checker.IfStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Then)
-				for _, branch := range statement.ElseIf {
-					walkOperand(branch.Condition)
-					walkStatements(branch.Body)
-				}
-				if statement.Else != nil {
-					walkStatements(statement.Else)
-				}
-			case checker.ForStatement:
-				walkOperand(statement.Source)
-				walkStatements(statement.Body)
-			case checker.WhileStatement:
-				walkOperand(statement.Condition)
-				walkStatements(statement.Body)
-			case checker.FunctionDeclaration:
-				walkStatements(statement.Body)
-			case checker.MethodDeclaration:
-				walkStatements(statement.Body)
-			}
-		}
-	}
-	walkStatements(program.Statements)
-	for _, function := range program.SpecializedFunctions {
-		walkStatements(function.Body)
-	}
-	for _, method := range program.SpecializedMethods {
-		walkStatements(method.Body)
+	if err := walkProgram(program, visitor); err != nil {
+		panic(err)
 	}
 	return state
 }

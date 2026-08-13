@@ -63,175 +63,62 @@ func streamSuffix(stream compilerTypes.Type) string {
 // families the header must define.
 func discoverGeneratedStreams(program checker.Program) (*generatedStreamState, error) {
 	state := &generatedStreamState{}
-	var walkStatements func(statements []checker.Statement) error
-	var walkExpression func(node checker.Expression) error
-	var walkOperand func(source checker.Operand) error
-
-	walkExpression = func(node checker.Expression) error {
-		switch node.Kind {
-		case checker.StreamConstructorExpression:
-			state.add(node.OperandType)
-			state.add(node.ResultType)
-			if node.Name == "produce" && len(node.Arguments) == 3 {
-				callback, err := streamCallbackCName(node.Arguments[2])
-				if err != nil {
-					return err
-				}
-				stepUnion := compilerTypes.Type{}
-				if node.Arguments[2].Type.Signature != nil && node.Arguments[2].Type.Signature.Result != nil {
-					stepUnion = *node.Arguments[2].Type.Signature.Result
-				}
-				state.produceNodes = append(state.produceNodes, streamProduceSpec{
-					streamType:   node.ResultType,
-					stateType:    node.Arguments[1].Type,
-					stepUnion:    stepUnion,
-					callbackName: callback,
-				})
-			}
-		case checker.StreamMethodCallExpression:
-			state.add(node.OperandType)
-			state.add(node.ResultType)
-			switch node.Name {
-			case "list_stream":
-				state.listNodes = append(state.listNodes, node.OperandType)
-			case "filter":
-				state.filterTypes = append(state.filterTypes, node.ResultType)
-			case "take":
-				state.takeTypes = append(state.takeTypes, node.ResultType)
-			case "next":
-				state.stepUnions = append(state.stepUnions, streamStepUnion{streamType: node.OperandType, unionType: node.ResultType})
-			case "map":
-				if len(node.Arguments) == 2 {
-					callback, err := streamCallbackCName(node.Arguments[1])
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			switch node.Kind {
+			case checker.StreamConstructorExpression:
+				state.add(node.OperandType)
+				state.add(node.ResultType)
+				if node.Name == "produce" && len(node.Arguments) == 3 {
+					callback, err := streamCallbackCName(node.Arguments[2])
 					if err != nil {
 						return err
 					}
-					state.mapNodes = append(state.mapNodes, streamMapSpec{
-						sourceType:   node.OperandType,
-						resultType:   node.ResultType,
+					stepUnion := compilerTypes.Type{}
+					if node.Arguments[2].Type.Signature != nil && node.Arguments[2].Type.Signature.Result != nil {
+						stepUnion = *node.Arguments[2].Type.Signature.Result
+					}
+					state.produceNodes = append(state.produceNodes, streamProduceSpec{
+						streamType:   node.ResultType,
+						stateType:    node.Arguments[1].Type,
+						stepUnion:    stepUnion,
 						callbackName: callback,
 					})
 				}
+			case checker.StreamMethodCallExpression:
+				state.add(node.OperandType)
+				state.add(node.ResultType)
+				switch node.Name {
+				case "list_stream":
+					state.listNodes = append(state.listNodes, node.OperandType)
+				case "filter":
+					state.filterTypes = append(state.filterTypes, node.ResultType)
+				case "take":
+					state.takeTypes = append(state.takeTypes, node.ResultType)
+				case "next":
+					state.stepUnions = append(state.stepUnions, streamStepUnion{streamType: node.OperandType, unionType: node.ResultType})
+				case "map":
+					if len(node.Arguments) == 2 {
+						callback, err := streamCallbackCName(node.Arguments[1])
+						if err != nil {
+							return err
+						}
+						state.mapNodes = append(state.mapNodes, streamMapSpec{
+							sourceType:   node.OperandType,
+							resultType:   node.ResultType,
+							callbackName: callback,
+						})
+					}
+				}
 			}
-		}
-		if node.Operand != nil {
-			if err := walkExpression(*node.Operand); err != nil {
-				return err
-			}
-		}
-		if node.Left != nil {
-			if err := walkExpression(*node.Left); err != nil {
-				return err
-			}
-		}
-		if node.Right != nil {
-			if err := walkExpression(*node.Right); err != nil {
-				return err
-			}
-		}
-		for _, argument := range node.Arguments {
-			if err := walkOperand(argument); err != nil {
-				return err
-			}
-		}
-		return nil
+			return nil
+		},
 	}
-	walkOperand = func(source checker.Operand) error {
-		if source.Node.Kind != checker.InvalidExpression {
-			return walkExpression(source.Node)
-		}
-		return nil
-	}
-	walkStatements = func(statements []checker.Statement) error {
-		for _, statement := range statements {
-			switch statement := statement.(type) {
-			case checker.Declaration:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-			case checker.Assignment:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Target); err != nil {
-					return err
-				}
-			case checker.CallStatement:
-				if err := walkExpression(statement.Call.Node); err != nil {
-					return err
-				}
-			case checker.ReturnStatement:
-				if statement.Value != nil {
-					if err := walkOperand(*statement.Value); err != nil {
-						return err
-					}
-				}
-			case checker.IfStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Then); err != nil {
-					return err
-				}
-				for _, branch := range statement.ElseIf {
-					if err := walkOperand(branch.Condition); err != nil {
-						return err
-					}
-					if err := walkStatements(branch.Body); err != nil {
-						return err
-					}
-				}
-				if statement.Else != nil {
-					if err := walkStatements(statement.Else); err != nil {
-						return err
-					}
-				}
-			case checker.WhileStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.ForStatement:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.FunctionDeclaration:
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			case checker.MethodDeclaration:
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-	if err := walkStatements(program.Statements); err != nil {
+	if err := walkProgram(program, visitor); err != nil {
 		return nil, err
-	}
-	for _, function := range program.SpecializedFunctions {
-		if err := walkStatements(function.Body); err != nil {
-			return nil, err
-		}
-	}
-	for _, method := range program.SpecializedMethods {
-		if err := walkStatements(method.Body); err != nil {
-			return nil, err
-		}
 	}
 	return state, nil
 }
-
-// writeStreamDefinitions emits the ops tables, the canonical empty handle,
-// the public next and free helpers, and one focused node family per concrete
-// source or adapter shape. Ordering is chosen so every function referenced
-// by a pointer initializer is declared before its table.
 func writeStreamDefinitions(result *strings.Builder, streams *generatedStreamState) {
 	if streams == nil || len(streams.order) == 0 {
 		return
