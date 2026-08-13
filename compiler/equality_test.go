@@ -209,3 +209,32 @@ func TestNilComparisonRulesPreserved(t *testing.T) {
 		t.Fatalf("Compile stderr = %#v, want standalone-nil diagnostic", result.Stderr)
 	}
 }
+
+// RFC 0049: List equality is deep element equality; Task, Channel, Mutex,
+// Atomic, and Stream handles have no equality at all.
+func TestListEqualityAccepted(t *testing.T) {
+	result := Compile("fun demo(h: Heap)\n    left: List<Int32> = List<Int32>.new(h)\n    defer left.free(h)\n    left.push(1)\n    right: List<Int32> = left\n    same: Bool = left == right\nend")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+	if !strings.Contains(result.MainH, "static bool hex_equal_hex_list_Int32(const hex_list_Int32 *left, const hex_list_Int32 *right) {") {
+		t.Fatalf("main.h = %q, want List equality helper", result.MainH)
+	}
+}
+
+func TestManagedHandleEqualityRejected(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		source string
+	}{
+		{"Task", "fun worker(): Bool\n    return true\nend\nfun f(h: Heap): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    same: Bool = task == task\n    return 0\nend\n"},
+		{"Channel", "fun f(h: Heap): Int32 | Error\n    channel: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    same: Bool = channel == channel\n    return 0\nend\n"},
+		{"Mutex", "fun f(h: Heap): Int32 | Error\n    mutex: Mutex = try Mutex.new(h)\n    same: Bool = mutex == mutex\n    return 0\nend\n"},
+		{"Atomic", "counter: Atomic<Int32> = Atomic<Int32>.new(0)\nsame: Bool = counter == counter\n"},
+		{"Stream", "fun f()\n    s: Stream<Int32> = Stream<Int32>.new()\n    same: Bool = s == s\nend\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, testCase.source, "equality is unavailable")
+		})
+	}
+}

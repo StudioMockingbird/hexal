@@ -134,3 +134,83 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 		t.Fatalf("want Array<Size> and Array<UInt64> distinct, got accept")
 	}
 }
+
+// The full implicit lossless widening table (RFC 0016, preserved by RFC
+// 0049): a typed value converts implicitly to exactly its permitted targets
+// in binding-initializer position, and to nothing else. Byte is a
+// transparent UInt8 alias; Rune and Size widen never.
+func TestLosslessWideningPairTable(t *testing.T) {
+	widening := map[string][]string{
+		"Int8":    {"Int16", "Int32", "Int64", "Float32", "Float64"},
+		"Int16":   {"Int32", "Int64", "Float32", "Float64"},
+		"Int32":   {"Int64", "Float64"},
+		"UInt8":   {"UInt16", "UInt32", "UInt64", "Int16", "Int32", "Int64", "Float32", "Float64"},
+		"Byte":    {"UInt16", "UInt32", "UInt64", "Int16", "Int32", "Int64", "Float32", "Float64"},
+		"UInt16":  {"UInt32", "UInt64", "Int32", "Int64", "Float32", "Float64"},
+		"UInt32":  {"UInt64", "Int64", "Float64"},
+		"Float32": {"Float64"},
+	}
+	scalars := []string{"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float32", "Float64", "Rune"}
+	literal := map[string]string{"Float32": "1.5", "Float64": "1.5"}
+	for source, targets := range widening {
+		for _, target := range targets {
+			t.Run(source+"_to_"+target, func(t *testing.T) {
+				value := "1"
+				if source == "Float32" || source == "Float64" {
+					value = literal[source]
+				}
+				assertCompiles(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n")
+			})
+		}
+	}
+	// Identity is excluded from the table; every other pair with a fixed
+	// source type is a rejection. Byte is a transparent UInt8 alias, so its
+	// rows collapse into the UInt8 rows.
+	for _, source := range scalars {
+		for _, target := range scalars {
+			if source == target || slicesContains(widening[source], target) {
+				continue
+			}
+			t.Run("reject_"+source+"_to_"+target, func(t *testing.T) {
+				value := "1"
+				if source == "Float32" || source == "Float64" {
+					value = literal[source]
+				}
+				assertRejects(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n", "expected "+target+" initializer, got "+source)
+			})
+		}
+	}
+	// Int64, UInt64, Float64, and Rune widen nowhere.
+	for _, source := range []string{"Int64", "UInt64", "Float64", "Rune"} {
+		for _, target := range scalars {
+			if source == target {
+				continue
+			}
+			t.Run("reject_"+source+"_to_"+target, func(t *testing.T) {
+				value := "1"
+				if source == "Float32" || source == "Float64" {
+					value = literal[source]
+				}
+				assertRejects(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n", "expected "+target+" initializer, got "+source)
+			})
+		}
+	}
+}
+
+func slicesContains(list []string, want string) bool {
+	for _, item := range list {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+// A negated literal may not target an unsigned type, even at zero.
+func TestNegatedLiteralRequiresSignedDestination(t *testing.T) {
+	for _, target := range []string{"UInt8", "UInt16", "UInt32", "UInt64"} {
+		t.Run(target, func(t *testing.T) {
+			assertRejects(t, "value: "+target+" = -0\n", "negated integer literal requires a signed destination")
+		})
+	}
+}

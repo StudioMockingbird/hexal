@@ -25,10 +25,23 @@ func TestStorabilityRule(t *testing.T) {
 	rejected := []string{
 		"type Box = { f: Fun<(Int32) : Int32> }\n",
 		"funs: Array<Fun<(Int32) : Int32>, 1> = [identity]\nfun identity(x: Int32): Int32\n    return x\nend\n",
+		"fun helper(x: Int32): Int32 return x end\nfun f(h: Heap)\n    values: List<Fun<(Int32) : Int32>> = List<Fun<(Int32) : Int32>>.new(h)\nend\n",
+		"fun helper(x: Int32): Int32 return x end\nfun f(h: Heap)\n    d: Dict<Int32, Fun<(Int32) : Int32>> = Dict<Int32, Fun<(Int32) : Int32>>.new(h)\nend\n",
+		"fun helper(x: Int32): Int32 return x end\nfun f()\n    s: Stream<Fun<(Int32) : Int32>> = Stream<Fun<(Int32) : Int32>>.new()\nend\n",
+		"fun helper(x: Int32): Int32 return x end\ntype Wrapper = | A as { f: Fun<(Int32) : Int32> } | B as { x: Int32 }\nw: Wrapper = Wrapper.B { x = 1 }\n",
 	}
 	for _, source := range rejected {
 		if result := Compile(source); result.ExitCode != ExitFailure {
 			t.Fatalf("want reject, got accept:\n%s", source)
+		}
+	}
+	// A Fun inside a union member stays accepted; only structural payload
+	// positions reject it.
+	for _, source := range []string{
+		"fun helper(x: Int32): Int32 return x end\ntype Wrapper = Fun<(Int32) : Int32> | Int32\nw: Wrapper = 1\n",
+	} {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
 		}
 	}
 }

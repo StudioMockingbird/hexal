@@ -65,3 +65,30 @@ func TestStreamNameIsProtected(t *testing.T) {
 		t.Fatalf("ordinary Stream<T> use must compile: %v", result.Stderr)
 	}
 }
+
+// Every built-in type name is protected from redeclaration (reference.md
+// protected-name list). Aliases, scalars, collections, handles, and marker
+// types all share the same diagnostic.
+func TestBuiltinTypeNamesAreProtected(t *testing.T) {
+	names := map[string]string{
+		"Int8": "", "Int16": "", "Int32": "", "Int64": "",
+		"UInt8": "", "UInt16": "", "UInt32": "", "UInt64": "",
+		"Float32": "", "Float64": "", "Bool": "", "Rune": "", "Byte": "", "Size": "",
+		"String": "", "Strand": "", "RuneCursor": "",
+		"List": "", "Dict": "", "View": "", "Array": "",
+		"Fun": "", "Unknown": "", "Nil": "",
+		"Task": "", "Channel": "", "Mutex": "", "Atomic": "", "Heap": "",
+		"Stream": "", "EoS": "", "File": "", "FileMode": "", "Error": "",
+		"Ptr":    "built-in type constructor Ptr cannot be redeclared",
+		"MutPtr": "built-in type constructor MutPtr cannot be redeclared",
+		"Stdio":  "Stdio is a protected intrinsic qualifier",
+	}
+	for name, want := range names {
+		t.Run(name, func(t *testing.T) {
+			if want == "" {
+				want = "built-in type " + name + " cannot be redeclared"
+			}
+			assertRejects(t, "type "+name+" = Int32", want)
+		})
+	}
+}

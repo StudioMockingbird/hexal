@@ -485,3 +485,35 @@ func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 		t.Fatalf("want fixed-member ref downgraded to Ptr, got accept:\n%s", rejected)
 	}
 }
+
+// The pointee matrix: managed collections, text, streams, views, functions,
+// and Nil cannot be pointed to; Tasks, Channels, Mutexes, and ordinary types
+// can. (Direct Atomic pointees are covered in concurrency_test.go.)
+func TestPointeeEligibilityMatrix(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		source string
+	}{
+		{"String", "fun f(h: Heap)\n    s: String = \"x\".to_string(h)\n    p: Ptr<String> = ref s\nend\n"},
+		{"List", "fun f(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    p: Ptr<List<Int32>> = ref values\nend\n"},
+		{"Dict", "fun f(h: Heap)\n    d: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    p: Ptr<Dict<Int32, Int32>> = ref d\nend\n"},
+		{"Stream", "fun f()\n    s: Stream<Int32> = Stream<Int32>.new()\n    p: Ptr<Stream<Int32>> = ref s\nend\n"},
+		{"View", "fun f()\n    v: View<Int32> = View<Int32>.empty()\n    p: Ptr<View<Int32>> = ref v\nend\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, testCase.source, "could not construct pointer type")
+		})
+	}
+	for _, testCase := range []struct {
+		name   string
+		source string
+	}{
+		{"Task", "fun worker(): Bool\n    return true\nend\nfun f(h: Heap): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    p: Ptr<Task<Bool>> = ref task\n    return 0\nend\n"},
+		{"Channel", "fun f(h: Heap): Int32 | Error\n    channel: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    p: Ptr<Channel<Int32>> = ref channel\n    return 0\nend\n"},
+		{"Mutex", "fun f(h: Heap): Int32 | Error\n    mutex: Mutex = try Mutex.new(h)\n    p: Ptr<Mutex> = ref mutex\n    return 0\nend\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertCompiles(t, testCase.source)
+		})
+	}
+}

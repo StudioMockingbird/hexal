@@ -195,3 +195,18 @@ func TestNullabilityDiagnostics(t *testing.T) {
 		}
 	}
 }
+
+// RFC 0049 item 8.1 regression at the integration level: standalone Nil is
+// rejected through generic substitution and spawn arguments.
+func TestNilRejectedThroughSubstitution(t *testing.T) {
+	assertRejects(t, "type Box<T> = { value: T }\nbad: Box<Nil> = Box<Nil> { value = nil }\n", "Nil is valid only as a member of a union with a non-Nil type")
+	assertRejects(t, "fun worker(flag: Nil): Bool\n    return true\nend\nfun f(h: Heap): Int32 | Error\n    task: Task<Bool> = try spawn worker(nil)\n    return 0\nend\n", "Nil is valid only as a member of a union with a non-Nil type")
+}
+
+// A branch-established narrowing survives on the sole continuing path when
+// every alternative terminates with return, break, or continue.
+func TestSoleContinuingPathNarrowing(t *testing.T) {
+	assertCompiles(t, "fun f(): Int32\n    mut maybe: Ptr<Int32> | Nil = nil\n    if maybe == nil\n        return 0\n    end\n    return maybe.value\nend\n")
+	assertCompiles(t, "fun f(): Int32\n    mut maybe: Ptr<Int32> | Nil = nil\n    while true do\n        if maybe == nil\n            break\n        end\n        return maybe.value\n    end\n    return 0\nend\n")
+	assertRejects(t, "fun f(): Int32\n    mut maybe: Ptr<Int32> | Nil = nil\n    if maybe != nil\n        print(maybe.value)\n    end\n    return maybe.value\nend\n", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+}

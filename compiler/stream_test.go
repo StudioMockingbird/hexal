@@ -145,3 +145,36 @@ func TestEosSingletonSemantics(t *testing.T) {
 		}
 	}
 }
+
+// The produce state is an ordinary complete, finite-sized value; the
+// producer callback must accept MutPtr<State> and return exactly T | EoS.
+func TestStreamProduceStateEligibility(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		source string
+	}{
+		{"scalar state", "fun next(state: MutPtr<Int32>): Int32 | EoS\n    return eos\nend\nfun f(h: Heap)\n    s: Stream<Int32> = Stream<Int32>.produce(h, 0, next)\nend\n"},
+		{"object state", "type Counter = { mut current: Int32 }\nfun next(state: MutPtr<Counter>): Int32 | EoS\n    return eos\nend\nfun f(h: Heap)\n    c: Counter = Counter { current = 0 }\n    s: Stream<Int32> = Stream<Int32>.produce(h, c, next)\nend\n"},
+		{"atomic-member state", "type Shared = { count: Atomic<Int32> }\nfun next(state: MutPtr<Shared>): Int32 | EoS\n    return eos\nend\nfun f(h: Heap)\n    c: Shared = Shared { count = Atomic<Int32>.new(0) }\n    s: Stream<Int32> = Stream<Int32>.produce(h, c, next)\nend\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertCompiles(t, testCase.source)
+		})
+	}
+	assertRejects(t, "fun next(state: MutPtr<Nil>): Int32 | EoS\n    return eos\nend\nfun f(h: Heap)\n    s: Stream<Int32> = Stream<Int32>.produce(h, nil, next)\nend\n", "Nil is valid only as a member of a union with a non-Nil type")
+}
+
+func TestStreamProducerCallbackResult(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		source string
+	}{
+		{"plain value result", "fun next(state: MutPtr<Int32>): Int32\n    return 1\nend\nfun f(h: Heap)\n    s: Stream<Int32> = Stream<Int32>.produce(h, 0, next)\nend\n"},
+		{"no result", "fun next(state: MutPtr<Int32>)\n    return\nend\nfun f(h: Heap)\n    s: Stream<Int32> = Stream<Int32>.produce(h, 0, next)\nend\n"},
+		{"union with Nil", "fun next(state: MutPtr<Int32>): Int32 | Nil | EoS\n    return nil\nend\nfun f(h: Heap)\n    s: Stream<Int32> = Stream<Int32>.produce(h, 0, next)\nend\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, testCase.source, "Stream producer callback must return T | EoS")
+		})
+	}
+}

@@ -351,3 +351,21 @@ func TestCheckerElseifWithoutElseStillMergesInvalidation(t *testing.T) {
 	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil if flag maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil other: Bool = false if other noop: Int32 = 0 elseif flag maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 }
+
+// RFC 0049 item 8.1: standalone Nil is rejected even through generic
+// substitution and spawn arguments, not only in direct spellings.
+func TestCheckerRejectsNilThroughGenericSubstitution(t *testing.T) {
+	requireDiagnostic(t, "type Box<T> = { value: T } bad: Box<Nil> = Box<Nil> { value = nil }", "Nil is valid only as a member of a union with a non-Nil type")
+	requireDiagnostic(t, "type Box<T> = { value: T } fun unwrap(box: Box<Nil>): Int32 return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
+	requireDiagnostic(t, "fun worker(flag: Nil): Bool return true end fun run(): Int32 | Error task: Task<Bool> = try spawn worker(nil) return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
+}
+
+// Reference.md: a branch-established fact survives only on the sole
+// continuing path when every alternative terminates with return, break, or
+// continue.
+func TestCheckerSoleContinuingPathNarrowing(t *testing.T) {
+	requireAccepted(t, "fun f(): Int32 mut maybe: Ptr<Int32> | Nil = nil if maybe == nil return 0 end return maybe.value end")
+	requireAccepted(t, "fun f(): Int32 mut maybe: Ptr<Int32> | Nil = nil while true do if maybe == nil break end return maybe.value end return 0 end")
+	requireAccepted(t, "fun f(): Int32 mut maybe: Ptr<Int32> | Nil = nil mut total: Int32 = 0 while true do if maybe == nil continue end total = maybe.value break end return total end")
+	requireDiagnostic(t, "fun f(): Int32 mut maybe: Ptr<Int32> | Nil = nil if maybe != nil print(maybe.value) end return maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+}
