@@ -289,28 +289,37 @@ func (parser *Parser) place() (Expression, error) {
 		return nil, err
 	}
 	expression := Expression(VariableExpression{Name: name})
-	for parser.check(lexer.Dot) {
-		parser.advance()
-		property, err := parser.consume(lexer.Identifier, "an identifier after '.'")
-		if err != nil {
-			return nil, err
+	// RFC 0049 item 4: a place is an addressable root followed by any ordered
+	// sequence of member and index suffixes, so `ref rows[0].field` and
+	// `ref grid[0].cells[1].value` are valid. The checker derives capability
+	// from the complete place.
+	for {
+		if parser.check(lexer.Dot) {
+			parser.advance()
+			property, err := parser.consume(lexer.Identifier, "an identifier after '.'")
+			if err != nil {
+				return nil, err
+			}
+			expression = PropertyExpression{Receiver: expression, Property: property}
+			continue
 		}
-		expression = PropertyExpression{Receiver: expression, Property: property}
-	}
-	// RFC 0033: ref accepts addressable collection elements too, so
-	// `ref values[2]` refers to one element without creating an array
-	// pointer.
-	for parser.check(lexer.LeftBracket) {
-		open := parser.advance()
-		index, err := parser.expression()
-		if err != nil {
-			return nil, err
+		if parser.check(lexer.LeftBracket) {
+			// RFC 0033: ref accepts addressable collection elements too, so
+			// `ref values[2]` refers to one element without creating an array
+			// pointer.
+			open := parser.advance()
+			index, err := parser.expression()
+			if err != nil {
+				return nil, err
+			}
+			close, err := parser.consume(lexer.RightBracket, "']'")
+			if err != nil {
+				return nil, err
+			}
+			expression = IndexExpression{Receiver: expression, OpenBracket: open, Index: index, CloseBracket: close}
+			continue
 		}
-		close, err := parser.consume(lexer.RightBracket, "']'")
-		if err != nil {
-			return nil, err
-		}
-		expression = IndexExpression{Receiver: expression, OpenBracket: open, Index: index, CloseBracket: close}
+		break
 	}
 	if parser.check(lexer.LeftParen) {
 		return nil, parser.errorAtCurrent("ref requires a place")

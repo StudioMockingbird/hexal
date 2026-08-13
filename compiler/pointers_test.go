@@ -466,3 +466,22 @@ func TestAutoDereferenceMissingMemberNamesSourceSpelling(t *testing.T) {
 		t.Fatalf("missing member behind pointer = %#v, want no-member diagnostic", result.Stderr)
 	}
 }
+
+func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
+	accepted := []string{
+		"type Row = { value: Int32 }\nfun f()\n    rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: Ptr<Int32> = ref rows[0].value\nend\n",
+		"type Row = { mut value: Int32 }\nfun f()\n    mut rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: MutPtr<Int32> = ref rows[0].value\nend\n",
+		"type Cell = { mut value: Int32 }\ntype Box = { mut cells: Array<Cell, 2> }\nfun f()\n    mut grid: Array<Box, 2> = [Box { cells = [Cell { value = 1 }, Cell { value = 2 }] }, Box { cells = [Cell { value = 3 }, Cell { value = 4 }] }]\n    p: MutPtr<Int32> = ref grid[0].cells[1].value\nend\n",
+		"type Row = { mut values: Array<Int32, 2> }\nfun f()\n    mut pair: Row = Row { values = [1, 2] }\n    p: MutPtr<Int32> = ref pair.values[0]\nend\n",
+	}
+	for _, source := range accepted {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+		}
+	}
+	// A fixed member downgrades the final place to Ptr even under a writable root.
+	rejected := "type Row = { value: Int32 }\nfun f()\n    mut rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: MutPtr<Int32> = ref rows[0].value\nend\n"
+	if result := Compile(rejected); result.ExitCode != ExitFailure {
+		t.Fatalf("want fixed-member ref downgraded to Ptr, got accept:\n%s", rejected)
+	}
+}
