@@ -266,6 +266,13 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 		"r: Int32 = 1 + 'a'\n",
 		"letter: Rune = 'a'\nr: Int32 = letter + 1\n",
 		"letter: Rune = 'a'\nr: Int32 = 1 - letter\n",
+		"letter: Rune = 'a'\nr: Int32 = letter - letter\n",
+		"letter: Rune = 'a'\nr: Int32 = letter * letter\n",
+		"letter: Rune = 'a'\nr: Int32 = letter / letter\n",
+		"letter: Rune = 'a'\nr: Int32 = letter % letter\n",
+		"letter: Rune = 'a'\nr: Int32 = 1 * letter\n",
+		"letter: Rune = 'a'\nr: Int32 = 1 / letter\n",
+		"letter: Rune = 'a'\nr: Int32 = 1 % letter\n",
 	}
 	for _, source := range rejected {
 		result := Compile(source)
