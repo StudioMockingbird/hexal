@@ -40,13 +40,14 @@ func (parser *Parser) andExpression() (Expression, error) {
 	return expression, nil
 }
 
-// bitwiseOrExpression parses the `|` level (RFC 0032).
+// bitwiseOrExpression parses the `|` level (RFC 0032). Inside a match
+// position, an unparenthesized `|` is the next arm separator, not an operator.
 func (parser *Parser) bitwiseOrExpression() (Expression, error) {
 	expression, err := parser.bitwiseXorExpression()
 	if err != nil {
 		return nil, err
 	}
-	for parser.check(lexer.Pipe) {
+	for parser.check(lexer.Pipe) && parser.matchBoundary == noMatchBoundary {
 		operator := parser.advance()
 		right, err := parser.bitwiseXorExpression()
 		if err != nil {
@@ -112,7 +113,10 @@ func (parser *Parser) typeTestExpression() (Expression, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !parser.check(lexer.Is) {
+	// In a match scrutinee an unparenthesized `is` selects type mode rather
+	// than testing the scrutinee type; a scrutinee containing `is` must be
+	// parenthesized (RFC 0049 item 3).
+	if parser.matchBoundary == scrutineeBoundary || !parser.check(lexer.Is) {
 		return expression, nil
 	}
 	isToken := parser.advance()
@@ -367,8 +371,11 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 		}
 	case lexer.LeftParen:
 		parser.advance()
+		outer := parser.matchBoundary
+		parser.matchBoundary = noMatchBoundary
 		var err error
 		expression, err = parser.expression()
+		parser.matchBoundary = outer
 		if err != nil {
 			return nil, err
 		}
@@ -652,12 +659,14 @@ func (parser *Parser) genericVariantFollows() bool {
 // parenthesized.
 func (parser *Parser) matchExpression() (Expression, error) {
 	keyword := parser.advance()
-	// The scrutinee is parsed below the type-test level so an `is` immediately
-	// before the first arm selects type mode; a scrutinee containing `is` must
-	// be parenthesized. It is also parsed above the bitwise-or level so the
-	// first `|` arm separator is never consumed as a bitwise operator (RFC
-	// 0032).
-	scrutinee, err := parser.relationalExpression()
+	// The scrutinee uses the full expression grammar under a boundary that
+	// stops the top-level chain before an unparenthesized `is` (type-mode
+	// marker) or `|` (first arm). Parenthesized subexpressions suspend the
+	// boundary (RFC 0049 item 3).
+	outer := parser.matchBoundary
+	parser.matchBoundary = scrutineeBoundary
+	scrutinee, err := parser.orExpression()
+	parser.matchBoundary = outer
 	if err != nil {
 		return nil, err
 	}
@@ -677,10 +686,11 @@ func (parser *Parser) matchExpression() (Expression, error) {
 		if err != nil {
 			return nil, err
 		}
-		// The arm value stops above the bitwise-or level so the next arm's
-		// `|` separator is never consumed as a bitwise operator (RFC 0032);
-		// a value needing `|` must be parenthesized.
-		armExpression, err := parser.bitwiseXorExpression()
+		// The arm result uses the full expression grammar under a boundary
+		// that stops before an unparenthesized `|` (next arm separator).
+		parser.matchBoundary = armBoundary
+		armExpression, err := parser.orExpression()
+		parser.matchBoundary = outer
 		if err != nil {
 			return nil, err
 		}

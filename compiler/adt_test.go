@@ -140,3 +140,19 @@ func TestGenericADTUnitVariantNoPayload(t *testing.T) {
 		t.Fatalf("generated header = %q, want specialized unit variant ADT", result.MainH)
 	}
 }
+
+func TestMatchAdmitsFullExpressions(t *testing.T) {
+	accepted := []string{
+		"ready: Bool = true\nenabled: Bool = true\nr: Int32 = match ready and enabled\n| true then 1\n| false then 0\nend\n",
+		"a: Bool = true\nb: Bool = true\nready: Bool = true\nr: Bool = match ready\n| true then a or b\n| false then false\nend\n",
+		"x: Int32 = 1\ny: Int32 = 2\nr: Int32 = match x < y\n| true then 1\n| false then 0\nend\n",
+		"mask: Bool = true\nflag: Bool = false\nr: Int32 = match (mask or flag)\n| true then 1\n| false then 0\nend\n",
+		"value: Int32 | Float64 = 1\nr: Int32 = match (value is Int32)\n| true then 1\n| false then 0\nend\n",
+		"value: Int32 | Float64 = 1\nr: Int32 = match value is\n| Int32 then 1\n| Float64 then 0\nend\n",
+	}
+	for _, source := range accepted {
+		if result := Compile(source); result.ExitCode != ExitSuccess {
+			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+		}
+	}
+}

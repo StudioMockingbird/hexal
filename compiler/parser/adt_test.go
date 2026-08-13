@@ -124,3 +124,59 @@ func TestParseMatchScrutineeWithIsRequiresParens(t *testing.T) {
 		t.Fatalf("Parse error = %v, want parenthesized scrutinee accepted", err)
 	}
 }
+
+func TestParseMatchParenthesizedPipeIsBitwiseOr(t *testing.T) {
+	tokens, err := lexer.Lex("r: Int32 = match (mask | flag)\n| true then 1\n| false then 0\nend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	match, ok := program.Statements[0].(Declaration).Initializer.(MatchExpression)
+	if !ok || match.TypeMode || len(match.Arms) != 2 {
+		t.Fatalf("initializer = %#v, want two-arm value match", program.Statements[0])
+	}
+	binary, ok := match.Scrutinee.(BinaryExpression)
+	if !ok || binary.Operator.Kind != lexer.Pipe {
+		t.Fatalf("scrutinee = %#v, want parenthesized bitwise-or", match.Scrutinee)
+	}
+}
+
+func TestParseMatchScrutineeAndOrExpressions(t *testing.T) {
+	tokens, err := lexer.Lex("r: Int32 = match ready and enabled\n| true then 1\n| false then 0\nend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	match, ok := program.Statements[0].(Declaration).Initializer.(MatchExpression)
+	if !ok {
+		t.Fatalf("initializer = %#v, want match expression", program.Statements[0])
+	}
+	if _, ok := match.Scrutinee.(BinaryExpression); !ok {
+		t.Fatalf("scrutinee = %#v, want and expression", match.Scrutinee)
+	}
+}
+
+func TestParseNestedMatchOwnsItsBoundary(t *testing.T) {
+	source := "r: Int32 = match x is\n| Int32 then match y\n    | true then 1\n    | false then 0\n    end\n| else then 0\nend\n"
+	tokens, err := lexer.Lex(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outer, ok := program.Statements[0].(Declaration).Initializer.(MatchExpression)
+	if !ok || len(outer.Arms) != 2 {
+		t.Fatalf("initializer = %#v, want two-arm outer match", program.Statements[0])
+	}
+	if _, ok := outer.Arms[0].Expression.(MatchExpression); !ok {
+		t.Fatalf("arm 0 expression = %#v, want nested match", outer.Arms[0].Expression)
+	}
+}

@@ -16,7 +16,22 @@ type Parser struct {
 	// pendingGreater carries the second half of a `>>` token split into two
 	// generic closers while parsing nested type arguments (RFC 0032).
 	pendingGreater bool
+	// matchBoundary suspends the `|` (and, for a scrutinee, `is`) operator at
+	// match-expression depth zero so an unparenthesized `|` starts the next
+	// arm and an unparenthesized `is` selects type mode (RFC 0049 item 3).
+	// Parenthesized subexpressions clear it.
+	matchBoundary matchBoundaryKind
 }
+
+// matchBoundaryKind selects which tokens terminate a match position's top-level
+// parse.
+type matchBoundaryKind uint8
+
+const (
+	noMatchBoundary   matchBoundaryKind = iota
+	scrutineeBoundary                   // an unparenthesized `is` or `|` ends the scrutinee
+	armBoundary                         // an unparenthesized `|` ends the arm result
+)
 
 // blockRecovery is an internal signal used to return an outer delimiter, or an
 // already-diagnosed EOF, to its still-active block owner. The diagnostic that
