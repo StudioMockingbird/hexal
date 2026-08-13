@@ -543,3 +543,52 @@ func TestLexFunctionKeywordsFollowedByPunctuation(t *testing.T) {
 		}
 	}
 }
+
+func TestLexRejectsRawNewlinesInStringLiteral(t *testing.T) {
+	cases := []struct{ name, source string }{
+		{"lf", "\"a\nb\""},
+		{"crlf", "\"a\r\nb\""},
+		{"bare-cr", "\"a\rb\""},
+		{"continuation", "\"a\\\nb\""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Lex(tc.source)
+			if err == nil || !strings.Contains(err.Error(), "raw newline") {
+				t.Fatalf("want raw-newline diagnostic, got %v", err)
+			}
+		})
+	}
+}
+
+func TestLexStringEscapedNewlinesRemainValid(t *testing.T) {
+	for _, source := range []string{"\"a\\nb\"", "\"a\\rb\""} {
+		tokens, err := Lex(source)
+		if err != nil {
+			t.Fatalf("escaped newline rejected: %v", err)
+		}
+		if len(tokens) != 2 || tokens[0].Kind != StringLiteral {
+			t.Fatalf("want one StringLiteral token, got %#v", tokens)
+		}
+	}
+}
+
+func TestLexRawNewlineRecoveryKeepsSourcePositions(t *testing.T) {
+	tokens, err := Lex("\"a\nb\" x: Int32 = 1")
+	if err == nil || !strings.Contains(err.Error(), "raw newline") {
+		t.Fatalf("want raw-newline diagnostic, got %v", err)
+	}
+	if len(tokens) == 0 || tokens[0].Kind != Identifier || tokens[0].Line != 2 {
+		t.Fatalf("want identifier x on line 2, got %#v", tokens)
+	}
+}
+
+func TestLexClosedMultilineStringReportsOneDiagnostic(t *testing.T) {
+	_, err := Lex("\"a\nb\nc\"")
+	if err == nil {
+		t.Fatal("want a diagnostic")
+	}
+	if n := strings.Count(err.Error(), "raw newline"); n != 1 {
+		t.Fatalf("want exactly one raw-newline diagnostic, got %d", n)
+	}
+}

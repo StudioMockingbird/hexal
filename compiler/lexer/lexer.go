@@ -626,6 +626,8 @@ func Lex(source string) ([]Token, error) {
 			index++
 			column++
 			terminated := false
+			var newlineLine, newlineColumn int
+			hasRawNewline := false
 			for index < len(source) {
 				character := source[index]
 				if character == '\\' {
@@ -634,6 +636,20 @@ func Lex(source string) ([]Token, error) {
 					}
 					index += 2
 					column += 2
+					// A backslash immediately followed by a physical newline is
+					// not a line-continuation escape.
+					escaped := source[index-1]
+					if escaped == '\n' || escaped == '\r' {
+						if !hasRawNewline {
+							hasRawNewline = true
+							newlineLine, newlineColumn = line, column-1
+						}
+						line++
+						column = 1
+						if escaped == '\r' && index < len(source) && source[index] == '\n' {
+							index++
+						}
+					}
 					continue
 				}
 				index++
@@ -642,21 +658,41 @@ func Lex(source string) ([]Token, error) {
 					terminated = true
 					break
 				}
-				if character == '\n' {
+				if character == '\n' || character == '\r' {
+					if !hasRawNewline {
+						hasRawNewline = true
+						newlineLine, newlineColumn = line, column-1
+					}
 					line++
 					column = 1
+					if character == '\r' && index < len(source) && source[index] == '\n' {
+						index++
+					}
 				}
 			}
-			if !terminated {
+			if hasRawNewline {
+				// RFC 0049: a raw newline is a Syntax Error and produces no
+				// StringLiteral token; consume through the closing quote or
+				// EOF for recovery and never emit a second diagnostic.
 				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 					Category: compilerTypes.SyntaxError,
 					Stage:    "lexer",
-					Line:     line,
-					Column:   column,
-					Message:  "unterminated string literal",
+					Line:     newlineLine,
+					Column:   newlineColumn,
+					Message:  `String literal cannot contain a raw newline; use \n`,
 				})
+			} else {
+				if !terminated {
+					diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+						Category: compilerTypes.SyntaxError,
+						Stage:    "lexer",
+						Line:     line,
+						Column:   column,
+						Message:  "unterminated string literal",
+					})
+				}
+				tokens = append(tokens, Token{Kind: StringLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
 			}
-			tokens = append(tokens, Token{Kind: StringLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
 		case ch == '(':
 			tokens = append(tokens, Token{Kind: LeftParen, Lexeme: "(", Line: line, Column: column})
 			index++
