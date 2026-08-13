@@ -98,13 +98,33 @@ func TestConversionAliasCanonicalizes(t *testing.T) {
 	}
 }
 
-func TestSizeAndUInt64WidenBidirectionally(t *testing.T) {
-	sources := []string{
+// RFC 0049 item 6: Size is fully C-target-driven, so implicit conversions
+// must hold on every conforming target. Size has no implicit conversion or
+// binary common type with any distinct numeric type; identity and literal
+// contextual typing remain, and the explicit to<Size>()/to<T>() conversions
+// are the portable routes.
+func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
+	rejected := []string{
 		"raw: UInt64 = 42\ncount: Size = raw\n",
 		"count: Size = 1\nraw: UInt64 = count\n",
 		"count: Size = 1\nraw: UInt64 = 2\ntotal: Size = count + raw\n",
+		"count: Size = 1\noffset: Int32 = 2\ntotal: Size = count + offset\n",
+		"count: Size = 1\nwide: Float64 = count\n",
+		"count: Size = 1\nsize: Float32 = count\n",
 	}
-	for _, source := range sources {
+	for _, source := range rejected {
+		if result := Compile(source); result.ExitCode != ExitFailure {
+			t.Fatalf("want reject, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
+		}
+	}
+	accepted := []string{
+		"count: Size = 1\nother: Size = count\n",
+		"count: Size = 1\ntotal: Size = count + 2\n",
+		"raw: UInt64 = 42\ncount: Size = raw.to<Size>()\n",
+		"count: Size = 1\nraw: UInt64 = count.to<UInt64>()\n",
+		"count: Size = 1\nsmall: UInt8 = count.to<UInt8>()\n",
+	}
+	for _, source := range accepted {
 		if result := Compile(source); result.ExitCode != ExitSuccess {
 			t.Fatalf("want accept, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}

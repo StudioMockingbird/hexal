@@ -327,9 +327,10 @@ HeapAllocation
 | `Nil` | zero-state `nil`; valid only as a union member | no stable foreign ABI |
 | `EoS` | zero-state completion `eos`; valid standalone | no stable foreign ABI |
 
-- `Size` exactly matches the selected target's `size_t` width, range, alignment, and representation.
-  Supported widths are 16, 32, and 64; others are rejected before checking Size-using source.
-  Generated C asserts the chosen width. Size remains canonically distinct from fixed integers.
+- `Size` always lowers directly to the selected C compiler's `size_t`; that target decides width,
+  range, alignment, and representation. Hexal has no Size width, no width assertion, and never
+  rejects a conforming target for its `sizeof(size_t)`. Size remains canonically distinct from
+  fixed-width integers.
 - Rune is distinct from UInt32 and excludes surrogates. `Int`, `UInt`, `Float`, `Double`, `Char`,
   `Long`, `ISize`, and `Void` are not built-ins.
 - Nil is valid only in a union containing at least one non-Nil member. Standalone Nil is invalid in
@@ -420,8 +421,11 @@ HeapAllocation
 - A union holds exactly one active member; injection is implicit and allocation-free. Unions are
   flattened, duplicate-free, structural, and order-independent. Written order only chooses among
   contextual initializer candidates.
-- A union contains at least two distinct canonical members. Nil is valid only as one member of such
-  a union.
+- A union contains at least two distinct canonical members. Flattening and duplicate removal run
+  first; a written union that yields fewer than two distinct members is an error, never an alias for
+  the surviving member. Alias resolution and generic substitution happen before the count, so
+  `Int32 | Int32` and `A | Int32` where `type A = Int32` are both invalid. Nil is valid only as one
+  member of a union satisfying this rule.
 - Widening is allowed only when every source member fits the destination; implicit narrowing and
   declaration-time union inference do not exist.
 - `is` tests an exact active member. Narrowing applies to direct local reads; assignment or writable
@@ -455,9 +459,11 @@ HeapAllocation
 
 ### Lossless widening
 
-Typed numeric values widen implicitly only when every source value is exactly representable. The
-table lists fixed-width destinations only; Size destinations use the target-range rule below. `none`
-means no fixed-width destination.
+Typed numeric values widen implicitly only when every source value is exactly representable. Size
+has no widening edges: no fixed-width integer or float implicitly converts to Size, and Size does
+not implicitly convert to any fixed-width integer or float, because no conversion is lossless on
+every conforming target. Identity `Size -> Size` remains implicit. The table lists fixed-width
+destinations only. `none` means no fixed-width destination.
 
 | Source | Fixed-width destinations excluding identity |
 | --- | --- |
@@ -474,12 +480,14 @@ means no fixed-width destination.
 
 - Widening applies to initialization, assignment, arguments, returns, fields, collection insertion,
   and binary common-type selection.
-- For unsigned fixed-width U and Size: U widens to Size when U's complete range fits Size; Size
-  widens to U when Size's complete range fits U; equal ranges permit both and choose Size as the
-  binary common type; otherwise there is no implicit common type.
-- A signed fixed-width type never widens to Size. Size widens to signed S exactly when every Size
-  value fits S; a Size/S binary operation then uses S, otherwise it has no lossless common type.
-  Canonical identities remain distinct.
+- `Size` with any distinct numeric type has no implicit binary common type; only a Size/Size binary
+  operation is implicit. An untyped non-negative integer literal may be contextually typed as Size
+  (literal typing, not a conversion); a literal whose fit depends on the C target emits a C
+  `static_assert(value <= SIZE_MAX, ...)`. Negative literals remain invalid in unsigned context.
+- Explicit `value.to<Size>()` and `size.to<T>()` are the portable conversion routes and preserve
+  the checked-conversion contract: target-independent failures are diagnosed by the checker;
+  target-dependent constants are guarded by a generated C `static_assert`; dynamic out-of-range
+  values trap before casting. Canonical identities remain distinct.
 - Binary numeric operations choose the unique least type losslessly reachable from both operands.
   Surrounding result context does not change that choice. Rune never widens implicitly.
 
@@ -504,7 +512,8 @@ means no fixed-width destination.
   divisors are compile errors; dynamic zero traps. A signed type's `MIN / -1` yields MIN and
   `MIN % -1` yields zero.
 - Floating arithmetic follows IEC 60559; `%` is integer-only and NaN comparisons follow IEC rules.
-- Bitwise operations accept fixed integers and Size. Shift counts must be `0..width-1`; bad constants
+- Bitwise operations accept fixed integers, excluding Size (whose width follows the target), Rune,
+  Bool, pointers, aggregates, and managed values. Shift counts must be `0..width-1`; bad constants
   fail and bad dynamic counts trap. Signed right shift is arithmetic, unsigned zero-filling.
 - Rune supports equality, ordering, and checked `to<T>()` conversion. Rune is invalid for `+`, `-`,
   `*`, `/`, `%`, unary `-`, `~`, `&`, `^`, `|`, `<<`, and `>>`.

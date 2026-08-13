@@ -200,6 +200,28 @@ func TestPointerScalarMappings(t *testing.T) {
 	}
 }
 
+// RFC 0049 item 6: a Size literal whose fit depends on the C target emits a
+// static_assert against SIZE_MAX, and the generated C no longer asserts a
+// 64-bit size_t profile.
+func TestSizeLiteralTargetGuard(t *testing.T) {
+	result := Compile("count: Size = 5000000000\nsmall: Size = 3\n")
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
+	}
+	for _, want := range []string{
+		"static_assert(5000000000 <= SIZE_MAX, \"Size literal 5000000000 requires a size_t target wide enough\");",
+		"const size_t hex_v_count = 5000000000;",
+		"const size_t hex_v_small = 3;",
+	} {
+		if !strings.Contains(result.MainH, want) && !strings.Contains(result.MainC, want) {
+			t.Fatalf("generated C lacks %q:\nmain.h:\n%s\nmain.c:\n%s", want, result.MainH, result.MainC)
+		}
+	}
+	if strings.Contains(result.MainH, "sizeof(size_t) == 8") {
+		t.Fatalf("generated C still asserts a 64-bit size_t profile:\n%s", result.MainH)
+	}
+}
+
 func TestInt32Declaration(t *testing.T) {
 	result := Compile("x: Int32 = 13")
 	if result.ExitCode != ExitSuccess {

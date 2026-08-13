@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"go/constant"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -18,10 +19,14 @@ type conversionSpec struct {
 }
 
 // discoverGeneratedConversions collects the conversion helpers the program
-// needs.
-func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, error) {
+// needs and the Size-typed integer literal values whose fit depends on the
+// C target (RFC 0049 item 6). SIZE_MAX is at least 65535 on every
+// conforming target, so only literals above that are target-dependent.
+func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []string, error) {
 	var specs []conversionSpec
 	seen := make(map[string]bool)
+	var sizeLiterals []string
+	seenSize := make(map[string]bool)
 	var walkOperand func(checker.Operand) error
 	var walkExpression func(checker.Expression) error
 	var walkStatements func([]checker.Statement) error
@@ -56,6 +61,18 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, er
 		return nil
 	}
 	walkOperand = func(source checker.Operand) error {
+		// Literal constants carry no checked node (Kind is InvalidExpression
+		// and the value lives in Constant), so the Size target guard is
+		// collected before the node-kind dispatch.
+		if compilerTypes.Equal(source.Type, compilerTypes.SizeType) && source.Constant != nil {
+			if unsigned, ok := constant.Uint64Val(source.Constant); ok && unsigned > 65535 {
+				digits := formatInteger(unsigned, checker.DecimalRadix)
+				if !seenSize[digits] {
+					seenSize[digits] = true
+					sizeLiterals = append(sizeLiterals, digits)
+				}
+			}
+		}
 		if source.Node.Kind != checker.InvalidExpression {
 			return walkExpression(source.Node)
 		}
@@ -132,19 +149,19 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, er
 		return nil
 	}
 	if err := walkStatements(program.Statements); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, function := range program.SpecializedFunctions {
 		if err := walkStatements(function.Body); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, method := range program.SpecializedMethods {
 		if err := walkStatements(method.Body); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return specs, nil
+	return specs, sizeLiterals, nil
 }
 
 // writeConversionDefinitions emits the shared numeric trap plus one helper

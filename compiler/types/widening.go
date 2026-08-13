@@ -13,11 +13,13 @@ var losslessWideningTargets = map[string][]string{
 	"UInt8":   {"UInt16", "UInt32", "UInt64", "Int16", "Int32", "Int64", "Float32", "Float64"},
 	"UInt16":  {"UInt32", "UInt64", "Int32", "Int64", "Float32", "Float64"},
 	"UInt32":  {"UInt64", "Int64", "Float64"},
-	"UInt64":  {"Size"}, // equal-range on the 64-bit Size profile; narrower profiles reject this direction
+	"UInt64":  {},
 	"Float32": {"Float64"},
 	"Float64": {},
-	// RFC 0036: on every supported target Size widens losslessly to UInt64.
-	"Size": {"UInt64"},
+	// RFC 0049 item 6: Size is C-target-driven, so no implicit conversion
+	// is portable across targets. Size appears in no widening edge and has
+	// no binary common type with a distinct numeric type; identity remains.
+	"Size": {},
 }
 
 // wideningRank orders the candidate types so the least common type is the
@@ -77,13 +79,11 @@ func WidensTo(source, target Type) bool {
 // Candidates are the types reachable from both operands by zero or one
 // widening step; the least candidate is the minimum under wideningRank.
 // No runtime range test is needed because validity follows from the source
-// and destination type ranges.
+// and destination type ranges. RFC 0049 item 6: Size has no widening edges,
+// so a Size operand only ever shares a common type with itself.
 func LosslessCommonType(left, right Type) (Type, bool) {
 	if Equal(left, right) {
 		return left, true
-	}
-	if IsSize(left) || IsSize(right) {
-		return sizeCommonType(left, right)
 	}
 	if !IsInteger(left) && !IsFloat(left) || !IsInteger(right) && !IsFloat(right) {
 		return Type{}, false
@@ -109,23 +109,4 @@ func LosslessCommonType(left, right Type) (Type, bool) {
 		}
 	}
 	return best, true
-}
-
-// sizeCommonType applies RFC 0036's Size rules: use Size when the complete
-// fixed-width range fits Size (which includes every narrower unsigned type
-// and the identical-range UInt64, where Size is preferred), use the
-// fixed-width type when the complete Size range fits it, and otherwise
-// reject because no lossless common integer type exists.
-func sizeCommonType(left, right Type) (Type, bool) {
-	fixed := left
-	if IsSize(left) {
-		fixed = right
-	}
-	if IsSize(fixed) {
-		return SizeType, true
-	}
-	if !IsInteger(fixed) || IsSignedInteger(fixed) {
-		return Type{}, false
-	}
-	return SizeType, true
 }

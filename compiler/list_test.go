@@ -9,7 +9,7 @@ import (
 // and the List<String> nested-String element rules.
 
 func TestListLifecycle(t *testing.T) {
-	result := Compile("fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    count: UInt64 = values.length()\n    empty: Bool = values.is_empty()\n    first: Int32 = values.at(0)\n    second: Int32 = values[1]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\nend")
+	result := Compile("fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    count: Size = values.length()\n    empty: Bool = values.is_empty()\n    first: Int32 = values.at(0)\n    second: Int32 = values[1]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\nend")
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}

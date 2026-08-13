@@ -135,7 +135,7 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 	if equalityErr != nil {
 		return "", "", equalityErr
 	}
-	conversionSpecs, conversionErr := discoverGeneratedConversions(program)
+	conversionSpecs, sizeLiterals, conversionErr := discoverGeneratedConversions(program)
 	if conversionErr != nil {
 		return "", "", conversionErr
 	}
@@ -243,7 +243,7 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 	}
 
 	body.WriteString("    return EXIT_SUCCESS;\n}\n")
-	return body.String(), headerWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState), nil
+	return body.String(), headerWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals), nil
 }
 
 // writeStatements renders one statement list at a single indentation level.
@@ -4472,10 +4472,10 @@ func writeLineDirective(body *strings.Builder, line int) {
 }
 
 func header(float32Used, float64Used, nilUsed bool, objects []*compilerTypes.ObjectType) string {
-	return headerWithUnions(float32Used, float64Used, nilUsed, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, objects, false, nil, nil, nil)
+	return headerWithUnions(float32Used, float64Used, nilUsed, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, objects, false, nil, nil, nil, nil)
 }
 
-func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState) string {
+func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string) string {
 	var result strings.Builder
 	result.WriteString(mainHeaderPrefix)
 	result.WriteString("\nstatic_assert(CHAR_BIT == 8, \"Hexal requires 8-bit bytes\");\n")
@@ -4487,6 +4487,12 @@ func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedU
 	result.WriteString("static_assert(sizeof(int16_t) * CHAR_BIT == 16 && INT16_MIN == -32768 && INT16_MAX == 32767, \"Hexal requires Int16\");\n")
 	result.WriteString("static_assert(sizeof(int32_t) * CHAR_BIT == 32 && INT32_MIN == (-2147483647 - 1) && INT32_MAX == 2147483647, \"Hexal requires Int32\");\n")
 	result.WriteString("static_assert(sizeof(int64_t) * CHAR_BIT == 64 && INT64_MIN == (-INT64_C(9223372036854775807) - 1) && INT64_MAX == INT64_C(9223372036854775807), \"Hexal requires Int64\");\n")
+	// RFC 0049 item 6: a Size literal above the smallest possible SIZE_MAX
+	// (65535) fits only targets whose size_t is wide enough, so each one is
+	// guarded against the selected target's actual SIZE_MAX.
+	for _, digits := range sizeLiterals {
+		fmt.Fprintf(&result, "static_assert(%s <= SIZE_MAX, \"Size literal %s requires a size_t target wide enough\");\n", digits, digits)
+	}
 	// RFC 0010: nullptr_t and the nullptr predefined constant live in
 	// <stddef.h>, included only when a written name needs them.
 	if nilUsed {
@@ -4496,9 +4502,6 @@ func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedU
 		// The bounds guards in the array, view, string, and list helpers
 		// report through fputs on stderr.
 		result.WriteString("#include <stdio.h>\n\n")
-		// RFC 0036: the v1 target profile is a 64-bit size_t; the generated
-		// C rejects an ABI mismatch before executing the program.
-		result.WriteString("static_assert(sizeof(size_t) == 8, \"Hexal Size requires a 64-bit size_t target\");\n\n")
 	}
 	if float32Used || float64Used {
 		result.WriteString("#include <float.h>\n#include <math.h>\n\n")

@@ -9,7 +9,7 @@ import (
 // built-in methods, and bounds-safe element access.
 
 func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
-	result := Compile("fixed: Array<Int32, 3> = [10, 20, 30] total: Int32 = fixed[0] + fixed[2] count: UInt64 = fixed.length() empty: Bool = fixed.is_empty() last: Int32 = fixed.at(2)")
+	result := Compile("fixed: Array<Int32, 3> = [10, 20, 30] total: Int32 = fixed[0] + fixed[2] count: Size = fixed.length() empty: Bool = fixed.is_empty() last: Int32 = fixed.at(2)")
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
