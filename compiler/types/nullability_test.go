@@ -6,8 +6,10 @@ func TestNilAndUnknownBuiltins(t *testing.T) {
 	if Nil.Name != "Nil" || Nil.CName != "nullptr_t" || !IsNil(Nil) {
 		t.Fatalf("Nil = %#v, want the canonical nullptr_t singleton", Nil)
 	}
-	if !IsCanonical(Nil) || !IsCompleteValue(Nil) {
-		t.Fatal("Nil should be a canonical complete value type")
+	// RFC 0049 item 8.1: Nil keeps its representation but is not canonical as
+	// a standalone value type; it is canonical only as a union member.
+	if IsCanonical(Nil) || !IsCompleteValue(Nil) {
+		t.Fatal("Nil should be a complete non-canonical value type")
 	}
 	if !Unknown.Incomplete || !IsUnknown(Unknown) || IsCompleteValue(Unknown) {
 		t.Fatalf("Unknown = %#v, want an incomplete non-value type", Unknown)

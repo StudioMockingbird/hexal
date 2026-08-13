@@ -1108,6 +1108,13 @@ type generatedTypeValidation struct {
 // IsCanonical owns identity and recursive type metadata. This pass keeps only
 // generator-specific source-name and declaration checks.
 func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidation, throughPointer bool) bool {
+	if compilerTypes.IsNil(typ) {
+		// RFC 0049 item 8.1: Nil is not canonical outside union construction,
+		// but the checker admits it only where the reference allows it (union
+		// members, nil operands, narrowed payloads). The generator validates
+		// the checker's output, so the singleton passes as-is.
+		return true
+	}
 	if !compilerTypes.IsCanonical(typ) {
 		// Unknown is canonical only behind a pointer layer, exactly as the
 		// type environment interning rule states: Ptr<Unknown> and

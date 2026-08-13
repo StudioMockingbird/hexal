@@ -145,7 +145,9 @@ func TestCheckUnionRejectsOrdering(t *testing.T) {
 }
 
 func TestCheckUnionIsNarrowsIfElseAndElseIf(t *testing.T) {
-	_, err := Check(parseProgram(t, "value: Int32 | Float64 | Nil = 1 if value is Int32 integer: Int32 = value elseif value != nil floating: Float64 = value else missing: Nil = value end"))
+	// RFC 0049 item 8.1: the else arm narrows value to Nil, which is
+	// printable but cannot initialize a standalone Nil binding.
+	_, err := Check(parseProgram(t, "value: Int32 | Float64 | Nil = 1 if value is Int32 integer: Int32 = value elseif value != nil floating: Float64 = value else print(value) end"))
 	if err != nil {
 		t.Fatal(err)
 	}

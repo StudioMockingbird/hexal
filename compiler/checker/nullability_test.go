@@ -8,8 +8,52 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+// RFC 0049 item 8.1: the standalone-Nil rejection matrix from RFC 0048.
+// Nil is valid only as a union member; every other written type position
+// rejects it with the same diagnostic.
+func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
+	const want = "Nil is valid only as a member of a union with a non-Nil type"
+	for _, source := range []string{
+		"type Bad = Nil",
+		"bad: Nil = nil",
+		"fun bad(argument: Nil) return end",
+		"fun bad(): Nil return end",
+		"type Bad = { marker: Nil, }",
+		"type Bad = | One as { marker: Nil } | Two as { value: Int32 }",
+		"bad: Array<Nil, 4> = [nil, nil, nil, nil]",
+		"bad: View<Nil> = View<Nil>.empty()",
+		"bad: List<Nil> = List<Nil>.new(Heap.new())",
+		"bad: Dict<Nil, Int32> = Dict<Nil, Int32>.new(Heap.new())",
+		"bad: Dict<Int32, Nil> = Dict<Int32, Nil>.new(Heap.new())",
+		"bad: Ptr<Nil> = alloc(Nil)",
+		"bad: MutPtr<Nil> = alloc(Nil)",
+		"fun nothing(value: Int32) return end bad: Fun<(Nil) : Int32> = nothing",
+		"fun nothing(value: Int32) return end bad: Fun<(Int32) : Nil> = nothing",
+		"fun square(value: Int32): Int32 return value * value end bad: Task<Nil> = try spawn square(6)",
+		"h: Heap = Heap.new() bad: Channel<Nil> = Channel<Nil>.new(h, 8)",
+		"bad: Stream<Nil> = Stream<Nil>.new()",
+		"h: Heap = Heap.new() bad: MutPtr<Nil> = h.allocate<Nil>(0)",
+		"value: Int32 | Nil = nil if value is Int32 noop: Int32 = 0 else bad: Nil = value end",
+	} {
+		requireDiagnostic(t, source, want)
+	}
+}
+
+// RFC 0049 item 8.1: Nil remains valid as a union member alongside scalar,
+// pointer, handle, and aggregate members, and bare nil resolves only under
+// such a contextual union or as a print argument.
+func TestCheckerAcceptsNilOnlyInContext(t *testing.T) {
+	requireAccepted(t, "value: Int32 | Nil = nil")
+	requireAccepted(t, "maybe: Ptr<Int32> | Nil = nil")
+	requireAccepted(t, "handle: Task<Int32> | Nil = nil")
+	requireAccepted(t, "value: Int32 | Bool | Nil = nil")
+	requireAccepted(t, "value: Int32 | Bool | Nil = nil flag: Bool = value != nil")
+	requireAccepted(t, "print(nil)")
+	requireAccepted(t, "value: Int32 | Nil = nil if value != nil noop: Int32 = value else print(value) end")
+}
+
 func TestCheckerResolvesNilUnknownAndNullableAliases(t *testing.T) {
-	checked := requireAccepted(t, "type SameMaybe = Ptr<Int32> | Nil type StillMaybe = SameMaybe | Nil type Erased = Unknown type Reader = Ptr<Erased> type Writer = MutPtr<Erased> nothing: Nil = nil")
+	checked := requireAccepted(t, "type SameMaybe = Ptr<Int32> | Nil type StillMaybe = SameMaybe | Nil type Erased = Unknown type Reader = Ptr<Erased> type Writer = MutPtr<Erased>")
 
 	if len(checked.TypeDeclarations) != 5 {
 		t.Fatalf("type declaration count = %d, want 5", len(checked.TypeDeclarations))
@@ -30,17 +74,13 @@ func TestCheckerResolvesNilUnknownAndNullableAliases(t *testing.T) {
 			t.Fatalf("%s = %#v, want a pointer to Unknown", declaration.Name, declaration.Type)
 		}
 	}
-	if got := checked.Statements[0].(Declaration).Type; !compilerTypes.IsNil(got) {
-		t.Fatalf("nothing type = %#v, want Nil", got)
-	}
+	// RFC 0049 item 8.1: standalone Nil has no alias or binding.
+	requireDiagnostic(t, "nothing: Nil = nil", "Nil is valid only as a member of a union with a non-Nil type")
 }
 
 func TestCheckerAcceptsNullableRecursiveObjectMembers(t *testing.T) {
-	checked := requireAccepted(t, "type Node = { marker: Nil, value: Int32, mut next: MutPtr<Node> | Nil, }")
-	if !compilerTypes.IsNil(checked.TypeDeclarations[0].Type.Object.Members[0].Type) {
-		t.Fatalf("marker member type = %#v, want Nil", checked.TypeDeclarations[0].Type.Object.Members[0].Type)
-	}
-	member := checked.TypeDeclarations[0].Type.Object.Members[2]
+	checked := requireAccepted(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }")
+	member := checked.TypeDeclarations[0].Type.Object.Members[1]
 	if !compilerTypes.IsNullable(member.Type) {
 		t.Fatalf("next member type = %#v, want nullable", member.Type)
 	}
@@ -100,7 +140,7 @@ func TestCheckerRoutesNullableAndUnknownAssignabilityThroughAllContexts(t *testi
 }
 
 func TestCheckerRejectsNullableAndNilRemovalWithExactDiagnostics(t *testing.T) {
-	requireDiagnostic(t, "bad: MutPtr<Int32> = nil", "expected MutPtr<Int32>, got Nil")
+	requireDiagnostic(t, "bad: MutPtr<Int32> = nil", "nil requires an expected union containing Nil")
 	requireDiagnostic(t, "maybe: Ptr<Int32> | Nil = nil bad: Ptr<Int32> = maybe", "expected Ptr<Int32>, got Ptr<Int32> | Nil")
 }
 
@@ -158,9 +198,11 @@ func TestCheckerFoldsNilSingletonEquality(t *testing.T) {
 }
 
 func TestCheckerRejectsNonNullableNullTestsWithVerdictDiagnostics(t *testing.T) {
-	requireDiagnostic(t, "mut value: Int32 = 1 node: MutPtr<Int32> = ref value bad: Bool = node != nil", "MutPtr<Int32> is never Nil; the test is always true")
-	requireDiagnostic(t, "mut value: Int32 = 1 node: MutPtr<Int32> = ref value bad: Bool = node == nil", "MutPtr<Int32> is never Nil; the test is always false")
-	requireDiagnostic(t, "bad: Bool = 5 == nil", "Int32 is never Nil; the test is always false")
+	// RFC 0049 item 8.1: == nil requires a union containing Nil, so the nil
+	// literal gate rejects the comparison before any verdict is computed.
+	requireDiagnostic(t, "mut value: Int32 = 1 node: MutPtr<Int32> = ref value bad: Bool = node != nil", "nil requires an expected union containing Nil")
+	requireDiagnostic(t, "mut value: Int32 = 1 node: MutPtr<Int32> = ref value bad: Bool = node == nil", "nil requires an expected union containing Nil")
+	requireDiagnostic(t, "bad: Bool = 5 == nil", "nil requires an expected union containing Nil")
 }
 
 func TestCheckerPointerEqualityAndNullableIdentityRules(t *testing.T) {
@@ -222,7 +264,9 @@ func TestCheckerPreservesNarrowingAcrossReadOnlyRef(t *testing.T) {
 }
 
 func TestCheckerReportsRedundantNullTestInsideNarrowedBranch(t *testing.T) {
-	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil bad: Bool = maybe != nil end", "Ptr<Int32> is never Nil; the test is always true")
+	// The branch narrows maybe to a plain pointer, which has no Nil member,
+	// so the inner null test's nil literal is rejected by the union gate.
+	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil bad: Bool = maybe != nil end", "nil requires an expected union containing Nil")
 }
 
 func TestCheckerNarrowingSurvivesWhileLoopBody(t *testing.T) {

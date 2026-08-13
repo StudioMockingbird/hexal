@@ -107,7 +107,12 @@ func checkPrintCall(call parser.CallExpression, callee lexer.Token, names *scope
 	}
 	arguments := make([]Operand, 0, len(call.Arguments))
 	for _, argument := range call.Arguments {
-		checked := checkInitializer(argument, compilerTypes.TypeUse{}, tokenOf(argument), names, typeEnvironment)
+		// RFC 0049 item 8.1: a print argument is the sole position admitting
+		// standalone Nil, so arguments check under allowStandaloneNil.
+		checked := checkExpression(argument, expressionContext{foldConstants: true, allowStandaloneNil: true}, names, typeEnvironment)
+		if checked.token.Line == 0 {
+			checked.token = tokenOf(argument)
+		}
 		if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(argument), diagnostics: diagnostics}
 		}

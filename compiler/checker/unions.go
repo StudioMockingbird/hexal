@@ -113,7 +113,7 @@ func checkUnionTypeTest(expression parser.TypeTestExpression, environment *scope
 	if diagnostics := initializerDiagnostics(operand); len(diagnostics) > 0 {
 		return checkedExpression{token: expression.IsToken, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
-	queryUse, diagnostic := resolveTypeUse(expression.Type, expression.IsToken, typeEnvironment, environment.generics)
+	queryUse, diagnostic := resolveUnionMemberUse(expression.Type, expression.IsToken, typeEnvironment, environment.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: expression.IsToken, diagnostic: diagnostic}
 	}

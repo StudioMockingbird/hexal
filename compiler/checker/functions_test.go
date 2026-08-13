@@ -451,8 +451,8 @@ func TestNullableFunctionSignaturesAndReturns(t *testing.T) {
 	requireAccepted(t, "fun pass_through(maybe: Ptr<Int32> | Nil): Ptr<Int32> | Nil\n    return maybe\nend\n")
 	// RFC 0007 weakening then RFC 0010 injection: MutPtr<Int32> -> Ptr<Int32> | Nil
 	requireAccepted(t, "mut value: Int32 = 1\nwriter: MutPtr<Int32> = ref value\nfun lift(source: MutPtr<Int32>): Ptr<Int32> | Nil\n    return source\nend\nok: Ptr<Int32> | Nil = lift(writer)\n")
-	// Nil is a complete value type, so a function may deliberately return it.
-	requireAccepted(t, "fun absent(): Nil\n    return nil\nend\nnothing: Nil = absent()\n")
+	// RFC 0049 item 8.1: a function returning no value has no result type.
+	requireAccepted(t, "fun absent()\n    return\nend\nabsent()\n")
 }
 
 func TestNonNullableReturnRejectsNullableValues(t *testing.T) {
@@ -461,7 +461,7 @@ func TestNonNullableReturnRejectsNullableValues(t *testing.T) {
 		"bad returns Ptr<Int32>; got Ptr<Int32> | Nil")
 	requireDiagnostic(t,
 		"fun bad(): Ptr<Int32>\n    return nil\nend\n",
-		"bad returns Ptr<Int32>; got Nil")
+		"nil requires an expected union containing Nil")
 }
 
 func TestNullableArgumentsToNullableParameters(t *testing.T) {
@@ -474,7 +474,7 @@ func TestNullableArgumentsToNullableParameters(t *testing.T) {
 		"peek argument 1 requires Ptr<Int32>, got Ptr<Int32> | Nil")
 	requireDiagnostic(t,
 		"fun peek(source: Ptr<Int32>): Int32\n    return source.value\nend\nbad: Int32 = peek(nil)\n",
-		"peek argument 1 requires Ptr<Int32>, got Nil")
+		"nil requires an expected union containing Nil")
 }
 
 func TestResetRemainsNoResultForNilBindings(t *testing.T) {

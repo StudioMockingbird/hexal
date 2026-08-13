@@ -723,6 +723,7 @@ func Truthiness(typ Type) TruthinessKind {
 type canonicalTypeState struct {
 	allowProvisionalObjects bool
 	allowTypeParameters     bool
+	allowNilMember          bool // Nil is canonical only as a union member (RFC 0049 item 8.1)
 	seenObjects             map[*typeIdentity]bool
 	seenADTs                map[*typeIdentity]bool
 }
@@ -736,6 +737,11 @@ func IsCanonical(typ Type) bool {
 func isCanonicalForEnvironment(environment *Environment, typ Type, state *canonicalTypeState, throughPointer bool) bool {
 	if typ.identity == nil {
 		return false
+	}
+	if IsNil(typ) {
+		// RFC 0049 item 8.1: standalone Nil is invalid in every written
+		// position; union construction is the sole Nil-admitting resolver.
+		return state.allowNilMember
 	}
 	if typ.Generic != nil {
 		return state.allowTypeParameters
@@ -909,8 +915,12 @@ func isCanonicalUnion(environment *Environment, typ Type, state *canonicalTypeSt
 	if err != nil || ordinal == 0 {
 		return false
 	}
+	// Nil is a legitimate canonical union member (RFC 0049 item 8.1), so
+	// member validation admits it; the parent union is what makes it valid.
+	memberState := *state
+	memberState.allowNilMember = true
 	for _, member := range typ.Union.Members {
-		if !isCanonicalForEnvironment(environment, member, state, false) || !IsCompleteValue(member) {
+		if !isCanonicalForEnvironment(environment, member, &memberState, false) || !IsCompleteValue(member) {
 			return false
 		}
 	}

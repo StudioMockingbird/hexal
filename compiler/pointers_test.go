@@ -175,8 +175,8 @@ func TestPointerObjectMembers(t *testing.T) {
 	// RFC 0010: nil cannot initialize a non-nullable pointer member, and a
 	// nullable member takes the null value freely.
 	invalid := Compile("type Node = { value: Int32, mut next: MutPtr<Node>, } mut first: Node = Node { value = 1, next = nil, }")
-	if invalid.ExitCode != ExitFailure || len(invalid.Stderr) == 0 || !strings.Contains(strings.Join(invalid.Stderr, "\n"), "expected MutPtr<Node>, got Nil") {
-		t.Fatalf("nil into non-nullable member = %#v, want type mismatch", invalid)
+	if invalid.ExitCode != ExitFailure || len(invalid.Stderr) == 0 || !strings.Contains(strings.Join(invalid.Stderr, "\n"), "nil requires an expected union containing Nil") {
+		t.Fatalf("nil into non-nullable member = %#v, want standalone-nil diagnostic", invalid)
 	}
 
 	valid := Compile("type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut first: Node = Node { value = 1, next = nil, }")

@@ -16,7 +16,7 @@ func TestTruthinessConditions(t *testing.T) {
 		want   string
 	}{
 		{"if 0 end", "if ((0, true)) {"},
-		{"if nil end", "if (false) {"},
+		{"p: Ptr<Int32> | Nil = nil if p end", "if ((hex_v_p != NULL)) {"},
 		{"if true end", "if (true) {"},
 		{"mut count: Int32 = 1 if count count = count - 1 end", "if ((hex_v_count, true)) {"},
 	} {
@@ -33,11 +33,11 @@ func TestTruthinessConditions(t *testing.T) {
 func TestTruthinessConditionLoweringPreservesBranches(t *testing.T) {
 	// A falsey condition still emits its branches: the checker must have
 	// type-checked them, and the generated C keeps them for runtime.
-	result := Compile("if nil missing: Int32 = 1 end")
+	result := Compile("p: Ptr<Int32> | Nil = nil if p missing: Int32 = 1 end")
 	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want successful nil-condition program", result)
 	}
-	if !strings.Contains(result.MainC, "if (false) {") || !strings.Contains(result.MainC, "const int32_t hex_v_missing = 1;") {
+	if !strings.Contains(result.MainC, "if ((hex_v_p != NULL)) {") || !strings.Contains(result.MainC, "const int32_t hex_v_missing = 1;") {
 		t.Fatalf("main.c = %q, want the nil branch emitted verbatim", result.MainC)
 	}
 }
@@ -67,7 +67,7 @@ func TestTruthinessLogicalOperators(t *testing.T) {
 		want   string
 	}{
 		{"mut count: Int32 = 1 mut ready: Bool = true flag: Bool = count and ready", "((hex_v_count, true) && hex_v_ready)"},
-		{"mut count: Int32 = 1 flag: Bool = count or nil", "((hex_v_count, true) || false)"},
+		{"mut count: Int32 = 1 flag: Bool = count or false", "((hex_v_count, true) || false)"},
 		{"mut count: Int32 = 1 flag: Bool = !count", "(!(hex_v_count, true))"},
 		{"mut value: Float64 = 0.0 flag: Bool = !value", "(!(hex_v_value, true))"},
 	} {
@@ -94,10 +94,10 @@ func TestTruthinessConstantFolding(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"flag: Bool = 0 and nil", "const bool hex_v_flag = false;"},
-		{"flag: Bool = nil or 0", "const bool hex_v_flag = true;"},
+		{"flag: Bool = 0 and false", "const bool hex_v_flag = false;"},
+		{"flag: Bool = false or 0", "const bool hex_v_flag = true;"},
 		{"flag: Bool = !0", "const bool hex_v_flag = false;"},
-		{"flag: Bool = !nil", "const bool hex_v_flag = true;"},
+		{"flag: Bool = !false", "const bool hex_v_flag = true;"},
 	} {
 		result := Compile(testCase.source)
 		if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
@@ -111,14 +111,14 @@ func TestTruthinessConstantFolding(t *testing.T) {
 
 func TestTruthinessShortCircuitSkipsFoldedSide(t *testing.T) {
 	// 0 is truthy, so the right side of and is evaluated and its division by
-	// zero is a static error; nil is falsey, so the right side is never
+	// zero is a static error; false is falsey, so the right side is never
 	// evaluated and the same expression is fine.
 	result := Compile("result: Bool = 0 and (1 / 0 == 0)")
 	if result.ExitCode != ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "division by zero") {
 		t.Fatalf("Compile = %#v, want the evaluated side to fail statically", result)
 	}
 
-	result = Compile("result: Bool = nil and (1 / 0 == 0)")
+	result = Compile("result: Bool = false and (1 / 0 == 0)")
 	if result.ExitCode != ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want the skipped side to never be checked", result)
 	}

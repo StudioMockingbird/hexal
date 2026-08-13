@@ -506,7 +506,7 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 					Message: "type and variant patterns are not valid in value mode",
 				}}
 			}
-			memberUse, diagnostic := resolveTypeUse(pattern.Type, expression.Keyword, typeEnvironment, environment.generics)
+			memberUse, diagnostic := resolveUnionMemberUse(pattern.Type, expression.Keyword, typeEnvironment, environment.generics)
 			if diagnostic != nil {
 				return checkedExpression{token: expression.Keyword, diagnostic: diagnostic}
 			}

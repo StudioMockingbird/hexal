@@ -10,13 +10,15 @@ import (
 )
 
 func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
-	result := Compile("nothing: Nil = nil")
+	// RFC 0048: standalone `nothing: Nil = nil` is invalid; null-pointer
+	// lowering survives through the nullable union form.
+	result := Compile("maybe: Ptr<Int32> | Nil = nil")
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
 		"#include <stddef.h>",
-		"const nullptr_t hex_v_nothing = nullptr;",
+		"const int32_t *const hex_v_maybe = nullptr;",
 	} {
 		if !strings.Contains(result.MainH, want) && !strings.Contains(result.MainC, want) {
 			t.Fatalf("generated output = %q %q, want %q", result.MainH, result.MainC, want)
@@ -154,8 +156,8 @@ func TestNullabilityDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"mut value: Int32 = 1 bad: Ptr<Int32> = nil", "expected Ptr<Int32>, got Nil"},
-		{"mut value: Int32 = 1 node: MutPtr<Int32> = ref value bad: Bool = node == nil", "MutPtr<Int32> is never Nil; the test is always false"},
+		{"mut value: Int32 = 1 bad: Ptr<Int32> = nil", "nil requires an expected union containing Nil"},
+		{"mut value: Int32 = 1 node: MutPtr<Int32> = ref value bad: Bool = node == nil", "nil requires an expected union containing Nil"},
 		{"maybe: Ptr<Int32> | Nil = nil bad: Int32 = maybe.value", "Ptr<Int32> | Nil may be Nil; narrow it before using .value"},
 		{"mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil bad: Int32 = maybe.value end", ""},
 	} {

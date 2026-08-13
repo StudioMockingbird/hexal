@@ -202,8 +202,10 @@ func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
 }
 
 func TestNilComparisonRulesPreserved(t *testing.T) {
+	// RFC 0049 item 8.1: == nil requires a union containing Nil. A plain
+	// pointer has no Nil member, so the literal gate rejects the comparison.
 	result := Compile("fun demo()\n    nilSame: Bool = nil == nil\n    mut value: Int32 = 1\n    pointer: Ptr<Int32> = ref value\n    bad: Bool = pointer == nil\nend")
-	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "is never Nil") {
-		t.Fatalf("Compile stderr = %#v, want non-null nil-test diagnostic", result.Stderr)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "nil requires an expected union containing Nil") {
+		t.Fatalf("Compile stderr = %#v, want standalone-nil diagnostic", result.Stderr)
 	}
 }

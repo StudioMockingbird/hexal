@@ -34,18 +34,17 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 }
 
 func TestSpawnNilResultCompiles(t *testing.T) {
+	// RFC 0048: replace the accepted Task<Nil> program with a rejection;
+	// standalone Nil is invalid, so the worker result is rejected.
 	source := "fun worker(): Nil\n    Task.yield()\n    return nil\nend\nfun run(): Int32 | Error\n    task: Task<Nil> = try spawn worker()\n    task.join()\n    return 1\nend\n"
 	result := Compile(source)
-	if result.ExitCode != ExitSuccess {
-		t.Fatalf("Compile failed: %v", result.Stderr)
-	}
-	if !strings.Contains(result.MainC, "hex_task_join_Nil(") {
-		t.Fatalf("generated C lacks the Nil join call:\n%s", result.MainC)
+	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Nil is valid only as a member of a union with a non-Nil type") {
+		t.Fatalf("want standalone-Nil diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
 func TestChannelPipelineCompiles(t *testing.T) {
-	source := "fun produce(ch: Channel<Int32>): Nil\n    ch.send(1)\n    ch.send(2)\n    ch.close()\n    return nil\nend\nfun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    defer ch.free(h)\n    producer: Task<Nil> = try spawn produce(ch)\n    producer.join()\n    mut total: Int32 = 0\n    while true do\n        step: Int32 | EoS = ch.receive()\n        if step is EoS\n            break\n        end\n        total = total + step\n        Task.yield()\n    end\n    return total\nend\n"
+	source := "fun produce(ch: Channel<Int32>): Bool\n    ch.send(1)\n    ch.send(2)\n    ch.close()\n    return true\nend\nfun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    defer ch.free(h)\n    producer: Task<Bool> = try spawn produce(ch)\n    producer.join()\n    mut total: Int32 = 0\n    while true do\n        step: Int32 | EoS = ch.receive()\n        if step is EoS\n            break\n        end\n        total = total + step\n        Task.yield()\n    end\n    return total\nend\n"
 	result := Compile(source)
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -65,7 +64,7 @@ func TestChannelPipelineCompiles(t *testing.T) {
 }
 
 func TestMutexCompiles(t *testing.T) {
-	source := "fun worker(m: Mutex): Nil\n    m.lock()\n    m.unlock()\n    return nil\nend\nfun run(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    defer m.free(h)\n    mutex_task: Task<Nil> = try spawn worker(m)\n    mutex_task.join()\n    return 0\nend\n"
+	source := "fun worker(m: Mutex): Bool\n    m.lock()\n    m.unlock()\n    return true\nend\nfun run(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    defer m.free(h)\n    mutex_task: Task<Bool> = try spawn worker(m)\n    mutex_task.join()\n    return 0\nend\n"
 	result := Compile(source)
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -191,7 +190,7 @@ func TestSpawnRejectedInsideDefer(t *testing.T) {
 }
 
 func TestWhileTrueWithoutYieldRejectedWhenSchedulerLinked(t *testing.T) {
-	source := "fun worker(): Nil\n    while true do\n    end\n    return nil\nend\nfun run(): Int32 | Error\n    task: Task<Nil> = try spawn worker()\n    task.join()\n    return 0\nend\n"
+	source := "fun worker(): Bool\n    while true do\n    end\n    return true\nend\nfun run(): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 0\nend\n"
 	result := Compile(source)
 	if result.ExitCode != ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "while true loop must execute Task.yield()") {
 		t.Fatalf("want starvation diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -199,7 +198,7 @@ func TestWhileTrueWithoutYieldRejectedWhenSchedulerLinked(t *testing.T) {
 }
 
 func TestWhileTrueWithYieldOnEveryRepeatingPathAccepted(t *testing.T) {
-	source := "fun worker(): Nil\n    while true do\n        if false\n            break\n        end\n        Task.yield()\n    end\n    return nil\nend\nfun run(): Int32 | Error\n    task: Task<Nil> = try spawn worker()\n    task.join()\n    return 0\nend\n"
+	source := "fun worker(): Bool\n    while true do\n        if false\n            break\n        end\n        Task.yield()\n    end\n    return true\nend\nfun run(): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 0\nend\n"
 	result := Compile(source)
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)

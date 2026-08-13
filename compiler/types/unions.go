@@ -64,9 +64,11 @@ func (environment *Environment) UnionType(members []Type) Type {
 		// Channel, Mutex) and the read-only View descriptor are ordinary union
 		// members: RFC 0040's File reads return String | Error and
 		// List<Byte> | Error. Atomic values are non-copyable and are rejected
-		// here because union injection copies by definition (RFC 0046).
+		// here because union injection copies by definition (RFC 0046). Nil is
+		// canonical only as a union member (RFC 0049 item 8.1), so member
+		// validation admits it through allowNilMember.
 		if !ContainsTypeParameter(member) &&
-			(!isCanonicalForEnvironment(environment, member, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) || !Storable(member, PositionUnionMember)) {
+			(!isCanonicalForEnvironment(environment, member, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true, allowNilMember: true}, false) || !Storable(member, PositionUnionMember)) {
 			return Type{}
 		}
 		found := false
@@ -80,15 +82,16 @@ func (environment *Environment) UnionType(members []Type) Type {
 			unique = append(unique, member)
 		}
 	}
-	if len(unique) == 0 {
+	// RFC 0049 item 8.1: a union holds at least two distinct canonical
+	// members; the flatten-and-deduplicate pass runs first, and a written
+	// union that collapses to fewer than two is an error, never an alias for
+	// the surviving member.
+	if len(unique) < 2 {
 		return Type{}
 	}
 	sort.SliceStable(unique, func(left, right int) bool {
 		return compareUnionMembers(unique[left], unique[right]) < 0
 	})
-	if len(unique) == 1 {
-		return unique[0]
-	}
 	if len(unique) == 2 && IsNil(unique[1]) && IsPointerLike(unique[0]) {
 		return environment.NullableType(unique[0])
 	}
@@ -222,6 +225,12 @@ func RemoveUnionMember(environment *Environment, union, member Type) (Type, bool
 	}
 	if !removed || len(remaining) == 0 {
 		return Type{}, false
+	}
+	if len(remaining) == 1 {
+		// Narrowing, not written union syntax: RFC 0049 item 8.1's
+		// two-distinct-member rule does not apply to a value already proven
+		// to hold the surviving member.
+		return remaining[0], true
 	}
 	return environment.UnionType(remaining), true
 }

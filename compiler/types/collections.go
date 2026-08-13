@@ -236,9 +236,13 @@ func isConstructionPosition(position Position) bool {
 // Fun only in Binding, UnionMember, or FunctionParam. Atomic is storable only
 // in a construction position (Binding or ObjectMember); every other position
 // acquires its value by copying and is governed by the separate Copyable rule.
+// Nil is storable only as a union member (RFC 0049 item 8.1).
 func Storable(typ Type, position Position) bool {
 	if !IsCompleteValue(typ) || IsUnknown(typ) || ContainsTypeParameter(typ) {
 		return false
+	}
+	if IsNil(typ) {
+		return position == PositionUnionMember
 	}
 	if typ.Signature != nil {
 		return position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam
