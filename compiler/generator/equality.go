@@ -210,12 +210,10 @@ func writeStrandCompare(result *strings.Builder) {
 func writeEqualityHelper(result *strings.Builder, typ compilerTypes.Type) {
 	var body strings.Builder
 	writeEqualityComparisons(&body, "(*left)", "(*right)", typ, "    ")
-	parameter := typ.CName + " *left, " + typ.CName + " *right"
-	if compilerTypes.IsFileMode(typ) {
-		// RFC 0040: the FileMode helper never mutates, so its parameters
-		// carry const like every scalar comparison.
-		parameter = "const " + typ.CName + " *left, const " + typ.CName + " *right"
-	}
+	// The helper never mutates its operands, so the parameters carry const;
+	// call sites pass const-qualified bindings and a non-const parameter
+	// would discard the qualifier under -Werror.
+	parameter := "const " + typ.CName + " *left, const " + typ.CName + " *right"
 	fmt.Fprintf(result, "\nstatic bool %s(%s) {\n", equalityHelperName(typ), parameter)
 	if body.Len() > 0 {
 		result.WriteString(body.String())

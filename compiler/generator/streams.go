@@ -154,7 +154,10 @@ func writeStreamBase(result *strings.Builder, stream compilerTypes.Type, streams
 	fmt.Fprintf(result, "static bool hex_stream_empty_next_%s(void *object, %s *out) {\n    (void)object;\n    (void)out;\n    return false;\n}\n", suffix, elementSpelling)
 	fmt.Fprintf(result, "static void hex_stream_empty_destroy_%s(void *object) {\n    (void)object;\n}\n", suffix)
 	fmt.Fprintf(result, "static const hex_stream_ops_%s hex_stream_empty_ops_%s = { hex_stream_empty_next_%s, hex_stream_empty_destroy_%s };\n", suffix, suffix, suffix, suffix)
-	fmt.Fprintf(result, "static const %s hex_stream_empty_%s = { &hex_stream_empty_ops_%s, 0, false };\n", stream.CName, suffix, suffix)
+	// The empty handle is deliberately not const: handle bindings render as
+	// non-const-target pointers, and a const singleton would make every
+	// reference discard the qualifier under -Werror.
+	fmt.Fprintf(result, "static %s hex_stream_empty_%s = { &hex_stream_empty_ops_%s, 0, false };\n", stream.CName, suffix, suffix)
 
 	stepUnion := compilerTypes.Type{}
 	for _, record := range streams.stepUnions {

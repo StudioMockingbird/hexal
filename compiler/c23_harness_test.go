@@ -1,0 +1,76 @@
+//go:build c23
+
+package compiler
+
+// C23 harness: the single compile/run path for every C23-tagged test.
+// The tag gates the suite; an explicitly requested tagged run fails when
+// the toolchain is missing instead of skipping (RFC 0048).
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// c23Compiler resolves the gcc toolchain once per call. Failure is fatal:
+// the tagged suite must not silently skip.
+func c23Compiler(t *testing.T) string {
+	t.Helper()
+	command, err := exec.LookPath("gcc")
+	if err != nil {
+		t.Fatalf("c23 suite requires gcc: %v", err)
+	}
+	return command
+}
+
+// compileGeneratedC writes main.c/main.h and compiles main.c with
+// -std=c23 -Wall -Wextra -Werror: any warning or error fails the test.
+// ponytail: -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
+// tolerate generator helper-family emission and legally-unused bindings;
+// const-discards and other warnings still fail. Family-emission debt in
+// status.md.
+func compileGeneratedC(t *testing.T, result CompilationResult) {
+	t.Helper()
+	dir := t.TempDir()
+	mainC := filepath.Join(dir, "main.c")
+	mainH := filepath.Join(dir, "main.h")
+	if err := os.WriteFile(mainC, []byte(result.MainC), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainH, []byte(result.MainH), 0644); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(c23Compiler(t), "-std=c23", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-parameter", "-c", mainC, "-o", filepath.Join(dir, "main.o"))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("gcc rejected generated C: %v\n%s", err, output)
+	}
+}
+
+// runGeneratedC compiles and runs the program with the same warning policy
+// and returns its stdout with line endings normalized.
+func runGeneratedC(t *testing.T, result CompilationResult) string {
+	t.Helper()
+	dir := t.TempDir()
+	mainC := filepath.Join(dir, "main.c")
+	mainH := filepath.Join(dir, "main.h")
+	if err := os.WriteFile(mainC, []byte(result.MainC), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mainH, []byte(result.MainH), 0644); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "main.exe")
+	command := exec.Command(c23Compiler(t), "-std=c23", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-parameter", mainC, "-o", exe)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("gcc rejected generated C: %v\n%s", err, output)
+	}
+	run, err := exec.Command(exe).CombinedOutput()
+	if err != nil {
+		t.Fatalf("generated program failed: %v\n%s", err, run)
+	}
+	return strings.ReplaceAll(string(run), "\r\n", "\n")
+}

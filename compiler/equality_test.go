@@ -64,7 +64,7 @@ func TestObjectEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool hex_equal_hex_t_Point(hex_t_Point *left, hex_t_Point *right) {",
+		"static bool hex_equal_hex_t_Point(const hex_t_Point *left, const hex_t_Point *right) {",
 		"if (!((*left).hex_m_x == (*right).hex_m_x)) return false;",
 		"hex_v_same = hex_equal_hex_t_Point(&(hex_v_left), &(hex_v_right));",
 		"(!hex_equal_hex_t_Point(&(hex_v_left), &(hex_v_right)))",
@@ -125,7 +125,7 @@ func TestSequenceEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool hex_equal_hex_array_Int32_2(hex_array_Int32_2 *left, hex_array_Int32_2 *right) {",
+		"static bool hex_equal_hex_array_Int32_2(const hex_array_Int32_2 *left, const hex_array_Int32_2 *right) {",
 		"if (!((*left).data[0] == (*right).data[0])) return false;",
 		"hex_v_same = hex_equal_hex_array_Int32_2(&(hex_v_fixed), &(hex_v_other));",
 	} {
@@ -155,7 +155,7 @@ func TestAdtEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool hex_equal_hex_Shape(hex_Shape *left, hex_Shape *right) {",
+		"static bool hex_equal_hex_Shape(const hex_Shape *left, const hex_Shape *right) {",
 		"if ((*left).tag != (*right).tag) return false;",
 		"if (!((*left).payload.Circle.hex_m_r == (*right).payload.Circle.hex_m_r)) return false;",
 	} {

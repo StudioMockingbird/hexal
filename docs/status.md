@@ -50,4 +50,9 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   generated binary. String assertions confirm a trap call is emitted, never
   that it fires. Recorded by [0048](specs/0048-test-helpers-and-harness.md)
   Decision 3.
-- Generated C is not verified to compile once 0048 removes the toolchain tests.
+- The generator emits helper families wholesale — equality, print, union,
+  heap, io — so a small program's C contains many unused `static` helpers.
+  The C23 harness tolerates `unused-function`, `unused-variable`, and
+  `unused-parameter` warnings; all other warnings still fail. Demand-driven
+  helper emission would remove the dead code. Recorded by
+  [0048](specs/0048-test-helpers-and-harness.md) (C23 harness section).

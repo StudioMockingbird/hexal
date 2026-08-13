@@ -67,8 +67,13 @@ func assertEmits(t *testing.T, source string, wants ...string)
 - Run them with `go test -tags c23 ./compiler`.
 - Add the build tag to every C23 file and remove `LookPath`/`t.Skip` gating; an
   explicitly requested tagged run fails when its toolchain is missing.
-- Centralize compile/run behavior in one helper using `-std=c23 -Wall -Wextra`;
-  warnings fail the test.
+- Centralize compile/run behavior in one helper using `-std=c23 -Wall -Wextra
+  -Werror`; warnings fail the test.
+- The generator emits helper families wholesale (equality, print, union, heap,
+  io), and Hexal permits unused bindings, so the harness additionally passes
+  `-Wno-unused-function -Wno-unused-variable -Wno-unused-parameter`. Every
+  other warning class still fails. The unused-helper emission is recorded as
+  debt in `docs/status.md`.
 - String assertions do not replace execution for traps, exact output,
   synchronization, or runtime state transitions.
 

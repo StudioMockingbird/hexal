@@ -84,7 +84,7 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, lo
 		// address; a temporary Array is materialized into one inline copy.
 		// The traversal boundary is the compile-time Array length.
 		if statement.Source.Addressable {
-			fmt.Fprintf(body, "%s%s *const %s = &(%s);\n", indent, sourceType.CName, loop, source)
+			fmt.Fprintf(body, "%sconst %s *const %s = &(%s);\n", indent, sourceType.CName, loop, source)
 		} else {
 			fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
 		}
@@ -214,12 +214,16 @@ func renderForDict(body *strings.Builder, statement checker.ForStatement, loop s
 	valueType := statement.Binders[len(statement.Binders)-1].Type
 
 	fmt.Fprintf(body, "%sconst %s *const %s = %s;\n", indent, sourceType.CName, loop, source)
-	fmt.Fprintf(body, "%ssize_t %s = (size_t)-1;\n", indent, ordinalVariable)
+	if hasIndex {
+		fmt.Fprintf(body, "%ssize_t %s = (size_t)-1;\n", indent, ordinalVariable)
+	}
 	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s->capacity; %s++) {\n", indent, bucketVariable, bucketVariable, loop, bucketVariable)
 	fmt.Fprintf(body, "%s    if (!%s->buckets[%s].active) {\n", indent, loop, bucketVariable)
 	fmt.Fprintf(body, "%s        continue;\n", indent)
 	fmt.Fprintf(body, "%s    }\n", indent)
-	fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
+	if hasIndex {
+		fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
+	}
 	writeLineDirective(body, statement.Binders[0].SourceLine)
 	if hasIndex {
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
