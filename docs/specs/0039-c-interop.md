@@ -426,7 +426,20 @@ Before this RFC is Ready for Implementation, it must settle:
 10. the initial policy for external variables, thread-local storage, `errno`,
     and C atomics; and
 11. the conformance strategy for Windows and POSIX ABIs without requiring an
-    external C toolchain in ordinary `go test ./...`.
+    external C toolchain in ordinary `go test ./...`;
+12. the trusted-contract mechanism that strengthens an imported pointer to
+    non-null, including whether a read-only foreign pointer return may be
+    imported as a bare `Ptr<T>` rather than `Ptr<T> | Nil`, and what evidence
+    the compiler requires before honoring such a claim; and
+13. how an imported aggregate exposes its elements — whether a foreign array
+    member or pointer-plus-length pair is adapted through RFC 0043's
+    `View<T>.from_pointer` at every use, or whether an import-time descriptor
+    is generated once.
+
+Questions 12 and 13 absorb the "read-only foreign pointer returns and imported
+`const T *` contracts" and "slices, arrays, aggregates, and C header importing"
+follow-ups previously tracked outside this RFC. This RFC is their sole home;
+the `const T *` to `Ptr<T>` mapping itself is already settled above.
 
 ## Initial direction
 

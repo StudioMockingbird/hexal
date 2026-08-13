@@ -1,0 +1,121 @@
+# RFC 0052: Target Profiles and Representation Evidence
+
+- Kind: Feature Specification (Rust-Style RFC)
+- Status: Draft; design not started
+- Features: a named target profile, representation evidence beyond C constant
+  expressions, and the trusted-metadata boundary for cross-compilation
+- Created: 2026-08-13
+- Depends on: RFC 0003 (scalar layouts), RFC 0036 (`Size`), RFC 0037 (task
+  runtime targets), and RFC 0042 (layout queries)
+- Coordinates with: RFC 0039 (C interop, draft) and RFC 0049 item 6, which
+  implements the `size_t` width this RFC generalizes
+
+## Purpose
+
+Several settled decisions assume a *target* exists as a first-class concept,
+but nothing names or carries one.
+
+- RFC 0036 requires the `size_t` width before type checking, and rejects widths
+  other than 16, 32, or 64.
+- RFC 0037 supports Windows x64 and POSIX x86-64 and must reject others.
+- RFC 0042 makes `size_of`/`align_of` C constant expressions whose values come
+  from the selected target.
+- `reference.md` requires generated headers to verify fixed-width integer,
+  IEC float, and `size_t` assumptions.
+
+Today each is a separate hardcoded assumption. RFC 0049 item 6 introduces the
+first real profile field — the `size_t` width — because a conformance gap forced
+it. This RFC generalizes that into one concept rather than accumulating
+per-feature target flags.
+
+## Scope
+
+This RFC owns the "target probes and trusted target metadata for representation
+evidence beyond C constant-expression checks" follow-up, which previously had no
+spec home.
+
+It does not implement anything. RFC 0049 item 6 delivers the `size_t` width on
+its own timeline; this RFC decides what the profile becomes afterward.
+
+## 1. What a profile must carry
+
+At minimum, from existing decisions:
+
+| Property | Required by | Today |
+|---|---|---|
+| `size_t` width | RFC 0036, RFC 0049 item 6 | hardcoded 64 |
+| pointer width and alignment | RFC 0042 layout queries | inferred from host C |
+| scalar alignments | RFC 0042 | inferred from host C |
+| IEC 60559 binary32/64 availability | `reference.md` | asserted in generated C |
+| endianness | RFC 0032 byte conversion | not needed — byte order is by significance, not host |
+| OS and ABI family | RFC 0037 context backends | hardcoded probe |
+
+Must settle: whether a profile is a closed enumeration of supported targets, an
+open record of properties, or a name resolving to a record.
+
+## 2. Evidence versus assertion
+
+Two mechanisms exist for establishing a representation fact, and the boundary
+between them is undecided.
+
+**Generated C assertions.** `static_assert(sizeof(size_t) == 8, ...)` fails at
+C compile time. Cheap and exact, but the Hexal checker has already finished by
+then — it cannot use the result to make a checking decision.
+
+**Compiler-side evidence.** The checker needs the width *before* checking any
+`Size`-using source, per RFC 0036. That value must come from somewhere the
+checker can read.
+
+Must settle:
+
+- which facts the checker must know before checking, versus which may be
+  asserted at C compile time;
+- whether the compiler may run a probe program to discover facts, which
+  requires a C toolchain and conflicts with the rule that `go test ./...` needs
+  none; and
+- whether a declared profile is trusted without verification, and what happens
+  when generated C then contradicts it.
+
+The current answer is implicitly "trust the host, assert in C." That works only
+for native builds.
+
+## 3. Cross-compilation
+
+RFC 0037 already states the requirement: a cross-compilation profile must name
+a previously verified C23 thread runtime for its exact toolchain and target, or
+task features fail before generated-program compilation.
+
+Generalizing that: a cross profile cannot probe the host, so every fact must be
+declared. Must settle what makes a declaration trustworthy — a signed manifest,
+a verified-profile registry, or nothing beyond the user's word.
+
+## 4. Interaction with C interop
+
+RFC 0039 draft readiness question 11 asks for a Windows/POSIX ABI conformance
+strategy that needs no external toolchain in ordinary testing. That is the same
+question as item 2 here, arrived at from the other side.
+
+Neither RFC should answer it alone. Whichever is designed first should settle
+the evidence model and the other should cite it.
+
+## Non-goals
+
+- General target-feature introspection exposed to Hexal source. `size_of` and
+  `align_of` remain the only visible layout operations.
+- A build system, toolchain discovery, or dependency management.
+- Adding target families beyond RFC 0037's Windows x64 and POSIX x86-64.
+- `ISize`, pointer-width integers, or address-space concepts.
+- Changing byte-order rules. RFC 0032 defines conversion by significance, so
+  host endianness stays invisible.
+
+## Readiness
+
+Not ready for design, and deliberately so. RFC 0049 item 6 will show what a
+minimal profile actually needs; designing the general mechanism first would be
+speculative. Revisit once that lands, or when RFC 0039 forces the evidence
+question.
+
+## Open questions
+
+Everything in sections 1 through 4. This RFC records the problem and its owner,
+not a solution.

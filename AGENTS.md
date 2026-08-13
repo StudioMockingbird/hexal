@@ -43,7 +43,7 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 
 ## Language Goals & Philosophy
 
-1. Hexal should feel intuitive.
+1. Hexal should be cohesive, coherent, consistent, uniform and overall feel intuitive.
 2. There should only be one obvious way to do things.
 3. The language surface must remain small and clean.
 4. Prioritize simplicity, elegance, expressiveness, and composability.
@@ -95,22 +95,25 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 
 ## Documentation
 
-Keep these three canonical documents updated once per feature, after behavior
+Keep these two canonical documents updated once per feature, after behavior
 stabilizes—not repeatedly while it is still changing:
 
-1. `docs/reference.md` — sole normative language semantic contract.
-2. `docs/grammar.ebnf` — formal syntax in EBNF; it does not define semantics.
-3. `docs/status.md` — implementation checklist and known follow-ups; it does
-   not define semantics.
+1. `docs/reference.md` — sole normative syntax and semantic contract; formal
+   EBNF appears first so syntax and semantics change together.
+2. `docs/status.md` — open TODOs and open bugs only, each naming its owning
+   spec; it does not define semantics and does not record completed work. A
+   spec's `Status:` header records what is done. Delete an entry when it
+   closes; add one only with a spec to point at.
 
-These three are the only canonical documents. `docs/language.md` was retired
-after its still-relevant content was migrated into `reference.md`; do not
-recreate it or add a fourth prose document alongside these.
+These two are the only canonical documents. `docs/grammar.ebnf` was merged into
+`docs/reference.md`, and `docs/language.md` was retired after its still-relevant
+content was migrated there. Do not recreate either file or add a third prose
+document alongside these.
 
 `docs/reference.md` is primarily an input to agentic development workflows and
 secondarily a lookup document for humans. Optimize it for precise retrieval:
 
-- Include only current rules and semantic contracts.
+- Include only current syntax rules and semantic contracts.
 - Exclude tutorials, walkthroughs, historical narrative, and illustrative
   examples.
 - Express information as general rules, exact signatures, tables, acceptance

@@ -1,38 +1,252 @@
 # Hexal Language Reference
 
-This file is the sole normative semantic reference. `grammar.ebnf` defines syntax. `status.md`
-tracks implementation. Compiler behavior that disagrees with this file is a conformance bug.
+This file is the sole normative syntax and semantic reference. `status.md` tracks implementation.
+Compiler behavior that disagrees with this file is a conformance bug.
+
+## Grammar
+
+The grammar defines source shape only. Semantic rules in the remainder of this file may reject a
+grammatically valid form.
+
+Two lexical/parser rules are not expressible in EBNF:
+
+- Tokens use maximal munch. Inside nested type-argument lists only, one `>>` token may close two
+  levels; in expression position it is always one shift token.
+- `|` is a union separator in type position and bitwise-or in expression position; parser context
+  selects the grammar.
+
+```ebnf
+program = lexical-separation , { top-level-item } ;
+lexical-separation = ? whitespace and comments are discarded between tokens,
+                       except where same-line is required ? ;
+same-line = ? no line break occurs before the next token ? ;
+
+top-level-item = type-declaration | function-declaration
+                 | implementation-declaration | statement ;
+type-declaration = "type" , identifier , [ generic-parameter-list ]
+                   , "=" , type-definition-expression ;
+function-declaration = "fun" , identifier , [ generic-parameter-list ]
+                       , signature , block , "end" ;
+implementation-declaration = "impl" , type-expression , "." , identifier
+                             , [ generic-parameter-list ] , signature
+                             , block , "end" ;
+signature = "(" , [ parameter-list ] , ")" , [ ":" , type-expression ] ;
+parameter-list = parameter , { "," , parameter } ;
+parameter = identifier , ":" , type-expression ;
+generic-parameter-list = "<" , identifier , { "," , identifier } , ">" ;
+
+statement = non-control-statement | return-statement
+            | if-statement | while-statement | for-statement ;
+non-control-statement = declaration | assignment | call-statement
+                        | try-statement
+                        | "break" | "continue"
+                        | defer-statement | errdefer-statement ;
+block = { statement } ;
+declaration = [ "mut" ] , identifier , ":" , type-expression
+              , "=" , expression ;
+assignment = assignment-target , "=" , expression ;
+assignment-target = place-expression ;
+call-statement = ? call-expression whose first token is identifier or "self" ? ;
+try-statement = "try" , unary-expression ;
+return-statement = "return" , [ same-line , expression ] ;
+defer-statement = "defer" , expression ;
+errdefer-statement = "errdefer" , expression ;
+if-statement = "if" , expression , block
+               , { "elseif" , expression , block }
+               , [ "else" , block ] , "end" ;
+while-statement = "while" , expression , "do" , block , "end" ;
+for-statement = "for" , for-binders , "in" , expression
+                , "do" , block , "end" ;
+for-binders = identifier
+              | identifier , "," , identifier
+              | identifier , "," , identifier , "," , identifier ;
+
+type-definition-expression = object-type-expression
+                             | adt-type-expression | type-expression ;
+object-type-expression = "{" , member-declaration
+                         , { "," , member-declaration } , [ "," ] , "}" ;
+member-declaration = [ "mut" ] , identifier , ":" , type-expression ;
+adt-type-expression = adt-variant , { adt-variant } ;
+adt-variant = "|" , identifier , [ "as" , adt-payload ] ;
+adt-payload = "{" , payload-member
+              , { "," , payload-member } , [ "," ] , "}" ;
+payload-member = identifier , ":" , type-expression ;
+
+type-expression = union-type-expression ;
+union-type-expression = primary-type-expression
+                        , { "|" , primary-type-expression } ;
+primary-type-expression = named-type | generic-type | array-type
+                          | pointer-type | function-type-expression
+                          | "(" , type-expression , ")" ;
+named-type = identifier - special-form-type-constructor ;
+generic-type = generic-type-name , type-argument-list ;
+generic-type-name = identifier - special-form-type-constructor ;
+special-form-type-constructor = "Array" | "Ptr" | "MutPtr" | "Fun" ;
+type-argument-list = "<" , type-expression
+                     , { "," , type-expression } , ">" ;
+array-type = "Array" , "<" , type-expression
+             , "," , positive-decimal-literal , ">" ;
+positive-decimal-literal = nonzero-decimal-digit
+                           , { decimal-digit | "_" , decimal-digit } ;
+pointer-type = pointer-constructor , "<" , type-expression , ">" ;
+pointer-constructor = "Ptr" | "MutPtr" ;
+function-type-expression = "Fun" , "<" , "(" , [ type-list ] , ")"
+                           , [ ":" , type-expression ] , ">" ;
+type-list = type-expression , { "," , type-expression } ;
+
+expression = or-expression ;
+or-expression = and-expression , { "or" , and-expression } ;
+and-expression = bitwise-or-expression , { "and" , bitwise-or-expression } ;
+bitwise-or-expression = bitwise-xor-expression
+                        , { "|" , bitwise-xor-expression } ;
+bitwise-xor-expression = bitwise-and-expression
+                         , { "^" , bitwise-and-expression } ;
+bitwise-and-expression = equality-expression
+                         , { "&" , equality-expression } ;
+equality-expression = type-test-expression
+                      , { equality-operator , type-test-expression } ;
+type-test-expression = relational-expression , [ "is" , type-expression ] ;
+relational-expression = shift-expression
+                        , { relational-operator , shift-expression } ;
+shift-expression = additive-expression , { shift-operator , additive-expression } ;
+additive-expression = multiplicative-expression
+                      , { additive-operator , multiplicative-expression } ;
+multiplicative-expression = unary-expression
+                            , { multiplicative-operator , unary-expression } ;
+unary-expression = unary-operator , unary-expression
+                   | "try" , unary-expression
+                   | "spawn" , call-expression
+                   | "ref" , place-expression
+                   | postfix-expression ;
+
+place-expression = place-primary , { place-suffix } ;
+place-primary = identifier | "self" ;
+place-suffix = "." , identifier | index-suffix ;
+postfix-expression = postfix-base , { postfix-suffix } ;
+postfix-base = primary-expression | type-qualified-primary ;
+postfix-suffix = member-suffix | index-suffix | call-suffix ;
+member-suffix = "." , identifier ;
+type-qualified-primary = identifier , type-argument-list
+                         , "." , identifier , [ variant-payload ] ;
+call-suffix = call-arguments | type-argument-list , call-arguments ;
+call-expression = postfix-base , { postfix-suffix } , call-suffix ;
+call-arguments = same-line , "(" , [ argument-list ] , ")" ;
+argument-list = expression , { "," , expression } ;
+index-suffix = "[" , expression , "]" ;
+
+primary-expression = identifier | "self" | object-literal
+                     | qualified-record-variant
+                     | array-literal | match-expression
+                     | integer-literal | decimal-floating-literal
+                     | byte-literal | rune-literal | string-literal
+                     | "true" | "false" | "nil" | "eos"
+                     | "(" , expression , ")" ;
+object-literal = identifier , [ type-argument-list ]
+                 , "{" , [ member-initializer-list ] , "}" ;
+qualified-record-variant = identifier , "." , identifier , variant-payload ;
+variant-payload = "{" , [ member-initializer-list ] , "}" ;
+member-initializer-list = member-initializer
+                          , { "," , member-initializer } , [ "," ] ;
+member-initializer = identifier , "=" , expression ;
+array-literal = "[" , [ expression-list , [ "," ] ] , "]" ;
+expression-list = expression , { "," , expression } ;
+
+match-expression = "match" , match-scrutinee , [ "is" ]
+                   , match-arm , { match-arm } , "end" ;
+match-arm = "|" , match-pattern , "then" , match-arm-expression ;
+match-scrutinee = ? expression ending before the first unparenthesized
+                    "is" type-mode marker or match-arm "|" ? ;
+match-arm-expression = ? expression ending before the next unparenthesized
+                         match-arm "|" or the matching "end" ? ;
+match-pattern = "else" | "true" | "false"
+                | qualified-variant-pattern | primary-type-expression ;
+qualified-variant-pattern = identifier , [ type-argument-list ]
+                            , "." , identifier ;
+
+unary-operator = "-" | "!" | "~" ;
+multiplicative-operator = "*" | "/" | "%" ;
+additive-operator = "+" | "-" ;
+shift-operator = "<<" | ">>" ;
+relational-operator = "<" | "<=" | ">" | ">=" ;
+equality-operator = "==" | "!=" ;
+
+identifier = identifier-text - reserved-word ;
+identifier-text = ASCII-letter , { ASCII-letter | decimal-digit | "_" } ;
+reserved-word = "true" | "false" | "nil" | "eos" | "mut" | "ref"
+                | "type" | "and" | "or" | "is" | "fun" | "impl"
+                | "end" | "return" | "if" | "elseif" | "else"
+                | "while" | "break" | "continue" | "defer" | "try"
+                | "errdefer" | "spawn" | "as" | "match" | "then"
+                | "self" | "for" | "in" | "do" ;
+integer-literal = decimal-integer | hexadecimal-integer
+                  | binary-integer | octal-integer ;
+decimal-integer = "0" | nonzero-decimal-digit
+                  , { decimal-digit | "_" , decimal-digit } ;
+hexadecimal-integer = "0x" , hex-digit
+                      , { hex-digit | "_" , hex-digit } ;
+binary-integer = "0b" , binary-digit
+                 , { binary-digit | "_" , binary-digit } ;
+octal-integer = "0o" , octal-digit
+                , { octal-digit | "_" , octal-digit } ;
+decimal-floating-literal = decimal-integer , "." , decimal-digit-sequence
+                           , [ exponent-part ]
+                           | decimal-integer , exponent-part ;
+exponent-part = ( "e" | "E" ) , [ "+" | "-" ]
+                , decimal-digit-sequence ;
+decimal-digit-sequence = decimal-digit
+                         , { decimal-digit | "_" , decimal-digit } ;
+
+string-literal = '"' , { string-character | string-escape } , '"' ;
+string-escape = '\' , ( "'" | '"' | '\' | "n" | "r" | "t" | "0"
+                | unicode-escape ) ;
+byte-literal = "b" , "'" , byte-literal-body , "'" ;
+byte-literal-body = printable-ASCII-character | byte-escape ;
+byte-escape = '\' , ( '\' | "'" | "n" | "r" | "t" | "0"
+              | "x" , hex-digit , hex-digit ) ;
+rune-literal = "'" , rune-literal-body , "'" ;
+rune-literal-body = Unicode-scalar | rune-escape ;
+rune-escape = '\' , ( '\' | "'" | '"' | "n" | "r" | "t" | "0"
+              | unicode-escape ) ;
+unicode-escape = "u{" , hex-digit , { hex-digit } , "}" ;
+
+line-comment = "--" , { non-newline-character } ;
+multiline-comment = "--[" , { comment-character } , "]--" ;
+whitespace = " " | horizontal-tab | carriage-return | newline ;
+string-character = ? any Unicode scalar except '"', "\", CR, or LF ? ;
+printable-ASCII-character = ? one ASCII byte from 0x20 through 0x7E,
+                              except "'" or "\" ? ;
+Unicode-scalar = ? one Unicode scalar except "'", "\", CR, or LF ? ;
+non-newline-character = ? any character except CR or LF ? ;
+comment-character = ? any character not beginning the sequence "]--" ? ;
+horizontal-tab = ? U+0009 ? ;
+carriage-return = ? U+000D ? ;
+newline = ? U+000A ? ;
+
+ASCII-letter = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I"
+               | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R"
+               | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z"
+               | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i"
+               | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r"
+               | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" ;
+nonzero-decimal-digit = "1" | "2" | "3" | "4" | "5"
+                        | "6" | "7" | "8" | "9" ;
+decimal-digit = "0" | nonzero-decimal-digit ;
+binary-digit = "0" | "1" ;
+octal-digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" ;
+hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
+            | "A" | "B" | "C" | "D" | "E" | "F" ;
+```
 
 ## Language boundary
 
 - Hexal is a statically typed systems language that lowers to readable C23 with `#line` mappings.
-- Compilation is forward-only and fail-closed: invalid or unsupported source produces a structured
-  diagnostic and is never omitted or partially generated.
+- Invalid or unsupported source fails closed under the diagnostic contract below.
 - Values follow C-style shallow copying. Allocation and cleanup are explicit; there are no moves,
   borrow states, retain counts, implicit destructors, or compiler-enforced exactly-once cleanup.
 - Native modules, C interop, Arena, and Pool remain draft features and are not part of this language.
 - When no source name is supplied, the compilation unit uses the synthetic filename `main.hex` in
   diagnostics, generated `#line` directives, and `Error.file`. `.hex` is the intended source
   extension; file loading is unspecified.
-
-## Lexical rules
-
-- Identifiers are case-sensitive `[A-Za-z][A-Za-z0-9_]*`; leading `_` and digits are invalid.
-  C keywords, macro names, and `main` are valid Hexal identifiers.
-- Whitespace is insignificant and statements have no terminator. A call's `(` must share the
-  callee's final source line. A return value must begin on the `return` line; otherwise it is bare.
-- `--` starts a line comment, `--[ ... ]--` a multiline comment, and `---` is a line comment.
-- Integers are decimal, `0x`, `0b`, or `0o`, with lowercase prefixes and `_` only between digits.
-  There are no suffixes or implicit octal; nonzero decimal values cannot have leading zeroes.
-- Floats are decimal `digits.digits` with optional exponent, or `digits` with required exponent.
-  `.5`, `1.`, and hexadecimal floats are invalid.
-- String escapes are `\'`, `\"`, `\\`, `\n`, `\t`, `\r`, `\0`, and `\u{HEX}`. Raw newlines are
-  invalid. Byte literals use `b'...'`; Rune literals use `'...'`.
-- Maximal munch makes `!=`, `==`, `<=`, `>=`, `<<`, and `>>` single tokens. In nested type
-  arguments only, `>>` may close two levels. `&&`, `||`, `++`, `--`, and compound assignments are
-  invalid.
-- Reserved words/literals: `true false nil eos mut ref type and or is fun impl end return if
-  elseif else while break continue defer try errdefer spawn as match then self for in do`.
 
 ## Programs, names, and bindings
 
@@ -42,6 +256,7 @@ tracks implementation. Compiler behavior that disagrees with this file is a conf
   or passed explicitly.
 - Functions and methods are file-scope declarations. Nested functions and closures do not exist;
   functions cannot capture root or lexical locals.
+- `return` is valid only inside a function or method body. The root program has no declared result.
 - Declarations become visible in source order. A function may call itself or an earlier function;
   forward calls and mutual recursion are unavailable.
 - Type and value names share one namespace. Protected names cannot be redeclared or shadowed.
@@ -57,18 +272,6 @@ tracks implementation. Compiler behavior that disagrees with this file is a conf
 - Member assignment requires a writable root and `mut` at every object-member step. Dereference
   writability comes from the pointer type.
 
-Generated private C identifiers use one unconditional prefix on the full source spelling:
-
-| Declaration | Prefix |
-| --- | --- |
-| binding | `hex_v_` |
-| type | `hex_t_` |
-| member | `hex_m_` |
-| function/method | `hex_f_` |
-
-`HEX_` is reserved for generated macros. Names are never conditionally escaped, hashed, or
-truncated; an existing prefix is prefixed again. Foreign C names are outside this rule.
-
 ## Values, copying, and evaluation
 
 - Every value is stored inline. Every copy copies the C representation. Scalars and
@@ -82,23 +285,33 @@ truncated; an existing prefix is prefixed again. Foreign C names are outside thi
   alias leaves others dangling; losing the last handle can leak.
 - Every value is copyable except `Atomic<T>` and inline aggregates transitively containing one.
   Atomic containment traversal stops at every pointer and handle indirection.
-- Storability and copyability are separate. Any complete, finitely sized value may occupy these
-  positions, subject to the exceptions below:
+- Full statements execute in source order. Unless stated otherwise, operand order, call-argument
+  order, receiver-versus-argument order, and object-initializer order are C23-unspecified.
+
+## Position eligibility
+
+These are the positions that hold a value. Other sections name them directly when narrowing what
+they accept.
 
 ```text
-binding          object member    ADT payload      union member
-Array element    View element     List element     Dict value
-function param   function result  Task argument    Task result
-Channel element  Stream element   Stream state
+Binding          ObjectMember     ADTPayload       UnionMember
+ArrayElement     ViewElement      ListElement      DictValue
+FunctionParam    FunctionResult   TaskArgument     TaskResult
+ChannelElement   StreamElement    StreamState      Pointee
+HeapAllocation
 ```
 
+- Storability and copyability are separate. Eligibility is checked after generic substitution, then
+  completeness and finite size, then copyability when the operation copies, then feature-specific
+  exclusions.
+- A complete, finitely sized value is valid in every position unless a rule explicitly excludes it.
+- Pointee additionally admits incomplete Unknown and applies the Pointers and Functions exclusions.
+- HeapAllocation requires a complete, finite, copyable initializer valid under the Atomic rules.
 - Assignment, argument passing, return, insertion, union injection, and spawn capture require a
   copyable value. Direct in-place initialization exists only for bindings and object members;
   non-copyable Atomic state is restricted to those positions.
 - `Atomic<T>` is restricted as described under Atomic; `Fun<...>` has its own placement rules;
-  `Unknown` exists only as an incomplete pointee. View has no placement exception.
-- Full statements execute in source order. Unless stated otherwise, operand order, call-argument
-  order, receiver-versus-argument order, and object-initializer order are C23-unspecified.
+  `Unknown` exists only as an incomplete pointee.
 
 ## Core types
 
@@ -111,16 +324,19 @@ Channel element  Stream element   Stream state
 | `Size` | target-sized unsigned length/index | `size_t` |
 | `Byte` | transparent alias of `UInt8` | `uint8_t` |
 | `Rune` | Unicode scalar value | `uint32_t` |
-| `Nil` | singleton `nil` | `nullptr_t` where needed |
-| `EoS` | completion singleton `eos` | compiler-defined |
+| `Nil` | zero-state `nil`; valid only as a union member | no stable foreign ABI |
+| `EoS` | zero-state completion `eos`; valid standalone | no stable foreign ABI |
 
 - `Size` exactly matches the selected target's `size_t` width, range, alignment, and representation.
   Supported widths are 16, 32, and 64; others are rejected before checking Size-using source.
   Generated C asserts the chosen width. Size remains canonically distinct from fixed integers.
 - Rune is distinct from UInt32 and excludes surrogates. `Int`, `UInt`, `Float`, `Double`, `Char`,
   `Long`, `ISize`, and `Void` are not built-ins.
-- A function with no result omits `: Type`; it does not return Nil. Use `: Nil` and `return nil` for
-  a first-class Nil result.
+- Nil is valid only in a union containing at least one non-Nil member. Standalone Nil is invalid in
+  aliases, bindings, parameters, results, members, payloads, collection positions, and generic
+  arguments. The `nil` literal requires a contextual union containing Nil, except as a `print`
+  argument, which is the sole position admitting standalone Nil.
+- A function with no result omits `: Type` and uses bare `return` when explicit return is required.
 
 ### Contextual literals
 
@@ -153,8 +369,12 @@ Channel element  Stream element   Stream state
   with `== nil`, `!= nil`, or match before dereference. The null niche adds no tag or allocation.
 - `Unknown` is incomplete and valid only behind Ptr/MutPtr. One pointer layer may erase to or recover
   from Unknown; Unknown cannot be stored or dereferenced by value.
-- String, List, Dict, Stream, and View are already handles/descriptors and cannot be Ptr/MutPtr
-  pointees.
+- String, List, Dict, Stream, and View cannot be Ptr/MutPtr pointees. Each already carries its own
+  aliasing and invalidation rules over borrowed or allocated storage, and a pointer to one would add
+  a second aliasing layer with no defined semantics. This is not a general handle exclusion:
+  `Task<R>`, `Channel<T>`, and `Mutex` are shared by handle copy and are valid pointees.
+- `Atomic<T>` cannot be a direct Ptr/MutPtr pointee. `Ptr<Atomic<T>>` and
+  `MutPtr<Atomic<T>>` are invalid type expressions.
 - Pointers name one object. Arithmetic, indexing, ordering, subtraction, integer conversion,
   `bit_cast`, one-past values, increment/decrement, and compound assignment are unavailable.
 
@@ -168,6 +388,8 @@ Channel element  Stream element   Stream state
   are not addressable.
 - Calls require exact arity and assignable arguments. No-result calls are statements only. Results
   must match their declarations; result-producing bodies cannot fall through.
+- Infallible commands with no payload return no value. Fallible commands with no success payload
+  return `Nil | Error`.
 - `impl Receiver.method(...)` adds an implicit fixed `self`, no fields or runtime dispatch. User
   targets are nominal `T`, `Ptr<T>`, or `MutPtr<T>`. Value receivers copy; Ptr reads caller storage;
   MutPtr may write its `mut` members.
@@ -198,14 +420,18 @@ Channel element  Stream element   Stream state
 - A union holds exactly one active member; injection is implicit and allocation-free. Unions are
   flattened, duplicate-free, structural, and order-independent. Written order only chooses among
   contextual initializer candidates.
+- A union contains at least two distinct canonical members. Nil is valid only as one member of such
+  a union.
 - Widening is allowed only when every source member fits the destination; implicit narrowing and
   declaration-time union inference do not exist.
 - `is` tests an exact active member. Narrowing applies to direct local reads; assignment or writable
   address escape invalidates it.
 - `is Nil` is invalid, and `T | Nil` also rejects `is T`; use `== nil`/`!= nil`. Larger nullable
   unions may test non-Nil members, and match type patterns may name Nil.
-- General unions use tag plus inline payload. Exactly one pointer-like member plus Nil uses the null
-  niche. Member operations require narrowing.
+- A pointer type is exactly Ptr, MutPtr, or Fun after transparent-alias resolution. A union of
+  exactly Nil and one pointer type uses the null-pointer niche without a tag. All other unions,
+  including handle-plus-Nil unions, use the general tag-plus-inline-payload representation. Member
+  operations require narrowing.
 - Union equality requires identical canonical union types and equality-capable members; ordering is
   unavailable. Members may be any storable value. Atomic and Unknown cannot be members.
 
@@ -229,9 +455,11 @@ Channel element  Stream element   Stream state
 
 ### Lossless widening
 
-Typed numeric values widen implicitly only when every source value is exactly representable:
+Typed numeric values widen implicitly only when every source value is exactly representable. The
+table lists fixed-width destinations only; Size destinations use the target-range rule below. `none`
+means no fixed-width destination.
 
-| Source | Destinations excluding identity |
+| Source | Fixed-width destinations excluding identity |
 | --- | --- |
 | `Int8` | `Int16 Int32 Int64 Float32 Float64` |
 | `Int16` | `Int32 Int64 Float32 Float64` |
@@ -246,10 +474,11 @@ Typed numeric values widen implicitly only when every source value is exactly re
 
 - Widening applies to initialization, assignment, arguments, returns, fields, collection insertion,
   and binary common-type selection.
-- Size common-type selection is range-based: select Size when the other unsigned range fits Size;
-  select the fixed type when every Size value fits it; select Size for equal ranges; otherwise
-  reject. Signed/Size mixes generally have no common type. On 64-bit Size targets, Size and UInt64
-  widen both ways and mix to Size. Narrower Size requires explicit UInt64-to-Size conversion.
+- For unsigned fixed-width U and Size: U widens to Size when U's complete range fits Size; Size
+  widens to U when Size's complete range fits U; equal ranges permit both and choose Size as the
+  binary common type; otherwise there is no implicit common type.
+- A signed fixed-width type never widens to Size. Size widens to signed S exactly when every Size
+  value fits S; a Size/S binary operation then uses S, otherwise it has no lossless common type.
   Canonical identities remain distinct.
 - Binary numeric operations choose the unique least type losslessly reachable from both operands.
   Surrounding result context does not change that choice. Rune never widens implicitly.
@@ -269,10 +498,6 @@ Typed numeric values widen implicitly only when every source value is exactly re
 
 ### Operators
 
-Precedence, highest first: postfix; prefix `- ! ~ try ref spawn`; `* / %`; `+ -`; `<< >>`;
-`< <= > >=`; `is`; `== !=`; `&`; `^`; `|`; `and`; `or`. Binary operators associate left and
-prefix operators right.
-
 - Integer `+`, `-`, `*`, unary `-`, and left shift wrap modulo width with defined two's-complement
   results. Constant folding uses the same rule. Unary `-` rejects typed unsigned values.
 - Integer division truncates toward zero; remainder follows the dividend sign. Evaluated known zero
@@ -281,6 +506,8 @@ prefix operators right.
 - Floating arithmetic follows IEC 60559; `%` is integer-only and NaN comparisons follow IEC rules.
 - Bitwise operations accept fixed integers and Size. Shift counts must be `0..width-1`; bad constants
   fail and bad dynamic counts trap. Signed right shift is arithmetic, unsigned zero-filling.
+- Rune supports equality, ordering, and checked `to<T>()` conversion. Rune is invalid for `+`, `-`,
+  `*`, `/`, `%`, unary `-`, `~`, `&`, `^`, `|`, `<<`, and `>>`.
 - `bit_cast<T>()` supports equal-width fixed integers and Float32/64, excluding pointers, Size, Rune,
   and aggregates. Fixed integers provide `to_le_bytes()`/`to_be_bytes()` and
   `T.from_le_bytes(array)`/`T.from_be_bytes(array)` through exact `Array<Byte, N>`.
@@ -288,8 +515,10 @@ prefix operators right.
 ### Equality, ordering, and truthiness
 
 - Numeric comparison uses the lossless common type. Other comparisons require identical canonical
-  types. Bool, Rune, Nil, EoS compare by value; pointers by identity; text by UTF-8 bytes; objects by
+  types. Bool, Rune, EoS compare by value; pointers by identity; text by UTF-8 bytes; objects by
   members; ADTs by tag/payload; unions by member; Array/View/List by length then elements.
+- `== nil` and `!= nil` test whether a union's active member is Nil. They require a union containing
+  Nil, are the only Nil comparison, and read no payload. Nil has no standalone value to compare.
 - String and Strand are not mutually comparable. Functions, allocators, Files, and Dicts have no
   equality. An aggregate is comparable only when all recursively compared components are.
 - Ordering exists only for numeric scalars, Rune, String, and Strand. Text uses unsigned-byte
@@ -304,22 +533,33 @@ prefix operators right.
   `continue` target the nearest loop.
 - Branches and loop iterations are scopes. Locals may shadow outer names; assignments may reach
   accessible outer mutable bindings.
-- `is`/nil facts follow control flow and may survive a branch ending in return/break/continue.
-- Every continuing path in a result-producing function must return. A loop always may fall through,
-  including `while true`; break/continue never satisfy a return requirement.
+- `is`/nil facts follow control flow. A branch-established fact survives afterward only on the sole
+  continuing path when every alternative terminates with context-valid `return`, `break`, or
+  `continue`. Assignment or writable address escape invalidates `is` narrowing as defined under
+  Structural unions.
+- Every continuing path in a result-producing function must return. A loop is always treated as able
+  to fall through, including `while true`; break/continue never satisfy a return requirement.
 - `defer expression` registers cleanup in the current scope. Actions run in reverse registration
   order on fallthrough, return, break, or continue. A direct call captures callee, receiver, and
   arguments at registration; other expressions evaluate on exit.
 - `errdefer` uses the same rules but runs only while the function exits with active Error. It shares
   reverse order with defer on Error exit and is discarded otherwise.
-- `try` is invalid in cleanup actions; cleanup result values are discarded. Process traps need not
-  run cleanup.
+- Cleanup result values are discarded. Process traps need not run cleanup. Errors defines `try` and
+  `errdefer` validity.
 
 ### `for ... in`
 
-- Sources: Array, View, List, String, Strand, Dict, Stream. Optional first binder is zero-based Size.
-  Sequences/Stream then bind value; Dict binds key and value.
-- Text iterates decoded Runes; Dict order is unspecified; Stream pulls through eos.
+- Sources and binder forms are exact:
+
+| Source | Binders | Binder types and order |
+| --- | ---: | --- |
+| Array, View, List, String, Strand, Stream | 1 | value |
+| Array, View, List, String, Strand, Stream | 2 | `index: Size`, value |
+| Dict | 2 | key, value |
+| Dict | 3 | `index: Size`, key, value |
+
+Every other source/arity combination is invalid.
+- Text iterates decoded Runes; Dict order is unspecified; Stream pulls until eos.
 - Finite-source traversal boundaries are captured once. Array places iterate in place; temporary
   Arrays and Strands materialize once; handles copy shallowly. Stream captures its source but no
   boundary and keeps pulling until eos.
@@ -330,6 +570,10 @@ prefix operators right.
 
 ## Errors
 
+```text
+Error.new(header: Strand, message: String) -> Error
+```
+
 - Protected nominal `Error` has fixed immutable fields `file: String`, `line: Size`, `column: Size`,
   `header: Strand`, `message: String`.
 - `Error.new(header, message)` is the only constructor and injects filename plus one-based line and
@@ -337,18 +581,26 @@ prefix operators right.
 - Fallible functions return structural unions containing Error; there are no exceptions or hidden
   result channels. Error copying is shallow. Runtime `message` String storage must remain live while
   any alias can be inspected or printed.
-- `try expression` requires exactly one Error member and at least one success member. It evaluates
-  once, returns Error unchanged, or yields the normalized success value/union. It does not catch
-  traps.
+- A try expression or try statement requires exactly one Error member and at least one success
+  member. It evaluates once and returns Error unchanged. A try expression yields the normalized
+  success value/union; a try statement discards it. Neither catches traps.
 - `try` and `errdefer` are valid only inside a function whose declared result accepts Error; both are
   invalid at root scope. `try` is additionally invalid inside any cleanup action.
 
 ## Allocation and lifetime
 
+```text
+Heap.new() -> Heap
+Heap.allocate<T>(initial: T) -> MutPtr<T>
+Heap.free<T>(pointer: Ptr<T>) -> no value
+Heap.free<T>(pointer: MutPtr<T>) -> no value
+```
+
 - `Heap.new()` selects the default allocator without runtime allocation; Heap operations are
   thread-safe.
 - `h.allocate<T>(initial)` allocates and initializes one complete finite T, returning non-owning
-  `MutPtr<T>`. Failure or unrepresentable size traps.
+  `MutPtr<T>`. T must be valid in HeapAllocation; direct Atomic allocation is invalid. Failure or
+  unrepresentable size traps.
 - `h.free(ptr)` accepts Ptr/MutPtr and requires the matching allocator.
 - Heap-backed library values receive their Heap explicitly; allocation and cleanup never choose a
   hidden allocator.
@@ -363,6 +615,8 @@ prefix operators right.
 
 ### Common rules
 
+- Signature metavariable Integer means any Hexal integer type. `place<T>` and
+  `read-only-place<T>` describe writable and read-only expression results; they are not source types.
 - Lengths, capacities, indices, and normalized bounds use Size. Index arguments may be any integer
   and are normalized with compile-time rejection or dynamic traps.
 - Ranges are zero-based and end-exclusive. `length`, `is_empty`, `at`, indexing, and `slice` use the
@@ -371,26 +625,43 @@ prefix operators right.
 
 ### `Array<T, N>`
 
+```text
+Array<T,N>.length() -> Size
+Array<T,N>.is_empty() -> Bool
+Array<T,N>.at(index: Integer) -> T
+Array<T,N>[index: Integer] -> place<T>
+Array<T,N>.slice(start: Integer, end: Integer) -> View<T>
+```
+
 - Fixed inline sequence; N is a positive integer literal. A contextual `[a, ...]` must contain
   exactly N elements, evaluated left-to-right.
 - Assignment, arguments, and returns copy the inline region. Element writes require a writable Array
   place. Indexing/at are checked; slice returns View.
-- Elements follow general storability, including nested Arrays and eligible unions/handles. Arrays
-  free nothing; external-state elements copy only their references.
+- T follows general storability, including nested Arrays. Arrays free nothing; external-state
+  elements copy only their references.
 
 ### `View<T>`
 
+```text
+View<T>.from_pointer(pointer: Ptr<T> | MutPtr<T>, length: Size) -> View<T>
+View<T>.empty() -> View<T>
+View<T>.length() -> Size
+View<T>.is_empty() -> Bool
+View<T>.at(index: Integer) -> T
+View<T>[index: Integer] -> read-only-place<T>
+View<T>.slice(start: Integer, end: Integer) -> View<T>
+```
+
 - Non-owning read-only contiguous pointer-length descriptor. T follows general storability; MutPtr
   elements retain pointee capability.
-- Constructors: `slice`, `View<T>.from_pointer(pointer, length)`, `View<T>.empty()`.
-  `from_pointer` accepts statically non-null Ptr/MutPtr, evaluates pointer then length once, weakens
+- `from_pointer` accepts statically non-null Ptr/MutPtr, evaluates pointer then length once, weakens
   MutPtr, and performs no allocation, copy, mutation, or pointer arithmetic.
 - `from_pointer` requires contiguous initialized aligned storage with sufficient lifetime. It rejects
   pointers locally traceable to `ref` and accepts heap or opaque parameter pointers. Interprocedural
   provenance from a caller argument is not checked.
-- Views may occupy every storable position. They cannot root in temporary Array/List storage or be
-  addressed with `ref`. Root-level View bindings are locals. Bounds checks remain active after
-  construction.
+- Views have no storage-position exception. Separately, they cannot root in temporary Array/List
+  storage or be addressed with `ref`; these are provenance/address rules, not placement rules.
+  Root-level View bindings are locals. Bounds checks remain active after construction.
 - A View may return when rooted in a parameter, parameter-reached storage, `from_pointer` region, or
   empty View. A directly returned local-rooted View is rejected. Direct View return analysis does not
   inspect Views nested in returned objects, ADTs, unions, or collections.
@@ -400,10 +671,18 @@ prefix operators right.
 ### `List<T>`
 
 ```text
-List<T>.new(heap) -> List<T>      length() -> Size       is_empty() -> Bool
-at(index) -> T                    [index] -> T/place     slice(start,end) -> View<T>
-push(value)                       pop() -> T             set(index,value)
-clear()                           free(heap)             stream(heap) -> Stream<T>
+List<T>.new(heap: Heap) -> List<T>
+List<T>.length() -> Size
+List<T>.is_empty() -> Bool
+List<T>.at(index: Integer) -> T
+List<T>[index: Integer] -> place<T>
+List<T>.slice(start: Integer, end: Integer) -> View<T>
+List<T>.push(value: T) -> no value
+List<T>.pop() -> T
+List<T>.set(index: Integer, value: T) -> no value
+List<T>.clear() -> no value
+List<T>.free(heap: Heap) -> no value
+List<T>.stream(heap: Heap) -> Stream<T>
 ```
 
 - Growable allocated sequence. A fixed handle can mutate its List; `mut` only reassigns the handle.
@@ -417,8 +696,12 @@ clear()                           free(heap)             stream(heap) -> Stream<
 ### `Dict<K, V>`
 
 ```text
-Dict<K,V>.new(heap) -> Dict<K,V>  insert(key,value)      get(key) -> V
-contains(key) -> Bool             remove(key) -> V       free(heap)
+Dict<K,V>.new(heap: Heap) -> Dict<K,V>
+Dict<K,V>.insert(key: K, value: V) -> no value
+Dict<K,V>.get(key: K) -> V
+Dict<K,V>.contains(key: K) -> Bool
+Dict<K,V>.remove(key: K) -> V
+Dict<K,V>.free(heap: Heap) -> no value
 ```
 
 - Open-addressing allocated dictionary. K is exactly Int32 or Strand; V follows List eligibility.
@@ -432,6 +715,28 @@ contains(key) -> Bool             remove(key) -> V       free(heap)
 
 ## Text
 
+```text
+String.length() -> Size
+String.is_empty() -> Bool
+String.at(index: Integer) -> Rune
+String[index: Integer] -> Rune
+String.bytes() -> View<Byte>
+String.slice(start: Integer, end: Integer) -> View<Byte>
+String.rune_cursor() -> RuneCursor
+String.to_string(heap: Heap) -> String
+String.concat(heap: Heap, other: String) -> String
+String.free(heap: Heap) -> no value
+String.from_bytes(heap: Heap, bytes: View<Byte>) -> String
+String.from_runes(heap: Heap, runes: View<Rune>) -> String
+Strand.length() -> Size
+Strand.is_empty() -> Bool
+Strand.at(index: Integer) -> Rune
+Strand[index: Integer] -> Rune
+Strand.to_string(heap: Heap) -> String
+RuneCursor.has_next() -> Bool
+RuneCursor.next() -> Rune
+```
+
 - Byte is UInt8. A byte literal contains exactly one printable ASCII byte or one of
   `\\ \' \n \r \t \0 \xHH`.
 - A Rune literal contains one Unicode scalar and also supports `\"` and `\u{HEX}`; it is not a
@@ -440,39 +745,41 @@ contains(key) -> Bool             remove(key) -> V       free(heap)
   header-plus-bytes allocation; literals use static storage. Strand is immutable literal-only inline
   32 bytes: at most 31 UTF-8 bytes, NUL, then zero fill; embedded NUL/invalid UTF-8/overflow reject.
 - String/Strand indexing and length count Runes; byte Views count bytes.
-
-```text
-String: length() -> Size, is_empty() -> Bool, at(index)/[index] -> Rune
-bytes() -> View<Byte>, slice(runeStart,runeEnd) -> View<Byte>
-rune_cursor() -> RuneCursor, to_string(heap)/concat(heap,other) -> String, free(heap)
-String.from_bytes(heap,View<Byte>) -> String
-String.from_runes(heap,View<Rune>) -> String
-Strand: length() -> Size, is_empty() -> Bool, at(index)/[index] -> Rune
-to_string(heap) -> String
-```
-
 - String slice uses Rune bounds and returns the corresponding zero-copy UTF-8 bytes. `from_bytes`
   validates before allocation and traps on malformed UTF-8.
-- RuneCursor borrows String and has `has_next() -> Bool` and `next() -> Rune`; next traps after
-  exhaustion. Copies hold independent positions over the same storage.
+- RuneCursor borrows String; `next` traps after exhaustion. Copies hold independent positions over
+  the same storage.
 - Runtime String allocations require one matching free; all aliases then dangle. Literals must never
   be freed. Collection reads produce aliases without ownership transfer or lifetime protection.
 - String and Strand dispatch separately; Strand exposes no View into inline bytes.
 
 ## Streams
 
+```text
+Stream<T>.new() -> Stream<T>
+Stream<T>.produce(heap: Heap, state: State,
+                  callback: Fun<(MutPtr<State>) : T | EoS>) -> Stream<T>
+List<T>.stream(heap: Heap) -> Stream<T>
+Stream<T>.next() -> T | EoS
+Stream<T>.filter(heap: Heap, predicate: Fun<(T) : Bool>) -> Stream<T>
+Stream<T>.map<U>(heap: Heap, mapper: Fun<(T) : U>) -> Stream<U>
+Stream<T>.take(heap: Heap, count: Size) -> Stream<T>
+Stream<T>.free(heap: Heap) -> no value
+```
+
 - `Stream<T>` is lazy, single-pass, single-threaded pull state with no length, capacity, random
-  access, rewind, or concurrent communication. T and producer State are complete finite copyable;
-  T cannot be EoS or a top-level union containing EoS.
+  access, rewind, or concurrent communication. T must be valid in StreamElement; producer State must
+  be valid in StreamState. Both are complete, finite, and copyable. T cannot be EoS or a top-level
+  union containing EoS.
 - `Stream<T>.new()` is allocation-free empty. `produce(heap,state,callback)` stores shallow State and
   named `Fun<(MutPtr<State>) : T | EoS>`. `List<T>.stream(heap)` borrows the List.
 - `next()` returns `T | EoS`; one call yields at most one public value, though filtering may pull
   upstream repeatedly. `filter(heap,predicate)`, `map(heap,mapper)`, and `take(heap,count)` allocate
-  lazy adapters that own their upstream. Successful construction conventionally consumes upstream:
-  do not pull, adapt, or free another alias. One chain uses one Heap.
+  lazy adapters that own their upstream. Successful construction consumes upstream: no alias may
+  subsequently pull, adapt, or free that state. One chain uses one Heap.
 - `for` pulls until eos and does not free; breaking permits later pulls. Indexed loops count produced
   values, not rejected filter inputs.
-- `free(heap)` releases the adapter chain; exhaustion does not. External producer resources remain
+- `free(heap)` releases the adapter chain; exhaustion does not. External producer referents remain
   caller-owned. A List source captures length, sees later same-length replacements, and requires the
   List alive and structurally unchanged until Stream free. Aliases share one non-reentrant cursor.
 
@@ -480,21 +787,32 @@ to_string(heap) -> String
 
 ### `print`
 
+```text
+print(first: Printable, rest: Printable...) -> no value
+```
+
 - `print(arg, ...)` is protected, requires at least one argument, inserts no separator/newline, and
   returns no value. Arguments evaluate once left-to-right; output starts only after all evaluation.
-- Printable: Bool, integers, Size, Byte, floats, Rune, String, Strand, Nil, Error, objects, ADTs,
-  Array/View/List, and Dict when recursively printable. Pointers, functions, unions, EoS, allocators,
-  Files, Streams, and resources are rejected; unions must narrow first.
+- Directly printable: Bool, fixed-width integers, Size, Byte, Float32, Float64, Rune, String, Strand,
+  Nil, and Error. Objects, ADTs, Array, View, List, and Dict are printable exactly when every
+  recursively visited component is printable. Every other canonical type is non-printable; unions
+  must narrow to a printable member first. Failure identifies the first non-printable member path in
+  declaration order.
+- A print argument is the one position that admits standalone Nil, so a union narrowed to Nil and the
+  bare `nil` literal are both printable. Nil prints `nil` directly and nested.
 - Direct text/Rune is raw; nested text/Rune is quoted/escaped; Byte is numeric. Structural forms are
   fixed, one line, and exactly:
 
 ```text
-Point { x = 10, y = 20 }   object: defining name, declaration order, ` = ` separator
-Direction.North            unit variant: qualified name
-Shape.Circle { r = 10 }    record variant: qualified name, active payload only
-[10, 20, 30]               Array/View/List share one form; `[]` when empty
-{"Ada": 10, "Lin": 20}     Dict uses `: ` and unspecified order; `{}` when empty
+object:             <Type> { <member> = <value>, ... }
+unit ADT variant:   <ADT>.<Variant>
+record ADT variant: <ADT>.<Variant> { <field> = <value>, ... }
+Array/View/List:    [<value>, ...]
+Dict:               {<key>: <value>, ...}
 ```
+
+Object members use declaration order and ` = `. Record variants print only the active payload.
+Array/View/List use `[]` when empty. Dict uses `: `, `{}` when empty, and unspecified entry order.
 
 - Float32/64 use `%g` precision 9/17; signed zero and `inf`, `-inf`, `nan` are preserved. A direct
   Error prints `file:line:column: header: message` with no trailing newline; nested, it uses the
@@ -505,14 +823,24 @@ Shape.Circle { r = 10 }    record variant: qualified name, active payload only
 
 ### Files
 
+```text
+File.open(path: String, mode: FileMode) -> File | Error
+File.read_bytes(heap: Heap) -> List<Byte> | Error
+File.read_text(heap: Heap) -> String | Error
+File.write(bytes: View<Byte>) -> Nil | Error
+File.write_text(text: String) -> Nil | Error
+File.flush() -> Nil | Error
+File.close() -> no value
+Stdio.stdin() -> File
+Stdio.stdout() -> File
+Stdio.stderr() -> File
+```
+
 - FileMode variants: `Read`=`rb`, `Write`=`wb`, `Append`=`ab`; opened files are binary on all
   platforms. FileMode is a qualified unit-variant ADT.
-- `File.open(path,mode) -> File | Error`; v1 paths are nonempty non-NUL ASCII. Bad literals fail
-  compilation; dynamic failures return Error.
-- `read_bytes(heap) -> List<Byte> | Error`; `read_text(heap) -> String | Error`, with malformed UTF-8
-  recoverable. `write(View<Byte>)`, `write_text(String)`, and `flush()` return `Nil | Error`; writes
-  attempt the full payload but may leave partial effects. `close()` returns nothing; owned close
-  failure traps. Flush does not promise physical-media durability.
+- V1 paths are nonempty non-NUL ASCII. Bad literals fail compilation; dynamic failures return Error.
+- Malformed UTF-8 from `read_text` returns Error. Writes attempt the full payload but may leave
+  partial effects. Owned close failure traps. Flush does not promise physical-media durability.
 - Runtime mode mismatch returns Error before C access. I/O Errors use header `"I/O Error"` and static
   portable message; no errno/host code is exposed.
 - `Stdio.stdin()`, `Stdio.stdout()`, and `Stdio.stderr()` return borrowed text-mode Files that cannot
@@ -524,10 +852,17 @@ Shape.Circle { r = 10 }    record variant: qualified name, active payload only
 
 ### Tasks
 
-- `spawn named_function(args)` evaluates arguments once left-to-right, shallow-copies them, and
-  returns `Task<R> | Error`; failure starts no task. R may be any complete copyable result including
-  Nil/aggregate/union. Recursive Atomic content is excluded. Spawn Error is separate from returned R.
-- `join() -> R` waits, copies the exact result, and reclaims storage. `detach()` discards result and
+```text
+spawn function(args) -> Task<R> | Error
+Task<R>.join() -> R
+Task<R>.detach() -> no value
+Task.yield() -> no value
+```
+
+- Spawn evaluates arguments once left-to-right and shallow-copies them; failure starts no task. R
+  must be valid in FunctionResult and TaskResult, complete, finite, and copyable. Spawn Error is
+  separate from returned R.
+- `join()` waits, copies the exact result, and reclaims storage. `detach()` discards result and
   arranges reclamation. Exactly one successful join or detach is allowed across aliases.
 - Scheduler-owned stacks/control/queues need no allocator. `Task.yield()` is the explicit scheduling
   point in one cooperative M:N scheduler over C23 worker threads.
@@ -542,47 +877,101 @@ Shape.Circle { r = 10 }    record variant: qualified name, active payload only
 ### `Channel<T>`
 
 ```text
-Channel<T>.new(heap,capacity) -> Channel<T> | Error
-send(value) -> Nil | Error    receive() -> T | EoS    close() -> Nil
-free(heap) -> Nil             length() -> Size         capacity() -> Size
-is_closed() -> Bool
+Channel<T>.new(heap: Heap, capacity: Size) -> Channel<T> | Error
+Channel<T>.send(value: T) -> Nil | Error
+Channel<T>.receive() -> T | EoS
+Channel<T>.close() -> no value
+Channel<T>.free(heap: Heap) -> no value
+Channel<T>.length() -> Size
+Channel<T>.capacity() -> Size
+Channel<T>.is_closed() -> Bool
 ```
 
 - Bounded MPMC FIFO; capacity zero fails at compile time when known, otherwise with Error. Full send
   and empty receive park Task, not worker.
+- T must be valid in ChannelElement, complete, finite, and copyable, which excludes top-level EoS and
+  any value transitively containing Atomic. Elements copy shallowly. Error is a valid T.
 - Send after close returns Error. Close is idempotent, preserves queued values, and wakes waiters;
-  closed/drained receive returns eos. Error is a valid T; receive adds no Error result member.
-- Free requires closed, empty, unused state and releases only Channel storage. Elements copy
-  shallowly; top-level EoS and recursive Atomic content are invalid.
+  closed/drained receive returns eos. Receive adds no Error result member.
+- Free requires closed, empty, unused state and releases only Channel storage.
 
 ### `Mutex`
 
-- `Mutex.new(heap) -> Mutex | Error`; operations `lock`, `unlock`, `free(heap)`.
+```text
+Mutex.new(heap: Heap) -> Mutex | Error
+Mutex.lock() -> no value
+Mutex.unlock() -> no value
+Mutex.free(heap: Heap) -> no value
+```
+
 - Allocated scheduler-aware non-recursive lock owned by Task identity. Waiting parks Task. Recursive
-  lock, wrong-owner/double unlock, or freeing locked/waited Mutex is programmer error; cheaply
-  detectable live misuse traps.
+  lock, wrong-owner/double unlock, or freeing locked/waited Mutex is programmer error. Invalid states
+  detectable from a live control block trap, including recursive lock and wrong-owner unlock. Freed
+  control blocks need not be retained to diagnose stale aliases; use after free is not guaranteed to
+  trap.
 
 ### `Atomic<T>`
 
-- T is Bool, Int32, UInt32, Int64, UInt64, or Size. Inline allocator-free sequentially consistent
-  operations: `new`, `load`, `store`, `exchange`, strong `compare_exchange`, and numeric
-  `fetch_add`/`fetch_sub` except Bool. Lock-freedom is not guaranteed.
-- Atomic and inline aggregates containing one are non-copyable. They cannot initialize from existing
-  Atomic state, assign, pass/return, use `ref`, arithmetic, or storage in ADT/union,
-  Array/View/List/Dict/Stream/Channel, Task argument/result.
+```text
+Atomic<T>.new(initial: T) -> Atomic<T>
+Atomic<T>.load() -> T
+Atomic<T>.store(value: T) -> no value
+Atomic<T>.exchange(value: T) -> T
+Atomic<T>.fetch_add(value: T) -> T
+Atomic<T>.fetch_sub(value: T) -> T
+Atomic<T>.compare_exchange(expected: T, desired: T) -> Bool
+```
+
+- T is Bool, Int32, UInt32, Int64, UInt64, or Size. Operations are inline, allocator-free, and
+  sequentially consistent; lock-freedom is not guaranteed. `fetch_add`/`fetch_sub` reject Bool.
+  Compare-exchange is strong and non-spurious: equality stores desired and returns true; inequality
+  preserves the value and returns false. Expected is input-only.
+- Atomic and inline aggregates containing one are non-copyable. Their direct in-place construction is
+  valid only in Binding and ObjectMember positions. Copy-requiring parameters/results, ADT payloads,
+  unions, collections, Tasks, Channels, Streams, and HeapAllocation are invalid.
+- Atomic itself is invalid in Pointee; an enclosing object containing Atomic remains valid in Pointee.
 - `Atomic<T>.new(value)` directly initializes fresh binding or object-member storage; these are its
   only placements. Nested object construction initializes each member in place. The resulting object
-  is non-copyable but may be shared through Ptr/MutPtr; `ref` of the Atomic member remains invalid.
+  is non-copyable but may be shared through Ptr/MutPtr. `ref` of Atomic or an Atomic member is
+  independently invalid. Pointers to enclosing Atomic-containing objects remain valid.
 
-## Layout, volatile access, and C23 contract
+## Layout intrinsics
+
+```text
+size_of<T>() -> Size
+align_of<T>() -> Size
+```
 
 - `size_of<T>()` and `align_of<T>()` require one explicit complete finite type and return Size C
   constant expressions. Reference-like types report source handle size. These operations do not make
   arbitrary Array lengths valid.
+
+## Volatile operations
+
+```text
+Ptr<T>.read_volatile() -> T
+MutPtr<T>.read_volatile() -> T
+MutPtr<T>.write_volatile(value: T) -> no value
+```
+
 - `read_volatile()` exists on Ptr/MutPtr; `write_volatile(value)` requires MutPtr. T is a fixed-width
   integer, Byte, or Size. Receiver/value evaluate once; nullable pointers narrow first. Volatile adds
   only C observability: no atomicity, synchronization, fence, device ordering, address exposure, or
   pointer arithmetic.
+
+## C23 output contract
+
+- Generated private identifiers apply one unconditional prefix to the full source spelling:
+
+| Declaration | Prefix |
+| --- | --- |
+| binding | `hex_v_` |
+| type | `hex_t_` |
+| member | `hex_m_` |
+| function/method | `hex_f_` |
+
+- `HEX_` is reserved for generated macros. Names are never conditionally escaped, hashed, or
+  truncated; an existing prefix is prefixed again. Foreign C names are outside this rule.
 - Generated C preserves Hexal semantics instead of inheriting C undefined behavior for overflow,
   shifts, division edges, bounds, union payloads, or conversions. Headers verify fixed-width integer,
   IEC float, and selected size_t assumptions.
@@ -602,10 +991,14 @@ is_closed() -> Bool
 | `MutPtr<MutPtr<Int32>>` | `int32_t **` |
 | `Ptr<Unknown>` / `MutPtr<Unknown>` | `const void *` / `void *` |
 
-- Checked operations retain structured identities through generation; source-derived opaque C
-  fragments are never passed through the checker.
-- Lexing/parsing own syntax errors; checking owns type/semantic errors at the earliest proving phase;
-  runtime traps own invalid dynamic state. An unclassifiable compiler inconsistency is Unknown Error.
+- Nil and EoS are zero-state language values. Nil exists only as a union member; EoS remains a valid
+  standalone type. Neither has a stable foreign ABI. Their payload storage may be elided. Nil uses a
+  null pointer only in a pointer-plus-Nil niche; general unions represent Nil and EoS with distinct
+  active-member tags.
+- Invalid or unsupported source produces a structured diagnostic and is never silently omitted or
+  partially generated. Syntax failures, static-semantic failures, dynamic traps, and Unknown Error
+  are distinct externally visible classes. Unknown Error identifies an unclassifiable compiler
+  inconsistency, not a source-program error.
 
 ## Excluded features
 
