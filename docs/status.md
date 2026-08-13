@@ -7,19 +7,6 @@ a spec's `Status:` header is the record that something is done, and
 Every entry names its owning spec. An item without a spec either gets one or
 gets deleted.
 
-## Open bugs
-
-Conformance defects where the compiler disagrees with `reference.md`, which is
-normative. All are verified reproductions.
-
-| Bug | Spec |
-|---|---|
-| `Rune` binary arithmetic (`+ - * / %`) is accepted; bitwise, shift, and unary `-` correctly reject | [0049](specs/0049-conformance-bug-batch.md) §1 |
-| Root-scope `errdefer` reports `Unknown Error` instead of a Type Error | [0049](specs/0049-conformance-bug-batch.md) §2 |
-| `match` scrutinees and arm results reject unparenthesized `and`/`or` | [0049](specs/0049-conformance-bug-batch.md) §3 |
-| `ref rows[0].field` rejected; `ref pair.values[0]` accepted | [0049](specs/0049-conformance-bug-batch.md) §4 |
-| Lexer accepts a raw newline inside a String literal | [0049](specs/0049-conformance-bug-batch.md) §5 |
-
 ## Open TODOs
 
 ### Approved, ready to implement
@@ -32,13 +19,7 @@ normative. All are verified reproductions.
 
 | Work | Spec |
 |---|---|
-| 16- and 32-bit `Size` target profiles | [0049](specs/0049-conformance-bug-batch.md) §6 |
-| Consolidate the duplicated generator program traversal (refactor) | [0049](specs/0049-conformance-bug-batch.md) §7 |
 | Test helpers, subtests, pure-Go testing, delete C23 toolchain tests | [0048](specs/0048-test-helpers-and-harness.md) |
-
-**Sequencing:** 0049 §7 must land before 0048 removes the C23 toolchain tests.
-Those 16 tests are the only check that a 15-file generator refactor still
-produces compilable C.
 
 ### Design not started
 

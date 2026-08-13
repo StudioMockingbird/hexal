@@ -1,7 +1,7 @@
 # RFC 0049: Compiler Conformance and Cleanup Batch
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready pending approval
+- Status: Implemented; conformance verified 2026-08-13
 - Features: reject `Rune` binary arithmetic, classify root-scope `errdefer`,
   admit full match expressions at arm boundaries, admit mixed member/index
   `ref` places, reject raw newlines in String literals, make `Size` fully
@@ -460,8 +460,26 @@ changes require no compiler work.
   exception is a direct `print` argument.
 - Flow narrowing to Nil does not make Nil a declarable type. The narrowed value
   may be tested or printed directly but cannot initialize `x: Nil`.
-- A union must still contain at least two distinct canonical members; repeated
-  Nil does not satisfy that requirement.
+- A union must still contain at least two distinct canonical members. Repeated
+  Nil does not satisfy that requirement, and neither does any other repeated
+  member. Flattening and duplicate removal run first; a written union that
+  yields fewer than two distinct members is a Type Error, never an alias for the
+  surviving member. Alias resolution and generic substitution precede the count,
+  so a duplicate reached through an alias or a type argument is rejected the
+  same way.
+
+```hexal
+type U = Int32 | Int32         // Type Error: collapses to one member
+type A = Int32
+type V = A | Int32             // Type Error: same after alias resolution
+```
+
+The compiler currently accepts both, silently treating the result as a plain
+`Int32` alias. Required message shape:
+
+```text
+[Type Error] a union requires at least two distinct members; Int32 | Int32 has one
+```
 
 ```hexal
 value: Int32 | Nil = nil       // valid
@@ -502,6 +520,13 @@ the required context.
   unions.
 - Accept `print(nil)` and printing a union narrowed to Nil.
 - Reject a standalone Nil binding in a Nil-narrowed branch.
+- Reject a union collapsing to one member: `Int32 | Int32`, `Nil | Nil`, the
+  same duplicate reached through a transparent alias, and the same reached
+  through generic substitution. Confirm the diagnostic names the collapse
+  rather than reporting an unrelated failure.
+- Accept `Int32 | Float64` and other genuinely distinct two-member unions, and
+  accept a union written with a redundant member alongside two distinct ones so
+  deduplication itself still succeeds.
 - Preserve nullable layout, comparison, narrowing, and union injection tests.
 
 ### 8.2 Normalize no-value commands

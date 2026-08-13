@@ -23,10 +23,12 @@ but nothing names or carries one.
 - `reference.md` requires generated headers to verify fixed-width integer,
   IEC float, and `size_t` assumptions.
 
-Today each is a separate hardcoded assumption. RFC 0049 item 6 introduces the
-first real profile field — the `size_t` width — because a conformance gap forced
-it. This RFC generalizes that into one concept rather than accumulating
-per-feature target flags.
+Today each is a separate hardcoded assumption. RFC 0049 item 6 removed one of
+them — the `size_t` width — by making Size fully target-driven instead of
+introducing a profile field: Size lowers directly to the selected compiler's
+`size_t`, conversions are portable, and generated C guards literal fits against
+`SIZE_MAX`. This RFC generalizes target knowledge into one concept rather than
+accumulating per-feature target flags.
 
 ## Scope
 
@@ -34,8 +36,9 @@ This RFC owns the "target probes and trusted target metadata for representation
 evidence beyond C constant-expression checks" follow-up, which previously had no
 spec home.
 
-It does not implement anything. RFC 0049 item 6 delivers the `size_t` width on
-its own timeline; this RFC decides what the profile becomes afterward.
+It does not implement anything. RFC 0049 item 6 made Size fully target-driven
+and deliberately chose no compiler-side width selection; this RFC decides what
+the profile becomes afterward.
 
 ## 1. What a profile must carry
 
@@ -43,7 +46,7 @@ At minimum, from existing decisions:
 
 | Property | Required by | Today |
 |---|---|---|
-| `size_t` width | RFC 0036, RFC 0049 item 6 | hardcoded 64 |
+| `size_t` width | RFC 0036, RFC 0049 item 6 | none — Size lowers to the target `size_t`; generated C asserts literal fits against `SIZE_MAX` |
 | pointer width and alignment | RFC 0042 layout queries | inferred from host C |
 | scalar alignments | RFC 0042 | inferred from host C |
 | IEC 60559 binary32/64 availability | `reference.md` | asserted in generated C |
