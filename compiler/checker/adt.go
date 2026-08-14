@@ -148,6 +148,11 @@ func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, e
 
 // checkQualifiedVariant resolves a record-variant constructor.
 func checkQualifiedVariant(expression parser.QualifiedVariantExpression, expectedType compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
+	// RFC 0034 Task 5: an import-alias owner routes to the target module's
+	// exported ADT variants before ordinary owner resolution.
+	if target, ok := environment.importAliasTarget(expression.Owner.Lexeme); ok {
+		return checkModuleVariantConstructor(expression, target, environment, typeEnvironment)
+	}
 	adtType, _, ownerDiagnostic := resolveVariantOwner(expression.Owner.Lexeme, expression.OwnerArguments, expectedType, environment, typeEnvironment)
 	if ownerDiagnostic != nil {
 		return initializerValue{token: expression.Variant, diagnostic: ownerDiagnostic}
@@ -169,6 +174,26 @@ func checkQualifiedVariant(expression parser.QualifiedVariantExpression, expecte
 			Message:  fmt.Sprintf("unknown qualified variant %s.%s", expression.Owner.Lexeme, expression.Variant.Lexeme),
 		}}
 	}
+	return buildVariantConstructor(expression, adtType, variant, environment, typeEnvironment)
+}
+
+// checkModuleVariantConstructor resolves Owner.Variant {...} where Owner is an
+// import alias: the variant must belong to an exported ADT of the target
+// module.
+func checkModuleVariantConstructor(expression parser.QualifiedVariantExpression, target string, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
+	adtType, variant, ok := environment.registry.findExportedADTVariant(target, expression.Variant.Lexeme)
+	if !ok {
+		diagnostic := privateToModuleDiagnostic(expression.Variant, expression.Variant.Lexeme, target)
+		return initializerValue{token: expression.Variant, diagnostic: &diagnostic}
+	}
+	return buildVariantConstructor(expression, adtType, variant, environment, typeEnvironment)
+}
+
+// buildVariantConstructor checks the payload of one resolved record-variant
+// constructor and builds its AdtConstructExpression. Unit and payload shapes
+// are checked against the variant record exactly once, whichever path
+// resolved it.
+func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtType compilerTypes.Type, variant *compilerTypes.AdtVariant, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
 	if expression.Payload == nil {
 		return adtUnitVariant(adtType, variant, expression.Variant)
 	}

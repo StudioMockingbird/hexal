@@ -55,7 +55,8 @@ func TestExportRequiresModuleLevelDeclaration(t *testing.T) {
 func TestExportPrefixesDeclarations(t *testing.T) {
 	assertCompiles(t, "export fun f(): Int32\n    return 1\nend\n")
 	assertCompiles(t, "export type Point = { x: Int32, }\npoint: Point = Point { x = 1, }\n")
-	assertCompiles(t, "type Point = { x: Int32, }\nexport impl Point.getX(): Int32\n    return self.x\nend\np: Point = Point { x = 1, }\nv: Int32 = p.getX()\n")
+	// An exported method needs an exported receiver type (Task 5 closure).
+	assertCompiles(t, "export type Point = { x: Int32, }\nexport impl Point.getX(): Int32\n    return self.x\nend\np: Point = Point { x = 1, }\nv: Int32 = p.getX()\n")
 }
 
 func TestQualifiedTypeParsesToUnknownAlias(t *testing.T) {

@@ -235,6 +235,14 @@ func CheckModules(programs map[string]parser.Program, order []string, entrypoint
 		moduleChecked, moduleDiagnostics := checkModule(program, moduleID, entrypointCanonical, registry)
 		diagnostics = append(diagnostics, moduleDiagnostics...)
 		checked[key] = moduleChecked
+		if len(moduleDiagnostics) == 0 {
+			// RFC 0034 Task 5: a clean module publishes its exported
+			// interface before its own closure is validated, so importers see
+			// complete records and the walker can prove its own exports
+			// against the registry.
+			registry.registerExports(moduleID, moduleChecked)
+			diagnostics = append(diagnostics, registry.checkExportedClosure(moduleID, moduleChecked)...)
+		}
 	}
 	if len(diagnostics) > 0 {
 		return checked, diagnostics
@@ -1086,9 +1094,21 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		}
 		return resolved, nil
 	case parser.QualifiedTypeExpression:
-		// RFC 0034 Task 3: dotted type names parse; import resolution that
-		// can prove the alias exists arrives with the module phase. Until
-		// then every dotted name fails as an unknown alias.
+		// RFC 0034 Task 5: a dotted type name whose leftmost name is an
+		// import alias resolves against the target module's exported type
+		// records. A known alias whose name is absent or private reports the
+		// visibility failure; an unknown leftmost name keeps the Task 3
+		// Module Error.
+		if generics != nil && generics.registry != nil {
+			if target, ok := generics.registry.importTarget(generics.moduleID, expression.Module.Lexeme); ok {
+				use, found := generics.registry.exportedType(target, expression.Names[0].Lexeme)
+				if !found {
+					diagnostic := privateToModuleDiagnostic(expression.Names[0], expression.Names[0].Lexeme, target)
+					return compilerTypes.TypeUse{}, &diagnostic
+				}
+				return use, nil
+			}
+		}
 		message := "unknown module alias " + expression.Module.Lexeme
 		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
 			Category: compilerTypes.ModuleError,
@@ -2799,6 +2819,15 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 			loopBinder:  binding.loopBinder,
 		}
 	case parser.PropertyExpression:
+		// RFC 0034 Task 5: Alias.x with an import-alias receiver resolves x
+		// against the target module's exported frame instead of the
+		// property path: an exported unit variant first, then an exported
+		// function reference.
+		if variable, isVariable := expression.Receiver.(parser.VariableExpression); isVariable {
+			if target, ok := environment.importAliasTarget(variable.Name.Lexeme); ok {
+				return checkModuleQualifiedReference(expression, target, environment)
+			}
+		}
 		var receiver checkedExpression
 		if _, temporary := expression.Receiver.(parser.ObjectLiteral); temporary {
 			receiver = checkValue(expression.Receiver, environment, typeEnvironment)
@@ -2902,6 +2931,31 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 			},
 		}
 	}
+}
+
+// checkModuleQualifiedReference resolves Alias.x in a value position where
+// Alias is an import alias. The property resolves to the target module's
+// exported unit variant when one exists, then to its exported function; any
+// other name is the RFC 0034 Task 5 visibility failure.
+func checkModuleQualifiedReference(expression parser.PropertyExpression, target string, environment *scope) checkedExpression {
+	if adtType, variant, ok := environment.registry.findExportedADTVariant(target, expression.Property.Lexeme); ok {
+		return adtUnitVariant(adtType, variant, expression.Property)
+	}
+	if function, ok := environment.registry.exportedFunction(target, expression.Property.Lexeme); ok {
+		return checkedExpression{
+			source: Operand{
+				Kind: VariableOperand,
+				Type: function.Type,
+				Name: function.Name,
+				Node: Expression{Kind: FunctionReferenceExpression, Name: function.Name, ResultType: function.Type, Module: target},
+			},
+			typ:      function.Type,
+			token:    expression.Property,
+			function: true,
+		}
+	}
+	diagnostic := privateToModuleDiagnostic(expression.Property, expression.Property.Lexeme, target)
+	return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
 }
 
 // dereferencePlace walks one pointer layer, for both the explicit .value

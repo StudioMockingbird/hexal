@@ -31,6 +31,13 @@ type genericTable struct {
 	typeDeclarations        []TypeDeclaration
 	functionSpecializations map[string]FunctionDeclaration
 	methodSpecializations   map[string]MethodDeclaration
+
+	// registry and moduleID name the enclosing module's import graph: a
+	// QualifiedTypeExpression resolves through them (RFC 0034 Task 5).
+	// moduleScope installs both; the table is per module, so the pair is
+	// stable for the whole compilation.
+	registry *ModuleRegistry
+	moduleID string
 }
 
 func newGenericTable() *genericTable {
@@ -445,6 +452,7 @@ func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Typ
 		nextID:    names.nextID,
 		flow:      newFlowState(),
 		generics:  generics,
+		registry:  names.registry,
 	}
 	for index := range parameters {
 		parameters[index].Binding = names.newBindingID()
@@ -529,6 +537,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 		nextID:    names.nextID,
 		flow:      newFlowState(),
 		generics:  generics,
+		registry:  names.registry,
 	}
 	for index := range parameters {
 		parameters[index].Binding = names.newBindingID()

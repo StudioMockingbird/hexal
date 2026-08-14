@@ -104,6 +104,10 @@ type scope struct {
 	generics     *genericTable
 	defers       []DeferredAction
 	cleanupDepth int // checking a defer or errdefer action (RFC 0029)
+	// registry is the compilation's module graph (RFC 0034 Task 5): it
+	// resolves import aliases against the target modules' exported records.
+	// It is shared by reference with every child scope.
+	registry *ModuleRegistry
 }
 
 // moduleScope builds the root frame of one module. The scope copies its
@@ -120,7 +124,15 @@ func moduleScope(moduleID string, registry *ModuleRegistry) *scope {
 			}
 		}
 	}
-	return &scope{module: make(map[string]binding), moduleID: moduleID, imports: imports, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: newGenericTable()}
+	generics := newGenericTable()
+	if registry != nil {
+		// RFC 0034 Task 5: qualified type references resolve through the
+		// module's import graph, which the generic table carries for the
+		// type resolver.
+		generics.registry = registry
+		generics.moduleID = moduleID
+	}
+	return &scope{module: make(map[string]binding), moduleID: moduleID, imports: imports, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
 }
 
 // flowFact records the branch-local treatment of one binding. A binding is
@@ -342,6 +354,24 @@ func (names *scope) importAlias(name string) bool {
 	return exists && bound.kind == aliasBinding
 }
 
+// importAliasTarget returns the canonical id of the module an import alias
+// names, when that module's source is present in this compilation. The alias
+// binding lives in the shared module frame and records its target (RFC
+// 0034); a dangling alias whose target has no source resolves nowhere and
+// keeps failing as an unknown variable until the module phase reports the
+// missing path.
+func (names *scope) importAliasTarget(name string) (string, bool) {
+	bound, exists := names.module[name]
+	if !exists || bound.kind != aliasBinding || bound.moduleID == "" {
+		return "", false
+	}
+	if names.registry == nil {
+		return "", false
+	}
+	_, present := names.registry.modules[bound.moduleID]
+	return bound.moduleID, present
+}
+
 // declaredHere reports a duplicate in the innermost scope only, so a local may
 // shadow a module-level value. An import alias is the exception: it is fixed
 // for the whole module, so no nested scope may shadow one (RFC 0034).
@@ -392,6 +422,7 @@ func (names *scope) child() *scope {
 		nextID:   names.nextID,
 		flow:     names.flow,
 		generics: names.generics,
+		registry: names.registry,
 	}
 }
 
@@ -521,6 +552,7 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 		nextID:    names.nextID,
 		flow:      newFlowState(),
 		generics:  names.generics,
+		registry:  names.registry,
 	}
 	for index := range parameters {
 		// RFC 0034: no nested scope may shadow an import alias; a
@@ -703,6 +735,7 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		nextID:    names.nextID,
 		flow:      newFlowState(),
 		generics:  names.generics,
+		registry:  names.registry,
 	}
 	for index := range parameters {
 		// RFC 0034: no nested scope may shadow an import alias; a
@@ -1467,6 +1500,56 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 	}
 }
 
+// checkQualifiedFunctionCall resolves Alias.name(args) where Alias is an
+// import alias: the callee is the target module's exported function. The call
+// is checked against the recorded signature exactly like a local call; the
+// node carries the target module id for the module phase.
+func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token, target string, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	function, ok := names.registry.exportedFunction(target, property.Lexeme)
+	if !ok {
+		diagnostic := privateToModuleDiagnostic(property, property.Lexeme, target)
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	signature := function.Type.Signature
+	if signature == nil {
+		return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
+			Category: compilerTypes.UnknownError,
+			Stage:    "checker",
+			Message:  "exported function record without a signature",
+		}}
+	}
+	if len(call.Arguments) != len(signature.Parameters) {
+		diagnostic := typeErrorAt(property,
+			fmt.Sprintf("%s expects %d arguments, got %d", function.Name, len(signature.Parameters), len(call.Arguments)))
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	parameterUses := make([]compilerTypes.TypeUse, 0, len(function.Parameters))
+	for _, parameter := range function.Parameters {
+		parameterUses = append(parameterUses, parameter.TypeUse)
+	}
+	arguments, diagnostics := checkArguments(function.Name, parameterUses, call.Arguments, property, names, typeEnvironment)
+	if len(diagnostics) > 0 {
+		return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
+	var resultType compilerTypes.Type
+	if signature.Result != nil {
+		resultType = *signature.Result
+	}
+	calleeNode := Expression{Kind: FunctionReferenceExpression, Name: function.Name, ResultType: function.Type, Module: target}
+	node := Expression{
+		Kind:        CallExpression,
+		Operand:     &calleeNode,
+		Arguments:   arguments,
+		OperandType: function.Type,
+		ResultType:  resultType,
+	}
+	return checkedExpression{
+		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: function.Name, Node: node},
+		typ:    resultType,
+		token:  property,
+	}
+}
+
 // checkArguments checks each written argument in its parameter's expected-type
 // position, so contextual literals and RFC 0007 weakening both apply. Callee
 // is only used to spell diagnostics.
@@ -1500,6 +1583,15 @@ func checkArguments(callee string, expected []compilerTypes.TypeUse, written []p
 // one method declared on that object.
 func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
+	// RFC 0034 Task 5: Alias.name(...) where Alias is an import alias calls
+	// the target module's exported function. This precedes every builtin
+	// receiver check so an alias always wins over a same-named builtin
+	// receiver, and a dangling alias falls through to the ordinary path.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable {
+		if target, ok := names.importAliasTarget(variable.Name.Lexeme); ok {
+			return checkQualifiedFunctionCall(call, callee.Property, target, names, typeEnvironment)
+		}
+	}
 	// Heap.new() names the built-in type, not a Heap value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Heap" {
 		return checkHeapTypeCall(call, variable, names, typeEnvironment)

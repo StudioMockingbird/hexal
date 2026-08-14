@@ -344,6 +344,10 @@ type Expression struct {
 	// Mutex operation fails (RFC 0037). Zero for all other kinds.
 	SourceLine   int
 	SourceColumn int
+	// Module is the canonical module id of a FunctionReferenceExpression
+	// resolved through an import alias (RFC 0034 Task 5); empty for every
+	// local reference.
+	Module string
 }
 
 // ViewRootKind classifies the root of a View-producing expression for the
