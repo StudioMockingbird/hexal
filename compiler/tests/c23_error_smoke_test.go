@@ -6,7 +6,7 @@ import "testing"
 
 // Smoke-check that RFC 0029 Error/try/errdefer programs generate C that gcc
 // accepts.
-func TestGeneratedErrorCCompiles(t *testing.T) {
+func c23GeneratedErrorCCompiles(t *testing.T) {
 	source := "fun cleanup(value: Int32)\nend\nfun read_count(): Int32 | Error\n    return Error.new(\"Read Error\", \"no count\")\nend\nfun demo(release: Bool): Int32 | Error\n    errdefer cleanup(1)\n    defer cleanup(2)\n    mut total: Int32 = 0\n    while true do\n        count: Int32 = try read_count()\n        total = total + count\n        break\n    end\n    if release\n        return Error.new(\"Final Error\", \"done\")\n    end\n    return total\nend"
 	compileGeneratedC(t, assertCompiles(t, source))
 }
@@ -14,7 +14,7 @@ func TestGeneratedErrorCCompiles(t *testing.T) {
 // RFC 0029 runtime conformance: a try success unwinds defer statements in
 // reverse registration order while skipping errdefer, and a try failure
 // unwinds both sets in reverse order before the Error propagates.
-func TestGeneratedErrorControlFlowRuns(t *testing.T) {
+func c23GeneratedErrorControlFlowRuns(t *testing.T) {
 	success := "fun cleanup(label: Int32)\n    print(label)\nend\nfun ok_read(): Int32 | Error\n    return 4\nend\nfun succeed(): Int32 | Error\n    errdefer cleanup(3)\n    defer cleanup(2)\n    defer cleanup(1)\n    count: Int32 = try ok_read()\n    return count\nend\nfun report(): Bool\n    outcome: Int32 | Error = succeed()\n    result: Bool = match outcome is\n    | Int32 then\n        outcome == 4\n    | Error then\n        false\n    end\n    return result\nend\nprint(report())\n"
 	if got := runGeneratedC(t, assertCompiles(t, success)); got != "12true" {
 		t.Fatalf("success-path output = %q, want %q", got, "12true")

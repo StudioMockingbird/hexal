@@ -31,16 +31,15 @@ One item survived the previous follow-up list without a determinable meaning:
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
-- Most runtime traps now have execution tests via the C23 harness's
-  `trapGeneratedC` (zero divisor, bounds, empty `pop`, missing Dict key,
-  conversion overflow, malformed UTF-8, String index, RuneCursor exhaustion).
-  A few trap rules cannot be induced portably and remain execution-unverified:
-  allocation failure, float overflow, shift count, close failure, Mutex
-  misuse. Recorded by [0048](specs/0048-test-helpers-and-harness.md)
-  Decision 3.
+- Runtime traps are unverifiable. Thirteen trap rules in `reference.md` (empty
+  `pop`, missing Dict key, out-of-bounds index, zero divisor, shift count,
+  float overflow, allocation failure, malformed UTF-8, close failure, Mutex
+  misuse) and `print`'s exact output forms fire only in an executed generated
+  binary. Per policy, no test may execute one: the retained `c23_*_test.go`
+  files are pure Go and have no runnable entry points, so trap firing and
+  exact runtime output stay unverified.
 - The generator emits helper families wholesale — equality, print, union,
   heap, io — so a small program's C contains many unused `static` helpers.
-  The C23 harness tolerates `unused-function`, `unused-variable`, and
-  `unused-parameter` warnings; all other warnings still fail. Demand-driven
-  helper emission would remove the dead code. Recorded by
-  [0048](specs/0048-test-helpers-and-harness.md) (C23 harness section).
+  Demand-driven helper emission would remove the dead code. (The old C23
+  harness that tolerated `unused-*` warnings is retained but has no entry
+  point.)

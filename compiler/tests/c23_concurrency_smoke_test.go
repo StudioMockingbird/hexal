@@ -40,7 +40,7 @@ func compileConcurrencySmoke(t *testing.T, source string) string {
 	return runGeneratedC(t, assertCompiles(t, source))
 }
 
-func TestGeneratedConcurrencyRuns(t *testing.T) {
+func c23GeneratedConcurrencyRuns(t *testing.T) {
 	if !c23ThreadsAvailable(t) {
 		t.Skip("gcc without C23 <threads.h> cannot build the task runtime")
 	}
@@ -51,7 +51,7 @@ func TestGeneratedConcurrencyRuns(t *testing.T) {
 	}
 }
 
-func TestGeneratedTaskJoinRuns(t *testing.T) {
+func c23GeneratedTaskJoinRuns(t *testing.T) {
 	if !c23ThreadsAvailable(t) {
 		t.Skip("gcc without C23 <threads.h> cannot build the task runtime")
 	}
@@ -62,7 +62,7 @@ func TestGeneratedTaskJoinRuns(t *testing.T) {
 	}
 }
 
-func TestGeneratedMutexRuns(t *testing.T) {
+func c23GeneratedMutexRuns(t *testing.T) {
 	if !c23ThreadsAvailable(t) {
 		t.Skip("gcc without C23 <threads.h> cannot build the task runtime")
 	}
@@ -73,7 +73,7 @@ func TestGeneratedMutexRuns(t *testing.T) {
 	}
 }
 
-func TestGeneratedAtomicOperationsRun(t *testing.T) {
+func c23GeneratedAtomicOperationsRun(t *testing.T) {
 	if !c23ThreadsAvailable(t) {
 		t.Skip("gcc without C23 <threads.h> cannot build the atomic runtime")
 	}

@@ -12,7 +12,7 @@ import (
 // compiled run round-trips text and bytes through a real host file. stdio
 // needs no C23 threads, so these run on every gcc toolchain.
 
-func TestGeneratedFileIORuns(t *testing.T) {
+func c23GeneratedFileIORuns(t *testing.T) {
 	source := "fun write_report(path: String, report: String): Nil | Error\n    file: File = try File.open(path, FileMode.Write)\n    defer file.close()\n    result: Nil | Error = try file.write_text(report)\n    flushed: Nil | Error = try file.flush()\n    return nil\nend\nfun read_report(h: Heap, path: String): String | Error\n    file: File = try File.open(path, FileMode.Read)\n    defer file.close()\n    text: String = try file.read_text(h)\n    return text\nend\nfun append_bytes(path: String, packet: View<Byte>): Nil | Error\n    file: File = try File.open(path, FileMode.Append)\n    defer file.close()\n    written: Nil | Error = try file.write(packet)\n    return nil\nend\nfun demo(h: Heap, path: String): Bool | Error\n    written: Nil | Error = try write_report(path, \"hello world\\n\")\n    text: String = try read_report(h, path)\n    matches: Bool = text == \"hello world\\n\"\n    trailer: Array<UInt8, 3> = [33, 34, 35]\n    view: View<UInt8> = trailer.slice(0, 3)\n    appended: Nil | Error = try append_bytes(path, view)\n    all: String = try read_report(h, path)\n    complete: Bool = all == \"hello world\\n!\\\"#\"\n    return matches and complete\nend\nfun print_demo(path: String): Bool | Error\n    ok: Bool = try demo(Heap.new(), path)\n    return ok\nend\nfun run(path: String): Bool | Error\n    result: Bool = try print_demo(path)\n    return result\nend\nfun final(path: String): Bool\n    outcome: Bool | Error = run(path)\n    if outcome is Bool\n        return outcome\n    end\n    return false\nend\nprint(final(\"%s\"))\n"
 	target := filepath.ToSlash(filepath.Join(t.TempDir(), "hex_io_target.txt"))
 	source = strings.Replace(source, "%s", target, 1)
@@ -24,7 +24,7 @@ func TestGeneratedFileIORuns(t *testing.T) {
 
 // RFC 0040 runtime conformance: opening a missing file and using a File in
 // the wrong mode surface as Error, never as a trap or silent success.
-func TestGeneratedFileErrorPathsRun(t *testing.T) {
+func c23GeneratedFileErrorPathsRun(t *testing.T) {
 	target := filepath.ToSlash(filepath.Join(t.TempDir(), "hex_io_missing.txt"))
 	missing := "fun demo(path: String): Bool\n    outcome: File | Error = File.open(path, FileMode.Read)\n    if outcome is File\n        return false\n    end\n    return true\nend\nprint(demo(\"%s\"))\n"
 	normalized := runGeneratedC(t, assertCompiles(t, strings.Replace(missing, "%s", target, 1)))

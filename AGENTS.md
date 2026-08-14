@@ -17,6 +17,13 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   permission to edit files and canonical docs; do not ask again. Ask only when
   the request was analysis, exploration, a spec, or a plan, or when an
   unresolved design decision would change semantics.
+- **In-memory compiler boundary.** The core compiler is string-in/string-out.
+  It accepts all Hexal source contents as `map[string]string` plus one logical
+  entrypoint name and returns all generated C/header contents as strings. It
+  must not read, write, discover, validate, or otherwise inspect host files,
+  directories, symlinks, or the working directory. Filesystem drivers, project
+  discovery, file watching, caching, and incremental compilation are separate
+  future layers unless a specification explicitly introduces them.
 - **Crisp communication.** Terse, token-minimal, losing no key information. No
   fluff; code samples where they explain better than prose.
 - **Clarify ambiguity.** When a request is ambiguous about user-visible
@@ -148,8 +155,11 @@ checking it against `reference.md` first.
   verify the public compiler behavior end to end.
 - `go test ./compiler` does not run the full-pipeline suite (that package now
   has no test files); use `go test ./...` or target `./compiler/tests`.
-- `go test ./...` must pass with no external toolchain installed. Tests that
-  need gcc or clang belong behind the `c23` build tag; see spec 0013.
+- `go test ./...` must pass with no external toolchain installed. No test or
+  code may ever call an external tool — gcc, clang, or anything else. All
+  tests are pure Go. The legacy `c23_*_test.go` files remain in
+  `compiler/tests/` but have no runnable entry points (`go test` discovers no
+  test functions in them) and must not be given any.
 - Intentional overlap between unit and integration tests is expected: unit
   tests isolate stage behavior, while integration tests confirm that the same
   behavior survives the complete compilation pipeline.
