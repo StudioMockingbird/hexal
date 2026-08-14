@@ -19,7 +19,6 @@ gets deleted.
 
 | Work | Spec |
 |---|---|
-| Test helpers, subtests, pure-Go testing, delete C23 toolchain tests | [0048](specs/0048-test-helpers-and-harness.md) |
 
 ### Design not started
 
@@ -43,12 +42,12 @@ One item survived the previous follow-up list without a determinable meaning:
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
-- Runtime traps are unverifiable. Thirteen trap rules in `reference.md` (empty
-  `pop`, missing Dict key, out-of-bounds index, zero divisor, shift count,
-  float overflow, allocation failure, malformed UTF-8, close failure, Mutex
-  misuse) and `print`'s exact output forms can only be observed by executing a
-  generated binary. String assertions confirm a trap call is emitted, never
-  that it fires. Recorded by [0048](specs/0048-test-helpers-and-harness.md)
+- Most runtime traps now have execution tests via the C23 harness's
+  `trapGeneratedC` (zero divisor, bounds, empty `pop`, missing Dict key,
+  conversion overflow, malformed UTF-8, String index, RuneCursor exhaustion).
+  A few trap rules cannot be induced portably and remain execution-unverified:
+  allocation failure, float overflow, shift count, close failure, Mutex
+  misuse. Recorded by [0048](specs/0048-test-helpers-and-harness.md)
   Decision 3.
 - The generator emits helper families wholesale — equality, print, union,
   heap, io — so a small program's C contains many unused `static` helpers.

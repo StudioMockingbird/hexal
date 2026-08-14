@@ -1,7 +1,7 @@
 # Spec 0048: Reference-Derived Test Conformance
 
 - Kind: project convention and execution plan
-- Status: Draft; implementation-ready
+- Status: Implemented
 - Scope: tests and test infrastructure only; no compiler or language changes
 - Source of truth: `docs/reference.md`
 - Related: specs 0013, 0049, 0050; `docs/status.md`
