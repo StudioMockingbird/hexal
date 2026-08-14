@@ -1004,6 +1004,34 @@ MutPtr<T>.write_volatile(value: T) -> no value
   standalone type. Neither has a stable foreign ABI. Their payload storage may be elided. Nil uses a
   null pointer only in a pointer-plus-Nil niche; general unions represent Nil and EoS with distinct
   active-member tags.
+
+### Generated artifact split
+
+- A successful compilation produces exactly four artifacts, keyed in the compiler result as
+  `main.c`, `main.h`, `modules/app.c`, and `modules/app.h` for the entrypoint source `app.hex`.
+  `MainC`/`MainH` mirror `Files["main.c"]`/`Files["main.h"]`; the entrypoint module's artifacts are
+  authoritative for its content. A failed compilation produces only `main.c` and `main.h`, whose
+  `main()` returns `EXIT_FAILURE`.
+- `main.c` is the thin entry: it includes both headers, defines `main()`, initializes the
+  cooperative scheduler and runtime gates when the source uses them, and calls
+  `hex_module_root_run()`; without concurrency it returns `hex_module_root_run()` directly.
+- `main.h` holds the runtime machinery shared by every module: fixed-width/float `static_assert`
+  guards, `hex_eos`, heaps, views, strings, error, lists, dicts, arrays, the concurrency and I/O
+  preludes, and the external declarations for the stateful runtime (scheduler, channel, mutex, and
+  I/O gate functions) that lives once in `main.c`.
+- `modules/app.h` is the entrypoint module's header: it includes `main.h`, holds the module's
+  types (ADTs, unions, objects) and stateless inline helpers (streams, print, equality,
+  conversions, shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, I/O inline
+  helpers), declares spawned functions and `hex_module_root_run()`, and ends with its own include
+  guard.
+- `modules/app.c` is the entrypoint module's translation unit: it includes both headers, defines
+  the module's functions and methods (internal linkage `static`, except spawned functions, which
+  gain external linkage and a prototype in `modules/app.h`), the monomorphized specializations,
+  and `hex_module_root_run()`, which executes the module's root statements and returns
+  `EXIT_SUCCESS`.
+- Module artifacts map to the source file with `#line` directives naming the module's logical
+  filename (for the entrypoint, `app.hex`); the synthetic `main.hex` name is reserved for runtime
+  machinery diagnostics and never maps user statements.
 - Invalid or unsupported source produces a structured diagnostic and is never silently omitted or
   partially generated. Syntax failures, static-semantic failures, dynamic traps, and Unknown Error
   are distinct externally visible classes. Unknown Error identifies an unclassifiable compiler

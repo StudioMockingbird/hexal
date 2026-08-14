@@ -25,8 +25,8 @@ func TestViewSliceReadOperations(t *testing.T) {
 		"*hex_view_at_Int32(hex_v_view, (size_t)(1))",
 		"hex_v_tail = hex_view_slice_Int32(hex_v_view, (size_t)(1), (size_t)(2));",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -113,8 +113,8 @@ func TestViewPassedToFunctionParameter(t *testing.T) {
 		"*hex_view_at_Int32(hex_v_values, (size_t)(0))",
 		"hex_v_total = hex_f_sum(hex_array_slice_Int32_2(&hex_v_fixed, (size_t)(0), (size_t)(2)));",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -124,8 +124,8 @@ func TestViewPreservesMutPtrPointeeCapability(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "hex_v_view") {
-		t.Fatalf("main.c = %q, want view-based pointee write", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_v_view") {
+		t.Fatalf("main.c = %q, want view-based pointee write", rootC(t, result))
 	}
 }
 

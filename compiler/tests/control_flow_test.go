@@ -23,8 +23,8 @@ func TestConditionalAndLoopLowering(t *testing.T) {
 		"hex_v_count = ((uint64_t)",
 		"hex_v_local",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -34,8 +34,8 @@ func TestControlFlowScopesAndShadowing(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("scoped declarations failed: %#v", result)
 	}
-	if !strings.Contains(result.MainC, "hex_v_value_2") || !strings.Contains(result.MainC, "hex_v_value_3") {
-		t.Fatalf("shadowed C names are not deterministic: %q", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_v_value_2") || !strings.Contains(rootC(t, result), "hex_v_value_3") {
+		t.Fatalf("shadowed C names are not deterministic: %q", rootC(t, result))
 	}
 
 	invalid := compileSource("if true local: Int32 = 1 end read: Int32 = local")
@@ -72,8 +72,8 @@ func TestControlFlowEmptyBranchesAndZeroIterationLoops(t *testing.T) {
 		"} else {",
 		"while (false) {",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -83,17 +83,17 @@ func TestControlFlowNestedLoopsAndLineMappings(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("nested control-flow compilation failed: %#v", result)
 	}
-	if strings.Count(result.MainC, "while (") != 2 || strings.Count(result.MainC, "break;") != 2 || strings.Count(result.MainC, "continue;") != 1 {
-		t.Fatalf("nested loop lowering = %q, want two loops, two breaks, and one continue", result.MainC)
+	if strings.Count(rootC(t, result), "while (") != 2 || strings.Count(rootC(t, result), "break;") != 2 || strings.Count(rootC(t, result), "continue;") != 1 {
+		t.Fatalf("nested loop lowering = %q, want two loops, two breaks, and one continue", rootC(t, result))
 	}
 	for _, want := range []string{
-		"#line 2 \"main.hex\"",
-		"#line 4 \"main.hex\"",
-		"#line 7 \"main.hex\"",
-		"#line 12 \"main.hex\"",
+		"#line 2 \"app.hex\"",
+		"#line 4 \"app.hex\"",
+		"#line 7 \"app.hex\"",
+		"#line 12 \"app.hex\"",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -104,12 +104,12 @@ func TestControlFlowConditionLineMappings(t *testing.T) {
 		t.Fatalf("multiline control-flow conditions failed: %#v", result)
 	}
 	for _, want := range []string{
-		"#line 3 \"main.hex\"",
-		"#line 5 \"main.hex\"",
-		"#line 8 \"main.hex\"",
+		"#line 3 \"app.hex\"",
+		"#line 5 \"app.hex\"",
+		"#line 8 \"app.hex\"",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want condition mapping %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want condition mapping %q", rootC(t, result), want)
 		}
 	}
 }
@@ -163,8 +163,8 @@ func TestMethodControlFlowLowering(t *testing.T) {
 		"(*hex_v_self).hex_m_count =",
 		"hex_f_Counter_step(&hex_v_counter, 2)",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

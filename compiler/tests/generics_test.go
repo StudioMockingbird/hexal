@@ -11,8 +11,8 @@ func TestGenericAliasSpecializesTransparently(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "const int32_t *") {
-		t.Fatalf("generated C = %q, want transparent pointer specialization", result.MainC)
+	if !strings.Contains(rootC(t, result), "const int32_t *") {
+		t.Fatalf("generated C = %q, want transparent pointer specialization", rootC(t, result))
 	}
 }
 
@@ -21,8 +21,8 @@ func TestGenericObjectSpecializesWithSubstitutedMembers(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "typedef struct hex_t_Box_Int32_ hex_t_Box_Int32_;") || !strings.Contains(result.MainC, ".hex_m_value = 42") {
-		t.Fatalf("generated output = H:%q C:%q, want specialized object", result.MainH, result.MainC)
+	if !strings.Contains(rootH(t, result), "typedef struct hex_t_Box_Int32_ hex_t_Box_Int32_;") || !strings.Contains(rootC(t, result), ".hex_m_value = 42") {
+		t.Fatalf("generated output = H:%q C:%q, want specialized object", rootH(t, result), rootC(t, result))
 	}
 }
 
@@ -31,8 +31,8 @@ func TestGenericFunctionCallAndExplicitArguments(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if strings.Count(result.MainC, "hex_f_identity_Int32") < 2 || strings.Count(result.MainC, "hex_f_identity_Int64") < 2 {
-		t.Fatalf("generated C = %q, want two specialized definitions with prototypes", result.MainC)
+	if strings.Count(rootC(t, result), "hex_f_identity_Int32") < 2 || strings.Count(rootC(t, result), "hex_f_identity_Int64") < 2 {
+		t.Fatalf("generated C = %q, want two specialized definitions with prototypes", rootC(t, result))
 	}
 }
 
@@ -41,8 +41,8 @@ func TestGenericMethodWithReceiverAndMethodArguments(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "hex_f_Box_Int32__get") {
-		t.Fatalf("generated C = %q, want specialized method", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_f_Box_Int32__get") {
+		t.Fatalf("generated C = %q, want specialized method", rootC(t, result))
 	}
 }
 
@@ -51,8 +51,8 @@ func TestGenericFunctionValueReferenceInfersFromFunTarget(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "hex_f_identity_Int32") {
-		t.Fatalf("generated C = %q, want inferred function reference", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_f_identity_Int32") {
+		t.Fatalf("generated C = %q, want inferred function reference", rootC(t, result))
 	}
 }
 
@@ -61,8 +61,8 @@ func TestGenericObjectLiteralInfersFromExpectedType(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "hex_t_Box_Int32_") {
-		t.Fatalf("generated header = %q, want expected-type inference", result.MainH)
+	if !strings.Contains(rootH(t, result), "hex_t_Box_Int32_") {
+		t.Fatalf("generated header = %q, want expected-type inference", rootH(t, result))
 	}
 }
 
@@ -71,8 +71,8 @@ func TestGenericNestedSpecializationsReuseOneCName(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if strings.Count(result.MainC, "static int32_t hex_f_identity_Int32(const int32_t hex_v_value) {") != 1 {
-		t.Fatalf("generated C = %q, want one specialized definition", result.MainC)
+	if strings.Count(rootC(t, result), "static int32_t hex_f_identity_Int32(const int32_t hex_v_value) {") != 1 {
+		t.Fatalf("generated C = %q, want one specialized definition", rootC(t, result))
 	}
 }
 
@@ -81,8 +81,8 @@ func TestGenericPointerIndirectedRecursionIsFinite(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "hex_t_Link_Int32_") {
-		t.Fatalf("generated header = %q, want recursive specialized object", result.MainH)
+	if !strings.Contains(rootH(t, result), "hex_t_Link_Int32_") {
+		t.Fatalf("generated header = %q, want recursive specialized object", rootH(t, result))
 	}
 }
 
@@ -98,8 +98,8 @@ func TestGenericUnusedDeclarationEmitsNoC(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if strings.Contains(result.MainC, "identity") {
-		t.Fatalf("generated C = %q, want no unused generic body", result.MainC)
+	if strings.Contains(rootC(t, result), "identity") {
+		t.Fatalf("generated C = %q, want no unused generic body", rootC(t, result))
 	}
 }
 

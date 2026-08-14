@@ -32,8 +32,8 @@ func TestCoreScalars(t *testing.T) {
 		"const float hex_v_f32 = -0x0p+0f;",
 		"const double hex_v_f64 = 0x1.fde9f10a8d361p+78;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -49,8 +49,8 @@ func TestIntegerRadices(t *testing.T) {
 		"const uint16_t hex_v_binary = 0b11111111;",
 		"const uint16_t hex_v_octal = 255;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -61,8 +61,8 @@ func TestContextualAssignmentAndPointerValue(t *testing.T) {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
 	for _, want := range []string{"hex_v_byte = 255;", "*hex_v_writer = INT8_MIN;"} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -121,13 +121,13 @@ func TestGeneralNegativeSyntax(t *testing.T) {
 		"const int32_t hex_v_negative = " + negative + ";",
 		"const int32_t hex_v_repeated = ((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)(",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want unary-negation fragment %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want unary-negation fragment %q", rootC(t, result), want)
 		}
 	}
 
 	result = compileSource("x: Int32 = - -- a comment\n 128")
-	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(result.MainC, "const int32_t hex_v_x = -128;") {
+	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(rootC(t, result), "const int32_t hex_v_x = -128;") {
 		t.Fatalf("Compile with comment-separated negative literal = %#v, want success", result)
 	}
 }
@@ -141,8 +141,8 @@ func TestFloatUnaryNegation(t *testing.T) {
 		"const float hex_v_negative32 = (-hex_v_f32Value);",
 		"const double hex_v_negative64 = (-hex_v_f64Value);",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want float unary-negation fragment %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want float unary-negation fragment %q", rootC(t, result), want)
 		}
 	}
 }
@@ -156,8 +156,8 @@ func TestNegativeZeroUnaryFolding(t *testing.T) {
 		"const float hex_v_f32 = -0x0p+0f;",
 		"const double hex_v_f64 = -0x0p+0;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want negative-zero fragment %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want negative-zero fragment %q", rootC(t, result), want)
 		}
 	}
 }
@@ -172,8 +172,8 @@ func TestFloatRoundingAndUnderflow(t *testing.T) {
 		"const float hex_v_underflow = 0x0p+0f;",
 		"const float hex_v_negative = -0x0p+0f;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 	for _, source := range []string{"x: Float32 = 1e1000", "x: Float64 = 1e10000"} {
@@ -195,8 +195,8 @@ func TestPointerScalarMappings(t *testing.T) {
 		"uint8_t *const hex_v_writer = &hex_v_value;",
 		"float *const *const hex_v_nested = &hex_v_float_writer;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -214,12 +214,12 @@ func TestSizeLiteralTargetGuard(t *testing.T) {
 		"const size_t hex_v_count = 5000000000;",
 		"const size_t hex_v_small = 3;",
 	} {
-		if !strings.Contains(result.MainH, want) && !strings.Contains(result.MainC, want) {
-			t.Fatalf("generated C lacks %q:\nmain.h:\n%s\nmain.c:\n%s", want, result.MainH, result.MainC)
+		if !strings.Contains(rootH(t, result), want) && !strings.Contains(rootC(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated C lacks %q:\nmain.h:\n%s\nmain.c:\n%s", want, rootH(t, result), rootC(t, result))
 		}
 	}
-	if strings.Contains(result.MainH, "sizeof(size_t) == 8") {
-		t.Fatalf("generated C still asserts a 64-bit size_t profile:\n%s", result.MainH)
+	if strings.Contains(rootH(t, result), "sizeof(size_t) == 8") || strings.Contains(result.MainH, "sizeof(size_t) == 8") {
+		t.Fatalf("generated C still asserts a 64-bit size_t profile:\n%s", rootH(t, result))
 	}
 }
 
@@ -232,9 +232,9 @@ func TestInt32Declaration(t *testing.T) {
 		t.Fatalf("Compile stderr = %#v, want empty", result.Stderr)
 	}
 
-	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hex\"\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
-	if result.MainC != wantC {
-		t.Fatalf("main.c = %q, want %q", result.MainC, wantC)
+	wantC := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n#line 1 \"app.hex\"\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
+	if rootC(t, result) != wantC {
+		t.Fatalf("main.c = %q, want %q", rootC(t, result), wantC)
 	}
 
 	for _, want := range []string{"#include <limits.h>", "static_assert(CHAR_BIT == 8", "static_assert(sizeof(uint64_t)"} {
@@ -250,9 +250,9 @@ func TestBoolDeclaration(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 
-	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hex\"\n    const bool hex_v_flag = true;\n    return EXIT_SUCCESS;\n}\n"
-	if result.MainC != wantC {
-		t.Fatalf("main.c = %q, want %q", result.MainC, wantC)
+	wantC := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n#line 1 \"app.hex\"\n    const bool hex_v_flag = true;\n    return EXIT_SUCCESS;\n}\n"
+	if rootC(t, result) != wantC {
+		t.Fatalf("main.c = %q, want %q", rootC(t, result), wantC)
 	}
 }
 
@@ -263,8 +263,8 @@ func TestByteAndByteTypeBehavior(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile returned %#v, want byte literal accepted", result)
 	}
-	if !strings.Contains(result.MainC, "65") {
-		t.Fatalf("generated C lacks the byte value: %s", result.MainC)
+	if !strings.Contains(rootC(t, result), "65") {
+		t.Fatalf("generated C lacks the byte value: %s", rootC(t, result))
 	}
 	result = compileSource("letter: Byte = 65 again: UInt8 = letter")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -282,8 +282,8 @@ func TestAdditionalNumericTypes(t *testing.T) {
 		"float hex_v_single = 0x1.48f5c3p+1f;",
 		"double hex_v_precise = 0x1.fde9f10a8d361p+78;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 	for _, want := range []string{
@@ -292,8 +292,8 @@ func TestAdditionalNumericTypes(t *testing.T) {
 		"static_assert(sizeof(double) == 8",
 		"DBL_MANT_DIG == 53",
 	} {
-		if !strings.Contains(result.MainH, want) {
-			t.Fatalf("main.h = %q, want %q", result.MainH, want)
+		if !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
 		}
 	}
 }
@@ -329,7 +329,7 @@ func TestDefaultsUncontextualizedNumericFamilies(t *testing.T) {
 	// The assignment forms are rejected before a checked operand can expose a
 	// default type. Declarations provide the current contextual entry point.
 	result = compileSource("whole: Int32 = 13 fraction: Float64 = 3.14")
-	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(result.MainC, "const int32_t hex_v_whole = 13;") || !strings.Contains(result.MainC, "const double hex_v_fraction = 0x1.91eb851eb851fp+1;") {
+	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(rootC(t, result), "const int32_t hex_v_whole = 13;") || !strings.Contains(rootC(t, result), "const double hex_v_fraction = 0x1.91eb851eb851fp+1;") {
 		t.Fatalf("Compile returned %#v, want Int32 and Float64 declarations", result)
 	}
 }
@@ -342,9 +342,9 @@ func TestHexLiteralPreservesSpelling(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 
-	wantC := "#include \"main.h\"\n\nint main(void) {\n#line 1 \"main.hex\"\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
-	if result.MainC != wantC {
-		t.Fatalf("main.c = %q, want %q", result.MainC, wantC)
+	wantC := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n#line 1 \"app.hex\"\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
+	if rootC(t, result) != wantC {
+		t.Fatalf("main.c = %q, want %q", rootC(t, result), wantC)
 	}
 }
 

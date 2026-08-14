@@ -14,8 +14,8 @@ func TestViewFromPointerCompiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "(hex_view_Int32){") {
-		t.Fatalf("generated C lacks the View descriptor initialization:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "(hex_view_Int32){") {
+		t.Fatalf("generated C lacks the View descriptor initialization:\n%s", rootC(t, result))
 	}
 }
 
@@ -33,8 +33,8 @@ func TestViewEmptyCompiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "NULL, 0") {
-		t.Fatalf("generated C lacks the empty descriptor:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "NULL, 0") {
+		t.Fatalf("generated C lacks the empty descriptor:\n%s", rootC(t, result))
 	}
 }
 

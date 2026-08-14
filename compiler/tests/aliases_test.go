@@ -18,12 +18,12 @@ func TestAliasesLowerCanonically(t *testing.T) {
 		"const int32_t *const hex_v_pointer = &hex_v_value;",
 		"const int32_t hex_v_read = *hex_v_pointer;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
-	if strings.Contains(result.MainC, "typedef") || strings.Contains(result.MainC, "Coordinate") {
-		t.Fatalf("alias spelling leaked into generated C: %q", result.MainC)
+	if strings.Contains(rootC(t, result), "typedef") || strings.Contains(rootC(t, result), "Coordinate") {
+		t.Fatalf("alias spelling leaked into generated C: %q", rootC(t, result))
 	}
 }
 
@@ -37,8 +37,8 @@ func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
 		"int32_t *const *const hex_v_pointerPointer = &hex_v_pointer;",
 		"const int32_t hex_v_read = *(*hex_v_pointerPointer);",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -48,9 +48,9 @@ func TestTypeOnlyProgram(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful type-only program", result)
 	}
-	want := "#include \"main.h\"\n\nint main(void) {\n    return EXIT_SUCCESS;\n}\n"
-	if result.MainC != want {
-		t.Fatalf("main.c = %q, want empty executable program", result.MainC)
+	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    return EXIT_SUCCESS;\n}\n"
+	if rootC(t, result) != want {
+		t.Fatalf("main.c = %q, want empty executable program", rootC(t, result))
 	}
 }
 
@@ -93,8 +93,8 @@ func TestTypeEnvironmentDoesNotLeakAcrossCompilations(t *testing.T) {
 	if first.ExitCode != compiler.ExitSuccess || second.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("compilations failed: first=%#v second=%#v", first, second)
 	}
-	if !strings.Contains(first.MainC, "int32_t *const hex_v_pointer") || !strings.Contains(second.MainC, "bool *const hex_v_pointer") {
-		t.Fatalf("pointer type leaked across compilations: first=%q second=%q", first.MainC, second.MainC)
+	if !strings.Contains(rootC(t, first), "int32_t *const hex_v_pointer") || !strings.Contains(rootC(t, second), "bool *const hex_v_pointer") {
+		t.Fatalf("pointer type leaked across compilations: first=%q second=%q", rootC(t, first), rootC(t, second))
 	}
 }
 

@@ -23,15 +23,15 @@ func TestObjectValuesAndMembers(t *testing.T) {
 		".hex_m_x = 1,",
 		".hex_m_y = 2,",
 	} {
-		if !strings.Contains(result.MainH+result.MainC, want) {
-			t.Fatalf("generated output = %q, want %q", result.MainH+result.MainC, want)
+		if !strings.Contains(rootH(t, result)+rootC(t, result), want) {
+			t.Fatalf("generated output = %q, want %q", rootH(t, result)+rootC(t, result), want)
 		}
 	}
-	if strings.Index(result.MainH, "hex_m_x") > strings.Index(result.MainH, "hex_m_y") {
-		t.Fatalf("member definitions are not in declaration order: %q", result.MainH)
+	if strings.Index(rootH(t, result), "hex_m_x") > strings.Index(rootH(t, result), "hex_m_y") {
+		t.Fatalf("member definitions are not in declaration order: %q", rootH(t, result))
 	}
-	if strings.Index(result.MainC, ".hex_m_x") > strings.Index(result.MainC, ".hex_m_y") {
-		t.Fatalf("literal designators are not in declaration order: %q", result.MainC)
+	if strings.Index(rootC(t, result), ".hex_m_x") > strings.Index(rootC(t, result), ".hex_m_y") {
+		t.Fatalf("literal designators are not in declaration order: %q", rootC(t, result))
 	}
 }
 
@@ -56,8 +56,8 @@ func TestNestedObjectsAndPointers(t *testing.T) {
 		"hex_v_box.hex_m_point.hex_m_x = 3;",
 		"const int32_t hex_v_read = (*hex_v_reader).hex_m_point.hex_m_x;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -71,8 +71,8 @@ func TestObjectMemberReferencesAndPointerWrites(t *testing.T) {
 		"(*hex_v_writer).hex_m_x = 10;",
 		"int32_t *const hex_v_x_pointer = &hex_v_point.hex_m_x;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -82,8 +82,8 @@ func TestCompleteObjectReplacement(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("complete object replacement failed: %#v", result)
 	}
-	if !strings.Contains(result.MainC, "hex_v_first = hex_v_second;") {
-		t.Fatalf("main.c = %q, want complete object assignment", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_v_first = hex_v_second;") {
+		t.Fatalf("main.c = %q, want complete object assignment", rootC(t, result))
 	}
 
 	invalid := compileSource("type Player = { maximum_health: Int32, mut health: Int32, } mut player: Player = Player { maximum_health = 100, health = 80, } player.maximum_health = 200")
@@ -102,8 +102,8 @@ func TestObjectFloatDependency(t *testing.T) {
 		"FLT_MANT_DIG == 24",
 		"float hex_m_ratio;",
 	} {
-		if !strings.Contains(result.MainH, want) {
-			t.Fatalf("main.h = %q, want %q", result.MainH, want)
+		if !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
 		}
 	}
 }
@@ -134,8 +134,8 @@ func TestAddrMemberAndTemporaryRead(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("object member named addr failed: %#v", result)
 	}
-	if !strings.Contains(result.MainC, "hex_m_addr") {
-		t.Fatalf("main.c = %q, want ordinary addr member access", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_m_addr") {
+		t.Fatalf("main.c = %q, want ordinary addr member access", rootC(t, result))
 	}
 
 	legacy := compileSource("x: Int32 = 1 y: Int32 = x.addr")
@@ -151,8 +151,8 @@ func TestObjectHeaderOrdering(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful multi-object program", result)
 	}
 	repeat := compileSource(source)
-	if result.MainH != repeat.MainH {
-		t.Fatalf("header generation is not deterministic:\nfirst=%q\nrepeat=%q", result.MainH, repeat.MainH)
+	if rootH(t, result) != rootH(t, repeat) {
+		t.Fatalf("header generation is not deterministic:\nfirst=%q\nrepeat=%q", rootH(t, result), rootH(t, repeat))
 	}
 
 	forwards := []string{
@@ -165,20 +165,20 @@ func TestObjectHeaderOrdering(t *testing.T) {
 		"struct hex_t_Second {",
 		"struct hex_t_Third {",
 	}
-	firstDefinition := strings.Index(result.MainH, definitions[0])
+	firstDefinition := strings.Index(rootH(t, result), definitions[0])
 	previous := -1
 	for _, want := range forwards {
-		index := strings.Index(result.MainH, want)
+		index := strings.Index(rootH(t, result), want)
 		if index <= previous || index >= firstDefinition {
-			t.Fatalf("forward typedefs are not source-ordered before definitions: %q", result.MainH)
+			t.Fatalf("forward typedefs are not source-ordered before definitions: %q", rootH(t, result))
 		}
 		previous = index
 	}
 	previous = firstDefinition - 1
 	for _, want := range definitions {
-		index := strings.Index(result.MainH, want)
+		index := strings.Index(rootH(t, result), want)
 		if index <= previous {
-			t.Fatalf("object definitions are not source-ordered: %q", result.MainH)
+			t.Fatalf("object definitions are not source-ordered: %q", rootH(t, result))
 		}
 		previous = index
 	}

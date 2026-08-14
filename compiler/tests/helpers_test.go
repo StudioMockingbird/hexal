@@ -4,6 +4,7 @@ package tests
 
 import (
 	"hexal/compiler"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -43,16 +44,49 @@ func assertRejects(t *testing.T, source, want string) {
 }
 
 // assertEmits requires the source to compile and the generated files to
-// contain every want string.
+// contain every want string. The want strings may live in any artifact: the
+// entrypoint module's C/header or the generated main.c/main.h.
 func assertEmits(t *testing.T, source string, wants ...string) {
 	t.Helper()
 	result := assertCompiles(t, source)
-	generated := result.MainC + "\n" + result.MainH
+	generated := result.MainC + "\n" + result.MainH + "\n" + rootC(t, result) + "\n" + rootH(t, result)
 	for _, want := range wants {
 		if !strings.Contains(generated, want) {
 			t.Fatalf("generated output does not contain %q:\n%s\n--- source ---\n%s", want, generated, source)
 		}
 	}
+}
+
+// rootC returns the entrypoint module's generated C file.
+func rootC(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "modules/app.c")
+}
+
+// rootH returns the entrypoint module's generated header file.
+func rootH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "modules/app.h")
+}
+
+// moduleFile returns one generated artifact by logical key, failing the test
+// if the compiler did not produce it.
+func moduleFile(t *testing.T, result compiler.CompilationResult, key string) string {
+	t.Helper()
+	content, ok := result.Files[key]
+	if !ok {
+		t.Fatalf("generated files %v do not contain %q", sortedKeys(result.Files), key)
+	}
+	return content
+}
+
+func sortedKeys(files map[string]string) []string {
+	keys := make([]string, 0, len(files))
+	for key := range files {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func withoutLineDirectives(source string) string {

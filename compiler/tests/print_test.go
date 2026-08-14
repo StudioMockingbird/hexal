@@ -23,8 +23,8 @@ func TestPrintScalars(t *testing.T) {
 		"hex_print_rune(hex_print_arg_11);",
 		"hex_print_size(hex_print_arg_12);",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -41,8 +41,8 @@ func TestPrintStringsDirectAndNested(t *testing.T) {
 		"static void hex_print_nested_hex_t_Point(const void *value) {",
 		"hex_print_text((const uint8_t *)\"Point { \", 8);",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -57,8 +57,8 @@ func TestPrintNestedStringQuoting(t *testing.T) {
 		"static void hex_print_nested_hex_string(const void *value) {",
 		"hex_print_quoted_text(text->data, text->byte_length);",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -68,8 +68,8 @@ func TestPrintError(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "hex_print_error_direct") || !strings.Contains(result.MainC, "hex_print_error_direct(hex_print_arg_1);") {
-		t.Fatalf("generated output = %q %q, want direct Error print", result.MainC, result.MainH)
+	if !strings.Contains(rootH(t, result), "hex_print_error_direct") || !strings.Contains(rootC(t, result), "hex_print_error_direct(hex_print_arg_1);") {
+		t.Fatalf("generated output = %q %q, want direct Error print", rootC(t, result), rootH(t, result))
 	}
 }
 
@@ -120,8 +120,8 @@ func TestPrintDeferred(t *testing.T) {
 		"hex_defer_capture_2 = hex_v_text;",
 		"hex_print_text(hex_defer_capture_1->data, hex_defer_capture_1->byte_length);",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

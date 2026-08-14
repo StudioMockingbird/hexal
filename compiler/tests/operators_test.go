@@ -70,16 +70,16 @@ func TestCompleteOperatorProgram(t *testing.T) {
 		"(uint32_t)((uint64_t)hex_v_unsignedLeft + (uint64_t)hex_v_unsignedRight)",
 		"hex_rem_uint32_t(hex_v_unsignedLeft, hex_v_unsignedRight)",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want fragment %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want fragment %q", rootC(t, result), want)
 		}
 	}
 	for _, want := range []string{
 		"static_assert(sizeof(float) == 4",
 		"static_assert(sizeof(double) == 8",
 	} {
-		if !strings.Contains(result.MainH, want) {
-			t.Fatalf("main.h = %q, want fragment %q", result.MainH, want)
+		if !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("main.h = %q, want fragment %q", rootH(t, result), want)
 		}
 	}
 }
@@ -93,29 +93,29 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 		"(uint8_t)((uint32_t)hex_v_unsigned + (uint32_t)100)",
 		"((uint64_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want runtime wrapping fragment %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want runtime wrapping fragment %q", rootC(t, result), want)
 		}
 	}
 }
 
 func TestFoldsImmutableArithmeticAndWrapsOverflow(t *testing.T) {
 	result := compileSource("count: UInt8 = 200 next: UInt8 = count + 1")
-	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(result.MainC, "const uint8_t hex_v_next = 201;") {
+	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_next = 201;") {
 		t.Fatalf("Compile returned %#v, want folded UInt8 value 201", result)
 	}
 
 	// RFC 0017: integer overflow wraps at the result type during folding.
 	result = compileSource("count: UInt8 = 200 over: UInt8 = count + 100")
-	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(result.MainC, "const uint8_t hex_v_over = 44;") {
+	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_over = 44;") {
 		t.Fatalf("Compile returned %#v, want folded wrapped value 44", result)
 	}
 
 	// RFC 0017: signed minimum divided by -1 folds to the signed minimum.
 	result = compileSource("minimum: Int8 = -128 quotient: Int8 = minimum / -1 remainder: Int8 = minimum % -1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 ||
-		!strings.Contains(result.MainC, "const int8_t hex_v_quotient = INT8_MIN;") ||
-		!strings.Contains(result.MainC, "const int8_t hex_v_remainder = 0;") {
+		!strings.Contains(rootC(t, result), "const int8_t hex_v_quotient = INT8_MIN;") ||
+		!strings.Contains(rootC(t, result), "const int8_t hex_v_remainder = 0;") {
 		t.Fatalf("Compile returned %#v, want folded minimum/-1 quotient and remainder", result)
 	}
 }
@@ -126,8 +126,8 @@ func TestPrecedenceChain(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful precedence-chain program", result)
 	}
 	want := "(!(((((hex_v_first + (hex_v_second * hex_v_third)) < hex_v_limit) == hex_v_expected) && hex_v_all) || hex_v_either))"
-	if !strings.Contains(result.MainC, want) {
-		t.Fatalf("main.c = %q, want precedence-chain fragment %q", result.MainC, want)
+	if !strings.Contains(rootC(t, result), want) {
+		t.Fatalf("main.c = %q, want precedence-chain fragment %q", rootC(t, result), want)
 	}
 }
 
@@ -200,8 +200,8 @@ func TestAllIntegerWidths(t *testing.T) {
 			if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 				t.Fatalf("Compile returned %#v, want successful %s program", result, testCase.typ)
 			}
-			if !strings.Contains(result.MainC, testCase.want) {
-				t.Fatalf("main.c = %q, want %q", result.MainC, testCase.want)
+			if !strings.Contains(rootC(t, result), testCase.want) {
+				t.Fatalf("main.c = %q, want %q", rootC(t, result), testCase.want)
 			}
 		})
 	}
@@ -217,8 +217,8 @@ func TestSignedWrappingBoundaries(t *testing.T) {
 		"const int64_t hex_v_wrapped64 = (int64_t)(uint64_t)((uint64_t)hex_v_minimum64 - (uint64_t)INT64_C(1));",
 		"const int64_t hex_v_negative64 = (int64_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum64);",
 	} {
-		if strings.Contains(result.MainC, old) {
-			t.Fatalf("main.c contains implementation-defined signed conversion %q: %q", old, result.MainC)
+		if strings.Contains(rootC(t, result), old) {
+			t.Fatalf("main.c contains implementation-defined signed conversion %q: %q", old, rootC(t, result))
 		}
 	}
 }
@@ -232,8 +232,8 @@ func TestShortCircuitRuntime(t *testing.T) {
 		"(hex_v_guardOr || (hex_div_int32_t(hex_v_zero, hex_v_zero) > 0))",
 		"(hex_v_guardAnd && (hex_div_int32_t(hex_v_zero, hex_v_zero) > 0))",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want short-circuit fragment %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want short-circuit fragment %q", rootC(t, result), want)
 		}
 	}
 }
@@ -250,8 +250,8 @@ func TestNaNComparisons(t *testing.T) {
 		"((hex_v_zero / hex_v_zero) == (hex_v_zero / hex_v_zero))",
 		"((hex_v_zero / hex_v_zero) != (hex_v_zero / hex_v_zero))",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want NaN comparison fragment %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want NaN comparison fragment %q", rootC(t, result), want)
 		}
 	}
 }

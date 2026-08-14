@@ -29,8 +29,8 @@ func TestListLifecycle(t *testing.T) {
 		"hex_list_clear_Int32(hex_v_values);",
 		"hex_list_free_Int32(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -40,8 +40,8 @@ func TestListViewDerivationAndInvalidation(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "const hex_view_Int32 hex_v_view = hex_list_slice_Int32(hex_v_values, (size_t)(0), (size_t)(2));") {
-		t.Fatalf("main.c = %q, want list slice", result.MainC)
+	if !strings.Contains(rootC(t, result), "const hex_view_Int32 hex_v_view = hex_list_slice_Int32(hex_v_values, (size_t)(0), (size_t)(2));") {
+		t.Fatalf("main.c = %q, want list slice", rootC(t, result))
 	}
 }
 
@@ -106,8 +106,8 @@ func TestListOfStrings(t *testing.T) {
 		"hex_v_popped = hex_list_pop_String(hex_v_names);",
 		"hex_string_free(hex_v_h, hex_v_popped);",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -154,8 +154,8 @@ func TestListStringElementsAreShallow(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if strings.Contains(result.MainC, "hex_string_from_bytes") {
-		t.Fatalf("List<String> push must not deep-copy:\n%s", result.MainC)
+	if strings.Contains(rootC(t, result), "hex_string_from_bytes") {
+		t.Fatalf("List<String> push must not deep-copy:\n%s", rootC(t, result))
 	}
 }
 
@@ -165,10 +165,10 @@ func TestListFreeReleasesOnlyContainerStorage(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "hex_list_free_String") {
-		t.Fatalf("missing hex_list_free_String helper:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_list_free_String") {
+		t.Fatalf("missing hex_list_free_String helper:\n%s", rootC(t, result))
 	}
-	if strings.Contains(result.MainC, "hex_string_free") {
-		t.Fatalf("List<String> free must not destroy element Strings:\n%s", result.MainC)
+	if strings.Contains(rootC(t, result), "hex_string_free") {
+		t.Fatalf("List<String> free must not destroy element Strings:\n%s", rootC(t, result))
 	}
 }

@@ -1,4 +1,4 @@
-package generator
+﻿package generator
 
 import (
 	"strings"
@@ -12,7 +12,7 @@ import (
 
 func TestGenerateTryStatementLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun fail(): Nil | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    try fail()\n    return 1\nend\n")
-	mainC, _, err := GenerateChecked(program)
+	rootC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,18 +21,18 @@ func TestGenerateTryStatementLowering(t *testing.T) {
 		"if (hex_try_1.tag == hex_internal_union_1_tag_member_",
 		"return (hex_internal_union_2){ .tag = hex_internal_union_2_tag_member_1, .payload.member_1 = hex_try_1.payload.member_",
 	} {
-		if !strings.Contains(mainC, want) {
-			t.Fatalf("generated C = %q, want %q", mainC, want)
+		if !strings.Contains(rootC, want) {
+			t.Fatalf("generated C = %q, want %q", rootC, want)
 		}
 	}
-	if strings.Contains(mainC, "hex_try_result_") {
+	if strings.Contains(rootC, "hex_try_result_") {
 		t.Fatalf("try statement must not normalize a discarded success value")
 	}
 }
 
 func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun read_count(): Int32 | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    count: Int32 = try read_count()\n    return count\nend\n")
-	mainC, _, err := GenerateChecked(program)
+	rootC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,13 +41,13 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 		"if (hex_try_1.tag == hex_internal_union_1_tag_member_1) {",
 		"hex_v_count = hex_try_1.payload.member_0;",
 	} {
-		if !strings.Contains(mainC, want) {
-			t.Fatalf("generated C = %q, want %q", mainC, want)
+		if !strings.Contains(rootC, want) {
+			t.Fatalf("generated C = %q, want %q", rootC, want)
 		}
 	}
 	// A union with several success members needs a normalization temporary.
 	multiple := checkedGeneratorSource(t, "fun read_number(): Int32 | Float32 | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    value: Int32 | Float32 = try read_number()\n    return 1\nend\n")
-	multiC, _, err := GenerateChecked(multiple)
+	multiC, _, _, _, err := GenerateChecked(multiple)
 	if err != nil {
 		t.Fatal(err)
 	}

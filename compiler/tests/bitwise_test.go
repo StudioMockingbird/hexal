@@ -21,8 +21,8 @@ func TestBitwiseOperators(t *testing.T) {
 		"const uint8_t hex_v_complement = 240;",
 		"const uint16_t hex_v_widened = 0;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -36,8 +36,8 @@ func TestBitwiseSignedReconstruction(t *testing.T) {
 		"const int8_t hex_v_mask = -1;",
 		"const int8_t hex_v_signed = 15;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -56,8 +56,8 @@ func TestShiftOperators(t *testing.T) {
 		"if (!(count < 8ULL)) {",
 		"static inline int8_t hex_shr_int8_t(int8_t left, uint64_t count) {",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -108,8 +108,8 @@ func TestBitCast(t *testing.T) {
 		"hex_v_unsigned = hex_bitcast_int32_t_uint32_t(hex_v_signed);",
 		"static inline uint32_t hex_bitcast_float_uint32_t(float value) {",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -146,8 +146,8 @@ func TestEndianByteConversion(t *testing.T) {
 		"hex_v_from_big = hex_from_be_bytes_uint32_t(&(hex_v_big));",
 		"static inline int16_t hex_from_le_bytes_int16_t(const hex_array_UInt8_2 *bytes) {",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -176,8 +176,8 @@ func TestBitwisePrecedence(t *testing.T) {
 	for _, want := range []string{
 		"const uint32_t hex_v_packed = 66051;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

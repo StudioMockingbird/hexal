@@ -17,14 +17,14 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "hex_task_spawn(") {
-		t.Fatalf("generated C lacks the spawn call:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_task_spawn(") {
+		t.Fatalf("generated C lacks the spawn call:\n%s", rootC(t, result))
 	}
-	if !strings.Contains(result.MainC, "hex_task_join_Int32(") {
-		t.Fatalf("generated C lacks the typed join call:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_task_join_Int32(") {
+		t.Fatalf("generated C lacks the typed join call:\n%s", rootC(t, result))
 	}
-	if !strings.Contains(result.MainH, "hex_scheduler_init") {
-		t.Fatalf("generated header lacks the scheduler runtime:\n%s", result.MainH)
+	if !strings.Contains(result.MainC, "hex_scheduler_init") {
+		t.Fatalf("generated main lacks the scheduler runtime:\n%s", result.MainC)
 	}
 	if !strings.Contains(result.MainC, "hex_scheduler_init();") {
 		t.Fatalf("generated main does not initialize the scheduler:\n%s", result.MainC)
@@ -58,8 +58,8 @@ func TestChannelPipelineCompiles(t *testing.T) {
 		"hex_chan_free_Int32(",
 		"hex_chan_length",
 	} {
-		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
-			t.Fatalf("generated output lacks %s:\n%s", fragment, result.MainC)
+		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) {
+			t.Fatalf("generated output lacks %s:\n%s", fragment, rootC(t, result))
 		}
 	}
 }
@@ -70,8 +70,8 @@ func TestMutexCompiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainH, "hex_mutex_lock_hex_mutex(") {
-		t.Fatalf("generated header lacks the mutex helpers:\n%s", result.MainH)
+	if !strings.Contains(rootH(t, result), "hex_mutex_lock_hex_mutex(") {
+		t.Fatalf("generated header lacks the mutex helpers:\n%s", rootH(t, result))
 	}
 }
 
@@ -91,7 +91,7 @@ func TestAtomicOperationsCompile(t *testing.T) {
 		"hex_atomic_Int32_compare_exchange(",
 		"hex_atomic_Bool_load(",
 	} {
-		if !strings.Contains(result.MainH, fragment) && !strings.Contains(result.MainC, fragment) {
+		if !strings.Contains(rootH(t, result), fragment) && !strings.Contains(rootC(t, result), fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
 	}

@@ -186,7 +186,7 @@ func requireGeneratedC(t *testing.T, source, want string) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected %q: %#v", source, result.Stderr)
 	}
-	if got := withoutLineDirectives(result.MainC); !strings.Contains(got, want) {
+	if got := withoutLineDirectives(rootC(t, result)); !strings.Contains(got, want) {
 		t.Fatalf("main.c = %q, want it to contain %q", got, want)
 	}
 }
@@ -206,7 +206,7 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("method generation failed: %#v", result)
 	}
-	generated := withoutLineDirectives(result.MainC)
+	generated := withoutLineDirectives(rootC(t, result))
 	for _, want := range []string{
 		"static int32_t hex_f_Point_length_squared(const hex_t_Point hex_v_self) {",
 		"static bool hex_f_Point_is_origin(const hex_t_Point *const hex_v_self) {",
@@ -224,7 +224,7 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {
 	requireGeneratedC(t,
 		"fun identity(value: Int32): Int32\n    return value\nend\n",
-		"#include \"main.h\"\n\nstatic int32_t hex_f_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint main(void) {\n")
+		"#include \"main.h\"\n#include \"modules/app.h\"\n\nstatic int32_t hex_f_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint hex_module_root_run(void) {\n")
 }
 
 func TestGeneratedNoReturnFunctionIsVoid(t *testing.T) {
@@ -247,7 +247,7 @@ func TestGeneratedFunctionPointerObjectsKeepUnqualifiedParameters(t *testing.T) 
 		"callback: Fun<(Int32) : Int32> = identity\nmut selected: Fun<(Int32) : Int32> = identity\n"
 	requireGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_identity;\n")
 	requireGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_identity;\n")
-	if got := compileSource(source).MainC; strings.Contains(got, ")(const int32_t)") {
+	if got := rootC(t, compileSource(source)); strings.Contains(got, ")(const int32_t)") {
 		t.Fatalf("main.c = %q, function-pointer parameters must stay unqualified", got)
 	}
 }
@@ -274,7 +274,7 @@ func TestGeneratedSelfRecursionNeedsNoPrototype(t *testing.T) {
 	source := "fun countdown(value: Int32): Int32\n    return countdown(value)\nend\n"
 	requireGeneratedC(t, source,
 		"static int32_t hex_f_countdown(const int32_t hex_v_value) {\n    return hex_f_countdown(hex_v_value);\n}\n")
-	if got := compileSource(source).MainC; strings.Contains(got, "hex_f_countdown(const int32_t hex_v_value);") {
+	if got := rootC(t, compileSource(source)); strings.Contains(got, "hex_f_countdown(const int32_t hex_v_value);") {
 		t.Fatalf("main.c = %q, want no forward prototype region", got)
 	}
 }
@@ -289,15 +289,15 @@ func TestGeneratedDefinitionsAreOrderedBeforeMain(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
-	first := strings.Index(result.MainC, "hex_f_first")
-	second := strings.Index(result.MainC, "hex_f_second")
-	main := strings.Index(result.MainC, "int main(void)")
-	origin := strings.Index(result.MainC, "hex_v_origin")
+	first := strings.Index(rootC(t, result), "hex_f_first")
+	second := strings.Index(rootC(t, result), "hex_f_second")
+	main := strings.Index(rootC(t, result), "int hex_module_root_run(void)")
+	origin := strings.Index(rootC(t, result), "hex_v_origin")
 	if first < 0 || second < first || main < second || origin < main {
-		t.Fatalf("main.c = %q, want first, second, main, then module storage", result.MainC)
+		t.Fatalf("main.c = %q, want first, second, root run, then module storage", rootC(t, result))
 	}
-	if !strings.Contains(result.MainH, "struct hex_t_Point {") {
-		t.Fatalf("main.h = %q, want the object definition region", result.MainH)
+	if !strings.Contains(rootH(t, result), "struct hex_t_Point {") {
+		t.Fatalf("main.h = %q, want the object definition region", rootH(t, result))
 	}
 }
 
@@ -306,7 +306,7 @@ func TestGeneratedFunctionBodiesKeepLineDirectives(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "#line 2 \"main.hex\"\n    return hex_v_value;") {
-		t.Fatalf("main.c = %q, want a line directive inside the function body", result.MainC)
+	if !strings.Contains(rootC(t, result), "#line 2 \"app.hex\"\n    return hex_v_value;") {
+		t.Fatalf("main.c = %q, want a line directive inside the function body", rootC(t, result))
 	}
 }

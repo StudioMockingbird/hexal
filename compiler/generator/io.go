@@ -127,29 +127,57 @@ func writeIOPrelude(result *strings.Builder, state *generatedIOState) {
 	}
 }
 
-// writeIODefinitions emits the FileMode enum, the File handle, and the I/O
-// helper families. It runs after the Error object, the String machinery, and
-// the List definitions (read_bytes constructs a List<Byte> through the
-// generated list helpers).
-func writeIODefinitions(result *strings.Builder, state *generatedIOState, strings *generatedStringState, schedulerLinked bool) {
+// writeIOGate emits the RFC 0040 process-wide output gate into main.c: the
+// gate mutex and its closed flag, plus the lock/unlock/shutdown functions.
+// The gate exists once per process, so it cannot live in a header both
+// translation units include; the module header's inline helpers call it
+// through the main.h extern declarations.
+func writeIOGate(result *strings.Builder, state *generatedIOState, schedulerLinked bool) {
 	if state == nil || !state.used {
 		return
 	}
 	result.WriteString("\n#include <stdio.h>\n")
+	if schedulerLinked {
+		result.WriteString("#include <threads.h>\n")
+	}
 	// RFC 0040: standard text writes and flushes share one process-wide
 	// output gate. With the scheduler linked the gate is a real mutex that
 	// closes before root completion; without it the helpers are no-ops.
 	if schedulerLinked {
-		result.WriteString("\nstatic mtx_t hex_io_gate;\nstatic bool hex_io_gate_closed;\n")
-		result.WriteString("\nstatic void hex_io_gate_lock(void) {\n    mtx_lock(&hex_io_gate);\n}\n")
-		result.WriteString("static void hex_io_gate_unlock(void) {\n    mtx_unlock(&hex_io_gate);\n}\n")
+		result.WriteString("\nstatic mtx_t hex_io_gate;\nbool hex_io_gate_closed;\n")
+		result.WriteString("\nvoid hex_io_gate_lock(void) {\n    mtx_lock(&hex_io_gate);\n}\n")
+		result.WriteString("void hex_io_gate_unlock(void) {\n    mtx_unlock(&hex_io_gate);\n}\n")
 		result.WriteString("\nstatic void hex_io_gate_shutdown(void) {\n    mtx_lock(&hex_io_gate);\n    hex_io_gate_closed = true;\n    fflush(stdout);\n    fflush(stderr);\n    mtx_unlock(&hex_io_gate);\n}\n")
 	} else {
-		result.WriteString("\nstatic bool hex_io_gate_closed;\n")
-		result.WriteString("static void hex_io_gate_lock(void) {\n}\n")
-		result.WriteString("static void hex_io_gate_unlock(void) {\n}\n")
+		result.WriteString("\nbool hex_io_gate_closed;\n")
+		result.WriteString("void hex_io_gate_lock(void) {\n}\n")
+		result.WriteString("void hex_io_gate_unlock(void) {\n}\n")
 		result.WriteString("\nstatic void hex_io_gate_shutdown(void) {\n    fflush(stdout);\n    fflush(stderr);\n}\n")
 	}
+}
+
+// writeIOExterns emits, into main.h, the output gate entry points the module
+// header's inline write and flush helpers call.
+func writeIOExterns(result *strings.Builder, state *generatedIOState) {
+	if state == nil || !state.used {
+		return
+	}
+	result.WriteString("\n/* RFC 0040 output gate, defined in main.c */\n")
+	result.WriteString("extern bool hex_io_gate_closed;\n")
+	result.WriteString("void hex_io_gate_lock(void);\n")
+	result.WriteString("void hex_io_gate_unlock(void);\n")
+}
+
+// writeIOInlineHelpers emits the state-free File operation helpers into the
+// module header: the path and UTF-8 validators, the open/read/write/flush/
+// close families, and the Error-construction helper. They run after the
+// Error object, the String machinery, and the List definitions (read_bytes
+// constructs a List<Byte> through the generated list helpers).
+func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, strings *generatedStringState) {
+	if state == nil || !state.used {
+		return
+	}
+	result.WriteString("\n#include <stdio.h>\n")
 	state.writeIOErrorHelper(result)
 	result.WriteString("\nstatic inline bool hex_utf8_valid(const uint8_t *data, size_t length) {\n    size_t index = 0;\n    while (index < length) {\n        uint8_t lead = data[index];\n        size_t width;\n        if (lead < 0x80) {\n            width = 1;\n        } else if (lead < 0xE0) {\n            width = 2;\n        } else if (lead < 0xF0) {\n            width = 3;\n        } else if (lead < 0xF8) {\n            width = 4;\n        } else {\n            return false;\n        }\n        if (index + width > length) {\n            return false;\n        }\n        for (size_t continuation = 1; continuation < width; continuation++) {\n            if ((data[index + continuation] & 0xC0) != 0x80) {\n                return false;\n            }\n        }\n        index += width;\n    }\n    return true;\n}\n")
 	result.WriteString("\nstatic inline bool hex_file_path_valid(const uint8_t *data, size_t length) {\n    if (length == 0) {\n        return false;\n    }\n    for (size_t index = 0; index < length; index++) {\n        if (data[index] == 0) {\n            return false;\n        }\n        if (data[index] > 0x7F) {\n            return false;\n        }\n    }\n    return true;\n}\n")

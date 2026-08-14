@@ -15,8 +15,8 @@ func TestByteAliasIsUInt8(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "const uint8_t hex_v_byte = 65;") {
-		t.Fatalf("generated C lacks the Byte value:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "const uint8_t hex_v_byte = 65;") {
+		t.Fatalf("generated C lacks the Byte value:\n%s", rootC(t, result))
 	}
 }
 
@@ -27,8 +27,8 @@ func TestByteLiteralsCompile(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, want := range []string{"= 65;", "= 10;", "= 255;", "= 0;", "= 39;", "= 92;"} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("generated C lacks %s:\n%s", want, result.MainC)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("generated C lacks %s:\n%s", want, rootC(t, result))
 		}
 	}
 }
@@ -40,8 +40,8 @@ func TestRuneLiteralsCompile(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, want := range []string{"= 233;", "= 129408;", "= 65;", "= 0;"} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("generated C lacks %s:\n%s", want, result.MainC)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("generated C lacks %s:\n%s", want, rootC(t, result))
 		}
 	}
 }
@@ -68,7 +68,7 @@ func TestStringSurfaceCompiles(t *testing.T) {
 		"hex_rune_cursor_has_next(",
 		"hex_rune_cursor_next(",
 	} {
-		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
+		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) && !strings.Contains(result.MainH, fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
 	}
@@ -88,8 +88,8 @@ func TestStrandSurfaceCompiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "(hex_strand){{ 104, 101, 120, 97, 108, 0 }}") {
-		t.Fatalf("generated C lacks the inline Strand literal:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "(hex_strand){{ 104, 101, 120, 97, 108, 0 }}") {
+		t.Fatalf("generated C lacks the inline Strand literal:\n%s", rootC(t, result))
 	}
 }
 
@@ -122,8 +122,8 @@ func TestStringFromBytesAndFromRunesCompile(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, fragment := range []string{"hex_string_from_bytes(", "hex_string_from_runes("} {
-		if !strings.Contains(result.MainC, fragment) {
-			t.Fatalf("generated C lacks %s:\n%s", fragment, result.MainC)
+		if !strings.Contains(rootC(t, result), fragment) {
+			t.Fatalf("generated C lacks %s:\n%s", fragment, rootC(t, result))
 		}
 	}
 }

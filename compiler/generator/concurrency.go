@@ -1,4 +1,4 @@
-package generator
+﻿package generator
 
 import (
 	"fmt"
@@ -295,20 +295,61 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 	}
 }
 
-// writeConcurrencyDefinitions emits the RFC 0037 runtime: the fiber platform
-// layer, the M:N scheduler, the task/join/yield machinery, the Channel and
-// Mutex helpers, and the inline Atomic helpers. It runs last in the header,
-// after the Error object, the String and Strand typedefs and literals, and
-// the union definitions every operation helper constructs.
-func writeConcurrencyDefinitions(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+// writeConcurrencyRuntime emits the RFC 0037 runtime into main.c: the fiber
+// platform layer, the M:N scheduler, the task/join/yield machinery, the
+// Channel and Mutex cores. Everything here holds process-wide state or is a
+// non-inline static function, so it exists exactly once per process, never in
+// a header both translation units include.
+func writeConcurrencyRuntime(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+	if state == nil || !state.used {
+		return
+	}
+	writeSchedulerRuntime(result)
+	writeChannelCore(result, state)
+	writeMutexCore(result, state)
+}
+
+// writeConcurrencyExterns emits, into main.h, the declarations of the runtime
+// core entry points the module header's inline helpers call. The core lives
+// in main.c with external linkage; declaring it here lets every translation
+// unit agree on the interface.
+func writeConcurrencyExterns(result *strings.Builder, state *generatedConcurrencyState) {
+	if state == nil || !state.used {
+		return
+	}
+	result.WriteString("\n/* RFC 0037 runtime entry points, defined in main.c */\n")
+	result.WriteString("void hex_task_spawn(void (*entry)(hex_task *), size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align);\n")
+	result.WriteString("void *hex_task_join(hex_task *task);\n")
+	result.WriteString("void hex_task_yield(void);\n")
+	result.WriteString("void hex_task_detach(hex_task *task);\n")
+	result.WriteString("void hex_task_release(hex_task *task);\n")
+	result.WriteString("hex_chan *hex_chan_new(size_t capacity, size_t element_size);\n")
+	result.WriteString("bool hex_chan_send(hex_chan *channel, const void *value);\n")
+	result.WriteString("bool hex_chan_receive(hex_chan *channel, void *out);\n")
+	result.WriteString("void hex_chan_close(hex_chan *channel);\n")
+	result.WriteString("size_t hex_chan_length(hex_chan *channel);\n")
+	result.WriteString("size_t hex_chan_capacity(hex_chan *channel);\n")
+	result.WriteString("bool hex_chan_is_closed(hex_chan *channel);\n")
+	result.WriteString("void hex_chan_free(hex_chan *channel);\n")
+	result.WriteString("hex_mutex *hex_mutex_new(void);\n")
+	result.WriteString("void hex_mutex_lock(hex_mutex *mutex);\n")
+	result.WriteString("void hex_mutex_unlock(hex_mutex *mutex);\n")
+	result.WriteString("void hex_mutex_free(hex_mutex *mutex);\n")
+}
+
+// writeConcurrencyInlineHelpers emits the per-element, per-result inline
+// wrappers into the module header: the spawn argument frames (which name user
+// parameter types), the Task join helpers, the Channel and Mutex operation
+// families, and the Atomic family. They are state-free and only call the
+// runtime core through its main.h declarations.
+func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
 	if state == nil || !state.used {
 		return
 	}
 	writeSpawnArgFrames(result, state)
-	writeSchedulerRuntime(result)
 	writeTaskTypeHelpers(result, state)
-	writeChannelHelpers(result, state, strings)
-	writeMutexHelpers(result, state, strings)
+	writeChannelInlineHelpers(result, state, strings)
+	writeMutexInlineHelpers(result, state, strings)
 	writeAtomicHelpers(result, state)
 }
 
@@ -493,7 +534,7 @@ static hex_task *hex_ready_pop(void) {
     return task;
 }
 
-static void hex_task_release(hex_task *task) {
+void hex_task_release(hex_task *task) {
     if (task->flags & HEX_TASK_ROOT) {
         return;
     }
@@ -509,7 +550,7 @@ static void hex_task_release(hex_task *task) {
 // scheduler when the root completes, and hands the worker back to its
 // dispatch loop. The trampoline and the root epilogue both end here; the
 // task's fiber never returns through an invalid stack.
-static void hex_task_complete(hex_task *task) {
+void hex_task_complete(hex_task *task) {
     task->state = HEX_TASK_DONE;
     if (task->joiner != NULL) {
         hex_task *joiner = task->joiner;
@@ -614,7 +655,7 @@ static void hex_scheduler_init(void) {
     hex_context_switch((hex_context)hex_root_task->fiber, (hex_context)hex_root_task->scheduler_fiber);
 }
 
-static void hex_task_yield(void) {
+void hex_task_yield(void) {
     hex_task *self = hex_current_task;
     self->state = HEX_TASK_READY;
     hex_ready_push(self);
@@ -625,7 +666,7 @@ static void hex_task_yield(void) {
 // shallow-copies the arguments, creates the Task fiber, and publishes the
 // task to the ready queue. Any partial allocation failure releases every
 // resource and returns NULL, which the spawn site turns into Error.
-static hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align) {
+hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align) {
     (void)args_align;
     (void)result_align;
     void *args_frame = NULL;
@@ -670,7 +711,7 @@ static hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t a
 // The joining task parks on the target's joiner slot while waiting. Joining
 // the current task through its own alias is a cheaply detectable misuse and
 // traps.
-static void *hex_task_join(hex_task *task) {
+void *hex_task_join(hex_task *task) {
     for (;;) {
         if (task->state == HEX_TASK_DONE) {
             return task->result;
@@ -686,7 +727,7 @@ static void *hex_task_join(hex_task *task) {
     }
 }
 
-static void hex_task_detach(hex_task *task) {
+void hex_task_detach(hex_task *task) {
     task->flags |= HEX_TASK_DETACH;
     if (task->state == HEX_TASK_DONE) {
         hex_task_release(task);
@@ -777,17 +818,15 @@ func writeSpawnAdaptersChecked(result *strings.Builder, state *generatedConcurre
 	return nil
 }
 
-// writeChannelHelpers emits the shared bounded ring-buffer Channel and one
-// per-element operation family. send and receive park the current task while
-// full or empty and open; parking never blocks the worker thread. The
-// per-element helpers build the checked result unions (Channel | Error,
-// Nil | Error, and T | EoS) around the shared machinery.
-func writeChannelHelpers(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+// writeChannelCore emits the shared bounded ring-buffer Channel control block
+// and the core operations into main.c. send and receive park the current task
+// while full or empty and open; parking never blocks the worker thread. The
+// core is non-inline and holds no file-scope state beyond what the caller
+// passes, but it must exist once per process because its wait lists carry
+// task pointers.
+func writeChannelCore(result *strings.Builder, state *generatedConcurrencyState) {
 	if len(state.channels) == 0 {
 		return
-	}
-	if state.channelNew || state.channelSend {
-		state.writeErrorHelper(result)
 	}
 	result.WriteString(`
 typedef struct hex_chan {
@@ -802,7 +841,7 @@ typedef struct hex_chan {
     uint8_t *slots;
 } hex_chan;
 
-static hex_chan *hex_chan_new(size_t capacity, size_t element_size) {
+hex_chan *hex_chan_new(size_t capacity, size_t element_size) {
     if (capacity == 0 || element_size > SIZE_MAX / capacity) {
         return NULL;
     }
@@ -827,7 +866,7 @@ static hex_chan *hex_chan_new(size_t capacity, size_t element_size) {
 
 // send shallow-copies one element into the ring, parking while the channel
 // is full and open. A wake from close, or a send after close, fails.
-static bool hex_chan_send(hex_chan *channel, const void *value) {
+bool hex_chan_send(hex_chan *channel, const void *value) {
     hex_task *self = hex_current_task;
     for (;;) {
         mtx_lock(&channel->mutex);
@@ -863,7 +902,7 @@ static bool hex_chan_send(hex_chan *channel, const void *value) {
 
 // receive copies the oldest element out, parking while the channel is empty
 // and open. Closed-and-drained is the one recoverable failure (EoS).
-static bool hex_chan_receive(hex_chan *channel, void *out) {
+bool hex_chan_receive(hex_chan *channel, void *out) {
     hex_task *self = hex_current_task;
     for (;;) {
         mtx_lock(&channel->mutex);
@@ -897,7 +936,7 @@ static bool hex_chan_receive(hex_chan *channel, void *out) {
 
 // close is idempotent: it wakes every blocked sender (with an Error) and
 // receiver (with EoS) and never discards queued values.
-static void hex_chan_close(hex_chan *channel) {
+void hex_chan_close(hex_chan *channel) {
     mtx_lock(&channel->mutex);
     channel->closed = true;
     hex_task *waiter = channel->wait_send;
@@ -920,18 +959,18 @@ static void hex_chan_close(hex_chan *channel) {
     mtx_unlock(&channel->mutex);
 }
 
-static size_t hex_chan_length(hex_chan *channel) {
+size_t hex_chan_length(hex_chan *channel) {
     mtx_lock(&channel->mutex);
     size_t length = channel->length;
     mtx_unlock(&channel->mutex);
     return length;
 }
 
-static size_t hex_chan_capacity(hex_chan *channel) {
+size_t hex_chan_capacity(hex_chan *channel) {
     return channel->capacity;
 }
 
-static bool hex_chan_is_closed(hex_chan *channel) {
+bool hex_chan_is_closed(hex_chan *channel) {
     mtx_lock(&channel->mutex);
     bool closed = channel->closed;
     mtx_unlock(&channel->mutex);
@@ -940,7 +979,7 @@ static bool hex_chan_is_closed(hex_chan *channel) {
 
 // free requires a closed, empty channel with no blocked tasks; any other
 // state is a cheaply detectable programmer error and traps.
-static void hex_chan_free(hex_chan *channel) {
+void hex_chan_free(hex_chan *channel) {
     if (channel->wait_send != NULL || channel->wait_recv != NULL) {
         fputs("[Runtime Error] channel free while tasks are blocked on it\n", stderr);
         abort();
@@ -955,6 +994,19 @@ static void hex_chan_free(hex_chan *channel) {
 }
 `)
 
+}
+
+// writeChannelInlineHelpers emits the per-element Channel operation family
+// into the module header. The helpers build the checked result unions
+// (Channel | Error, Nil | Error, and T | EoS) around the shared core and the
+// Error-construction helper.
+func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+	if len(state.channels) == 0 {
+		return
+	}
+	if state.channelNew || state.channelSend {
+		state.writeErrorHelper(result)
+	}
 	for _, channel := range state.channels {
 		suffix := channelSuffix(channel)
 		element := channel.Channel.Element
@@ -998,16 +1050,13 @@ static void hex_chan_free(hex_chan *channel) {
 	}
 }
 
-// writeMutexHelpers emits the scheduler-aware Mutex: a heap-backed control
-// block whose wait list parks tasks instead of blocking workers. Ownership
-// follows Task identity, so a Task that migrates between workers keeps every
-// Mutex it has not unlocked.
-func writeMutexHelpers(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+// writeMutexCore emits the scheduler-aware Mutex control block and core into
+// main.c: a heap-backed control block whose wait list parks tasks instead of
+// blocking workers. Ownership follows Task identity, so a Task that migrates
+// between workers keeps every Mutex it has not unlocked.
+func writeMutexCore(result *strings.Builder, state *generatedConcurrencyState) {
 	if !state.mutexNew && !state.mutexLock && !state.mutexUnlock && !state.mutexFree {
 		return
-	}
-	if state.mutexNew {
-		state.writeErrorHelper(result)
 	}
 	result.WriteString(`
 struct hex_mutex_control {
@@ -1016,7 +1065,7 @@ struct hex_mutex_control {
     hex_task *wait_list;
 };
 
-static hex_mutex *hex_mutex_new(void) {
+hex_mutex *hex_mutex_new(void) {
     hex_mutex *mutex = (hex_mutex *)calloc(1, sizeof(hex_mutex));
     if (mutex == NULL) {
         return NULL;
@@ -1028,7 +1077,7 @@ static hex_mutex *hex_mutex_new(void) {
     return mutex;
 }
 
-static void hex_mutex_lock(hex_mutex *mutex) {
+void hex_mutex_lock(hex_mutex *mutex) {
     hex_task *self = hex_current_task;
     for (;;) {
         mtx_lock(&mutex->mutex);
@@ -1050,7 +1099,7 @@ static void hex_mutex_lock(hex_mutex *mutex) {
     }
 }
 
-static void hex_mutex_unlock(hex_mutex *mutex) {
+void hex_mutex_unlock(hex_mutex *mutex) {
     mtx_lock(&mutex->mutex);
     if (mutex->owner != hex_current_task) {
         mtx_unlock(&mutex->mutex);
@@ -1069,7 +1118,7 @@ static void hex_mutex_unlock(hex_mutex *mutex) {
     mtx_unlock(&mutex->mutex);
 }
 
-static void hex_mutex_free(hex_mutex *mutex) {
+void hex_mutex_free(hex_mutex *mutex) {
     if (mutex->owner != NULL || mutex->wait_list != NULL) {
         fputs("[Runtime Error] mutex free while locked or awaited\n", stderr);
         abort();
@@ -1078,7 +1127,18 @@ static void hex_mutex_free(hex_mutex *mutex) {
     free(mutex);
 }
 `)
+
+}
+
+// writeMutexInlineHelpers emits the per-operation Mutex wrapper family into
+// the module header. The wrappers call the core and the Error-construction
+// helper; they hold no state of their own.
+func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+	if !state.mutexNew && !state.mutexLock && !state.mutexUnlock && !state.mutexFree {
+		return
+	}
 	if state.mutexNew {
+		state.writeErrorHelper(result)
 		union := state.mutexNewUnion
 		if union != (compilerTypes.Type{}) {
 			mutexIndex := unionMemberIndex(union, compilerTypes.MutexType)

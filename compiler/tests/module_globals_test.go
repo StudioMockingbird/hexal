@@ -17,11 +17,11 @@ func TestRootBindingsLowerAsLocals(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "int32_t hex_v_counter") {
-		t.Fatalf("root binding did not lower as a local:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "int32_t hex_v_counter") {
+		t.Fatalf("root binding did not lower as a local:\n%s", rootC(t, result))
 	}
-	if strings.Contains(result.MainH, "hex_v_counter") {
-		t.Fatalf("root binding leaked into the header (file scope):\n%s", result.MainH)
+	if strings.Contains(rootH(t, result), "hex_v_counter") {
+		t.Fatalf("root binding leaked into the header (file scope):\n%s", rootH(t, result))
 	}
 }
 
@@ -41,7 +41,7 @@ func TestNoNativeModuleConstantsOrStatics(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if strings.Contains(result.MainH, "hex_v_static") || strings.Contains(result.MainH, "hex_v_global") {
-		t.Fatalf("root bindings emitted file-scope storage:\n%s", result.MainH)
+	if strings.Contains(rootH(t, result), "hex_v_static") || strings.Contains(rootH(t, result), "hex_v_global") {
+		t.Fatalf("root bindings emitted file-scope storage:\n%s", rootH(t, result))
 	}
 }

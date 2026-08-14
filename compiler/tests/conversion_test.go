@@ -23,8 +23,8 @@ func TestConversionMethods(t *testing.T) {
 		"hex_v_letter = hex_convert_int64_t_rune(hex_v_wide);",
 		"hex_convert_rune_uint32_t(hex_v_letter)",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }

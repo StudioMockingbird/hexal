@@ -23,8 +23,8 @@ func TestPrivateValueNames(t *testing.T) {
 		"const int32_t hex_v_hex_v_score = 5;",
 		"const int32_t hex_v_" + longName + " = 6;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -40,8 +40,8 @@ func TestReferencesUsePrivateValueNames(t *testing.T) {
 		"const int32_t *const hex_v_pointer = &hex_v_int;",
 		"const int32_t hex_v_value = *hex_v_pointer;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

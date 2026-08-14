@@ -21,8 +21,8 @@ func TestForInSequenceLoops(t *testing.T) {
 		"const hex_view_Int32 hex_for_3 = hex_v_view;",
 		"const hex_list_Int32 *const hex_for_1 = hex_v_values;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -32,8 +32,8 @@ func TestForInTemporaryArraySource(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "const hex_array_Int32_2 hex_for_1 = hex_f_make_fixed();") {
-		t.Fatalf("main.c = %q, want materialized temporary Array source", result.MainC)
+	if !strings.Contains(rootC(t, result), "const hex_array_Int32_2 hex_for_1 = hex_f_make_fixed();") {
+		t.Fatalf("main.c = %q, want materialized temporary Array source", rootC(t, result))
 	}
 }
 
@@ -50,8 +50,8 @@ func TestForInTextRunes(t *testing.T) {
 		"const size_t hex_v_i = hex_for_2_ordinal;",
 		"const hex_strand hex_for_3 = hex_v_strand;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -69,8 +69,8 @@ func TestForInDictEntries(t *testing.T) {
 		"const int32_t hex_v_value = hex_for_1->buckets[hex_for_1_bucket].value;",
 		"const size_t hex_v_i = hex_for_2_ordinal;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -126,7 +126,7 @@ func TestForInSourceEvaluatedOnce(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if strings.Count(result.MainC, "hex_f_count_calls()") != 1 {
-		t.Fatalf("main.c = %q, want exactly one source evaluation", result.MainC)
+	if strings.Count(rootC(t, result), "hex_f_count_calls()") != 1 {
+		t.Fatalf("main.c = %q, want exactly one source evaluation", rootC(t, result))
 	}
 }

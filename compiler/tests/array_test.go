@@ -20,16 +20,16 @@ func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
 		"const hex_array_Int32_3 hex_v_fixed = (hex_array_Int32_3){{10, 20, 30}};",
 		"UINT64_C(3)",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 	for _, want := range []string{
 		"*hex_array_at_Int32_3(&hex_v_fixed, (size_t)(0))",
 		"*hex_array_at_Int32_3(&hex_v_fixed, (size_t)(2))",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -44,8 +44,8 @@ func TestArrayMutableElementWrite(t *testing.T) {
 		"if (index >= UINT64_C(2))",
 		"\"[Runtime Error] array index out of bounds\\n\"",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -120,8 +120,8 @@ func TestArrayMembersAndFunctions(t *testing.T) {
 		"*hex_array_at_Int32_3(&hex_v_values, (size_t)(0))",
 		"hex_v_head = hex_f_first((hex_array_Int32_3){{5, 6, 7}});",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -138,8 +138,8 @@ func TestNestedArrays(t *testing.T) {
 		"const hex_array_Array_Int32__2__2 hex_v_grid = (hex_array_Array_Int32__2__2){{(hex_array_Int32_2){{1, 2}}, (hex_array_Int32_2){{3, 4}}}};",
 		"*hex_array_at_Int32_2(&*hex_array_at_Array_Int32__2__2(&hex_v_grid, (size_t)(1)), (size_t)(0))",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -149,7 +149,7 @@ func TestArrayTrailingCommaLiteral(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainC, "(hex_array_Int32_3){{10, 20, 30}}") {
-		t.Fatalf("main.c = %q, want trailing-comma array literal", result.MainC)
+	if !strings.Contains(rootC(t, result), "(hex_array_Int32_3){{10, 20, 30}}") {
+		t.Fatalf("main.c = %q, want trailing-comma array literal", rootC(t, result))
 	}
 }

@@ -1,4 +1,4 @@
-// Package generator emits readable C23 from checked Hexal data.
+﻿// Package generator emits readable C23 from checked Hexal data.
 package generator
 
 import (
@@ -15,6 +15,11 @@ import (
 
 const mainHeaderPrefix = "#ifndef HEXAL_MAIN_H\n#define HEXAL_MAIN_H\n\n#include <stdint.h>\n#include <stdbool.h>\n#include <limits.h>\n#include <stdlib.h>\n"
 const sourceFilename = "main.hex"
+// RFC 0034: each module's generated C and header are modules/<canonical>.c and
+// modules/<canonical>.h; the entrypoint module's sources map key is the only
+// source file name the #line directives can know today (multi-module source
+// mapping arrives with Task 7 of RFC 0034).
+const moduleFilename = "app.hex"
 
 // NameKind identifies the Hexal-owned declaration namespace lowered by the
 // generator. The mapping is deliberately stateless and never consults a C
@@ -64,7 +69,7 @@ func isASCIILetter(character byte) bool {
 // compiler itself uses GenerateChecked so an internal generation failure stays
 // a structured diagnostic instead of being silently turned into source.
 func Generate(program checker.Program) (mainC string, mainH string) {
-	mainC, mainH, err := GenerateChecked(program)
+	_, _, mainC, mainH, err := GenerateChecked(program)
 	if err != nil {
 		return GenerateFailure()
 	}
@@ -73,23 +78,25 @@ func Generate(program checker.Program) (mainC string, mainH string) {
 
 // GenerateChecked emits direct C23 scalar and pointer operations. Checked
 // literal metadata, not raw source text, is the authority for every
-// initializer.
-func GenerateChecked(program checker.Program) (mainC string, mainH string, err error) {
+// initializer. RFC 0034: the entrypoint module's C and header are returned
+// first, then the generated main.c and main.h that host the one-per-process
+// runtime and the C entry point.
+func GenerateChecked(program checker.Program) (rootC string, rootH string, mainC string, mainH string, err error) {
 	functions, functionErr := declaredFunctions(program)
 	if functionErr != nil {
-		return "", "", functionErr
+		return "", "", "", "", functionErr
 	}
 	methods, methodErr := declaredMethods(program)
 	if methodErr != nil {
-		return "", "", methodErr
+		return "", "", "", "", methodErr
 	}
 	if validationErr := validateCheckedProgram(program, functions, methods); validationErr != nil {
-		return "", "", validationErr
+		return "", "", "", "", validationErr
 	}
 	float32Used, float64Used, nilUsed := usedFloatTypes(program)
 	objects, objectErr := objectDefinitions(program)
 	if objectErr != nil {
-		return "", "", objectErr
+		return "", "", "", "", objectErr
 	}
 	errorUsed := discoverErrorUsed(program)
 	declared := declaredObjects(program)
@@ -101,48 +108,48 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 	}
 	unionState, unionErr := discoverGeneratedUnions(program)
 	if unionErr != nil {
-		return "", "", unionErr
+		return "", "", "", "", unionErr
 	}
 	heapState, heapErr := discoverHeapHelpers(program)
 	if heapErr != nil {
-		return "", "", heapErr
+		return "", "", "", "", heapErr
 	}
 	adtState, adtErr := discoverGeneratedADTs(program)
 	if adtErr != nil {
-		return "", "", adtErr
+		return "", "", "", "", adtErr
 	}
 	arrayState, arrayErr := discoverGeneratedArrays(program)
 	if arrayErr != nil {
-		return "", "", arrayErr
+		return "", "", "", "", arrayErr
 	}
 	viewState, viewErr := discoverGeneratedViews(program)
 	if viewErr != nil {
-		return "", "", viewErr
+		return "", "", "", "", viewErr
 	}
 	stringState, stringErr := discoverGeneratedStrings(program)
 	if stringErr != nil {
-		return "", "", stringErr
+		return "", "", "", "", stringErr
 	}
 	listState, listErr := discoverGeneratedLists(program)
 	if listErr != nil {
-		return "", "", listErr
+		return "", "", "", "", listErr
 	}
 	dictState, dictErr := discoverGeneratedDicts(program)
 	if dictErr != nil {
-		return "", "", dictErr
+		return "", "", "", "", dictErr
 	}
 	equalityState, equalityErr := discoverEqualityTypes(program)
 	if equalityErr != nil {
-		return "", "", equalityErr
+		return "", "", "", "", equalityErr
 	}
 	conversionSpecs, sizeLiterals, conversionErr := discoverGeneratedConversions(program)
 	if conversionErr != nil {
-		return "", "", conversionErr
+		return "", "", "", "", conversionErr
 	}
 	divisionTypes := discoverGeneratedDivisions(program)
 	streamState, streamErr := discoverGeneratedStreams(program)
 	if streamErr != nil {
-		return "", "", streamErr
+		return "", "", "", "", streamErr
 	}
 	shiftSpecs := discoverGeneratedShifts(program)
 	bitCastSpecs := discoverGeneratedBitCasts(program)
@@ -151,7 +158,7 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 	ioState := discoverGeneratedIO(program, stringState)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, stringState)
 	if concurrencyErr != nil {
-		return "", "", concurrencyErr
+		return "", "", "", "", concurrencyErr
 	}
 	if concurrencyState.used {
 		// RFC 0037: the task runtime needs the String and Strand typedefs and
@@ -174,22 +181,36 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 		heapState.required = true
 	}
 	typeState := &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
-	var body strings.Builder
-	body.WriteString("#include \"main.h\"\n\n")
+
+	// RFC 0034: the module's own C file carries every user definition and the
+	// root run. The generated main.c owns the compiler machinery that must
+	// exist once per process: the concurrency runtime, the I/O gate, and the
+	// spawn adapters.
+	var moduleBody strings.Builder
+	moduleBody.WriteString("#include \"main.h\"\n#include \"modules/app.h\"\n\n")
 
 	// Function definitions sit at file scope in source order, after the object
-	// definitions the header already carries and before main. Only self-
-	// recursion and calls to earlier definitions are legal, so no prototype
-	// region is needed.
+	// definitions the header already carries and before the root run. Only
+	// self-recursion and calls to earlier definitions are legal, so no
+	// prototype region is needed.
+	// RFC 0034: functions the spawn adapters call keep external linkage (they
+	// are required by compiler-owned machinery); everything else stays static
+	// inside the module C file.
+	spawned := make(map[string]bool)
+	if concurrencyState != nil {
+		for _, site := range concurrencyState.spawns {
+			spawned[site.function] = true
+		}
+	}
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
-			if definitionErr := writeFunctionDefinition(&body, declared, functions, methods, typeState, stringState); definitionErr != nil {
-				return "", "", definitionErr
+			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, spawned[PrivateCName(FunctionName, declared.Name)]); definitionErr != nil {
+				return "", "", "", "", definitionErr
 			}
 		case checker.MethodDeclaration:
-			if definitionErr := writeMethodDefinition(&body, declared, functions, methods, typeState, stringState); definitionErr != nil {
-				return "", "", definitionErr
+			if definitionErr := writeMethodDefinition(&moduleBody, declared, functions, methods, typeState, stringState); definitionErr != nil {
+				return "", "", "", "", definitionErr
 			}
 		}
 	}
@@ -198,26 +219,13 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 	// Their bodies can call functions declared before their generic template
 	// (already emitted) or other specializations (any order), so each gets a
 	// prototype first and the definitions follow in cache order.
-	if err := writeSpecializedPrototypes(&body, program.SpecializedFunctions, program.SpecializedMethods, typeState); err != nil {
-		return "", "", err
+	if err := writeSpecializedPrototypes(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, typeState); err != nil {
+		return "", "", "", "", err
 	}
-	if err := writeSpecializedDefinitions(&body, program.SpecializedFunctions, program.SpecializedMethods, functions, methods, typeState, stringState); err != nil {
-		return "", "", err
-	}
-
-	// RFC 0037: the spawn entry adapters follow every function definition
-	// because they call the spawned functions directly.
-	if err := writeSpawnAdaptersChecked(&body, concurrencyState); err != nil {
-		return "", "", err
+	if err := writeSpecializedDefinitions(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, functions, methods, typeState, stringState); err != nil {
+		return "", "", "", "", err
 	}
 
-	body.WriteString("int main(void) {\n")
-	if concurrencyState.used {
-		// RFC 0037: the scheduler initializes before any Hexal source
-		// runs; the module statements execute as the root Task on worker
-		// zero, and hex_task_complete below hands the process back to main.
-		body.WriteString("    hex_scheduler_init();\n")
-	}
 	renderState := &expressionValidation{
 		variables:      make(map[string]generatedBinding),
 		bindings:       make(map[checker.BindingID]generatedBinding),
@@ -229,21 +237,52 @@ func GenerateChecked(program checker.Program) (mainC string, mainH string, err e
 		strings:        stringState,
 	}
 	renderState.pushScope()
-	// Module-level storage stays inside main; a function body cannot reach it,
-	// so nothing is promoted to static storage duration.
-	if statementErr := writeStatements(&body, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
-		return "", "", statementErr
+	// RFC 0034: the module statements execute as hex_module_root_run, called
+	// by the generated main after scheduler initialization. Module-level
+	// storage stays inside the run; a function body cannot reach it, so
+	// nothing is promoted to static storage duration.
+	moduleBody.WriteString("int hex_module_root_run(void) {\n")
+	if statementErr := writeStatements(&moduleBody, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
+		return "", "", "", "", statementErr
 	}
+	moduleBody.WriteString("    return EXIT_SUCCESS;\n}\n")
+
+	var mainBody strings.Builder
+	mainBody.WriteString("#include \"main.h\"\n#include \"modules/app.h\"\n\n")
+	writeConcurrencyRuntime(&mainBody, concurrencyState, stringState)
+	writeIOGate(&mainBody, ioState, concurrencyState != nil && concurrencyState.used)
+	// RFC 0037: the spawn entry adapters follow every function definition
+	// because they call the spawned functions directly.
+	if err := writeSpawnAdaptersChecked(&mainBody, concurrencyState); err != nil {
+		return "", "", "", "", err
+	}
+
+	mainBody.WriteString("int main(void) {\n")
 	if concurrencyState.used {
+		// RFC 0037: the scheduler initializes before any Hexal source
+		// runs; the module statements execute as the root Task on worker
+		// zero, and hex_task_complete below hands the process back to main.
+		mainBody.WriteString("    hex_scheduler_init();\n")
+		mainBody.WriteString("    hex_module_root_run();\n")
 		// RFC 0037: completing the root Task wakes the scheduler, stops the
 		// workers, and switches back to main so it returns normally. Tasks
 		// still active are abandoned to process termination, as the spec
 		// requires.
-		body.WriteString("    hex_task_complete(hex_root_task);\n")
+		mainBody.WriteString("    hex_task_complete(hex_root_task);\n")
+	} else {
+		mainBody.WriteString("    return hex_module_root_run();\n")
 	}
+	mainBody.WriteString("}\n")
 
-	body.WriteString("    return EXIT_SUCCESS;\n}\n")
-	return body.String(), headerWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals), nil
+	mainHeader := mainHeaderWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals)
+	// RFC 0034: the spawned functions the generated main.c adapters call are
+	// declared in the module header so both translation units agree on their
+	// linkage. Their signatures were already validated when the spawn sites
+	// were discovered, so this emission has no failure mode.
+	var spawnedPrototypes strings.Builder
+	writeSpawnedFunctionPrototypes(&spawnedPrototypes, program, concurrencyState)
+	moduleHeader := moduleHeaderWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals, spawnedPrototypes.String())
+	return moduleBody.String(), moduleHeader, mainBody.String(), mainHeader, nil
 }
 
 // writeStatements renders one statement list at a single indentation level.
@@ -640,9 +679,12 @@ func methodCName(object *compilerTypes.ObjectType, name string) string {
 	return PrivateCName(FunctionName, methodKey(object, name))
 }
 
-// writeFunctionDefinition emits one static C function. Parameters are fixed
-// bindings, so their declarators carry top-level const.
-func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState) error {
+// writeFunctionDefinition emits one C function. Parameters are fixed
+// bindings, so their declarators carry top-level const. RFC 0034: external is
+// true for functions the generated main.c machinery must call (spawn
+// adapters); those keep external linkage, everything else is static to its
+// module C file.
+func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState, external bool) error {
 	signature := declared.Type.Signature
 	if signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
 		return unknownExpressionDiagnostic("function declaration without a checked Fun type")
@@ -699,7 +741,11 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 	}
 
 	writeLineDirective(body, declared.SourceLine)
-	fmt.Fprintf(body, "static %s %s(%s) {\n", resultSpelling, PrivateCName(FunctionName, declared.Name), parameterList(parameters))
+	linkage := ""
+	if !external {
+		linkage = "static "
+	}
+	fmt.Fprintf(body, "%s%s %s(%s) {\n", linkage, resultSpelling, PrivateCName(FunctionName, declared.Name), parameterList(parameters))
 	if err := writeStatements(body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
@@ -2578,7 +2624,7 @@ func validateExpressionMetadata(node checker.Expression, expected compilerTypes.
 	return nil
 }
 
-// validateFunctionReference accepts a declared function used as a Fun<â€¦> value.
+// validateFunctionReference accepts a declared function used as a Fun<Ã¢â‚¬Â¦> value.
 // A function is not a place, so no addressability metadata is consulted.
 func validateFunctionReference(node checker.Expression, expected compilerTypes.Type, hasExpected bool, state *expressionValidation) error {
 	if !validSourceName(node.Name) {
@@ -3061,7 +3107,7 @@ func pointerSpelling(typ compilerTypes.Type) string {
 }
 
 // declaration builds the complete C declarator for typ bound to name. Every
-// type but Fun<â€¦> is a prefix plus the name; a function pointer wraps the name
+// type but Fun<Ã¢â‚¬Â¦> is a prefix plus the name; a function pointer wraps the name
 // inside the declarator, which is why a CName prefix cannot express it.
 func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 	if typ.Signature != nil {
@@ -4468,15 +4514,20 @@ func volatileEligibleGenerated(typ compilerTypes.Type) bool {
 
 func writeLineDirective(body *strings.Builder, line int) {
 	if line > 0 {
-		fmt.Fprintf(body, "#line %d \"%s\"\n", line, sourceFilename)
+		fmt.Fprintf(body, "#line %d \"%s\"\n", line, moduleFilename)
 	}
 }
 
 func header(float32Used, float64Used, nilUsed bool, objects []*compilerTypes.ObjectType) string {
-	return headerWithUnions(float32Used, float64Used, nilUsed, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, objects, false, nil, nil, nil, nil)
+	return mainHeaderWithUnions(float32Used, float64Used, nilUsed, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, objects, false, nil, nil, nil, nil)
 }
 
-func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string) string {
+// mainHeaderWithUnions emits main.h: the fixed C23 target-profile preamble,
+// the shared value machinery that carries no process-wide state, and the
+// extern declarations for the runtime functions the module header's inline
+// helpers call. Everything here is included by both translation units, so no
+// definition in main.h may hold static storage.
+func mainHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string) string {
 	var result strings.Builder
 	result.WriteString(mainHeaderPrefix)
 	result.WriteString("\nstatic_assert(CHAR_BIT == 8, \"Hexal requires 8-bit bytes\");\n")
@@ -4521,7 +4572,11 @@ func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedU
 	result.WriteString("typedef uint8_t hex_eos;\n\n")
 	writeConcurrencyTypePrelude(&result, concurrency)
 	writeIOPrelude(&result, io)
-	writeAdtDefinitions(&result, adts)
+	// RFC 0034: the module header's inline helpers call the runtime core,
+	// which lives in main.c with external linkage. main.h declares those
+	// entry points before any module content.
+	writeConcurrencyExterns(&result, concurrency)
+	writeIOExterns(&result, io)
 	writeHeapDefinitions(&result, heaps)
 	writeViewDefinitions(&result, views)
 	writeStringDefinitions(&result, stringState)
@@ -4531,10 +4586,23 @@ func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedU
 		// payload member.
 		writeErrorDefinition(&result)
 	}
-	writeUnionDefinitions(&result, unions)
 	writeListDefinitions(&result, lists, views)
 	writeDictDefinitions(&result, dicts)
 	writeArrayDefinitions(&result, arrays, views)
+	result.WriteString("\n#endif\n")
+	return result.String()
+}
+
+// moduleHeaderWithUnions emits modules/app.h: everything that references the
+// module's own types, plus the state-free inline helper families whose
+// non-inline cores live in main.c. The guard is the RFC 0034 module header
+// guard shape; the entrypoint module's owner is "app" until per-module
+// naming lands.
+func moduleHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string, spawnedPrototypes string) string {
+	var result strings.Builder
+	result.WriteString("#ifndef HEX_MODULE_app_H\n#define HEX_MODULE_app_H\n\n#include \"main.h\"\n")
+	writeAdtDefinitions(&result, adts)
+	writeUnionDefinitions(&result, unions)
 	writeObjectDefinitions(&result, objects)
 	// The Stream families embed user object State types by value, so they
 	// are emitted after every object definition (RFC 0031).
@@ -4546,10 +4614,44 @@ func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedU
 	writeEqualityDefinitions(&result, equality)
 	writeDivisionDefinitions(&result, divisionTypes)
 	writeConversionDefinitions(&result, conversions)
-	writeConcurrencyDefinitions(&result, concurrency, stringState)
-	writeIODefinitions(&result, io, stringState, concurrency != nil && concurrency.used)
+	writeConcurrencyInlineHelpers(&result, concurrency, stringState)
+	writeIOInlineHelpers(&result, io, stringState)
+	if spawnedPrototypes != "" {
+		result.WriteString("\n/* RFC 0034: spawned function prototypes for the main.c adapters */\n")
+		result.WriteString(spawnedPrototypes)
+	}
+	result.WriteString("\nint hex_module_root_run(void);\n")
 	result.WriteString("\n#endif\n")
 	return result.String()
+}
+
+// writeSpawnedFunctionPrototypes emits one external prototype per spawned
+// function. The adapters in main.c call these functions, so both translation
+// units must agree on their linkage; the definitions keep external linkage
+// through the same decision in GenerateChecked.
+func writeSpawnedFunctionPrototypes(result *strings.Builder, program checker.Program, concurrency *generatedConcurrencyState) {
+	if concurrency == nil || len(concurrency.spawns) == 0 {
+		return
+	}
+	spawned := make(map[string]bool)
+	for _, site := range concurrency.spawns {
+		spawned[site.function] = true
+	}
+	for _, statement := range program.Statements {
+		declared, ok := statement.(checker.FunctionDeclaration)
+		if !ok || !spawned[PrivateCName(FunctionName, declared.Name)] {
+			continue
+		}
+		resultSpelling := "void"
+		if declared.Result != nil {
+			resultSpelling = typeSpelling(*declared.Result)
+		}
+		parameters := make([]string, len(declared.Parameters))
+		for index, parameter := range declared.Parameters {
+			parameters[index] = typeSpelling(parameter.Type)
+		}
+		fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name), parameterList(parameters))
+	}
 }
 
 func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, error) {
@@ -4581,19 +4683,19 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 	for _, object := range objects {
 		result.WriteString("\n")
 		if object.SourceLine > 0 {
-			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, sourceFilename)
+			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, moduleFilename)
 		}
 		fmt.Fprintf(result, "typedef struct %s %s;\n", object.CName, object.CName)
 	}
 	for _, object := range objects {
 		result.WriteString("\n")
 		if object.SourceLine > 0 {
-			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, sourceFilename)
+			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, moduleFilename)
 		}
 		fmt.Fprintf(result, "struct %s {\n", object.CName)
 		for _, member := range object.Members {
 			if member.SourceLine > 0 {
-				fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, sourceFilename)
+				fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, moduleFilename)
 			}
 			// RFC 0035: reference-like members (String, List, Dict, Stream)
 			// are pointer-sized handles, spelled like their declarations.
@@ -5058,7 +5160,7 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 // specialization in cache order.
 func writeSpecializedDefinitions(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, functionsTable map[string]compilerTypes.Type, methodsTable map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState) error {
 	for _, declared := range functions {
-		if definitionErr := writeFunctionDefinition(body, declared, functionsTable, methodsTable, typeState, stringState); definitionErr != nil {
+		if definitionErr := writeFunctionDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, false); definitionErr != nil {
 			return definitionErr
 		}
 	}

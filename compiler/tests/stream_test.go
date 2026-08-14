@@ -21,8 +21,8 @@ func TestStreamEmptyNew(t *testing.T) {
 		"static inline hex_internal_union_1 hex_stream_next_Int32(hex_stream_Int32 *stream) {",
 		"step = (hex_internal_union_1){ .tag = hex_internal_union_1_tag_member_1 }",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -32,8 +32,8 @@ func TestStreamEmptyFreeIsNoOp(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "if (stream == NULL || stream == &hex_stream_empty_Int32) {") {
-		t.Fatalf("main.h = %q, want empty-free no-op guard", result.MainH)
+	if !strings.Contains(rootH(t, result), "if (stream == NULL || stream == &hex_stream_empty_Int32) {") {
+		t.Fatalf("main.h = %q, want empty-free no-op guard", rootH(t, result))
 	}
 }
 
@@ -50,8 +50,8 @@ func TestStreamProduce(t *testing.T) {
 		"hex_stream_next_Int32(hex_v_numbers)",
 		"hex_v_total = ((uint64_t)(uint32_t)((uint64_t)hex_v_total + (uint64_t)hex_v_step.payload.member_0)",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -66,8 +66,8 @@ func TestStreamListSource(t *testing.T) {
 		"node->length = list->length;",
 		"hex_v_source = hex_stream_list_Int32_new(hex_v_h, hex_v_values);",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -87,8 +87,8 @@ func TestStreamAdapters(t *testing.T) {
 		"hex_stream_free_Int32((hex_heap){ node->allocator }, node->upstream)",
 		"hex_v_limited = hex_stream_take_Int32_new(hex_v_h, hex_v_doubled, 1);",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }
@@ -104,8 +104,8 @@ func TestStreamForIteration(t *testing.T) {
 		"hex_for_2_ordinal++",
 		"const size_t hex_v_i = hex_for_2_ordinal;",
 	} {
-		if !strings.Contains(result.MainC, want) {
-			t.Fatalf("main.c = %q, want %q", result.MainC, want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -141,8 +141,8 @@ func TestEosSingletonSemantics(t *testing.T) {
 		"const bool hex_v_same = true;",
 		"const bool hex_v_different = false;",
 	} {
-		if !strings.Contains(result.MainC, want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("generated output = %q %q, want %q", result.MainC, result.MainH, want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
 }

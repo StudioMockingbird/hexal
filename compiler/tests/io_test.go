@@ -22,7 +22,7 @@ func TestFileOpenAndWriteCompile(t *testing.T) {
 		"hex_file_flush(",
 		"hex_file_close(",
 	} {
-		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
+		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
 	}
@@ -35,7 +35,7 @@ func TestFileReadTextAndBytesCompile(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, fragment := range []string{"hex_file_read_text(", "hex_file_read_bytes_UInt8(", "hex_list_push_UInt8("} {
-		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
+		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
 	}
@@ -47,8 +47,8 @@ func TestFileAppendAndWriteViewCompile(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "HEX_FILE_APPEND") || !strings.Contains(result.MainC, "hex_file_write_bytes(") {
-		t.Fatalf("generated C lacks the append surface:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "HEX_FILE_APPEND") || !strings.Contains(rootC(t, result), "hex_file_write_bytes(") {
+		t.Fatalf("generated C lacks the append surface:\n%s", rootC(t, result))
 	}
 }
 
@@ -59,7 +59,7 @@ func TestFileModeValuesCompileAndCompare(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, fragment := range []string{"HEX_FILE_READ", "HEX_FILE_WRITE", "HEX_FILE_APPEND", "hex_equal_hex_file_mode"} {
-		if !strings.Contains(result.MainC, fragment) && !strings.Contains(result.MainH, fragment) {
+		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
 	}
@@ -72,8 +72,8 @@ func TestStdioCompiles(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	for _, fragment := range []string{"(hex_file){ stdout, HEX_FILE_WRITE, false }", "(hex_file){ stderr, HEX_FILE_WRITE, false }"} {
-		if !strings.Contains(result.MainC, fragment) {
-			t.Fatalf("generated C lacks %s:\n%s", fragment, result.MainC)
+		if !strings.Contains(rootC(t, result), fragment) {
+			t.Fatalf("generated C lacks %s:\n%s", fragment, rootC(t, result))
 		}
 	}
 }

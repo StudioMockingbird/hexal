@@ -28,8 +28,8 @@ func TestArgumentsEvaluatedOnceInSourceOrder(t *testing.T) {
 			if result.ExitCode != compiler.ExitSuccess {
 				t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 			}
-			if got := strings.Count(result.MainC, "hex_f_bump()"); got != testCase.count {
-				t.Fatalf("main.c = %q, want exactly %d evaluations, got %d", result.MainC, testCase.count, got)
+			if got := strings.Count(rootC(t, result), "hex_f_bump()"); got != testCase.count {
+				t.Fatalf("main.c = %q, want exactly %d evaluations, got %d", rootC(t, result), testCase.count, got)
 			}
 		})
 	}

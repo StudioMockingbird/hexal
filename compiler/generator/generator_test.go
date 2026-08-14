@@ -1,4 +1,4 @@
-package generator
+﻿package generator
 
 import (
 	"fmt"
@@ -23,10 +23,16 @@ func TestGenerateInt32Declaration(t *testing.T) {
 		}},
 	}
 
-	wantC := "#include \"main.h\"\n\nint main(void) {\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
-	gotC, _ := Generate(program)
-	if gotC != wantC {
-		t.Fatalf("main.c = %q, want %q", gotC, wantC)
+	wantRoot := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
+	rootC, _, mainC, _, err := GenerateChecked(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootC != wantRoot {
+		t.Fatalf("modules/app.c = %q, want %q", rootC, wantRoot)
+	}
+	if mainC != "#include \"main.h\"\n#include \"modules/app.h\"\n\nint main(void) {\n    return hex_module_root_run();\n}\n" {
+		t.Fatalf("main.c = %q, want thin entry wrapper", mainC)
 	}
 }
 
@@ -51,12 +57,12 @@ func TestGenerateTaggedUnionDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mainC, mainH, err := GenerateChecked(program)
+	rootC, rootH, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainH, "hex_internal_union_1") || !strings.Contains(mainC, ".tag") {
-		t.Fatalf("generated union output = C:%q H:%q, want tagged representation", mainC, mainH)
+	if !strings.Contains(rootH, "hex_internal_union_1") || !strings.Contains(rootC, ".tag") {
+		t.Fatalf("generated union output = C:%q H:%q, want tagged representation", rootC, rootH)
 	}
 }
 
@@ -97,7 +103,7 @@ func TestSupportedGeneratedUnionTypeRejectsForgedMetadata(t *testing.T) {
 
 func TestGenerateUnionOperations(t *testing.T) {
 	program := checkedGeneratorSource(t, "value: Int32 | Float64 = 1 active: Bool = value is Int32 maybe: Int32 | Float64 | Nil = nil present: Bool = maybe != nil left: Int32 | Bool = true right: Bool | Int32 = false same: Bool = left == right small: Int32 | Bool = true wide: Int32 | Bool | Nil = small")
-	mainC, mainH, err := GenerateChecked(program)
+	rootC, rootH, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,31 +114,31 @@ func TestGenerateUnionOperations(t *testing.T) {
 		"hex_internal_union_3_equal",
 		"hex_internal_widen_hex_internal_union_3_to_hex_internal_union_4",
 	} {
-		if !strings.Contains(mainC, want) && !strings.Contains(mainH, want) {
-			t.Fatalf("generated output does not contain %q: C=%q H=%q", want, mainC, mainH)
+		if !strings.Contains(rootC, want) && !strings.Contains(rootH, want) {
+			t.Fatalf("generated output does not contain %q: C=%q H=%q", want, rootC, rootH)
 		}
 	}
 }
 
 func TestGenerateUnionTruthiness(t *testing.T) {
 	program := checkedGeneratorSource(t, "value: Int32 | Bool | Nil = true if value noop: Int32 = 0 end")
-	mainC, mainH, err := GenerateChecked(program)
+	rootC, rootH, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainC, "hex_internal_union_1_truthy") || !strings.Contains(mainH, "static bool hex_internal_union_1_truthy") {
-		t.Fatalf("truthiness output = C:%q H:%q, want tagged truthiness helper", mainC, mainH)
+	if !strings.Contains(rootC, "hex_internal_union_1_truthy") || !strings.Contains(rootH, "static bool hex_internal_union_1_truthy") {
+		t.Fatalf("truthiness output = C:%q H:%q, want tagged truthiness helper", rootC, rootH)
 	}
 }
 
 func TestGenerateNarrowedUnionPayloadRead(t *testing.T) {
 	program := checkedGeneratorSource(t, "value: Int32 | Float64 = 1 if value is Int32 result: Int32 = value end")
-	mainC, _, err := GenerateChecked(program)
+	rootC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(mainC, "hex_v_value.payload.member_0") {
-		t.Fatalf("generated C = %q, want narrowed payload read", mainC)
+	if !strings.Contains(rootC, "hex_v_value.payload.member_0") {
+		t.Fatalf("generated C = %q, want narrowed payload read", rootC)
 	}
 }
 
@@ -176,10 +182,13 @@ func TestGenerateBoolDeclaration(t *testing.T) {
 		}},
 	}
 
-	want := "#include \"main.h\"\n\nint main(void) {\n    const bool hex_v_enabled = true;\n    return EXIT_SUCCESS;\n}\n"
-	gotC, _ := Generate(program)
-	if gotC != want {
-		t.Fatalf("main.c = %q, want %q", gotC, want)
+	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    const bool hex_v_enabled = true;\n    return EXIT_SUCCESS;\n}\n"
+	rootC, _, _, _, err := GenerateChecked(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootC != want {
+		t.Fatalf("modules/app.c = %q, want %q", rootC, want)
 	}
 }
 
@@ -192,10 +201,13 @@ func TestGenerateHexadecimalInt32Declaration(t *testing.T) {
 		}},
 	}
 
-	want := "#include \"main.h\"\n\nint main(void) {\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
-	gotC, _ := Generate(program)
-	if gotC != want {
-		t.Fatalf("main.c = %q, want %q", gotC, want)
+	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
+	rootC, _, _, _, err := GenerateChecked(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootC != want {
+		t.Fatalf("modules/app.c = %q, want %q", rootC, want)
 	}
 }
 
@@ -207,10 +219,13 @@ func TestGenerateStatementsInOrder(t *testing.T) {
 		},
 	}
 
-	want := "#include \"main.h\"\n\nint main(void) {\n    int32_t hex_v_x = 13;\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
-	gotC, _ := Generate(program)
-	if gotC != want {
-		t.Fatalf("main.c = %q, want %q", gotC, want)
+	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    int32_t hex_v_x = 13;\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
+	rootC, _, _, _, err := GenerateChecked(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootC != want {
+		t.Fatalf("modules/app.c = %q, want %q", rootC, want)
 	}
 }
 
@@ -235,17 +250,20 @@ func TestGeneratePointerDeclarationAndAssignments(t *testing.T) {
 		},
 	}
 
-	wantC := "#include \"main.h\"\n\n" +
-		"int main(void) {\n" +
+	wantC := "#include \"main.h\"\n#include \"modules/app.h\"\n\n" +
+		"int hex_module_root_run(void) {\n" +
 		"    int32_t hex_v_x = 13;\n" +
 		"    int32_t *hex_v_p = &hex_v_x;\n" +
 		"    *hex_v_p = 14;\n" +
 		"    hex_v_p = &hex_v_x;\n" +
 		"    return EXIT_SUCCESS;\n" +
 		"}\n"
-	gotC, _ := Generate(program)
-	if gotC != wantC {
-		t.Fatalf("main.c = %q, want %q", gotC, wantC)
+	rootC, _, _, _, err := GenerateChecked(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rootC != wantC {
+		t.Fatalf("modules/app.c = %q, want %q", rootC, wantC)
 	}
 }
 
@@ -258,14 +276,17 @@ func TestGenerateNestedPointerExpressions(t *testing.T) {
 		checker.Declaration{Name: "pp", Type: ptrMutPtrInt32, Source: checker.Operand{Kind: checker.VariableOperand, Type: ptrMutPtrInt32, Node: addressNode("p")}},
 		checker.Declaration{Name: "y", Type: compilerTypes.Int32, Source: checker.Operand{Kind: checker.VariableOperand, Type: compilerTypes.Int32, Node: nestedDereferenceNode("pp")}},
 	}}
-	gotC, _ := Generate(program)
+	rootC, _, _, _, err := GenerateChecked(program)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{"int32_t hex_v_x = 1;", "int32_t *const hex_v_p = &hex_v_x;", "int32_t *const *const hex_v_pp = &hex_v_p;", "const int32_t hex_v_y = *(*hex_v_pp);"} {
-		if !strings.Contains(gotC, want) {
-			t.Fatalf("main.c = %q, want %q", gotC, want)
+		if !strings.Contains(rootC, want) {
+			t.Fatalf("modules/app.c = %q, want %q", rootC, want)
 		}
 	}
-	if strings.Contains(gotC, "hexal_alloc") || strings.Contains(gotC, "free(") || strings.Contains(gotC, "Hexal_Ref") {
-		t.Fatalf("main.c contains removed ownership machinery: %q", gotC)
+	if strings.Contains(rootC, "hexal_alloc") || strings.Contains(rootC, "free(") || strings.Contains(rootC, "Hexal_Ref") {
+		t.Fatalf("modules/app.c contains removed ownership machinery: %q", rootC)
 	}
 }
 
@@ -291,10 +312,10 @@ func TestGenerateCheckedRejectsForgedAssignmentTargetType(t *testing.T) {
 		},
 	}}
 
-	mainC, mainH, err := GenerateChecked(program)
+	rootC, rootH, _, _, err := GenerateChecked(program)
 	assertGeneratorUnknownError(t, err)
-	if mainC != "" || mainH != "" {
-		t.Fatalf("generated output for forged assignment target: mainC=%q mainH=%q", mainC, mainH)
+	if rootC != "" || rootH != "" {
+		t.Fatalf("generated output for forged assignment target: rootC=%q rootH=%q", rootC, rootH)
 	}
 }
 
@@ -304,10 +325,10 @@ func TestGenerateCheckedRejectsDuplicateDeclarationNames(t *testing.T) {
 		checker.Declaration{Name: "value", Type: compilerTypes.Int32, Source: intSource(compilerTypes.Int32, 2, "2")},
 	}}
 
-	mainC, mainH, err := GenerateChecked(program)
+	rootC, rootH, _, _, err := GenerateChecked(program)
 	assertGeneratorUnknownError(t, err)
-	if mainC != "" || mainH != "" {
-		t.Fatalf("generated output for duplicate declaration: mainC=%q mainH=%q", mainC, mainH)
+	if rootC != "" || rootH != "" {
+		t.Fatalf("generated output for duplicate declaration: rootC=%q rootH=%q", rootC, rootH)
 	}
 }
 
@@ -323,31 +344,31 @@ func TestGenerateCheckedRejectsDuplicateGeneratedObjectCNames(t *testing.T) {
 		{Name: "Point", Type: second},
 	}}
 
-	mainC, mainH, err := GenerateChecked(program)
+	rootC, rootH, _, _, err := GenerateChecked(program)
 	assertGeneratorUnknownError(t, err)
-	if mainC != "" || mainH != "" {
-		t.Fatalf("generated output for duplicate object C name: mainC=%q mainH=%q", mainC, mainH)
+	if rootC != "" || rootH != "" {
+		t.Fatalf("generated output for duplicate object C name: rootC=%q rootH=%q", rootC, rootH)
 	}
 }
 
 func TestGenerateCheckedRejectsForgedDeclarationNames(t *testing.T) {
-	for _, name := range []string{"value-name", "1value", "café"} {
+	for _, name := range []string{"value-name", "1value", "cafÃ©"} {
 		t.Run(name, func(t *testing.T) {
 			program := checker.Program{Statements: []checker.Statement{checker.Declaration{
 				Name:   name,
 				Type:   compilerTypes.Int32,
 				Source: intSource(compilerTypes.Int32, 1, "1"),
 			}}}
-			_, _, err := GenerateChecked(program)
+			_, _, _, _, err := GenerateChecked(program)
 			assertGeneratorUnknownError(t, err)
 		})
 	}
 }
 
 func TestGenerateCheckedRejectsForgedTypeAndMemberNames(t *testing.T) {
-	for _, name := range []string{"Type-name", "1Type", "café"} {
+	for _, name := range []string{"Type-name", "1Type", "cafÃ©"} {
 		t.Run("type "+name, func(t *testing.T) {
-			_, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: name, Type: compilerTypes.Int32}}})
+			_, _, _, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: name, Type: compilerTypes.Int32}}})
 			assertGeneratorUnknownError(t, err)
 		})
 
@@ -355,14 +376,14 @@ func TestGenerateCheckedRejectsForgedTypeAndMemberNames(t *testing.T) {
 			environment := compilerTypes.NewEnvironment()
 			point := environment.BeginObject("Point", 1, 1)
 			point = environment.CompleteObject("Point", []compilerTypes.ObjectMember{{Name: name, Type: compilerTypes.Int32}})
-			_, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: point}}})
+			_, _, _, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: point}}})
 			assertGeneratorUnknownError(t, err)
 		})
 	}
 }
 
 func TestRenderRejectsForgedValueNames(t *testing.T) {
-	for _, name := range []string{"value-name", "1value", "café"} {
+	for _, name := range []string{"value-name", "1value", "cafÃ©"} {
 		t.Run(name, func(t *testing.T) {
 			_, err := renderExpression(variableNode(name))
 			assertGeneratorUnknownError(t, err)
@@ -397,9 +418,12 @@ func TestGenerateLineDirectives(t *testing.T) {
 	program := checker.Program{Statements: []checker.Statement{
 		checker.Declaration{Name: "x", Type: compilerTypes.Int32, Source: intSource(compilerTypes.Int32, 13, "13"), SourceLine: 4, SourceColumn: 1},
 	}}
-	gotC, _ := Generate(program)
-	if !strings.Contains(gotC, "#line 4 \"main.hex\"\n    const int32_t hex_v_x = 13;") {
-		t.Fatalf("main.c = %q, want a line directive before the declaration", gotC)
+	rootC, _, _, _, err := GenerateChecked(program)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rootC, "#line 4 \"app.hex\"\n    const int32_t hex_v_x = 13;") {
+		t.Fatalf("modules/app.c = %q, want a line directive before the declaration", rootC)
 	}
 }
 
@@ -435,7 +459,7 @@ func TestGenerateCheckedFailsClosedForUnknownExpression(t *testing.T) {
 			},
 		},
 	}}
-	_, _, err := GenerateChecked(program)
+	_, _, _, _, err := GenerateChecked(program)
 	if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
 		t.Fatalf("GenerateChecked error = %v, want structured Unknown Error", err)
 	}
@@ -458,10 +482,10 @@ func TestGenerateCheckedRejectsLoopControlOutsideGeneratedLoop(t *testing.T) {
 		{name: "continue under if", statement: checker.IfStatement{Condition: condition, Then: []checker.Statement{checker.ContinueStatement{}}}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			mainC, mainH, err := GenerateChecked(checker.Program{Statements: []checker.Statement{testCase.statement}})
+			rootC, rootH, _, _, err := GenerateChecked(checker.Program{Statements: []checker.Statement{testCase.statement}})
 			assertGeneratorUnknownError(t, err)
-			if mainC != "" || mainH != "" {
-				t.Fatalf("generated output for loop control outside a loop: mainC=%q mainH=%q", mainC, mainH)
+			if rootC != "" || rootH != "" {
+				t.Fatalf("generated output for loop control outside a loop: rootC=%q rootH=%q", rootC, rootH)
 			}
 		})
 	}
@@ -507,12 +531,12 @@ func TestGenerateCheckedPreservesNestedLoopContext(t *testing.T) {
 		},
 	}}
 
-	mainC, mainH, err := GenerateChecked(program)
+	rootC, rootH, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	if mainH == "" || strings.Count(mainC, "while (true) {") != 2 || strings.Count(mainC, "break;") != 2 || strings.Count(mainC, "continue;") != 1 {
-		t.Fatalf("nested loop output = %q, want two loops, two breaks, and one continue", mainC)
+	if rootH == "" || strings.Count(rootC, "while (true) {") != 2 || strings.Count(rootC, "break;") != 2 || strings.Count(rootC, "continue;") != 1 {
+		t.Fatalf("nested loop output = %q, want two loops, two breaks, and one continue", rootC)
 	}
 }
 
@@ -523,13 +547,13 @@ func TestGenerateCheckedRestoresLoopContextAfterLoop(t *testing.T) {
 		Constant: constant.MakeBool(true),
 		Literal:  "true",
 	}
-	mainC, mainH, err := GenerateChecked(checker.Program{Statements: []checker.Statement{
+	rootC, rootH, _, _, err := GenerateChecked(checker.Program{Statements: []checker.Statement{
 		checker.WhileStatement{Condition: condition, Body: []checker.Statement{checker.ContinueStatement{}}},
 		checker.BreakStatement{},
 	}})
 	assertGeneratorUnknownError(t, err)
-	if mainC != "" || mainH != "" {
-		t.Fatalf("generated output after loop-context leak: mainC=%q mainH=%q", mainC, mainH)
+	if rootC != "" || rootH != "" {
+		t.Fatalf("generated output after loop-context leak: rootC=%q rootH=%q", rootC, rootH)
 	}
 }
 
@@ -562,10 +586,10 @@ func TestGenerateCheckedRejectsForgedReturningDeclarationWithoutReturn(t *testin
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			testCase.program.Statements = []checker.Statement{testCase.statement}
-			mainC, mainH, err := GenerateChecked(testCase.program)
+			rootC, rootH, _, _, err := GenerateChecked(testCase.program)
 			assertGeneratorUnknownError(t, err)
-			if mainC != "" || mainH != "" {
-				t.Fatalf("generated output for forged missing return: mainC=%q mainH=%q", mainC, mainH)
+			if rootC != "" || rootH != "" {
+				t.Fatalf("generated output for forged missing return: rootC=%q rootH=%q", rootC, rootH)
 			}
 		})
 	}
@@ -600,13 +624,13 @@ func TestGenerateCheckedRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 			{name: "while", statement: checker.WhileStatement{Condition: condition, Body: []checker.Statement{declaration.statement}}},
 		} {
 			t.Run(declaration.name+" in "+block.name, func(t *testing.T) {
-				mainC, mainH, err := GenerateChecked(checker.Program{
+				rootC, rootH, _, _, err := GenerateChecked(checker.Program{
 					TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: point}},
 					Statements:       []checker.Statement{block.statement},
 				})
 				assertGeneratorUnknownError(t, err)
-				if mainC != "" || mainH != "" {
-					t.Fatalf("generated output for nested declaration: mainC=%q mainH=%q", mainC, mainH)
+				if rootC != "" || rootH != "" {
+					t.Fatalf("generated output for nested declaration: rootC=%q rootH=%q", rootC, rootH)
 				}
 			})
 		}
@@ -631,7 +655,7 @@ func TestWriteStatementsRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 
 func TestGenerateCheckedFailsClosedForUnknownTypeDeclaration(t *testing.T) {
 	program := checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Alias"}}}
-	_, _, err := GenerateChecked(program)
+	_, _, _, _, err := GenerateChecked(program)
 	if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
 		t.Fatalf("GenerateChecked error = %v, want structured Unknown Error", err)
 	}
@@ -661,7 +685,7 @@ func TestGenerateCheckedRejectsForgedTopLevelScalarMetadata(t *testing.T) {
 		}}},
 	}
 	for index, program := range testCases {
-		mainC, mainH, err := GenerateChecked(program)
+		rootC, rootH, _, _, err := GenerateChecked(program)
 		diagnostic, ok := err.(compilerTypes.Diagnostic)
 		if !ok {
 			t.Errorf("case %d error = %T %v, want compilerTypes.Diagnostic", index, err, err)
@@ -670,8 +694,8 @@ func TestGenerateCheckedRejectsForgedTopLevelScalarMetadata(t *testing.T) {
 		if diagnostic.Category != compilerTypes.UnknownError || diagnostic.Stage != "generator" {
 			t.Errorf("case %d diagnostic = %#v, want generator Unknown Error", index, diagnostic)
 		}
-		if mainC != "" || mainH != "" {
-			t.Errorf("case %d returned generated C for forged metadata: mainC=%q mainH=%q", index, mainC, mainH)
+		if rootC != "" || rootH != "" {
+			t.Errorf("case %d returned generated C for forged metadata: rootC=%q rootH=%q", index, rootC, rootH)
 		}
 	}
 }
@@ -711,7 +735,7 @@ func TestGenerateCheckedUsesCanonicalTypes(t *testing.T) {
 		{name: "forged pointer", typ: forgedPointer, valid: false, declName: "ForgedPointer"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: testCase.declName, Type: testCase.typ}}})
+			_, _, _, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: testCase.declName, Type: testCase.typ}}})
 			if testCase.valid {
 				if err != nil {
 					t.Fatalf("GenerateChecked() error = %v", err)
@@ -739,10 +763,10 @@ func TestGenerateCheckedRejectsForgedPointerElementMetadata(t *testing.T) {
 			forged.Name = testCase.name + "<UInt8>"
 			forged.CName = compilerTypes.UInt8.CName + "*"
 
-			mainC, mainH, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Forged", Type: forged}}})
+			rootC, rootH, _, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Forged", Type: forged}}})
 			assertGeneratorUnknownError(t, err)
-			if mainC != "" || mainH != "" {
-				t.Fatalf("generated output for forged pointer metadata: mainC=%q mainH=%q", mainC, mainH)
+			if rootC != "" || rootH != "" {
+				t.Fatalf("generated output for forged pointer metadata: rootC=%q rootH=%q", rootC, rootH)
 			}
 		})
 	}
@@ -792,7 +816,7 @@ func TestGenerateCheckedRejectsMalformedGeneratedTypes(t *testing.T) {
 		{name: "invalid object member type", typ: malformedMemberObject},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Type: testCase.typ}}})
+			_, _, _, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Type: testCase.typ}}})
 			assertGeneratorUnknownError(t, err)
 		})
 	}
@@ -935,34 +959,34 @@ func TestRenderUnsignedNarrowMultiplicationUsesUInt32Intermediate(t *testing.T) 
 // actually rejects a target with the macros undefined needs a C toolchain; see
 // spec 0013 for the deferred c23 build-tag suite.
 func TestFloatTargetAssertionsFailClosed(t *testing.T) {
-	mainH := header(true, true, false, nil)
+	rootH := header(true, true, false, nil)
 	for _, want := range []string{
 		"static_assert(sizeof(float) == 4 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, \"Hexal Float32 requires the binary32 value set\");",
 		"#if !defined(FLT_IS_IEC_60559) || FLT_IS_IEC_60559 != 1\n#error \"Hexal Float32 requires IEC 60559\"\n#endif",
 		"static_assert(sizeof(double) == 8 && DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024, \"Hexal Float64 requires the binary64 value set\");",
 		"#if !defined(DBL_IS_IEC_60559) || DBL_IS_IEC_60559 != 1\n#error \"Hexal Float64 requires IEC 60559\"\n#endif",
 	} {
-		if !strings.Contains(mainH, want) {
-			t.Fatalf("main.h = %q, want %q", mainH, want)
+		if !strings.Contains(rootH, want) {
+			t.Fatalf("main.h = %q, want %q", rootH, want)
 		}
 	}
 
 	// A header emits only the guards for the float kinds the program uses.
 	for _, testCase := range []struct {
 		name    string
-		mainH   string
+		rootH   string
 		want    string
 		notWant string
 	}{
-		{name: "Float32", mainH: header(true, false, false, nil), want: "FLT_IS_IEC_60559", notWant: "DBL_IS_IEC_60559"},
-		{name: "Float64", mainH: header(false, true, false, nil), want: "DBL_IS_IEC_60559", notWant: "FLT_IS_IEC_60559"},
+		{name: "Float32", rootH: header(true, false, false, nil), want: "FLT_IS_IEC_60559", notWant: "DBL_IS_IEC_60559"},
+		{name: "Float64", rootH: header(false, true, false, nil), want: "DBL_IS_IEC_60559", notWant: "FLT_IS_IEC_60559"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			if !strings.Contains(testCase.mainH, testCase.want) {
-				t.Fatalf("main.h = %q, want %s guard", testCase.mainH, testCase.want)
+			if !strings.Contains(testCase.rootH, testCase.want) {
+				t.Fatalf("main.h = %q, want %s guard", testCase.rootH, testCase.want)
 			}
-			if strings.Contains(testCase.mainH, testCase.notWant) {
-				t.Fatalf("main.h = %q, want no %s guard", testCase.mainH, testCase.notWant)
+			if strings.Contains(testCase.rootH, testCase.notWant) {
+				t.Fatalf("main.h = %q, want no %s guard", testCase.rootH, testCase.notWant)
 			}
 		})
 	}
@@ -1003,13 +1027,13 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 			},
 		},
 	}}
-	mainC, mainH, err := GenerateChecked(program)
+	rootC, rootH, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	wantWrapped := "((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))"
-	if !strings.Contains(mainC, wantWrapped) {
-		t.Fatalf("main.c = %q, want conditional signed wrap for Int8 127 + 1", mainC)
+	if !strings.Contains(rootC, wantWrapped) {
+		t.Fatalf("main.c = %q, want conditional signed wrap for Int8 127 + 1", rootC)
 	}
 	// The wrap operands must never reach C as a plain narrowing conversion of a
 	// signed value, which is implementation-defined before C23.
@@ -1017,11 +1041,11 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 		"const int8_t hex_v_wrapped = (int8_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1);",
 		"const int8_t hex_v_negated = (int8_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum);",
 	} {
-		if strings.Contains(mainC, forbidden) {
+		if strings.Contains(rootC, forbidden) {
 			t.Fatalf("main.c contains implementation-defined signed conversion %q", forbidden)
 		}
 	}
-	if mainH == "" {
+	if rootH == "" {
 		t.Fatal("GenerateChecked() returned an empty header")
 	}
 }
@@ -1393,19 +1417,19 @@ func TestGenerateCheckedValidatesPlaceMetadata(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			mainC, mainH, err := GenerateChecked(testCase.program)
+			rootC, rootH, _, _, err := GenerateChecked(testCase.program)
 			if testCase.wantError {
 				assertGeneratorUnknownError(t, err)
-				if mainC != "" || mainH != "" {
-					t.Fatalf("generated output for forged place metadata: mainC=%q mainH=%q", mainC, mainH)
+				if rootC != "" || rootH != "" {
+					t.Fatalf("generated output for forged place metadata: rootC=%q rootH=%q", rootC, rootH)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatalf("GenerateChecked() error = %v", err)
 			}
-			if !strings.Contains(mainC, testCase.wantC) {
-				t.Fatalf("main.c = %q, want fragment %q", mainC, testCase.wantC)
+			if !strings.Contains(rootC, testCase.wantC) {
+				t.Fatalf("main.c = %q, want fragment %q", rootC, testCase.wantC)
 			}
 		})
 	}
@@ -1450,12 +1474,12 @@ func TestGenerateCheckedValidatesNestedPlaceMetadataAndIgnoresOperandFlags(t *te
 		},
 	}
 
-	mainC, _, err := GenerateChecked(program)
+	rootC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	if !strings.Contains(mainC, "(*(*hex_v_pp)).hex_m_x = 2;") {
-		t.Fatalf("main.c = %q, want nested dereference/member assignment", mainC)
+	if !strings.Contains(rootC, "(*(*hex_v_pp)).hex_m_x = 2;") {
+		t.Fatalf("main.c = %q, want nested dereference/member assignment", rootC)
 	}
 }
 
@@ -1491,7 +1515,7 @@ func TestGenerateCheckedRejectsMismatchedObjectIdentity(t *testing.T) {
 	foreignPoint = foreignEnvironment.CompleteObject("Point", []compilerTypes.ObjectMember{{Name: "x", Type: compilerTypes.Int32}})
 	forged := point
 	forged.Object = foreignPoint.Object
-	_, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: forged}}})
+	_, _, _, _, err := GenerateChecked(checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: forged}}})
 	assertGeneratorUnknownError(t, err)
 }
 
@@ -1512,7 +1536,7 @@ func TestGenerateCheckedRejectsObjectReferenceWithoutTypeDeclaration(t *testing.
 		Source: checker.Operand{Kind: checker.ObjectOperand, Type: point, Object: value},
 	}}}
 
-	_, _, err := GenerateChecked(program)
+	_, _, _, _, err := GenerateChecked(program)
 	assertGeneratorUnknownError(t, err)
 }
 
@@ -1630,7 +1654,7 @@ func TestRenderOperationsRejectMalformedScalarMetadata(t *testing.T) {
 	}
 }
 
-// RFC 0023: conditions render through truthiness — nil as false, a nullable
+// RFC 0023: conditions render through truthiness â€” nil as false, a nullable
 // as a null test, and an always-truthy value as a comma evaluation.
 func TestRenderTruthinessConditions(t *testing.T) {
 	environment := compilerTypes.NewEnvironment()
@@ -1847,17 +1871,17 @@ func TestGenerateFunctionDefinition(t *testing.T) {
 	fun := environment.FunType([]compilerTypes.Type{compilerTypes.Int32}, &result)
 	program := checker.Program{Statements: []checker.Statement{identityDeclaration(fun, &result)}}
 
-	want := "#include \"main.h\"\n\n" +
+	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\n" +
 		"static int32_t hex_f_identity(const int32_t hex_v_x) {\n" +
 		"    return hex_v_x;\n" +
 		"}\n\n" +
-		"int main(void) {\n    return EXIT_SUCCESS;\n}\n"
-	gotC, _, err := GenerateChecked(program)
+		"int hex_module_root_run(void) {\n    return EXIT_SUCCESS;\n}\n"
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	if gotC != want {
-		t.Fatalf("main.c = %q, want %q", gotC, want)
+		t.Fatalf("modules/app.c = %q, want %q", gotC, want)
 	}
 }
 
@@ -1872,7 +1896,7 @@ func TestGenerateNoReturnFunctionLowersToVoid(t *testing.T) {
 	}}}
 
 	want := "static void hex_f_reset(const int32_t hex_v_x) {\n    return;\n}\n"
-	gotC, _, err := GenerateChecked(program)
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -1897,7 +1921,7 @@ func TestGenerateZeroParameterFunction(t *testing.T) {
 	}}}
 
 	want := "static int32_t hex_f_zero(void) {\n    return 0;\n}\n"
-	gotC, _, err := GenerateChecked(program)
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -1919,7 +1943,7 @@ func TestGenerateFunctionPointerObjects(t *testing.T) {
 		checker.Declaration{Name: "selected", Type: fun, Mutable: true, Source: reference},
 	}}
 
-	gotC, _, err := GenerateChecked(program)
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -1956,7 +1980,7 @@ func TestGenerateFunctionPointerParameter(t *testing.T) {
 
 	want := "static int32_t hex_f_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n" +
 		"    return hex_v_callback(hex_v_value);\n}\n"
-	gotC, _, err := GenerateChecked(program)
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -1978,7 +2002,7 @@ func TestGenerateCallExpression(t *testing.T) {
 	}}
 
 	want := "    const int32_t hex_v_total = hex_f_identity(13);\n"
-	gotC, _, err := GenerateChecked(program)
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -2001,7 +2025,7 @@ func TestGenerateCallStatement(t *testing.T) {
 	}}
 
 	want := "    hex_f_reset(13);\n"
-	gotC, _, err := GenerateChecked(program)
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -2026,7 +2050,7 @@ func TestGenerateSelfRecursiveFunction(t *testing.T) {
 	}}}
 
 	want := "static int32_t hex_f_loop(const int32_t hex_v_n) {\n    return hex_f_loop(hex_v_n);\n}\n"
-	gotC, _, err := GenerateChecked(program)
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -2054,18 +2078,18 @@ func TestGenerateFunctionDefinitionsPrecedeMainInSourceOrder(t *testing.T) {
 		},
 	}
 
-	gotC, gotH, err := GenerateChecked(program)
+	gotC, gotH, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	first := strings.Index(gotC, "hex_f_identity")
 	next := strings.Index(gotC, "hex_f_second")
-	main := strings.Index(gotC, "int main(void)")
-	if first < 0 || next < first || main < next {
-		t.Fatalf("main.c = %q, want hex_f_identity then hex_f_second then main", gotC)
+	run := strings.Index(gotC, "int hex_module_root_run(void)")
+	if first < 0 || next < first || run < next {
+		t.Fatalf("modules/app.c = %q, want hex_f_identity then hex_f_second then root run", gotC)
 	}
 	if !strings.Contains(gotH, "struct hex_t_Point {") {
-		t.Fatalf("main.h = %q, want the object definition region", gotH)
+		t.Fatalf("modules/app.h = %q, want the object definition region", gotH)
 	}
 }
 
@@ -2081,16 +2105,16 @@ func TestGenerateFunctionBodyLineDirectives(t *testing.T) {
 	}}
 	program := checker.Program{Statements: []checker.Statement{declaration}}
 
-	gotC, _, err := GenerateChecked(program)
+	gotC, _, _, _, err := GenerateChecked(program)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	for _, want := range []string{
-		"#line 3 \"main.hex\"\nstatic int32_t hex_f_identity(",
-		"#line 4 \"main.hex\"\n    return hex_v_x;",
+		"#line 3 \"app.hex\"\nstatic int32_t hex_f_identity(",
+		"#line 4 \"app.hex\"\n    return hex_v_x;",
 	} {
 		if !strings.Contains(gotC, want) {
-			t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
+			t.Fatalf("modules/app.c = %q, want it to contain %q", gotC, want)
 		}
 	}
 }

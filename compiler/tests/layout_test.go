@@ -20,8 +20,8 @@ func TestLayoutQueriesCompile(t *testing.T) {
 		"(size_t)alignof(hex_t_Node)",
 		"(size_t)sizeof(const hex_string *)",
 	} {
-		if !strings.Contains(result.MainC, fragment) {
-			t.Fatalf("generated C lacks %s:\n%s", fragment, result.MainC)
+		if !strings.Contains(rootC(t, result), fragment) {
+			t.Fatalf("generated C lacks %s:\n%s", fragment, rootC(t, result))
 		}
 	}
 }
@@ -36,8 +36,8 @@ func TestVolatileAccessCompiles(t *testing.T) {
 		"*(volatile uint32_t *)",
 		"*(volatile const int8_t *)",
 	} {
-		if !strings.Contains(result.MainC, fragment) {
-			t.Fatalf("generated C lacks %s:\n%s", fragment, result.MainC)
+		if !strings.Contains(rootC(t, result), fragment) {
+			t.Fatalf("generated C lacks %s:\n%s", fragment, rootC(t, result))
 		}
 	}
 }
@@ -116,7 +116,7 @@ func TestLayoutQueryInGenericBodyDefersToSpecialization(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainC, "sizeof(int64_t)") {
-		t.Fatalf("generated C lacks the specialized sizeof:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "sizeof(int64_t)") {
+		t.Fatalf("generated C lacks the specialized sizeof:\n%s", rootC(t, result))
 	}
 }
