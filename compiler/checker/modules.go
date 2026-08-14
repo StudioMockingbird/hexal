@@ -32,7 +32,10 @@ type ModuleRegistry struct {
 // its exported interface records: every exported function, type, and method
 // resolved in that module's own type environment. The export set comes from
 // the AST's export flags; the checked records are published by
-// registerExports.
+// registerExports. RFC 0034 Task 6 adds the defining module's open generic
+// templates (published by registerGenerics) and its specialization
+// collection: the module's own requests plus every importer's, folded into
+// its checked output by assembleSpecializations.
 type moduleEntry struct {
 	imports map[string]string // import alias -> canonical module id
 
@@ -40,6 +43,18 @@ type moduleEntry struct {
 	functions map[string]FunctionDeclaration   // exported functions by name
 	types     map[string]compilerTypes.TypeUse // exported type names -> resolved use
 	methods   map[string][]MethodDeclaration   // receiver type name -> exported methods
+
+	// genericFunctions holds the module's exported generic function
+	// templates. Importers resolve qualified generic calls through them and
+	// record the specialization with the defining module (RFC 0034 Task 6).
+	genericFunctions map[string]*openGenericFunction
+	// functionSpecializations and methodSpecializations are the defining
+	// module's specialization collections: its own requests, published by
+	// registerGenerics, plus every importer's, keyed by specialization key
+	// (declaration name, then canonical argument signature). The final pass
+	// sorts the keys and emits the records into the module's checked output.
+	functionSpecializations map[string]FunctionDeclaration
+	methodSpecializations   map[string]MethodDeclaration
 }
 
 // buildModuleRegistry collects every reachable module's import aliases and
@@ -148,6 +163,125 @@ func (registry *ModuleRegistry) exportedType(moduleID, name string) (compilerTyp
 	}
 	use, ok := entry.types[name]
 	return use, ok
+}
+
+// registerGenerics publishes one module's open generic function templates and
+// its own specialization requests into the registry after the module checks
+// clean (RFC 0034 Task 6). Importers resolve qualified generic calls against
+// the template records and record their requests beside the module's own, so
+// the defining module's checked output carries every specialization of its
+// declarations. Only exported templates are published; a private template is
+// never reachable from an importer.
+func (registry *ModuleRegistry) registerGenerics(moduleID string, generics *genericTable) {
+	entry := registry.modules[moduleID]
+	if entry == nil || generics == nil {
+		return
+	}
+	entry.genericFunctions = make(map[string]*openGenericFunction, len(generics.functions))
+	for name, open := range generics.functions {
+		if entry.exports[name] {
+			entry.genericFunctions[name] = open
+		}
+	}
+	entry.functionSpecializations = make(map[string]FunctionDeclaration, len(generics.functionSpecializations))
+	for key, declaration := range generics.functionSpecializations {
+		entry.functionSpecializations[key] = declaration
+	}
+	entry.methodSpecializations = make(map[string]MethodDeclaration, len(generics.methodSpecializations))
+	for key, declaration := range generics.methodSpecializations {
+		entry.methodSpecializations[key] = declaration
+	}
+}
+
+// genericFunction resolves one exported generic function template of the
+// target module by name (RFC 0034 Task 6). Importers specialize it and
+// record the result with the defining module.
+func (registry *ModuleRegistry) genericFunction(moduleID, name string) (*openGenericFunction, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return nil, false
+	}
+	open, ok := entry.genericFunctions[name]
+	return open, ok
+}
+
+// specializationStore returns the defining module's specialization
+// collection for generic functions. The map exists exactly when the module
+// checked clean and published its templates, which is also the only time a
+// template is reachable, so a found template always has a collection to
+// record into.
+func (registry *ModuleRegistry) specializationStore(moduleID string) map[string]FunctionDeclaration {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return nil
+	}
+	return entry.functionSpecializations
+}
+
+// exportedMethod resolves one exported method of the target module by
+// receiver type name and method name (RFC 0034 Task 6). Only exported
+// methods are recorded, so a private method resolves nowhere and the caller
+// reports the visibility failure at the call site.
+func (registry *ModuleRegistry) exportedMethod(moduleID, objectName, name string) (MethodDeclaration, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return MethodDeclaration{}, false
+	}
+	for _, method := range entry.methods[objectName] {
+		if method.Name == name {
+			return method, true
+		}
+	}
+	return MethodDeclaration{}, false
+}
+
+// assembleSpecializations folds a defining module's specialization collection
+// -- its own requests plus every importer's -- into its checked program
+// (RFC 0034 Task 6). The records are deduplicated by specialization key and
+// emitted in the deterministic order the generator consumes: declaration
+// name, then the canonical argument signature string.
+func (registry *ModuleRegistry) assembleSpecializations(moduleID string, program *Program) {
+	entry := registry.modules[moduleID]
+	if entry == nil {
+		return
+	}
+	program.SpecializedFunctions = sortedFunctionSpecializations(entry.functionSpecializations)
+	program.SpecializedMethods = sortedMethodSpecializations(entry.methodSpecializations)
+}
+
+// sortedFunctionSpecializations emits a generic-function specialization
+// collection in specialization-key ascending order (declaration name first,
+// then canonical argument signature string). The keys are the interner's
+// specializeKey spellings, so sorting them is exactly the (decl, args) order
+// the RFC requires.
+func sortedFunctionSpecializations(collection map[string]FunctionDeclaration) []FunctionDeclaration {
+	keys := make([]string, 0, len(collection))
+	for key := range collection {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]FunctionDeclaration, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, collection[key])
+	}
+	return result
+}
+
+// sortedMethodSpecializations is sortedFunctionSpecializations' counterpart
+// for generic-method collections. The method keys carry the receiver object
+// name and arguments before the method name and its own arguments, matching
+// the order the interner builds them in.
+func sortedMethodSpecializations(collection map[string]MethodDeclaration) []MethodDeclaration {
+	keys := make([]string, 0, len(collection))
+	for key := range collection {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]MethodDeclaration, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, collection[key])
+	}
+	return result
 }
 
 // importTarget resolves one import alias of one module to its canonical

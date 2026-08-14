@@ -112,8 +112,14 @@ type ObjectMember struct {
 
 // ObjectType is the compilation-owned nominal record behind an object Type.
 type ObjectType struct {
-	Name         string
-	CName        string
+	Name  string
+	CName string
+	// ModuleID is the canonical identity of the module that declared the
+	// object; it is empty for compiler-owned builtins (RFC 0034 Task 6).
+	// The checker stamps it on every object it creates in a module scope;
+	// imported objects carry their defining module's id, which is what
+	// lets implementation ownership and method routing find the owner.
+	ModuleID     string
 	Members      []ObjectMember
 	SourceLine   int
 	SourceColumn int

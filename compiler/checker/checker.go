@@ -244,6 +244,24 @@ func CheckModules(programs map[string]parser.Program, order []string, entrypoint
 			diagnostics = append(diagnostics, registry.checkExportedClosure(moduleID, moduleChecked)...)
 		}
 	}
+	// RFC 0034 Task 6: after every module checks, fold each defining module's
+	// specialization collection -- its own requests plus every importer's --
+	// into its checked program, deduplicated by key and deterministically
+	// ordered. Requests recorded while a later module failed are harmless:
+	// the compilation already reports diagnostics.
+	for _, moduleID := range order {
+		key := moduleID + ".hex"
+		program, ok := checked[key]
+		if !ok {
+			key = moduleID
+			program, ok = checked[key]
+		}
+		if !ok {
+			continue
+		}
+		registry.assembleSpecializations(moduleID, &program)
+		checked[key] = program
+	}
 	if len(diagnostics) > 0 {
 		return checked, diagnostics
 	}
@@ -443,6 +461,12 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 	if len(starvationDiagnostics) > 0 {
 		return checked, starvationDiagnostics
 	}
+	if registry != nil {
+		// RFC 0034 Task 6: a clean module publishes its generic templates and
+		// its own specialization requests, so importers resolve and record
+		// against the defining module's collection.
+		registry.registerGenerics(moduleID, environment.generics)
+	}
 	return checked, nil
 }
 
@@ -557,8 +581,10 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 		// Publish a provisional nominal identity before resolving members so a
 		// member may reach this object behind at least one pointer layer. The
 		// identity is abandoned if any member fails and finalized only on
-		// complete success.
+		// complete success. The object is stamped with the declaring module's
+		// canonical id: that id is what owns its methods (RFC 0034 Task 6).
 		beginResult := typeEnvironment.BeginObject(name, declaration.Name.Line, declaration.Name.Column)
+		beginResult.Object.ModuleID = environment.moduleID
 		members, memberDiagnostics := resolveObjectMembers(name, object, typeEnvironment, environment.generics)
 		diagnostics = append(diagnostics, memberDiagnostics...)
 		if len(diagnostics) == 0 {

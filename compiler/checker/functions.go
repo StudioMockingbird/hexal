@@ -5,6 +5,7 @@ package checker
 
 import (
 	"fmt"
+	"strings"
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
@@ -423,6 +424,7 @@ func (names *scope) child() *scope {
 		flow:     names.flow,
 		generics: names.generics,
 		registry: names.registry,
+		moduleID: names.moduleID,
 	}
 }
 
@@ -553,6 +555,7 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 		flow:      newFlowState(),
 		generics:  names.generics,
 		registry:  names.registry,
+		moduleID:  names.moduleID,
 	}
 	for index := range parameters {
 		// RFC 0034: no nested scope may shadow an import alias; a
@@ -691,6 +694,15 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		return checked, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
 			target.Name+" is not a nominal object type; impl requires an object")}
 	}
+	// RFC 0034 Task 6: only the type's defining module may declare its
+	// methods. An imported receiver -- or a transparent alias of one --
+	// resolves to the defining module's identity, so the ModuleID comparison
+	// rejects every spelling of it, qualified or not. Builtins carry an empty
+	// id and keep their compiler-owned behavior.
+	if object.ModuleID != "" && object.ModuleID != names.moduleID {
+		return checked, compilerTypes.Diagnostics{typeErrorAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
+			"cannot declare methods for imported type "+receiverSpelling(declaration.SelfType, object.Name))}
+	}
 	checked.Object = object
 	checked.SelfType = target
 
@@ -736,6 +748,7 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		flow:      newFlowState(),
 		generics:  names.generics,
 		registry:  names.registry,
+		moduleID:  names.moduleID,
 	}
 	for index := range parameters {
 		// RFC 0034: no nested scope may shadow an import alias; a
@@ -766,6 +779,42 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 			fmt.Sprintf("returning %s may fall through without returning %s", name, result.Name)))
 	}
 	return checked, diagnostics
+}
+
+// receiverSpelling renders the written impl receiver for ownership
+// diagnostics: the qualified name as written (Geometry.Point), the alias
+// name, or the plain type name. Pointer forms resolve to their element's
+// spelling, so Ptr<Geometry.Point> and Geometry.Point read the same.
+func receiverSpelling(expression parser.TypeExpression, fallback string) string {
+	switch expression := expression.(type) {
+	case parser.NamedTypeExpression:
+		return expression.Name.Lexeme
+	case parser.QualifiedTypeExpression:
+		names := make([]string, 0, len(expression.Names))
+		for _, name := range expression.Names {
+			names = append(names, name.Lexeme)
+		}
+		return expression.Module.Lexeme + "." + strings.Join(names, ".")
+	case parser.PtrTypeExpression:
+		return receiverSpelling(expression.Element, fallback)
+	default:
+		return fallback
+	}
+}
+
+// receiverSpellingToken locates the ownership diagnostic at the written
+// receiver where one exists, falling back to the impl keyword.
+func receiverSpellingToken(expression parser.TypeExpression, fallback lexer.Token) lexer.Token {
+	switch expression := expression.(type) {
+	case parser.NamedTypeExpression:
+		return expression.Name
+	case parser.QualifiedTypeExpression:
+		return expression.Module
+	case parser.PtrTypeExpression:
+		return receiverSpellingToken(expression.Element, fallback)
+	default:
+		return fallback
+	}
 }
 
 // checkParameters resolves one written parameter list. Functions and methods
@@ -1503,10 +1552,16 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 // checkQualifiedFunctionCall resolves Alias.name(args) where Alias is an
 // import alias: the callee is the target module's exported function. The call
 // is checked against the recorded signature exactly like a local call; the
-// node carries the target module id for the module phase.
+// node carries the target module id for the module phase. A name that is not
+// an exported concrete function may be an exported generic template, which
+// the call specializes against the defining module's collection (RFC 0034
+// Task 6); only then is it the visibility failure.
 func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token, target string, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	function, ok := names.registry.exportedFunction(target, property.Lexeme)
 	if !ok {
+		if open, generic := names.registry.genericFunction(target, property.Lexeme); generic {
+			return checkQualifiedGenericCall(call, open, property, target, names, typeEnvironment)
+		}
 		diagnostic := privateToModuleDiagnostic(property, property.Lexeme, target)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
@@ -1545,6 +1600,90 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 	}
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: function.Name, Node: node},
+		typ:    resultType,
+		token:  property,
+	}
+}
+
+// checkQualifiedGenericCall specializes an imported module's exported generic
+// function for the concrete request at hand and checks the call against the
+// specialized signature. The specialization is resolved and its body re-checked
+// in the requesting module's environment, exactly like a local generic call,
+// but the record is stored into the defining module's registry collection, so
+// its checked output carries the request (RFC 0034 Task 6). Repeated requests
+// of one (declaration, argument) pair reuse the one recorded specialization.
+// The requested body was not part of the defining module's starvation scan,
+// which ran before this request arrived; re-scanning imported generic bodies
+// is a codegen-phase follow-up.
+func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunction, property lexer.Token, target string, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	var arguments []compilerTypes.Type
+	if len(call.TypeArguments) > 0 {
+		arguments = make([]compilerTypes.Type, 0, len(call.TypeArguments))
+		for _, argumentExpression := range call.TypeArguments {
+			argumentUse, diagnostic := resolveTypeUse(argumentExpression, property, typeEnvironment, names.generics)
+			if diagnostic != nil {
+				return checkedExpression{token: property, diagnostic: diagnostic}
+			}
+			arguments = append(arguments, argumentUse.Type)
+		}
+		if len(arguments) != open.Generic.Arity {
+			diagnostic := typeErrorAt(property, "explicit generic argument count does not match declaration")
+			return checkedExpression{token: property, diagnostic: &diagnostic}
+		}
+	} else {
+		argumentTypes := make([]compilerTypes.Type, 0, len(call.Arguments))
+		for _, argument := range call.Arguments {
+			checked := checkValue(argument, names, typeEnvironment)
+			if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
+				return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+			}
+			argumentTypes = append(argumentTypes, checked.typ)
+		}
+		inferred, diagnostic := inferTypeArguments(open, argumentTypes, names, typeEnvironment)
+		if diagnostic != nil {
+			return checkedExpression{token: property, diagnostic: diagnostic}
+		}
+		arguments = inferred
+	}
+	specialized, diagnostic := specializeFunctionIn(open, arguments, names, typeEnvironment, names.registry.specializationStore(target))
+	if diagnostic != nil {
+		return checkedExpression{token: property, diagnostic: diagnostic}
+	}
+	signature := specialized.Type.Signature
+	if signature == nil {
+		return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
+			Category: compilerTypes.UnknownError,
+			Stage:    "checker",
+			Message:  "specialized function record without a signature",
+		}}
+	}
+	if len(call.Arguments) != len(signature.Parameters) {
+		diagnostic := typeErrorAt(property,
+			fmt.Sprintf("%s expects %d arguments, got %d", specialized.Name, len(signature.Parameters), len(call.Arguments)))
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	parameterUses := make([]compilerTypes.TypeUse, 0, len(specialized.Parameters))
+	for _, parameter := range specialized.Parameters {
+		parameterUses = append(parameterUses, parameter.TypeUse)
+	}
+	argumentsOperands, diagnostics := checkArguments(specialized.Name, parameterUses, call.Arguments, property, names, typeEnvironment)
+	if len(diagnostics) > 0 {
+		return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
+	var resultType compilerTypes.Type
+	if signature.Result != nil {
+		resultType = *signature.Result
+	}
+	calleeNode := Expression{Kind: FunctionReferenceExpression, Name: specialized.Name, ResultType: specialized.Type, Module: target}
+	node := Expression{
+		Kind:        CallExpression,
+		Operand:     &calleeNode,
+		Arguments:   argumentsOperands,
+		OperandType: specialized.Type,
+		ResultType:  resultType,
+	}
+	return checkedExpression{
+		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: specialized.Name, Node: node},
 		typ:    resultType,
 		token:  property,
 	}
@@ -1779,6 +1918,12 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		diagnostic := typeErrorAt(callee.Property, receiver.typ.Name+" has no method named "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
+	// RFC 0034 Task 6: a receiver whose type another module defines routes
+	// its method lookup to that module's recorded exported methods. Builtin
+	// receivers carry an empty id and keep the local path.
+	if object.ModuleID != "" && object.ModuleID != names.moduleID {
+		return checkImportedMethodCall(call, callee, name, object, receiver, names, typeEnvironment)
+	}
 	method := names.methods.lookup(object, name)
 	if method == nil {
 		if genericMethod := lookupGenericMethod(names, object, name); genericMethod != nil {
@@ -1811,6 +1956,60 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 
+	var resultType compilerTypes.Type
+	if method.Result != nil {
+		resultType = *method.Result
+	}
+	node := Expression{
+		Kind:        MethodCallExpression,
+		Name:        name,
+		Owner:       object,
+		Operand:     &adapted.Node,
+		Arguments:   arguments,
+		OperandType: method.SelfType,
+		ResultType:  resultType,
+	}
+	return checkedExpression{
+		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node},
+		typ:    resultType,
+		token:  callee.Property,
+	}
+}
+
+// checkImportedMethodCall resolves a method call whose receiver type another
+// module defines (RFC 0034 Task 6). The lookup routes to the defining
+// module's recorded methods, and only exported methods on exported receiver
+// types are visible to importers; anything else is the Task 5 visibility
+// failure at the method. The checked call mirrors a local method call: the
+// same receiver adaptation, argument checking, and node shape, with the
+// defining module's resolved signature.
+func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyExpression, name string, object *compilerTypes.ObjectType, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	method, ok := names.registry.exportedMethod(object.ModuleID, object.Name, name)
+	if !ok {
+		diagnostic := privateToModuleDiagnostic(callee.Property, name, object.ModuleID)
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	adapted, diagnostic := adaptReceiver(receiver, method, callee, typeEnvironment)
+	if diagnostic != nil {
+		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	}
+	if len(call.Arguments) != len(method.Parameters) {
+		diagnostic := typeErrorAt(callee.Property,
+			fmt.Sprintf("%s expects %d arguments, got %d", name, len(method.Parameters), len(call.Arguments)))
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	expected := make([]compilerTypes.TypeUse, 0, len(method.Parameters))
+	for _, parameter := range method.Parameters {
+		use := parameter.TypeUse
+		if use.Type == (compilerTypes.Type{}) {
+			use = compilerTypes.NewTypeUse(parameter.Type)
+		}
+		expected = append(expected, use)
+	}
+	arguments, diagnostics := checkArguments(name, expected, call.Arguments, callee.Property, names, typeEnvironment)
+	if len(diagnostics) > 0 {
+		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
 	var resultType compilerTypes.Type
 	if method.Result != nil {
 		resultType = *method.Result

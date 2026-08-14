@@ -133,23 +133,23 @@ func parameterFrame(parameters []lexer.Token, arguments []compilerTypes.Type) ma
 }
 
 // specializedFunctionList returns the cached concrete function specializations
-// in deterministic insertion order for the generator.
+// in deterministic specialization-key order for the generator. The final
+// registry fold replaces this list with the defining module's full collection
+// (own requests plus importers'), sorted identically.
 func specializedFunctionList(generics *genericTable) []FunctionDeclaration {
-	result := make([]FunctionDeclaration, 0, len(generics.functionSpecializations))
-	for _, declaration := range generics.functionSpecializations {
-		result = append(result, declaration)
+	if generics == nil {
+		return nil
 	}
-	return result
+	return sortedFunctionSpecializations(generics.functionSpecializations)
 }
 
 // specializedMethodList returns the cached concrete method specializations in
-// deterministic insertion order for the generator.
+// deterministic specialization-key order for the generator.
 func specializedMethodList(generics *genericTable) []MethodDeclaration {
-	result := make([]MethodDeclaration, 0, len(generics.methodSpecializations))
-	for _, declaration := range generics.methodSpecializations {
-		result = append(result, declaration)
+	if generics == nil {
+		return nil
 	}
-	return result
+	return sortedMethodSpecializations(generics.methodSpecializations)
 }
 
 // specializeTypeUse resolves a written generic type use to its concrete
@@ -262,6 +262,10 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 	}
 	specializedName := specializeTypeName(open.Name, arguments)
 	provisional := typeEnvironment.BeginObject(specializedName, token.Line, token.Column)
+	// The specialized object is a nominal type of the module whose table
+	// created it, so it is stamped with that module's identity like any
+	// locally declared object (RFC 0034 Task 6).
+	provisional.Object.ModuleID = generics.moduleID
 	generics.objectSpecializations[key] = provisional
 	generics.objectOpen[provisional.Object] = open
 	generics.objectArguments[provisional.Object] = append([]compilerTypes.Type(nil), arguments...)
@@ -386,11 +390,33 @@ func parameterNamesOf(parameters []lexer.Token) []string {
 // specializeFunction creates or reuses the concrete declaration for one
 // specialization of a generic function. The signature is resolved under the
 // argument frame and the body is re-checked with concrete types, so dependent
-// operations are validated at specialization time.
+// operations are validated at specialization time. The record is cached in
+// the requesting module's own table; imports of another module's generic go
+// through specializeFunctionIn with the defining module's collection instead
+// (RFC 0034 Task 6).
 func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (FunctionDeclaration, *compilerTypes.Diagnostic) {
+	return specializeFunctionIn(open, arguments, names, typeEnvironment, names.generics.functionSpecializations)
+}
+
+// specializeFunctionIn is the shared specialization engine behind
+// specializeFunction and the imported-generic path. It re-checks the
+// template's signature and body under concrete arguments and caches the
+// resulting declaration in collection -- the requesting module's own table
+// for a local generic, or the defining module's registry collection for an
+// imported one. The requesting module's generic table still supplies the
+// parameter frame, recursion guards, and binding ids, so one specialization
+// runs entirely in the requesting module's type environment.
+func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment, collection map[string]FunctionDeclaration) (FunctionDeclaration, *compilerTypes.Diagnostic) {
 	generics := names.generics
 	key := specializeKey(open.Name, arguments)
-	if cached, ok := generics.functionSpecializations[key]; ok {
+	if collection == nil {
+		return FunctionDeclaration{}, &compilerTypes.Diagnostic{
+			Category: compilerTypes.UnknownError,
+			Stage:    "checker",
+			Message:  "generic function specialization outside a specialization collection",
+		}
+	}
+	if cached, ok := collection[key]; ok {
 		return cached, nil
 	}
 	for activeKey := range generics.active {
@@ -438,7 +464,7 @@ func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Typ
 		SourceLine:   open.Declaration.Name.Line,
 		SourceColumn: open.Declaration.Name.Column,
 	}
-	generics.functionSpecializations[key] = specialized
+	collection[key] = specialized
 	generics.active[key] = true
 	generics.open = false
 	body := &scope{
@@ -453,6 +479,7 @@ func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Typ
 		flow:      newFlowState(),
 		generics:  generics,
 		registry:  names.registry,
+		moduleID:  names.moduleID,
 	}
 	for index := range parameters {
 		parameters[index].Binding = names.newBindingID()
@@ -475,7 +502,7 @@ func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Typ
 		}
 	}
 	specialized.Body = statements
-	generics.functionSpecializations[key] = specialized
+	collection[key] = specialized
 	return specialized, nil
 }
 
@@ -538,6 +565,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 		flow:      newFlowState(),
 		generics:  generics,
 		registry:  names.registry,
+		moduleID:  names.moduleID,
 	}
 	for index := range parameters {
 		parameters[index].Binding = names.newBindingID()
