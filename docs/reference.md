@@ -253,7 +253,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Invalid or unsupported source fails closed under the diagnostic contract below.
 - Values follow C-style shallow copying. Allocation and cleanup are explicit; there are no moves,
   borrow states, retain counts, implicit destructors, or compiler-enforced exactly-once cleanup.
-- Native modules exist in grammar and parse: every `.hex` source is a module; `module <alias> = import "<path>"` binds an alias; qualified names `Alias.Type` refer into an imported module; `export` prefixes a module-level type, function, or implementation declaration and is the only visibility marker. Import resolution and cross-module checking are not yet implemented; any `import` fails closed with a Module Error.
+- Native modules exist in grammar and resolve: every `.hex` source is a module; `module <alias> = import "<path>"` binds an alias; qualified names `Alias.Type` refer into an imported module; `export` prefixes a module-level type, function, or implementation declaration and is the only visibility marker. Imports resolve into a dependency graph with cycle and duplicate detection; imported modules are declarations-only; imports must precede all other items; import aliases occupy their own namespace and cannot shadow or be shadowed. Cross-module name resolution and per-module code generation are not yet implemented: any program whose reachable graph has more than one module fails closed with a Module Error.
 - C interop, Arena, and Pool remain draft features and are not part of this language.
 - When no source name is supplied, the compilation unit uses the synthetic filename `main.hex` in
   diagnostics, generated `#line` directives, and `Error.file`. `.hex` is the intended source

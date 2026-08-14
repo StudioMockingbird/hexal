@@ -990,6 +990,12 @@ func isIdentifierPart(ch byte) bool {
 	return isIdentifierStart(ch) || ch == '_' || ch >= '0' && ch <= '9'
 }
 
+// IsIdentifierStart reports whether ch can begin a Hexal identifier.
+func IsIdentifierStart(ch byte) bool { return isIdentifierStart(ch) }
+
+// IsIdentifierPart reports whether ch can continue a Hexal identifier.
+func IsIdentifierPart(ch byte) bool { return isIdentifierPart(ch) }
+
 func isDecimalDigit(ch byte) bool { return ch >= '0' && ch <= '9' }
 
 func isBinaryDigit(ch byte) bool { return ch == '0' || ch == '1' }

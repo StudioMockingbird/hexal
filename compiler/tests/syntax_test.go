@@ -124,13 +124,15 @@ func TestReportsIndependentStatementErrors(t *testing.T) {
 	}
 }
 
-func TestReportsParserAndCheckerErrorsTogether(t *testing.T) {
+func TestParseErrorsAbortBeforeChecking(t *testing.T) {
+	// RFC 0034 Task 4: a parse failure in any module fails the build with
+	// the parse diagnostics; the checker never sees invalid syntax, so its
+	// diagnostics are not stacked on top (earliest diagnostic ownership).
 	result := compileSource("x: Int32 = 13 y z: Bogus = 1")
 	want := []string{
 		"[Syntax Error] expected ':' for a declaration or '=' for an assignment at 1:17",
-		"[Type Error] unknown type Bogus at 1:20",
 	}
-	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
+	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
 }

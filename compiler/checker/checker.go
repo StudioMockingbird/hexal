@@ -190,18 +190,69 @@ type binding struct {
 	// expression in this function body, so from_pointer can reject it
 	// (RFC 0046 item 4).
 	fromRef bool
+	// moduleID is the target canonical module of an aliasBinding import
+	// (RFC 0034). It is empty for every value and function binding.
+	moduleID string
 }
 
 // Check resolves declared types, checks initializers, binding modes, pointer
 // capabilities, and assignment places. A failed statement never enters the
 // environment, so later diagnostics cannot observe invalid declarations.
 func Check(program parser.Program) (Program, error) {
+	checked, err := CheckModules(map[string]parser.Program{entrypointLogicalKey: program}, []string{canonicalEntrypoint}, canonicalEntrypoint)
+	// The partially checked program is returned alongside diagnostics: clean
+	// statements survive failed ones, and later diagnostics cannot observe
+	// invalid declarations.
+	return checked[entrypointLogicalKey], err
+}
+
+// entrypointLogicalKey is the synthetic logical key of a single-module
+// compilation; canonicalEntrypoint is its canonical module identity.
+const (
+	entrypointLogicalKey = "app.hex"
+	canonicalEntrypoint  = "app"
+)
+
+// CheckModules checks every reachable module in dependency-first order (the
+// order slice, canonical module ids, dependencies first). Each module is
+// checked in its own scope; the returned map is keyed by logical source key
+// and holds only modules that checked clean. Diagnostics are merged sorted by
+// module order, then line, then column.
+func CheckModules(programs map[string]parser.Program, order []string, entrypointCanonical string) (map[string]Program, error) {
+	checked := make(map[string]Program, len(programs))
+	diagnostics := make(compilerTypes.Diagnostics, 0)
+	registry := buildModuleRegistry(programs, order, entrypointCanonical)
+	for _, moduleID := range order {
+		key := moduleID + ".hex"
+		program, ok := programs[key]
+		if !ok {
+			key = moduleID
+			program, ok = programs[key]
+		}
+		if !ok {
+			continue
+		}
+		moduleChecked, moduleDiagnostics := checkModule(program, moduleID, entrypointCanonical, registry)
+		diagnostics = append(diagnostics, moduleDiagnostics...)
+		checked[key] = moduleChecked
+	}
+	if len(diagnostics) > 0 {
+		return checked, diagnostics
+	}
+	return checked, nil
+}
+
+// checkModule checks one module in its own scope. moduleID is the module's
+// canonical identity; entrypointCanonical is the root module's canonical
+// identity, the only module allowed to execute statements. registry carries
+// the import aliases every module scope sees (RFC 0034).
+func checkModule(program parser.Program, moduleID string, entrypointCanonical string, registry *ModuleRegistry) (Program, compilerTypes.Diagnostics) {
 	checked := Program{
 		TypeDeclarations: make([]TypeDeclaration, 0),
 		Statements:       make([]Statement, 0, len(program.Statements)),
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	environment := moduleScope()
+	environment := moduleScope(moduleID, registry)
 	typeEnvironment := compilerTypes.NewEnvironment()
 
 	items := program.Items
@@ -211,7 +262,28 @@ func Check(program parser.Program) (Program, error) {
 			items = append(items, statement)
 		}
 	}
+	sawNonImportItem := false
 	for _, item := range items {
+		// RFC 0034: only the entrypoint module executes statements; an
+		// imported module's top level is declarations only. The offending
+		// statement is skipped entirely, never partially checked.
+		if moduleID != entrypointCanonical {
+			if token, executable := executableItemToken(item); executable {
+				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+					Category: compilerTypes.ModuleError,
+					Stage:    "checker",
+					Line:     token.Line,
+					Column:   token.Column,
+					Message:  "imported module " + moduleID + " contains executable statements",
+				})
+				continue
+			}
+		}
+		// RFC 0034: imports must form the module's prefix; the first item
+		// that is not a declaration ends it.
+		if !declarationItem(item) {
+			sawNonImportItem = true
+		}
 		switch statement := item.(type) {
 		case parser.TypeDeclaration:
 			checkedDeclaration, statementDiagnostics := checkTypeDeclaration(statement, typeEnvironment, environment)
@@ -317,16 +389,29 @@ func Check(program parser.Program) (Program, error) {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.ImportDeclaration:
-			// RFC 0034 Task 3 keeps imports grammatically; module resolution
-			// is a later phase. Until then any import is unsupported, and it
-			// must fail with a structured diagnostic rather than a blank.
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.ModuleError,
-				Stage:    "checker",
-				Line:     statement.ModuleKeyword.Line,
-				Column:   statement.ModuleKeyword.Column,
-				Message:  "imports are not resolved yet",
-			})
+			if sawNonImportItem {
+				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+					Category: compilerTypes.ModuleError,
+					Stage:    "checker",
+					Line:     statement.ModuleKeyword.Line,
+					Column:   statement.ModuleKeyword.Column,
+					Message:  "imports must precede all other items",
+				})
+			}
+			// RFC 0034 Task 4: the alias is a fixed module identity, not a
+			// value; it is registered as an alias record and name lookup skips
+			// it, so resolution to the module's names arrives with the module
+			// phase.
+			target := canonicalModuleID(strings.Trim(statement.Path.Lexeme, "\""))
+			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
+				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+					Category: compilerTypes.NameError,
+					Stage:    "checker",
+					Line:     statement.Alias.Line,
+					Column:   statement.Alias.Column,
+					Message:  "import alias " + statement.Alias.Lexeme + " conflicts with an existing name",
+				})
+			}
 		default:
 			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 				Category: compilerTypes.UnknownError,
@@ -351,6 +436,49 @@ func Check(program parser.Program) (Program, error) {
 		return checked, starvationDiagnostics
 	}
 	return checked, nil
+}
+
+// declarationItem reports whether item is one of the four module-level
+// declaration forms. Only these may follow the import prefix without ending
+// it (RFC 0034).
+func declarationItem(item parser.TopLevelItem) bool {
+	switch item.(type) {
+	case parser.TypeDeclaration, parser.FunctionDeclaration, parser.ImplDeclaration, parser.ImportDeclaration:
+		return true
+	}
+	return false
+}
+
+// executableItemToken classifies one top-level item as an executable
+// statement, returning the token diagnostics point at: the declared name for
+// a data declaration, the statement keyword when one exists, or 1,1. An
+// imported module may contain none of these (RFC 0034).
+func executableItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
+	switch statement := item.(type) {
+	case parser.Declaration:
+		return statement.Name, true
+	case parser.TryStatement:
+		return statement.Keyword, true
+	case parser.IfStatement:
+		return statement.Keyword, true
+	case parser.WhileStatement:
+		return statement.Keyword, true
+	case parser.ForStatement:
+		return statement.Keyword, true
+	case parser.BreakStatement:
+		return statement.Keyword, true
+	case parser.ContinueStatement:
+		return statement.Keyword, true
+	case parser.DeferStatement:
+		return statement.Keyword, true
+	case parser.ErrdeferStatement:
+		return statement.Keyword, true
+	case parser.ReturnStatement:
+		return statement.Keyword, true
+	case parser.Assignment, parser.CallExpression:
+		return lexer.Token{Line: 1, Column: 1}, true
+	}
+	return lexer.Token{}, false
 }
 
 func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, environment *scope) (TypeDeclaration, compilerTypes.Diagnostics) {

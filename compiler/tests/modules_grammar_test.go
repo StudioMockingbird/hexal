@@ -1,10 +1,9 @@
 package tests
 
 // RFC 0034 Task 3 grammar: module/import/export keywords, module-path
-// literals, and dotted qualified types in type position. Semantic import
-// resolution arrives with the module phase; until then every import fails
-// with the structured "imports are not resolved yet" Module Error, which
-// also proves the grammar itself parsed.
+// literals, and dotted qualified types in type position. Grammar failures
+// surface as Syntax Errors; well-formed imports resolve (Task 4) and fail
+// only when their target module is absent.
 
 import (
 	"hexal/compiler"
@@ -12,22 +11,26 @@ import (
 	"testing"
 )
 
-func TestModuleImportParsesToModuleError(t *testing.T) {
-	source := "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n"
-	result := compileSource(source)
+func TestModuleImportResolvesToNotFound(t *testing.T) {
+	// Task 4 resolution: "./math" is a valid module-path literal that
+	// resolves; no source provides it, so the build fails with the
+	// resolution diagnostic rather than a grammar error — the grammar
+	// itself parsed.
+	result := compileSource("module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n")
 	if result.ExitCode != compiler.ExitFailure {
-		t.Fatalf("want failure until imports resolve, got %#v", result)
+		t.Fatalf("want failure until ./math exists, got %#v", result)
 	}
-	if len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "imports are not resolved yet") {
-		t.Fatalf("first diagnostic = %#v, want the import module error", result.Stderr)
+	if len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "imported module \"./math\" was not found") {
+		t.Fatalf("first diagnostic = %#v, want the resolution error", result.Stderr)
 	}
 }
 
 func TestModulePathWithHexSuffixParses(t *testing.T) {
-	// The .hex suffix is a path spelling, not grammar; both forms reach the
-	// same resolution failure, proving both parsed.
-	assertRejects(t, "module M = import \"./math.hex\"\n", "imports are not resolved yet")
-	assertRejects(t, "module M = import \"./math\"\n", "imports are not resolved yet")
+	// The .hex suffix is a path spelling, not grammar; both spellings
+	// resolve (a bare "./math" canonicalizes the same) and both fail only
+	// at resolution, proving both parsed.
+	assertRejects(t, "module M = import \"./math.hex\"\n", "imported module \"./math.hex\" was not found")
+	assertRejects(t, "module M = import \"./math\"\n", "imported module \"./math\" was not found")
 }
 
 func TestModuleImportMissingPieces(t *testing.T) {

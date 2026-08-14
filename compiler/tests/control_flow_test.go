@@ -139,15 +139,20 @@ func TestControlFlowReturnDiagnosticsDoNotMaskChildErrors(t *testing.T) {
 		t.Fatalf("parser diagnostic/fallthrough handling = %#v", parsedInvalid)
 	}
 
+	// A parse failure aborts before checking (RFC 0034 Task 4): the
+	// unrelated parse diagnostic appears alone, and the checker's
+	// fallthrough diagnostic never joins it.
 	unrelatedParserError := compileSource("broken\nfun unrelated_bad(value: Int32): Int32\n    local: Int32 = 1\nend")
 	unrelatedMessage := strings.Join(unrelatedParserError.Stderr, "\n")
-	if unrelatedParserError.ExitCode != compiler.ExitFailure || !strings.Contains(unrelatedMessage, "expected ':' for a declaration or '=' for an assignment") || !strings.Contains(unrelatedMessage, "returning unrelated_bad may fall through without returning Int32") {
+	if unrelatedParserError.ExitCode != compiler.ExitFailure || !strings.Contains(unrelatedMessage, "expected ':' for a declaration or '=' for an assignment") || strings.Contains(unrelatedMessage, "may fall through without returning") {
 		t.Fatalf("unrelated parser/return diagnostics = %#v", unrelatedParserError)
 	}
 
+	// Same contract: the parse error appears alone; the checker never runs,
+	// so the sibling's unknown-variable diagnostic does not join it.
 	dottedCallRecovery := compileSource("if true broken\n    point.step(1)\nend")
 	dottedMessage := strings.Join(dottedCallRecovery.Stderr, "\n")
-	if dottedCallRecovery.ExitCode != compiler.ExitFailure || !strings.Contains(dottedMessage, "expected ':' for a declaration or '=' for an assignment") || !strings.Contains(dottedMessage, "unknown variable point") {
+	if dottedCallRecovery.ExitCode != compiler.ExitFailure || !strings.Contains(dottedMessage, "expected ':' for a declaration or '=' for an assignment") || strings.Contains(dottedMessage, "unknown variable point") {
 		t.Fatalf("dotted call sibling recovery = %#v", dottedCallRecovery)
 	}
 }

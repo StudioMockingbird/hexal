@@ -70,14 +70,17 @@ type TryStatement struct {
 
 func (TryStatement) statementNode() {}
 
-// bindingKind separates storage from a declared function. A function name is
-// not a place: it can be read as a Fun<...> value and nothing else.
+// bindingKind separates storage from a declared function and from an import
+// alias. A function name is not a place: it can be read as a Fun<...> value
+// and nothing else. An import alias is not a value at all: name lookup skips
+// it, and only the module phase resolves it (RFC 0034).
 type bindingKind uint8
 
 const (
 	dataBinding bindingKind = iota
 	functionBinding
 	genericFunctionBinding
+	aliasBinding
 )
 
 // scope is one lexical name frame. Module bindings remain in module and are
@@ -87,7 +90,9 @@ type scope struct {
 	module       map[string]binding
 	local        map[string]binding // nil only at module level
 	parent       *scope
-	owner        string // enclosing function or method name, for diagnostics
+	moduleID     string            // the enclosing module's canonical identity (RFC 0034)
+	imports      map[string]string // import alias -> canonical module id (RFC 0034)
+	owner        string            // enclosing function or method name, for diagnostics
 	result       *compilerTypes.Type
 	resultUse    *compilerTypes.TypeUse
 	methods      *methodTable
@@ -101,9 +106,21 @@ type scope struct {
 	cleanupDepth int // checking a defer or errdefer action (RFC 0029)
 }
 
-func moduleScope() *scope {
+// moduleScope builds the root frame of one module. The scope copies its
+// import table from the registry so the table is never shared mutable state;
+// a module with no registry entry (the single-module path) carries an empty
+// table.
+func moduleScope(moduleID string, registry *ModuleRegistry) *scope {
 	next := BindingID(0)
-	return &scope{module: make(map[string]binding), methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: newGenericTable()}
+	imports := make(map[string]string)
+	if registry != nil {
+		if entry, ok := registry.modules[moduleID]; ok {
+			for alias, target := range entry.imports {
+				imports[alias] = target
+			}
+		}
+	}
+	return &scope{module: make(map[string]binding), moduleID: moduleID, imports: imports, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: newGenericTable()}
 }
 
 // flowFact records the branch-local treatment of one binding. A binding is
@@ -298,14 +315,16 @@ const (
 
 // lookup resolves a name for the current scope. Inside a function body a
 // module-level data binding is deliberately unreachable (RFC 0008 scope rule
-// 5); only previously declared functions remain visible.
+// 5); only previously declared functions remain visible. An import alias is
+// never a value and is skipped entirely, so a bare alias reference fails as
+// an unknown variable (RFC 0034).
 func (names *scope) lookup(name string) (binding, lookupStatus) {
 	for current := names; current != nil && current.local != nil; current = current.parent {
 		if bound, ok := current.local[name]; ok {
 			return bound, nameFound
 		}
 	}
-	if bound, ok := names.module[name]; ok {
+	if bound, ok := names.module[name]; ok && bound.kind != aliasBinding {
 		if names.inFunction() && bound.kind != functionBinding && bound.kind != genericFunctionBinding {
 			return bound, nameModuleData
 		}
@@ -314,23 +333,49 @@ func (names *scope) lookup(name string) (binding, lookupStatus) {
 	return binding{}, nameMissing
 }
 
+// importAlias reports whether name is an import alias of the enclosing
+// module. The module frame is shared by reference through every child scope,
+// so one lookup reaches it at any depth; shadowing an alias is forbidden
+// (RFC 0034).
+func (names *scope) importAlias(name string) bool {
+	bound, exists := names.module[name]
+	return exists && bound.kind == aliasBinding
+}
+
 // declaredHere reports a duplicate in the innermost scope only, so a local may
-// shadow a module-level value.
+// shadow a module-level value. An import alias is the exception: it is fixed
+// for the whole module, so no nested scope may shadow one (RFC 0034).
 func (names *scope) declaredHere(name string) bool {
 	if names.local != nil {
-		_, exists := names.local[name]
-		return exists
+		if _, exists := names.local[name]; exists {
+			return true
+		}
+		return names.importAlias(name)
 	}
 	_, exists := names.module[name]
 	return exists
 }
 
-func (names *scope) define(name string, bound binding) {
+// define installs one binding in the current frame and reports whether it was
+// accepted. At module level an import alias may not collide with any existing
+// module binding; in a nested scope a name may not shadow an import alias.
+// Other duplicates are validated before define is called, so they never reach
+// a rejection here.
+func (names *scope) define(name string, bound binding) bool {
 	if names.local != nil {
+		if names.importAlias(name) {
+			return false
+		}
 		names.local[name] = bound
-		return
+		return true
+	}
+	if bound.kind == aliasBinding {
+		if _, exists := names.module[name]; exists {
+			return false
+		}
 	}
 	names.module[name] = bound
+	return true
 }
 
 func (names *scope) child() *scope {
@@ -478,6 +523,18 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 		generics:  names.generics,
 	}
 	for index := range parameters {
+		// RFC 0034: no nested scope may shadow an import alias; a
+		// conflicting parameter is rejected like any other redeclaration.
+		if names.importAlias(parameters[index].Name) {
+			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+				Category: compilerTypes.NameError,
+				Stage:    "checker",
+				Line:     parameters[index].SourceLine,
+				Column:   parameters[index].SourceColumn,
+				Message:  "import alias " + parameters[index].Name + " conflicts with an existing name",
+			})
+			continue
+		}
 		parameters[index].Binding = names.newBindingID()
 		bound := binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
 		body.local[parameters[index].Name] = bound
@@ -648,6 +705,18 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		generics:  names.generics,
 	}
 	for index := range parameters {
+		// RFC 0034: no nested scope may shadow an import alias; a
+		// conflicting parameter is rejected like any other redeclaration.
+		if names.importAlias(parameters[index].Name) {
+			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+				Category: compilerTypes.NameError,
+				Stage:    "checker",
+				Line:     parameters[index].SourceLine,
+				Column:   parameters[index].SourceColumn,
+				Message:  "import alias " + parameters[index].Name + " conflicts with an existing name",
+			})
+			continue
+		}
 		parameters[index].Binding = names.newBindingID()
 		bound := binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
 		body.local[parameters[index].Name] = bound
