@@ -11,7 +11,7 @@ import (
 func TestPrivateValueNames(t *testing.T) {
 	longName := "long_identifier_name_with_more_than_one_hundred_characters_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	source := "main: Int32 = 1 int: Int32 = 2 restrict: Int32 = 3 INT32_MAX: Int32 = 4 hex_v_score: Int32 = 5 " + longName + ": Int32 = 6"
-	result := compiler.Compile(source)
+	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -30,7 +30,7 @@ func TestPrivateValueNames(t *testing.T) {
 }
 
 func TestReferencesUsePrivateValueNames(t *testing.T) {
-	result := compiler.Compile("mut int: Int32 = 1 int = 2 pointer: Ptr<Int32> = ref int value: Int32 = pointer.value")
+	result := compileSource("mut int: Int32 = 1 int = 2 pointer: Ptr<Int32> = ref int value: Int32 = pointer.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -53,15 +53,15 @@ func TestStreamNameIsProtected(t *testing.T) {
 		"fun use<Stream>(value: Stream): Stream\n    return value\nend\n",
 	}
 	for _, source := range rejected {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitFailure {
+		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
 			t.Fatalf("want Stream redeclaration rejected, got accept:\n%s", source)
 		}
 	}
-	result := compiler.Compile("type Stream = Int32")
+	result := compileSource("type Stream = Int32")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Stream") {
 		t.Fatalf("want a Stream-named diagnostic, got %v", result.Stderr)
 	}
-	result = compiler.Compile("s: Stream<Int32> = Stream<Int32>.new()\n")
+	result = compileSource("s: Stream<Int32> = Stream<Int32>.new()\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("ordinary Stream<T> use must compile: %v", result.Stderr)
 	}

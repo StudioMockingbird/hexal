@@ -141,6 +141,7 @@ const (
 	SemanticError    ErrorCategory = "Semantic Error"
 	TypeError        ErrorCategory = "Type Error"
 	NameError        ErrorCategory = "Name Error"
+	ModuleError      ErrorCategory = "Module Error"
 	UnsupportedError ErrorCategory = "Unsupported Error"
 	LimitError       ErrorCategory = "Limit Error"
 	UnknownError     ErrorCategory = "Unknown Error"

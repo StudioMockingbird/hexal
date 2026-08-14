@@ -10,7 +10,7 @@ import (
 // lexical lifetimes, and the slice operations on Array and View.
 
 func TestViewSliceReadOperations(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    view: View<Int32> = fixed.slice(0, 2)\n    count: Size = view.length()\n    empty: Bool = view.is_empty()\n    first: Int32 = view.at(0)\n    second: Int32 = view[1]\n    tail: View<Int32> = view.slice(1, 2)\n    last: Int32 = tail[0]\nend")
+	result := compileSource("fun demo()\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    view: View<Int32> = fixed.slice(0, 2)\n    count: Size = view.length()\n    empty: Bool = view.is_empty()\n    first: Int32 = view.at(0)\n    second: Int32 = view[1]\n    tail: View<Int32> = view.slice(1, 2)\n    last: Int32 = tail[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -32,14 +32,14 @@ func TestViewSliceReadOperations(t *testing.T) {
 }
 
 func TestViewIsReadOnly(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    view: View<Int32> = fixed.slice(0, 2)\n    view[0] = 5\nend")
+	result := compileSource("fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    view: View<Int32> = fixed.slice(0, 2)\n    view[0] = 5\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "read-only") {
 		t.Fatalf("Compile stderr = %#v, want read-only view diagnostic", result.Stderr)
 	}
 }
 
 func TestViewCannotBeRootedInTemporaryArray(t *testing.T) {
-	result := compiler.Compile("fun make_fixed(): Array<Int32, 2>\n    return [1, 2]\nend\nfun demo()\n    view: View<Int32> = make_fixed().slice(0, 2)\nend")
+	result := compileSource("fun make_fixed(): Array<Int32, 2>\n    return [1, 2]\nend\nfun demo()\n    view: View<Int32> = make_fixed().slice(0, 2)\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "temporary Array") {
 		t.Fatalf("Compile stderr = %#v, want temporary-Array diagnostic", result.Stderr)
 	}
@@ -58,7 +58,7 @@ func TestViewAfterRootReassignmentIsValid(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			source := "type Pair = { mut values: Array<Int32, 2>, }\n" + testCase.source
-			if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+			if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 				t.Fatalf("Compile(%q) exit code = %d (%v), want 0", testCase.source, result.ExitCode, result.Stderr)
 			}
 		})
@@ -66,7 +66,7 @@ func TestViewAfterRootReassignmentIsValid(t *testing.T) {
 }
 
 func TestViewAllowsElementWritesToRootArray(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    mut fixed: Array<Int32, 2> = [1, 2]\n    view: View<Int32> = fixed.slice(0, 2)\n    fixed[0] = 5\n    total: Int32 = view[0] + fixed[1]\nend")
+	result := compileSource("fun demo()\n    mut fixed: Array<Int32, 2> = [1, 2]\n    view: View<Int32> = fixed.slice(0, 2)\n    fixed[0] = 5\n    total: Int32 = view[0] + fixed[1]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -83,7 +83,7 @@ func TestViewRestrictions(t *testing.T) {
 		{"view of function", "fun demo()\n    callbacks: View<Fun<(Int32)>> = [1]\nend", "not an inline view element type"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := compiler.Compile(testCase.source)
+			result := compileSource(testCase.source)
 			if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 				t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 			}
@@ -96,7 +96,7 @@ func TestViewSliceConstantBoundsAreCompileErrors(t *testing.T) {
 		"fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    view: View<Int32> = fixed.slice(1, 3)\nend",
 		"fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    view: View<Int32> = fixed.slice(2, 1)\nend",
 	} {
-		result := compiler.Compile(source)
+		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "out of bounds") {
 			t.Fatalf("Compile(%q) stderr = %#v, want slice-bounds diagnostic", source, result.Stderr)
 		}
@@ -104,7 +104,7 @@ func TestViewSliceConstantBoundsAreCompileErrors(t *testing.T) {
 }
 
 func TestViewPassedToFunctionParameter(t *testing.T) {
-	result := compiler.Compile("fun sum(values: View<Int32>): Int32\n    return values[0] + values[1]\nend\nfun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    total: Int32 = sum(fixed.slice(0, 2))\nend")
+	result := compileSource("fun sum(values: View<Int32>): Int32\n    return values[0] + values[1]\nend\nfun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    total: Int32 = sum(fixed.slice(0, 2))\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -120,7 +120,7 @@ func TestViewPassedToFunctionParameter(t *testing.T) {
 }
 
 func TestViewPreservesMutPtrPointeeCapability(t *testing.T) {
-	result := compiler.Compile("type Node = { mut score: Int32, }\nfun demo()\n    mut first: Node = Node { score = 1, }\n    mut second: Node = Node { score = 2, }\n    mut nodes: Array<MutPtr<Node>, 2> = [ref first, ref second]\n    view: View<MutPtr<Node>> = nodes.slice(0, 2)\n    view[0].score = 42\nend")
+	result := compileSource("type Node = { mut score: Int32, }\nfun demo()\n    mut first: Node = Node { score = 1, }\n    mut second: Node = Node { score = 2, }\n    mut nodes: Array<MutPtr<Node>, 2> = [ref first, ref second]\n    view: View<MutPtr<Node>> = nodes.slice(0, 2)\n    view[0].score = 42\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -137,7 +137,7 @@ func TestViewReturnRules(t *testing.T) {
 		"fun slice_of_param(xs: List<Int32>): View<Int32>\n    return xs.slice(0, 1)\nend\n",
 	}
 	for _, source := range accepted {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
 		}
 	}
@@ -146,14 +146,14 @@ func TestViewReturnRules(t *testing.T) {
 		"fun head(): View<Int32>\n    fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    view: View<Int32> = fixed.slice(0, 2)\n    return view\nend\n",
 	}
 	for _, source := range rejected {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitFailure {
+		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
 			t.Fatalf("want reject, got accept:\n%s", source)
 		}
 	}
 	// Documented limitation: a View nested inside a returned aggregate is not
 	// diagnosed; the escape analysis RFC 0035 removed would be required.
 	nested := "type Window = { visible: View<Int32> }\nfun bad(): Window\n    fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return Window { visible = fixed.slice(0, 2) }\nend\n"
-	if result := compiler.Compile(nested); result.ExitCode != compiler.ExitSuccess {
+	if result := compileSource(nested); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("nested View return must compile by design: %v", result.Stderr)
 	}
 }

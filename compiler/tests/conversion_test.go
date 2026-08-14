@@ -9,7 +9,7 @@ import (
 // RFC 0038: the one explicit scalar conversion spelling `source.to<Dest>()`.
 
 func TestConversionMethods(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    wide: Int64 = 9_000_000_000\n    small: Int8 = 12\n    narrowed: Int8 = wide.to<Int8>()\n    whole: Int32 = 3.75.to<Int32>()\n    size: Size = small.to<Size>()\n    count: UInt32 = size.to<UInt32>()\n    letter: Rune = wide.to<Rune>()\n    code: UInt32 = letter.to<UInt32>()\nend")
+	result := compileSource("fun demo()\n    wide: Int64 = 9_000_000_000\n    small: Int8 = 12\n    narrowed: Int8 = wide.to<Int8>()\n    whole: Int32 = 3.75.to<Int32>()\n    size: Size = small.to<Size>()\n    count: UInt32 = size.to<UInt32>()\n    letter: Rune = wide.to<Rune>()\n    code: UInt32 = letter.to<UInt32>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -30,7 +30,7 @@ func TestConversionMethods(t *testing.T) {
 }
 
 func TestCheckedConstantConversionDiagnostics(t *testing.T) {
-	result := compiler.Compile("bad: Int8 = (200).to<Int8>()")
+	result := compileSource("bad: Int8 = (200).to<Int8>()")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "outside the range of Int8") {
 		t.Fatalf("Compile stderr = %#v, want checked-conversion range diagnostic", result.Stderr)
 	}
@@ -46,7 +46,7 @@ func TestRuneScalarValidity(t *testing.T) {
 		{"high: Rune = (0x110000).to<Rune>()", "not a valid Unicode scalar value"},
 		{"negative: Rune = (-1).to<Rune>()", "not a valid Unicode scalar value"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if testCase.want == "" {
 			if result.ExitCode != compiler.ExitSuccess {
 				t.Fatalf("Compile(%q) stderr = %#v, want 0", testCase.source, result.Stderr)
@@ -74,7 +74,7 @@ func TestConversionMatrixRejections(t *testing.T) {
 		{"fun demo()\n    value: Int32 = 1\n    bad: Int32 = value.to<Int32>(1)\nend", "to accepts no value arguments"},
 		{"fun demo()\n    value: Int32 = 1\n    bad: Int32 = value.to_int32()\nend", "Int32 has no method named to_int32"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -82,18 +82,18 @@ func TestConversionMatrixRejections(t *testing.T) {
 }
 
 func TestConversionGenericSpecialization(t *testing.T) {
-	result := compiler.Compile("fun convert<Source, Destination>(value: Source): Destination\n    return value.to<Destination>()\nend\nfun demo()\n    good: Int32 = convert<Int64, Int32>(10)\nend")
+	result := compileSource("fun convert<Source, Destination>(value: Source): Destination\n    return value.to<Destination>()\nend\nfun demo()\n    good: Int32 = convert<Int64, Int32>(10)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	result = compiler.Compile("fun convert<Source, Destination>(value: Source): Destination\n    return value.to<Destination>()\nend\nfun demo()\n    bad: Bool = convert<Int32, Bool>(10)\nend")
+	result = compileSource("fun convert<Source, Destination>(value: Source): Destination\n    return value.to<Destination>()\nend\nfun demo()\n    bad: Bool = convert<Int32, Bool>(10)\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
 		t.Fatalf("Compile stderr = %#v, want specialization rejection", result.Stderr)
 	}
 }
 
 func TestConversionAliasCanonicalizes(t *testing.T) {
-	result := compiler.Compile("type Count = Int32\nfun demo()\n    value: Int64 = 5\n    count: Count = value.to<Count>()\nend")
+	result := compileSource("type Count = Int32\nfun demo()\n    value: Int64 = 5\n    count: Count = value.to<Count>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -114,7 +114,7 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 		"count: Size = 1\nsize: Float32 = count\n",
 	}
 	for _, source := range rejected {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitFailure {
+		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
 			t.Fatalf("want reject, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}
 	}
@@ -126,12 +126,12 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 		"count: Size = 1\nsmall: UInt8 = count.to<UInt8>()\n",
 	}
 	for _, source := range accepted {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}
 	}
 	bad := "a: Array<Size, 2> = [1, 2]\nb: Array<UInt64, 2> = a\n"
-	if result := compiler.Compile(bad); result.ExitCode != compiler.ExitFailure {
+	if result := compileSource(bad); result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want Array<Size> and Array<UInt64> distinct, got accept")
 	}
 }

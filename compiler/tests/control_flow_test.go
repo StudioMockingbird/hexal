@@ -9,7 +9,7 @@ import (
 )
 
 func TestConditionalAndLoopLowering(t *testing.T) {
-	result := compiler.Compile("mut count: Int32 = 0 mut ready: Bool = true if ready mut local: Int32 = 1 count = count + local elseif false count = 9 else count = 8 end while count < 3 do count = count + 1 if count == 2 continue end if count > 2 break end end")
+	result := compileSource("mut count: Int32 = 0 mut ready: Bool = true if ready mut local: Int32 = 1 count = count + local elseif false count = 9 else count = 8 end while count < 3 do count = count + 1 if count == 2 continue end if count > 2 break end end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("control-flow compilation failed: %#v", result)
 	}
@@ -30,7 +30,7 @@ func TestConditionalAndLoopLowering(t *testing.T) {
 }
 
 func TestControlFlowScopesAndShadowing(t *testing.T) {
-	result := compiler.Compile("mut value: Int32 = 0 if true value = 1 else value: Int32 = 2 end if false value: Int32 = 3 end")
+	result := compileSource("mut value: Int32 = 0 if true value = 1 else value: Int32 = 2 end if false value: Int32 = 3 end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("scoped declarations failed: %#v", result)
 	}
@@ -38,14 +38,14 @@ func TestControlFlowScopesAndShadowing(t *testing.T) {
 		t.Fatalf("shadowed C names are not deterministic: %q", result.MainC)
 	}
 
-	invalid := compiler.Compile("if true local: Int32 = 1 end read: Int32 = local")
+	invalid := compileSource("if true local: Int32 = 1 end read: Int32 = local")
 	if invalid.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(invalid.Stderr, "\n"), "unknown variable local") {
 		t.Fatalf("out-of-scope binding = %#v", invalid.Stderr)
 	}
 }
 
 func TestControlFlowDefiniteReturns(t *testing.T) {
-	valid := compiler.Compile("fun classify(value: Int32): Int32 if value > 0 return 1 elseif value == 0 return 0 else return -1 end end result: Int32 = classify(1)")
+	valid := compileSource("fun classify(value: Int32): Int32 if value > 0 return 1 elseif value == 0 return 0 else return -1 end end result: Int32 = classify(1)")
 	if valid.ExitCode != compiler.ExitSuccess || len(valid.Stderr) != 0 {
 		t.Fatalf("all-branch return failed: %#v", valid)
 	}
@@ -54,7 +54,7 @@ func TestControlFlowDefiniteReturns(t *testing.T) {
 		"fun partial(value: Int32): Int32 if value > 0 return value end end",
 		"fun looping(value: Int32): Int32 while value > 0 do return value end end",
 	} {
-		result := compiler.Compile(source)
+		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "may fall through without returning") {
 			t.Fatalf("Compile(%q) = %#v, want definite-return diagnostic", source, result)
 		}
@@ -62,7 +62,7 @@ func TestControlFlowDefiniteReturns(t *testing.T) {
 }
 
 func TestControlFlowEmptyBranchesAndZeroIterationLoops(t *testing.T) {
-	result := compiler.Compile("if (true and false) or true elseif false else end while false do end")
+	result := compileSource("if (true and false) or true elseif false else end while false do end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("empty control-flow blocks failed: %#v", result)
 	}
@@ -79,7 +79,7 @@ func TestControlFlowEmptyBranchesAndZeroIterationLoops(t *testing.T) {
 }
 
 func TestControlFlowNestedLoopsAndLineMappings(t *testing.T) {
-	result := compiler.Compile("mut outer: Int32 = 0\nwhile outer < 2 do\n    mut inner: Int32 = 0\n    while inner < 2 do\n        inner = inner + 1\n        if inner == 1\n            continue\n        end\n        break\n    end\n    outer = outer + 1\n    break\nend")
+	result := compileSource("mut outer: Int32 = 0\nwhile outer < 2 do\n    mut inner: Int32 = 0\n    while inner < 2 do\n        inner = inner + 1\n        if inner == 1\n            continue\n        end\n        break\n    end\n    outer = outer + 1\n    break\nend")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("nested control-flow compilation failed: %#v", result)
 	}
@@ -99,7 +99,7 @@ func TestControlFlowNestedLoopsAndLineMappings(t *testing.T) {
 }
 
 func TestControlFlowConditionLineMappings(t *testing.T) {
-	result := compiler.Compile("flag: Bool = true\nif\n    flag\nelseif\n    flag\nend\nwhile\n    flag\ndo\nend")
+	result := compileSource("flag: Bool = true\nif\n    flag\nelseif\n    flag\nend\nwhile\n    flag\ndo\nend")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("multiline control-flow conditions failed: %#v", result)
 	}
@@ -115,37 +115,37 @@ func TestControlFlowConditionLineMappings(t *testing.T) {
 }
 
 func TestControlFlowLoopScopeCleanup(t *testing.T) {
-	result := compiler.Compile("while false do local: Int32 = 1 end read: Int32 = local")
+	result := compileSource("while false do local: Int32 = 1 end read: Int32 = local")
 	if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), "unknown variable local") {
 		t.Fatalf("loop-local binding escaped its scope: %#v", result)
 	}
 }
 
 func TestControlFlowReturnDiagnosticsDoNotMaskChildErrors(t *testing.T) {
-	valid := compiler.Compile("fun done(value: Int32): Int32\n    return value\n    ignored: Int32 = 1\nend\nresult: Int32 = done(1)")
+	valid := compileSource("fun done(value: Int32): Int32\n    return value\n    ignored: Int32 = 1\nend\nresult: Int32 = done(1)")
 	if valid.ExitCode != compiler.ExitSuccess || len(valid.Stderr) != 0 {
 		t.Fatalf("return followed by unreachable statements failed: %#v", valid)
 	}
 
-	invalid := compiler.Compile("fun bad(value: Int32): Int32\n    if value > 0\n        return value\n    else\n        missing: Int32 = unknown\n    end\nend")
+	invalid := compileSource("fun bad(value: Int32): Int32\n    if value > 0\n        return value\n    else\n        missing: Int32 = unknown\n    end\nend")
 	message := strings.Join(invalid.Stderr, "\n")
 	if invalid.ExitCode != compiler.ExitFailure || !strings.Contains(message, "unknown variable unknown") || strings.Contains(message, "may fall through without returning") {
 		t.Fatalf("child diagnostic/fallthrough handling = %#v", invalid)
 	}
 
-	parsedInvalid := compiler.Compile("fun parsed_bad(value: Int32): Int32\n    broken\nend")
+	parsedInvalid := compileSource("fun parsed_bad(value: Int32): Int32\n    broken\nend")
 	parsedMessage := strings.Join(parsedInvalid.Stderr, "\n")
 	if parsedInvalid.ExitCode != compiler.ExitFailure || !strings.Contains(parsedMessage, "expected ':' for a declaration or '=' for an assignment") || strings.Contains(parsedMessage, "may fall through without returning") {
 		t.Fatalf("parser diagnostic/fallthrough handling = %#v", parsedInvalid)
 	}
 
-	unrelatedParserError := compiler.Compile("broken\nfun unrelated_bad(value: Int32): Int32\n    local: Int32 = 1\nend")
+	unrelatedParserError := compileSource("broken\nfun unrelated_bad(value: Int32): Int32\n    local: Int32 = 1\nend")
 	unrelatedMessage := strings.Join(unrelatedParserError.Stderr, "\n")
 	if unrelatedParserError.ExitCode != compiler.ExitFailure || !strings.Contains(unrelatedMessage, "expected ':' for a declaration or '=' for an assignment") || !strings.Contains(unrelatedMessage, "returning unrelated_bad may fall through without returning Int32") {
 		t.Fatalf("unrelated parser/return diagnostics = %#v", unrelatedParserError)
 	}
 
-	dottedCallRecovery := compiler.Compile("if true broken\n    point.step(1)\nend")
+	dottedCallRecovery := compileSource("if true broken\n    point.step(1)\nend")
 	dottedMessage := strings.Join(dottedCallRecovery.Stderr, "\n")
 	if dottedCallRecovery.ExitCode != compiler.ExitFailure || !strings.Contains(dottedMessage, "expected ':' for a declaration or '=' for an assignment") || !strings.Contains(dottedMessage, "unknown variable point") {
 		t.Fatalf("dotted call sibling recovery = %#v", dottedCallRecovery)
@@ -153,7 +153,7 @@ func TestControlFlowReturnDiagnosticsDoNotMaskChildErrors(t *testing.T) {
 }
 
 func TestMethodControlFlowLowering(t *testing.T) {
-	result := compiler.Compile("type Counter = { mut count: Int32, } impl MutPtr<Counter>.step(amount: Int32): Int32 if amount > 0 self.count = self.count + amount return self.count else return 0 end end mut counter: Counter = Counter { count = 1, } result: Int32 = counter.step(2)")
+	result := compileSource("type Counter = { mut count: Int32, } impl MutPtr<Counter>.step(amount: Int32): Int32 if amount > 0 self.count = self.count + amount return self.count else return 0 end end mut counter: Counter = Counter { count = 1, } result: Int32 = counter.step(2)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("method control-flow compilation failed: %#v", result)
 	}
@@ -184,7 +184,7 @@ func TestControlFlowDiagnostics(t *testing.T) {
 		{"return", "return is only valid inside a function or method body"},
 		{"return 1", "return is only valid inside a function or method body"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}

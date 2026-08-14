@@ -23,6 +23,12 @@ const (
 type CompilationResult struct {
 	MainC    string
 	MainH    string
+	// Files is the authoritative generated-artifact map: every emitted
+	// C/header file under its normalized logical key, including main.c,
+	// main.h, and all modules/<canonical-path>.c/.h pairs. MainC and MainH
+	// mirror Files["main.c"] and Files["main.h"]; they are never generated
+	// or mutated independently.
+	Files    map[string]string
 	Stderr   []string
 	ExitCode int
 	Stats    CompilationStats
@@ -42,9 +48,24 @@ type CompilationStats struct {
 
 // Compile runs Hexal source through every stage and returns main.c, main.h,
 // std.err entries, and an EXIT_SUCCESS or EXIT_FAILURE-compatible status.
-func Compile(source string) CompilationResult {
+//
+// sources maps logical .hex filenames to complete Hexal source strings.
+// entrypoint is the logical .hex filename of the selected root module and
+// must name exactly one entry in sources. The compiler is exclusively an
+// in-memory string transformation: it performs no filesystem reads, writes,
+// discovery, or working-directory lookup.
+func Compile(sources map[string]string, entrypoint string) CompilationResult {
 	compileStarted := time.Now()
-	stats := CompilationStats{SourceLines: sourceLineCount(source)}
+	stats := CompilationStats{}
+
+	source, ok := sources[entrypoint]
+	if !ok {
+		err := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1,
+			"entrypoint "+entrypoint+" was not found in the supplied sources")
+		return failureResult(err, stats, compileStarted)
+	}
+
+	stats.SourceLines = sourceLineCount(source)
 
 	started := time.Now()
 	tokens, err := lexer.Lex(source)
@@ -72,9 +93,11 @@ func Compile(source string) CompilationResult {
 		return failureResult(generateErr, stats, compileStarted)
 	}
 	finalizeStats(&stats, compileStarted)
+	files := map[string]string{"main.c": mainC, "main.h": mainH}
 	return CompilationResult{
 		MainC:    mainC,
 		MainH:    mainH,
+		Files:    files,
 		ExitCode: ExitSuccess,
 		Stats:    stats,
 	}
@@ -115,9 +138,13 @@ func failureResult(err error, stats CompilationStats, compileStarted time.Time) 
 	mainC, mainH := generator.GenerateFailure()
 	stats.GenerateDuration = time.Since(started)
 	finalizeStats(&stats, compileStarted)
+	// Failure output is deliberate fail-closed output: only the complete
+	// generated failure entrypoint files, never partial module artifacts.
+	files := map[string]string{"main.c": mainC, "main.h": mainH}
 	return CompilationResult{
 		MainC:    mainC,
 		MainH:    mainH,
+		Files:    files,
 		Stderr:   compilerTypes.ErrorMessages(err),
 		ExitCode: ExitFailure,
 		Stats:    stats,

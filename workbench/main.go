@@ -80,7 +80,7 @@ func compileHandler(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	writeJSON(response, http.StatusOK, toResponse(compiler.Compile(input.Source)))
+	writeJSON(response, http.StatusOK, toResponse(compiler.Compile(map[string]string{"app.hex": input.Source}, "app.hex")))
 }
 
 func toResponse(result compiler.CompilationResult) compileResponse {

@@ -38,7 +38,8 @@ end
 - Imported modules contain declarations only. They have no runtime
   initialization, module values, or import-time side effects.
 - Every reachable module produces one C/header pair. The build also produces
-  thin `main.c` and `main.h` entrypoint files.
+  top-level `main.c` and `main.h` for the process entrypoint and compiler-owned
+  program support.
 - Native module visibility is distinct from foreign ABI exposure. `export`
   means Hexal-module visibility only; a future proposal may use `extern` for C
   linkage.
@@ -139,6 +140,12 @@ program = lexical-separation , { import-declaration }
 import-declaration = "module" , identifier , "=" , "import"
                      , module-path-literal ;
 
+module-path-literal = '"' , relative-import-path , '"' ;
+
+relative-import-path = ( "./" | "../" , { "../" } )
+                       , identifier , { "/" , identifier }
+                       , [ ".hex" ] ;
+
 top-level-item = ( [ "export" ]
                    , ( type-declaration | function-declaration
                        | implementation-declaration ) )
@@ -211,16 +218,6 @@ point: Geometry.Point = Geometry.origin()
 - `..` components are resolved lexically but cannot walk above the logical
   source-map root.
 
-Conceptually:
-
-```ebnf
-relative-import-path = ( "./" | "../" , { "../" } )
-                       , identifier , { "/" , identifier }
-                       , [ ".hex" ] ;
-
-module-path-literal = '"' , relative-import-path , '"' ;
-```
-
 ### Canonicalization
 
 - Resolution is relative to the importing file's directory.
@@ -233,6 +230,9 @@ module-path-literal = '"' , relative-import-path , '"' ;
   exactly in `sources`; otherwise it reports a missing-module error.
 - Logical keys and canonical identities are case-sensitive strings. Host
   filesystem case rules do not participate.
+- Case-distinct reachable modules produce distinct `Files` keys, C symbols,
+  and header guards. The compiler does not reject them based on a possible
+  future output filesystem.
 
 Package names, dependency roots, registries, versions, and standard-library
 prefixes remain future work. Any later filesystem or build layer must supply
@@ -469,8 +469,8 @@ even when its source is unchanged.
 
 - Array, View, List, Dict, Stream, Task, Channel, Atomic, Ptr, MutPtr, and Fun
   are compiler-owned constructors and have no defining source module.
-- The generated program-support unit owns their reachable concrete
-  specializations.
+- The compiler-owned program-support sections of `main.c` and `main.h` own
+  their reachable concrete specializations.
 - The compiler collects every reachable built-in specialization request across
   all modules, canonicalizes it after type substitution, sorts it, and emits
   each specialization exactly once where external identity or state is
@@ -506,19 +506,21 @@ math.hex                -> modules/math.c, modules/math.h
 graphics/shapes.hex     -> modules/graphics/shapes.c
                            modules/graphics/shapes.h
 main.hex                -> modules/main.c, modules/main.h
-main.c                  -> thin process entrypoint
-main.h                  -> entrypoint/core-bootstrap declarations
+main.c                  -> process entrypoint and program support
+main.h                  -> entrypoint/program-support declarations
 ```
 
 - Generated paths never overwrite source files. The `modules/` namespace keeps
   a source module named `main.hex` distinct from entrypoint `main.c`/`main.h`.
-- `main.h` owns declarations shared by the thin entrypoint, generated runtime
-  bootstrap, and C libraries used by core libraries or bootstrapping.
+- `main.h` owns declarations shared by the process entrypoint, compiler-owned
+  program support, generated runtime bootstrap, and C libraries used by core
+  libraries or bootstrapping.
 - `main.h` must contain only declarations needed across generated translation
   units; it is not a public Hexal FFI header.
-- `main.c` includes `main.h` and the root module header, initializes required
-  generated runtime support, invokes the root run function, and returns its C
-  status.
+- `main.c` contains compiler-owned external definitions and
+  per-specialization state, includes `main.h` and the root module header,
+  initializes required generated runtime support, invokes the root run
+  function, and returns its C status.
 - The root module pair owns the root execution body exposed to `main.c` through
   a generated internal declaration.
 - Non-root modules expose no initializer function.
@@ -553,8 +555,9 @@ int main(void) {
 - Generated filenames preserve canonical module paths as specified above.
 - C symbols and header guards use one deterministic, reversible,
   collision-free ASCII encoding of the canonical module identity.
-- The encoding does not rely on case distinctions and is length-delimited;
-  replacing `/` with `_` and `_` with `__` is forbidden because it is not
+- The encoding is case-preserving and length-delimited. C symbols and macro
+  identifiers are case-sensitive, matching canonical module identity.
+  Replacing `/` with `_` and `_` with `__` is forbidden because it is not
   injective for all paths.
 - V1 uses the UTF-8 byte length and source spelling of each path component:
 
@@ -571,12 +574,14 @@ audio/math      -> m5_audio4_math
   path components.
 - Generated native identifiers retain the source-declaration prefixes from
   `reference.md` after the encoded module owner.
-- Header guards use reserved generated `HEX_` macro spelling plus the encoded
-  module owner.
+- Header guards use reserved generated `HEX_MODULE_` macro spelling, the exact
+  case-preserving encoded module owner, and `_H`. The encoded owner must never
+  be uppercased or case-folded.
 
 ```text
 graphics/shapes.draw -> hex_f_m8_graphics6_shapes_draw
-graphics/shapes.h    -> HEX_MODULE_M8_GRAPHICS6_SHAPES_H
+graphics/shapes.h    -> HEX_MODULE_m8_graphics6_shapes_H
+Graphics/Shapes.h    -> HEX_MODULE_m8_Graphics6_Shapes_H
 ```
 
 ### Determinism and build order
@@ -689,6 +694,8 @@ this RFC closes:
 - Ignore unreachable source-map entries.
 - Verify mirrored module filenames plus collision-free symbols, guards, and
   canonical identities.
+- Verify modules whose logical keys differ only by case produce distinct
+  artifact keys, symbols, and case-preserving header guards.
 - Verify exported/private linkage, dependency-safe declarations, original
   `#line` mappings, and absence of non-root initializer functions.
 - Verify diamond dependencies emit one module definition.
@@ -699,6 +706,8 @@ this RFC closes:
 - Multi-file modules and directory packages.
 - Filesystem reads, writes, discovery, directory validation, symlink handling,
   host-path normalization, and working-directory behavior.
+- Materialization and collision policy for case-sensitive logical artifacts on
+  case-insensitive filesystems.
 - Incremental compilation, file watching, caches, public-interface
   fingerprints, and invalidation.
 - Package manifests, dependency names, versions, registries, and downloads.
@@ -738,8 +747,9 @@ this RFC closes:
     generic specialization and emits state/external definitions exactly once.
 12. Every reachable module emits one mirrored `modules/<path>.c/.h` pair;
     unreachable source-map entries emit nothing.
-13. Each build emits thin `main.c` and retained `main.h`; non-root modules emit
-    no initializer.
+13. Each build emits top-level `main.c` and `main.h` containing the process
+    entrypoint and compiler-owned program support; non-root modules emit no
+    initializer.
 14. Generated output is deterministic, preserves `#line`, compiles and links as
     C23, and introduces no stable foreign ABI promise.
 15. `Compile(sources, entrypoint)` consumes only in-memory source strings and

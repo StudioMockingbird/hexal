@@ -10,7 +10,7 @@ import (
 // conversion.
 
 func TestBitwiseOperators(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    masked: UInt32 = 0xFFFF0000 & 0x0000FFFF\n    xor: UInt32 = 0xFF00 ^ 0x0FF0\n    combined: UInt8 = 0xF0 | 0x0F\n    complement: UInt8 = ~0x0F\n    small: UInt8 = 0xF0\n    wide: UInt16 = 0x0F0F\n    widened: UInt16 = small & wide\n    flags: UInt32 = 0xFFFF\n    result: UInt32 = flags & 0x00FF\nend")
+	result := compileSource("fun demo()\n    masked: UInt32 = 0xFFFF0000 & 0x0000FFFF\n    xor: UInt32 = 0xFF00 ^ 0x0FF0\n    combined: UInt8 = 0xF0 | 0x0F\n    complement: UInt8 = ~0x0F\n    small: UInt8 = 0xF0\n    wide: UInt16 = 0x0F0F\n    widened: UInt16 = small & wide\n    flags: UInt32 = 0xFFFF\n    result: UInt32 = flags & 0x00FF\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -28,7 +28,7 @@ func TestBitwiseOperators(t *testing.T) {
 }
 
 func TestBitwiseSignedReconstruction(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    mask: Int8 = ~0\n    low: Int8 = 0x0F\n    signed: Int8 = mask & low\n    negative: Int32 = -1\n    bits: UInt32 = 0x80000000\n    cross: Int32 = negative & 0x7FFFFFFF\nend")
+	result := compileSource("fun demo()\n    mask: Int8 = ~0\n    low: Int8 = 0x0F\n    signed: Int8 = mask & low\n    negative: Int32 = -1\n    bits: UInt32 = 0x80000000\n    cross: Int32 = negative & 0x7FFFFFFF\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -43,7 +43,7 @@ func TestBitwiseSignedReconstruction(t *testing.T) {
 }
 
 func TestShiftOperators(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    mut value: UInt32 = 1\n    shifted: UInt32 = value << 4\n    right: UInt32 = shifted >> 2\n    mut signed: Int8 = 64\n    wrapped: Int8 = signed << 1\n    mut negative: Int8 = -4\n    halved: Int8 = negative >> 1\n    mixed: UInt16 = 1 << 8\nend")
+	result := compileSource("fun demo()\n    mut value: UInt32 = 1\n    shifted: UInt32 = value << 4\n    right: UInt32 = shifted >> 2\n    mut signed: Int8 = 64\n    wrapped: Int8 = signed << 1\n    mut negative: Int8 = -4\n    halved: Int8 = negative >> 1\n    mixed: UInt16 = 1 << 8\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -71,7 +71,7 @@ func TestShiftCountValidation(t *testing.T) {
 		{"fun demo()\n    signed_value: Int32 = 1\n    bad: Int32 = signed_value >> -1\nend", "shift count -1 is outside the valid range for Int32"},
 		{"fun demo()\n    signed_value: Int32 = 1\n    bad: Int32 = signed_value << -2\nend", "shift count -2 is outside the valid range for Int32"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -89,7 +89,7 @@ func TestBitwiseDiagnostics(t *testing.T) {
 		{"fun demo()\n    value: Int32 = 1\n    flag: Bool = true\n    bad: Int32 = value << flag\nend", "shift count must be an integer"},
 		{"fun demo()\n    value: Float64 = 1.5\n    bad: Float64 = ~value\nend", "operator ~ requires an integer operand"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -97,7 +97,7 @@ func TestBitwiseDiagnostics(t *testing.T) {
 }
 
 func TestBitCast(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    floating: Float64 = 1.0\n    bits: UInt64 = floating.bit_cast<UInt64>()\n    again: Float64 = bits.bit_cast<Float64>()\n    signed: Int32 = -1\n    unsigned: UInt32 = signed.bit_cast<UInt32>()\n    back: Int32 = unsigned.bit_cast<Int32>()\n    narrow: Float32 = 1.5\n    narrow_bits: UInt32 = narrow.bit_cast<UInt32>()\nend")
+	result := compileSource("fun demo()\n    floating: Float64 = 1.0\n    bits: UInt64 = floating.bit_cast<UInt64>()\n    again: Float64 = bits.bit_cast<Float64>()\n    signed: Int32 = -1\n    unsigned: UInt32 = signed.bit_cast<UInt32>()\n    back: Int32 = unsigned.bit_cast<Int32>()\n    narrow: Float32 = 1.5\n    narrow_bits: UInt32 = narrow.bit_cast<UInt32>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -124,7 +124,7 @@ func TestBitCastDiagnostics(t *testing.T) {
 		{"fun demo()\n    value: Float64 = 1.5\n    bad: UInt64 = value.bit_cast()\nend", "bit_cast requires exactly 1 explicit type argument"},
 		{"fun demo()\n    value: Float64 = 1.5\n    bad: UInt64 = value.bit_cast<UInt64>(1)\nend", "bit_cast accepts no value arguments"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -132,7 +132,7 @@ func TestBitCastDiagnostics(t *testing.T) {
 }
 
 func TestEndianByteConversion(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    value: UInt32 = 0x01020304\n    little: Array<UInt8, 4> = value.to_le_bytes()\n    big: Array<UInt8, 4> = value.to_be_bytes()\n    from_little: UInt32 = UInt32.from_le_bytes(little)\n    from_big: UInt32 = UInt32.from_be_bytes(big)\n    signed: Int16 = -2\n    signed_little: Array<UInt8, 2> = signed.to_le_bytes()\n    signed_back: Int16 = Int16.from_le_bytes(signed_little)\nend")
+	result := compileSource("fun demo()\n    value: UInt32 = 0x01020304\n    little: Array<UInt8, 4> = value.to_le_bytes()\n    big: Array<UInt8, 4> = value.to_be_bytes()\n    from_little: UInt32 = UInt32.from_le_bytes(little)\n    from_big: UInt32 = UInt32.from_be_bytes(big)\n    signed: Int16 = -2\n    signed_little: Array<UInt8, 2> = signed.to_le_bytes()\n    signed_back: Int16 = Int16.from_le_bytes(signed_little)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -161,7 +161,7 @@ func TestEndianDiagnostics(t *testing.T) {
 		{"fun demo()\n    count: Size = 1\n    bad: Size = Size.from_le_bytes([1, 2, 3, 4, 5, 6, 7, 8])\nend", "from_le_bytes and from_be_bytes require a fixed-width integer type"},
 		{"fun demo()\n    value: UInt32 = 1\n    bad: UInt32 = UInt32.from_le_bytes([1, 2, 3])\nend", "requires exactly 4 elements"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -169,7 +169,7 @@ func TestEndianDiagnostics(t *testing.T) {
 }
 
 func TestBitwisePrecedence(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    red: UInt32 = 1\n    green: UInt32 = 2\n    blue: UInt32 = 3\n    packed: UInt32 = red << 16 | green << 8 | blue\n    mixed: Bool = (1 | 2) == 3 and (1 & 3) == 1\nend")
+	result := compileSource("fun demo()\n    red: UInt32 = 1\n    green: UInt32 = 2\n    blue: UInt32 = 3\n    packed: UInt32 = red << 16 | green << 8 | blue\n    mixed: Bool = (1 | 2) == 3 and (1 & 3) == 1\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -183,7 +183,7 @@ func TestBitwisePrecedence(t *testing.T) {
 }
 
 func TestNestedGenericClosersStillParse(t *testing.T) {
-	result := compiler.Compile("type Link<T> = { value: T, mut next: MutPtr<Link<T>> | Nil, } link: Link<Int32> = Link<Int32> { value = 1, next = nil } fun demo()\n    pointer: Ptr<Ptr<Int32>> | Nil = nil\n    inner: Ptr<Int32> | Nil = nil\n    outer: Ptr<Ptr<Int32>> | Nil = nil\nend")
+	result := compileSource("type Link<T> = { value: T, mut next: MutPtr<Link<T>> | Nil, } link: Link<Int32> = Link<Int32> { value = 1, next = nil } fun demo()\n    pointer: Ptr<Ptr<Int32>> | Nil = nil\n    inner: Ptr<Int32> | Nil = nil\n    outer: Ptr<Ptr<Int32>> | Nil = nil\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

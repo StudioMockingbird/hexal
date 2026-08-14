@@ -21,7 +21,7 @@ func TestStorabilityRule(t *testing.T) {
 		"type Row = { f: File, t: Task<Int32>, c: Channel<Int32>, m: Mutex, s: Stream<Int32>, e: EoS }\n",
 	}
 	for _, source := range accepted {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
 		}
 	}
@@ -34,7 +34,7 @@ func TestStorabilityRule(t *testing.T) {
 		"fun helper(x: Int32): Int32 return x end\ntype Wrapper = | A as { f: Fun<(Int32) : Int32> } | B as { x: Int32 }\nw: Wrapper = Wrapper.B { x = 1 }\n",
 	}
 	for _, source := range rejected {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitFailure {
+		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
 			t.Fatalf("want reject, got accept:\n%s", source)
 		}
 	}
@@ -43,7 +43,7 @@ func TestStorabilityRule(t *testing.T) {
 	for _, source := range []string{
 		"fun helper(x: Int32): Int32 return x end\ntype Wrapper = Fun<(Int32) : Int32> | Int32\nw: Wrapper = 1\n",
 	} {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
 		}
 	}

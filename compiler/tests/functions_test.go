@@ -11,7 +11,7 @@ import (
 
 func requireChecked(t *testing.T, source string) {
 	t.Helper()
-	result := compiler.Compile(source)
+	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile rejected %q: %#v", source, result.Stderr)
 	}
@@ -19,7 +19,7 @@ func requireChecked(t *testing.T, source string) {
 
 func requireRejected(t *testing.T, source, want string) {
 	t.Helper()
-	result := compiler.Compile(source)
+	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile accepted %q, want %q", source, want)
 	}
@@ -182,7 +182,7 @@ func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
 
 func requireGeneratedC(t *testing.T, source, want string) {
 	t.Helper()
-	result := compiler.Compile(source)
+	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected %q: %#v", source, result.Stderr)
 	}
@@ -202,7 +202,7 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32)\n" + "    self.x = self.x + dx\n" + "    self.y = self.y + dy\n" + "end\n" +
 		"mut here: Point = Point { x = 0, y = 0, }\n" +
 		"here.translate(5, 5)\n" + "total: Int32 = here.length_squared()\n" + "flag: Bool = here.is_origin()\n"
-	result := compiler.Compile(source)
+	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("method generation failed: %#v", result)
 	}
@@ -247,7 +247,7 @@ func TestGeneratedFunctionPointerObjectsKeepUnqualifiedParameters(t *testing.T) 
 		"callback: Fun<(Int32) : Int32> = identity\nmut selected: Fun<(Int32) : Int32> = identity\n"
 	requireGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_identity;\n")
 	requireGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_identity;\n")
-	if got := compiler.Compile(source).MainC; strings.Contains(got, ")(const int32_t)") {
+	if got := compileSource(source).MainC; strings.Contains(got, ")(const int32_t)") {
 		t.Fatalf("main.c = %q, function-pointer parameters must stay unqualified", got)
 	}
 }
@@ -274,7 +274,7 @@ func TestGeneratedSelfRecursionNeedsNoPrototype(t *testing.T) {
 	source := "fun countdown(value: Int32): Int32\n    return countdown(value)\nend\n"
 	requireGeneratedC(t, source,
 		"static int32_t hex_f_countdown(const int32_t hex_v_value) {\n    return hex_f_countdown(hex_v_value);\n}\n")
-	if got := compiler.Compile(source).MainC; strings.Contains(got, "hex_f_countdown(const int32_t hex_v_value);") {
+	if got := compileSource(source).MainC; strings.Contains(got, "hex_f_countdown(const int32_t hex_v_value);") {
 		t.Fatalf("main.c = %q, want no forward prototype region", got)
 	}
 }
@@ -282,7 +282,7 @@ func TestGeneratedSelfRecursionNeedsNoPrototype(t *testing.T) {
 // Object typedefs live in main.h, so main.c holds the definitions in source
 // order and then main. Module storage stays inside main.
 func TestGeneratedDefinitionsAreOrderedBeforeMain(t *testing.T) {
-	result := compiler.Compile(pointType +
+	result := compileSource(pointType +
 		"fun first(value: Int32): Int32\n    return value\nend\n" +
 		"fun second(value: Int32): Int32\n    return value\nend\n" +
 		"origin: Point = Point { x = 0, y = 0, }\n")
@@ -302,7 +302,7 @@ func TestGeneratedDefinitionsAreOrderedBeforeMain(t *testing.T) {
 }
 
 func TestGeneratedFunctionBodiesKeepLineDirectives(t *testing.T) {
-	result := compiler.Compile("fun identity(value: Int32): Int32\n    return value\nend\n")
+	result := compileSource("fun identity(value: Int32): Int32\n    return value\nend\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}

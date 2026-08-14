@@ -9,12 +9,17 @@ gets deleted.
 
 ## Open TODOs
 
+### In progress
+
+| Work | Spec |
+|---|---|
+| Modules, imports, and visibility | [0034](specs/0034-modules-and-imports.md), [plan](specs/0034-plan.md) |
+
 ### Design not started
 
 | Work | Spec |
 |---|---|
 | Arena and Pool allocators | [0027](specs/0027-arena-and-pool-allocators.md) |
-| Modules, imports, and visibility | [0034](specs/0034-modules-and-imports.md) |
 | C interoperability | [0039](specs/0039-c-interop.md) |
 | Stream extensions — fallible steps, sources, terminal ops, producer cleanup | [0051](specs/0051-stream-extensions.md) |
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |

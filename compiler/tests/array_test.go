@@ -10,7 +10,7 @@ import (
 // built-in methods, and bounds-safe element access.
 
 func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
-	result := compiler.Compile("fixed: Array<Int32, 3> = [10, 20, 30] total: Int32 = fixed[0] + fixed[2] count: Size = fixed.length() empty: Bool = fixed.is_empty() last: Int32 = fixed.at(2)")
+	result := compileSource("fixed: Array<Int32, 3> = [10, 20, 30] total: Int32 = fixed[0] + fixed[2] count: Size = fixed.length() empty: Bool = fixed.is_empty() last: Int32 = fixed.at(2)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -35,7 +35,7 @@ func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
 }
 
 func TestArrayMutableElementWrite(t *testing.T) {
-	result := compiler.Compile("mut fixed: Array<Int32, 2> = [1, 2] fixed[0] = 7 fixed[1] = fixed[0] + 1")
+	result := compileSource("mut fixed: Array<Int32, 2> = [1, 2] fixed[0] = 7 fixed[1] = fixed[0] + 1")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -55,7 +55,7 @@ func TestArrayConstantIndexOutOfBoundsIsACompileError(t *testing.T) {
 		"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed[2]",
 		"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at(2)",
 	} {
-		result := compiler.Compile(source)
+		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "out of bounds") {
 			t.Fatalf("Compile(%q) stderr = %#v, want out-of-bounds diagnostic", source, result.Stderr)
 		}
@@ -73,7 +73,7 @@ func TestArrayLiteralRequiresExpectedTypeAndExactCount(t *testing.T) {
 		{"fixed: Array<Int32, 2> = [1, true]", "expected Int32 initializer, got Bool"},
 		{"empty: Array<Int32, 2> = []", "an array literal requires at least one element"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -93,7 +93,7 @@ func TestArrayIndexErrors(t *testing.T) {
 		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at()", "at expects 1 argument, got 0"},
 		{"type A = Array<Int32, 0>", "an array length must be a positive decimal integer"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -101,14 +101,14 @@ func TestArrayIndexErrors(t *testing.T) {
 }
 
 func TestArrayElementClassRejectsFunctionValues(t *testing.T) {
-	result := compiler.Compile("type Holder = { callbacks: Array<Fun<(Int32)>, 2>, }")
+	result := compileSource("type Holder = { callbacks: Array<Fun<(Int32)>, 2>, }")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "not an inline array element type") {
 		t.Fatalf("Compile stderr = %#v, want inline-element diagnostic", result.Stderr)
 	}
 }
 
 func TestArrayMembersAndFunctions(t *testing.T) {
-	result := compiler.Compile("type Pair = { mut values: Array<Int32, 2>, }\nmut pair: Pair = Pair { values = [3, 4], }\nsum: Int32 = pair.values[0] + pair.values.at(1)\npair.values[1] = 9\nfun first(values: Array<Int32, 3>): Int32\n    return values[0]\nend\nhead: Int32 = first([5, 6, 7])")
+	result := compileSource("type Pair = { mut values: Array<Int32, 2>, }\nmut pair: Pair = Pair { values = [3, 4], }\nsum: Int32 = pair.values[0] + pair.values.at(1)\npair.values[1] = 9\nfun first(values: Array<Int32, 3>): Int32\n    return values[0]\nend\nhead: Int32 = first([5, 6, 7])")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -127,7 +127,7 @@ func TestArrayMembersAndFunctions(t *testing.T) {
 }
 
 func TestNestedArrays(t *testing.T) {
-	result := compiler.Compile("grid: Array<Array<Int32, 2>, 2> = [[1, 2], [3, 4]] corner: Int32 = grid[1][0]")
+	result := compileSource("grid: Array<Array<Int32, 2>, 2> = [[1, 2], [3, 4]] corner: Int32 = grid[1][0]")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -145,7 +145,7 @@ func TestNestedArrays(t *testing.T) {
 }
 
 func TestArrayTrailingCommaLiteral(t *testing.T) {
-	result := compiler.Compile("fixed: Array<Int32, 3> = [10, 20, 30, ]")
+	result := compileSource("fixed: Array<Int32, 3> = [10, 20, 30, ]")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

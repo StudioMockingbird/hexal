@@ -10,7 +10,7 @@ import (
 // filter/map/take adapters, for iteration, and explicit free.
 
 func TestStreamEmptyNew(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    empty: Stream<Int32> = Stream<Int32>.new()\n    step: Int32 | EoS = empty.next()\nend")
+	result := compileSource("fun demo()\n    empty: Stream<Int32> = Stream<Int32>.new()\n    step: Int32 | EoS = empty.next()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -28,7 +28,7 @@ func TestStreamEmptyNew(t *testing.T) {
 }
 
 func TestStreamEmptyFreeIsNoOp(t *testing.T) {
-	result := compiler.Compile("fun demo(h: Heap)\n    empty: Stream<Int32> = Stream<Int32>.new()\n    empty.free(h)\nend")
+	result := compileSource("fun demo(h: Heap)\n    empty: Stream<Int32> = Stream<Int32>.new()\n    empty.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -38,7 +38,7 @@ func TestStreamEmptyFreeIsNoOp(t *testing.T) {
 }
 
 func TestStreamProduce(t *testing.T) {
-	result := compiler.Compile("type Counter = {\n    mut current: Int32,\n    limit: Int32,\n}\nfun counter_next(state: MutPtr<Counter>): Int32 | EoS\n    if state.current >= state.limit\n        return eos\n    end\n    result: Int32 = state.current\n    state.current = state.current + 1\n    return result\nend\nfun demo(h: Heap)\n    initial: Counter = Counter { current = 0, limit = 3 }\n    numbers: Stream<Int32> = Stream<Int32>.produce(h, initial, counter_next)\n    defer numbers.free(h)\n    mut total: Int32 = 0\n    while true do\n        step: Int32 | EoS = numbers.next()\n        if step is EoS\n            break\n        end\n        total = total + step\n    end\nend")
+	result := compileSource("type Counter = {\n    mut current: Int32,\n    limit: Int32,\n}\nfun counter_next(state: MutPtr<Counter>): Int32 | EoS\n    if state.current >= state.limit\n        return eos\n    end\n    result: Int32 = state.current\n    state.current = state.current + 1\n    return result\nend\nfun demo(h: Heap)\n    initial: Counter = Counter { current = 0, limit = 3 }\n    numbers: Stream<Int32> = Stream<Int32>.produce(h, initial, counter_next)\n    defer numbers.free(h)\n    mut total: Int32 = 0\n    while true do\n        step: Int32 | EoS = numbers.next()\n        if step is EoS\n            break\n        end\n        total = total + step\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -57,7 +57,7 @@ func TestStreamProduce(t *testing.T) {
 }
 
 func TestStreamListSource(t *testing.T) {
-	result := compiler.Compile("fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    source: Stream<Int32> = values.stream(h)\n    defer source.free(h)\n    step: Int32 | EoS = source.next()\nend")
+	result := compileSource("fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    source: Stream<Int32> = values.stream(h)\n    defer source.free(h)\n    step: Int32 | EoS = source.next()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -73,7 +73,7 @@ func TestStreamListSource(t *testing.T) {
 }
 
 func TestStreamAdapters(t *testing.T) {
-	result := compiler.Compile("fun is_even(value: Int32): Bool\n    return value % 2 == 0\nend\nfun double(value: Int32): Int32\n    return value * 2\nend\nfun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    source: Stream<Int32> = values.stream(h)\n    even: Stream<Int32> = source.filter(h, is_even)\n    doubled: Stream<Int32> = even.map(h, double)\n    limited: Stream<Int32> = doubled.take(h, 1)\n    defer limited.free(h)\n    step: Int32 | EoS = limited.next()\nend")
+	result := compileSource("fun is_even(value: Int32): Bool\n    return value % 2 == 0\nend\nfun double(value: Int32): Int32\n    return value * 2\nend\nfun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    source: Stream<Int32> = values.stream(h)\n    even: Stream<Int32> = source.filter(h, is_even)\n    doubled: Stream<Int32> = even.map(h, double)\n    limited: Stream<Int32> = doubled.take(h, 1)\n    defer limited.free(h)\n    step: Int32 | EoS = limited.next()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -94,7 +94,7 @@ func TestStreamAdapters(t *testing.T) {
 }
 
 func TestStreamForIteration(t *testing.T) {
-	result := compiler.Compile("fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values.push(3)\n    source: Stream<Int32> = values.stream(h)\n    defer source.free(h)\n    mut total: Int32 = 0\n    for value in source do\n        total = total + value\n    end\n    for i, value in source do\n        total = total + value + i.to<Int32>()\n    end\nend")
+	result := compileSource("fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values.push(3)\n    source: Stream<Int32> = values.stream(h)\n    defer source.free(h)\n    mut total: Int32 = 0\n    for value in source do\n        total = total + value\n    end\n    for i, value in source do\n        total = total + value + i.to<Int32>()\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -123,7 +123,7 @@ func TestStreamDiagnostics(t *testing.T) {
 		{"no length", "fun demo(h: Heap)\n    source: Stream<Int32> = Stream<Int32>.new()\n    count: Size = source.length()\nend", "Stream has no method length"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := compiler.Compile(testCase.source)
+			result := compileSource(testCase.source)
 			if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 				t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 			}
@@ -132,7 +132,7 @@ func TestStreamDiagnostics(t *testing.T) {
 }
 
 func TestEosSingletonSemantics(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    first: EoS = eos\n    second: EoS = eos\n    same: Bool = first == second\n    different: Bool = first != second\n    marker: Int32 | EoS = eos\n    if marker is EoS\n        text: Bool = true\n    end\nend")
+	result := compileSource("fun demo()\n    first: EoS = eos\n    second: EoS = eos\n    same: Bool = first == second\n    different: Bool = first != second\n    marker: Int32 | EoS = eos\n    if marker is EoS\n        text: Bool = true\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

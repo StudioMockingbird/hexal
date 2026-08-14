@@ -24,7 +24,7 @@ func TestArgumentsEvaluatedOnceInSourceOrder(t *testing.T) {
 		{"from_pointer length", "fun bump(): Size\n    return 1\nend\nfun f(h: Heap)\n    p: MutPtr<Int32> = h.allocate<Int32>(1)\n    view: View<Int32> = View<Int32>.from_pointer(p, bump())\nend\n", 1},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := compiler.Compile(testCase.source)
+			result := compileSource(testCase.source)
 			if result.ExitCode != compiler.ExitSuccess {
 				t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 			}

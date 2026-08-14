@@ -21,7 +21,7 @@ func TestTruthinessConditions(t *testing.T) {
 		{"if true end", "if (true) {"},
 		{"mut count: Int32 = 1 if count count = count - 1 end", "if ((hex_v_count, true)) {"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 			t.Fatalf("Compile(%q) = %#v, want successful truthiness condition", testCase.source, result)
 		}
@@ -34,7 +34,7 @@ func TestTruthinessConditions(t *testing.T) {
 func TestTruthinessConditionLoweringPreservesBranches(t *testing.T) {
 	// A falsey condition still emits its branches: the checker must have
 	// type-checked them, and the generated C keeps them for runtime.
-	result := compiler.Compile("p: Ptr<Int32> | Nil = nil if p missing: Int32 = 1 end")
+	result := compileSource("p: Ptr<Int32> | Nil = nil if p missing: Int32 = 1 end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want successful nil-condition program", result)
 	}
@@ -47,7 +47,7 @@ func TestNullableTruthinessCondition(t *testing.T) {
 	// The if and elseif conditions are the bare nullable binding; deref of
 	// maybe would need a narrowing null test, so the branches only touch it
 	// through truthiness.
-	result := compiler.Compile("mut value: Int32 = 5 mut maybe: Ptr<Int32> | Nil = ref value if maybe noop: Int32 = 0 elseif maybe result: Int32 = 1 end")
+	result := compileSource("mut value: Int32 = 5 mut maybe: Ptr<Int32> | Nil = ref value if maybe noop: Int32 = 0 elseif maybe result: Int32 = 1 end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want a successful nullable truthiness program", result)
 	}
@@ -72,7 +72,7 @@ func TestTruthinessLogicalOperators(t *testing.T) {
 		{"mut count: Int32 = 1 flag: Bool = !count", "(!(hex_v_count, true))"},
 		{"mut value: Float64 = 0.0 flag: Bool = !value", "(!(hex_v_value, true))"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 			t.Fatalf("Compile(%q) = %#v, want a successful truthiness operation", testCase.source, result)
 		}
@@ -83,7 +83,7 @@ func TestTruthinessLogicalOperators(t *testing.T) {
 }
 
 func TestTruthinessConstantFolding(t *testing.T) {
-	result := compiler.Compile("flag: Bool = 1 and 2")
+	result := compileSource("flag: Bool = 1 and 2")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want a folded truthiness constant", result)
 	}
@@ -100,7 +100,7 @@ func TestTruthinessConstantFolding(t *testing.T) {
 		{"flag: Bool = !0", "const bool hex_v_flag = false;"},
 		{"flag: Bool = !false", "const bool hex_v_flag = true;"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 			t.Fatalf("Compile(%q) = %#v, want a folded truthiness constant", testCase.source, result)
 		}
@@ -114,19 +114,19 @@ func TestTruthinessShortCircuitSkipsFoldedSide(t *testing.T) {
 	// 0 is truthy, so the right side of and is evaluated and its division by
 	// zero is a static error; false is falsey, so the right side is never
 	// evaluated and the same expression is fine.
-	result := compiler.Compile("result: Bool = 0 and (1 / 0 == 0)")
+	result := compileSource("result: Bool = 0 and (1 / 0 == 0)")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "division by zero") {
 		t.Fatalf("Compile = %#v, want the evaluated side to fail statically", result)
 	}
 
-	result = compiler.Compile("result: Bool = false and (1 / 0 == 0)")
+	result = compileSource("result: Bool = false and (1 / 0 == 0)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want the skipped side to never be checked", result)
 	}
 }
 
 func TestTruthinessRejectsNoResultCalls(t *testing.T) {
-	result := compiler.Compile("fun reset()\n    return\nend\nif reset() end\n")
+	result := compileSource("fun reset()\n    return\nend\nif reset() end\n")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "reset produces no value") {
 		t.Fatalf("Compile = %#v, want a no-result condition diagnostic", result)
 	}

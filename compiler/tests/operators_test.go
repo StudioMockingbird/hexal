@@ -40,7 +40,7 @@ const completeOperatorsSource = "mut left: Int32 = 7 mut right: Int32 = 3 " +
 	"unsignedRemainder: UInt32 = unsignedLeft % unsignedRight"
 
 func TestCompleteOperatorProgram(t *testing.T) {
-	result := compiler.Compile(completeOperatorsSource)
+	result := compileSource(completeOperatorsSource)
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful operator program", result)
 	}
@@ -85,7 +85,7 @@ func TestCompleteOperatorProgram(t *testing.T) {
 }
 
 func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
-	result := compiler.Compile("mut unsigned: UInt8 = 200 wrappedUnsigned: UInt8 = unsigned + 100 mut signed: Int8 = 127 wrappedSigned: Int8 = signed + 1")
+	result := compileSource("mut unsigned: UInt8 = 200 wrappedUnsigned: UInt8 = unsigned + 100 mut signed: Int8 = 127 wrappedSigned: Int8 = signed + 1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful mutable wrapping program", result)
 	}
@@ -100,19 +100,19 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 }
 
 func TestFoldsImmutableArithmeticAndWrapsOverflow(t *testing.T) {
-	result := compiler.Compile("count: UInt8 = 200 next: UInt8 = count + 1")
+	result := compileSource("count: UInt8 = 200 next: UInt8 = count + 1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(result.MainC, "const uint8_t hex_v_next = 201;") {
 		t.Fatalf("Compile returned %#v, want folded UInt8 value 201", result)
 	}
 
 	// RFC 0017: integer overflow wraps at the result type during folding.
-	result = compiler.Compile("count: UInt8 = 200 over: UInt8 = count + 100")
+	result = compileSource("count: UInt8 = 200 over: UInt8 = count + 100")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(result.MainC, "const uint8_t hex_v_over = 44;") {
 		t.Fatalf("Compile returned %#v, want folded wrapped value 44", result)
 	}
 
 	// RFC 0017: signed minimum divided by -1 folds to the signed minimum.
-	result = compiler.Compile("minimum: Int8 = -128 quotient: Int8 = minimum / -1 remainder: Int8 = minimum % -1")
+	result = compileSource("minimum: Int8 = -128 quotient: Int8 = minimum / -1 remainder: Int8 = minimum % -1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 ||
 		!strings.Contains(result.MainC, "const int8_t hex_v_quotient = INT8_MIN;") ||
 		!strings.Contains(result.MainC, "const int8_t hex_v_remainder = 0;") {
@@ -121,7 +121,7 @@ func TestFoldsImmutableArithmeticAndWrapsOverflow(t *testing.T) {
 }
 
 func TestPrecedenceChain(t *testing.T) {
-	result := compiler.Compile("mut first: Float64 = 1.0 mut second: Float64 = 2.0 mut third: Float64 = 3.0 mut limit: Float64 = 8.0 mut expected: Bool = true mut all: Bool = false mut either: Bool = true result: Bool = !(first + second * third < limit == expected and all or either)")
+	result := compileSource("mut first: Float64 = 1.0 mut second: Float64 = 2.0 mut third: Float64 = 3.0 mut limit: Float64 = 8.0 mut expected: Bool = true mut all: Bool = false mut either: Bool = true result: Bool = !(first + second * third < limit == expected and all or either)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful precedence-chain program", result)
 	}
@@ -144,7 +144,7 @@ func TestOperatorDiagnostics(t *testing.T) {
 		{"left: Bool = true right: Bool = false bad: Bool = left < right", "[Type Error] ordering is unavailable for Bool values at 1:56"},
 		{"count: UInt32 = 5 bad: Int32 = -count", "[Type Error] negation requires a signed type; got UInt32 at 1:32"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {
 			t.Errorf("Compile(%q) stderr = %#v, want [%q]", testCase.source, result.Stderr, testCase.want)
 		}
@@ -160,7 +160,7 @@ func TestShortCircuitReachability(t *testing.T) {
 		"result: Bool = true or (1 and 2)",
 		"result: Bool = false and (1 or 2)",
 	} {
-		result := compiler.Compile(source)
+		result := compileSource(source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 			t.Errorf("Compile(%q) = %#v, want successful constant short-circuit", source, result)
 		}
@@ -173,7 +173,7 @@ func TestShortCircuitReachability(t *testing.T) {
 		{"mut guard: Bool = true result: Bool = guard or (1 / 0 == 0)", "division by zero"},
 		{"mut guard: Bool = false result: Bool = guard and (1 / 0 == 0)", "division by zero"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Errorf("Compile(%q) stderr = %#v, want diagnostic containing %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -196,7 +196,7 @@ func TestAllIntegerWidths(t *testing.T) {
 	} {
 		t.Run(testCase.typ, func(t *testing.T) {
 			source := fmt.Sprintf("mut left: %s = 1 mut right: %s = 2 result: %s = left + right", testCase.typ, testCase.typ, testCase.typ)
-			result := compiler.Compile(source)
+			result := compileSource(source)
 			if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 				t.Fatalf("Compile returned %#v, want successful %s program", result, testCase.typ)
 			}
@@ -208,7 +208,7 @@ func TestAllIntegerWidths(t *testing.T) {
 }
 
 func TestSignedWrappingBoundaries(t *testing.T) {
-	result := compiler.Compile("mut signed8: Int8 = 127 wrapped8: Int8 = signed8 + 1 mut minimum64: Int64 = -9223372036854775808 wrapped64: Int64 = minimum64 - 1 negative64: Int64 = -minimum64")
+	result := compileSource("mut signed8: Int8 = 127 wrapped8: Int8 = signed8 + 1 mut minimum64: Int64 = -9223372036854775808 wrapped64: Int64 = minimum64 - 1 negative64: Int64 = -minimum64")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful signed boundary program", result)
 	}
@@ -224,7 +224,7 @@ func TestSignedWrappingBoundaries(t *testing.T) {
 }
 
 func TestShortCircuitRuntime(t *testing.T) {
-	result := compiler.Compile("mut zero: Int32 = 0 mut guardOr: Bool = true resultOr: Bool = guardOr or (zero / zero > 0) mut guardAnd: Bool = false resultAnd: Bool = guardAnd and (zero / zero > 0)")
+	result := compileSource("mut zero: Int32 = 0 mut guardOr: Bool = true resultOr: Bool = guardOr or (zero / zero > 0) mut guardAnd: Bool = false resultAnd: Bool = guardAnd and (zero / zero > 0)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful short-circuit program", result)
 	}
@@ -239,7 +239,7 @@ func TestShortCircuitRuntime(t *testing.T) {
 }
 
 func TestNaNComparisons(t *testing.T) {
-	result := compiler.Compile("mut zero32: Float32 = 0.0 nan32Equal: Bool = (zero32 / zero32) == (zero32 / zero32) nan32Different: Bool = (zero32 / zero32) != (zero32 / zero32) nan32Less: Bool = (zero32 / zero32) < (zero32 / zero32) mut zero: Float64 = 0.0 nanEqual: Bool = (zero / zero) == (zero / zero) nanDifferent: Bool = (zero / zero) != (zero / zero)")
+	result := compileSource("mut zero32: Float32 = 0.0 nan32Equal: Bool = (zero32 / zero32) == (zero32 / zero32) nan32Different: Bool = (zero32 / zero32) != (zero32 / zero32) nan32Less: Bool = (zero32 / zero32) < (zero32 / zero32) mut zero: Float64 = 0.0 nanEqual: Bool = (zero / zero) == (zero / zero) nanDifferent: Bool = (zero / zero) != (zero / zero)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful NaN comparison program", result)
 	}
@@ -276,7 +276,7 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 		"letter: Rune = 'a'\nr: Int32 = 1 % letter\n",
 	}
 	for _, source := range rejected {
-		result := compiler.Compile(source)
+		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires numeric operands") {
 			t.Fatalf("want numeric-operands diagnostic, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}
@@ -288,7 +288,7 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 		"code: UInt32 = 'a'.to<UInt32>() + 1\n",
 	}
 	for _, source := range accepted {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
 		}
 	}

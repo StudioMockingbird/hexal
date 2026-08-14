@@ -8,10 +8,18 @@ import (
 	"testing"
 )
 
+// rootSourceKey is the logical .hex key every test source compiles as.
+const rootSourceKey = "app.hex"
+
+// compileSource compiles one test source string as the root module.
+func compileSource(source string) compiler.CompilationResult {
+	return compiler.Compile(map[string]string{rootSourceKey: source}, rootSourceKey)
+}
+
 // assertCompiles requires the source to compile and returns the result.
 func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 	t.Helper()
-	result := compiler.Compile(source)
+	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("expected success, got %d diagnostic(s):\n%s\n--- source ---\n%s", len(result.Stderr), strings.Join(result.Stderr, "\n"), source)
 	}
@@ -22,7 +30,7 @@ func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 // contain want.
 func assertRejects(t *testing.T, source, want string) {
 	t.Helper()
-	result := compiler.Compile(source)
+	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("expected rejection, but the source compiled:\n%s", source)
 	}

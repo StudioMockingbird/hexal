@@ -10,7 +10,7 @@ import (
 // dictionaries, and String-value shallow-copy and explicit-cleanup rules.
 
 func TestDictInt32Lifecycle(t *testing.T) {
-	result := compiler.Compile("fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool = scores.contains(1)\n    first: Int32 = scores.get(1)\n    removed: Int32 = scores.remove(2)\nend")
+	result := compileSource("fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool = scores.contains(1)\n    first: Int32 = scores.get(1)\n    removed: Int32 = scores.remove(2)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -33,7 +33,7 @@ func TestDictInt32Lifecycle(t *testing.T) {
 }
 
 func TestDictStrandKeys(t *testing.T) {
-	result := compiler.Compile("fun demo(h: Heap)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    labels.insert(\"bob\", 2)\n    present: Bool = labels.contains(\"alice\")\n    score: Int32 = labels.get(\"bob\")\n    key: Strand = \"carol\"\n    labels.insert(key, 3)\nend")
+	result := compileSource("fun demo(h: Heap)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    labels.insert(\"bob\", 2)\n    present: Bool = labels.contains(\"alice\")\n    score: Int32 = labels.get(\"bob\")\n    key: Strand = \"carol\"\n    labels.insert(key, 3)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -55,7 +55,7 @@ func TestDictStrandKeys(t *testing.T) {
 func TestDictStringValues(t *testing.T) {
 	// RFC 0048: a stored literal is never freed by the collection or by a
 	// remove; a runtime String removed from the dict is freed explicitly.
-	result := compiler.Compile("fun demo(h: Heap)\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    runtime: String = \"bob\".to_string(h)\n    people.insert(2, runtime)\n    removed: String = people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    name: String = people.get(1)\nend")
+	result := compileSource("fun demo(h: Heap)\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    runtime: String = \"bob\".to_string(h)\n    people.insert(2, runtime)\n    removed: String = people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    name: String = people.get(1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -82,14 +82,14 @@ func TestDictMutationAfterReadIsValid(t *testing.T) {
 		"fun demo(h: Heap)\n    mut people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String = people.get(1)\n    people = Dict<Int32, String>.new(h)\nend",
 		"fun inspect(people: Dict<Int32, String>)\nend\nfun demo(h: Heap)\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String = people.get(1)\n    inspect(people)\nend",
 	} {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
 		}
 	}
 }
 
 func TestDictBorrowAllowsLookups(t *testing.T) {
-	result := compiler.Compile("fun demo(h: Heap)\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String = people.get(1)\n    present: Bool = people.contains(1)\n    other: String = people.get(1)\nend")
+	result := compileSource("fun demo(h: Heap)\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String = people.get(1)\n    present: Bool = people.contains(1)\n    other: String = people.get(1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -102,7 +102,7 @@ func TestDictShallowCopySemantics(t *testing.T) {
 		"fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    other: Dict<Int32, Int32> = scores\nend",
 		"fun demo(h: Heap, scores: Dict<Int32, Int32>)\n    scores.free(h)\nend",
 	} {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
 		}
 	}
@@ -112,7 +112,7 @@ func TestDictShallowCopySemantics(t *testing.T) {
 	}{
 		{"fun demo(h: Heap)\n    scores: Dict<Bool, Int32> = Dict<Bool, Int32>.new(h)\nend", "dictionary key type must be Int32 or Strand"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -120,7 +120,7 @@ func TestDictShallowCopySemantics(t *testing.T) {
 }
 
 func TestDictReturnHandoff(t *testing.T) {
-	result := compiler.Compile("fun make_scores(h: Heap): Dict<Int32, Int32>\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    scores.insert(1, 10)\n    return scores\nend\nfun demo(h: Heap)\n    scores: Dict<Int32, Int32> = make_scores(h)\n    scores.free(h)\nend")
+	result := compileSource("fun make_scores(h: Heap): Dict<Int32, Int32>\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    scores.insert(1, 10)\n    return scores\nend\nfun demo(h: Heap)\n    scores: Dict<Int32, Int32> = make_scores(h)\n    scores.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

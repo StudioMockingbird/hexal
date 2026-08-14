@@ -8,7 +8,7 @@ import (
 )
 
 func TestReportsIndependentCheckerErrors(t *testing.T) {
-	result := compiler.Compile("x: Bogus = 2147483648")
+	result := compileSource("x: Bogus = 2147483648")
 	want := []string{
 		"[Type Error] unknown type Bogus at 1:4",
 		"[Type Error] given value is outside the Int32 range at 1:12",
@@ -19,7 +19,7 @@ func TestReportsIndependentCheckerErrors(t *testing.T) {
 }
 
 func TestCollectsLexerDiagnostics(t *testing.T) {
-	result := compiler.Compile("x: Int32 = @ #")
+	result := compileSource("x: Int32 = @ #")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
@@ -33,7 +33,7 @@ func TestCollectsLexerDiagnostics(t *testing.T) {
 }
 
 func TestRejectsInvalidDeclarationSyntax(t *testing.T) {
-	result := compiler.Compile("9x:Int32 = 13")
+	result := compileSource("9x:Int32 = 13")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
@@ -44,7 +44,7 @@ func TestRejectsInvalidDeclarationSyntax(t *testing.T) {
 }
 
 func TestMultipleStatements(t *testing.T) {
-	result := compiler.Compile("mut x: Int32 = 13 x = 14\nmut flag: Bool = true flag = false")
+	result := compileSource("mut x: Int32 = 13 x = 14\nmut flag: Bool = true flag = false")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -55,8 +55,8 @@ func TestMultipleStatements(t *testing.T) {
 }
 
 func TestWhitespaceDoesNotAffectStatements(t *testing.T) {
-	withNewline := compiler.Compile("mut x: Int32 = 13\nx = 14")
-	withSpace := compiler.Compile("mut x: Int32 = 13 x = 14")
+	withNewline := compileSource("mut x: Int32 = 13\nx = 14")
+	withSpace := compileSource("mut x: Int32 = 13 x = 14")
 	if withNewline.ExitCode != compiler.ExitSuccess || withSpace.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("whitespace variants failed: newline=%v space=%v", withNewline.Stderr, withSpace.Stderr)
 	}
@@ -66,7 +66,7 @@ func TestWhitespaceDoesNotAffectStatements(t *testing.T) {
 }
 
 func TestComments(t *testing.T) {
-	result := compiler.Compile("--- counter\nmut x: Int32 = --[ value\n  follows ]-- 13 -- update next\nx = 14")
+	result := compileSource("--- counter\nmut x: Int32 = --[ value\n  follows ]-- 13 -- update next\nx = 14")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile comments exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -81,7 +81,7 @@ func TestComments(t *testing.T) {
 }
 
 func TestRejectsSemicolon(t *testing.T) {
-	result := compiler.Compile("x: Int32 = 13;")
+	result := compileSource("x: Int32 = 13;")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
@@ -92,7 +92,7 @@ func TestRejectsSemicolon(t *testing.T) {
 }
 
 func TestRejectsTypedReassignment(t *testing.T) {
-	result := compiler.Compile("x: Int32 = 13 x: Int32 = 14")
+	result := compileSource("x: Int32 = 13 x: Int32 = 14")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
@@ -103,7 +103,7 @@ func TestRejectsTypedReassignment(t *testing.T) {
 }
 
 func TestRejectsUnknownAssignment(t *testing.T) {
-	result := compiler.Compile("x = 13")
+	result := compileSource("x = 13")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
@@ -114,7 +114,7 @@ func TestRejectsUnknownAssignment(t *testing.T) {
 }
 
 func TestReportsIndependentStatementErrors(t *testing.T) {
-	result := compiler.Compile("x: Bogus = 1 y: Bogus = 2")
+	result := compileSource("x: Bogus = 1 y: Bogus = 2")
 	want := []string{
 		"[Type Error] unknown type Bogus at 1:4",
 		"[Type Error] unknown type Bogus at 1:17",
@@ -125,7 +125,7 @@ func TestReportsIndependentStatementErrors(t *testing.T) {
 }
 
 func TestReportsParserAndCheckerErrorsTogether(t *testing.T) {
-	result := compiler.Compile("x: Int32 = 13 y z: Bogus = 1")
+	result := compileSource("x: Int32 = 13 y z: Bogus = 1")
 	want := []string{
 		"[Syntax Error] expected ':' for a declaration or '=' for an assignment at 1:17",
 		"[Type Error] unknown type Bogus at 1:20",
@@ -136,7 +136,7 @@ func TestReportsParserAndCheckerErrorsTogether(t *testing.T) {
 }
 
 func TestDoesNotBindFailedDeclaration(t *testing.T) {
-	result := compiler.Compile("bad: Bogus = 1 x = 2")
+	result := compileSource("bad: Bogus = 1 x = 2")
 	want := []string{
 		"[Type Error] unknown type Bogus at 1:6",
 		"[Type Error] unknown variable x at 1:16",

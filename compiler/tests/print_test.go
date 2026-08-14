@@ -9,7 +9,7 @@ import (
 // RFC 0030: the print builtin.
 
 func TestPrintScalars(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    letter: Rune = (65).to<Rune>()\n    print(letter)\n    size: Size = 7\n    print(size)\nend")
+	result := compileSource("fun demo()\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    letter: Rune = (65).to<Rune>()\n    print(letter)\n    size: Size = 7\n    print(size)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -30,7 +30,7 @@ func TestPrintScalars(t *testing.T) {
 }
 
 func TestPrintStringsDirectAndNested(t *testing.T) {
-	result := compiler.Compile("type Point = {\n    x: Int32,\n    y: Int32,\n}\nfun demo(h: Heap)\n    text: String = \"hello\"\n    print(text)\n    names: List<Int32> = List<Int32>.new(h)\n    defer names.free(h)\n    names.push(1)\n    print(names)\n    point: Point = Point { x = 10, y = 20 }\n    print(point)\nend")
+	result := compileSource("type Point = {\n    x: Int32,\n    y: Int32,\n}\nfun demo(h: Heap)\n    text: String = \"hello\"\n    print(text)\n    names: List<Int32> = List<Int32>.new(h)\n    defer names.free(h)\n    names.push(1)\n    print(names)\n    point: Point = Point { x = 10, y = 20 }\n    print(point)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -48,7 +48,7 @@ func TestPrintStringsDirectAndNested(t *testing.T) {
 }
 
 func TestPrintNestedStringQuoting(t *testing.T) {
-	result := compiler.Compile("fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"hello\")\n    print(names)\nend")
+	result := compileSource("fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"hello\")\n    print(names)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -64,7 +64,7 @@ func TestPrintNestedStringQuoting(t *testing.T) {
 }
 
 func TestPrintError(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    err: Error = Error.new(\"File Error\", \"file not found\")\n    print(err)\nend")
+	result := compileSource("fun demo()\n    err: Error = Error.new(\"File Error\", \"file not found\")\n    print(err)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -95,7 +95,7 @@ func TestPrintDiagnostics(t *testing.T) {
 		{"fun print()\nend", "print is a protected built-in name"},
 		{"fun demo()\n    step: Int32 | EoS = 1\n    print(step)\nend", "print does not support Int32 | EoS"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
@@ -105,14 +105,14 @@ func TestPrintDiagnostics(t *testing.T) {
 func TestPrintNoResult(t *testing.T) {
 	// RFC 0048: the destination is otherwise valid, so failure proves that
 	// print produces no value rather than that standalone Nil is invalid.
-	result := compiler.Compile("fun demo()\n    bad: Int32 = print(\"x\")\nend")
+	result := compileSource("fun demo()\n    bad: Int32 = print(\"x\")\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "print produces no value") {
 		t.Fatalf("Compile stderr = %#v, want no-result rejection", result.Stderr)
 	}
 }
 
 func TestPrintDeferred(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    defer print(\"leaving\\n\")\n    text: String = \"early\"\n    defer print(text)\nend")
+	result := compileSource("fun demo()\n    defer print(\"leaving\\n\")\n    text: String = \"early\"\n    defer print(text)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

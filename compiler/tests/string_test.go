@@ -10,7 +10,7 @@ import (
 // hex_string handle representation, and the byte-view operations.
 
 func TestStringLiteralBinding(t *testing.T) {
-	result := compiler.Compile("greeting: String = \"hello\"")
+	result := compileSource("greeting: String = \"hello\"")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -29,7 +29,7 @@ func TestStringLiteralBinding(t *testing.T) {
 }
 
 func TestStringLiteralEscapes(t *testing.T) {
-	result := compiler.Compile("text: String = \"a\\\"b\\\\c\\nd\\te\\rf\"")
+	result := compileSource("text: String = \"a\\\"b\\\\c\\nd\\te\\rf\"")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -39,7 +39,7 @@ func TestStringLiteralEscapes(t *testing.T) {
 }
 
 func TestStringBytesAndSlice(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    text: String = \"hello\"\n    raw: View<UInt8> = text.bytes()\n    first: UInt8 = raw[0]\n    part: View<UInt8> = text.slice(1, 3)\n    second: UInt8 = part[0]\nend")
+	result := compileSource("fun demo()\n    text: String = \"hello\"\n    raw: View<UInt8> = text.bytes()\n    first: UInt8 = raw[0]\n    part: View<UInt8> = text.slice(1, 3)\n    second: UInt8 = part[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -56,7 +56,7 @@ func TestStringBytesAndSlice(t *testing.T) {
 }
 
 func TestStringOwningLifecycle(t *testing.T) {
-	result := compiler.Compile("fun make_text(h: Heap): String\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap)\n    text: String = make_text(h)\n    defer text.free(h)\n    loud: String = text.concat(h, \"!\")\n    loud.free(h)\nend")
+	result := compileSource("fun make_text(h: Heap): String\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap)\n    text: String = make_text(h)\n    defer text.free(h)\n    loud: String = text.concat(h, \"!\")\n    loud.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -74,7 +74,7 @@ func TestStringOwningLifecycle(t *testing.T) {
 }
 
 func TestStringFromBytes(t *testing.T) {
-	result := compiler.Compile("fun demo(h: Heap)\n    text: String = \"abc\"\n    raw: View<UInt8> = text.bytes()\n    copy: String = String.from_bytes(h, raw)\n    copy.free(h)\nend")
+	result := compileSource("fun demo(h: Heap)\n    text: String = \"abc\"\n    raw: View<UInt8> = text.bytes()\n    copy: String = String.from_bytes(h, raw)\n    copy.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -101,21 +101,21 @@ func TestStringShallowCopySemantics(t *testing.T) {
 		"fun demo(h: Heap, release: Bool)\n    owned: String = \"x\".to_string(h)\n    if release\n        owned.free(h)\n    end\n    owned.free(h)\nend",
 		"fun demo(h: Heap, release: Bool)\n    owned: String = \"x\".to_string(h)\n    if release\n        defer owned.free(h)\n    else\n        defer owned.free(h)\n    end\nend",
 	} {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
 		}
 	}
 }
 
 func TestStringReturnHandoff(t *testing.T) {
-	result := compiler.Compile("fun make_text(h: Heap): String\n    owned: String = \"x\".to_string(h)\n    return owned\nend\nfun demo(h: Heap)\n    text: String = make_text(h)\n    text.free(h)\nend")
+	result := compileSource("fun make_text(h: Heap): String\n    owned: String = \"x\".to_string(h)\n    return owned\nend\nfun demo(h: Heap)\n    text: String = make_text(h)\n    text.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestStringStaticReassignment(t *testing.T) {
-	result := compiler.Compile("fun demo()\n    mut greeting: String = \"hello\"\n    greeting = \"world\"\nend")
+	result := compileSource("fun demo()\n    mut greeting: String = \"hello\"\n    greeting = \"world\"\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -126,7 +126,7 @@ func TestStringParameterCopiesAreValid(t *testing.T) {
 		"fun demo(source: String)\n    other: String = source\nend",
 		"fun demo(source: String)\n    mut copy: String = \"x\"\n    copy = source\nend",
 	} {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
 		}
 	}
@@ -135,7 +135,7 @@ func TestStringParameterCopiesAreValid(t *testing.T) {
 func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
 	// RFC 0048: Array<String, N> is valid; element copies share the String
 	// handle, and the array never frees a stored literal.
-	result := compiler.Compile("fun demo()\n    texts: Array<String, 2> = [\"a\", \"b\"]\n    copy: Array<String, 2> = texts\n    first: String = texts.at(0)\nend")
+	result := compileSource("fun demo()\n    texts: Array<String, 2> = [\"a\", \"b\"]\n    copy: Array<String, 2> = texts\n    first: String = texts.at(0)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

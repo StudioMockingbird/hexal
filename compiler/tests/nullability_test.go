@@ -14,7 +14,7 @@ func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
 	// RFC 0048: standalone `nothing: Nil = nil` is invalid; null-pointer
 	// lowering survives through the nullable union form.
 	assertRejects(t, "nothing: Nil = nil", "Nil is valid only as a member of a union with a non-Nil type")
-	result := compiler.Compile("maybe: Ptr<Int32> | Nil = nil")
+	result := compileSource("maybe: Ptr<Int32> | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -29,7 +29,7 @@ func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
 }
 
 func TestNullablePointerUsesTheNullNiche(t *testing.T) {
-	result := compiler.Compile("mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = nil present: Ptr<Int32> | Nil = ref value")
+	result := compileSource("mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = nil present: Ptr<Int32> | Nil = ref value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -47,7 +47,7 @@ func TestNullablePointerUsesTheNullNiche(t *testing.T) {
 // pointers. Handle types like String have no null representation, so their
 // unions lower to tagged unions instead.
 func TestNullableHandleUnionDoesNotUseTheNullNiche(t *testing.T) {
-	result := compiler.Compile("text: String | Nil = nil")
+	result := compileSource("text: String | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -65,7 +65,7 @@ func TestNullableHandleUnionDoesNotUseTheNullNiche(t *testing.T) {
 }
 
 func TestNullTestsLowerToNullPointerComparison(t *testing.T) {
-	result := compiler.Compile("mut maybe: Ptr<Int32> | Nil = nil equal: Bool = maybe == nil notEqual: Bool = maybe != nil commuted: Bool = nil == maybe")
+	result := compileSource("mut maybe: Ptr<Int32> | Nil = nil equal: Bool = maybe == nil notEqual: Bool = maybe != nil commuted: Bool = nil == maybe")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -81,7 +81,7 @@ func TestNullTestsLowerToNullPointerComparison(t *testing.T) {
 }
 
 func TestNullTestAsConditionNarrowsReads(t *testing.T) {
-	result := compiler.Compile("mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil result: Int32 = maybe.value end")
+	result := compileSource("mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil result: Int32 = maybe.value end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -96,7 +96,7 @@ func TestNullTestAsConditionNarrowsReads(t *testing.T) {
 }
 
 func TestNullableAssignmentStoresNullAndPointer(t *testing.T) {
-	result := compiler.Compile("mut value: Int32 = 1 other: Int32 = 2 mut maybe: Ptr<Int32> | Nil = nil maybe = ref value maybe = nil maybe = ref other")
+	result := compileSource("mut value: Int32 = 1 other: Int32 = 2 mut maybe: Ptr<Int32> | Nil = nil maybe = ref value maybe = nil maybe = ref other")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -113,7 +113,7 @@ func TestNullableAssignmentStoresNullAndPointer(t *testing.T) {
 }
 
 func TestNullableObjectMemberUsesNullNiche(t *testing.T) {
-	result := compiler.Compile("type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut tail: Node = Node { value = 3, next = nil, }")
+	result := compileSource("type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut tail: Node = Node { value = 3, next = nil, }")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -128,7 +128,7 @@ func TestNullableObjectMemberUsesNullNiche(t *testing.T) {
 }
 
 func TestNullableFunctionResultReturnsNullptr(t *testing.T) {
-	result := compiler.Compile("fun absent(): MutPtr<Int32> | Nil\n    return nil\nend\nnothing: MutPtr<Int32> | Nil = absent()")
+	result := compileSource("fun absent(): MutPtr<Int32> | Nil\n    return nil\nend\nnothing: MutPtr<Int32> | Nil = absent()")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -144,7 +144,7 @@ func TestNullableFunctionResultReturnsNullptr(t *testing.T) {
 }
 
 func TestErasedUnknownPointersLowerToVoidPointers(t *testing.T) {
-	result := compiler.Compile("mut value: Int32 = 1 reader: Ptr<Int32> = ref value erased: Ptr<Unknown> = reader restored: Ptr<Int32> = erased maybe_erased: MutPtr<Unknown> | Nil = nil")
+	result := compileSource("mut value: Int32 = 1 reader: Ptr<Int32> = ref value erased: Ptr<Unknown> = reader restored: Ptr<Int32> = erased maybe_erased: MutPtr<Unknown> | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -160,12 +160,12 @@ func TestErasedUnknownPointersLowerToVoidPointers(t *testing.T) {
 }
 
 func TestStddefIncludedOnlyWhenNullUsed(t *testing.T) {
-	withNull := compiler.Compile("mut maybe: Ptr<Int32> | Nil = nil if maybe != nil noop: Int32 = 0 end")
+	withNull := compileSource("mut maybe: Ptr<Int32> | Nil = nil if maybe != nil noop: Int32 = 0 end")
 	if withNull.ExitCode != compiler.ExitSuccess || !strings.Contains(withNull.MainH, "#include <stddef.h>") {
 		t.Fatalf("null-using program = %#v, want <stddef.h>", withNull)
 	}
 
-	withoutNull := compiler.Compile("mut value: Int32 = 1 reader: Ptr<Int32> = ref value")
+	withoutNull := compileSource("mut value: Int32 = 1 reader: Ptr<Int32> = ref value")
 	if withoutNull.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", withoutNull.ExitCode, withoutNull.Stderr, compiler.ExitSuccess)
 	}
@@ -184,7 +184,7 @@ func TestNullabilityDiagnostics(t *testing.T) {
 		{"maybe: Ptr<Int32> | Nil = nil bad: Int32 = maybe.value", "Ptr<Int32> | Nil may be Nil; narrow it before using .value"},
 		{"mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil bad: Int32 = maybe.value end", ""},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if testCase.want == "" {
 			if result.ExitCode != compiler.ExitSuccess {
 				t.Fatalf("Compile(%q) = %#v, want success", testCase.source, result.Stderr)

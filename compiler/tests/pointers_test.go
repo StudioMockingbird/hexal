@@ -11,7 +11,7 @@ import (
 )
 
 func TestRefIsTypedByPlaceWritability(t *testing.T) {
-	result := compiler.Compile("mut score: Int32 = 0 answer: Int32 = 42 writer: MutPtr<Int32> = ref score look: Ptr<Int32> = ref answer")
+	result := compileSource("mut score: Int32 = 0 answer: Int32 = 42 writer: MutPtr<Int32> = ref score look: Ptr<Int32> = ref answer")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -26,19 +26,19 @@ func TestRefIsTypedByPlaceWritability(t *testing.T) {
 }
 
 func TestPointeeWritabilityControlsValueAssignment(t *testing.T) {
-	valid := compiler.Compile("mut score: Int32 = 0 writer: MutPtr<Int32> = ref score writer.value = 1")
+	valid := compileSource("mut score: Int32 = 0 writer: MutPtr<Int32> = ref score writer.value = 1")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("MutPtr pointee write failed: %#v", valid.Stderr)
 	}
 
-	invalid := compiler.Compile("answer: Int32 = 42 look: Ptr<Int32> = ref answer look.value = 1")
+	invalid := compileSource("answer: Int32 = 42 look: Ptr<Int32> = ref answer look.value = 1")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "cannot write through a read-only pointer look.value") {
 		t.Fatalf("Ptr pointee write = %#v, want read-only-pointer diagnostic", invalid)
 	}
 }
 
 func TestFixedMutPtrBindingWritesPointeeButRejectsRepointing(t *testing.T) {
-	valid := compiler.Compile("mut first: Int32 = 1 fixed: MutPtr<Int32> = ref first fixed.value = 2")
+	valid := compileSource("mut first: Int32 = 1 fixed: MutPtr<Int32> = ref first fixed.value = 2")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("fixed MutPtr pointee write failed: %#v", valid)
 	}
@@ -51,14 +51,14 @@ func TestFixedMutPtrBindingWritesPointeeButRejectsRepointing(t *testing.T) {
 		}
 	}
 
-	invalid := compiler.Compile("mut first: Int32 = 1 mut second: Int32 = 2 fixed: MutPtr<Int32> = ref first fixed = ref second")
+	invalid := compileSource("mut first: Int32 = 1 mut second: Int32 = 2 fixed: MutPtr<Int32> = ref first fixed = ref second")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "cannot assign to constant fixed") {
 		t.Fatalf("fixed MutPtr repointing = %#v, want constant-binding diagnostic", invalid)
 	}
 }
 
 func TestFixedMutPtrMemberWritesPointeeButRejectsMutableReference(t *testing.T) {
-	valid := compiler.Compile("type Holder = { fixedMember: Int32, pointer: MutPtr<Int32>, } mut value: Int32 = 0 holder: Holder = Holder { fixedMember = 1, pointer = ref value, } holder.pointer.value = 2")
+	valid := compileSource("type Holder = { fixedMember: Int32, pointer: MutPtr<Int32>, } mut value: Int32 = 0 holder: Holder = Holder { fixedMember = 1, pointer = ref value, } holder.pointer.value = 2")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("fixed MutPtr member pointee write failed: %#v", valid)
 	}
@@ -66,14 +66,14 @@ func TestFixedMutPtrMemberWritesPointeeButRejectsMutableReference(t *testing.T) 
 		t.Fatalf("main.c = %q, want fixed member pointee write", valid.MainC)
 	}
 
-	invalid := compiler.Compile("type Holder = { fixedMember: Int32, pointer: MutPtr<Int32>, } mut value: Int32 = 0 holder: Holder = Holder { fixedMember = 1, pointer = ref value, } bad: MutPtr<Int32> = ref holder.fixedMember")
+	invalid := compileSource("type Holder = { fixedMember: Int32, pointer: MutPtr<Int32>, } mut value: Int32 = 0 holder: Holder = Holder { fixedMember = 1, pointer = ref value, } bad: MutPtr<Int32> = ref holder.fixedMember")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected MutPtr<Int32> initializer, got Ptr<Int32>") {
 		t.Fatalf("fixed member reference = %#v, want MutPtr mismatch", invalid)
 	}
 }
 
 func TestObjectCopyRetainsMemberMutabilityContract(t *testing.T) {
-	valid := compiler.Compile("type Player = { id: Int32, mut health: Int32, } mut source: Player = Player { id = 1, health = 100, } mut copy: Player = source copy.health = 50")
+	valid := compileSource("type Player = { id: Int32, mut health: Int32, } mut source: Player = Player { id = 1, health = 100, } mut copy: Player = source copy.health = 50")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("mutable object copy failed: %#v", valid)
 	}
@@ -81,33 +81,33 @@ func TestObjectCopyRetainsMemberMutabilityContract(t *testing.T) {
 		t.Fatalf("main.c = %q, want mutable member assignment in copy", valid.MainC)
 	}
 
-	invalid := compiler.Compile("type Player = { id: Int32, mut health: Int32, } mut source: Player = Player { id = 1, health = 100, } mut copy: Player = source copy.id = 2")
+	invalid := compileSource("type Player = { id: Int32, mut health: Int32, } mut source: Player = Player { id = 1, health = 100, } mut copy: Player = source copy.id = 2")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "cannot assign to read-only member copy.id") {
 		t.Fatalf("fixed member through mutable object copy = %#v, want read-only-member diagnostic", invalid)
 	}
 }
 
 func TestFixedObjectBindingRejectsMutableMemberWrite(t *testing.T) {
-	result := compiler.Compile("type Player = { id: Int32, mut health: Int32, } mut source: Player = Player { id = 1, health = 100, } copy: Player = source copy.health = 50")
+	result := compileSource("type Player = { id: Int32, mut health: Int32, } mut source: Player = Player { id = 1, health = 100, } copy: Player = source copy.health = 50")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "cannot assign to read-only member copy.health") {
 		t.Fatalf("fixed object binding = %#v, want read-only-member diagnostic", result)
 	}
 }
 
 func TestWholeObjectReplacementRespectsBindingMutability(t *testing.T) {
-	valid := compiler.Compile("type Player = { id: Int32, mut health: Int32, } mut first: Player = Player { id = 1, health = 100, } second: Player = Player { id = 2, health = 200, } first = second")
+	valid := compileSource("type Player = { id: Int32, mut health: Int32, } mut first: Player = Player { id = 1, health = 100, } second: Player = Player { id = 2, health = 200, } first = second")
 	if valid.ExitCode != compiler.ExitSuccess || !strings.Contains(valid.MainC, "hex_v_first = hex_v_second;") {
 		t.Fatalf("mutable object replacement = %#v, want complete object assignment", valid)
 	}
 
-	invalid := compiler.Compile("type Player = { id: Int32, mut health: Int32, } first: Player = Player { id = 1, health = 100, } mut second: Player = Player { id = 2, health = 200, } first = second")
+	invalid := compileSource("type Player = { id: Int32, mut health: Int32, } first: Player = Player { id = 1, health = 100, } mut second: Player = Player { id = 2, health = 200, } first = second")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "cannot assign to constant first") {
 		t.Fatalf("fixed object replacement = %#v, want constant-binding diagnostic", invalid)
 	}
 }
 
 func TestFixedObjectAndReferenceLowerToConst(t *testing.T) {
-	result := compiler.Compile("type Point = { x: Int32, mut y: Int32, } point: Point = Point { x = 1, y = 2, } view: Ptr<Point> = ref point")
+	result := compileSource("type Point = { x: Int32, mut y: Int32, } point: Point = Point { x = 1, y = 2, } view: Ptr<Point> = ref point")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("fixed object compilation failed: %#v", result)
 	}
@@ -122,7 +122,7 @@ func TestFixedObjectAndReferenceLowerToConst(t *testing.T) {
 }
 
 func TestWeakeningDeclarationAndAssignment(t *testing.T) {
-	valid := compiler.Compile("mut score: Int32 = 0 writer: MutPtr<Int32> = ref score observer: Ptr<Int32> = writer mut reader: Ptr<Int32> = ref score reader = writer")
+	valid := compileSource("mut score: Int32 = 0 writer: MutPtr<Int32> = ref score observer: Ptr<Int32> = writer mut reader: Ptr<Int32> = ref score reader = writer")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("weakening compilation failed: %#v", valid.Stderr)
 	}
@@ -136,14 +136,14 @@ func TestWeakeningDeclarationAndAssignment(t *testing.T) {
 		}
 	}
 
-	invalid := compiler.Compile("answer: Int32 = 42 look: Ptr<Int32> = ref answer promoted: MutPtr<Int32> = look")
+	invalid := compileSource("answer: Int32 = 42 look: Ptr<Int32> = ref answer promoted: MutPtr<Int32> = look")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || invalid.Stderr[0] != "[Type Error] expected MutPtr<Int32> initializer, got Ptr<Int32> at 1:76" {
 		t.Fatalf("reverse weakening = %#v, want type mismatch", invalid.Stderr)
 	}
 }
 
 func TestWeakeningIsOutermostLayerOnly(t *testing.T) {
-	valid := compiler.Compile("mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value mut outer: MutPtr<MutPtr<Int32>> = ref inner ok: Ptr<MutPtr<Int32>> = outer")
+	valid := compileSource("mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value mut outer: MutPtr<MutPtr<Int32>> = ref inner ok: Ptr<MutPtr<Int32>> = outer")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("outermost weakening compilation failed: %#v", valid.Stderr)
 	}
@@ -151,14 +151,14 @@ func TestWeakeningIsOutermostLayerOnly(t *testing.T) {
 		t.Fatalf("main.c = %q, want weakened outermost pointer copy", valid.MainC)
 	}
 
-	invalid := compiler.Compile("mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value mut outer: MutPtr<MutPtr<Int32>> = ref inner no: Ptr<Ptr<Int32>> = outer")
+	invalid := compileSource("mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value mut outer: MutPtr<MutPtr<Int32>> = ref inner no: Ptr<Ptr<Int32>> = outer")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected Ptr<Ptr<Int32>> initializer, got MutPtr<MutPtr<Int32>>") {
 		t.Fatalf("deep weakening = %#v, want inner-layer mismatch", invalid.Stderr)
 	}
 }
 
 func TestWeakeningThroughObjectMemberInitializer(t *testing.T) {
-	valid := compiler.Compile("type Config = { name: Ptr<UInt8>, } mut buffer: UInt8 = 65 config: Config = Config { name = ref buffer, }")
+	valid := compileSource("type Config = { name: Ptr<UInt8>, } mut buffer: UInt8 = 65 config: Config = Config { name = ref buffer, }")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("member weakening compilation failed: %#v", valid.Stderr)
 	}
@@ -166,7 +166,7 @@ func TestWeakeningThroughObjectMemberInitializer(t *testing.T) {
 		t.Fatalf("main.c = %q, want weakened member pointer initializer", valid.MainC)
 	}
 
-	invalid := compiler.Compile("type Config = { name: MutPtr<UInt8>, } buffer: UInt8 = 65 config: Config = Config { name = ref buffer, }")
+	invalid := compileSource("type Config = { name: MutPtr<UInt8>, } buffer: UInt8 = 65 config: Config = Config { name = ref buffer, }")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) == 0 {
 		t.Fatalf("reverse member weakening = %#v, want type mismatch", invalid)
 	}
@@ -175,19 +175,19 @@ func TestWeakeningThroughObjectMemberInitializer(t *testing.T) {
 func TestPointerObjectMembers(t *testing.T) {
 	// RFC 0010: nil cannot initialize a non-nullable pointer member, and a
 	// nullable member takes the null value freely.
-	invalid := compiler.Compile("type Node = { value: Int32, mut next: MutPtr<Node>, } mut first: Node = Node { value = 1, next = nil, }")
+	invalid := compileSource("type Node = { value: Int32, mut next: MutPtr<Node>, } mut first: Node = Node { value = 1, next = nil, }")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) == 0 || !strings.Contains(strings.Join(invalid.Stderr, "\n"), "nil requires an expected union containing Nil") {
 		t.Fatalf("nil into non-nullable member = %#v, want standalone-nil diagnostic", invalid)
 	}
 
-	valid := compiler.Compile("type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut first: Node = Node { value = 1, next = nil, }")
+	valid := compileSource("type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut first: Node = Node { value = 1, next = nil, }")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("nil into nullable member failed: %#v", valid.Stderr)
 	}
 }
 
 func TestSelfRecursiveObjectLowersSplitStruct(t *testing.T) {
-	result := compiler.Compile("type Node = { value: Int32, mut next: MutPtr<Node>, }")
+	result := compileSource("type Node = { value: Int32, mut next: MutPtr<Node>, }")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("self-recursive object compilation failed: %#v", result.Stderr)
 	}
@@ -204,7 +204,7 @@ func TestSelfRecursiveObjectLowersSplitStruct(t *testing.T) {
 }
 
 func TestSelfRecursiveReadOnlyPointerMemberLowers(t *testing.T) {
-	result := compiler.Compile("type Node = { value: Int32, next: Ptr<Node>, }")
+	result := compileSource("type Node = { value: Int32, next: Ptr<Node>, }")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("read-only self-recursive object compilation failed: %v", result.Stderr)
 	}
@@ -227,7 +227,7 @@ func TestRejectsByValueAndForwardRecursion(t *testing.T) {
 		{"type A = { b: Ptr<B>, } type B = { a: Ptr<A>, }", "unknown type B"},
 		{"type P = { next: Ptr<P>, } type Q = P", ""},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if testCase.want == "" {
 			if result.ExitCode != compiler.ExitSuccess {
 				t.Fatalf("Compile(%q) = %#v, want success", testCase.source, result.Stderr)
@@ -241,7 +241,7 @@ func TestRejectsByValueAndForwardRecursion(t *testing.T) {
 }
 
 func TestPointersAndAliasing(t *testing.T) {
-	result := compiler.Compile("mut x: Int32 = 42 writer: MutPtr<Int32> = ref x alias: MutPtr<Int32> = writer alias.value = 100 y: Int32 = writer.value")
+	result := compileSource("mut x: Int32 = 42 writer: MutPtr<Int32> = ref x alias: MutPtr<Int32> = writer alias.value = 100 y: Int32 = writer.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d: %v", result.ExitCode, result.Stderr, compiler.ExitSuccess, result.Stderr)
 	}
@@ -262,7 +262,7 @@ func TestPointersAndAliasing(t *testing.T) {
 }
 
 func TestNestedPointers(t *testing.T) {
-	result := compiler.Compile("mut x: Int32 = 42 writer: MutPtr<Int32> = ref x writer_pointer: Ptr<MutPtr<Int32>> = ref writer z: Int32 = writer_pointer.value.value")
+	result := compileSource("mut x: Int32 = 42 writer: MutPtr<Int32> = ref x writer_pointer: Ptr<MutPtr<Int32>> = ref writer z: Int32 = writer_pointer.value.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d: %v", result.ExitCode, result.Stderr, compiler.ExitSuccess, result.Stderr)
 	}
@@ -274,7 +274,7 @@ func TestNestedPointers(t *testing.T) {
 }
 
 func TestAddressOfDereferencePlace(t *testing.T) {
-	result := compiler.Compile("mut x: Int32 = 42 mut p: MutPtr<Int32> = ref x mut pp: MutPtr<MutPtr<Int32>> = ref p q: Ptr<MutPtr<Int32>> = ref pp.value pp.value = p")
+	result := compileSource("mut x: Int32 = 42 mut p: MutPtr<Int32> = ref x mut pp: MutPtr<MutPtr<Int32>> = ref p q: Ptr<MutPtr<Int32>> = ref pp.value pp.value = p")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -286,7 +286,7 @@ func TestAddressOfDereferencePlace(t *testing.T) {
 }
 
 func TestPointerAccessAndRebindingModes(t *testing.T) {
-	result := compiler.Compile("mut y: Int32 = 1 mut z: Int32 = 2 mut reader: Ptr<Int32> = ref y reader = ref z")
+	result := compileSource("mut y: Int32 = 1 mut z: Int32 = 2 mut reader: Ptr<Int32> = ref y reader = ref z")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d: %v", result.ExitCode, result.Stderr, compiler.ExitSuccess, result.Stderr)
 	}
@@ -298,7 +298,7 @@ func TestPointerAccessAndRebindingModes(t *testing.T) {
 }
 
 func TestPointerValuedStorePreservesWritability(t *testing.T) {
-	result := compiler.Compile("mut value: Int32 = 1 mut slot: MutPtr<Int32> = ref value mut slot_pointer: MutPtr<MutPtr<Int32>> = ref slot mut other: Int32 = 2 other_writer: MutPtr<Int32> = ref other slot_pointer.value = other_writer")
+	result := compileSource("mut value: Int32 = 1 mut slot: MutPtr<Int32> = ref value mut slot_pointer: MutPtr<MutPtr<Int32>> = ref slot mut other: Int32 = 2 other_writer: MutPtr<Int32> = ref other slot_pointer.value = other_writer")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d: %v", result.ExitCode, result.Stderr, compiler.ExitSuccess, result.Stderr)
 	}
@@ -310,12 +310,12 @@ func TestPointerValuedStorePreservesWritability(t *testing.T) {
 }
 
 func TestBindingsAreConstantUnlessMutable(t *testing.T) {
-	result := compiler.Compile("mut x: Int32 = 13 x = 14")
+	result := compileSource("mut x: Int32 = 13 x = 14")
 	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(result.MainC, "int32_t hex_v_x = 13;") || !strings.Contains(result.MainC, "hex_v_x = 14;") {
 		t.Fatalf("Compile returned %#v, want mutable binding", result)
 	}
 
-	result = compiler.Compile("x: Int32 = 13 x = 14")
+	result = compileSource("x: Int32 = 13 x = 14")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != "[Type Error] cannot assign to constant x at 1:15" {
 		t.Fatalf("Compile returned %#v, want constant-binding diagnostic", result)
 	}
@@ -333,7 +333,7 @@ func TestPointerDiagnostics(t *testing.T) {
 		{"mut x: Int32 = 13 p: Ptr<Int32> = ref x p.value = 42", "[Type Error] cannot write through a read-only pointer p.value at 1:41"},
 		{"x: Int32 = 13 p: Ptr<Int32> = mut ref x", "[Syntax Error] mut is not valid on the right-hand side; use ref value at 1:31"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {
 			t.Fatalf("Compile(%q) = %#v, want [%q]", testCase.source, result.Stderr, testCase.want)
 		}
@@ -355,7 +355,7 @@ func TestPointerNestingCombinations(t *testing.T) {
 		{name: "MutPtrMutPtr", source: "mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value outer: MutPtr<MutPtr<Int32>> = ref inner", want: "int32_t **const hex_v_outer = &hex_v_inner;", runtimeCheck: "hex_v_outer == &hex_v_inner && *hex_v_outer == hex_v_inner && **hex_v_outer == hex_v_value"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := compiler.Compile(testCase.source)
+			result := compileSource(testCase.source)
 			if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 				t.Fatalf("Compile returned %#v, want successful pointer program", result)
 			}
@@ -367,7 +367,7 @@ func TestPointerNestingCombinations(t *testing.T) {
 	}
 }
 func TestRecursivePtrAndMutPtrObjects(t *testing.T) {
-	result := compiler.Compile("type Node = { next: Ptr<Node>, mut child: MutPtr<Node>, }")
+	result := compileSource("type Node = { next: Ptr<Node>, mut child: MutPtr<Node>, }")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful recursive object program", result)
 	}
@@ -383,7 +383,7 @@ func TestRecursivePtrAndMutPtrObjects(t *testing.T) {
 }
 
 func TestPointerMemberAutoDereferences(t *testing.T) {
-	result := compiler.Compile("type Point = { x: Int32, mut y: Int32, } mut pt: Point = Point { x = 1, y = 2, } p: MutPtr<Point> = ref pt a: Int32 = p.y p.y = 5")
+	result := compileSource("type Point = { x: Int32, mut y: Int32, } mut pt: Point = Point { x = 1, y = 2, } p: MutPtr<Point> = ref pt a: Int32 = p.y p.y = 5")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("auto-dereference compilation failed: %#v", result.Stderr)
 	}
@@ -398,24 +398,24 @@ func TestPointerMemberAutoDereferences(t *testing.T) {
 }
 
 func TestAutoDereferenceWritabilityFollowsPointeeAndMember(t *testing.T) {
-	readOnlyPointee := compiler.Compile("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } p: Ptr<Point> = ref pt a: Int32 = p.y p.y = 5")
+	readOnlyPointee := compileSource("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } p: Ptr<Point> = ref pt a: Int32 = p.y p.y = 5")
 	if readOnlyPointee.ExitCode != compiler.ExitFailure || len(readOnlyPointee.Stderr) != 1 || !strings.Contains(readOnlyPointee.Stderr[0], "cannot assign to read-only member p.y") {
 		t.Fatalf("Ptr member write = %#v, want read-only-member diagnostic", readOnlyPointee.Stderr)
 	}
 
-	fixedMember := compiler.Compile("type Point = { x: Int32, mut y: Int32, } mut pt: Point = Point { x = 1, y = 2, } p: MutPtr<Point> = ref pt p.x = 5")
+	fixedMember := compileSource("type Point = { x: Int32, mut y: Int32, } mut pt: Point = Point { x = 1, y = 2, } p: MutPtr<Point> = ref pt p.x = 5")
 	if fixedMember.ExitCode != compiler.ExitFailure || len(fixedMember.Stderr) != 1 || !strings.Contains(fixedMember.Stderr[0], "cannot assign to read-only member p.x") {
 		t.Fatalf("MutPtr fixed member write = %#v, want read-only-member diagnostic", fixedMember.Stderr)
 	}
 }
 
 func TestAutoDereferenceAppliesOneLayerOnly(t *testing.T) {
-	direct := compiler.Compile("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } inner: Ptr<Point> = ref pt outer: Ptr<Ptr<Point>> = ref inner a: Int32 = outer.x")
+	direct := compileSource("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } inner: Ptr<Point> = ref pt outer: Ptr<Ptr<Point>> = ref inner a: Int32 = outer.x")
 	if direct.ExitCode != compiler.ExitFailure || len(direct.Stderr) != 1 || !strings.Contains(direct.Stderr[0], "cannot access .x on Ptr<Ptr<Point>>") {
 		t.Fatalf("two-layer auto-dereference = %#v, want access diagnostic", direct.Stderr)
 	}
 
-	explicit := compiler.Compile("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } inner: Ptr<Point> = ref pt outer: Ptr<Ptr<Point>> = ref inner a: Int32 = outer.value.x")
+	explicit := compileSource("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } inner: Ptr<Point> = ref pt outer: Ptr<Ptr<Point>> = ref inner a: Int32 = outer.value.x")
 	if explicit.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("explicit two-layer dereference failed: %#v", explicit.Stderr)
 	}
@@ -425,7 +425,7 @@ func TestAutoDereferenceAppliesOneLayerOnly(t *testing.T) {
 }
 
 func TestPointerValuePropertyWinsOverMember(t *testing.T) {
-	result := compiler.Compile("type Box = { value: Int32, } box: Box = Box { value = 7, } p: Ptr<Box> = ref box whole: Box = p.value inner: Int32 = p.value.value")
+	result := compileSource("type Box = { value: Int32, } box: Box = Box { value = 7, } p: Ptr<Box> = ref box whole: Box = p.value inner: Int32 = p.value.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("value member behind pointer failed: %#v", result.Stderr)
 	}
@@ -440,7 +440,7 @@ func TestPointerValuePropertyWinsOverMember(t *testing.T) {
 }
 
 func TestRefThroughAutoDereferencedMember(t *testing.T) {
-	writable := compiler.Compile("type Point = { x: Int32, mut y: Int32, } mut pt: Point = Point { x = 1, y = 2, } p: MutPtr<Point> = ref pt q: MutPtr<Int32> = ref p.y")
+	writable := compileSource("type Point = { x: Int32, mut y: Int32, } mut pt: Point = Point { x = 1, y = 2, } p: MutPtr<Point> = ref pt q: MutPtr<Int32> = ref p.y")
 	if writable.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("ref through auto-dereference failed: %#v", writable.Stderr)
 	}
@@ -448,21 +448,21 @@ func TestRefThroughAutoDereferencedMember(t *testing.T) {
 		t.Fatalf("main.c = %q, want reference to auto-dereferenced member", writable.MainC)
 	}
 
-	readOnly := compiler.Compile("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } p: Ptr<Point> = ref pt q: MutPtr<Int32> = ref p.y")
+	readOnly := compileSource("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } p: Ptr<Point> = ref pt q: MutPtr<Int32> = ref p.y")
 	if readOnly.ExitCode != compiler.ExitFailure || len(readOnly.Stderr) != 1 || !strings.Contains(readOnly.Stderr[0], "expected MutPtr<Int32> initializer, got Ptr<Int32>") {
 		t.Fatalf("ref through read-only pointer = %#v, want MutPtr mismatch", readOnly.Stderr)
 	}
 }
 
 func TestAutoDereferenceRejectsNonObjectPointee(t *testing.T) {
-	result := compiler.Compile("mut score: Int32 = 0 p: MutPtr<Int32> = ref score a: Int32 = p.x")
+	result := compileSource("mut score: Int32 = 0 p: MutPtr<Int32> = ref score a: Int32 = p.x")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "cannot access .x on MutPtr<Int32>; expected Ptr<T> or an object member") {
 		t.Fatalf("non-object pointee = %#v, want access diagnostic", result.Stderr)
 	}
 }
 
 func TestAutoDereferenceMissingMemberNamesSourceSpelling(t *testing.T) {
-	result := compiler.Compile("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } p: Ptr<Point> = ref pt a: Int32 = p.z")
+	result := compileSource("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } p: Ptr<Point> = ref pt a: Int32 = p.z")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "Point has no member z") {
 		t.Fatalf("missing member behind pointer = %#v, want no-member diagnostic", result.Stderr)
 	}
@@ -476,13 +476,13 @@ func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 		"type Row = { mut values: Array<Int32, 2> }\nfun f()\n    mut pair: Row = Row { values = [1, 2] }\n    p: MutPtr<Int32> = ref pair.values[0]\nend\n",
 	}
 	for _, source := range accepted {
-		if result := compiler.Compile(source); result.ExitCode != compiler.ExitSuccess {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
 		}
 	}
 	// A fixed member downgrades the final place to Ptr even under a writable root.
 	rejected := "type Row = { value: Int32 }\nfun f()\n    mut rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: MutPtr<Int32> = ref rows[0].value\nend\n"
-	if result := compiler.Compile(rejected); result.ExitCode != compiler.ExitFailure {
+	if result := compileSource(rejected); result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want fixed-member ref downgraded to Ptr, got accept:\n%s", rejected)
 	}
 }

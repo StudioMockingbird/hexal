@@ -9,7 +9,7 @@ import (
 )
 
 func TestAliasesLowerCanonically(t *testing.T) {
-	result := compiler.Compile("type Coordinate = Int32 type CoordinatePtr = Ptr<Coordinate> mut value: Coordinate = 1 pointer: CoordinatePtr = ref value read: Coordinate = pointer.value")
+	result := compileSource("type Coordinate = Int32 type CoordinatePtr = Ptr<Coordinate> mut value: Coordinate = 1 pointer: CoordinatePtr = ref value read: Coordinate = pointer.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -28,7 +28,7 @@ func TestAliasesLowerCanonically(t *testing.T) {
 }
 
 func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
-	result := compiler.Compile("type Pointer = MutPtr<Int32> type PointerPointer = Ptr<Pointer> mut value: Int32 = 1 mut pointer: Pointer = ref value pointerPointer: PointerPointer = ref pointer read: Int32 = pointerPointer.value.value")
+	result := compileSource("type Pointer = MutPtr<Int32> type PointerPointer = Ptr<Pointer> mut value: Int32 = 1 mut pointer: Pointer = ref value pointerPointer: PointerPointer = ref pointer read: Int32 = pointerPointer.value.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -44,7 +44,7 @@ func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
 }
 
 func TestTypeOnlyProgram(t *testing.T) {
-	result := compiler.Compile("type Coordinate = Int32 type CoordinatePtr = Ptr<Coordinate>")
+	result := compileSource("type Coordinate = Int32 type CoordinatePtr = Ptr<Coordinate>")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful type-only program", result)
 	}
@@ -67,7 +67,7 @@ func TestRejectsAliasResolutionErrors(t *testing.T) {
 		{"type MutPtr = UInt64", "[Type Error] built-in type constructor MutPtr cannot be redeclared at 1:6"},
 		{"Ptr: Int32 = 1", "[Type Error] built-in type constructor Ptr cannot be redeclared at 1:1"},
 	} {
-		result := compiler.Compile(testCase.source)
+		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {
 			t.Fatalf("Compile(%q) stderr = %#v, want [%q]", testCase.source, result.Stderr, testCase.want)
 		}
@@ -80,7 +80,7 @@ func TestRejectsTypeValueCollisions(t *testing.T) {
 		"distance: Int32 = 1 type distance = Int32",
 		"Int32: UInt32 = 1",
 	} {
-		result := compiler.Compile(source)
+		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "already declared") {
 			t.Fatalf("Compile(%q) stderr = %#v, want declaration collision", source, result.Stderr)
 		}
@@ -88,8 +88,8 @@ func TestRejectsTypeValueCollisions(t *testing.T) {
 }
 
 func TestTypeEnvironmentDoesNotLeakAcrossCompilations(t *testing.T) {
-	first := compiler.Compile("type Pointer = MutPtr<Int32> mut value: Int32 = 1 pointer: Pointer = ref value")
-	second := compiler.Compile("type Pointer = MutPtr<Bool> mut value: Bool = true pointer: Pointer = ref value")
+	first := compileSource("type Pointer = MutPtr<Int32> mut value: Int32 = 1 pointer: Pointer = ref value")
+	second := compileSource("type Pointer = MutPtr<Bool> mut value: Bool = true pointer: Pointer = ref value")
 	if first.ExitCode != compiler.ExitSuccess || second.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("compilations failed: first=%#v second=%#v", first, second)
 	}
@@ -99,7 +99,7 @@ func TestTypeEnvironmentDoesNotLeakAcrossCompilations(t *testing.T) {
 }
 
 func TestRejectsUnknownType(t *testing.T) {
-	result := compiler.Compile("x: Bogus = 13")
+	result := compileSource("x: Bogus = 13")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
@@ -113,7 +113,7 @@ func TestRejectsUnknownType(t *testing.T) {
 }
 
 func TestRejectsUnknownNamedType(t *testing.T) {
-	result := compiler.Compile("x: yyy = 1")
+	result := compileSource("x: yyy = 1")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
