@@ -230,8 +230,6 @@ type Environment struct {
 	taskTypes           map[string]Type
 	channelTypes        map[string]Type
 	atomicTypes         map[string]Type
-	unionTypes          map[string]Type
-	unionOrdinal        int
 	genericDeclarations map[string]*GenericDeclaration
 	specializations     map[string]Type
 	identity            *typeIdentity
@@ -242,14 +240,22 @@ type Environment struct {
 }
 
 // EncodeModuleOwner encodes each "/"-separated component as its decimal
-// UTF-8 byte length, "_", then the source spelling. Case-preserving; no
-// case folding; "graphics/shapes" -> "m8_graphics6_shapes".
+// UTF-8 byte length, "_", then the source spelling, all prefixed with one
+// leading "m". Case-preserving; no case folding; "graphics/shapes" ->
+// "m8_graphics6_shapes". The leading "m" keeps the encoded owner a valid
+// identifier prefix wherever it is embedded, matching the RFC 0034
+// header-guard spelling "HEX_MODULE_m8_graphics6_shapes_H". An empty
+// canonical id (a compiler-owned type with no defining module) encodes to
+// nothing.
 func EncodeModuleOwner(canonicalID string) string {
+	if canonicalID == "" {
+		return ""
+	}
 	parts := strings.Split(canonicalID, "/")
 	for index, part := range parts {
 		parts[index] = strconv.Itoa(len(part)) + "_" + part
 	}
-	return strings.Join(parts, "")
+	return "m" + strings.Join(parts, "")
 }
 
 // ModuleHeaderGuard returns the include guard for a module header:
@@ -282,7 +288,6 @@ func NewEnvironmentWithOwner(moduleID string) *Environment {
 		taskTypes:           make(map[string]Type),
 		channelTypes:        make(map[string]Type),
 		atomicTypes:         make(map[string]Type),
-		unionTypes:          make(map[string]Type),
 		genericDeclarations: make(map[string]*GenericDeclaration),
 		specializations:     make(map[string]Type),
 		identity:            newTypeIdentity(nil),
@@ -952,14 +957,9 @@ func isCanonicalUnion(environment *Environment, typ Type, state *canonicalTypeSt
 	if typ.Union == nil || len(typ.Union.Members) < 2 {
 		return false
 	}
-	// The C name embeds the union ordinal; a forged name cannot match the
-	// deterministic "hex_internal_union_<n>" scheme.
-	suffix := strings.TrimPrefix(typ.CName, "hex_internal_union_")
-	if suffix == typ.CName {
-		return false
-	}
-	ordinal, err := strconv.ParseUint(suffix, 10, 64)
-	if err != nil || ordinal == 0 {
+	// The C name is the deterministic length-delimited encoding of the
+	// member C names; a forged name cannot match it.
+	if typ.CName != unionCName(typ.Union.Members) {
 		return false
 	}
 	// Nil is a legitimate canonical union member (RFC 0049 item 8.1), so

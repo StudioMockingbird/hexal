@@ -1,4 +1,4 @@
-﻿package generator
+package generator
 
 import (
 	"strings"
@@ -14,10 +14,10 @@ func TestGenerateGenericFunctionSpecialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootC, "hex_f_3_app_identity_Int32") {
+	if !strings.Contains(rootC, "hex_f_m3_app_identity_Int32") {
 		t.Fatalf("main.c = %q, want specialized function name", rootC)
 	}
-	if strings.Count(rootC, "hex_f_3_app_identity_Int32") < 2 {
+	if strings.Count(rootC, "hex_f_m3_app_identity_Int32") < 2 {
 		t.Fatalf("main.c = %q, want prototype and definition", rootC)
 	}
 }
@@ -29,7 +29,7 @@ func TestGenerateGenericObjectSpecialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootH, "hex_t_3_app_Box_Int32") {
+	if !strings.Contains(rootH, "hex_t_m3_app_Box_Int32") {
 		t.Fatalf("main.h = %q, want specialized object struct", rootH)
 	}
 	if !strings.Contains(rootC, "hex_v_box") {
@@ -44,10 +44,10 @@ func TestGenerateGenericMethodSpecialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootH, "hex_t_3_app_Box_Int32") {
+	if !strings.Contains(rootH, "hex_t_m3_app_Box_Int32") {
 		t.Fatalf("main.h = %q, want specialized object struct", rootH)
 	}
-	if !strings.Contains(rootC, "hex_f_3_app_Box_Int32__get") && !strings.Contains(rootC, "hex_f_3_app_Box_Int32_get") {
+	if !strings.Contains(rootC, "hex_f_m3_app_Box_Int32__get") && !strings.Contains(rootC, "hex_f_m3_app_Box_Int32_get") {
 		t.Fatalf("main.c = %q, want specialized method definition", rootC)
 	}
 }

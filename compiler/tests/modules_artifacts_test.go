@@ -19,10 +19,10 @@ func TestRootModuleArtifactsSplit(t *testing.T) {
 	rootC := rootC(t, result)
 	rootH := rootH(t, result)
 
-	if !strings.Contains(rootC, "typedef struct hex_t_3_app_Point") && !strings.Contains(rootH, "typedef struct hex_t_3_app_Point") {
+	if !strings.Contains(rootC, "typedef struct hex_t_m3_app_Point") && !strings.Contains(rootH, "typedef struct hex_t_m3_app_Point") {
 		t.Fatalf("user type must live in the entrypoint module artifacts, got C=%q H=%q", rootC, rootH)
 	}
-	if !strings.Contains(rootC, "static int32_t hex_f_3_app_area(") {
+	if !strings.Contains(rootC, "static int32_t hex_f_m3_app_area(") {
 		t.Fatalf("user function must live in modules/app.c, got %q", rootC)
 	}
 	if !strings.Contains(rootC, "int hex_module_root_run(void)") {
@@ -31,10 +31,10 @@ func TestRootModuleArtifactsSplit(t *testing.T) {
 	if !strings.Contains(rootC, "#line 5 \"app.hex\"") {
 		t.Fatalf("module statements must carry app.hex line mappings, got %q", rootC)
 	}
-	if strings.Contains(result.MainC, "hex_f_3_app_area") || strings.Contains(result.MainC, "hex_t_3_app_Point") {
+	if strings.Contains(result.MainC, "hex_f_m3_app_area") || strings.Contains(result.MainC, "hex_t_m3_app_Point") {
 		t.Fatalf("user code leaked into main.c: %q", result.MainC)
 	}
-	if strings.Contains(result.MainH, "hex_t_3_app_Point") {
+	if strings.Contains(result.MainH, "hex_t_m3_app_Point") {
 		t.Fatalf("user type leaked into main.h: %q", result.MainH)
 	}
 

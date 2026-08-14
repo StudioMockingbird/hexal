@@ -1,4 +1,4 @@
-﻿package generator
+package generator
 
 import (
 	"fmt"
@@ -63,7 +63,7 @@ func TestGenerateTaggedUnionDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootH, "hex_internal_union_1") || !strings.Contains(rootC, ".tag") {
+	if !strings.Contains(rootH, "hex_union_7_int32_t6_double") || !strings.Contains(rootC, ".tag") {
 		t.Fatalf("generated union output = C:%q H:%q, want tagged representation", rootC, rootH)
 	}
 }
@@ -85,7 +85,7 @@ func TestDiscoverGeneratedUnionHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.order) != 1 || state.order[0].CName != "hex_internal_union_1" {
+	if len(state.order) != 1 || state.order[0].CName != "hex_union_7_int32_t6_double" {
 		t.Fatalf("union state = %#v, want one deterministic helper", state)
 	}
 }
@@ -97,7 +97,7 @@ func TestSupportedGeneratedUnionTypeRejectsForgedMetadata(t *testing.T) {
 		t.Fatal("canonical tagged union was rejected")
 	}
 	forged := union
-	forged.CName = "hex_internal_union_forged"
+	forged.CName = "hex_union_forged"
 	if supportedGeneratedType(forged) {
 		t.Fatal("forged tagged union metadata was accepted")
 	}
@@ -111,11 +111,11 @@ func TestGenerateUnionOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"typedef enum hex_internal_union_1_tag",
-		"typedef struct hex_internal_union_1",
-		".tag == hex_internal_union_1_tag_member_0",
-		"hex_internal_union_3_equal",
-		"hex_internal_widen_hex_internal_union_3_to_hex_internal_union_4",
+		"typedef enum hex_union_7_int32_t6_double_tag",
+		"typedef struct hex_union_7_int32_t6_double",
+		".tag == hex_union_7_int32_t6_double_tag_member_0",
+		"hex_union_4_bool7_int32_t_equal",
+		"hex_internal_widen_hex_union_4_bool7_int32_t_to_hex_union_4_bool7_int32_t9_nullptr_t",
 	} {
 		if !strings.Contains(rootC, want) && !strings.Contains(rootH, want) {
 			t.Fatalf("generated output does not contain %q: C=%q H=%q", want, rootC, rootH)
@@ -130,7 +130,7 @@ func TestGenerateUnionTruthiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootC, "hex_internal_union_1_truthy") || !strings.Contains(rootH, "static bool hex_internal_union_1_truthy") {
+	if !strings.Contains(rootC, "hex_union_4_bool7_int32_t9_nullptr_t_truthy") || !strings.Contains(rootH, "static bool hex_union_4_bool7_int32_t9_nullptr_t_truthy") {
 		t.Fatalf("truthiness output = C:%q H:%q, want tagged truthiness helper", rootC, rootH)
 	}
 }
@@ -709,7 +709,7 @@ func TestGenerateCheckedRejectsForgedTopLevelScalarMetadata(t *testing.T) {
 	}
 	for index, program := range testCases {
 		files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
-	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
+		rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 		diagnostic, ok := err.(compilerTypes.Diagnostic)
 		if !ok {
 			t.Errorf("case %d error = %T %v, want compilerTypes.Diagnostic", index, err, err)
@@ -1571,7 +1571,7 @@ func TestGenerateCheckedAcceptsReachableObjectReferenceWithoutTypeDeclaration(t 
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	if !strings.Contains(files["modules/app.h"], "typedef struct hex_t_0__Point hex_t_0__Point;") {
+	if !strings.Contains(files["modules/app.h"], "typedef struct hex_t_Point hex_t_Point;") {
 		t.Fatalf("modules/app.h = %q, want the reachable object definition", files["modules/app.h"])
 	}
 }
@@ -1908,7 +1908,7 @@ func TestGenerateFunctionDefinition(t *testing.T) {
 	program := checker.Program{Statements: []checker.Statement{identityDeclaration(fun, &result)}}
 
 	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\n" +
-		"static int32_t hex_f_3_app_identity(const int32_t hex_v_x) {\n" +
+		"static int32_t hex_f_m3_app_identity(const int32_t hex_v_x) {\n" +
 		"    return hex_v_x;\n" +
 		"}\n\n" +
 		"int hex_module_root_run(void) {\n    return EXIT_SUCCESS;\n}\n"
@@ -1932,7 +1932,7 @@ func TestGenerateNoReturnFunctionLowersToVoid(t *testing.T) {
 		Body:       []checker.Statement{checker.ReturnStatement{}},
 	}}}
 
-	want := "static void hex_f_3_app_reset(const int32_t hex_v_x) {\n    return;\n}\n"
+	want := "static void hex_f_m3_app_reset(const int32_t hex_v_x) {\n    return;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	gotC := files["modules/app.c"]
 	if err != nil {
@@ -1958,7 +1958,7 @@ func TestGenerateZeroParameterFunction(t *testing.T) {
 		}}},
 	}}}
 
-	want := "static int32_t hex_f_3_app_zero(void) {\n    return 0;\n}\n"
+	want := "static int32_t hex_f_m3_app_zero(void) {\n    return 0;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	gotC := files["modules/app.c"]
 	if err != nil {
@@ -1988,8 +1988,8 @@ func TestGenerateFunctionPointerObjects(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	for _, want := range []string{
-		"    int32_t (*const hex_v_callback)(int32_t) = hex_f_3_app_identity;\n",
-		"    int32_t (*hex_v_selected)(int32_t) = hex_f_3_app_identity;\n",
+		"    int32_t (*const hex_v_callback)(int32_t) = hex_f_m3_app_identity;\n",
+		"    int32_t (*hex_v_selected)(int32_t) = hex_f_m3_app_identity;\n",
 	} {
 		if !strings.Contains(gotC, want) {
 			t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
@@ -2018,7 +2018,7 @@ func TestGenerateFunctionPointerParameter(t *testing.T) {
 		}},
 	}}}
 
-	want := "static int32_t hex_f_3_app_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n" +
+	want := "static int32_t hex_f_m3_app_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n" +
 		"    return hex_v_callback(hex_v_value);\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	gotC := files["modules/app.c"]
@@ -2042,7 +2042,7 @@ func TestGenerateCallExpression(t *testing.T) {
 		}},
 	}}
 
-	want := "    const int32_t hex_v_total = hex_f_3_app_identity(13);\n"
+	want := "    const int32_t hex_v_total = hex_f_m3_app_identity(13);\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	gotC := files["modules/app.c"]
 	if err != nil {
@@ -2066,7 +2066,7 @@ func TestGenerateCallStatement(t *testing.T) {
 		checker.CallStatement{Call: checker.Operand{Kind: checker.ExpressionOperand, Node: call}},
 	}}
 
-	want := "    hex_f_3_app_reset(13);\n"
+	want := "    hex_f_m3_app_reset(13);\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	gotC := files["modules/app.c"]
 	if err != nil {
@@ -2092,7 +2092,7 @@ func TestGenerateSelfRecursiveFunction(t *testing.T) {
 		}},
 	}}}
 
-	want := "static int32_t hex_f_3_app_loop(const int32_t hex_v_n) {\n    return hex_f_3_app_loop(hex_v_n);\n}\n"
+	want := "static int32_t hex_f_m3_app_loop(const int32_t hex_v_n) {\n    return hex_f_m3_app_loop(hex_v_n);\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	gotC := files["modules/app.c"]
 	if err != nil {
@@ -2127,13 +2127,13 @@ func TestGenerateFunctionDefinitionsPrecedeMainInSourceOrder(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	gotC, gotH := files["modules/app.c"], files["modules/app.h"]
-	first := strings.Index(gotC, "hex_f_3_app_identity")
-	next := strings.Index(gotC, "hex_f_3_app_second")
+	first := strings.Index(gotC, "hex_f_m3_app_identity")
+	next := strings.Index(gotC, "hex_f_m3_app_second")
 	run := strings.Index(gotC, "int hex_module_root_run(void)")
 	if first < 0 || next < first || run < next {
-		t.Fatalf("modules/app.c = %q, want hex_f_3_app_identity then hex_f_3_app_second then root run", gotC)
+		t.Fatalf("modules/app.c = %q, want hex_f_m3_app_identity then hex_f_m3_app_second then root run", gotC)
 	}
-	if !strings.Contains(gotH, "struct hex_t_0__Point {") {
+	if !strings.Contains(gotH, "struct hex_t_Point {") {
 		t.Fatalf("modules/app.h = %q, want the object definition region", gotH)
 	}
 }
@@ -2156,7 +2156,7 @@ func TestGenerateFunctionBodyLineDirectives(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	for _, want := range []string{
-		"#line 3 \"app.hex\"\nstatic int32_t hex_f_3_app_identity(",
+		"#line 3 \"app.hex\"\nstatic int32_t hex_f_m3_app_identity(",
 		"#line 4 \"app.hex\"\n    return hex_v_x;",
 	} {
 		if !strings.Contains(gotC, want) {

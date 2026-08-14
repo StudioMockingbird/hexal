@@ -21,14 +21,17 @@ lexical-separation = ? whitespace and comments are discarded between tokens,
                        except where same-line is required ? ;
 same-line = ? no line break occurs before the next token ? ;
 
-top-level-item = module-declaration | [ "export" ] , declaration-item
+top-level-item = import-declaration | [ "export" ] , declaration-item
                  | statement ;
-module-declaration = "module" , identifier , "=" , "import"
+import-declaration = "module" , identifier , "=" , "import"
                      , module-path-literal ;
 module-path-literal = ? a quoted literal scanned only when the previous
                         token is "import" on the same line; the payload
                         between quotes is taken verbatim (no escape decoding);
                         a backslash in the payload is invalid ? ;
+relative-import-path = ( "./" | "../" , { "../" } )
+                       , identifier , { "/" , identifier }
+                       , [ ".hex" ] ;
 declaration-item = type-declaration | function-declaration
                    | implementation-declaration ;
 type-declaration = "type" , identifier , [ generic-parameter-list ]
@@ -1019,35 +1022,47 @@ MutPtr<T>.write_volatile(value: T) -> no value
 
 ### Generated artifact split
 
-- A successful compilation produces exactly four artifacts, keyed in the compiler result as
-  `main.c`, `main.h`, `modules/app.c`, and `modules/app.h` for the entrypoint source `app.hex`.
-  `MainC`/`MainH` mirror `Files["main.c"]`/`Files["main.h"]`; the entrypoint module's artifacts are
-  authoritative for its content. A failed compilation produces only `main.c` and `main.h`, whose
-  `main()` returns `EXIT_FAILURE`.
+- The in-memory compiler entrypoint is `Compile(sources map[string]string, entrypoint string)
+  CompilationResult`: `sources` maps logical `.hex` filenames to complete source strings and
+  `entrypoint` names the selected root module. The compiler performs no filesystem operations.
+- A successful compilation produces `main.c`, `main.h`, and one C/header pair per reachable module
+  under `modules/<canonical-path>.c/.h`, all keyed in the result's authoritative `Files` map
+  (for the entrypoint source `app.hex`: `main.c`, `main.h`, `modules/app.c`, `modules/app.h`).
+  `MainC`/`MainH` mirror `Files["main.c"]`/`Files["main.h"]` and are never generated independently.
+  A failed compilation produces only `main.c` and `main.h`, whose `main()` returns `EXIT_FAILURE`.
 - `main.c` is the thin entry: it includes both headers, defines `main()`, initializes the
-  cooperative scheduler and runtime gates when the source uses them, and calls
+  cooperative scheduler and runtime gates when any reachable module uses them, and calls
   `hex_module_root_run()`; without concurrency it returns `hex_module_root_run()` directly.
-- `main.h` holds the runtime machinery shared by every module: fixed-width/float `static_assert`
-  guards, `hex_eos`, heaps, views, strings, error, lists, dicts, arrays, the concurrency and I/O
+- `main.h` holds the runtime machinery shared by every module, generated from the program-wide
+  aggregate of all reachable modules: fixed-width/float `static_assert` guards, `hex_eos`, heaps,
+  views, strings (including the one canonical literal table), error, lists, dicts, arrays, the
+  concurrency prelude (task control block, handle typedefs, spawn entry prototypes) and I/O
   preludes, and the external declarations for the stateful runtime (scheduler, channel, mutex, and
   I/O gate functions) that lives once in `main.c`.
-- `modules/app.h` is the entrypoint module's header: it includes `main.h`, holds the module's
-  types (ADTs, unions, objects) and stateless inline helpers (streams, print, equality,
-  conversions, shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, I/O inline
-  helpers), declares spawned functions and `hex_module_root_run()`, and ends with its own include
-  guard.
-- `modules/app.c` is the entrypoint module's translation unit: it includes both headers, defines
-  the module's functions and methods (internal linkage `static`, except spawned functions, which
-  gain external linkage and a prototype in `modules/app.h`), the monomorphized specializations,
-  and `hex_module_root_run()`, which executes the module's root statements and returns
-  `EXIT_SUCCESS`.
+- `modules/<canonical>.h` is one module's header: it includes `main.h`, holds the module's types
+  (ADTs, unions, objects) and stateless inline helpers (streams, print, equality, conversions,
+  shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, I/O inline helpers), the
+  entry-adapter argument frames of the spawn sites it owns, its exported and foreign prototypes,
+  and ends with its own `HEX_MODULE_<encoded-owner>_H` guard. The entrypoint module's header
+  additionally declares `hex_module_root_run()`.
+- `modules/<canonical>.c` is one module's translation unit: it includes both headers, defines the
+  module's functions and methods (internal linkage `static`, except spawned functions, which gain
+  external linkage), the monomorphized specializations, and the spawn entry adapters of the
+  functions it owns (external linkage, declared in `main.h`). The entrypoint module's C file
+  additionally defines `hex_module_root_run()`, which executes the module's root statements and
+  returns `EXIT_SUCCESS`; no non-root module defines or declares it.
 - Module artifacts map to the source file with `#line` directives naming the module's logical
   filename (for the entrypoint, `app.hex`); the synthetic `main.hex` name is reserved for runtime
   machinery diagnostics and never maps user statements.
+- Module-owned C symbols embed the length-delimited encoded owner with a leading `m`:
+  `graphics/shapes` encodes to `m8_graphics6_shapes`, so `graphics/shapes.draw` lowers to
+  `hex_f_m8_graphics6_shapes_draw` and its header guard is `HEX_MODULE_m8_graphics6_shapes_H`
+  (case-preserving, never case-folded). Unions use the same length-delimited scheme over their
+  canonical member C names, so identical unions in any module spell one C type.
 - Invalid or unsupported source produces a structured diagnostic and is never silently omitted or
-  partially generated. Syntax failures, static-semantic failures, dynamic traps, and Unknown Error
-  are distinct externally visible classes. Unknown Error identifies an unclassifiable compiler
-  inconsistency, not a source-program error.
+  partially generated. Syntax failures, static-semantic failures (Name and Type Errors), Module
+  Errors, dynamic traps, and Unknown Error are distinct externally visible classes. Unknown Error
+  identifies an unclassifiable compiler inconsistency, not a source-program error.
 
 ## Excluded features
 

@@ -1,0 +1,25 @@
+{
+  "id": "modules",
+  "name": "Modules",
+  "snippets": [
+    {
+      "id": "module-import-export",
+      "name": "Qualified module imports",
+      "description": "A root module calls an exported function from a second in-memory source file.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "module Math = import \"./math\"",
+          "answer: Int32 = Math.add(20, 22)"
+        ],
+        "math.hex": [
+          "export fun add(left: Int32, right: Int32): Int32",
+          "    return left + right",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports"],
+      "reservedWords": ["module", "import", "export", "fun", "return", "end"]
+    }
+  ]
+}

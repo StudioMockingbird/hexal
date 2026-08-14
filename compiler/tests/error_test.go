@@ -37,9 +37,9 @@ func TestTryExpression(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const hex_internal_union_1 hex_try_1 = hex_f_3_app_read_count();",
-		"if (hex_try_1.tag == hex_internal_union_1_tag_member_1) {",
-		"return (hex_internal_union_1){ .tag = hex_internal_union_1_tag_member_1, .payload.member_1 = hex_try_1.payload.member_1 };",
+		"const hex_union_7_int32_t11_hex_t_Error hex_try_1 = hex_f_m3_app_read_count();",
+		"if (hex_try_1.tag == hex_union_7_int32_t11_hex_t_Error_tag_member_1) {",
+		"return (hex_union_7_int32_t11_hex_t_Error){ .tag = hex_union_7_int32_t11_hex_t_Error_tag_member_1, .payload.member_1 = hex_try_1.payload.member_1 };",
 		"hex_v_count = hex_try_1.payload.member_0;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
@@ -57,7 +57,7 @@ func TestTryStatement(t *testing.T) {
 		t.Fatalf("Nil-success try statement = %v", nilSuccess.Stderr)
 	}
 	for _, want := range []string{
-		"const hex_internal_union_1 hex_try_1 = hex_f_3_app_fail();",
+		"const hex_union_11_hex_t_Error9_nullptr_t hex_try_1 = hex_f_m3_app_fail();",
 		"if (hex_try_1.tag == ",
 	} {
 		if !strings.Contains(rootC(t, nilSuccess), want) {
@@ -104,8 +104,8 @@ func TestTryMultipleSuccessMembers(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const hex_internal_union_1 hex_try_1 = hex_f_3_app_read_number();",
-		"hex_internal_union_3 hex_try_result_2;",
+		"const hex_union_7_int32_t5_float11_hex_t_Error hex_try_1 = hex_f_m3_app_read_number();",
+		"hex_union_7_int32_t5_float hex_try_result_2;",
 		"switch (hex_try_1.tag) {",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
@@ -128,7 +128,7 @@ func TestErrdeferRunsOnErrorReturn(t *testing.T) {
 	}
 	// The try error path unwinds with errorExit=true: both the errdefer and
 	// the defer run.
-	if !strings.Contains(rootC(t, result), "hex_f_3_app_cleanup(hex_defer_capture_1);") || !strings.Contains(rootC(t, result), "hex_f_3_app_cleanup(hex_defer_capture_2);") {
+	if !strings.Contains(rootC(t, result), "hex_f_m3_app_cleanup(hex_defer_capture_1);") || !strings.Contains(rootC(t, result), "hex_f_m3_app_cleanup(hex_defer_capture_2);") {
 		t.Fatalf("main.c = %q, want errdefer and defer on the error path", rootC(t, result))
 	}
 }
@@ -140,13 +140,13 @@ func TestErrdeferSkippedOnSuccessReturn(t *testing.T) {
 	}
 	// The success return classifies the exit: the defer runs unconditionally
 	// and the errdefer is guarded by the runtime Error test.
-	if !strings.Contains(rootC(t, result), "const bool hex_err_2 = (hex_return_1.tag == hex_internal_union_1_tag_member_1);") {
+	if !strings.Contains(rootC(t, result), "const bool hex_err_2 = (hex_return_1.tag == hex_union_7_int32_t11_hex_t_Error_tag_member_1);") {
 		t.Fatalf("main.c = %q, want success exit classification", rootC(t, result))
 	}
 	if !strings.Contains(rootC(t, result), "if (hex_err_2) {") {
 		t.Fatalf("main.c = %q, want guarded errdefer", rootC(t, result))
 	}
-	if !strings.Contains(rootC(t, result), "hex_f_3_app_cleanup(hex_defer_capture_2);") {
+	if !strings.Contains(rootC(t, result), "hex_f_m3_app_cleanup(hex_defer_capture_2);") {
 		t.Fatalf("main.c = %q, defer must run on success", rootC(t, result))
 	}
 }

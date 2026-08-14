@@ -1,7 +1,7 @@
 # RFC 0034: Modules and Imports
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; conformance verified 2026-08-14
 - Features: file modules, explicit aliased imports, private-by-default
   declarations, qualified access, path-derived identity, dependency ordering,
   and per-module C output

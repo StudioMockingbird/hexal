@@ -1,0 +1,99 @@
+{
+  "id": "control-and-errors",
+  "name": "Control and Errors",
+  "snippets": [
+    {
+      "id": "conditional-flow",
+      "name": "Conditional flow",
+      "description": "An if/elseif/else chain chooses one branch.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "temperature: Int32 = 18",
+        "mut label: Strand = \"warm\"",
+        "if temperature < 0",
+        "    label = \"freezing\"",
+        "elseif temperature < 15",
+        "    label = \"cool\"",
+        "else",
+        "    label = \"warm\"",
+        "end"
+      ]},
+      "features": ["if-elseif-else"],
+      "reservedWords": ["mut", "if", "elseif", "else", "end"]
+    },
+    {
+      "id": "while-loop",
+      "name": "While, break, and continue",
+      "description": "A bounded loop skips one value and stops early.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "mut value: Int32 = 0",
+        "while value < 5 do",
+        "    value = value + 1",
+        "    if value == 2",
+        "        continue",
+        "    elseif value == 4",
+        "        break",
+        "    end",
+        "end"
+      ]},
+      "features": ["while"],
+      "reservedWords": ["mut", "while", "do", "if", "elseif", "continue", "break", "end"]
+    },
+    {
+      "id": "for-iteration",
+      "name": "For iteration",
+      "description": "Indexed iteration visits an Array without exposing mutation.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun weighted_total(): Int32",
+        "    values: Array<Int32, 3> = [2, 4, 6]",
+        "    mut total: Int32 = 0",
+        "    for index, value in values do",
+        "        total = total + value + index.to<Int32>()",
+        "    end",
+        "    return total",
+        "end"
+      ]},
+      "features": ["for"],
+      "reservedWords": ["mut", "for", "in", "do", "end"]
+    },
+    {
+      "id": "deferred-cleanup",
+      "name": "Deferred cleanup",
+      "description": "A heap allocation is released when the function scope exits.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun calculate(heap: Heap): Int32",
+        "    value: MutPtr<Int32> = heap.allocate<Int32>(40)",
+        "    defer heap.free(value)",
+        "    value.value = value.value + 2",
+        "    return value.value",
+        "end",
+        "answer: Int32 = calculate(Heap.new())"
+      ]},
+      "features": ["defer", "heap-allocation"],
+      "reservedWords": ["fun", "defer", "return", "end"]
+    },
+    {
+      "id": "errors-try-errdefer",
+      "name": "Errors, try, and errdefer",
+      "description": "An Error-aware function propagates failure and runs failure-only cleanup.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun cleanup()",
+        "end",
+        "fun read_count(): Int32 | Error",
+        "    return 42",
+        "end",
+        "fun load(): Int32 | Error",
+        "    errdefer cleanup()",
+        "    count: Int32 = try read_count()",
+        "    return count",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer"],
+      "reservedWords": ["fun", "return", "end", "errdefer", "try"]
+    }
+  ]
+}

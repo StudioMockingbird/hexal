@@ -38,7 +38,7 @@ func TestPrintStringsDirectAndNested(t *testing.T) {
 		"hex_print_text(hex_print_arg_1->data, hex_print_arg_1->byte_length);",
 		"static void hex_print_nested_hex_list_Int32(const void *value) {",
 		"hex_print_text((const uint8_t *)\"[\", 1);",
-		"static void hex_print_nested_hex_t_3_app_Point(const void *value) {",
+		"static void hex_print_nested_hex_t_m3_app_Point(const void *value) {",
 		"hex_print_text((const uint8_t *)\"Point { \", 8);",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {

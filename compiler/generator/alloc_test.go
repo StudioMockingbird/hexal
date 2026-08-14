@@ -1,4 +1,4 @@
-﻿package generator
+package generator
 
 import (
 	"strings"
@@ -46,7 +46,7 @@ func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootC, "hex_f_3_app_record(hex_defer_capture_1);\n        break;") {
+	if !strings.Contains(rootC, "hex_f_m3_app_record(hex_defer_capture_1);\n        break;") {
 		t.Fatalf("generated C = %q, want deferred call on the break path", rootC)
 	}
 }

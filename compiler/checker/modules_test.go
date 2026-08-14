@@ -75,14 +75,21 @@ func TestParameterCannotShadowImportAlias(t *testing.T) {
 }
 
 func TestCanonicalModuleID(t *testing.T) {
-	cases := map[string]string{
-		"./math":    "math",
-		"math/vec3": "vec3",
-		"vec3.hex":  "vec3",
+	cases := []struct {
+		fromModule string
+		path       string
+		want       string
+	}{
+		{"app", "./math", "math"},
+		{"app", "./math.hex", "math"},
+		{"app", "./graphics/shapes", "graphics/shapes"},
+		{"graphics/app", "../shared/tools", "shared/tools"},
+		{"graphics/app", "./shared/tools.hex", "graphics/shared/tools"},
+		{"app", "math/vec3", "math/vec3"},
 	}
-	for path, want := range cases {
-		if got := canonicalModuleID(path); got != want {
-			t.Fatalf("canonicalModuleID(%q) = %q, want %q", path, got, want)
+	for _, item := range cases {
+		if got := canonicalModuleID(item.fromModule, item.path); got != item.want {
+			t.Fatalf("canonicalModuleID(%q, %q) = %q, want %q", item.fromModule, item.path, got, item.want)
 		}
 	}
 }

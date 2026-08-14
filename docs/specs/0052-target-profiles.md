@@ -94,9 +94,10 @@ a verified-profile registry, or nothing beyond the user's word.
 
 ## 4. Interaction with C interop
 
-RFC 0039 draft readiness question 11 asks for a Windows/POSIX ABI conformance
-strategy that needs no external toolchain in ordinary testing. That is the same
-question as item 2 here, arrived at from the other side.
+RFC 0039 requires explicit trusted target and layout evidence for foreign
+bindings without probing the host or requiring an external toolchain in
+ordinary testing. That is the same question as item 2 here, arrived at from the
+other side.
 
 Neither RFC should answer it alone. Whichever is designed first should settle
 the evidence model and the other should cite it.

@@ -18,8 +18,8 @@ func TestStreamEmptyNew(t *testing.T) {
 		"typedef struct hex_stream_ops_Int32 {",
 		"hex_stream_empty_ops_Int32",
 		"(&hex_stream_empty_Int32)",
-		"static inline hex_internal_union_1 hex_stream_next_Int32(hex_stream_Int32 *stream) {",
-		"step = (hex_internal_union_1){ .tag = hex_internal_union_1_tag_member_1 }",
+		"static inline hex_union_7_int32_t7_hex_eos hex_stream_next_Int32(hex_stream_Int32 *stream) {",
+		"step = (hex_union_7_int32_t7_hex_eos){ .tag = hex_union_7_int32_t7_hex_eos_tag_member_1 }",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
@@ -43,10 +43,10 @@ func TestStreamProduce(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct hex_stream_produce_t_3_app_Counter_Int32 {",
-		"hex_f_3_app_counter_next(&(node->state))",
+		"typedef struct hex_stream_produce_t_m3_app_Counter_Int32 {",
+		"hex_f_m3_app_counter_next(&(node->state))",
 		"node->state = initial;",
-		"hex_v_numbers = hex_stream_produce_t_3_app_Counter_Int32_new(hex_v_h, hex_v_initial);",
+		"hex_v_numbers = hex_stream_produce_t_m3_app_Counter_Int32_new(hex_v_h, hex_v_initial);",
 		"hex_stream_next_Int32(hex_v_numbers)",
 		"hex_v_total = ((uint64_t)(uint32_t)((uint64_t)hex_v_total + (uint64_t)hex_v_step.payload.member_0)",
 	} {
@@ -79,9 +79,9 @@ func TestStreamAdapters(t *testing.T) {
 	}
 	for _, want := range []string{
 		"typedef struct hex_stream_filter_Int32 {",
-		"hex_f_3_app_is_even",
+		"hex_f_m3_app_is_even",
 		"typedef struct hex_stream_map_Int32_Int32 {",
-		"hex_f_3_app_double",
+		"hex_f_m3_app_double",
 		"typedef struct hex_stream_take_Int32 {",
 		"node->remaining = remaining;",
 		"hex_stream_free_Int32((hex_heap){ node->allocator }, node->upstream)",

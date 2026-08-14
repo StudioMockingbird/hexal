@@ -17,7 +17,7 @@ func TestLayoutQueriesCompile(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		"(size_t)sizeof(int32_t)",
-		"(size_t)alignof(hex_t_3_app_Node)",
+		"(size_t)alignof(hex_t_m3_app_Node)",
 		"(size_t)sizeof(const hex_string *)",
 	} {
 		if !strings.Contains(rootC(t, result), fragment) {

@@ -1,4 +1,4 @@
-﻿package generator
+package generator
 
 import (
 	"strings"
@@ -20,9 +20,9 @@ func TestGenerateTryStatementLowering(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"const hex_internal_union_1 hex_try_1 = hex_f_3_app_fail();",
-		"if (hex_try_1.tag == hex_internal_union_1_tag_member_",
-		"return (hex_internal_union_2){ .tag = hex_internal_union_2_tag_member_1, .payload.member_1 = hex_try_1.payload.member_",
+		"const hex_union_11_hex_t_Error9_nullptr_t hex_try_1 = hex_f_m3_app_fail();",
+		"if (hex_try_1.tag == hex_union_11_hex_t_Error9_nullptr_t_tag_member_",
+		"return (hex_union_7_int32_t11_hex_t_Error){ .tag = hex_union_7_int32_t11_hex_t_Error_tag_member_1, .payload.member_1 = hex_try_1.payload.member_",
 	} {
 		if !strings.Contains(rootC, want) {
 			t.Fatalf("generated C = %q, want %q", rootC, want)
@@ -41,8 +41,8 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"const hex_internal_union_1 hex_try_1 = hex_f_3_app_read_count();",
-		"if (hex_try_1.tag == hex_internal_union_1_tag_member_1) {",
+		"const hex_union_7_int32_t11_hex_t_Error hex_try_1 = hex_f_m3_app_read_count();",
+		"if (hex_try_1.tag == hex_union_7_int32_t11_hex_t_Error_tag_member_1) {",
 		"hex_v_count = hex_try_1.payload.member_0;",
 	} {
 		if !strings.Contains(rootC, want) {

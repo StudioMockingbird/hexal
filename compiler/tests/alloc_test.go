@@ -84,7 +84,7 @@ func TestDeferRunsOnBranchCompletion(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), "hex_f_3_app_record(hex_defer_capture_1);") {
+	if !strings.Contains(rootC(t, result), "hex_f_m3_app_record(hex_defer_capture_1);") {
 		t.Fatalf("generated C = %q, want branch-completion cleanup", rootC(t, result))
 	}
 }
@@ -94,7 +94,7 @@ func TestDeferRunsOnLoopIterationCompletion(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), "hex_f_3_app_record(hex_defer_capture_1);") {
+	if !strings.Contains(rootC(t, result), "hex_f_m3_app_record(hex_defer_capture_1);") {
 		t.Fatalf("generated C = %q, want iteration-completion cleanup", rootC(t, result))
 	}
 }
@@ -104,7 +104,7 @@ func TestDeferRunsOnReturn(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), "hex_return_1") || !strings.Contains(rootC(t, result), "hex_f_3_app_record(hex_defer_capture_1);") {
+	if !strings.Contains(rootC(t, result), "hex_return_1") || !strings.Contains(rootC(t, result), "hex_f_m3_app_record(hex_defer_capture_1);") {
 		t.Fatalf("generated C = %q, want return-path cleanup", rootC(t, result))
 	}
 }
@@ -114,7 +114,7 @@ func TestDeferRunsOnBreakAndContinue(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), "hex_f_3_app_record(hex_defer_capture_1);\n        break;") {
+	if !strings.Contains(rootC(t, result), "hex_f_m3_app_record(hex_defer_capture_1);\n        break;") {
 		t.Fatalf("generated C = %q, want break-path cleanup", rootC(t, result))
 	}
 }

@@ -1,0 +1,133 @@
+{
+  "id": "foundations",
+  "name": "Foundations",
+  "snippets": [
+    {
+      "id": "bindings-scalars",
+      "name": "Bindings and scalar types",
+      "description": "Immutable and mutable bindings across the core scalar families.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "tiny: Int8 = -8",
+        "small: Int16 = 16",
+        "mut count: Int32 = 13",
+        "count = 14",
+        "large: Int64 = 64",
+        "octet: UInt8 = 8",
+        "port: UInt16 = 16",
+        "mask: UInt32 = 32",
+        "distance: UInt64 = 64",
+        "enabled: Bool = true",
+        "disabled: Bool = false",
+        "fraction: Float32 = 0.25",
+        "ratio: Float64 = 0.5",
+        "size: Size = 4"
+      ]},
+      "features": ["bindings", "scalar-types"],
+      "reservedWords": ["mut", "true", "false"]
+    },
+    {
+      "id": "literal-forms",
+      "name": "Literal forms and comments",
+      "description": "Integer bases, separators, floating point, bytes, runes, strings, and comments.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "--- Packet constants",
+        "mask: UInt32 = 0xFF00_FF00",
+        "flags: UInt8 = 0b1010_0101",
+        "mode: UInt8 = 0o17",
+        "ratio: Float64 = 6.02e23",
+        "byte: Byte = b'\\x41'",
+        "rune: Rune = '\\u{03BB}'",
+        "message: String = \"hello\\n\"",
+        "--[ All literal forms above are compile-time syntax. ]--"
+      ]},
+      "features": ["literals", "comments"]
+    },
+    {
+      "id": "aliases-objects-copying",
+      "name": "Aliases, objects, and copying",
+      "description": "A transparent alias and an object copied by value.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Score = Int32",
+        "type Player = { name: Strand, mut score: Score, }",
+        "mut first: Player = Player { name = \"Ada\", score = 10 }",
+        "second: Player = first",
+        "first.score = 20",
+        "saved: Score = second.score"
+      ]},
+      "features": ["aliases", "objects", "copying"],
+      "reservedWords": ["type", "mut"]
+    },
+    {
+      "id": "pointers-nullability",
+      "name": "Pointers and nullability",
+      "description": "Read/write pointers, nullable unions, and type narrowing.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "mut score: Int32 = 7",
+        "reader: Ptr<Int32> = ref score",
+        "writer: MutPtr<Int32> = ref score",
+        "maybe: MutPtr<Int32> | Nil = writer",
+        "if maybe != nil",
+        "    maybe.value = reader.value + 1",
+        "else",
+        "    print(nil)",
+        "end"
+      ]},
+      "features": ["pointers", "nullability"],
+      "reservedWords": ["mut", "ref", "nil", "if", "else", "end"]
+    },
+    {
+      "id": "functions-values",
+      "name": "Functions and function values",
+      "description": "Result and no-result functions plus a named function value.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun add(left: Int32, right: Int32): Int32",
+        "    return left + right",
+        "end",
+        "fun mark_ready()",
+        "end",
+        "operation: Fun<(Int32, Int32) : Int32> = add",
+        "answer: Int32 = operation(20, 22)",
+        "mark_ready()"
+      ]},
+      "features": ["functions", "no-result-functions", "function-values"],
+      "reservedWords": ["fun", "return", "end"]
+    },
+    {
+      "id": "methods-self",
+      "name": "Methods and self",
+      "description": "A mutable pointer receiver updates its object through self.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Counter = { mut count: Int32, }",
+        "impl MutPtr<Counter>.increment(): Int32",
+        "    self.count = self.count + 1",
+        "    return self.count",
+        "end",
+        "mut counter: Counter = Counter { count = 0 }",
+        "next: Int32 = counter.increment()"
+      ]},
+      "features": ["methods"],
+      "reservedWords": ["type", "mut", "impl", "self", "return", "end"]
+    },
+    {
+      "id": "generics",
+      "name": "Generic functions and types",
+      "description": "A generic object and identity function specialized with Int32.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Box<T> = { value: T, }",
+        "fun identity<T>(value: T): T",
+        "    return value",
+        "end",
+        "boxed: Box<Int32> = Box<Int32> { value = identity<Int32>(42) }"
+      ]},
+      "features": ["generics"],
+      "reservedWords": ["type", "fun", "return", "end"]
+    }
+  ]
+}

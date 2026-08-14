@@ -6,6 +6,7 @@ import (
 	"go/constant"
 	gotoken "go/token"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -97,11 +98,17 @@ func Generate(program checker.Program) (mainC string, mainH string) {
 // literal metadata, not raw source text, is the authority for every
 // initializer. RFC 0034: every reachable module emits its own C/header pair
 // under modules/<canonical>.c/.h; main.c and main.h host the one-per-process
-// runtime and the C entry point, generated from the entrypoint module's
-// machinery. Deterministic: the order slice is the canonical dependency-first
-// order from the resolver.
+// runtime and the C entry point. Generation is two-phase: every module is
+// discovered and validated first, the built-in machinery is aggregated
+// program-wide, and only then is any file text written (RFC 0034: the
+// compiler collects every reachable built-in specialization request across
+// all modules, sorts it, and emits each exactly once where external identity
+// or state is required). Deterministic: the order slice is the canonical
+// dependency-first order from the resolver, and every merged collection is
+// deduplicated by canonical identity in that order.
 func GenerateChecked(programs map[string]checker.Program, order []string, entrypointCanonical string) (map[string]string, error) {
 	files := make(map[string]string, 2+2*len(order))
+	modules := make([]*moduleEmission, 0, len(order))
 	for _, canonical := range order {
 		key := canonical + ".hex"
 		program, ok := programs[key]
@@ -112,106 +119,175 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 		if !ok {
 			continue
 		}
-		isRoot := canonical == entrypointCanonical
-		moduleC, moduleH, mainC, mainH, generationErr := generateModule(program, canonical, key, isRoot)
-		if generationErr != nil {
-			return nil, generationErr
+		emission, discoveryErr := discoverModuleEmission(program, canonical, key)
+		if discoveryErr != nil {
+			return nil, discoveryErr
 		}
-		files["modules/"+canonical+".c"] = moduleC
-		files["modules/"+canonical+".h"] = moduleH
+		modules = append(modules, emission)
+	}
+	merged := mergeProgramEmission(modules)
+	var root *moduleEmission
+	for _, emission := range modules {
+		isRoot := emission.canonicalID == entrypointCanonical
+		moduleC, moduleH, emissionErr := emitModulePair(emission, merged, isRoot)
+		if emissionErr != nil {
+			return nil, emissionErr
+		}
+		files["modules/"+emission.canonicalID+".c"] = moduleC
+		files["modules/"+emission.canonicalID+".h"] = moduleH
 		if isRoot {
-			files["main.c"] = mainC
-			files["main.h"] = mainH
+			root = emission
 		}
+	}
+	if root != nil {
+		mainC, mainH, mainErr := emitMainPair(merged, root)
+		if mainErr != nil {
+			return nil, mainErr
+		}
+		files["main.c"] = mainC
+		files["main.h"] = mainH
 	}
 	return files, nil
 }
 
-// generateModule emits one module's C/header pair. canonicalID names the
-// module ("graphics/shapes"); logicalKey is its source-map filename for
-// #line directives ("graphics/shapes.hex"). The entrypoint module (isRoot)
-// additionally contributes main.c/main.h: the compiler-owned runtime and the
-// C entry point, built from this module's machinery state.
-func generateModule(program checker.Program, canonicalID, logicalKey string, isRoot bool) (moduleC string, moduleH string, mainC string, mainH string, err error) {
+// moduleEmission is one module's validated discovery result: every built-in
+// machinery state its program needs, kept separate from emission so the
+// program-wide aggregate can be computed before any file text is written.
+// The per-module states still drive the module's own header content, which
+// may repeat C-safe inline helpers across headers (RFC 0034).
+type moduleEmission struct {
+	canonicalID string
+	logicalKey  string
+	program     checker.Program
+	functions   map[string]compilerTypes.Type
+	methods     map[string]checker.MethodDeclaration
+	typeState   *generatedTypeValidation
+
+	float32Used      bool
+	float64Used      bool
+	nilUsed          bool
+	errorUsed        bool
+	unionState       *generatedUnionState
+	heapState        *heapHelpers
+	adtState         *generatedAdtState
+	arrayState       *generatedArrayState
+	viewState        *generatedViewState
+	stringState      *generatedStringState
+	listState        *generatedListState
+	dictState        *generatedDictState
+	streamState      *generatedStreamState
+	equalityState    *generatedEqualityState
+	conversionSpecs  []conversionSpec
+	sizeLiterals     []string
+	divisionTypes    []compilerTypes.Type
+	shiftSpecs       []shiftSpec
+	bitCastSpecs     []bitCastSpec
+	endianSpecs      []endianSpec
+	printState       *generatedPrintState
+	ioState          *generatedIOState
+	concurrencyState *generatedConcurrencyState
+	objects          []*compilerTypes.ObjectType
+}
+
+// discoverModuleEmission validates one module and runs every built-in
+// discovery walk over it. canonicalID names the module ("graphics/shapes");
+// logicalKey is its source-map filename for #line directives
+// ("graphics/shapes.hex"). The module's own string literal registry is a
+// contribution to the program-wide table merged before emission.
+func discoverModuleEmission(program checker.Program, canonicalID, logicalKey string) (*moduleEmission, error) {
 	owner := compilerTypes.EncodeModuleOwner(canonicalID)
 	functions, functionErr := declaredFunctions(program)
 	if functionErr != nil {
-		return "", "", "", "", functionErr
+		return nil, functionErr
 	}
 	methods, methodErr := declaredMethods(program)
 	if methodErr != nil {
-		return "", "", "", "", methodErr
+		return nil, methodErr
 	}
 	if validationErr := validateCheckedProgram(program, functions, methods); validationErr != nil {
-		return "", "", "", "", validationErr
+		return nil, validationErr
 	}
-	float32Used, float64Used, nilUsed := usedFloatTypes(program)
+	emission := &moduleEmission{
+		canonicalID: canonicalID,
+		logicalKey:  logicalKey,
+		program:     program,
+		functions:   functions,
+		methods:     methods,
+	}
+	emission.float32Used, emission.float64Used, emission.nilUsed = usedFloatTypes(program)
 	objects, objectErr := objectDefinitions(program)
 	if objectErr != nil {
-		return "", "", "", "", objectErr
+		return nil, objectErr
 	}
-	errorUsed := discoverErrorUsed(program)
-	declared := declaredObjects(program)
-	if errorUsed {
-		// RFC 0029: the built-in Error object definition accompanies the
-		// program when Error is referenced directly or inside a union. It is
-		// emitted before the unions that may carry it as a payload member.
-		declared[compilerTypes.ErrorType.Object] = true
-	}
+	emission.objects = objects
+	emission.errorUsed = discoverErrorUsed(program)
 	unionState, unionErr := discoverGeneratedUnions(program)
 	if unionErr != nil {
-		return "", "", "", "", unionErr
+		return nil, unionErr
 	}
+	emission.unionState = unionState
 	heapState, heapErr := discoverHeapHelpers(program)
 	if heapErr != nil {
-		return "", "", "", "", heapErr
+		return nil, heapErr
 	}
+	emission.heapState = heapState
 	adtState, adtErr := discoverGeneratedADTs(program)
 	if adtErr != nil {
-		return "", "", "", "", adtErr
+		return nil, adtErr
 	}
+	emission.adtState = adtState
 	arrayState, arrayErr := discoverGeneratedArrays(program)
 	if arrayErr != nil {
-		return "", "", "", "", arrayErr
+		return nil, arrayErr
 	}
+	emission.arrayState = arrayState
 	viewState, viewErr := discoverGeneratedViews(program)
 	if viewErr != nil {
-		return "", "", "", "", viewErr
+		return nil, viewErr
 	}
+	emission.viewState = viewState
 	stringState, stringErr := discoverGeneratedStrings(program)
 	if stringErr != nil {
-		return "", "", "", "", stringErr
+		return nil, stringErr
 	}
+	emission.stringState = stringState
 	listState, listErr := discoverGeneratedLists(program)
 	if listErr != nil {
-		return "", "", "", "", listErr
+		return nil, listErr
 	}
+	emission.listState = listState
 	dictState, dictErr := discoverGeneratedDicts(program)
 	if dictErr != nil {
-		return "", "", "", "", dictErr
+		return nil, dictErr
 	}
+	emission.dictState = dictState
 	equalityState, equalityErr := discoverEqualityTypes(program)
 	if equalityErr != nil {
-		return "", "", "", "", equalityErr
+		return nil, equalityErr
 	}
+	emission.equalityState = equalityState
 	conversionSpecs, sizeLiterals, conversionErr := discoverGeneratedConversions(program)
 	if conversionErr != nil {
-		return "", "", "", "", conversionErr
+		return nil, conversionErr
 	}
-	divisionTypes := discoverGeneratedDivisions(program)
+	emission.conversionSpecs = conversionSpecs
+	emission.sizeLiterals = sizeLiterals
+	emission.divisionTypes = discoverGeneratedDivisions(program)
 	streamState, streamErr := discoverGeneratedStreams(program, owner)
 	if streamErr != nil {
-		return "", "", "", "", streamErr
+		return nil, streamErr
 	}
-	shiftSpecs := discoverGeneratedShifts(program)
-	bitCastSpecs := discoverGeneratedBitCasts(program)
-	endianSpecs := discoverGeneratedEndian(program)
-	printState := discoverGeneratedPrint(program)
-	ioState := discoverGeneratedIO(program, stringState)
-	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, stringState)
+	emission.streamState = streamState
+	emission.shiftSpecs = discoverGeneratedShifts(program)
+	emission.bitCastSpecs = discoverGeneratedBitCasts(program)
+	emission.endianSpecs = discoverGeneratedEndian(program)
+	emission.printState = discoverGeneratedPrint(program)
+	emission.ioState = discoverGeneratedIO(program, stringState)
+	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, stringState, canonicalID, owner)
 	if concurrencyErr != nil {
-		return "", "", "", "", concurrencyErr
+		return nil, concurrencyErr
 	}
+	emission.concurrencyState = concurrencyState
 	if concurrencyState.used {
 		// RFC 0037: the task runtime needs the String and Strand typedefs and
 		// the Error object for the failure Errors every recoverable
@@ -232,25 +308,342 @@ func generateModule(program checker.Program, canonicalID, logicalKey string, isR
 		// heap machinery and fputs.
 		heapState.required = true
 	}
-	typeState := &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
+	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
+	return emission, nil
+}
 
-	// RFC 0034: the module's own C file carries every user definition and the
-	// root run. The generated main.c owns the compiler machinery that must
-	// exist once per process: the concurrency runtime, the I/O gate, and the
-	// spawn adapters.
+// programEmission is the program-wide aggregate of every reachable module's
+// built-in machinery. main.c and main.h are generated from it, so the
+// once-per-process runtime cores and the shared type and literal definitions
+// cover every module, not just the entrypoint's discovery (RFC 0034:
+// built-in specialization identity depends only on the constructor and its
+// canonical arguments, never on the requesting module).
+type programEmission struct {
+	float32Used      bool
+	float64Used      bool
+	nilUsed          bool
+	errorUsed        bool
+	stdioNeeded      bool
+	heapState        *heapHelpers
+	viewState        *generatedViewState
+	stringState      *generatedStringState
+	listState        *generatedListState
+	dictState        *generatedDictState
+	arrayState       *generatedArrayState
+	concurrencyState *generatedConcurrencyState
+	ioState          *generatedIOState
+	sizeLiterals     []string
+	// adapterSites routes every spawn site to the canonical id of the module
+	// that owns the spawned function, so the entry adapter is emitted beside
+	// the function definition it calls (the adapter never leaves its
+	// function's translation unit).
+	adapterSites map[string][]spawnSite
+}
+
+// mergeProgramEmission folds the per-module discovery results into one
+// program-wide aggregate. Every merge is deterministic: modules contribute
+// in the dependency-first order slice, deduplicated collections are keyed by
+// canonical identity, and slice order is preserved or re-sorted explicitly.
+func mergeProgramEmission(modules []*moduleEmission) *programEmission {
+	merged := &programEmission{
+		heapState:   &heapHelpers{seen: make(map[string]bool)},
+		viewState:   &generatedViewState{seen: make(map[*compilerTypes.ViewInfo]bool)},
+		stringState: &generatedStringState{seen: make(map[string]int)},
+		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool)},
+		dictState:   &generatedDictState{seen: make(map[*compilerTypes.DictInfo]bool)},
+		arrayState:  &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool)},
+		concurrencyState: &generatedConcurrencyState{
+			taskTypes:            make(map[string]compilerTypes.Type),
+			joinTypes:            make(map[string]compilerTypes.Type),
+			channels:             make(map[string]compilerTypes.Type),
+			atomics:              make(map[string]compilerTypes.Type),
+			channelNewUnions:     make(map[string]compilerTypes.Type),
+			channelSendUnions:    make(map[string]compilerTypes.Type),
+			channelReceiveUnions: make(map[string]compilerTypes.Type),
+		},
+		ioState:      &generatedIOState{},
+		adapterSites: make(map[string][]spawnSite),
+	}
+	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
+	arrayOrders := make([][]compilerTypes.Type, 0, len(modules))
+	listOrders := make([][]compilerTypes.Type, 0, len(modules))
+	dictOrders := make([][]compilerTypes.Type, 0, len(modules))
+	sizeSeen := make(map[string]bool)
+	spawnedSites := make(map[string]bool)
+	for _, module := range modules {
+		merged.float32Used = merged.float32Used || module.float32Used
+		merged.float64Used = merged.float64Used || module.float64Used
+		merged.nilUsed = merged.nilUsed || module.nilUsed
+		merged.errorUsed = merged.errorUsed || module.errorUsed
+		if containsSizeConversion(module.conversionSpecs) ||
+			module.printState != nil && module.printState.used ||
+			module.arrayState != nil && len(module.arrayState.order) > 0 ||
+			module.viewState != nil && len(module.viewState.views) > 0 ||
+			module.stringState != nil && module.stringState.used ||
+			module.listState != nil && len(module.listState.order) > 0 ||
+			module.dictState != nil && len(module.dictState.order) > 0 {
+			merged.stdioNeeded = true
+		}
+		mergeHeapInto(merged.heapState, module.heapState)
+		mergeStringsInto(merged.stringState, module.stringState)
+		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
+		mergeIOInto(merged.ioState, module.ioState)
+		if module.arrayState != nil {
+			arrayOrders = append(arrayOrders, module.arrayState.order)
+		}
+		if module.viewState != nil {
+			viewOrders = append(viewOrders, module.viewState.views)
+		}
+		if module.listState != nil {
+			listOrders = append(listOrders, module.listState.order)
+		}
+		if module.dictState != nil {
+			dictOrders = append(dictOrders, module.dictState.order)
+		}
+		for _, digits := range module.sizeLiterals {
+			if !sizeSeen[digits] {
+				sizeSeen[digits] = true
+				merged.sizeLiterals = append(merged.sizeLiterals, digits)
+			}
+		}
+	}
+	merged.viewState.views = mergeTypeOrders(viewOrders)
+	merged.arrayState.order = mergeTypeOrders(arrayOrders)
+	merged.listState.order = mergeTypeOrders(listOrders)
+	merged.dictState.order = mergeTypeOrders(dictOrders)
+	merged.adapterSites = routeSpawnSites(merged.concurrencyState)
+	// The per-module runtime error literals were registered against each
+	// module's own table during discovery; after aggregation the emitted
+	// indices must match the program-wide table main.h defines.
+	rebaseLiteralNames(modules, merged.stringState)
+	return merged
+}
+
+// mergeTypeOrders unions per-module specialization lists of one built-in
+// family by canonical C name and sorts the result, so identical canonical
+// types from different modules are one specialization (RFC 0034: built-in
+// specialization identity depends only on the constructor and its canonical
+// arguments).
+func mergeTypeOrders(orders [][]compilerTypes.Type) []compilerTypes.Type {
+	merged := make([]compilerTypes.Type, 0)
+	seen := make(map[string]bool)
+	for _, order := range orders {
+		for _, typ := range order {
+			if !seen[typ.CName] {
+				seen[typ.CName] = true
+				merged = append(merged, typ)
+			}
+		}
+	}
+	sort.SliceStable(merged, func(left, right int) bool {
+		return merged[left].CName < merged[right].CName
+	})
+	return merged
+}
+
+// mergeHeapInto unions one module's typed heap allocations into the
+// program-wide helper set, preserving each module's discovery order.
+func mergeHeapInto(merged, state *heapHelpers) {
+	if state == nil {
+		return
+	}
+	if state.required {
+		merged.required = true
+	}
+	for _, element := range state.elements {
+		if !merged.seen[element.Name] {
+			merged.seen[element.Name] = true
+			merged.elements = append(merged.elements, element)
+		}
+	}
+}
+
+// mergeStringsInto folds one module's literal table into the program-wide
+// table: flags OR, payloads concatenate in module order, deduplicated by
+// first occurrence. The aggregated index is authoritative for every module's
+// emitted literal references.
+func mergeStringsInto(merged, state *generatedStringState) {
+	if state == nil {
+		return
+	}
+	if state.used {
+		merged.used = true
+	}
+	if state.needStrand {
+		merged.needStrand = true
+	}
+	for _, payload := range state.literals {
+		if _, exists := merged.seen[payload]; !exists {
+			merged.seen[payload] = len(merged.literals) + 1
+			merged.literals = append(merged.literals, payload)
+		}
+	}
+}
+
+// mergeConcurrencyInto unions one module's RFC 0037 machinery into the
+// program-wide state: operation flags OR, per-element tables union by C
+// name, and spawn sites concatenate in module order deduplicated by entry
+// symbol (one adapter per spawned function).
+func mergeConcurrencyInto(merged, state *generatedConcurrencyState, spawnedSites map[string]bool) {
+	if state == nil {
+		return
+	}
+	if state.used {
+		merged.used = true
+	}
+	merged.detach = merged.detach || state.detach
+	merged.yield = merged.yield || state.yield
+	merged.mutexNew = merged.mutexNew || state.mutexNew
+	merged.mutexLock = merged.mutexLock || state.mutexLock
+	merged.mutexUnlock = merged.mutexUnlock || state.mutexUnlock
+	merged.mutexFree = merged.mutexFree || state.mutexFree
+	merged.spawnFail = merged.spawnFail || state.spawnFail
+	merged.channelNew = merged.channelNew || state.channelNew
+	merged.channelSend = merged.channelSend || state.channelSend
+	merged.mutexCreate = merged.mutexCreate || state.mutexCreate
+	mergeTypeMap(merged.taskTypes, state.taskTypes)
+	mergeTypeMap(merged.joinTypes, state.joinTypes)
+	mergeTypeMap(merged.channels, state.channels)
+	mergeTypeMap(merged.atomics, state.atomics)
+	mergeTypeMap(merged.channelNewUnions, state.channelNewUnions)
+	mergeTypeMap(merged.channelSendUnions, state.channelSendUnions)
+	mergeTypeMap(merged.channelReceiveUnions, state.channelReceiveUnions)
+	if merged.mutexNewUnion == (compilerTypes.Type{}) {
+		merged.mutexNewUnion = state.mutexNewUnion
+	}
+	for _, site := range state.spawns {
+		if !spawnedSites[site.function] {
+			spawnedSites[site.function] = true
+			merged.spawns = append(merged.spawns, site)
+		}
+	}
+}
+
+// mergeTypeMap unions one per-element C-name table into the program-wide
+// table; equal canonical types carry equal C names, so the union by C name is
+// a union by identity.
+func mergeTypeMap(merged, state map[string]compilerTypes.Type) {
+	for name, typ := range state {
+		if _, exists := merged[name]; !exists {
+			merged[name] = typ
+		}
+	}
+}
+
+// mergeIOInto unions one module's RFC 0040 machinery into the program-wide
+// state. The per-operation result unions are canonical, so the first
+// non-empty record stands in deterministically for the family.
+func mergeIOInto(merged, state *generatedIOState) {
+	if state == nil || !state.used {
+		return
+	}
+	merged.used = true
+	merged.open = merged.open || state.open
+	merged.readBytes = merged.readBytes || state.readBytes
+	merged.readText = merged.readText || state.readText
+	merged.write = merged.write || state.write
+	merged.writeText = merged.writeText || state.writeText
+	merged.flush = merged.flush || state.flush
+	merged.close = merged.close || state.close
+	merged.stdin = merged.stdin || state.stdin
+	merged.stdout = merged.stdout || state.stdout
+	merged.stderr = merged.stderr || state.stderr
+	if merged.openUnion == (compilerTypes.Type{}) {
+		merged.openUnion = state.openUnion
+	}
+	if merged.readBytesUnion == (compilerTypes.Type{}) {
+		merged.readBytesUnion = state.readBytesUnion
+	}
+	if merged.readTextUnion == (compilerTypes.Type{}) {
+		merged.readTextUnion = state.readTextUnion
+	}
+	if merged.writeUnion == (compilerTypes.Type{}) {
+		merged.writeUnion = state.writeUnion
+	}
+	if merged.listType == (compilerTypes.Type{}) {
+		merged.listType = state.listType
+	}
+}
+
+// routeSpawnSites assigns every program-wide spawn site to the canonical id
+// of the module that owns the spawned function, deduplicated by entry
+// symbol. emitModulePair places each module's adapters after its function
+// definitions, so an adapter always calls its function within one
+// translation unit.
+func routeSpawnSites(merged *generatedConcurrencyState) map[string][]spawnSite {
+	routed := make(map[string][]spawnSite)
+	seen := make(map[string]bool)
+	for _, site := range merged.spawns {
+		if site.module == "" || seen[site.function] {
+			continue
+		}
+		seen[site.function] = true
+		routed[site.module] = append(routed[site.module], site)
+	}
+	return routed
+}
+
+// rebaseLiteralNames rewrites each module's precomputed runtime failure
+// literal names against the program-wide literal table: discovery registered
+// the payloads into each module's own table, but every emitted reference must
+// name the aggregated index main.h defines (RFC 0034: one canonical literal
+// set program-wide).
+func rebaseLiteralNames(modules []*moduleEmission, strings *generatedStringState) {
+	for _, module := range modules {
+		if module.concurrencyState != nil && module.concurrencyState.used {
+			module.concurrencyState.fileLiteral = literalObjectName(strings, sourceFilename)
+			module.concurrencyState.headerLiteral = literalObjectName(strings, "Scheduler")
+		}
+		if module.ioState != nil && module.ioState.used {
+			module.ioState.fileLiteral = literalObjectName(strings, sourceFilename)
+			module.ioState.headerLiteral = literalObjectName(strings, "I/O Error")
+		}
+	}
+}
+
+// literalObjectName returns the program-wide object name of one literal
+// payload, or "" when the payload was never registered (unreachable for
+// payloads the module registered during discovery).
+func literalObjectName(strings *generatedStringState, payload string) string {
+	if index, ok := strings.seen[payload]; ok {
+		return stringLiteralCName(index - 1)
+	}
+	return ""
+}
+
+// emitModulePair writes one module's C/header pair from its own discovery
+// states plus the program-wide aggregate. The entrypoint module (isRoot)
+// additionally carries the root run function and its header declaration; the
+// entry adapters of every spawn site routed to this module are emitted after
+// the function definitions they call; all literal references use the
+// program-wide table.
+func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bool) (moduleC string, moduleH string, err error) {
+	canonicalID := emission.canonicalID
+	logicalKey := emission.logicalKey
+	program := emission.program
+	owner := compilerTypes.EncodeModuleOwner(canonicalID)
+	functions := emission.functions
+	methods := emission.methods
+	typeState := emission.typeState
+	stringState := merged.stringState
+
+	// RFC 0034: the module's own C file carries every user definition, the
+	// spawn entry adapters of the functions it owns, and, for the entrypoint
+	// module only, the root run. The generated main.c owns the compiler
+	// machinery that must exist once per process: the concurrency runtime
+	// and the I/O gate, both built from the program-wide aggregate.
 	var moduleBody strings.Builder
 	moduleBody.WriteString("#include \"main.h\"\n#include \"modules/" + canonicalID + ".h\"\n\n")
 
-	// Function definitions sit at file scope in source order, after the object
-	// definitions the header already carries and before the root run. Only
-	// self-recursion and calls to earlier definitions are legal, so no
-	// prototype region is needed.
-	// RFC 0034: functions the spawn adapters call keep external linkage (they
-	// are required by compiler-owned machinery); everything else stays static
-	// inside the module C file.
+	// Function definitions sit at file scope in source order, after the
+	// object definitions the header already carries. Only self-recursion and
+	// calls to earlier definitions are legal, so no prototype region is
+	// needed. RFC 0034: functions the module's own spawn prologues name keep
+	// external linkage; everything else stays static inside the module C
+	// file.
 	spawned := make(map[string]bool)
-	if concurrencyState != nil {
-		for _, site := range concurrencyState.spawns {
+	if emission.concurrencyState != nil {
+		for _, site := range emission.concurrencyState.spawns {
 			spawned[site.function] = true
 		}
 	}
@@ -258,11 +651,11 @@ func generateModule(program checker.Program, canonicalID, logicalKey string, isR
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
 			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, spawned[PrivateCName(FunctionName, declared.Name, owner)]); definitionErr != nil {
-				return "", "", "", "", definitionErr
+				return "", "", definitionErr
 			}
 		case checker.MethodDeclaration:
 			if definitionErr := writeMethodDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey); definitionErr != nil {
-				return "", "", "", "", definitionErr
+				return "", "", definitionErr
 			}
 		}
 	}
@@ -272,11 +665,17 @@ func generateModule(program checker.Program, canonicalID, logicalKey string, isR
 	// (already emitted) or other specializations (any order), so each gets a
 	// prototype first and the definitions follow in cache order.
 	if err := writeSpecializedPrototypes(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, typeState, owner); err != nil {
-		return "", "", "", "", err
+		return "", "", err
 	}
 	if err := writeSpecializedDefinitions(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, functions, methods, typeState, stringState, owner, logicalKey); err != nil {
-		return "", "", "", "", err
+		return "", "", err
 	}
+
+	// RFC 0037: the spawn entry adapters follow every function definition
+	// because they call the spawned functions directly. The adapter of a
+	// spawn lives beside the spawned function's own definition, so the call
+	// never crosses a translation unit (RFC 0034 per-module generation).
+	writeSpawnAdapters(&moduleBody, merged.adapterSites[canonicalID])
 
 	renderState := &expressionValidation{
 		variables:      make(map[string]generatedBinding),
@@ -291,60 +690,85 @@ func generateModule(program checker.Program, canonicalID, logicalKey string, isR
 		filename:       logicalKey,
 		moduleID:       canonicalID,
 	}
-	renderState.pushScope()
-	// RFC 0034: the module statements execute as hex_module_root_run, called
-	// by the generated main after scheduler initialization. Module-level
-	// storage stays inside the run; a function body cannot reach it, so
-	// nothing is promoted to static storage duration.
-	moduleBody.WriteString("int hex_module_root_run(void) {\n")
-	if statementErr := writeStatements(&moduleBody, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
-		return "", "", "", "", statementErr
-	}
-	moduleBody.WriteString("    return EXIT_SUCCESS;\n}\n")
-
-	mainBody := strings.Builder{}
-	mainHeader := ""
 	if isRoot {
-		// The entrypoint module's TU is the one main.c builds on: it
-		// includes main.h and this module's own header.
-		mainBody.WriteString("#include \"main.h\"\n#include \"modules/" + canonicalID + ".h\"\n\n")
-		writeConcurrencyRuntime(&mainBody, concurrencyState, stringState)
-		writeIOGate(&mainBody, ioState, concurrencyState != nil && concurrencyState.used)
-		// RFC 0037: the spawn entry adapters follow every function definition
-		// because they call the spawned functions directly.
-		if err := writeSpawnAdaptersChecked(&mainBody, concurrencyState); err != nil {
-			return "", "", "", "", err
+		renderState.pushScope()
+		// RFC 0034: the module statements execute as hex_module_root_run,
+		// called by the generated main after scheduler initialization.
+		// Module-level storage stays inside the run; a function body cannot
+		// reach it, so nothing is promoted to static storage duration. The
+		// root run exists only in the entrypoint module's pair.
+		moduleBody.WriteString("int hex_module_root_run(void) {\n")
+		if statementErr := writeStatements(&moduleBody, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
+			return "", "", statementErr
 		}
-
-		mainBody.WriteString("int main(void) {\n")
-		if concurrencyState.used {
-			// RFC 0037: the scheduler initializes before any Hexal source
-			// runs; the module statements execute as the root Task on worker
-			// zero, and hex_task_complete below hands the process back to main.
-			mainBody.WriteString("    hex_scheduler_init();\n")
-			mainBody.WriteString("    hex_module_root_run();\n")
-			// RFC 0037: completing the root Task wakes the scheduler, stops the
-			// workers, and switches back to main so it returns normally. Tasks
-			// still active are abandoned to process termination, as the spec
-			// requires.
-			mainBody.WriteString("    hex_task_complete(hex_root_task);\n")
-		} else {
-			mainBody.WriteString("    return hex_module_root_run();\n")
-		}
-		mainBody.WriteString("}\n")
-
-		mainHeader = mainHeaderWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals, logicalKey)
+		moduleBody.WriteString("    return EXIT_SUCCESS;\n}\n")
 	}
-	// RFC 0034: the spawned functions the generated main.c adapters call are
-	// declared in the module header so both translation units agree on their
-	// linkage. Their signatures were already validated when the spawn sites
-	// were discovered, so this emission has no failure mode.
-	var spawnedPrototypes strings.Builder
-	writeSpawnedFunctionPrototypes(&spawnedPrototypes, program, concurrencyState, owner)
-	writeExportedPrototypes(&spawnedPrototypes, program, owner)
-	writeForeignPrototypes(&spawnedPrototypes, program, renderState)
-	moduleHeader := moduleHeaderWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals, canonicalID, spawnedPrototypes.String(), logicalKey)
-	return moduleBody.String(), moduleHeader, mainBody.String(), mainHeader, nil
+
+	// RFC 0034: the module's own header declares its exported declarations
+	// and every foreign symbol it calls; importers never include another
+	// module's header. The entry adapters routed to this module read their
+	// argument frames, so those frames are declared here too, self-contained
+	// in the owning module's translation unit.
+	var headerPrototypes strings.Builder
+	writeExportedPrototypes(&headerPrototypes, program, owner)
+	writeForeignPrototypes(&headerPrototypes, program, renderState)
+	var extraFrames strings.Builder
+	writeSpawnArgFrames(&extraFrames, routedFrames(emission, merged.adapterSites[canonicalID]))
+
+	moduleHeader := moduleHeaderWithUnions(emission.unionState, emission.adtState, emission.streamState, emission.equalityState, emission.conversionSpecs, emission.divisionTypes, emission.shiftSpecs, emission.bitCastSpecs, emission.endianSpecs, emission.objects, emission.printState, emission.concurrencyState, emission.ioState, stringState, canonicalID, headerPrototypes.String(), extraFrames.String(), isRoot, logicalKey)
+	return moduleBody.String(), moduleHeader, nil
+}
+
+// routedFrames returns the entry-adapter argument frames this module's header
+// must declare beyond its own spawn sites: the adapter sites routed here
+// whose frames the inline concurrency helpers have not already emitted.
+func routedFrames(emission *moduleEmission, sites []spawnSite) []spawnSite {
+	own := make(map[string]bool)
+	if emission.concurrencyState != nil {
+		for _, site := range emission.concurrencyState.spawns {
+			own[site.function] = true
+		}
+	}
+	frames := make([]spawnSite, 0, len(sites))
+	for _, site := range sites {
+		if !own[site.function] {
+			frames = append(frames, site)
+		}
+	}
+	return frames
+}
+
+// emitMainPair writes main.c and main.h from the program-wide aggregate plus
+// the entrypoint module's identity. main.c owns the once-per-process runtime
+// cores and the C entry point; main.h owns the shared declarations every
+// translation unit needs before any module content (RFC 0034).
+func emitMainPair(merged *programEmission, root *moduleEmission) (mainC string, mainH string, err error) {
+	var mainBody strings.Builder
+	// The entrypoint module's TU is the one main.c builds on: it includes
+	// main.h and this module's own header.
+	mainBody.WriteString("#include \"main.h\"\n#include \"modules/" + root.canonicalID + ".h\"\n\n")
+	writeConcurrencyRuntime(&mainBody, merged.concurrencyState, merged.stringState)
+	writeIOGate(&mainBody, merged.ioState, merged.concurrencyState != nil && merged.concurrencyState.used)
+
+	mainBody.WriteString("int main(void) {\n")
+	if merged.concurrencyState != nil && merged.concurrencyState.used {
+		// RFC 0037: the scheduler initializes before any Hexal source runs;
+		// the module statements execute as the root Task on worker zero, and
+		// hex_task_complete below hands the process back to main.
+		mainBody.WriteString("    hex_scheduler_init();\n")
+		mainBody.WriteString("    hex_module_root_run();\n")
+		// RFC 0037: completing the root Task wakes the scheduler, stops the
+		// workers, and switches back to main so it returns normally. Tasks
+		// still active are abandoned to process termination, as the spec
+		// requires.
+		mainBody.WriteString("    hex_task_complete(hex_root_task);\n")
+	} else {
+		mainBody.WriteString("    return hex_module_root_run();\n")
+	}
+	mainBody.WriteString("}\n")
+
+	mainHeader := mainHeaderWithUnions(merged.float32Used, merged.float64Used, merged.nilUsed, merged.errorUsed, merged.stdioNeeded, merged.heapState, merged.viewState, merged.stringState, merged.listState, merged.dictState, merged.arrayState, merged.concurrencyState, merged.ioState, merged.sizeLiterals, root.logicalKey)
+	return mainBody.String(), mainHeader, nil
 }
 
 // writeStatements renders one statement list at a single indentation level.
@@ -4632,15 +5056,20 @@ func writeLineDirective(body *strings.Builder, line int, filename string) {
 }
 
 func header(float32Used, float64Used, nilUsed bool, objects []*compilerTypes.ObjectType) string {
-	return mainHeaderWithUnions(float32Used, float64Used, nilUsed, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, objects, false, nil, nil, nil, nil, "app.hex")
+	// header is the pre-RFC-0034 test compatibility surface: one module, no
+	// machinery state. The program-wide aggregate for such a program is
+	// exactly these flags plus empty specialization sets.
+	return mainHeaderWithUnions(float32Used, float64Used, nilUsed, false, false, &heapHelpers{}, &generatedViewState{}, &generatedStringState{}, &generatedListState{}, &generatedDictState{}, &generatedArrayState{}, nil, nil, nil, "app.hex")
 }
 
 // mainHeaderWithUnions emits main.h: the fixed C23 target-profile preamble,
 // the shared value machinery that carries no process-wide state, and the
 // extern declarations for the runtime functions the module header's inline
 // helpers call. Everything here is included by both translation units, so no
-// definition in main.h may hold static storage.
-func mainHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string, filename string) string {
+// definition in main.h may hold static storage. The states are the
+// program-wide aggregate: every module's built-in machinery must be declared
+// here before any module content (RFC 0034 built-in generic ownership).
+func mainHeaderWithUnions(float32Used, float64Used, nilUsed, errorUsed, stdioNeeded bool, heaps *heapHelpers, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, arrays *generatedArrayState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string, filename string) string {
 	var result strings.Builder
 	result.WriteString(mainHeaderPrefix)
 	result.WriteString("\nstatic_assert(CHAR_BIT == 8, \"Hexal requires 8-bit bytes\");\n")
@@ -4663,7 +5092,7 @@ func mainHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *genera
 	if nilUsed {
 		result.WriteString("#include <stddef.h>\n\n")
 	}
-	if arrays != nil && len(arrays.order) > 0 || views != nil && len(views.views) > 0 || stringState != nil && stringState.used || lists != nil && len(lists.order) > 0 || dicts != nil && len(dicts.order) > 0 || containsSizeConversion(conversions) || printState != nil && printState.used {
+	if arrays != nil && len(arrays.order) > 0 || views != nil && len(views.views) > 0 || stringState != nil && stringState.used || lists != nil && len(lists.order) > 0 || dicts != nil && len(dicts.order) > 0 || stdioNeeded {
 		// The bounds guards in the array, view, string, and list helpers
 		// and the print helpers report through fputs/fwrite on stdout and
 		// stderr.
@@ -4706,12 +5135,13 @@ func mainHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *genera
 	return result.String()
 }
 
-// moduleHeaderWithUnions emits modules/app.h: everything that references the
-// module's own types, plus the state-free inline helper families whose
-// non-inline cores live in main.c. The guard is the RFC 0034 module header
-// guard shape; the entrypoint module's owner is "app" until per-module
-// naming lands.
-func moduleHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string, canonicalID, spawnedPrototypes, filename string) string {
+// moduleHeaderWithUnions emits one module's header: everything that
+// references the module's own types, plus the state-free inline helper
+// families whose non-inline cores live in main.c. The guard is the RFC 0034
+// module header guard shape. extraFrames holds the entry-adapter argument
+// frames of the spawn sites routed to this module; rootRun admits the root
+// run declaration in the entrypoint module's header only.
+func moduleHeaderWithUnions(unions *generatedUnionState, adts *generatedAdtState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, stringState *generatedStringState, canonicalID, prototypes, extraFrames string, rootRun bool, filename string) string {
 	var result strings.Builder
 	result.WriteString("#ifndef " + compilerTypes.ModuleHeaderGuard(canonicalID) + "\n#define " + compilerTypes.ModuleHeaderGuard(canonicalID) + "\n\n#include \"main.h\"\n")
 	writeAdtDefinitions(&result, adts)
@@ -4729,42 +5159,19 @@ func moduleHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *gene
 	writeConversionDefinitions(&result, conversions)
 	writeConcurrencyInlineHelpers(&result, concurrency, stringState)
 	writeIOInlineHelpers(&result, io, stringState)
-	if spawnedPrototypes != "" {
-		result.WriteString("\n/* RFC 0034: spawned function prototypes for the main.c adapters */\n")
-		result.WriteString(spawnedPrototypes)
+	if prototypes != "" {
+		result.WriteString("\n/* RFC 0034: exported and foreign function prototypes */\n")
+		result.WriteString(prototypes)
 	}
-	result.WriteString("\nint hex_module_root_run(void);\n")
+	if extraFrames != "" {
+		result.WriteString("\n/* RFC 0037: spawn entry adapter argument frames */\n")
+		result.WriteString(extraFrames)
+	}
+	if rootRun {
+		result.WriteString("\nint hex_module_root_run(void);\n")
+	}
 	result.WriteString("\n#endif\n")
 	return result.String()
-}
-
-// writeSpawnedFunctionPrototypes emits one external prototype per spawned
-// function. The adapters in main.c call these functions, so both translation
-// units must agree on their linkage; the definitions keep external linkage
-// through the same decision in GenerateChecked.
-func writeSpawnedFunctionPrototypes(result *strings.Builder, program checker.Program, concurrency *generatedConcurrencyState, owner string) {
-	if concurrency == nil || len(concurrency.spawns) == 0 {
-		return
-	}
-	spawned := make(map[string]bool)
-	for _, site := range concurrency.spawns {
-		spawned[site.function] = true
-	}
-	for _, statement := range program.Statements {
-		declared, ok := statement.(checker.FunctionDeclaration)
-		if !ok || !spawned[PrivateCName(FunctionName, declared.Name, owner)] {
-			continue
-		}
-		resultSpelling := "void"
-		if declared.Result != nil {
-			resultSpelling = typeSpelling(*declared.Result)
-		}
-		parameters := make([]string, len(declared.Parameters))
-		for index, parameter := range declared.Parameters {
-			parameters[index] = typeSpelling(parameter.Type)
-		}
-		fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name, owner), parameterList(parameters))
-	}
 }
 
 // writeExportedPrototypes emits one external prototype per exported function

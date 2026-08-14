@@ -208,12 +208,12 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 	}
 	generated := withoutLineDirectives(rootC(t, result))
 	for _, want := range []string{
-		"static int32_t hex_f_3_app_Point_length_squared(const hex_t_3_app_Point hex_v_self) {",
-		"static bool hex_f_3_app_Point_is_origin(const hex_t_3_app_Point *const hex_v_self) {",
-		"static void hex_f_3_app_Point_translate(hex_t_3_app_Point *const hex_v_self, const int32_t hex_v_dx, const int32_t hex_v_dy) {",
-		"hex_f_3_app_Point_translate(&hex_v_here, 5, 5);",
-		"hex_f_3_app_Point_length_squared(hex_v_here)",
-		"hex_f_3_app_Point_is_origin(&hex_v_here)",
+		"static int32_t hex_f_m3_app_Point_length_squared(const hex_t_m3_app_Point hex_v_self) {",
+		"static bool hex_f_m3_app_Point_is_origin(const hex_t_m3_app_Point *const hex_v_self) {",
+		"static void hex_f_m3_app_Point_translate(hex_t_m3_app_Point *const hex_v_self, const int32_t hex_v_dx, const int32_t hex_v_dy) {",
+		"hex_f_m3_app_Point_translate(&hex_v_here, 5, 5);",
+		"hex_f_m3_app_Point_length_squared(hex_v_here)",
+		"hex_f_m3_app_Point_is_origin(&hex_v_here)",
 	} {
 		if !strings.Contains(generated, want) {
 			t.Fatalf("main.c = %q, want %q", generated, want)
@@ -224,19 +224,19 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {
 	requireGeneratedC(t,
 		"fun identity(value: Int32): Int32\n    return value\nend\n",
-		"#include \"main.h\"\n#include \"modules/app.h\"\n\nstatic int32_t hex_f_3_app_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint hex_module_root_run(void) {\n")
+		"#include \"main.h\"\n#include \"modules/app.h\"\n\nstatic int32_t hex_f_m3_app_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint hex_module_root_run(void) {\n")
 }
 
 func TestGeneratedNoReturnFunctionIsVoid(t *testing.T) {
 	requireGeneratedC(t,
 		"fun reset(counter: MutPtr<Int32>)\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n",
-		"static void hex_f_3_app_reset(int32_t *const hex_v_counter) {\n    *hex_v_counter = 0;\n}\n")
+		"static void hex_f_m3_app_reset(int32_t *const hex_v_counter) {\n    *hex_v_counter = 0;\n}\n")
 }
 
 func TestGeneratedZeroParameterFunctionTakesVoid(t *testing.T) {
 	requireGeneratedC(t,
 		"fun seed(): Int32\n    return 7\nend\n",
-		"static int32_t hex_f_3_app_seed(void) {\n    return 7;\n}\n")
+		"static int32_t hex_f_m3_app_seed(void) {\n    return 7;\n}\n")
 }
 
 // The stored pointer type carries unqualified parameters even though the
@@ -245,8 +245,8 @@ func TestGeneratedZeroParameterFunctionTakesVoid(t *testing.T) {
 func TestGeneratedFunctionPointerObjectsKeepUnqualifiedParameters(t *testing.T) {
 	source := "fun identity(value: Int32): Int32\n    return value\nend\n" +
 		"callback: Fun<(Int32) : Int32> = identity\nmut selected: Fun<(Int32) : Int32> = identity\n"
-	requireGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_3_app_identity;\n")
-	requireGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_3_app_identity;\n")
+	requireGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_m3_app_identity;\n")
+	requireGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_m3_app_identity;\n")
 	if got := rootC(t, compileSource(source)); strings.Contains(got, ")(const int32_t)") {
 		t.Fatalf("main.c = %q, function-pointer parameters must stay unqualified", got)
 	}
@@ -257,24 +257,24 @@ func TestGeneratedFunctionPointerParameterAndCall(t *testing.T) {
 		"fun square(value: Int32): Int32\n    return value * value\nend\n"+
 			"fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32\n    return callback(value)\nend\n"+
 			"result: Int32 = apply(square, 5)\n",
-		"static int32_t hex_f_3_app_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n"+
+		"static int32_t hex_f_m3_app_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n"+
 			"    return hex_v_callback(hex_v_value);\n}\n")
 }
 
 func TestGeneratedCallExpressionAndCallStatement(t *testing.T) {
 	requireGeneratedC(t,
 		"fun adder(dx: Int32, dy: Int32): Int32\n    return dx\nend\ntotal: Int32 = adder(2, 3)\n",
-		"    const int32_t hex_v_total = hex_f_3_app_adder(2, 3);\n")
+		"    const int32_t hex_v_total = hex_f_m3_app_adder(2, 3);\n")
 	requireGeneratedC(t,
 		"fun reset(counter: MutPtr<Int32>)\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n",
-		"    hex_f_3_app_reset(&hex_v_count);\n")
+		"    hex_f_m3_app_reset(&hex_v_count);\n")
 }
 
 func TestGeneratedSelfRecursionNeedsNoPrototype(t *testing.T) {
 	source := "fun countdown(value: Int32): Int32\n    return countdown(value)\nend\n"
 	requireGeneratedC(t, source,
-		"static int32_t hex_f_3_app_countdown(const int32_t hex_v_value) {\n    return hex_f_3_app_countdown(hex_v_value);\n}\n")
-	if got := rootC(t, compileSource(source)); strings.Contains(got, "hex_f_3_app_countdown(const int32_t hex_v_value);") {
+		"static int32_t hex_f_m3_app_countdown(const int32_t hex_v_value) {\n    return hex_f_m3_app_countdown(hex_v_value);\n}\n")
+	if got := rootC(t, compileSource(source)); strings.Contains(got, "hex_f_m3_app_countdown(const int32_t hex_v_value);") {
 		t.Fatalf("main.c = %q, want no forward prototype region", got)
 	}
 }
@@ -289,14 +289,14 @@ func TestGeneratedDefinitionsAreOrderedBeforeMain(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
-	first := strings.Index(rootC(t, result), "hex_f_3_app_first")
-	second := strings.Index(rootC(t, result), "hex_f_3_app_second")
+	first := strings.Index(rootC(t, result), "hex_f_m3_app_first")
+	second := strings.Index(rootC(t, result), "hex_f_m3_app_second")
 	main := strings.Index(rootC(t, result), "int hex_module_root_run(void)")
 	origin := strings.Index(rootC(t, result), "hex_v_origin")
 	if first < 0 || second < first || main < second || origin < main {
 		t.Fatalf("main.c = %q, want first, second, root run, then module storage", rootC(t, result))
 	}
-	if !strings.Contains(rootH(t, result), "struct hex_t_3_app_Point {") {
+	if !strings.Contains(rootH(t, result), "struct hex_t_m3_app_Point {") {
 		t.Fatalf("main.h = %q, want the object definition region", rootH(t, result))
 	}
 }

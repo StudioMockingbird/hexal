@@ -100,7 +100,7 @@ func TestMatchScrutineeEvaluatedOnce(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if strings.Count(rootC(t, result), "hex_match_scrutinee_1 = hex_f_3_app_read_value()") != 1 {
+	if strings.Count(rootC(t, result), "hex_match_scrutinee_1 = hex_f_m3_app_read_value()") != 1 {
 		t.Fatalf("generated C = %q, want one scrutinee evaluation", rootC(t, result))
 	}
 }

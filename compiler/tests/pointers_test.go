@@ -112,8 +112,8 @@ func TestFixedObjectAndReferenceLowerToConst(t *testing.T) {
 		t.Fatalf("fixed object compilation failed: %#v", result)
 	}
 	for _, want := range []string{
-		"const hex_t_3_app_Point hex_v_point = (hex_t_3_app_Point){",
-		"const hex_t_3_app_Point *const hex_v_view = &hex_v_point;",
+		"const hex_t_m3_app_Point hex_v_point = (hex_t_m3_app_Point){",
+		"const hex_t_m3_app_Point *const hex_v_view = &hex_v_point;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
@@ -192,10 +192,10 @@ func TestSelfRecursiveObjectLowersSplitStruct(t *testing.T) {
 		t.Fatalf("self-recursive object compilation failed: %#v", result.Stderr)
 	}
 	for _, want := range []string{
-		"typedef struct hex_t_3_app_Node hex_t_3_app_Node;",
-		"struct hex_t_3_app_Node {",
+		"typedef struct hex_t_m3_app_Node hex_t_m3_app_Node;",
+		"struct hex_t_m3_app_Node {",
 		"int32_t hex_m_value;",
-		"hex_t_3_app_Node *hex_m_next;",
+		"hex_t_m3_app_Node *hex_m_next;",
 	} {
 		if !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
@@ -209,8 +209,8 @@ func TestSelfRecursiveReadOnlyPointerMemberLowers(t *testing.T) {
 		t.Fatalf("read-only self-recursive object compilation failed: %v", result.Stderr)
 	}
 	for _, want := range []string{
-		"typedef struct hex_t_3_app_Node hex_t_3_app_Node;",
-		"const hex_t_3_app_Node *hex_m_next;",
+		"typedef struct hex_t_m3_app_Node hex_t_m3_app_Node;",
+		"const hex_t_m3_app_Node *hex_m_next;",
 	} {
 		if !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
@@ -373,9 +373,9 @@ func TestRecursivePtrAndMutPtrObjects(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful recursive object program", result)
 	}
 	for _, want := range []string{
-		"typedef struct hex_t_3_app_Node hex_t_3_app_Node;",
-		"const hex_t_3_app_Node *hex_m_next;",
-		"hex_t_3_app_Node *hex_m_child;",
+		"typedef struct hex_t_m3_app_Node hex_t_m3_app_Node;",
+		"const hex_t_m3_app_Node *hex_m_next;",
+		"hex_t_m3_app_Node *hex_m_child;",
 	} {
 		if !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
@@ -431,7 +431,7 @@ func TestPointerValuePropertyWinsOverMember(t *testing.T) {
 		t.Fatalf("value member behind pointer failed: %#v", result.Stderr)
 	}
 	for _, want := range []string{
-		"const hex_t_3_app_Box hex_v_whole = *hex_v_p;",
+		"const hex_t_m3_app_Box hex_v_whole = *hex_v_p;",
 		"const int32_t hex_v_inner = (*hex_v_p).hex_m_value;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {

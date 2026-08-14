@@ -11,7 +11,7 @@ func TestUnionAliasesNormalizeAndInject(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "typedef enum hex_internal_union_1_tag") || !strings.Contains(rootC(t, result), "hex_v_value") {
+	if !strings.Contains(rootH(t, result), "typedef enum hex_union_7_int32_t6_double_tag") || !strings.Contains(rootC(t, result), "hex_v_value") {
 		t.Fatalf("generated union output = H:%q C:%q", rootH(t, result), rootC(t, result))
 	}
 }
@@ -21,7 +21,7 @@ func TestUnionContextUsesWrittenCandidateOrder(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected candidate-order source: %v", result.Stderr)
 	}
-	if !strings.Contains(rootC(t, result), "hex_internal_union_1_tag_member_0") || !strings.Contains(rootC(t, result), "hex_internal_union_2_tag_member_1") {
+	if !strings.Contains(rootC(t, result), "hex_union_7_uint8_t8_uint16_t_tag_member_0") || !strings.Contains(rootC(t, result), "hex_union_7_int32_t7_int64_t_tag_member_1") {
 		t.Fatalf("candidate tags missing from generated C: %q", rootC(t, result))
 	}
 }
@@ -73,7 +73,7 @@ func TestNullablePointerUnionKeepsNullNiche(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nullable pointer source: %v", result.Stderr)
 	}
-	if strings.Contains(rootH(t, result), "hex_internal_union_") || !strings.Contains(rootC(t, result), "nullptr") {
+	if strings.Contains(rootH(t, result), "hex_union_") || !strings.Contains(rootC(t, result), "nullptr") {
 		t.Fatalf("nullable pointer was tagged: H:%q C:%q", rootH(t, result), rootC(t, result))
 	}
 }
@@ -83,7 +83,7 @@ func TestUnionNestedPointerAndFunctionPositions(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nested/function union source: %v", result.Stderr)
 	}
-	if !strings.Contains(rootH(t, result), "hex_internal_union_") || !strings.Contains(rootC(t, result), "hex_f_3_app_identity") {
+	if !strings.Contains(rootH(t, result), "hex_union_") || !strings.Contains(rootC(t, result), "hex_f_m3_app_identity") {
 		t.Fatalf("nested/function union output = H:%q C:%q", rootH(t, result), rootC(t, result))
 	}
 }

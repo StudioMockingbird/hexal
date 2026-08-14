@@ -14,8 +14,8 @@ func TestObjectValuesAndMembers(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct hex_t_3_app_Point hex_t_3_app_Point;",
-		"struct hex_t_3_app_Point {",
+		"typedef struct hex_t_m3_app_Point hex_t_m3_app_Point;",
+		"struct hex_t_m3_app_Point {",
 		"int32_t hex_m_x;",
 		"int32_t hex_m_y;",
 		"const int32_t hex_v_read = hex_v_point.hex_m_x;",
@@ -156,14 +156,14 @@ func TestObjectHeaderOrdering(t *testing.T) {
 	}
 
 	forwards := []string{
-		"typedef struct hex_t_3_app_First hex_t_3_app_First;",
-		"typedef struct hex_t_3_app_Second hex_t_3_app_Second;",
-		"typedef struct hex_t_3_app_Third hex_t_3_app_Third;",
+		"typedef struct hex_t_m3_app_First hex_t_m3_app_First;",
+		"typedef struct hex_t_m3_app_Second hex_t_m3_app_Second;",
+		"typedef struct hex_t_m3_app_Third hex_t_m3_app_Third;",
 	}
 	definitions := []string{
-		"struct hex_t_3_app_First {",
-		"struct hex_t_3_app_Second {",
-		"struct hex_t_3_app_Third {",
+		"struct hex_t_m3_app_First {",
+		"struct hex_t_m3_app_Second {",
+		"struct hex_t_m3_app_Third {",
 	}
 	firstDefinition := strings.Index(rootH(t, result), definitions[0])
 	previous := -1

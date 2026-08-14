@@ -52,14 +52,14 @@ func TestNullableHandleUnionDoesNotUseTheNullNiche(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const hex_internal_union_1 hex_v_text",
-		".tag = hex_internal_union_1_tag_member_1",
+		"const hex_union_10_hex_string9_nullptr_t hex_v_text",
+		".tag = hex_union_10_hex_string9_nullptr_t_tag_member_1",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
 		}
 	}
-	if strings.Contains(rootC(t, result), "nullptr") {
+	if strings.Contains(rootC(t, result), " == nullptr") || strings.Contains(rootC(t, result), " != nullptr") || strings.Contains(rootC(t, result), "(nullptr)") {
 		t.Fatalf("handle union must not lower through the null niche:\n%s", rootC(t, result))
 	}
 }
@@ -118,7 +118,7 @@ func TestNullableObjectMemberUsesNullNiche(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"hex_t_3_app_Node *hex_m_next;",
+		"hex_t_m3_app_Node *hex_m_next;",
 		".hex_m_next = nullptr,",
 	} {
 		if !strings.Contains(rootH(t, result), want) && !strings.Contains(rootC(t, result), want) {
@@ -133,9 +133,9 @@ func TestNullableFunctionResultReturnsNullptr(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"static int32_t * hex_f_3_app_absent(void) {",
+		"static int32_t * hex_f_m3_app_absent(void) {",
 		"return nullptr;",
-		"int32_t *const hex_v_nothing = hex_f_3_app_absent();",
+		"int32_t *const hex_v_nothing = hex_f_m3_app_absent();",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)

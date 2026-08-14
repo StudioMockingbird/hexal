@@ -5,5 +5,7 @@
 /.shards/
 *.dwarf
 *.lock
+.claude/
+.vscode/
 shard.lock
 .env

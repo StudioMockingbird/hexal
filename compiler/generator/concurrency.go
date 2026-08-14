@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -51,10 +52,13 @@ type generatedConcurrencyState struct {
 }
 
 // spawnSite is one spawned function: its checked signature drives the
-// argument frame and the entry adapter.
+// argument frame and the entry adapter. module is the canonical id of the
+// module that owns the spawned function; the adapter is emitted beside that
+// function's definition (RFC 0034 per-module generation).
 type spawnSite struct {
 	name     string
 	function string
+	module   string
 	params   []compilerTypes.Type
 	result   compilerTypes.Type // zero Type means Nil
 }
@@ -73,7 +77,7 @@ const (
 // entries. Literals needed by the failure-Error helper are registered in the
 // string literal registry so the Error object's String members lower through
 // the ordinary literal machinery.
-func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, strings *generatedStringState) (*generatedConcurrencyState, error) {
+func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, strings *generatedStringState, moduleID, owner string) (*generatedConcurrencyState, error) {
 	state := &generatedConcurrencyState{
 		taskTypes:            make(map[string]compilerTypes.Type),
 		joinTypes:            make(map[string]compilerTypes.Type),
@@ -93,7 +97,7 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 					state.taskTypes[node.OperandType.CName] = node.OperandType
 				}
 				if node.Operand != nil {
-					site, err := spawnSiteFor(*node.Operand, functions)
+					site, err := spawnSiteFor(*node.Operand, functions, moduleID, owner)
 					if err != nil {
 						return err
 					}
@@ -206,7 +210,10 @@ func registerConcurrencyLiteral(strings *generatedStringState, payload string) s
 
 // spawnSiteFor derives one spawn site from the checked call node: the named
 // callee and the parameter and result types that shape the entry adapter.
-func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Type) (spawnSite, error) {
+// localModule is the canonical id and localOwner the encoded owner of the
+// module being generated; a local callee falls back to them so its C name
+// matches the definition in its own module pair.
+func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Type, localModule, localOwner string) (spawnSite, error) {
 	if node.Kind != checker.CallExpression || node.Operand == nil || node.Operand.Kind != checker.FunctionReferenceExpression || node.Operand.Name == "" {
 		return spawnSite{}, unknownExpressionDiagnostic("spawn without a direct checked function call")
 	}
@@ -214,9 +221,14 @@ func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Ty
 	if !ok || signature.Signature == nil {
 		return spawnSite{}, unknownExpressionDiagnostic("spawn target is not a checked function: " + node.Operand.Name)
 	}
+	module := node.Operand.Module
+	if module == "" {
+		module = localModule
+	}
 	site := spawnSite{
 		name:     node.Operand.Name,
-		function: PrivateCName(FunctionName, node.Operand.Name, moduleOwner(node.Operand.Module, "")),
+		module:   module,
+		function: PrivateCName(FunctionName, node.Operand.Name, moduleOwner(node.Operand.Module, localOwner)),
 		params:   append([]compilerTypes.Type(nil), signature.Signature.Parameters...),
 	}
 	if signature.Signature.Result != nil {
@@ -274,24 +286,51 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 	if state == nil || !state.used {
 		return
 	}
+	// RFC 0037: the task control block is a compiler-owned type definition
+	// every translation unit needs: the spawn entry adapters and the join
+	// helpers dereference hex_task in the module pairs, so the complete
+	// struct lives in main.h, never in the main.c runtime alone.
 	result.WriteString("\n/* RFC 0037 handle typedefs */\n")
 	result.WriteString("typedef struct hex_task hex_task;\n")
 	result.WriteString("typedef struct hex_chan hex_chan;\n")
 	result.WriteString("typedef struct hex_mutex_control hex_mutex;\n")
-	for _, task := range state.taskTypes {
+	result.WriteString("typedef void (*hex_task_entry)(hex_task *task);\n")
+	result.WriteString("struct hex_task {\n    hex_task *ready_next;\n    hex_task *wait_next;\n    int64_t id;\n    uint8_t state;\n    uint8_t wake_error;\n    uint8_t flags;\n    hex_task *joiner;\n    void *fiber;\n    void *scheduler_fiber;\n    hex_task_entry entry;\n    void *args;\n    void *result;\n};\n")
+	taskNames := make([]string, 0, len(state.taskTypes))
+	for name := range state.taskTypes {
+		taskNames = append(taskNames, name)
+	}
+	sort.Strings(taskNames)
+	for _, name := range taskNames {
+		task := state.taskTypes[name]
 		fmt.Fprintf(result, "typedef hex_task *hex_task_%s;\n", taskSuffix(task))
 	}
-	for _, channel := range state.channels {
+	channelNames := make([]string, 0, len(state.channels))
+	for name := range state.channels {
+		channelNames = append(channelNames, name)
+	}
+	sort.Strings(channelNames)
+	for _, name := range channelNames {
+		channel := state.channels[name]
 		fmt.Fprintf(result, "typedef hex_chan *hex_channel_%s;\n", channelSuffix(channel))
 	}
 	if len(state.atomics) > 0 {
 		result.WriteString("#include <stdatomic.h>\n")
-		for _, atomic := range state.atomics {
+		atomicNames := make([]string, 0, len(state.atomics))
+		for name := range state.atomics {
+			atomicNames = append(atomicNames, name)
+		}
+		sort.Strings(atomicNames)
+		for _, name := range atomicNames {
+			atomic := state.atomics[name]
 			fmt.Fprintf(result, "typedef _Atomic(%s) hex_atomic_%s;\n", typeSpelling(atomic.Atomic.Element), atomicSuffix(atomic))
 		}
 	}
+	// RFC 0037: the spawn entry adapters are emitted in the module that owns
+	// the spawned function, so main.h declares them with external linkage for
+	// every translation unit that contains a spawn prologue.
 	for _, site := range state.spawns {
-		fmt.Fprintf(result, "static void hex_task_entry_%s(hex_task *task);\n", site.function)
+		fmt.Fprintf(result, "void hex_task_entry_%s(hex_task *task);\n", site.function)
 	}
 }
 
@@ -318,11 +357,12 @@ func writeConcurrencyExterns(result *strings.Builder, state *generatedConcurrenc
 		return
 	}
 	result.WriteString("\n/* RFC 0037 runtime entry points, defined in main.c */\n")
-	result.WriteString("void hex_task_spawn(void (*entry)(hex_task *), size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align);\n")
+	result.WriteString("hex_task *hex_task_spawn(void (*entry)(hex_task *), size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align);\n")
 	result.WriteString("void *hex_task_join(hex_task *task);\n")
 	result.WriteString("void hex_task_yield(void);\n")
 	result.WriteString("void hex_task_detach(hex_task *task);\n")
 	result.WriteString("void hex_task_release(hex_task *task);\n")
+	result.WriteString("void hex_task_complete(hex_task *task);\n")
 	result.WriteString("hex_chan *hex_chan_new(size_t capacity, size_t element_size);\n")
 	result.WriteString("bool hex_chan_send(hex_chan *channel, const void *value);\n")
 	result.WriteString("bool hex_chan_receive(hex_chan *channel, void *out);\n")
@@ -346,7 +386,14 @@ func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConc
 	if state == nil || !state.used {
 		return
 	}
-	writeSpawnArgFrames(result, state)
+	if state.spawnFail || state.channelNew || state.channelSend || state.mutexNew {
+		// RFC 0037: every recoverable operation constructs its failure Error
+		// through hex_sched_error, spawn prologues included. One helper
+		// precedes every family that references it; the per-family writers
+		// must not re-emit it.
+		state.writeErrorHelper(result)
+	}
+	writeSpawnArgFrames(result, state.spawns)
 	writeTaskTypeHelpers(result, state)
 	writeChannelInlineHelpers(result, state, strings)
 	writeMutexInlineHelpers(result, state, strings)
@@ -378,23 +425,6 @@ func writeSchedulerRuntime(result *strings.Builder) {
 #define HEX_TASK_DONE 4
 #define HEX_TASK_ROOT 1u
 #define HEX_TASK_DETACH 2u
-
-typedef void (*hex_task_entry)(hex_task *task);
-
-struct hex_task {
-    hex_task *ready_next;
-    hex_task *wait_next;
-    int64_t id;
-    uint8_t state;
-    uint8_t wake_error;
-    uint8_t flags;
-    hex_task *joiner;
-    void *fiber;
-    void *scheduler_fiber;
-    hex_task_entry entry;
-    void *args;
-    void *result;
-};
 
 #if defined(_WIN32)
 typedef LPVOID hex_context;
@@ -744,7 +774,13 @@ func writeTaskTypeHelpers(result *strings.Builder, state *generatedConcurrencySt
 		return
 	}
 	result.WriteString("\n// join copies R out of the result frame and reclaims the task storage.\n")
-	for _, task := range state.joinTypes {
+	names := make([]string, 0, len(state.joinTypes))
+	for name := range state.joinTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		task := state.joinTypes[name]
 		suffix := taskSuffix(task)
 		if task.Task.Result == (compilerTypes.Type{}) || compilerTypes.Equal(task.Task.Result, compilerTypes.Nil) {
 			fmt.Fprintf(result, "static inline void hex_task_join_%s(hex_task *task) {\n    (void)hex_task_join(task);\n    hex_task_release(task);\n}\n", suffix)
@@ -755,18 +791,21 @@ func writeTaskTypeHelpers(result *strings.Builder, state *generatedConcurrencySt
 	}
 }
 
-// writeSpawnAdapters emits, in main.c after every function definition, one
+// writeSpawnAdapters emits, in the spawned function's own module C file, one
 // entry adapter per spawned function. The adapter reads the shallow-copied
 // arguments from the task frame, calls the named function directly, stores R
-// in the result frame, and completes the task. The argument frame structs
-// themselves are declared in the header (writeSpawnArgFrames) so the spawn
-// prologues inside function bodies can fill them.
-func writeSpawnAdapters(result *strings.Builder, state *generatedConcurrencyState) {
-	if state == nil || len(state.spawns) == 0 {
+// in the result frame, and completes the task. It is emitted after the
+// function definitions it calls, so the call never crosses a translation
+// unit; the external linkage satisfies the main.h prototypes and the spawn
+// prologues in other modules. The argument frame structs themselves are
+// declared in the module header (writeSpawnArgFrames) so the spawn prologues
+// inside function bodies can fill them.
+func writeSpawnAdapters(result *strings.Builder, sites []spawnSite) {
+	if len(sites) == 0 {
 		return
 	}
-	for _, site := range state.spawns {
-		fmt.Fprintf(result, "\nstatic void hex_task_entry_%s(hex_task *task) {\n", site.function)
+	for _, site := range sites {
+		fmt.Fprintf(result, "\nvoid hex_task_entry_%s(hex_task *task) {\n", site.function)
 		if len(site.params) > 0 {
 			fmt.Fprintf(result, "    hex_task_args_%s *args = (hex_task_args_%s *)task->args;\n", site.function, site.function)
 		}
@@ -793,12 +832,12 @@ func writeSpawnArguments(result *strings.Builder, site spawnSite) {
 }
 
 // writeSpawnArgFrames emits one argument-frame struct per spawned function
-// into the header, before any function body that fills one.
-func writeSpawnArgFrames(result *strings.Builder, state *generatedConcurrencyState) {
-	if state == nil || len(state.spawns) == 0 {
+// into the module header, before any function body that fills one.
+func writeSpawnArgFrames(result *strings.Builder, sites []spawnSite) {
+	if len(sites) == 0 {
 		return
 	}
-	for _, site := range state.spawns {
+	for _, site := range sites {
 		if len(site.params) == 0 {
 			continue
 		}
@@ -808,14 +847,6 @@ func writeSpawnArgFrames(result *strings.Builder, state *generatedConcurrencySta
 		}
 		fmt.Fprintf(result, "} hex_task_args_%s;\n", site.function)
 	}
-}
-
-// writeSpawnAdaptersChecked is the checked-program entry point for the
-// adapter emission; the runtime machinery has no failure mode, so the error
-// return exists only for future-proofing.
-func writeSpawnAdaptersChecked(result *strings.Builder, state *generatedConcurrencyState) error {
-	writeSpawnAdapters(result, state)
-	return nil
 }
 
 // writeChannelCore emits the shared bounded ring-buffer Channel control block
@@ -1004,10 +1035,13 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 	if len(state.channels) == 0 {
 		return
 	}
-	if state.channelNew || state.channelSend {
-		state.writeErrorHelper(result)
+	channelNames := make([]string, 0, len(state.channels))
+	for name := range state.channels {
+		channelNames = append(channelNames, name)
 	}
-	for _, channel := range state.channels {
+	sort.Strings(channelNames)
+	for _, name := range channelNames {
+		channel := state.channels[name]
 		suffix := channelSuffix(channel)
 		element := channel.Channel.Element
 		elementSpelling := typeSpelling(element)
@@ -1138,7 +1172,6 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 		return
 	}
 	if state.mutexNew {
-		state.writeErrorHelper(result)
 		union := state.mutexNewUnion
 		if union != (compilerTypes.Type{}) {
 			mutexIndex := unionMemberIndex(union, compilerTypes.MutexType)
@@ -1162,7 +1195,13 @@ func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyStat
 		return
 	}
 	result.WriteString("\n#include <stdatomic.h>\n\n")
-	for _, atomic := range state.atomics {
+	atomicNames := make([]string, 0, len(state.atomics))
+	for name := range state.atomics {
+		atomicNames = append(atomicNames, name)
+	}
+	sort.Strings(atomicNames)
+	for _, name := range atomicNames {
+		atomic := state.atomics[name]
 		suffix := atomicSuffix(atomic)
 		element := atomic.Atomic.Element
 		elementSpelling := typeSpelling(element)
@@ -1286,7 +1325,7 @@ func hoistSpawn(node *checker.Expression, body *strings.Builder, state *expressi
 		return unknownExpressionDiagnostic("spawn expression has invalid checked metadata")
 	}
 	call := node.Operand
-	site, err := spawnSiteFor(*call, state.functions)
+	site, err := spawnSiteFor(*call, state.functions, state.moduleID, state.owner)
 	if err != nil {
 		return err
 	}

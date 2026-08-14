@@ -428,7 +428,7 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 			// value; it is registered as an alias record and name lookup skips
 			// it, so resolution to the module's names arrives with the module
 			// phase.
-			target := canonicalModuleID(strings.Trim(statement.Path.Lexeme, "\""))
+			target := canonicalModuleID(moduleID, strings.Trim(statement.Path.Lexeme, "\""))
 			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
 				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 					Category: compilerTypes.NameError,

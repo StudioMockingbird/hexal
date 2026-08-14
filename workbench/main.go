@@ -10,21 +10,24 @@ import (
 	"time"
 
 	"hexal/compiler"
+	"hexal/workbench/snippets"
 )
 
 //go:embed index.html
 var indexHTML []byte
 
 type compileRequest struct {
-	Source string `json:"source"`
+	Sources    map[string]string `json:"sources"`
+	Entrypoint string            `json:"entrypoint"`
 }
 
 type compileResponse struct {
-	MainC    string        `json:"mainC"`
-	MainH    string        `json:"mainH"`
-	Stderr   []string      `json:"stderr"`
-	ExitCode int           `json:"exitCode"`
-	Stats    statsResponse `json:"stats"`
+	MainC    string            `json:"mainC"`
+	MainH    string            `json:"mainH"`
+	Files    map[string]string `json:"files"`
+	Stderr   []string          `json:"stderr"`
+	ExitCode int               `json:"exitCode"`
+	Stats    statsResponse     `json:"stats"`
 }
 
 type statsResponse struct {
@@ -45,14 +48,25 @@ func main() {
 	address := flag.String("addr", ":8080", "workbench listen address")
 	flag.Parse()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", serveIndex)
-	mux.HandleFunc("/api/compile", compileHandler)
+	catalog, err := snippets.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	mux := routes(catalog)
 
 	log.Printf("Hexal workbench listening on http://localhost%s", *address)
 	if err := http.ListenAndServe(*address, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func routes(catalog []snippets.Category) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", serveIndex)
+	mux.HandleFunc("/api/compile", compileHandler)
+	mux.HandleFunc("/api/snippets", snippetsHandler(catalog))
+	return mux
 }
 
 func serveIndex(response http.ResponseWriter, request *http.Request) {
@@ -62,6 +76,17 @@ func serveIndex(response http.ResponseWriter, request *http.Request) {
 	}
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = response.Write(indexHTML)
+}
+
+func snippetsHandler(catalog []snippets.Category) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.Header().Set("Allow", http.MethodGet)
+			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		writeJSON(response, http.StatusOK, catalog)
+	}
 }
 
 func compileHandler(response http.ResponseWriter, request *http.Request) {
@@ -80,13 +105,22 @@ func compileHandler(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	writeJSON(response, http.StatusOK, toResponse(compiler.Compile(map[string]string{"app.hex": input.Source}, "app.hex")))
+	if len(input.Sources) == 0 || input.Entrypoint == "" {
+		writeJSON(response, http.StatusBadRequest, compileResponse{
+			Stderr:   []string{"workbench: sources and entrypoint are required"},
+			ExitCode: compiler.ExitFailure,
+		})
+		return
+	}
+
+	writeJSON(response, http.StatusOK, toResponse(compiler.Compile(input.Sources, input.Entrypoint)))
 }
 
 func toResponse(result compiler.CompilationResult) compileResponse {
 	return compileResponse{
 		MainC:    result.MainC,
 		MainH:    result.MainH,
+		Files:    result.Files,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,
 		Stats: statsResponse{

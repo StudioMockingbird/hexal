@@ -5,6 +5,16 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+)
+
+// globalUnionTypes interns every canonical union across all environments of
+// one process. Compilation is deterministic: the key is built from canonical
+// member identity serials, and the C name depends only on the members, so
+// the cache never changes generated text.
+var (
+	globalUnionTypes = make(map[string]Type)
+	globalUnionMu    sync.Mutex
 )
 
 // UnionInfo is immutable metadata for one canonical structural union. Type
@@ -96,19 +106,42 @@ func (environment *Environment) UnionType(members []Type) Type {
 		return environment.NullableType(unique[0])
 	}
 	key := unionKey(unique)
-	if cached, ok := environment.unionTypes[key]; ok {
+	// RFC 0034: a union is a compiler-owned builtin constructor, so its
+	// identity is canonical and compilation-global: the same member set in
+	// any module yields the same Type, one C name, and one generated
+	// definition. The key is built from canonical member identity serials,
+	// so it never depends on which module wrote the union first.
+	globalUnionMu.Lock()
+	defer globalUnionMu.Unlock()
+	if cached, ok := globalUnionTypes[key]; ok {
 		return cached
 	}
 	info := &UnionInfo{Members: append([]Type(nil), unique...)}
 	union := Type{
 		Name:     unionName(unique),
-		CName:    fmt.Sprintf("hex_internal_union_%d", environment.unionOrdinal+1),
+		CName:    unionCName(unique),
 		Union:    info,
 		identity: newTypeIdentity(environment.identity),
 	}
-	environment.unionOrdinal++
-	environment.unionTypes[key] = union
+	globalUnionTypes[key] = union
 	return union
+}
+
+// unionCName derives one union's C name from its canonical members: a
+// deterministic, injective, length-delimited encoding of the member C names.
+// The name depends only on the members, so the same union written in any
+// module spells the same C type and different unions never collide (RFC
+// 0034: built-in specialization identity depends only on the constructor and
+// its canonical arguments, never on the requesting module).
+func unionCName(members []Type) string {
+	var builder strings.Builder
+	builder.WriteString("hex_union_")
+	for _, member := range members {
+		builder.WriteString(strconv.Itoa(len(member.CName)))
+		builder.WriteString("_")
+		builder.WriteString(member.CName)
+	}
+	return builder.String()
 }
 
 func unionMembers(typ Type) []Type {

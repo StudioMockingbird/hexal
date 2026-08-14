@@ -87,7 +87,7 @@ func buildModuleRegistry(programs map[string]parser.Program, order []string, ent
 		for _, item := range program.Items {
 			switch item := item.(type) {
 			case parser.ImportDeclaration:
-				entry.imports[item.Alias.Lexeme] = canonicalModuleID(strings.Trim(item.Path.Lexeme, "\""))
+				entry.imports[item.Alias.Lexeme] = canonicalModuleID(moduleID, strings.Trim(item.Path.Lexeme, "\""))
 			case parser.TypeDeclaration:
 				if item.Exported {
 					entry.exports[item.Name.Lexeme] = true
@@ -530,14 +530,45 @@ func (registry *ModuleRegistry) nominalExported(typ compilerTypes.Type) bool {
 	return false
 }
 
-// canonicalModuleID maps one module-path payload (the raw string between the
-// quotes) to the module's canonical identity: the final path component
-// without a .hex extension. A payload that cannot canonicalize simply is kept
-// as written; resolving the path to source is the module phase's job.
-func canonicalModuleID(payload string) string {
-	id := payload
-	if slash := strings.LastIndex(id, "/"); slash >= 0 {
-		id = id[slash+1:]
+// canonicalModuleID resolves one module-path payload (the raw string between
+// the quotes) relative to the importing module and returns the target's
+// canonical identity. It mirrors the lexical resolution in
+// compiler/compile.go's resolveImportPath: "." components drop, ".." pops the
+// importing module's directory (never above the logical root), and a trailing
+// ".hex" is spelling, not identity. compile.go is the authority for validity
+// -- it runs before checking and rejects non-relative paths, escapes above
+// the logical root, invalid components, and missing modules -- so the checker
+// only re-derives the identity for registry keys; a payload that reached
+// checking always yields the same canonical id as the resolver. A payload
+// that never resolved (direct checker callers) falls back to the spelling
+// with ".hex" stripped.
+func canonicalModuleID(fromModule, payload string) string {
+	path := payload
+	if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
+		path = path[1 : len(path)-1]
 	}
-	return strings.TrimSuffix(id, ".hex")
+	if !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "../") {
+		return strings.TrimSuffix(path, ".hex")
+	}
+	dir := ""
+	if slash := strings.LastIndex(fromModule, "/"); slash >= 0 {
+		dir = fromModule[:slash]
+	}
+	rest := path
+	for strings.HasPrefix(rest, "../") {
+		if slash := strings.LastIndex(dir, "/"); slash >= 0 {
+			dir = dir[:slash]
+		} else {
+			dir = ""
+		}
+		rest = rest[3:]
+	}
+	if strings.HasPrefix(rest, "./") {
+		rest = rest[2:]
+	}
+	rest = strings.TrimSuffix(rest, ".hex")
+	if dir != "" {
+		rest = dir + "/" + rest
+	}
+	return rest
 }

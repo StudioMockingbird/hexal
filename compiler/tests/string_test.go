@@ -62,7 +62,7 @@ func TestStringOwningLifecycle(t *testing.T) {
 	}
 	for _, want := range []string{
 		"return hex_string_to_string(hex_v_h, &hex_lit_0);",
-		"hex_v_text = hex_f_3_app_make_text(hex_v_h);",
+		"hex_v_text = hex_f_m3_app_make_text(hex_v_h);",
 		"hex_v_loud = hex_string_concat(hex_v_h, hex_v_text, &hex_lit_1);",
 		"hex_string_free(hex_v_h, hex_v_loud);",
 		"hex_string_free(hex_defer_capture_2, hex_defer_capture_1);",

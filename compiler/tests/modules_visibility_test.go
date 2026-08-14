@@ -8,6 +8,7 @@ package tests
 
 import (
 	"hexal/compiler"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,48 @@ func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 		"math.hex": "export fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
 	}
 	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
+}
+
+// A qualified use through an alias of a nested (directory) import resolves to
+// the full canonical module identity, not the basename (RFC 0034 §Path
+// resolution: "graphics/shapes" is one identity).
+func TestQualifiedUseThroughNestedPathAlias(t *testing.T) {
+	sources := map[string]string{
+		"app.hex":             "module Shapes = import \"./graphics/shapes\"\np: Shapes.Point = Shapes.origin()\n",
+		"graphics/shapes.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun origin(): Point\n    return Point { x = 0, y = 0 }\nend\n",
+	}
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "graphics/shapes")
+}
+
+// Same-basename modules in different directories are distinct canonical
+// identities: both aliases resolve, the qualified calls hit their own
+// module's declarations, and the generated symbols stay distinct.
+func TestSameBasenameModulesAreDistinct(t *testing.T) {
+	sources := map[string]string{
+		"app.hex":             "module Graphics = import \"./graphics/shapes\"\nmodule Audio = import \"./audio/shapes\"\ng: Graphics.Shape = Graphics.make()\na: Audio.Shape = Audio.make()\n",
+		"graphics/shapes.hex": "export type Shape = { kind: Int32 }\nexport fun make(): Shape\n    return Shape { kind = 1 }\nend\n",
+		"audio/shapes.hex":    "export type Shape = { kind: Int32 }\nexport fun make(): Shape\n    return Shape { kind = 2 }\nend\n",
+	}
+	result := compileMulti(sources, "app.hex")
+	wantMultiSuccess(t, result, "app", "graphics/shapes", "audio/shapes")
+	appC := result.Files["modules/app.c"]
+	if !strings.Contains(appC, "hex_f_m8_graphics6_shapes_make") {
+		t.Fatalf("app.c lacks the graphics symbol:\n%s", appC)
+	}
+	if !strings.Contains(appC, "hex_f_m5_audio6_shapes_make") {
+		t.Fatalf("app.c lacks the audio symbol:\n%s", appC)
+	}
+}
+
+// A parent-relative import from a nested module resolves and its qualified
+// uses compile.
+func TestQualifiedUseThroughParentRelativeImport(t *testing.T) {
+	sources := map[string]string{
+		"app.hex":              "module Apps = import \"./apps/tools\"\nresult: Int32 = Apps.value()\n",
+		"apps/tools.hex":       "module Shared = import \"../shared/constants\"\nexport fun value(): Int32\n    return Shared.answer()\nend\n",
+		"shared/constants.hex": "export fun answer(): Int32\n    return 42\nend\n",
+	}
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "apps/tools", "shared/constants")
 }
 
 func TestQualifiedCallToPrivateFunctionRejected(t *testing.T) {
