@@ -160,6 +160,13 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) 
 		result.WriteString("    hex_print_text((const uint8_t *)\" }\", 2);\n}\n")
 	}
 	for _, typ := range state.types {
+		// A container helper calls the helpers of its element and member
+		// types, which may follow it in discovery order, so every nested
+		// helper is declared before any definition (RFC 0048 conformance:
+		// generated C must compile warning-free as-is).
+		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value);\n", typ.CName)
+	}
+	for _, typ := range state.types {
 		writePrintNestedHelper(result, typ)
 	}
 }
@@ -167,6 +174,16 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) 
 // writePrintNestedHelper emits one nested-context helper per concrete type.
 // Every helper takes `const void *` and casts internally, so aggregate call
 // sites can pass member and element addresses uniformly.
+// printNestedAddress renders the argument expression for a nested helper
+// call: pointer-semantic values (List, Dict, String) pass their pointer
+// directly, every other type passes its address.
+func printNestedAddress(typ compilerTypes.Type, expression string) string {
+	if typ.List != nil || typ.Dict != nil || typ.Stream != nil || compilerTypes.IsString(typ) {
+		return expression
+	}
+	return "&(" + expression + ")"
+}
+
 func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type) {
 	switch {
 	case compilerTypes.IsString(typ):
@@ -201,7 +218,7 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type) {
 				fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\", \", 2);\n")
 			}
 			fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
-			fmt.Fprintf(result, "    hex_print_nested_%s(&(v->%s));\n", member.Type.CName, PrivateCName(MemberName, member.Name))
+			fmt.Fprintf(result, "    hex_print_nested_%s(%s);\n", member.Type.CName, printNestedAddress(member.Type, "v->"+PrivateCName(MemberName, member.Name)))
 		}
 		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\" }\", 2);\n}\n")
 	case typ.Adt != nil:
@@ -217,7 +234,7 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type) {
 						fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\", \", 2);\n")
 					}
 					fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
-					fmt.Fprintf(result, "        hex_print_nested_%s(&(v->payload.%s.hex_m_%s));\n", member.Type.CName, variant.Name, member.Name)
+					fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n", member.Type.CName, printNestedAddress(member.Type, "v->payload."+variant.Name+".hex_m_"+member.Name))
 				}
 				fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\" }\", 2);\n")
 			}
@@ -228,28 +245,28 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type) {
 		element := typ.Array.Element
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
 		fmt.Fprintf(result, "    for (size_t index = 0; index < %d; index++) {\n        if (index > 0) { hex_print_text((const uint8_t *)\", \", 2); }\n", typ.Array.Length)
-		fmt.Fprintf(result, "        hex_print_nested_%s(&(v->data[index]));\n    }\n", element.CName)
+		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
 		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"]\", 1);\n}\n")
 	case typ.View != nil:
 		element := typ.View.Element
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
 		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text((const uint8_t *)\", \", 2); }\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(&(v->data[index]));\n    }\n", element.CName)
+		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
 		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"]\", 1);\n}\n")
 	case typ.List != nil:
 		element := typ.List.Element
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
 		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text((const uint8_t *)\", \", 2); }\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(&(v->data[index]));\n    }\n", element.CName)
+		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
 		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"]\", 1);\n}\n")
 	case typ.Dict != nil:
 		key := typ.Dict.Key
 		valueType := typ.Dict.Value
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"{\", 1);\n    bool first = true;\n", typ.CName, typ.CName)
 		fmt.Fprintf(result, "    for (size_t index = 0; index < v->capacity; index++) {\n        if (!v->buckets[index].active) { continue; }\n        if (!first) { hex_print_text((const uint8_t *)\", \", 2); }\n        first = false;\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(&(v->buckets[index].key));\n", key.CName)
+		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n", key.CName, printNestedAddress(key, "v->buckets[index].key"))
 		fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\": \", 2);\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(&(v->buckets[index].value));\n    }\n", valueType.CName)
+		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", valueType.CName, printNestedAddress(valueType, "v->buckets[index].value"))
 		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"}\", 1);\n}\n")
 	}
 }
@@ -312,8 +329,9 @@ func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, ind
 	case compilerTypes.IsError(typ):
 		fmt.Fprintf(body, "%shex_print_error_direct(%s);\n", indent, name)
 	default:
-		// Aggregates use their nested helper at the top level too.
-		fmt.Fprintf(body, "%shex_print_nested_%s(&(%s));\n", indent, typ.CName, name)
+		// Aggregates use their nested helper at the top level too;
+		// pointer-semantic values pass their pointer directly.
+		fmt.Fprintf(body, "%shex_print_nested_%s(%s);\n", indent, typ.CName, printNestedAddress(typ, name))
 	}
 	return nil
 }

@@ -107,7 +107,7 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		result.WriteString("    " + entryName + " *region = hex_heap_raw_allocate(dict->allocator, next * sizeof(" + entryName + "), _Alignof(" + entryName + "));\n")
 		result.WriteString("    for (size_t index = 0; index < next; index++) {\n        region[index].active = false;\n    }\n")
 		fmt.Fprintf(result, "    for (size_t index = 0; index < dict->capacity; index++) {\n        if (dict->buckets[index].active) {\n            uint64_t probe = hex_dict_probe_%s_region(region, next, dict->buckets[index].key);\n            region[probe] = dict->buckets[index];\n        }\n    }\n", suffix)
-		result.WriteString("    free(dict->buckets);\n    dict->buckets = region;\n    dict->capacity = next;\n}\n")
+		result.WriteString("    if (dict->buckets != NULL) {\n        hex_heap_free(dict->buckets, dict->allocator);\n    }\n    dict->buckets = region;\n    dict->capacity = next;\n}\n")
 		fmt.Fprintf(result, "static inline void hex_dict_insert_%s(%s *dict, %s key, %s value) {\n", suffix, dict.CName, keySpelling, valueSpelling)
 		result.WriteString("    if (dict->capacity == 0 || (dict->length + 1) * 10 >= dict->capacity * 7) {\n        hex_dict_grow_" + suffix + "(dict);\n    }\n")
 		result.WriteString("    size_t index = hex_dict_probe_" + suffix + "(dict, key);\n")
@@ -135,7 +135,11 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		fmt.Fprintf(result, "static inline void hex_dict_free_%s(hex_heap h, %s *dict) {\n", suffix, dict.CName)
 		result.WriteString("    if (dict == NULL || dict->allocator != h.identity) {\n")
 		result.WriteString("        fputs(\"[Runtime Error] deallocation used the wrong allocator\\n\", stderr);\n        abort();\n    }\n")
-		result.WriteString("    free(dict->buckets);\n    free(dict);\n}\n")
+		// Both regions came from hex_heap_raw_allocate; only hex_heap_free can
+		// release them (RFC 0048 conformance: freeing the interior pointer
+		// directly is heap corruption).
+		result.WriteString("    if (dict->buckets != NULL) {\n        hex_heap_free(dict->buckets, dict->allocator);\n    }\n")
+		result.WriteString("    hex_heap_free(dict, h.identity);\n}\n")
 	}
 }
 

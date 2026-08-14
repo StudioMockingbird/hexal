@@ -57,9 +57,15 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 	}
 
 	// A known-invalid constant conversion is a compile-time error; valid
-	// constants fold to their destination value.
+	// constants fold to their destination value. A negative float literal
+	// keeps its positive Constant with the sign in FloatBits/Negative, so
+	// the fold must apply the sign itself.
 	if receiver.source.Kind == ConstantOperand && receiver.source.Constant != nil {
-		if folded, diagnostic := foldNumericConversion(receiver.source.Constant, source, target, callee.Property); diagnostic != nil || folded != nil {
+		value := receiver.source.Constant
+		if receiver.source.Negative && compilerTypes.IsFloat(source) {
+			value = constant.UnaryOp(gotoken.SUB, value, 0)
+		}
+		if folded, diagnostic := foldNumericConversion(value, source, target, callee.Property); diagnostic != nil || folded != nil {
 			if diagnostic != nil {
 				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 			}

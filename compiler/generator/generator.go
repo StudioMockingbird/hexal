@@ -4498,9 +4498,10 @@ func headerWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedU
 	if nilUsed {
 		result.WriteString("#include <stddef.h>\n\n")
 	}
-	if arrays != nil && len(arrays.order) > 0 || views != nil && len(views.views) > 0 || stringState != nil && stringState.used || lists != nil && len(lists.order) > 0 || dicts != nil && len(dicts.order) > 0 || containsSizeConversion(conversions) {
+	if arrays != nil && len(arrays.order) > 0 || views != nil && len(views.views) > 0 || stringState != nil && stringState.used || lists != nil && len(lists.order) > 0 || dicts != nil && len(dicts.order) > 0 || containsSizeConversion(conversions) || printState != nil && printState.used {
 		// The bounds guards in the array, view, string, and list helpers
-		// report through fputs on stderr.
+		// and the print helpers report through fputs/fwrite on stdout and
+		// stderr.
 		result.WriteString("#include <stdio.h>\n\n")
 	}
 	if float32Used || float64Used {

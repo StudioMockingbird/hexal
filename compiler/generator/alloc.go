@@ -29,6 +29,12 @@ func discoverHeapHelpers(program checker.Program) (*heapHelpers, error) {
 					state.elements = append(state.elements, node.Element)
 				}
 			}
+			// Heap.new() and Heap-typed parameters and bindings name the
+			// hex_heap type in generated signatures and initializers, so
+			// the base machinery is required even without any allocation.
+			if compilerTypes.Equal(node.ResultType, compilerTypes.Heap) || compilerTypes.Equal(node.OperandType, compilerTypes.Heap) {
+				state.required = true
+			}
 			return nil
 		},
 	}

@@ -213,25 +213,30 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, operandUnion.CName, temp, operand)
 	resultType := node.Element
+	resultErrorIndex := -1
 	if compilerTypes.IsError(resultType) {
 		fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, unionTagName(operandUnion, errorIndex))
-		fmt.Fprintf(&builder, "%s    return %s.payload.member_%d;\n", indent, temp, errorIndex)
 	} else {
-		resultErrorIndex := unionMemberIndex(resultType, compilerTypes.ErrorType)
+		resultErrorIndex = unionMemberIndex(resultType, compilerTypes.ErrorType)
 		if resultErrorIndex < 0 {
 			return unknownExpressionDiagnostic("try result does not accept Error")
 		}
 		fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, unionTagName(operandUnion, errorIndex))
-		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.member_%d = %s.payload.member_%d };\n", indent, resultType.CName, unionTagName(resultType, resultErrorIndex), resultErrorIndex, temp, errorIndex)
 	}
-	// The deferred actions unwind only on the Error path: the success path
-	// runs them at the scope's own exit, and running them twice would
-	// double-release the same resources.
+	// The deferred actions unwind only on the Error path, before the Error
+	// returns: the success path runs them at the scope's own exit, and
+	// running them twice would double-release the same resources. The
+	// unwind must precede the return so it executes (RFC 0048 conformance:
+	// the previous order emitted unreachable unwind code after the return).
 	if err := unwindAllDefers(&builder, state, indent, "true"); err != nil {
 		return err
 	}
+	if compilerTypes.IsError(resultType) {
+		fmt.Fprintf(&builder, "%s    return %s.payload.member_%d;\n", indent, temp, errorIndex)
+	} else {
+		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.member_%d = %s.payload.member_%d };\n", indent, resultType.CName, unionTagName(resultType, resultErrorIndex), resultErrorIndex, temp, errorIndex)
+	}
 	fmt.Fprintf(&builder, "%s}\n", indent)
-
 	success := node.ResultType
 	if success.Union == nil {
 		// Single success member: the try renders as its active payload.

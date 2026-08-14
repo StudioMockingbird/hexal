@@ -39,3 +39,32 @@ func TestGeneratedStringCCompiles(t *testing.T) {
 	source := "fun make_text(h: Heap): String\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap)\n    text: String = make_text(h)\n    defer text.free(h)\n    loud: String = text.concat(h, \"!\")\n    raw: View<UInt8> = text.bytes()\n    first: UInt8 = raw[0]\n    part: View<UInt8> = text.slice(0, 2)\n    second: UInt8 = part[1]\n    loud.free(h)\nend"
 	compileGeneratedC(t, assertCompiles(t, source))
 }
+
+// RFC 0046 runtime conformance: an owning List computes length, at, set,
+// pop, clear, slice, and String element round-trips through the checked heap
+// machinery.
+func TestGeneratedListRuns(t *testing.T) {
+	source := "fun demo(h: Heap): Bool\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values.set(0, 9)\n    first: Int32 = values.at(0)\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> = values.slice(0, 1)\n    total: Int32 = view[0]\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String = names.pop()\n    popped.free(h)\n    name: String = names.at(0)\n    return first == 9 and last == 5 and total == 7 and name.length() == 5\nend\nprint(demo(Heap.new()))\n"
+	if got := runGeneratedC(t, assertCompiles(t, source)); got != "true" {
+		t.Fatalf("program output = %q, want %q", got, "true")
+	}
+}
+
+// RFC 0047 runtime conformance: an owning Dict computes insert, contains,
+// get, remove, growth, and Strand-key lookup through the checked heap
+// machinery.
+func TestGeneratedDictRuns(t *testing.T) {
+	source := "fun demo(h: Heap): Bool\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool = scores.contains(1)\n    first: Int32 = scores.get(1)\n    removed: Int32 = scores.remove(2)\n    scores.insert(3, 30)\n    scores.insert(4, 40)\n    scores.insert(5, 50)\n    grown: Int32 = scores.get(5)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    score: Int32 = labels.get(\"alice\")\n    return present and first == 10 and removed == 20 and grown == 50 and score == 1\nend\nprint(demo(Heap.new()))\n"
+	if got := runGeneratedC(t, assertCompiles(t, source)); got != "true" {
+		t.Fatalf("program output = %q, want %q", got, "true")
+	}
+}
+
+// RFC 0044 runtime conformance: to_string, concat, bytes, slice, and free
+// compute byte-accurate results through the checked heap machinery.
+func TestGeneratedStringRuns(t *testing.T) {
+	source := "fun demo(h: Heap): Bool\n    text: String = \"ready\".to_string(h)\n    defer text.free(h)\n    loud: String = text.concat(h, \"!\")\n    defer loud.free(h)\n    ok: Bool = loud.length() == 6\n    part: View<UInt8> = text.slice(0, 2)\n    second: UInt8 = part[1]\n    return ok and second == 101\nend\nprint(demo(Heap.new()))\n"
+	if got := runGeneratedC(t, assertCompiles(t, source)); got != "true" {
+		t.Fatalf("program output = %q, want %q", got, "true")
+	}
+}

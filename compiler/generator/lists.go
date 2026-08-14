@@ -92,8 +92,12 @@ func writeListDefinitions(result *strings.Builder, lists *generatedListState, vi
 		fmt.Fprintf(result, "static inline void hex_list_free_%s(hex_heap h, %s *list) {\n", suffix, list.CName)
 		result.WriteString("    if (list == NULL || list->allocator != h.identity) {\n")
 		result.WriteString("        fputs(\"[Runtime Error] deallocation used the wrong allocator\\n\", stderr);\n        abort();\n    }\n")
-		result.WriteString("    free(list->data);\n")
-		result.WriteString("    free(list);\n}\n")
+		// The regions come from hex_heap_raw_allocate, whose returned pointer
+		// carries the offset header before it; only hex_heap_free can release
+		// them (RFC 0048 conformance: freeing the interior pointer directly is
+		// heap corruption).
+		result.WriteString("    if (list->data != NULL) {\n        hex_heap_free(list->data, list->allocator);\n    }\n")
+		result.WriteString("    hex_heap_free(list, h.identity);\n}\n")
 		if view := matchingView(views, element); view != (compilerTypes.Type{}) {
 			fmt.Fprintf(result, "static inline %s hex_list_slice_%s(const %s *list, uint64_t start, uint64_t end) {\n", view.CName, suffix, list.CName)
 			fmt.Fprintf(result, "    if (!(start <= end && end <= list->length)) {\n        fputs(\"[Runtime Error] list slice bounds out of range\\n\", stderr);\n        abort();\n    }\n")
@@ -119,7 +123,10 @@ func writeListGrowHelper(result *strings.Builder, list compilerTypes.Type, eleme
 	result.WriteString("    for (size_t index = 0; index < list->length; index++) {\n")
 	result.WriteString("        region[index] = list->data[index];\n")
 	result.WriteString("    }\n")
-	result.WriteString("    free(list->data);\n")
+	// The old region came from hex_heap_raw_allocate, so only hex_heap_free
+	// can release it; it is NULL on the first grow (RFC 0048 conformance:
+	// freeing the interior pointer directly is heap corruption).
+	result.WriteString("    if (list->data != NULL) {\n        hex_heap_free(list->data, list->allocator);\n    }\n")
 	result.WriteString("    list->data = region;\n")
 	result.WriteString("    list->capacity = next;\n}\n")
 }
