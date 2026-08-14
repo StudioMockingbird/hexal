@@ -1,0 +1,49 @@
+{
+  "id": "modules",
+  "name": "Modules",
+  "snippets": [
+    {
+      "id": "module-import-export",
+      "name": "Qualified module imports",
+      "description": "A root module calls an exported function from a second in-memory source file.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "module Math = import \"./math\"",
+          "answer: Int32 = Math.add(20, 22)"
+        ],
+        "math.hex": [
+          "export fun add(left: Int32, right: Int32): Int32",
+          "    return left + right",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports"],
+      "reservedWords": ["module", "import", "export", "fun", "return", "end"]
+    },
+    {
+      "id": "modules-nested-import",
+      "name": "Nested directory imports",
+      "description": "A root module imports an exported type and method from a nested directory module and uses them qualified.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "module Shapes = import \"./graphics/shapes\"",
+          "origin: Shapes.Point = Shapes.origin()",
+          "width: Int32 = origin.width()"
+        ],
+        "graphics/shapes.hex": [
+          "export type Point = { x: Int32, y: Int32 }",
+          "export fun origin(): Point",
+          "    return Point { x = 10, y = 20 }",
+          "end",
+          "export impl Point.width(): Int32",
+          "    return self.x",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports", "methods"],
+      "reservedWords": ["module", "import", "export", "type", "fun", "impl", "self", "return", "end"]
+    }
+  ]
+}

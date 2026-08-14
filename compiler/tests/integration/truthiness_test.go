@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // RFC 0023: truthiness and boolean contexts. false and nil are falsey; every
 // other value is truthy. Conditions and the logical operators accept any

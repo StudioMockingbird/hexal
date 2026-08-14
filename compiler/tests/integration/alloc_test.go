@@ -1,4 +1,4 @@
-package tests
+package integration
 
 import (
 	"hexal/compiler"
@@ -135,5 +135,18 @@ func TestHeapDiagnosticsFailClosed(t *testing.T) {
 	result := compileSource("h: Heap = Heap.new() mut v: Int32 = 1 h.free(v)")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "value is not an allocation produced by this Heap") {
 		t.Fatalf("diagnostics = %#v, want non-pointer free error", result.Stderr)
+	}
+}
+
+// A bare h.free(p) statement releases the allocation directly. Only the
+// defer path used to render this form; the statement whitelist omitted
+// HeapFreeExpression (snippet-audit regression).
+func TestHeapFreeAsBareStatement(t *testing.T) {
+	result := compileSource("fun f(h: Heap)\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    h.free(p)\nend\n")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	if !strings.Contains(rootC(t, result), "hex_heap_free(hex_v_p") {
+		t.Fatalf("generated C = %q, want a direct free call statement", rootC(t, result))
 	}
 }

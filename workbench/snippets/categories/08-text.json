@@ -1,0 +1,210 @@
+{
+  "id": "text",
+  "name": "Text",
+  "snippets": [
+    {
+      "id": "text-text-inspection",
+      "name": "Text inspection",
+      "description": "Read the first rune and first byte from a string.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    text: String = \"caf\\u{00E9}\"",
+        "    first: Rune = text.at(0)",
+        "    indexed: Rune = text[0]",
+        "    raw: View<Byte> = text.bytes()",
+        "    first_byte: Byte = raw[0]",
+        "    return first == indexed and first == 'c' and first_byte == b'c'",
+        "end"
+      ]},
+      "features": ["text", "views"],
+      "reservedWords": ["fun", "return", "end", "and"]
+    },
+    {
+      "id": "text-rune-cursor",
+      "name": "Rune cursor",
+      "description": "Iterate through text using a RuneCursor.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun count_letters(text: String): Int32",
+        "    cursor: RuneCursor = text.rune_cursor()",
+        "    mut letters: Int32 = 0",
+        "    while cursor.has_next() do",
+        "        value: Rune = cursor.next()",
+        "        if value == ' '",
+        "            continue",
+        "        end",
+        "        letters = letters + 1",
+        "    end",
+        "    return letters",
+        "end"
+      ]},
+      "features": ["text", "while"],
+      "reservedWords": ["fun", "while", "do", "if", "continue", "return", "end", "mut"]
+    },
+    {
+      "id": "text-byte-view",
+      "name": "Byte view",
+      "description": "Expose a string's bytes as a View<Byte>.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    text: String = \"hello\"",
+        "    raw: View<Byte> = text.bytes()",
+        "    count: Size = raw.length()",
+        "    empty: Bool = raw.is_empty()",
+        "    return count == 5 and !empty",
+        "end"
+      ]},
+      "features": ["text", "views"],
+      "reservedWords": ["fun", "return", "end", "and"]
+    },
+    {
+      "id": "text-byte-inspection",
+      "name": "Byte inspection",
+      "description": "Read selected bytes from a text view.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    text: String = \"abc\"",
+        "    raw: View<Byte> = text.bytes()",
+        "    first: Byte = raw[0]",
+        "    second: Byte = raw.at(1)",
+        "    part: View<Byte> = text.slice(1, 3)",
+        "    return first == b'a' and second == b'b' and part[0] == b'b'",
+        "end"
+      ]},
+      "features": ["text", "views"],
+      "reservedWords": ["fun", "return", "end", "and"]
+    },
+    {
+      "id": "text-text-report",
+      "name": "Text report",
+      "description": "Print multiple text values as one formatted report.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun report_line(label: String, value: Int32)",
+        "    print(label, value)",
+        "end",
+        "fun demo()",
+        "    report_line(\"health\", 100)",
+        "    report_line(\"armor\", 50)",
+        "end"
+      ]},
+      "features": ["text", "print", "functions", "no-result-functions"],
+      "reservedWords": ["fun", "end"]
+    },
+    {
+      "id": "text-escaped-message",
+      "name": "Escaped message",
+      "description": "Build a message containing newline, tab, and quote escapes.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    text: String = \"a\\\"b\\\\c\\nd\\te\\rf\"",
+        "    return text.length() == 11",
+        "end"
+      ]},
+      "features": ["text", "literals"],
+      "reservedWords": ["fun", "return", "end"]
+    },
+    {
+      "id": "text-string-building",
+      "name": "String building",
+      "description": "Build a runtime String with concat and to_string, then free it exactly once.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun load_body(h: Heap): String | Error",
+        "    return \"ready\".to_string(h)",
+        "end",
+        "fun build_report(h: Heap): Int32 | Error",
+        "    prefix: String = \"report: \".to_string(h)",
+        "    errdefer prefix.free(h)",
+        "    body: String = try load_body(h)",
+        "    full: String = prefix.concat(h, body)",
+        "    length: Size = full.length()",
+        "    body.free(h)",
+        "    full.free(h)",
+        "    prefix.free(h)",
+        "    return length.to<Int32>()",
+        "end"
+      ]},
+      "features": ["text", "errors", "try-errdefer"],
+      "reservedWords": ["fun", "return", "end", "errdefer", "try"]
+    },
+    {
+      "id": "text-strand-inline",
+      "name": "Inline strand",
+      "description": "Use Strand as an inline literal-only value and convert it to a String.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Bool",
+        "    label: Strand = \"hexal\"",
+        "    first: Rune = label.at(0)",
+        "    text: String = label.to_string(h)",
+        "    count: Size = text.length()",
+        "    text.free(h)",
+        "    return first == 'h' and count == 5",
+        "end"
+      ]},
+      "features": ["text", "literals"],
+      "reservedWords": ["fun", "return", "end", "and"]
+    },
+    {
+      "id": "text-comparison",
+      "name": "Text comparison",
+      "description": "Compare String values by bytes and order them lexicographically.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    left: String = \"abc\"",
+        "    right: String = \"abd\"",
+        "    same: Bool = left == right",
+        "    ordered: Bool = left < right",
+        "    key: Strand = \"abc\"",
+        "    strand_less: Bool = key < \"abd\"",
+        "    return !same and ordered and strand_less",
+        "end"
+      ]},
+      "features": ["text", "equality-ordering"],
+      "reservedWords": ["fun", "return", "end", "and"]
+    },
+    {
+      "id": "text-protocol-parser",
+      "name": "Text protocol",
+      "description": "Small tokenizing parser loop over String runes, terminated by EoS; longer than 20 lines because it demonstrates as, match, then, and eos together.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Token = | Digit as { value: Rune } | Other as { value: Rune }",
+        "",
+        "fun next_token(cursor: RuneCursor): Token | EoS",
+        "    if !cursor.has_next()",
+        "        return eos",
+        "    end",
+        "    letter: Rune = cursor.next()",
+        "    token: Token = match letter >= '0' and letter <= '9'",
+        "    | true then Token.Digit { value = letter }",
+        "    | false then Token.Other { value = letter }",
+        "    end",
+        "    return token",
+        "end",
+        "",
+        "fun digit_sum(text: String): Int32",
+        "    cursor: RuneCursor = text.rune_cursor()",
+        "    mut total: Int32 = 0",
+        "    while true do",
+        "        step: Token | EoS = next_token(cursor)",
+        "        if step is EoS",
+        "            break",
+        "        end",
+        "        add: Int32 = (match step is | Token.Digit then 1 | Token.Other then 0 end)",
+        "        total = total + add",
+        "    end",
+        "    return total",
+        "end"
+      ]},
+      "features": ["text", "adts", "match"],
+      "reservedWords": ["type", "fun", "if", "return", "end", "match", "while", "do", "break", "mut", "then", "as", "eos", "is"]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # ADR 0054: Integration and Dormant C23 Test Packages
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Draft; implementation-ready
+- Status: Implemented; conformance verified 2026-08-14
 - Created: 2026-08-14
 - Scope: Go test organization only
 - Depends on: ADR 0053 (compiler test layout, implemented)
@@ -14,11 +14,12 @@
 ADR 0053 moved every direct-root compiler test into `compiler/tests/` as one
 `package tests`. The verified current inventory is:
 
-- 48 `_test.go` files total;
-- 38 ordinary files:
+- 54 `_test.go` files total;
+- 44 ordinary files:
   - 37 active full-pipeline facet files;
   - `helpers_test.go`; and
-  - 411 runnable `Test...` functions;
+  - 6 `modules_*_test.go` files (RFC 0034 module tests); and
+  - 467 runnable `Test...` functions;
 - 10 `c23_*_test.go` files:
   - 9 dormant validation files;
   - `c23_harness_test.go`;
@@ -38,7 +39,8 @@ private C23-package copy of that small assertion.
 
 - Create two packages under `compiler/tests/`:
   - `compiler/tests/integration/`, `package integration`, containing the 37
-    active facet files plus `helpers_test.go`; and
+    active facet files, `helpers_test.go`, and the 6 `modules_*_test.go`
+    files; and
   - `compiler/tests/c23validation/`, `package c23validation`, containing the 9
     dormant validation files plus `c23_harness_test.go`.
 - Preserve every filename; do not rename `helpers_test.go`.
@@ -76,9 +78,10 @@ private C23-package copy of that small assertion.
 
 ## File movement
 
-- Move the 38 current ordinary files into `compiler/tests/integration/`:
-  - 37 facet files; and
-  - `helpers_test.go`.
+- Move the 44 current ordinary files into `compiler/tests/integration/`:
+  - 37 facet files;
+  - `helpers_test.go`; and
+  - 6 `modules_*_test.go` files.
 - Move the 10 current C23 files into `compiler/tests/c23validation/`:
   - 9 validation files; and
   - `c23_harness_test.go`.
@@ -143,12 +146,12 @@ golden cases do not justify packages by themselves. They remain facet files or
 ## Validation
 
 - `go test ./...` passes without an external toolchain.
-- `compiler/tests/integration/` contains exactly 38 files: 37 facet files and
-  `helpers_test.go`.
+- `compiler/tests/integration/` contains exactly 44 files: 37 facet files,
+  `helpers_test.go`, and 6 `modules_*_test.go` files.
 - `compiler/tests/c23validation/` contains exactly 10 files: 9 validation files
   and `c23_harness_test.go`.
 - No `*_test.go` file remains directly under `compiler/tests/`.
-- The same 411 active `Test...` function names exist after the move.
+- The same 467 active `Test...` function names exist after the move.
 - All dormant C23 function names remain and none begins with `Test`.
 - `go test -tags c23 ./...` passes and executes no C23 tests or external
   processes.

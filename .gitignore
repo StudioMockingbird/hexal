@@ -9,3 +9,4 @@
 .vscode/
 shard.lock
 .env
+*.exe

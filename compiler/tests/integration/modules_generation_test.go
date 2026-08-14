@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // RFC 0034 Task 7: per-module C/header emission, encoded symbols, and
 // deterministic multi-module generation, end to end through Compile.

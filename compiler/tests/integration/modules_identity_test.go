@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // RFC 0034 Task 6: module identity, implementation ownership, and generic
 // specialization ownership, end to end through Compile. Since Task 7,

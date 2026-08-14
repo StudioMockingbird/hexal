@@ -204,15 +204,25 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	if methodErr != nil {
 		return nil, methodErr
 	}
-	if validationErr := validateCheckedProgram(program, functions, methods); validationErr != nil {
-		return nil, validationErr
-	}
 	emission := &moduleEmission{
 		canonicalID: canonicalID,
 		logicalKey:  logicalKey,
 		program:     program,
 		functions:   functions,
 		methods:     methods,
+	}
+	// The literal registry is discovered before the preflight pass: the
+	// preflight renders call statements to prove them renderable, and a
+	// string-literal argument must resolve against the same registry the
+	// emission pass uses. discoverGeneratedStrings never fails, so hoisting
+	// it changes no diagnostic ordering.
+	stringState, stringErr := discoverGeneratedStrings(program)
+	if stringErr != nil {
+		return nil, stringErr
+	}
+	emission.stringState = stringState
+	if validationErr := validateCheckedProgram(program, functions, methods, stringState); validationErr != nil {
+		return nil, validationErr
 	}
 	emission.float32Used, emission.float64Used, emission.nilUsed = usedFloatTypes(program)
 	objects, objectErr := objectDefinitions(program)
@@ -246,11 +256,6 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		return nil, viewErr
 	}
 	emission.viewState = viewState
-	stringState, stringErr := discoverGeneratedStrings(program)
-	if stringErr != nil {
-		return nil, stringErr
-	}
-	emission.stringState = stringState
 	listState, listErr := discoverGeneratedLists(program)
 	if listErr != nil {
 		return nil, listErr
@@ -1007,7 +1012,7 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
 		checker.VolatileWriteExpression, checker.FileMethodCallExpression,
-		checker.RuneCursorMethodCallExpression:
+		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression:
 		// RFC 0035: discarding a constructor result is legal; it simply
 		// leaks the allocation, which is the programmer's choice.
 	default:
@@ -1317,7 +1322,7 @@ func parameterList(parameters []string) string {
 	return strings.Join(parameters, ", ")
 }
 
-func validateCheckedProgram(program checker.Program, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration) error {
+func validateCheckedProgram(program checker.Program, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, strings *generatedStringState) error {
 	typeState := &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
 	state := &expressionValidation{
 		variables:      make(map[string]generatedBinding),
@@ -1327,6 +1332,7 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 		functions:      functions,
 		methods:        methods,
 		generatedTypes: typeState,
+		strings:        strings,
 	}
 	state.pushScope()
 	for _, typeDeclaration := range program.TypeDeclarations {
@@ -1341,12 +1347,12 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 		return err
 	}
 	for _, function := range program.SpecializedFunctions {
-		if err := validateFunctionDeclaration(function, typeState, functions, methods); err != nil {
+		if err := validateFunctionDeclaration(function, typeState, functions, methods, strings); err != nil {
 			return err
 		}
 	}
 	for _, method := range program.SpecializedMethods {
-		if err := validateMethodDeclaration(method, typeState, functions, methods); err != nil {
+		if err := validateMethodDeclaration(method, typeState, functions, methods, strings); err != nil {
 			return err
 		}
 	}
@@ -1354,8 +1360,11 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 }
 
 // validateFunctionDeclaration validates one concrete function declaration and
-// its body without mutating the main statement state.
-func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration) error {
+// its body without mutating the main statement state. strings is the module's
+// literal registry: the preflight renders call statements to prove them
+// renderable, and a string-literal argument must resolve against the same
+// registry the emission pass uses.
+func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, strings *generatedStringState) error {
 	if !validSourceName(declared.Name) || declared.Type.Signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked specialized function")
 	}
@@ -1367,6 +1376,7 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 		functions:      functions,
 		methods:        methods,
 		generatedTypes: typeState,
+		strings:        strings,
 	}
 	state.pushScope()
 	for _, parameter := range declared.Parameters {
@@ -1378,8 +1388,9 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 }
 
 // validateMethodDeclaration validates one concrete method declaration and its
-// body.
-func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration) error {
+// body. strings is the module's literal registry, threaded through for the
+// same reason as validateFunctionDeclaration.
+func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, strings *generatedStringState) error {
 	if declared.Object == nil || !validSourceName(declared.Name) || !validateGeneratedType(declared.SelfType, typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked specialized method")
 	}
@@ -1391,6 +1402,7 @@ func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *ge
 		functions:      functions,
 		methods:        methods,
 		generatedTypes: typeState,
+		strings:        strings,
 	}
 	state.pushScope()
 	if _, err := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, false); err != nil {

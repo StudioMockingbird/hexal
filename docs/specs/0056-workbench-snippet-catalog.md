@@ -1,8 +1,9 @@
 # RFC 0056: Workbench Snippet Catalog
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; design not started
+- Status: Implemented; conformance verified 2026-08-14
 - Created: 2026-08-14
+- Updated: 2026-08-14
 - Scope: the executable example catalog embedded in the Hexal workbench
 - Depends on: `docs/reference.md` and the implemented compiler pipeline
 - Coordinates with: workbench snippet validation and future workbench UX work
@@ -251,7 +252,9 @@ long as the catalog rules and feature coverage remain intact.
 
 Implementation of this RFC is complete only when:
 
-- The catalog contains the eleven categories and 108 snippets specified above.
+- The catalog contains the eleven categories and 108 snippets specified
+  above, plus the retained modules category (two snippets), for 110 snippets
+  across twelve categories.
 - No snippet duplicates another's primary concept. A reviewer can name what each
   one teaches that no sibling does.
 - Every catalog source compiles through `compiler.Compile` using the existing
@@ -263,14 +266,18 @@ Implementation of this RFC is complete only when:
 - The workbench binary is rebuilt into `bin/` and the running workbench is
   restarted before handoff.
 
-## Open design decisions
+## Resolved design decisions
 
-- Whether the eleven category names should replace the current seven category
-  names or preserve existing category IDs for stable UI links.
-- What to do with the existing `07-modules.json` category and its two snippets.
-  The Non-goals bar multi-module examples until modules are implemented, but the
-  category already exists. Either those snippets are currently invalid and
-  should be removed, or the non-goal needs a carve-out once RFC 0034 lands.
-- Whether the catalog validator should enforce the 20-line recommendation as a
-  warning or as a hard failure.
-- Whether the workbench should expose feature tags as filters in the UI.
+- The eleven category names replace the previous seven; every category and
+  snippet ID is fresh and stable (`01-values-and-bindings` ...
+  `12-modules`).
+- The modules category is retained as the twelfth category: RFC 0034 modules
+  are implemented, so its snippets compile legitimately. The catalog holds
+  110 snippets: the 108 specified plus the ported `module-import-export`
+  example and one additional nested-import example.
+- The 20-line limit is a soft upper bound: the validator reports over-length
+  snippets as warnings, never failures. `text-protocol-parser` exceeds it at
+  25 lines because it is the only snippet covering `as`, `match`, `then`, and
+  `eos` together.
+- The workbench UI exposes feature tags as a snippet filter next to the
+  category selector.

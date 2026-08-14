@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // RFC 0034 Task 5: visibility, qualification, and exported-interface
 // closure, end to end through Compile. Since Task 7, clean multi-module

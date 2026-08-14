@@ -1,0 +1,173 @@
+{
+  "id": "functions-and-objects",
+  "name": "Functions and Objects",
+  "snippets": [
+    {
+      "id": "functions-temperature-classifier",
+      "name": "Temperature classifier",
+      "description": "Returns a label from a function using conditional branches.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun classify(temp: Float64): Strand",
+        "    if temp < 0.0",
+        "        return \"cold\"",
+        "    elseif temp < 20.0",
+        "        return \"mild\"",
+        "    else",
+        "        return \"hot\"",
+        "    end",
+        "end",
+        "label: Strand = classify(15.0)"
+      ]},
+      "features": ["functions", "if-elseif-else"],
+      "reservedWords": ["fun", "if", "elseif", "else", "return", "end"]
+    },
+    {
+      "id": "functions-counter-method",
+      "name": "Counter method",
+      "description": "Defines a mutable receiver method that increments and returns object state.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Counter = { mut count: Int32, }",
+        "impl MutPtr<Counter>.tick(): Int32",
+        "    self.count = self.count + 1",
+        "    return self.count",
+        "end",
+        "mut counter: Counter = Counter { count = 0 }",
+        "next: Int32 = counter.tick()"
+      ]},
+      "features": ["objects", "methods"],
+      "reservedWords": ["type", "impl", "mut", "self", "return", "end"]
+    },
+    {
+      "id": "functions-point-translation",
+      "name": "Point translation",
+      "description": "Uses an object method to update two coordinates.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Point = { mut x: Int32, mut y: Int32, }",
+        "impl MutPtr<Point>.translate(dx: Int32, dy: Int32)",
+        "    self.x = self.x + dx",
+        "    self.y = self.y + dy",
+        "end",
+        "mut origin: Point = Point { x = 0, y = 0 }",
+        "origin.translate(3, -4)"
+      ]},
+      "features": ["objects", "methods"],
+      "reservedWords": ["type", "impl", "mut", "self", "end"]
+    },
+    {
+      "id": "functions-value-pipeline",
+      "name": "Function value pipeline",
+      "description": "Stores a named function in a Fun value and invokes it with typed arguments.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun combine(a: Int32, b: Int32): Int32",
+        "    return a * 2 + b",
+        "end",
+        "step: Fun<(Int32, Int32) : Int32> = combine",
+        "result: Int32 = step(3, 4)"
+      ]},
+      "features": ["functions", "function-values"],
+      "reservedWords": ["fun", "return", "end"]
+    },
+    {
+      "id": "functions-no-result-notifier",
+      "name": "No-result notifier",
+      "description": "Defines and calls a function without a return value.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun notify(name: Strand)",
+        "    print(\"notify \", name)",
+        "end",
+        "boot: Strand = \"boot\"",
+        "notify(boot)"
+      ]},
+      "features": ["no-result-functions", "print"],
+      "reservedWords": ["fun", "end"]
+    },
+    {
+      "id": "functions-generic-identity",
+      "name": "Generic identity",
+      "description": "Preserves a value's type through a generic function.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun identity<T>(value: T): T",
+        "    return value",
+        "end",
+        "number: Int32 = identity(7)",
+        "word: Strand = \"seven\"",
+        "text: Strand = identity(word)"
+      ]},
+      "features": ["generics", "functions"],
+      "reservedWords": ["fun", "return", "end"]
+    },
+    {
+      "id": "functions-generic-container",
+      "name": "Generic container",
+      "description": "Stores and retrieves a value through a generic object.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Box<T> = { value: T, }",
+        "impl Box<T>.get(): T",
+        "    return self.value",
+        "end",
+        "box: Box<Int32> = Box { value = 42 }",
+        "stored: Int32 = box.get()"
+      ]},
+      "features": ["generics", "objects"],
+      "reservedWords": ["type", "impl", "self", "return", "end"]
+    },
+    {
+      "id": "functions-object-formatter",
+      "name": "Object formatter",
+      "description": "Passes an object to print as a structured value.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Status = { name: Strand, code: Int32, }",
+        "status: Status = Status { name = \"ok\", code = 200 }",
+        "print(status)"
+      ]},
+      "features": ["objects", "print"],
+      "reservedWords": ["type"]
+    },
+    {
+      "id": "functions-nested-object-update",
+      "name": "Nested object update",
+      "description": "Mutates a field inside a nested object through a mutable binding.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Inner = { mut level: Int32, }",
+        "type Outer = { mut inner: Inner, }",
+        "mut outer: Outer = Outer { inner = Inner { level = 1 } }",
+        "outer.inner.level = 5"
+      ]},
+      "features": ["objects", "bindings"],
+      "reservedWords": ["type", "mut"]
+    },
+    {
+      "id": "functions-receiver-forms",
+      "name": "Receiver forms",
+      "description": "Contrasts the three impl targets: a value receiver copies, Ptr<T> reads caller storage, and MutPtr<T> writes it.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Meter = { mut reading: Int32, }",
+        "impl Meter.peek(): Int32",
+        "    return self.reading",
+        "end",
+        "impl Ptr<Meter>.seen(): Int32",
+        "    return self.reading",
+        "end",
+        "impl MutPtr<Meter>.raise()",
+        "    self.reading = self.reading + 1",
+        "end",
+        "mut meter: Meter = Meter { reading = 1 }",
+        "copied: Int32 = meter.peek()",
+        "read: Int32 = meter.seen()",
+        "meter.raise()"
+      ]},
+      "features": ["objects", "methods"],
+      "reservedWords": ["type", "impl", "mut", "self", "return", "end"]
+    }
+  ]
+}

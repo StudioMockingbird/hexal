@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Source-to-C identifier mapping and private name prefixes. Spec 0004.
 

@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Pointers and mutability: ref typing by place writability, MutPtr weakening,
 // declarator lowering, recursive pointer members, and member auto-dereference.

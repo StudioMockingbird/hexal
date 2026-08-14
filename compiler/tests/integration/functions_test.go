@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Functions: declarations, Fun<...> function-pointer types, calls, returns,
 // closed function scopes, and the deferred Fun<...> positions. Spec 0008.
@@ -308,5 +308,30 @@ func TestGeneratedFunctionBodiesKeepLineDirectives(t *testing.T) {
 	}
 	if !strings.Contains(rootC(t, result), "#line 2 \"app.hex\"\n    return hex_v_value;") {
 		t.Fatalf("main.c = %q, want a line directive inside the function body", rootC(t, result))
+	}
+}
+
+// A root call statement with a string-literal argument compiles: the
+// preflight pass renders call statements to prove renderability and must
+// resolve literals against the module's registry (snippet-audit regression).
+func TestRootCallStatementWithStringLiteralArgument(t *testing.T) {
+	result := compileSource("fun greet(text: String)\nend\ngreet(\"hi\")\n")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	if !strings.Contains(rootC(t, result), "hex_f_m3_app_greet(&hex_lit_0)") {
+		t.Fatalf("generated C = %q, want the literal-backed call", rootC(t, result))
+	}
+}
+
+// The preflight also validates specialized generic bodies, so a string
+// literal argument there resolves against the registry too.
+func TestSpecializedBodyCallStatementWithStringLiteralArgument(t *testing.T) {
+	result := compileSource("fun greet(text: String)\nend\nfun wrap<T>(v: T): T\n    greet(\"hi\")\n    return v\nend\nx: Int32 = wrap(1)\n")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	if !strings.Contains(rootC(t, result), "&hex_lit_0") {
+		t.Fatalf("generated C = %q, want the literal registry entry in the specialized body", rootC(t, result))
 	}
 }

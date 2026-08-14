@@ -127,6 +127,9 @@
         <select id="snippet-category" aria-label="Snippet category">
           <option value="">Choose a category...</option>
         </select>
+        <select id="snippet-tag" aria-label="Feature tag filter" disabled>
+          <option value="">All features</option>
+        </select>
         <select id="snippet" aria-label="Language snippet" disabled>
           <option value="">Choose a snippet...</option>
         </select>
@@ -163,6 +166,7 @@
 
   <script>
     const categorySelect = document.querySelector('#snippet-category');
+    const tagSelect = document.querySelector('#snippet-tag');
     const snippetSelect = document.querySelector('#snippet');
     const snippetDescription = document.querySelector('#snippet-description');
     const sourceList = document.querySelector('#sources');
@@ -289,11 +293,15 @@
 
     function populateSnippets() {
       const category = selectedCategory();
+      const tag = tagSelect.value;
       snippetSelect.replaceChildren(new Option('Choose a snippet...', ''));
       snippetSelect.disabled = !category;
       snippetDescription.textContent = '';
       if (!category) return;
-      for (const snippet of category.snippets) snippetSelect.append(new Option(snippet.name, snippet.id));
+      for (const snippet of category.snippets) {
+        if (tag && !snippet.features.includes(tag)) continue;
+        snippetSelect.append(new Option(snippet.name, snippet.id));
+      }
     }
 
     function selectedSnippet() {
@@ -307,6 +315,14 @@
         if (!response.ok) throw new Error(`snippet request failed (${response.status})`);
         catalog = await response.json();
         for (const category of catalog) categorySelect.append(new Option(category.name, category.id));
+        const tags = new Set();
+        for (const category of catalog) {
+          for (const snippet of category.snippets) {
+            for (const feature of snippet.features) tags.add(feature);
+          }
+        }
+        for (const tag of [...tags].sort()) tagSelect.append(new Option(tag, tag));
+        tagSelect.disabled = false;
         status.textContent = 'Ready';
       } catch (error) {
         status.className = 'status bad';
@@ -409,6 +425,7 @@
     }
 
     categorySelect.addEventListener('change', populateSnippets);
+    tagSelect.addEventListener('change', populateSnippets);
     snippetSelect.addEventListener('change', () => {
       const snippet = selectedSnippet();
       if (!snippet) return;

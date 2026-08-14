@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // RFC 0034 Task 2: the entrypoint module's generated C/header (modules/app.c,
 // modules/app.h) hold every user-facing declaration, statement, and #line

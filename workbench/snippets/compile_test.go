@@ -18,9 +18,6 @@ func TestCatalogProgramsCompile(t *testing.T) {
 	for _, category := range catalog {
 		for _, snippet := range category.Snippets {
 			t.Run(category.ID+"/"+snippet.ID, func(t *testing.T) {
-				if snippet.ID == "module-import-export" {
-					t.Skip("cross-module resolution is not implemented yet")
-				}
 				result := compiler.Compile(snippet.Sources, snippet.Entrypoint)
 				if result.ExitCode != compiler.ExitSuccess {
 					t.Fatalf("snippet did not compile:\n%s", result.Stderr)
@@ -32,5 +29,8 @@ func TestCatalogProgramsCompile(t *testing.T) {
 				}
 			})
 		}
+	}
+	for _, warning := range snippets.LineLimitWarnings(catalog) {
+		t.Logf("note: %s", warning)
 	}
 }

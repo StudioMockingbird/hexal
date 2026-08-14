@@ -18,7 +18,6 @@ gets deleted.
 | Stream extensions — fallible steps, sources, terminal ops, producer cleanup | [0051](specs/0051-stream-extensions.md) |
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem and build driver | [0055](specs/0055-filesystem-and-build-driver.md) |
-| Workbench snippet catalog | [0056](specs/0056-workbench-snippet-catalog.md) |
 
 ## Unowned
 
@@ -36,7 +35,8 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   `pop`, missing Dict key, out-of-bounds index, zero divisor, shift count,
   float overflow, allocation failure, malformed UTF-8, close failure, Mutex
   misuse) and `print`'s exact output forms fire only in an executed generated
-  binary. Per policy, no test may execute one: the retained `c23_*_test.go`
+  binary. Per policy, no test may execute one: the retained
+  `compiler/tests/c23validation/c23_*_test.go`
   files are pure Go and have no runnable entry points, so trap firing and
   exact runtime output stay unverified.
 - The generator emits helper families wholesale — equality, print, union,

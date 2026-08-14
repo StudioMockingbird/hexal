@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // RFC 0034 Task 3 grammar: module/import/export keywords, module-path
 // literals, and dotted qualified types in type position. Grammar failures

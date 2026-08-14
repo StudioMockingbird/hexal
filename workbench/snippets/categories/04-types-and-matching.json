@@ -1,0 +1,169 @@
+{
+  "id": "types-and-matching",
+  "name": "Types and Matching",
+  "snippets": [
+    {
+      "id": "types-nullable-score",
+      "name": "Nullable score",
+      "description": "Narrows Int32 | Nil before reading the value.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "score: Int32 | Nil = 42",
+        "if score != nil",
+        "    display: Int32 = score",
+        "end"
+      ]},
+      "features": ["unions", "nullability"],
+      "reservedWords": ["if", "nil", "end"]
+    },
+    {
+      "id": "types-multi-type-value",
+      "name": "Multi-type value",
+      "description": "Distinguishes an Int32 | Bool | Nil union with is.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "value: Int32 | Bool | Nil = true",
+        "if value is Int32",
+        "    number: Int32 = value",
+        "elseif value != nil",
+        "    flag: Bool = value",
+        "else",
+        "    print(value)",
+        "end"
+      ]},
+      "features": ["unions", "if-elseif-else"],
+      "reservedWords": ["if", "elseif", "else", "is", "end", "true", "nil"]
+    },
+    {
+      "id": "types-direction-match",
+      "name": "Direction match",
+      "description": "Converts an ADT direction into a numeric step.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Direction = | North | East | South | West",
+        "heading: Direction = Direction.East",
+        "step: Int32 = match heading is",
+        "| Direction.North then 0",
+        "| Direction.East then 1",
+        "| Direction.South then 2",
+        "| Direction.West then 3",
+        "end"
+      ]},
+      "features": ["adts", "match"],
+      "reservedWords": ["type", "match", "is", "then", "end"]
+    },
+    {
+      "id": "types-command-dispatch",
+      "name": "Command dispatch",
+      "description": "Matches unit and record variants of a command type.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Command = | Stop | Move as { distance: Int32 }",
+        "command: Command = Command.Move { distance = 4 }",
+        "label: Int32 = match command is",
+        "| Command.Stop then 0",
+        "| Command.Move then command.distance",
+        "end"
+      ]},
+      "features": ["adts", "match"],
+      "reservedWords": ["type", "match", "is", "then", "end"]
+    },
+    {
+      "id": "types-shape-area",
+      "name": "Shape area",
+      "description": "Matches circle and rectangle variants to calculate an area.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Shape = | Circle as { radius: Int32 } | Rect as { width: Int32, height: Int32 }",
+        "shape: Shape = Shape.Circle { radius = 2 }",
+        "area: Int32 = match shape is",
+        "| Shape.Circle then shape.radius * shape.radius",
+        "| Shape.Rect then shape.width * shape.height",
+        "end"
+      ]},
+      "features": ["adts", "match"],
+      "reservedWords": ["type", "match", "is", "then", "end"]
+    },
+    {
+      "id": "types-optional-configuration",
+      "name": "Optional configuration",
+      "description": "Matches a present configuration value against nil.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "config: Int32 | Nil = 8",
+        "level: Int32 = match config is",
+        "| Int32 then config",
+        "| Nil then 0",
+        "end"
+      ]},
+      "features": ["unions", "match"],
+      "reservedWords": ["match", "is", "then", "end"]
+    },
+    {
+      "id": "types-result-like-union",
+      "name": "Result-like union",
+      "description": "Returns either a value or Error from a function.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun lookup(key: Int32): Int32 | Error",
+        "    if key == 1",
+        "        return 100",
+        "    end",
+        "    return Error.new(\"Lookup Error\", \"unknown key\")",
+        "end",
+        "value: Int32 | Error = lookup(1)"
+      ]},
+      "features": ["unions", "errors"],
+      "reservedWords": ["fun", "if", "return", "end"]
+    },
+    {
+      "id": "types-exhaustive-protocol",
+      "name": "Exhaustive protocol",
+      "description": "Matches every protocol variant with an explicit fallback.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Protocol = | Ping | Pong | Quit",
+        "frame: Protocol = Protocol.Ping",
+        "code: Int32 = match frame is",
+        "| Protocol.Ping then 1",
+        "| Protocol.Pong then 2",
+        "| Protocol.Quit then 0",
+        "| else then 9",
+        "end"
+      ]},
+      "features": ["adts", "match"],
+      "reservedWords": ["type", "match", "is", "then", "else", "end"]
+    },
+    {
+      "id": "types-variant-payload",
+      "name": "Variant payload access",
+      "description": "Matches a record variant and uses its payload fields.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Event = | Key as { code: Int32 } | Move as { dx: Int32, dy: Int32 }",
+        "event: Event = Event.Move { dx = 3, dy = 4 }",
+        "distance: Int32 = match event is",
+        "| Event.Key then event.code",
+        "| Event.Move then event.dx + event.dy",
+        "end"
+      ]},
+      "features": ["adts", "match"],
+      "reservedWords": ["type", "match", "is", "then", "end"]
+    },
+    {
+      "id": "types-type-based-formatting",
+      "name": "Type-based formatting",
+      "description": "Selects formatting behavior based on a union member type.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "value: Int32 | Float64 = 1",
+        "label: Strand = match value is",
+        "| Int32 then \"integer\"",
+        "| Float64 then \"float\"",
+        "end"
+      ]},
+      "features": ["unions", "match"],
+      "reservedWords": ["match", "is", "then", "end"]
+    }
+  ]
+}

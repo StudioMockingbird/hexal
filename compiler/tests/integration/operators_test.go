@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Unary and binary operators: lowering, folding, precedence, wrapping. Spec 0009.
 

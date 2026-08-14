@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Explicit nullability: Nil/nil lowering, the null niche for pointer-like
 // unions, null tests, branch narrowing, and the erased Unknown pointee.

@@ -1,0 +1,183 @@
+{
+  "id": "numeric-and-operators",
+  "name": "Numeric and Operators",
+  "snippets": [
+    {
+      "id": "numeric-arithmetic-expression",
+      "name": "Arithmetic expression",
+      "description": "Combine addition, subtraction, multiplication, division, and remainder.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Int32",
+        "    left: Int32 = 10",
+        "    right: Int32 = 3",
+        "    sum: Int32 = left + right",
+        "    difference: Int32 = left - right",
+        "    product: Int32 = left * right",
+        "    quotient: Int32 = left / right",
+        "    remainder: Int32 = left % right",
+        "    return sum + difference + product + quotient + remainder",
+        "end"
+      ]},
+      "features": ["arithmetic"],
+      "reservedWords": ["fun", "return", "end"]
+    },
+    {
+      "id": "numeric-precedence-check",
+      "name": "Precedence check",
+      "description": "Show how grouped and ungrouped expressions produce different results.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    first: Int32 = 2",
+        "    second: Int32 = 3",
+        "    third: Int32 = 4",
+        "    ungrouped: Int32 = first + second * third",
+        "    grouped: Int32 = (first + second) * third",
+        "    return ungrouped < grouped",
+        "end"
+      ]},
+      "features": ["arithmetic"],
+      "reservedWords": ["fun", "return", "end"]
+    },
+    {
+      "id": "numeric-range-comparison",
+      "name": "Range comparison",
+      "description": "Use relational decisions to classify a number.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun classify(value: Int32): Strand",
+        "    if value < 0",
+        "        return \"negative\"",
+        "    elseif value < 10",
+        "        return \"small\"",
+        "    elseif value < 100",
+        "        return \"medium\"",
+        "    end",
+        "    return \"large\"",
+        "end"
+      ]},
+      "features": ["equality-ordering", "if-elseif-else"],
+      "reservedWords": ["fun", "if", "elseif", "return", "end"]
+    },
+    {
+      "id": "numeric-bit-mask-test",
+      "name": "Bit mask test",
+      "description": "Test and combine flag bits with &, |, and shifts.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    flags: UInt32 = 0b1010",
+        "    mask: UInt32 = 0b0010",
+        "    enabled: Bool = (flags & mask) != 0",
+        "    combined: UInt32 = flags | 0b0100",
+        "    shifted: UInt32 = flags << 2",
+        "    return enabled and combined != flags and shifted == 0b101000",
+        "end"
+      ]},
+      "features": ["bitwise"],
+      "reservedWords": ["fun", "return", "end", "and"]
+    },
+    {
+      "id": "numeric-bit-flag-update",
+      "name": "Bit flag update",
+      "description": "Set, clear, and toggle individual flags.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): UInt8",
+        "    mut flags: UInt8 = 0b0000",
+        "    enabled: UInt8 = 0b0001",
+        "    flags = flags | enabled",
+        "    flags = flags & ~enabled",
+        "    flags = flags ^ enabled",
+        "    return flags",
+        "end"
+      ]},
+      "features": ["bitwise"],
+      "reservedWords": ["fun", "mut", "return", "end"]
+    },
+    {
+      "id": "numeric-signed-conversion",
+      "name": "Signed conversion",
+      "description": "Convert a wide signed integer to a narrow type explicitly.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Int32",
+        "    mut wide: Int64 = 100",
+        "    small: Int8 = wide.to<Int8>()",
+        "    back: Int64 = small.to<Int64>()",
+        "    return small.to<Int32>() + back.to<Int32>()",
+        "end"
+      ]},
+      "features": ["numeric-conversions"],
+      "reservedWords": ["fun", "mut", "return", "end"]
+    },
+    {
+      "id": "numeric-floating-conversion",
+      "name": "Floating conversion",
+      "description": "Widen an integer into a floating-point value without explicit syntax.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Float64",
+        "    whole: Int32 = 5",
+        "    ratio: Float64 = whole",
+        "    half: Float64 = ratio / 2.0",
+        "    return half",
+        "end"
+      ]},
+      "features": ["lossless-widening"],
+      "reservedWords": ["fun", "return", "end"]
+    },
+    {
+      "id": "numeric-rune-conversion",
+      "name": "Rune conversion",
+      "description": "Convert a numeric code point into a Rune.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    code: UInt32 = 0x41",
+        "    letter: Rune = code.to<Rune>()",
+        "    same: Bool = letter == 'A'",
+        "    back: UInt32 = letter.to<UInt32>()",
+        "    return same and back == code",
+        "end"
+      ]},
+      "features": ["numeric-conversions"],
+      "reservedWords": ["fun", "return", "end", "and"]
+    },
+    {
+      "id": "numeric-bit-cast",
+      "name": "Bit cast",
+      "description": "Reinterpret a UInt32 bit pattern as Float32.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    bits: UInt32 = 0x3F800000",
+        "    floating: Float32 = bits.bit_cast<Float32>()",
+        "    restored: UInt32 = floating.bit_cast<UInt32>()",
+        "    return restored == bits",
+        "end"
+      ]},
+      "features": ["bit-casting"],
+      "reservedWords": ["fun", "return", "end"]
+    },
+    {
+      "id": "numeric-endian-round-trip",
+      "name": "Endian round trip",
+      "description": "Encode an integer as bytes and reconstruct it.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool",
+        "    value: UInt32 = 0x01020304",
+        "    little: Array<UInt8, 4> = value.to_le_bytes()",
+        "    big: Array<UInt8, 4> = value.to_be_bytes()",
+        "    back: UInt32 = UInt32.from_le_bytes(little)",
+        "    swapped: UInt32 = UInt32.from_be_bytes(big)",
+        "    return back == value and swapped == value",
+        "end"
+      ]},
+      "features": ["endian-conversion"],
+      "reservedWords": ["fun", "return", "end", "and"]
+    }
+  ]
+}

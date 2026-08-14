@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // RFC 0034 Task 4: import resolution and the dependency graph. Since
 // Task 7, a clean multi-module program compiles to one C/header pair per

@@ -1,6 +1,6 @@
 //go:build c23
 
-package tests
+package c23validation
 
 import (
 	"os"

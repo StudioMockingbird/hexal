@@ -147,19 +147,26 @@ checking it against `reference.md` first.
 
 - Keep unit tests light. Add only the focused coverage fundamentally required
   to validate an individual compiler stage or helper.
-- Integration tests live in `compiler/tests/`, one file per language facet, named
-  for the facet (`pointers_test.go`, `operators_test.go`). They are package
-  `tests`, import `hexal/compiler`, and exercise only its exported API. Never
-  name a test file after a spec, and never put a spec number in a test function
-  name — cite the spec in a header comment instead. Together these files must
-  verify the public compiler behavior end to end.
+- Active integration tests live in `compiler/tests/integration/`, one file per
+  language facet, named for the facet (`pointers_test.go`,
+  `operators_test.go`). They are package `integration`, import `hexal/compiler`,
+  and exercise only its exported API. Never name a test file after a spec, and
+  never put a spec number in a test function name — cite the spec in a header
+  comment instead. Together these files must verify the public compiler
+  behavior end to end.
+- Dormant compile-only C23 canaries live in `compiler/tests/c23validation/`
+  (`package c23validation`), gated by `//go:build c23`. They have no runnable
+  entry points and must not be given any; tagged runs type-check the package
+  but execute no tests and no external processes.
+- Ordinary tests never invoke an external tool — gcc, clang, or anything else.
+  All ordinary tests are pure Go.
 - `go test ./compiler` does not run the full-pipeline suite (that package now
-  has no test files); use `go test ./...` or target `./compiler/tests`.
-- `go test ./...` must pass with no external toolchain installed. No test or
-  code may ever call an external tool — gcc, clang, or anything else. All
-  tests are pure Go. The legacy `c23_*_test.go` files remain in
-  `compiler/tests/` but have no runnable entry points (`go test` discovers no
-  test functions in them) and must not be given any.
+  has no test files); use `go test ./...` or target
+  `./compiler/tests/integration`.
+- `go test ./...` must pass with no external toolchain installed.
+- Future test packages require a genuinely distinct execution lifecycle,
+  dependency boundary, or toolchain requirement; a Go directory is a package
+  boundary, not a visual grouping mechanism.
 - Intentional overlap between unit and integration tests is expected: unit
   tests isolate stage behavior, while integration tests confirm that the same
   behavior survives the complete compilation pipeline.

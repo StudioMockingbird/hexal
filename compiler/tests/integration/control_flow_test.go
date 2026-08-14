@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Structured conditionals, loops, lexical scopes, and flow-sensitive returns.
 

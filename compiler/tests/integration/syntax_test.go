@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Statement sequencing, comments, whitespace, and cross-stage diagnostics.
 

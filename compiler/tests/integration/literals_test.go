@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Scalar types, numeric literals, radices, contextual typing, and ranges. Spec 0003.
 

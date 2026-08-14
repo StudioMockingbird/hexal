@@ -1,6 +1,6 @@
 //go:build c23
 
-package tests
+package c23validation
 
 // C23 harness: the single compile/run path for every C23-tagged test.
 // The tag gates the suite; an explicitly requested tagged run fails when
@@ -14,6 +14,18 @@ import (
 	"strings"
 	"testing"
 )
+
+// assertCompiles requires the source to compile and returns the result.
+// Private copy of the integration package's helper: this package must remain
+// independent of the active suite (ADR 0054).
+func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
+	t.Helper()
+	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("expected success, got %d diagnostic(s):\n%s\n--- source ---\n%s", len(result.Stderr), strings.Join(result.Stderr, "\n"), source)
+	}
+	return result
+}
 
 // c23Compiler resolves the gcc toolchain once per call. Failure is fatal:
 // the tagged suite must not silently skip.

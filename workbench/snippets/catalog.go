@@ -159,6 +159,29 @@ func Validate(categories []Category) error {
 	return nil
 }
 
+// LineLimitWarnings reports snippets longer than the 20-non-empty-line
+// catalog target (RFC 0056 rule 3). The limit is a soft upper bound: longer
+// snippets are reported, never rejected.
+func LineLimitWarnings(categories []Category) []string {
+	warnings := make([]string, 0)
+	for _, category := range categories {
+		for _, snippet := range category.Snippets {
+			lines := 0
+			for _, source := range snippet.Sources {
+				for _, line := range strings.Split(source, "\n") {
+					if strings.TrimSpace(line) != "" {
+						lines++
+					}
+				}
+			}
+			if lines > 20 {
+				warnings = append(warnings, fmt.Sprintf("%s/%s: %d non-empty source lines (target <= 20)", category.ID, snippet.ID, lines))
+			}
+		}
+	}
+	return warnings
+}
+
 func containsWord(source, word string) bool {
 	for _, field := range strings.FieldsFunc(source, func(r rune) bool {
 		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_')

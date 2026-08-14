@@ -1,4 +1,4 @@
-package tests
+package integration
 
 // Nominal object types, members, member modes, and header layout. Spec 0006.
 
