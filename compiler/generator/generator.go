@@ -481,7 +481,8 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
-		checker.VolatileWriteExpression, checker.FileMethodCallExpression:
+		checker.VolatileWriteExpression, checker.FileMethodCallExpression,
+		checker.RuneCursorMethodCallExpression:
 		// RFC 0035: discarding a constructor result is legal; it simply
 		// leaks the allocation, which is the programmer's choice.
 	default:

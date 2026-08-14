@@ -21,3 +21,19 @@ func TestGeneratedFileIORuns(t *testing.T) {
 		t.Fatalf("program output = %q, want %q", normalized, "true")
 	}
 }
+
+// RFC 0040 runtime conformance: opening a missing file and using a File in
+// the wrong mode surface as Error, never as a trap or silent success.
+func TestGeneratedFileErrorPathsRun(t *testing.T) {
+	target := filepath.ToSlash(filepath.Join(t.TempDir(), "hex_io_missing.txt"))
+	missing := "fun demo(path: String): Bool\n    outcome: File | Error = File.open(path, FileMode.Read)\n    if outcome is File\n        return false\n    end\n    return true\nend\nprint(demo(\"%s\"))\n"
+	normalized := runGeneratedC(t, assertCompiles(t, strings.Replace(missing, "%s", target, 1)))
+	if normalized != "true" {
+		t.Fatalf("program output = %q, want %q", normalized, "true")
+	}
+	modes := "fun read_from_write(path: String): Bool | Error\n    file: File = try File.open(path, FileMode.Write)\n    defer file.close()\n    outcome: String | Error = file.read_text(Heap.new())\n    if outcome is String\n        return false\n    end\n    return true\nend\nfun write_to_read(path: String): Bool | Error\n    file: File = try File.open(path, FileMode.Read)\n    defer file.close()\n    outcome: Nil | Error = file.write_text(\"x\")\n    if outcome == nil\n        return false\n    end\n    return true\nend\nfun demo(path: String): Bool\n    first: Bool | Error = read_from_write(path)\n    second: Bool | Error = write_to_read(path)\n    a: Bool = match first is\n    | Bool then\n        first\n    | Error then\n        false\n    end\n    b: Bool = match second is\n    | Bool then\n        second\n    | Error then\n        false\n    end\n    return a and b\nend\nprint(demo(\"%s\"))\n"
+	normalized = runGeneratedC(t, assertCompiles(t, strings.Replace(modes, "%s", target, 1)))
+	if normalized != "true" {
+		t.Fatalf("program output = %q, want %q", normalized, "true")
+	}
+}

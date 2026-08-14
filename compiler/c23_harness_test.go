@@ -25,35 +25,10 @@ func c23Compiler(t *testing.T) string {
 	return command
 }
 
-// compileGeneratedC writes main.c/main.h and compiles main.c with
-// -std=c23 -Wall -Wextra -Werror: any warning or error fails the test.
-// ponytail: -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
-// tolerate generator helper-family emission and legally-unused bindings;
-// const-discards and other warnings still fail. Family-emission debt in
-// status.md.
-func compileGeneratedC(t *testing.T, result CompilationResult) {
+// buildGeneratedC writes main.c/main.h and compiles main.c to an executable
+// with the harness warning policy, returning the executable path.
+func buildGeneratedC(t *testing.T, result CompilationResult, dir string) string {
 	t.Helper()
-	dir := t.TempDir()
-	mainC := filepath.Join(dir, "main.c")
-	mainH := filepath.Join(dir, "main.h")
-	if err := os.WriteFile(mainC, []byte(result.MainC), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(mainH, []byte(result.MainH), 0644); err != nil {
-		t.Fatal(err)
-	}
-	command := exec.Command(c23Compiler(t), "-std=c23", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-parameter", "-c", mainC, "-o", filepath.Join(dir, "main.o"))
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("gcc rejected generated C: %v\n%s", err, output)
-	}
-}
-
-// runGeneratedC compiles and runs the program with the same warning policy
-// and returns its stdout with line endings normalized.
-func runGeneratedC(t *testing.T, result CompilationResult) string {
-	t.Helper()
-	dir := t.TempDir()
 	mainC := filepath.Join(dir, "main.c")
 	mainH := filepath.Join(dir, "main.h")
 	if err := os.WriteFile(mainC, []byte(result.MainC), 0644); err != nil {
@@ -68,9 +43,43 @@ func runGeneratedC(t *testing.T, result CompilationResult) string {
 	if err != nil {
 		t.Fatalf("gcc rejected generated C: %v\n%s", err, output)
 	}
+	return exe
+}
+
+// compileGeneratedC writes main.c/main.h and compiles main.c with
+// -std=c23 -Wall -Wextra -Werror: any warning or error fails the test.
+// ponytail: -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
+// tolerate generator helper-family emission and legally-unused bindings;
+// const-discards and other warnings still fail. Family-emission debt in
+// status.md.
+func compileGeneratedC(t *testing.T, result CompilationResult) {
+	t.Helper()
+	buildGeneratedC(t, result, t.TempDir())
+}
+
+// runGeneratedC compiles and runs the program with the same warning policy
+// and returns its stdout with line endings normalized.
+func runGeneratedC(t *testing.T, result CompilationResult) string {
+	t.Helper()
+	exe := buildGeneratedC(t, result, t.TempDir())
 	run, err := exec.Command(exe).CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated program failed: %v\n%s", err, run)
 	}
 	return strings.ReplaceAll(string(run), "\r\n", "\n")
+}
+
+// trapGeneratedC compiles and runs a program that must terminate by a
+// runtime trap: a successful exit fails the test, and the trap must carry
+// the generated runtime's diagnostic text.
+func trapGeneratedC(t *testing.T, result CompilationResult) {
+	t.Helper()
+	exe := buildGeneratedC(t, result, t.TempDir())
+	run, err := exec.Command(exe).CombinedOutput()
+	if err == nil {
+		t.Fatalf("program must trap but exited successfully: %s", run)
+	}
+	if !strings.Contains(string(run), "[Runtime Error]") {
+		t.Fatalf("program failed without a runtime diagnostic: %v\n%s", err, run)
+	}
 }

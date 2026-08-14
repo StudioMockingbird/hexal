@@ -19,3 +19,39 @@ func TestGeneratedFloatToIntegerTruncationRuns(t *testing.T) {
 		t.Fatalf("program output = %q, want %q", got, "true")
 	}
 }
+
+// RFC 0017 runtime conformance: a signed type's MIN / -1 yields MIN and
+// MIN % -1 yields zero, and dynamic division by zero traps.
+func TestGeneratedMinOverflowAndDivisionTraps(t *testing.T) {
+	values := "fun demo(): Bool\n    min: Int32 = -2147483648\n    quotient: Int32 = min / -1\n    remainder: Int32 = min % -1\n    return quotient == -2147483648 and remainder == 0\nend\nprint(demo())\n"
+	if got := runGeneratedC(t, assertCompiles(t, values)); got != "true" {
+		t.Fatalf("program output = %q, want %q", got, "true")
+	}
+	divisionByZero := "fun demo()\n    mut left: Int32 = 7\n    mut right: Int32 = 0\n    quotient: Int32 = left / right\n    print(quotient)\nend\ndemo()\n"
+	trapGeneratedC(t, assertCompiles(t, divisionByZero))
+	remainderByZero := "fun demo()\n    mut left: Int32 = 7\n    mut right: Int32 = 0\n    remainder: Int32 = left % right\n    print(remainder)\nend\ndemo()\n"
+	trapGeneratedC(t, assertCompiles(t, remainderByZero))
+}
+
+// RFC 0016/0046/0047 runtime traps: dynamic conversion overflow, empty List
+// pop, missing Dict get, and Array/View slice bounds all terminate with a
+// runtime diagnostic.
+func TestGeneratedBoundsAndConversionTraps(t *testing.T) {
+	cases := map[string]string{
+		"conversion overflow":      "fun demo()\n    big: Int64 = 300\n    small: Int8 = big.to<Int8>()\n    print(small)\nend\ndemo()\n",
+		"empty list pop":           "fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    last: Int32 = values.pop()\n    print(last)\nend\ndemo(Heap.new())\n",
+		"missing dict get":         "fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    missing: Int32 = scores.get(2)\n    print(missing)\nend\ndemo(Heap.new())\n",
+		"list index out of bounds": "fun demo(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    first: Int32 = values.at(4)\n    print(first)\nend\ndemo(Heap.new())\n",
+		// Static bounds are compile errors and constant propagation sees
+		// through local bindings, so a parameter supplies the runtime
+		// bounds-check path.
+		"array index out of bounds": "fun demo(index: Int32)\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    out: Int32 = fixed[index]\n    print(out)\nend\ndemo(5)\n",
+		"array slice bounds":        "fun demo(stop: Int32)\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    view: View<Int32> = fixed.slice(1, stop)\n    print(view.length())\nend\ndemo(5)\n",
+		"list slice bounds":         "fun demo(h: Heap, stop: Int32)\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> = values.slice(1, stop)\n    print(view.length())\nend\ndemo(Heap.new(), 5)\n",
+	}
+	for name, source := range cases {
+		t.Run(name, func(t *testing.T) {
+			trapGeneratedC(t, assertCompiles(t, source))
+		})
+	}
+}

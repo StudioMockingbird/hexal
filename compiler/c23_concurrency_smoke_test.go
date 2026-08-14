@@ -72,3 +72,14 @@ func TestGeneratedMutexRuns(t *testing.T) {
 		t.Fatalf("program output = %q, want %q", normalized, "200")
 	}
 }
+
+func TestGeneratedAtomicOperationsRun(t *testing.T) {
+	if !c23ThreadsAvailable(t) {
+		t.Skip("gcc without C23 <threads.h> cannot build the atomic runtime")
+	}
+	source := "fun demo(): Bool\n    counter: Atomic<Int32> = Atomic<Int32>.new(5)\n    old: Int32 = counter.fetch_add(3)\n    counter.fetch_sub(2)\n    counter.store(9)\n    loaded: Int32 = counter.load()\n    swapped: Int32 = counter.exchange(4)\n    expected: Bool = counter.compare_exchange(4, 6)\n    refused: Bool = counter.compare_exchange(4, 6)\n    final: Int32 = counter.load()\n    return old == 5 and loaded == 9 and swapped == 4 and expected and not refused and final == 6\nend\nprint(demo())\n"
+	normalized := compileConcurrencySmoke(t, source)
+	if normalized != "true" {
+		t.Fatalf("program output = %q, want %q", normalized, "true")
+	}
+}
