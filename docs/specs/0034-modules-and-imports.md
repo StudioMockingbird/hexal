@@ -4,9 +4,9 @@
 - Status: Draft; implementation-ready
 - Features: file modules, explicit aliased imports, private-by-default
   declarations, qualified access, path-derived identity, dependency ordering,
-  per-module C output, and incremental compilation
+  and per-module C output
 - Created: 2026-08-11
-- Updated: 2026-08-13
+- Updated: 2026-08-14
 - Depends on: RFC 0004 (identifiers), RFC 0005 (type identity and declaration
   order), RFC 0008 (functions), RFC 0019 (generics), RFC 0041 (no module
   globals)
@@ -47,17 +47,17 @@ end
 
 - One `.hex` file defines exactly one module.
 - A source file contains no explicit module declaration.
-- A module's canonical identity is its normalized path relative to its
-  configured module root, excluding `.hex`.
-- Moving a file changes its canonical module identity.
+- A module's canonical identity is its normalized logical source-map key,
+  excluding `.hex`.
+- Changing a source module's logical key changes its canonical module identity.
 - Absolute host paths never participate in type identity, generated names,
-  interface fingerprints, or cache keys.
+  or generated artifacts.
 - Multi-file modules and implicit directory packages are unavailable in V1.
 
 Example:
 
 ```text
-<module-root>/graphics/shapes.hex
+logical key: graphics/shapes.hex
 canonical identity: graphics/shapes
 ```
 
@@ -66,25 +66,24 @@ meaning; `main.hex` is valid and not reserved.
 
 ## Compiler input and output model
 
-- The core compiler performs no filesystem reads or writes.
-- Multi-module compilation accepts:
+- The compiler is exclusively an in-memory string transformation. It performs
+  no filesystem reads, writes, discovery, directory inspection, symlink
+  resolution, or working-directory lookup.
+- Compilation accepts all source text and the selected entrypoint directly:
 
 ```go
-type CompilationInput struct {
-    Root    string
-    Sources map[string]string
-}
-
-func CompileModules(input CompilationInput) CompilationResult
+func Compile(sources map[string]string, entrypoint string) CompilationResult
 ```
 
-- `Root` is the normalized logical `.hex` path of the selected root module.
-- `Sources` maps normalized logical `.hex` paths to source text.
-- Logical paths use `/` on every host platform.
-- The root path must name exactly one entry in the source map.
-- Native import resolution operates only over this supplied map. Missing map
-  entries are missing-module errors; the compiler never probes the host
-  filesystem.
+- `sources` maps logical `.hex` filenames to complete Hexal source strings.
+- Logical filenames use `/` as their separator on every host platform.
+- `entrypoint` is the logical `.hex` filename of the selected root module and
+  must name exactly one entry in `sources`.
+- Native import resolution operates only over `sources`. An import fails when
+  its resolved logical key is absent; the compiler never searches elsewhere.
+- Source-map keys are logical compiler input, not claims about host files.
+  The compiler does not test whether they exist on disk, denote directories,
+  traverse symlinks, match host path casing, or are valid for a host filesystem.
 - Compilation returns:
 
 ```go
@@ -112,31 +111,22 @@ type CompilationResult struct {
   contains only the complete generated failure `main.c` and `main.h`;
   `MainC`/`MainH` mirror them. These failure entrypoint files are deliberate
   fail-closed output, not partially generated source output.
-- `Files` map iteration order has no meaning. Compiler code, tests, filesystem
-  drivers, diagnostics, statistics, and cache writers sort logical keys before
-  deterministic traversal.
-- The existing `Compile(source string)` API remains a single-module convenience
-  wrapper equivalent to:
+- `Files` map iteration order has no meaning. Compiler code, tests, diagnostics,
+  and statistics sort logical keys before deterministic traversal.
+- The former `Compile(source string)` API is replaced by the multi-source
+  `Compile(sources, entrypoint)` API. There is one compilation pipeline and no
+  single-source compiler entrypoint.
+- Filesystem drivers, project discovery, module-root configuration, file
+  watching, caching, and incremental compilation are future layers outside the
+  core compiler and outside this RFC.
 
-```go
-CompilationInput{
-    Root: "main.hex",
-    Sources: map[string]string{
-        "main.hex": source,
-    },
-}
-```
+### Statistics
 
-- `CompileModules` is the canonical implementation. The single-source wrapper
-  must not retain a separate compilation pipeline. It preserves compilation
-  semantics, diagnostics, and entrypoint behavior, not the former monolithic
-  artifact layout. Consumers inspect root code through `Files`.
-- A future filesystem driver maps its current working directory to the default
-  module root, discovers or receives the reachable source files, normalizes
-  their paths relative to that root, and invokes the core compiler. The driver
-  may later accept an explicit module-root override.
-- The process working directory is driver input only. It never enters canonical
-  identity after the logical source map has been constructed.
+- `CompilationResult.Stats` is one final project-level summary for the complete
+  compilation call.
+- No per-module statistics are exposed or returned.
+- The summary covers the entrypoint and all reachable modules; unreachable
+  source-map entries contribute nothing.
 
 ## Grammar
 
@@ -218,13 +208,13 @@ point: Geometry.Point = Geometry.origin()
 - `/` is the canonical separator in source on every host platform.
 - Empty components, `.`, repeated separators, absolute paths, drive prefixes,
   query/fragment text, and non-`.hex` extensions are invalid.
-- `..` components are resolved during canonicalization but cannot escape the
-  configured module root.
+- `..` components are resolved lexically but cannot walk above the logical
+  source-map root.
 
 Conceptually:
 
 ```ebnf
-relative-import-path = ( "./" | { "../" } )
+relative-import-path = ( "./" | "../" , { "../" } )
                        , identifier , { "/" , identifier }
                        , [ ".hex" ] ;
 
@@ -235,19 +225,18 @@ module-path-literal = '"' , relative-import-path , '"' ;
 
 - Resolution is relative to the importing file's directory.
 - Omitted extensions resolve only to `.hex`.
-- The resolved file must remain inside one configured module root.
+- Resolution is lexical over `/`-separated logical keys and must not walk above
+  the logical source-map root.
 - Path normalization occurs before identity comparison, cycle detection, and
   duplicate-import detection.
-- Resolution rejects missing files, directories used as modules, ambiguous
-  matches, and duplicate canonical identities.
-- Every build rejects module paths that differ only by case-folded spelling so
-  canonical identity is portable across supported filesystems.
-- The build system resolves symlinks before assigning identity; two paths to the
-  same resolved file are one module and therefore a duplicate import.
+- Resolution succeeds only when the resulting logical `.hex` key exists
+  exactly in `sources`; otherwise it reports a missing-module error.
+- Logical keys and canonical identities are case-sensitive strings. Host
+  filesystem case rules do not participate.
 
 Package names, dependency roots, registries, versions, and standard-library
-prefixes remain build-system work. They must eventually resolve to the same
-canonical module-identity model.
+prefixes remain future work. Any later filesystem or build layer must supply
+logical keys without changing the compiler's canonical module-identity model.
 
 ## Visibility
 
@@ -415,18 +404,19 @@ the importing module.
 ## Dependency graph
 
 - Only modules transitively reachable from the selected root are compiled.
-- Unreachable files are ignored and cannot create diagnostics or artifacts.
-- Missing modules, ambiguous resolution, duplicate identities, duplicate
-  imports, and import cycles are compile-time Module Errors.
+- Unreachable source-map entries are ignored and cannot create diagnostics or
+  artifacts.
+- Missing modules, duplicate imports, and import cycles are compile-time Module
+  Errors.
 - Any cycle is rejected in V1, including cycles containing declarations only.
 - The diagnostic identifies the complete canonical cycle.
 - Graph traversal and emitted artifact ordering are deterministic and
-  independent of filesystem discovery order.
+  independent of Go map iteration order.
 - Each canonical module is loaded and checked exactly once per build.
 
 Rejecting cycles keeps declaration availability, generic ownership,
-diagnostics, caching, and incremental invalidation deterministic. It is not an
-initialization-order rule because imported modules never initialize at runtime.
+diagnostics, and generation deterministic. It is not an initialization-order
+rule because imported modules never initialize at runtime.
 
 ## Root and imported modules
 
@@ -464,17 +454,16 @@ initialization-order rule because imported modules never initialize at runtime.
 - The defining module owns and emits every specialization of its declarations.
 - A specialization key contains defining module identity, declaration identity,
   and canonical type arguments.
-- The defining module's generation cache key contains the sorted set of
-  reachable requested specializations.
+- The defining module receives the sorted set of reachable requested
+  specializations during generation.
 - Repeated requests reuse one specialization and one C definition.
 - Same source plus the same request set produces identical specialization names
   and output, independent of import traversal order.
 - An invalid specialization diagnostic identifies both the generic declaration
   and every importing use necessary to explain the request.
 
-Changing only the request set may regenerate the defining module even when its
-source and public interface are unchanged. This is generation invalidation, not
-public-interface invalidation.
+Changing the request set may change the defining module's generated artifact
+even when its source is unchanged.
 
 ### Built-in generics
 
@@ -497,35 +486,10 @@ public-interface invalidation.
   never create distinct state or externally linked definitions.
 - Built-in specialization identity depends only on the constructor and
   canonical arguments, never on the requesting module or traversal order.
-- The sorted built-in-specialization set participates in the `main.c`, `main.h`,
-  and affected module-header cache keys.
+- The sorted built-in-specialization set deterministically controls the
+  corresponding content in `main.c`, `main.h`, and affected module headers.
 - User-declared generic specializations remain owned by their defining source
   modules under the preceding rules.
-
-## Incremental compilation
-
-Each checked module exposes a deterministic public-interface fingerprint based
-on:
-
-- exported declaration names and kinds;
-- canonical exported signatures and type layouts;
-- generic bodies and dependent operations needed to validate future
-  specializations;
-- imported declaration identities used by that interface;
-- relevant language, compiler, and target-contract versions.
-
-Rules:
-
-- Changing a private implementation recompiles that module.
-- A private-only change does not invalidate dependents when the public-interface
-  fingerprint remains unchanged.
-- A changed public-interface fingerprint invalidates direct dependents.
-- Invalidation propagates only when a dependent's checked interface or
-  generated code changes.
-- Requested generic-specialization sets participate separately in generation
-  cache keys as specified above.
-- Cache keys never depend on process addresses, absolute paths, filesystem
-  discovery order, timestamps alone, or unstable generated-C formatting.
 
 ## Generated C artifacts
 
@@ -630,7 +594,7 @@ Required diagnostic classes include:
 
 ```text
 [Module Error] imported module ./math was not found
-[Module Error] import resolves outside the configured module root
+[Module Error] import resolves above the logical source-map root
 [Module Error] duplicate import of canonical module graphics/shapes
 [Module Error] import cycle: app -> math -> constants -> app
 [Module Error] imported module math contains executable statements
@@ -660,13 +624,14 @@ this RFC closes:
 - add canonical file-module identity and path resolution;
 - add visibility, qualification, type identity, source-order, root/non-root,
   exported-interface closure, implementation ownership, dependency, user and
-  built-in generic ownership, and incremental contracts;
+  built-in generic ownership;
 - add Module Error to the diagnostic classes; retain Name Error for inaccessible
   names and Type Error for invalid exported interfaces or implementation
   targets;
 - add per-module C/header output, module-name encoding, `main.c`, and `main.h`;
-- add the CompilationInput, CompilationResult.Files, entrypoint compatibility,
-  and complete failure-entrypoint contracts;
+- add the `Compile(sources, entrypoint)` in-memory API,
+  `CompilationResult.Files`, the project-level statistics summary, and complete
+  failure-entrypoint contracts;
 - remove native modules from Excluded features;
 - retain C interop and foreign ABI syntax as draft/excluded work.
 
@@ -685,8 +650,8 @@ this RFC closes:
 
 ### Resolver and checker
 
-- Resolve relative paths, normalization, duplicates, missing files, root
-  escapes, case/normalization collisions, and cycles.
+- Resolve relative logical paths, normalization, duplicates, missing source-map
+  entries, logical-root escapes, and cycles.
 - Enforce alias collisions/non-shadowing and qualified-only visibility.
 - Enforce private/exported access for every exportable declaration kind.
 - Reject private nominal types exposed recursively through exported aliases,
@@ -707,8 +672,8 @@ this RFC closes:
 
 ### Generator and integration
 
-- Verify CompilationInput root/source validation and relative resolution over
-  the supplied source map without filesystem access.
+- Verify `Compile(sources, entrypoint)`, entrypoint lookup, and relative
+  resolution exclusively over the supplied source strings.
 - Emit one pair per reachable module plus `main.c` and `main.h`.
 - Verify `Files` contains the complete artifact set under normalized logical
   keys and `MainC`/`MainH` exactly mirror its entrypoint entries.
@@ -716,24 +681,26 @@ this RFC closes:
   artifacts, and no partially generated source output.
 - Verify deterministic consumers sort `Files` keys and never depend on Go map
   iteration order.
-- Verify `Compile(source)` delegates to the canonical multi-module path and
-  preserves semantics and diagnostics while using the modular artifact layout.
 - Migrate tests that inspect root generated code from `MainC`/`MainH` to the
   corresponding `Files["modules/<root>.c/.h"]` entries; C23 tests materialize
   and compile the complete `Files` set.
-- Ignore unreachable files.
+- Verify `Stats` reports one project-level summary and exposes no per-module
+  statistics.
+- Ignore unreachable source-map entries.
 - Verify mirrored module filenames plus collision-free symbols, guards, and
-  cache identities.
+  canonical identities.
 - Verify exported/private linkage, dependency-safe declarations, original
   `#line` mappings, and absence of non-root initializer functions.
 - Verify diamond dependencies emit one module definition.
-- Verify private-only changes do not invalidate dependents; public-interface and
-  specialization-request changes invalidate the required artifacts only.
 - Compile and link representative multi-module output in C23-tagged tests.
 
 ## Deferred work
 
 - Multi-file modules and directory packages.
+- Filesystem reads, writes, discovery, directory validation, symlink handling,
+  host-path normalization, and working-directory behavior.
+- Incremental compilation, file watching, caches, public-interface
+  fingerprints, and invalidation.
 - Package manifests, dependency names, versions, registries, and downloads.
 - Standard-library import prefixes.
 - C imports and exports, foreign linkage, ABI annotations, and the final
@@ -759,7 +726,7 @@ this RFC closes:
 5. Native module values and value exports do not exist.
 6. Only the selected root admits executable statements; imported modules have
    no initialization or side effects.
-7. Missing, duplicate, ambiguous, escaping, and cyclic imports fail with
+7. Missing, duplicate, escaping, and cyclic imports fail with
    structured diagnostics before C generation.
 8. Nominal and generic identities include the defining canonical module;
    import aliases never alter identity.
@@ -769,18 +736,18 @@ this RFC closes:
     through transparent aliases.
 11. Compiler-owned program support deduplicates every reachable built-in
     generic specialization and emits state/external definitions exactly once.
-12. Public-interface fingerprints and specialization request sets drive the
-   minimum correct incremental invalidation.
-13. Every reachable module emits one mirrored `modules/<path>.c/.h` pair;
-    unreachable files emit nothing.
-14. Each build emits thin `main.c` and retained `main.h`; non-root modules emit
+12. Every reachable module emits one mirrored `modules/<path>.c/.h` pair;
+    unreachable source-map entries emit nothing.
+13. Each build emits thin `main.c` and retained `main.h`; non-root modules emit
     no initializer.
-15. Generated output is deterministic, preserves `#line`, compiles and links as
+14. Generated output is deterministic, preserves `#line`, compiles and links as
     C23, and introduces no stable foreign ABI promise.
+15. `Compile(sources, entrypoint)` consumes only in-memory source strings and
+    performs no filesystem operations.
 16. `CompilationResult.Files` is the authoritative complete artifact map;
     `MainC`/`MainH` mirror its entrypoint files, failures return only complete
-    failure entrypoint files, and `Compile(source)` delegates to the
-    multi-module implementation without preserving the old monolithic layout.
+    failure entrypoint files, and every value returned by the compiler is
+    in-memory generated file content.
 17. `docs/reference.md` is synchronized before the RFC is marked implemented or
     closed.
 
