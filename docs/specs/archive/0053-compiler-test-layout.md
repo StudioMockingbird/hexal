@@ -1,7 +1,7 @@
 # ADR 0053: Compiler Test Layout
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Draft; implementation-ready
+- Status: Implemented
 - Created: 2026-08-14
 - Scope: Go test organization only
 - Depends on: RFC 0048 (test helpers and harness, implemented)
@@ -104,40 +104,6 @@
 - Separating C23 tests into another Go package.
 - Introducing golden files, fixtures, snapshots, or a new test framework.
 - Reorganizing stage unit tests.
-
-## Implementation procedure
-
-1. Record the direct-root test filenames and test function names.
-2. Create `compiler/tests/`.
-3. Move all direct-root compiler test files into it without renaming them.
-4. Change their package declarations from `compiler` to `tests`.
-5. Add normal `hexal/compiler` imports where required and mechanically qualify
-   compiler entry-point, result-type, and exit-code references.
-6. Update the Testing section of `AGENTS.md`.
-7. Format the moved Go files with `gofmt`.
-8. Verify that filenames, test names, build tags, test bodies, and assertions
-   were otherwise preserved.
-9. Run the validation below.
-10. Set this ADR's status to `Implemented`, remove this implementation
-    procedure, and archive it under `docs/specs/archive/`.
-
-## Validation
-
-- `go test ./...` passes without requiring GCC or Clang.
-- With GCC installed, `go test -tags c23 ./...` passes.
-- `compiler/tests/` contains exactly the complete filename set recorded before
-  migration.
-- The ordinary and C23 suites contain the same test function names as before
-  the move.
-- No `compiler/*_test.go` direct child remains.
-- `go test ./compiler` exits successfully while reporting that the package has
-  no test files; it is not accepted as validation of the full-pipeline suite.
-- Stage test locations and package declarations are unchanged.
-- No production file changes except those independently required by another
-  feature being implemented at the same time.
-- `git diff --find-renames` shows organizational moves plus only the package,
-  import, qualification, formatting, `AGENTS.md`, and ADR lifecycle changes
-  authorized here.
 
 ## Consequences
 
