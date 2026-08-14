@@ -1,7 +1,7 @@
 # RFC 0058: Checker File Split
 
 - Kind: Rust-Style RFC
-- Status: Draft; implementation-ready after RFC 0057
+- Status: Implemented; conformance verified 2026-08-15
 - Created: 2026-08-15
 - Updated: 2026-08-15
 - Scope: `compiler/checker` file organization only

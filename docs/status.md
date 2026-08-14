@@ -9,13 +9,6 @@ gets deleted.
 
 ## Open TODOs
 
-### Implementation-ready
-
-| Work | Spec |
-|---|---|
-| Checker file split - execute after RFC 0057 | [0058](specs/0058-checker-file-split.md) |
-| Generator file split - execute after RFC 0057 | [0059](specs/0059-generator-file-split.md) |
-
 ### Design not started
 
 | Work | Spec |
