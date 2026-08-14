@@ -140,11 +140,14 @@ checking it against `reference.md` first.
 
 - Keep unit tests light. Add only the focused coverage fundamentally required
   to validate an individual compiler stage or helper.
-- Integration tests live in `compiler/`, one file per language facet, named for
-  the facet (`pointers_test.go`, `operators_test.go`). Never name a test file
-  after a spec, and never put a spec number in a test function name — cite the
-  spec in a header comment instead. Together these files must verify the public
-  compiler behavior end to end.
+- Integration tests live in `compiler/tests/`, one file per language facet, named
+  for the facet (`pointers_test.go`, `operators_test.go`). They are package
+  `tests`, import `hexal/compiler`, and exercise only its exported API. Never
+  name a test file after a spec, and never put a spec number in a test function
+  name — cite the spec in a header comment instead. Together these files must
+  verify the public compiler behavior end to end.
+- `go test ./compiler` does not run the full-pipeline suite (that package now
+  has no test files); use `go test ./...` or target `./compiler/tests`.
 - `go test ./...` must pass with no external toolchain installed. Tests that
   need gcc or clang belong behind the `c23` build tag; see spec 0013.
 - Intentional overlap between unit and integration tests is expected: unit
