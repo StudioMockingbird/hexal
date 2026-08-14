@@ -1,0 +1,690 @@
+{
+  "collections": {
+    "collections-array-slicing": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "11f2c80d4b84d3414ee36eab527f712c40b15b889495d880411260f6ab7bc9cc",
+      "modules/app.c": "6b736228163249758b3c88a7dfa2e24e87f6771b0194acbb9397f1e4f83f6d1b",
+      "modules/app.h": "a183f51162cf614d045d3f5b9fb06b5a7342aaba2164e8e348672105477314db"
+    },
+    "collections-array-statistics": {
+      "main.c": "30a87ba5c090eafe7a20083ae80da9a9b623fb1b6b71e3dbd27f0e7bc79eac8b",
+      "main.h": "ee735089ef7d2c0fc1a5a64ea57e558e965d73e7bedccc357b82185772df9a81",
+      "modules/app.c": "b166e5db5e82229476bb7c52997d9526e2ade7ad76dc193652ee6d2c65eeb239",
+      "modules/app.h": "fc5d64905ba11facebc26bd1da5f15f1384078146c21a89bd064db46df1d8f19"
+    },
+    "collections-dictionary-lookup": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "805978e796f2faad751d23d9ac3703c480ac99025cf168a1e1cbde329fc681df",
+      "modules/app.c": "63363ef52021cf38f0a40764092fa424665cec515623998f174ce0cf9703df45",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "collections-element-cleanup": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "dcf6f56221ca0e314ae3d7d997478fd2d39dd796a8718da0b2c4642cfb37de51",
+      "modules/app.c": "3ba0148e89b65688bc33b2ddd725ec9f3c60a4f62bc90233880b10067701e5a6",
+      "modules/app.h": "c12c423624b79c53fa409d36255a3dc855d8d1e2a940b4b7e6e8f6f4fbffe76a"
+    },
+    "collections-frequency-table": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "40f529f558b51058e0fdb6d43123d746cce0f23595977a871075f5fdae8fd980",
+      "modules/app.c": "65b3d2ca56f0286b1f6688b04ffe6c45a6fa479017b3e6685cc62a3b25cf907c",
+      "modules/app.h": "9b2e5bbc339cf9b1eaf5c5def7063feb46ba279e31f171cb89f9aa7ee2733a92"
+    },
+    "collections-handle-elements": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "530f10c0cfff49a185a9ee3aa767191763a4f32b859b0c74e206a58c574bd5ac",
+      "modules/app.c": "ad6c5a63318bbbf3106beed20de8ebcc61c27c1219cad2bae328723346af1863",
+      "modules/app.h": "b03ffa157a2de1fa143e9e6fd1c7d6ed5ad9cdeafe94a516dbf125651ec0953b"
+    },
+    "collections-list-builder": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "877a0529e8e1f2e19e90e906201c87c1fa71bb1d3aab83999fe3b549e03fbd7b",
+      "modules/app.h": "40adaac7150dadbf7dbb641d9f1df5c7f9fdc477d164c18ba7427249f0bf7050"
+    },
+    "collections-list-stack": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "7a7bab48fa10dbe39c3b81947d9aa019a6f4a83f5aafbfe27ccbd99109108f68",
+      "modules/app.c": "93ce79eb1ecf2e7aaaee88b0dc5126027042c415ba72f1b8e041280d0952ec62",
+      "modules/app.h": "1f8693a683822ad94f629e0c7fc9aa2561d7d284147294c704dc81e54971791e"
+    },
+    "collections-nested-list": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8171a88dfc35a9e9178b55e7ab0943399241f2f64060377a13c6b07e925ad8c7",
+      "modules/app.c": "18fd52123d2cd05f750a2e08daf869437bd85be2bbdf2ecf89b3610e02459899",
+      "modules/app.h": "f92690a3345cb93cb33526a6c3865886f13a4784cc57784b843d836a4dcb92a7"
+    },
+    "collections-view-summation": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "709a094d8821ef17d277b684af9ae4ffafd6b434e64931d141745d368fb3db21",
+      "modules/app.c": "4c00357c61c3b773bab8567d5126025f98a22a53f14d829bf7919a035eae8a47",
+      "modules/app.h": "d10756bab8fe01d5fde9ce246ae319cdcd3bd3a45c9ab0207e98910971c21c3c"
+    }
+  },
+  "control-flow": {
+    "control-boolean-state-machine": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "3fbe1d04ee156aa9b8f567950807443150f7936a684f39d4a35afa44c481b767",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "control-bounded-counter": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "66b449623434bab28721a0b34bf0cf8a1dd4731645920f6217dc9b1309bd41e1",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "control-filter-continue": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "79c4f12b195a28d6470cf2cb87957d046edabfb3075211820cdb62ffce704304",
+      "modules/app.c": "8b0c3c9ec56964cb95c3b326362256b39a839ff013e3c9f9ae5f7bd52e56513b",
+      "modules/app.h": "1e07997569fead057ed32baa509e4f056a96639bbee3b0f3932bd1159ec96a16"
+    },
+    "control-grade-bands": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "f1ba6352cc781b1b3f197c6b2c2b496a133670dae84452c3897302a873f5f320",
+      "modules/app.c": "18a0b1eb7e27ca3e7ff6e7aef2665c0d131c9b3b6eccbdd02321455548030dd3",
+      "modules/app.h": "86118fde8149769d0f830ccc623a217c349be9711bbf4db5280ad627d2234ce5"
+    },
+    "control-guarded-update": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "512c9e0c142c05313a6aa2fb1919110439cf675b48ee2ca4cf8bd2eb22e67941",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "control-indexed-total": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "808587687b0e463eff271459f15162963d1c30acbdd98321c76d898e68c2a150",
+      "modules/app.c": "bd262f6e95e28dc1dc78404e84a662e0161200d29ab6ea0ca1334b8a97b08dbb",
+      "modules/app.h": "5106aa2c6d4bc3e5e269cf12bb7be84f8e4dd3af37d35b7ed209dd76641ad345"
+    },
+    "control-nested-coordinate-scan": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "2f8aa1c916b1bdd8af4a5bbc8d52aa93175d4799e8196fec07f33b79aa94b973",
+      "modules/app.c": "3f5384c25959beaf390d554f761ff2b7bae7f7b6421e8743d522099a86b01903",
+      "modules/app.h": "041a62060af9baf2b631b08803ad5ed7e8bf1d584129a16440341fffa5140899"
+    },
+    "control-search-break": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "2699ebc5df73d444e3df6277280b755e16d2bda6fe77253845f0f22a8b5f1934",
+      "modules/app.c": "3f5f3729d26c1a9ab75f127adec985037407c2c077cbed0246d2318a50fba86c",
+      "modules/app.h": "34435e106aaa84e88d7e20a27c6f6b4d8609927c6d7e3122feb3c746e5fe6e94"
+    },
+    "control-three-value-iteration": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "b27fa9068de6ff915bb28628a3c29fae3d8b98260c9057dcf41e896d2b9b612d",
+      "modules/app.c": "15db7316e83acb68cc7c169377a544c793e52ad5600460c2271d02caffa12be4",
+      "modules/app.h": "c920306d25ee87b39aa420b4db816191a4cb1ae1ad503a591da06e0c504f3b51"
+    },
+    "control-truthiness": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8be303e15864f7536cc0030f1b728ba72870fe67f65a642afedab086db7d7dc4",
+      "modules/app.c": "4ed8e951aa83e94f9a10ac7d8e47708192deced65cd6895c1ede9267fc211447",
+      "modules/app.h": "6a5fab792666e67ae9a7e94628dcbec113bbbf08aa9226522a4c352b3c067423"
+    }
+  },
+  "errors-and-cleanup": {
+    "errors-cleanup-helper": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "a4d4837247974fdb428d7979478f4ae4f2affeb2b57c5045ddcae95b5ed967d9",
+      "modules/app.h": "9801ce294c40801f13d33820e7cbed9790ff8adac63046ce2366a2d153f3196d"
+    },
+    "errors-defer-order": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "c8bab6c18e41654cf999fc685f8b23dff7ba31223fc5dd361523bebb3f0add15",
+      "modules/app.h": "c3026cccbc6b397c458ae2fbf93b7dbbf51d786007071839e8ad7f01c385aaaa"
+    },
+    "errors-failure-cleanup": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "7d2893af0ddda22eb0727becad3629d07c766fbf6748ea5d2c3242d1a7d3f93c",
+      "modules/app.c": "52033bd8a2d347f2fafb9260997d0de6a5d7194ec505c055d4a251964aa46f66",
+      "modules/app.h": "33e7910141aefdd20edb7bc9e640b9980fa7e282a325dce9a144acf7fbfac1d8"
+    },
+    "errors-file-read": {
+      "main.c": "8d6c8b45641f95e9310309b73797aa452efa58263cf7d33de2db99385e1c8380",
+      "main.h": "ed8d8aabfb0167922e74436fbbcd62f930f4850acb35d9990c222f8daf0bf150",
+      "modules/app.c": "e7c4b77ff464b046af48a938e12b16d8bc71cc5e828dbee0b6319444328f7b27",
+      "modules/app.h": "90a7d713f8aff28f997826733573e25c8966637ecc5b4857d793ecd91eda2a10"
+    },
+    "errors-file-write": {
+      "main.c": "8d6c8b45641f95e9310309b73797aa452efa58263cf7d33de2db99385e1c8380",
+      "main.h": "cd3c3c6806f8cf5e167e9802914fe537a6d9b87bc6eff0dc8721696be1494e84",
+      "modules/app.c": "86449b78185ebc98a233f9a2f5c6d44e4458b76352712580cc5f24379f004d54",
+      "modules/app.h": "0077c0caef8df9b3ff90b6f377dd49516e97b2fb6a0bda7d6dc9f6ac56df451a"
+    },
+    "errors-propagating-read": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "be33cfaa219b179e7ff3294ef65de52d2b02caab30ce33f22869e4a4280f4c22",
+      "modules/app.c": "049b7a81ef8cadcd912e2159bf30fe8f6e4c3bc57c3c5bb67dc786c3726d11df",
+      "modules/app.h": "33e7910141aefdd20edb7bc9e640b9980fa7e282a325dce9a144acf7fbfac1d8"
+    },
+    "errors-success-cleanup": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "10581ed03500f489d42c686ae8d6e0d461b62ba261fdd603d104f34ccca86c68",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "errors-validation-error": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "f9d7a1ad49dd848fce0cd3cf588fea425e84cad8d7f5f154f759831ebd940b01",
+      "modules/app.c": "63dd676cd9bcb2e5443fcc3e1dbfe10aa2d681286e6785aa93292c6fe868c719",
+      "modules/app.h": "33e7910141aefdd20edb7bc9e640b9980fa7e282a325dce9a144acf7fbfac1d8"
+    }
+  },
+  "functions-and-objects": {
+    "functions-counter-method": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "9164d9dc259ba248cbf62005c3fc1119dea7a2ea31fa03fe96e948fd24d3a560",
+      "modules/app.h": "2750d1ea7578f2c14fcebcee1d5b815706a79cf6da395e9c0670c82465ea6902"
+    },
+    "functions-generic-container": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "3c8f10d0c23bfd814205f2593d82c2aed0de2d70f146e4d46bd5068626b5997b",
+      "modules/app.h": "2baa94edbe118ca5cef355f233ed3d9129c9b29c973db324979645a10c676c50"
+    },
+    "functions-generic-identity": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "def437b3c09707c9f3d3394285081a515c774d3e24b61e05a980c5f510cd7a13",
+      "modules/app.c": "f7eb79f1eee0c809b979aece86651fcd950059ee183e15346a0fd6b71888741b",
+      "modules/app.h": "86118fde8149769d0f830ccc623a217c349be9711bbf4db5280ad627d2234ce5"
+    },
+    "functions-nested-object-update": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "5782958a2674db4709b46e7db1d367b6a9301dfe1a6375ea5a884aa1a8c1b90f",
+      "modules/app.h": "064689fdf4242ef8adda6afb9d3a9311eed160499d93998bfd44c2fceb29ee23"
+    },
+    "functions-no-result-notifier": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "b33c319f6e3f8ad918ec63fa779694c16a98cc13cc5a07b52c1d0deea4c572c0",
+      "modules/app.c": "fd9f613228c27eb56fa721299319d6e78b94dd8b2171bddb4104fc008dd8e8f8",
+      "modules/app.h": "bf84d1513814ac03bae429de04ab61f9dc0c751a93b8fe5169a66f4d7170a459"
+    },
+    "functions-object-formatter": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "a5376b5c2139f399719620c2ccb4662902f4754f3eebb7be38f0050f3823363c",
+      "modules/app.c": "2f416b8af6a07ccf527f44b58f89d1082d74e5ee1c2715e0f9a208198964940e",
+      "modules/app.h": "2260441a38bd02ed69bc643b8c088ca7675b0ae60812f44e826ff99cd2c0c4aa"
+    },
+    "functions-point-translation": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "714f9b9d02c009110eff1e6b96baf729bc41b198ef036fdd6694586903162654",
+      "modules/app.h": "efe94dd8bb64c0d8a2ac98b8480c1b1c08354e56ba76cd3d750f0ea02f34e44b"
+    },
+    "functions-receiver-forms": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "ea35429a748b1d6dbd1d5d97f10ac61e0009b81ff3e8f77fa0b591a18886a8fb",
+      "modules/app.h": "732ffc175eeb51d130e9b6ec053dd4945b92a2a6424cb541760dc11a2d885b26"
+    },
+    "functions-temperature-classifier": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "be7ac5711a1eb5c5d86dc04848807b27aa4121790a4201940e13f59c578f5d5c",
+      "modules/app.c": "94b318395c8b2acdd7b89678938e18bc40217396e296d2644d5a50643ef99fcb",
+      "modules/app.h": "86118fde8149769d0f830ccc623a217c349be9711bbf4db5280ad627d2234ce5"
+    },
+    "functions-value-pipeline": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "2e578d2032660d5c6bc71b8b580b5c434121c3a78f3df2256921980d6ddae7cf",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    }
+  },
+  "modules": {
+    "module-import-export": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "9a3abb9eba1eb9138e18c7b8325a94334b5dd2515023d807bafbf9930ad88985",
+      "modules/app.h": "26f77e8875442a006983ee7a4dc8f841af14d72536b6813043ca3569c7e3d3cd",
+      "modules/math.c": "545892042d8c7ba0579f88e6c3375dfd60a5319afcdd16361d29e710e85c7e9b",
+      "modules/math.h": "97033f604d1af2f05897ed94e771875473b2c5179706fca1da1e6528cb56755a"
+    },
+    "modules-nested-import": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "cac919d0a7ac428a005566b3419aec095d7b1f7a9d31bc1b3373f386facc0c20",
+      "modules/app.h": "2a05a63a2d32c1b96f9200372822cce38c327623db7c07edc757441911753357",
+      "modules/graphics/shapes.c": "7c3249fa9ba931ac1c8da3e0f4a734ef20a2689d4c6e61b326c7c58d545d47b5",
+      "modules/graphics/shapes.h": "515f7f076342114adb82c83057140de6aecc039e5d8a971b30d56ac11e9f4d71"
+    }
+  },
+  "numeric-and-operators": {
+    "numeric-arithmetic-expression": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "da5e7d977ff1cecb7c9499af674f9088e964727b5aebd1bc45a11f849f5756ff",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "numeric-bit-cast": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "91cd000b66b5b0abd99f0a90d7b1c929d7e21ea2eca09b22a402289578082542",
+      "modules/app.c": "149854eda94aa60a638deae31feb3b8c5ccdc1c22ed3dfb6f4c6240ed9ab0e1e",
+      "modules/app.h": "6c8e1e62b81d7660ea403ff51c7b7bccbe3d1eff03a58ad6d709a3a5ad2884aa"
+    },
+    "numeric-bit-flag-update": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "e4e676835f3a14395322e9652598f907231ab73e1912ef1dee542fb4676b8977",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "numeric-bit-mask-test": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "b861d520c6135305992e0d73c5cb11231423ac9c56e9f83191047f5bd4f6c618",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "numeric-endian-round-trip": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "c9b5d4b89788e25fbd2fd7b7146fb25c8b97971e03df7ca12fbf2d946901d3b7",
+      "modules/app.c": "98eb6a6d58139e26375b4639a70e1a457e7de2fc4654ba155c853ec330f416a1",
+      "modules/app.h": "94a70f2951a241348d5c3f9ad644f2bf0740911eae49c196bf6367c455a5f300"
+    },
+    "numeric-floating-conversion": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "4fe55c3df907029872a94f54064d88d74b26a9cdc40ff5065daf9097f96c9cc4",
+      "modules/app.c": "add4064d8039d1d2aef6d9112df631a512ffcc5d2786de3b7bf43a0d13ebdfa9",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "numeric-precedence-check": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "290e72424dac11e60973da4e24a173019902c22243219a44953c7166cdd00ff4",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "numeric-range-comparison": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "d4b047a1d5b2e3fb66f12e2e04f7f0455e9ce0871bf6c5db5e7db5906449eae4",
+      "modules/app.c": "c7d2f50180d4a190e76aef110acf4e909f71362670813ad38ecfc2f99c74f4af",
+      "modules/app.h": "86118fde8149769d0f830ccc623a217c349be9711bbf4db5280ad627d2234ce5"
+    },
+    "numeric-rune-conversion": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "b74b1140682c2bf053f8e7345629d5eb9bcee99242a1d7a35a63ae20c32523c0",
+      "modules/app.h": "f0cf61b7446127f37564f5b859eb1842313a6f07da24563d915ef4dd55e9cc56"
+    },
+    "numeric-signed-conversion": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "77eda3fcb2c465522b09eaa44d9ead68485ba591ebb6518273de3129b4f59e57",
+      "modules/app.h": "3187657b17c8aa3b0cce735e089cbf37ba5d796ed13f993ef7ea6f28cecabf9b"
+    }
+  },
+  "pointers-and-memory": {
+    "memory-deferred-free": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "87aed0f4f5adcb7d0affc2c313750bceb872ed912db3bada5eb2ff80031d1ad9",
+      "modules/app.c": "a3c3e915a3f4835f335fcbbf788da38211dfbd6da9b690f79921319536178fe7",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "memory-heap-integer": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "87aed0f4f5adcb7d0affc2c313750bceb872ed912db3bada5eb2ff80031d1ad9",
+      "modules/app.c": "c008a61f26ebe43bad3f4734e97bf939f8da850fa1e72f6d7b09fe15d6d9c6e9",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "memory-heap-object": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "c983f2678a98d140ddfd01b9b6c040af868efe4405cfa6c736f1cdd8e718e8d1",
+      "modules/app.c": "0ae7e33c5aaa369c78993d82dfd2bb53c71a5a630c47219717f953a2aeed7a34",
+      "modules/app.h": "2750d1ea7578f2c14fcebcee1d5b815706a79cf6da395e9c0670c82465ea6902"
+    },
+    "memory-mutable-pointer": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "56b6c1b6024907a6571d30b95b626614badcb8cc170eed38ab09c9d1b077a7fb",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "memory-nullable-pointer": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "0166679550cf2e4aae8468c463b48711ad21da666da0de81d946d3edaa0668f5",
+      "modules/app.c": "ad060f8dba3dc04e4f7f1eff1807938b821302df6f69d5e0675f2ec1f69260c5",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "memory-opaque-pointer": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "74594896d59139bc60b66db5238b5c071f15361c8a9216b36dc87644da2bc6f1",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "memory-pointer-swap": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "66c593b066138cfddab8e19fd8c64a3d35392704691c0409948c2acd394ae8c3",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "memory-pointer-view": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "6caf340011dfee4759fcf5cc682ca04b04616cea2e07c3e1f83c7803401a214e",
+      "modules/app.c": "8998f0b9bac183284b5954430fa74c710dcae44177a1fe47f8012eb3bb76bdbc",
+      "modules/app.h": "14db7f9db7195fae13a9a87bff295f5d709c62df4fcb1f2b39cb911b79a7a78d"
+    },
+    "memory-read-pointer": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "bb7e540e2d1accfb1da63b2e522cf722b871f6343e0f7624089d26a459e2589c",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "memory-volatile-register": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "fcb8eced8e178c430d1fa3fc9cf9ad99e07de3ad87e0ed75970c5e088c7da091",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    }
+  },
+  "streams": {
+    "streams-adapter-chain": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "4f49cc812e76a4a7e65709782b6cfef382d94461c4a8c8d2ba37aa5e6209dc03",
+      "modules/app.h": "6d07796275397c9a30de517af026a18a2dfc17bf6c50dbb5b6085edac12fdccb"
+    },
+    "streams-cleanup": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "567ea19a8101b729a8c704994ac56539422f0b2d95a01ff4182b6548ecb1979f",
+      "modules/app.h": "f6ee7e4f8cc932172c648632dc4e2dcef917173f574cad72003861ee44fd88f7"
+    },
+    "streams-empty": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "aa4f8b181338d73f5e4de1190367279b0026291a64e06a5791a8715bb34ca58b",
+      "modules/app.c": "e5711f82098937a9d4fd7533fc2b647d274d176bb493d65df40fbdb00f362f4f",
+      "modules/app.h": "c00f1aff3c01c332c2889500dccf3be1dc9df5b9b4e7ac40fe7df25aa643b4c2"
+    },
+    "streams-filter": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "a0eb264b48428a9398fb164d7ac84c1dbca6b2e9821e05748c2585b9b6edc2b6",
+      "modules/app.h": "f6ee7e4f8cc932172c648632dc4e2dcef917173f574cad72003861ee44fd88f7"
+    },
+    "streams-for-iteration": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "2696e6ed2371ab587f1d6354118913850389c1529f5e1ecefb778c7f4ce6bb03",
+      "modules/app.h": "158023b5ab87d756760931ea5a6289ae5489bd90d9baf08b20e3bfce942cdf72"
+    },
+    "streams-list-source": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "99f6ffa2641d9e312ce3b5c00c05621f7e2205ce649fd891b0707ec14a04d40f",
+      "modules/app.h": "fa5d02d467c552c5a29b3a3521b9bdb48d84ed93d65d1e9c187954f1c11ee7c9"
+    },
+    "streams-manual-pull": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "62e91358e1802be043f5adc4a91f84a7c33027c21089ea24bd5e2a0e0d682a76",
+      "modules/app.h": "9cbf8bdae18374b6633fd9b7fe666ad77319bb24ad73d2684a4433fe311393d4"
+    },
+    "streams-map": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "6a8b17a2f9a472797b6f3ee30185ffb62511433b3021017805b7a8e826983c7d",
+      "modules/app.h": "a089eb1170190d1c784c64f5599e3987bc74c951f0b001567c47c381acd7283c"
+    },
+    "streams-produce": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "bad3ffebf2316298a27a0e245fe7fb51944fca4b4a347696f229d4b750617be9",
+      "modules/app.c": "5d964db8492c99711df8f35cb680f4bc7a2be276ef14272d808fdd1fe58840d0",
+      "modules/app.h": "95b1160a497b6e828dec4e6a10e50fa8fc9ca8a67307be5d2256d7801be2ee4f"
+    },
+    "streams-take": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "8ec81fca53a7258362afb94b9bfb3cbec7c9d8184ea52a291ec939d1f46cc7de",
+      "modules/app.c": "18709ccaa486fd7cc3c8ad99a4ce576522f90a1c3f0aa73e931609bc2a4b7561",
+      "modules/app.h": "a44694077caa1b7d9b35f05d8878e42a5892490cc40be7e9e119fbae0895d07b"
+    }
+  },
+  "tasks-and-concurrency": {
+    "concurrency-atomic-counter": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "89265b4306f29a9b39c9c1fbcddb32f2fc684dbe5e45d13d0cc90cb624717801",
+      "modules/app.h": "4d1dd6f4f2595822e56ead915b681f9c4b8181437e04f7a412e19f4ca257ef38"
+    },
+    "concurrency-channel-receive": {
+      "main.c": "53f63fddba49b1d8ba0308e7b0633834cc135fdfdfd137fad65ae88e7f0fecd7",
+      "main.h": "ac66a8af1ea2e75d94ed8c43bf43fa86c6abbaa884ff628d260fa6d39ff79714",
+      "modules/app.c": "d721d7d81c17bca2697cd1a7677ffff333bfd7fd6f56919c9789fe759a55ebfd",
+      "modules/app.h": "ec5a1d193de88312c6e1cf73971c8e69605e0365d77f9bb66f2e7188ef449690"
+    },
+    "concurrency-channel-round-trip": {
+      "main.c": "53f63fddba49b1d8ba0308e7b0633834cc135fdfdfd137fad65ae88e7f0fecd7",
+      "main.h": "ac66a8af1ea2e75d94ed8c43bf43fa86c6abbaa884ff628d260fa6d39ff79714",
+      "modules/app.c": "f2133ed4fc7cbd7c3a4bf3660b8d6ab5a457291903e883a70b01ebc048091951",
+      "modules/app.h": "ec5a1d193de88312c6e1cf73971c8e69605e0365d77f9bb66f2e7188ef449690"
+    },
+    "concurrency-channel-send": {
+      "main.c": "53f63fddba49b1d8ba0308e7b0633834cc135fdfdfd137fad65ae88e7f0fecd7",
+      "main.h": "ac66a8af1ea2e75d94ed8c43bf43fa86c6abbaa884ff628d260fa6d39ff79714",
+      "modules/app.c": "1faf538f5a9a8b13f9f53585f7620eed585d126ed3758f03ff063f96099288a5",
+      "modules/app.h": "767765d1f6ea9e69e90f1e1a0e1f25414d7c0c5d0cce049cfcd256a2a7bb83a7"
+    },
+    "concurrency-concurrent-cleanup": {
+      "main.c": "bf465d8732ac7aa196843b2c31fc89e5179c36969cfb475a301ba6f4e3fff352",
+      "main.h": "48fd0d2917f8163b6d31e6673a0da5c1dc02c6e612836bcff544898c55f78efc",
+      "modules/app.c": "879bd821efb4155baa9624e044796f5f998d0642c5eb9047f78302e3941b4989",
+      "modules/app.h": "f7ea235e73b517a5366a5ab9630b038fbf701cb4c6322353c3305fb6fdd5710a"
+    },
+    "concurrency-mutex-critical-section": {
+      "main.c": "bf465d8732ac7aa196843b2c31fc89e5179c36969cfb475a301ba6f4e3fff352",
+      "main.h": "a51d07826f97adb7d4efe8b475d6899929c5f2beba7e688b30991107f112ecc8",
+      "modules/app.c": "684d3a3da0b84c08f1f71b4f9d59d5511f5e3d9a323724a6997d7643cd031d38",
+      "modules/app.h": "27831daf3e4101f2d71ecaaa279f8ee369d032ab2466938ddc147e85f523e0d7"
+    },
+    "concurrency-spawn-join": {
+      "main.c": "30a87ba5c090eafe7a20083ae80da9a9b623fb1b6b71e3dbd27f0e7bc79eac8b",
+      "main.h": "164e6d9e9553c59f622c90bb171e2ff3bf794fb0e61a522682375c521ff22d15",
+      "modules/app.c": "ae7c0526386583a77f576b0c020c67eb7c35a923ae631f445e801e24a34b840b",
+      "modules/app.h": "e425b311e458f04e1ad17f5a7ba37109ffcedd786c165daeda7aee2f8d8dea45"
+    },
+    "concurrency-two-tasks": {
+      "main.c": "30a87ba5c090eafe7a20083ae80da9a9b623fb1b6b71e3dbd27f0e7bc79eac8b",
+      "main.h": "164e6d9e9553c59f622c90bb171e2ff3bf794fb0e61a522682375c521ff22d15",
+      "modules/app.c": "3a5627c8456975c6ce6920ad3c4d788a12a64bc4d33c37e0d99679b3728e80ec",
+      "modules/app.h": "1a21f443e392c0623dea1f4d8ae86dd2fd868189942248ff6bb403567fcf26e6"
+    },
+    "concurrency-worker-handoff": {
+      "main.c": "53f63fddba49b1d8ba0308e7b0633834cc135fdfdfd137fad65ae88e7f0fecd7",
+      "main.h": "5bf9bb53e5a8aad985052bfcbc21f73245b362ab74b233c00f5c26477e8c76d4",
+      "modules/app.c": "9bf0da1eac27b06be1cb7241f93b46f001f459c04395e561ee11fa4364569116",
+      "modules/app.h": "8ecf6dabb3a9669e5327e2a5f1559200c3199e865fce66290659e7c775acddc1"
+    },
+    "concurrency-yield-loop": {
+      "main.c": "30a87ba5c090eafe7a20083ae80da9a9b623fb1b6b71e3dbd27f0e7bc79eac8b",
+      "main.h": "f326d2885541f1eb6ead7c833dfc61fcaab9fa09b2af40f35dfe192f99a21210",
+      "modules/app.c": "6f6e927f72f3cbf1f23fde465eaf2e56f489d45ec97acbbef5be07452a9b1b8c",
+      "modules/app.h": "5be6833e9478e007d62e32513c5e4d2f12d88c80bcc0a0174e08e333ec86e100"
+    }
+  },
+  "text": {
+    "text-byte-inspection": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "19b0ceba40b722c61cc64fbc2011c42cdb24d240ef0e48cf791f4357e07dc8e4",
+      "modules/app.c": "8434dd2e8a858e2cf51a2d21c4d05ea6825f8186d9d2db199ac354b1e99b3815",
+      "modules/app.h": "3c6b6f3dff954e2e32b749deb56e0fc3debeee54582dae0a87f95e35a9036ad7"
+    },
+    "text-byte-view": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "92764a6093f0c4dfca520f3d87b62bafaab430164314a63e8612a4cb17684adb",
+      "modules/app.c": "db0f4ab7c9b2abd010ada16b0102e8405349853211ab58dcbdf8e91b92723fb5",
+      "modules/app.h": "3c6b6f3dff954e2e32b749deb56e0fc3debeee54582dae0a87f95e35a9036ad7"
+    },
+    "text-comparison": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "1c41f0bdbc0112edf758d3847333d34662cd14e265c096bb4e5cb59d702c1b8e",
+      "modules/app.c": "4a23dda4d214f1e2bbde05a4c8a4843712f6b107c94f0b332e7ac8a6c0145ee1",
+      "modules/app.h": "f6e490b1538c3d237924e49bd849016f64345f333f2c0276d3a21c2959ad6963"
+    },
+    "text-escaped-message": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "7ba0801188c1e3e0486ed6eaf989102ede667bf32ea170c1be9c68c345599e41",
+      "modules/app.c": "f0f28539ffbb992d450acf01efcf05f6519089ce6416851952e04f477d287b58",
+      "modules/app.h": "6bb283440c9bdcacc1d571558b8ec2bc2920f5706e4888d0430669414172528c"
+    },
+    "text-protocol-parser": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "6fe5afb9e840026e78dd88476dcbbd9755f7a43b0c6a0ea2ce1389662fb2d36a",
+      "modules/app.c": "0daa7923746be578d18cf5b428c2f3c61efb56f83419c11c3864d09684ce5b4f",
+      "modules/app.h": "4faf863b69a7deb565e11af780fc5804eb9dff08ce9870136edfb18fb536c218"
+    },
+    "text-rune-cursor": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "6fe5afb9e840026e78dd88476dcbbd9755f7a43b0c6a0ea2ce1389662fb2d36a",
+      "modules/app.c": "4974b776932862c1fb25a6e469d18e773449d98ce35eeff00b71bf8c158dd601",
+      "modules/app.h": "6bb283440c9bdcacc1d571558b8ec2bc2920f5706e4888d0430669414172528c"
+    },
+    "text-strand-inline": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "6513566ce38bbcee8a93dda804f792ed33542a40c4992824ad824b16bfaba3c0",
+      "modules/app.c": "c83bcabffb644626f90fd0816c8e4427caf5b9d9369b8ff8c181589a2cd51796",
+      "modules/app.h": "af91013f7ca5e953feecee9df411355b996af300b8455413cdce89411c7bfca8"
+    },
+    "text-string-building": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "bdfb8d6f4a5520867c4c6c388d9ad77ac839307d7ae7f1b206bff01c597e935c",
+      "modules/app.c": "717418d504d367936dc8a55e2e2bbf90b253715243549a7ceffd55104447c221",
+      "modules/app.h": "377912ffb1927bfcdb1eb25b67bb4ac22585b2d3067fe1c8cd2887b80982a090"
+    },
+    "text-text-inspection": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "0d945e90eb0da53c7215f38225e34a08ec4388d84f0ca591dae38cdb8eb3080e",
+      "modules/app.c": "21d95a2b675d9390f3f7ad220f360cae9ebdce1fcd4574f5de3eb282f6b485a0",
+      "modules/app.h": "3c6b6f3dff954e2e32b749deb56e0fc3debeee54582dae0a87f95e35a9036ad7"
+    },
+    "text-text-report": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "0eb6f8ee5285c2d2ccf31a30d008633c3ab94d47819d9c60a01d3e7120275d32",
+      "modules/app.c": "84dc679ae160e44202805b14153c0750325631ad9cde79e02a978781878ff73f",
+      "modules/app.h": "211f90e92993f9a9ae051a4f2e14ef9f16559a16c748d9af48c0df9048f9a55a"
+    }
+  },
+  "types-and-matching": {
+    "types-command-dispatch": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "beeb54ccdd12b947df972ea0dcc63438c7744c2c41ee552fb0dff01d57d60b07",
+      "modules/app.h": "99e586307fbd558542eb1a9b6efde2a8cf1dc6a6e76a57476d4acddd315f0d9f"
+    },
+    "types-direction-match": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "dc182e82b83ad80b8fef8cf6d72e2d58493a5c6acb6078d48353ac855009fee6",
+      "modules/app.h": "c103ea1b094ecf31163a6f9298a75e6e5de881ac2c4a4ee4f8bafbcb62467f10"
+    },
+    "types-exhaustive-protocol": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "e799625fccbca2fad77d2d087c905f6de384074b46f67cada108832284f1a81f",
+      "modules/app.h": "55d0fde0ed23959a415ce671301682e494818bd06f5efcbb05c6290b6897f286"
+    },
+    "types-multi-type-value": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "484a20572206dd3037df84ef2bcf042aed0ade43b4ce8819dc89ad82e6143420",
+      "modules/app.c": "693762c584c27c98c68c655c3a7c2892c946abe1f9e4e7b96d3af731e841ae6c",
+      "modules/app.h": "64607567da8847080daf392762211f34816de56dcac6ee9faf47f60611c8dc3f"
+    },
+    "types-nullable-score": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "0166679550cf2e4aae8468c463b48711ad21da666da0de81d946d3edaa0668f5",
+      "modules/app.c": "64b45923950fe007005a29eab5f0c35bd7731654bff2422a1597c475c18f958b",
+      "modules/app.h": "4caed9792f080026a7b7eced0bc0628c8b7b1f02f85e5dc0c89407773cf99324"
+    },
+    "types-optional-configuration": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "0166679550cf2e4aae8468c463b48711ad21da666da0de81d946d3edaa0668f5",
+      "modules/app.c": "64280ddde5ed84e01a3ab2983de3e82cdb160307abb2c68fb5e4d6972541c082",
+      "modules/app.h": "4caed9792f080026a7b7eced0bc0628c8b7b1f02f85e5dc0c89407773cf99324"
+    },
+    "types-result-like-union": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "e767eba3983eab1b6d3fae21b7d18f9d1527a09e0fd27c57528d659adc40cdcb",
+      "modules/app.c": "39ec7fdd41b2fc5dc4ece8a2a37ad492dbb942b50a5b3cd5e1173e2227906e0e",
+      "modules/app.h": "33e7910141aefdd20edb7bc9e640b9980fa7e282a325dce9a144acf7fbfac1d8"
+    },
+    "types-shape-area": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "f28d14211aee0a2849fc1200e1bd1e2fd550babf28d6c3b609bc4112f6719f00",
+      "modules/app.h": "bf8c336acf2bf25bf6c1e9008844868a220849775d12f68e012947805160a1dd"
+    },
+    "types-type-based-formatting": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "15c332f6aa21c6b748697276eafcc0f3e81d250d9d5d1ded62d1fc0064c85428",
+      "modules/app.c": "3492d27ca642615fad5807906923cbd5764354f605f881f7ad5559f707df7d29",
+      "modules/app.h": "08599d5fb5831ab1ab1a676c6a6a7a6d400ee83adca24e1f128af1fd4c92fd20"
+    },
+    "types-variant-payload": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "3260d93fdf55c4065982762f1b3824eae719c473972335449e846a4fe03affae",
+      "modules/app.h": "d5e10a841ac0ddae655154f6e4f2248699977be2f5890908c7b34c2fbbacc6b9"
+    }
+  },
+  "values-and-bindings": {
+    "values-boolean-policy": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "848728a16bb4dc19f399336f5273490a1563612ec9531c4959e01973ae4046ee",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "values-commented-config": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "52a7ac31284debd7463c2ced6dde095bbfe6a57c1b83da2606cc374765265e0b",
+      "modules/app.h": "63f08834e81581fd6aeedd182a519d7866f0f807e8b1051af01ead3946c6c807"
+    },
+    "values-immutable-snapshot": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "cdecf23fb610734eed99ac3b9f81146a5804e49bdfb341c1a7653a909524798c",
+      "modules/app.c": "27b473adba2a675b84024f6f89ffade30f836ec8419b615d788336822e0cdd28",
+      "modules/app.h": "d834560909ee17daa8c294bbba5fd638713aa17e910b80e0494cf41f7c788b07"
+    },
+    "values-layout-total": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "4fe55c3df907029872a94f54064d88d74b26a9cdc40ff5065daf9097f96c9cc4",
+      "modules/app.c": "3384f5368db9a7870352ffb7b37c5869fbfa978d218e59216ae51e61af8b6696",
+      "modules/app.h": "0b13be3a19cbd6f974a98a2378de105cbfed79aea13df01a6d14813b54533042"
+    },
+    "values-literal-normalization": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "f816fe718fba7280f3c7f2c58fae6821dacf895b4b22eaee70c0f33f5c8c7d88",
+      "modules/app.c": "b1439c05007b2c38442645218f67cef4cc39222415f8752de1a8b9f9b1744f58",
+      "modules/app.h": "49e02e776e2a0d73ace1e376077e9b244ed62dbe50dc4bc4f6c7f681e1718e2b"
+    },
+    "values-mutable-accumulator": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "0d3735a76781d0477b8f13ac9f034d0eace435ecf7e01edb07a7f3a5fd52755d",
+      "modules/app.h": "b8034da1a99d09f1662202659c6030c485241425651a2d59b8ae1f7de2f84d22"
+    },
+    "values-packet-header": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "5fd5262e94ab6ae720314b1387c22970fca38ab2ccaf2c33e0d64487fcc15019",
+      "modules/app.h": "abe4731728bdf11aef903e80d6720d640306e2ea8587c01c465cf0ea3b8f0b9f"
+    },
+    "values-scalar-dashboard": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "ee131476df5dcd26b27bfbf8575d764d3aced276f157940b2b2562c9150e81e0",
+      "modules/app.c": "9b601e77644dc1f8b307d430113ae42a524e8adce9c89fb0d6c79449a02c0e6e",
+      "modules/app.h": "1b3cc8918c431ebfc32ec4c6c6b9c0b58c847055e0a22ff79430559f6217c310"
+    },
+    "values-score-alias": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "542b29a1572b2947878ded59056863621769d95e2ff95857751dce45ecdfd0e5",
+      "modules/app.c": "e0ab1f4999ac0bce44dd13b20c564d5f4758a655a6741e14df3680100a6659a8",
+      "modules/app.h": "248e4406ad46fbe20eb419fdbb2490d4aa726cf224943af11df3d4e9fdd262f6"
+    },
+    "values-text-record": {
+      "main.c": "f45453f3ca98d39fdc9d9598ac122d6b4ce3ffa2c6c790252a05415dcad905ad",
+      "main.h": "a531a3884b95a6fff4d33b5045df1e7fce7206613f9b085dd751d449753df3e2",
+      "modules/app.c": "b3ef429eea7d376157c06c44d6d8356627182c5b8fb187573e82a98f72440502",
+      "modules/app.h": "8e76aa58d842277b78409149b86c0c88bb4bd209ec29d0a692733f98f4a5ee2d"
+    }
+  }
+}

@@ -115,12 +115,9 @@ func renderAdtPayload(node checker.Expression, state *expressionValidation) (str
 	if node.MemberIndex < 0 || node.MemberIndex >= len(variant.Payload) {
 		return "", unknownExpressionDiagnostic("ADT payload read has an invalid member index")
 	}
-	receiver, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
 		return "", err
-	}
-	if !atomic {
-		receiver = "(" + receiver + ")"
 	}
 	return receiver + ".payload." + compilerTypes.SanitizeIdentifier(variant.Name) + "." + PrivateCName(MemberName, variant.Payload[node.MemberIndex].Name, ""), nil
 }

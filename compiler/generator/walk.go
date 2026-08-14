@@ -134,6 +134,93 @@ func walkTypeTreeSeen(typ compilerTypes.Type, visit func(compilerTypes.Type) err
 	return nil
 }
 
+// walkStatementExpressions visits every expression reachable directly from
+// one statement in pre-order: the statement's operands and their nested
+// sub-expressions (Operand, Left, Right, Arguments), in written operand and
+// argument order. It does not descend into nested statement bodies; statement
+// walkers recurse into those themselves so a nested statement's hoisted
+// prologue stays at that statement's indentation (RFC 0057 Item 5). An
+// unknown statement shape is a generator error, never a silent skip.
+func walkStatementExpressions(statement checker.Statement, visit func(*checker.Expression) error) error {
+	if visit == nil {
+		return nil
+	}
+	var walkExpression func(*checker.Expression) error
+	var walkOperand func(*checker.Operand) error
+
+	walkExpression = func(node *checker.Expression) error {
+		if err := visit(node); err != nil {
+			return err
+		}
+		if node.Operand != nil {
+			if err := walkExpression(node.Operand); err != nil {
+				return err
+			}
+		}
+		if node.Left != nil {
+			if err := walkExpression(node.Left); err != nil {
+				return err
+			}
+		}
+		if node.Right != nil {
+			if err := walkExpression(node.Right); err != nil {
+				return err
+			}
+		}
+		for index := range node.Arguments {
+			if err := walkOperand(&node.Arguments[index]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	walkOperand = func(source *checker.Operand) error {
+		if source.Node.Kind != checker.InvalidExpression {
+			return walkExpression(&source.Node)
+		}
+		return nil
+	}
+
+	switch statement := statement.(type) {
+	case checker.Declaration:
+		return walkOperand(&statement.Source)
+	case checker.Assignment:
+		if err := walkOperand(&statement.Source); err != nil {
+			return err
+		}
+		return walkOperand(&statement.Target)
+	case checker.CallStatement:
+		return walkExpression(&statement.Call.Node)
+	case checker.TryStatement:
+		return walkOperand(&statement.Expression)
+	case checker.ReturnStatement:
+		if statement.Value != nil {
+			return walkOperand(statement.Value)
+		}
+	case checker.DeferStatement:
+		return walkOperand(&statement.Expression)
+	case checker.ErrdeferStatement:
+		return walkOperand(&statement.Expression)
+	case checker.IfStatement:
+		if err := walkOperand(&statement.Condition); err != nil {
+			return err
+		}
+		for _, branch := range statement.ElseIf {
+			if err := walkOperand(&branch.Condition); err != nil {
+				return err
+			}
+		}
+	case checker.ForStatement:
+		return walkOperand(&statement.Source)
+	case checker.WhileStatement:
+		return walkOperand(&statement.Condition)
+	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration, checker.MethodDeclaration:
+		// No expressions reachable directly from these shapes; nested
+		// bodies are the caller's recursion.
+	}
+	return nil
+}
+
 // walkProgram visits program.TypeDeclarations, program.Statements, then the
 // bodies of every specialized function and method, in that order.
 func walkProgram(program checker.Program, visitor *programVisitor) error {

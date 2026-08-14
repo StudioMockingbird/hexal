@@ -365,7 +365,7 @@ func TestGenerateCheckedRejectsDuplicateGeneratedObjectCNames(t *testing.T) {
 }
 
 func TestGenerateCheckedRejectsForgedDeclarationNames(t *testing.T) {
-	for _, name := range []string{"value-name", "1value", "cafÃ©"} {
+	for _, name := range []string{"value-name", "1value", "café"} {
 		t.Run(name, func(t *testing.T) {
 			program := checker.Program{Statements: []checker.Statement{checker.Declaration{
 				Name:   name,
@@ -379,7 +379,7 @@ func TestGenerateCheckedRejectsForgedDeclarationNames(t *testing.T) {
 }
 
 func TestGenerateCheckedRejectsForgedTypeAndMemberNames(t *testing.T) {
-	for _, name := range []string{"Type-name", "1Type", "cafÃ©"} {
+	for _, name := range []string{"Type-name", "1Type", "café"} {
 		t.Run("type "+name, func(t *testing.T) {
 			_, err := GenerateChecked(map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: name, Type: compilerTypes.Int32}}}}, []string{"app"}, "app")
 			assertGeneratorUnknownError(t, err)
@@ -396,7 +396,7 @@ func TestGenerateCheckedRejectsForgedTypeAndMemberNames(t *testing.T) {
 }
 
 func TestRenderRejectsForgedValueNames(t *testing.T) {
-	for _, name := range []string{"value-name", "1value", "cafÃ©"} {
+	for _, name := range []string{"value-name", "1value", "café"} {
 		t.Run(name, func(t *testing.T) {
 			_, err := renderExpression(variableNode(name))
 			assertGeneratorUnknownError(t, err)
@@ -1690,7 +1690,7 @@ func TestRenderOperationsRejectMalformedScalarMetadata(t *testing.T) {
 	}
 }
 
-// RFC 0023: conditions render through truthiness â€” nil as false, a nullable
+// RFC 0023: conditions render through truthiness — nil as false, a nullable
 // as a null test, and an always-truthy value as a comma evaluation.
 func TestRenderTruthinessConditions(t *testing.T) {
 	environment := compilerTypes.NewEnvironment()

@@ -61,18 +61,18 @@ func stringLiteralCName(index int) string {
 // read-only static object pair per unique literal, and the runtime helpers.
 // The byte-view helpers require hex_view_UInt8, which GenerateChecked ensures
 // is present whenever the string machinery is used.
-func writeStringDefinitions(result *strings.Builder, strings *generatedStringState) {
-	if strings == nil || !strings.used {
+func writeStringDefinitions(result *strings.Builder, stringState *generatedStringState) {
+	if stringState == nil || !stringState.used {
 		return
 	}
 	result.WriteString("\ntypedef struct hex_string {\n    const uint8_t *data;\n    size_t byte_length;\n} hex_string;\n")
 	result.WriteString("typedef struct hex_string_storage {\n    hex_string header;\n    uint8_t bytes[];\n} hex_string_storage;\n")
-	if strings.needStrand {
+	if stringState.needStrand {
 		// RFC 0044: a Strand is exactly 32 inline bytes; the first zero byte
 		// bounds the logical payload and the tail is zero-filled.
 		result.WriteString("typedef struct hex_strand {\n    uint8_t data[32];\n} hex_strand;\n")
 	}
-	for index, payload := range strings.literals {
+	for index, payload := range stringState.literals {
 		name := stringLiteralCName(index)
 		fmt.Fprintf(result, "static const uint8_t %s_bytes[%d] = {", name, len(payload)+1)
 		for _, character := range []byte(payload) {
@@ -258,7 +258,7 @@ func writeStringDefinitions(result *strings.Builder, strings *generatedStringSta
 	result.WriteString("        fputs(\"[Runtime Error] RuneCursor has no next value\\n\", stderr);\n            abort();\n")
 	result.WriteString("    }\n")
 	result.WriteString("    return hex_utf8_decode(cursor->data, cursor->length, &cursor->offset);\n}\n")
-	if strings.needStrand {
+	if stringState.needStrand {
 		result.WriteString("\nstatic inline size_t hex_strand_rune_length(hex_strand text) {\n")
 		result.WriteString("    size_t index = 0;\n    size_t runes = 0;\n")
 		result.WriteString("    while (index < 32 && text.data[index] != 0) {\n")

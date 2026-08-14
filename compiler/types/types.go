@@ -634,7 +634,7 @@ func IsFile(typ Type) bool {
 }
 
 // IsPointerLike reports whether typ is a pointer, a function pointer, or a
-// nullable form of either â€” the values that can hold Nil.
+// nullable form of either — the values that can hold Nil.
 func IsPointerLike(typ Type) bool {
 	return typ.Element != nil || typ.Signature != nil
 }

@@ -51,7 +51,7 @@ const (
 
 // discoverGeneratedIO walks the checked program for RFC 0040 operations and
 // registers the failure literals.
-func discoverGeneratedIO(program checker.Program, strings *generatedStringState) *generatedIOState {
+func discoverGeneratedIO(program checker.Program, stringState *generatedStringState) *generatedIOState {
 	state := &generatedIOState{}
 	visitor := &programVisitor{
 		Expression: func(node checker.Expression) error {
@@ -104,13 +104,13 @@ func discoverGeneratedIO(program checker.Program, strings *generatedStringState)
 	if err := walkProgram(program, visitor); err != nil {
 		panic(err)
 	}
-	if state.used && strings != nil {
-		strings.used = true
-		strings.needStrand = true
-		state.fileLiteral = registerConcurrencyLiteral(strings, sourceFilename)
-		state.headerLiteral = registerConcurrencyLiteral(strings, "I/O Error")
+	if state.used && stringState != nil {
+		stringState.used = true
+		stringState.needStrand = true
+		state.fileLiteral = registerConcurrencyLiteral(stringState, sourceFilename)
+		state.headerLiteral = registerConcurrencyLiteral(stringState, "I/O Error")
 		for _, payload := range []string{ioCouldNotOpen, ioCouldNotRead, ioCouldNotWrite, ioCouldNotFlush, ioInvalidUTF8, ioModeError, ioBinaryError, ioPathEmpty, ioPathNUL, ioPathASCII} {
-			registerConcurrencyLiteral(strings, payload)
+			registerConcurrencyLiteral(stringState, payload)
 		}
 	}
 	return state
@@ -173,7 +173,7 @@ func writeIOExterns(result *strings.Builder, state *generatedIOState) {
 // close families, and the Error-construction helper. They run after the
 // Error object, the String machinery, and the List definitions (read_bytes
 // constructs a List<Byte> through the generated list helpers).
-func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, strings *generatedStringState) {
+func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, stringState *generatedStringState) {
 	if state == nil || !state.used {
 		return
 	}
@@ -186,7 +186,7 @@ func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, stri
 		if union != (compilerTypes.Type{}) {
 			fileIndex := unionMemberIndex(union, compilerTypes.FileType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-			message := state.ioMessage(strings, ioCouldNotOpen)
+			message := state.ioMessage(stringState, ioCouldNotOpen)
 			fmt.Fprintf(result, "\nstatic inline %s hex_file_open(const uint8_t *path, size_t length, hex_file_mode mode, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (!hex_file_path_valid(path, length)) {\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    FILE *stream = fopen((const char *)path, mode == HEX_FILE_READ ? \"rb\" : (mode == HEX_FILE_WRITE ? \"wb\" : \"ab\"));\n    if (stream == NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = (hex_file){ stream, mode, true } };\n}\n",
 				union.CName, union.CName, unionTagName(union, errorIndex), errorIndex, message,
 				union.CName, unionTagName(union, errorIndex), errorIndex, message,
@@ -199,7 +199,7 @@ func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, stri
 		if union != (compilerTypes.Type{}) && listType.List != nil {
 			listIndex := unionMemberIndex(union, listType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-			message := state.ioMessage(strings, ioCouldNotRead)
+			message := state.ioMessage(stringState, ioCouldNotRead)
 			fmt.Fprintf(result, "\nstatic inline %s hex_file_read_bytes_%s(hex_file file, hex_heap h, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (file.mode == HEX_FILE_WRITE || file.mode == HEX_FILE_APPEND) {\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    %s *list = hex_list_new_%s(h);\n    uint8_t buffer[4096];\n    for (;;) {\n        size_t count = fread(buffer, 1, sizeof buffer, file.stream);\n        for (size_t index = 0; index < count; index++) {\n            hex_list_push_%s(list, buffer[index]);\n        }\n        if (count < sizeof buffer) {\n            if (ferror(file.stream)) {\n                hex_list_free_%s(h, list);\n                return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n            }\n            break;\n        }\n    }\n    return (%s){ .tag = %s, .payload.member_%d = list };\n}\n",
 				union.CName, listSuffix(listType), union.CName, unionTagName(union, errorIndex), errorIndex, message,
 				listType.CName, listSuffix(listType), listSuffix(listType), listSuffix(listType),
@@ -212,8 +212,8 @@ func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, stri
 		if union != (compilerTypes.Type{}) {
 			stringIndex := unionMemberIndex(union, compilerTypes.StringType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-			message := state.ioMessage(strings, ioCouldNotRead)
-			utf8Message := state.ioMessage(strings, ioInvalidUTF8)
+			message := state.ioMessage(stringState, ioCouldNotRead)
+			utf8Message := state.ioMessage(stringState, ioInvalidUTF8)
 			fmt.Fprintf(result, "\nstatic inline %s hex_file_read_text(hex_file file, hex_heap h, size_t line, size_t column, const hex_string *message, const hex_string *utf8_message) {\n    (void)message;\n    (void)utf8_message;\n    if (file.mode == HEX_FILE_WRITE || file.mode == HEX_FILE_APPEND) {\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    size_t capacity = 4096;\n    size_t length = 0;\n    uint8_t *buffer = (uint8_t *)malloc(capacity);\n    if (buffer == NULL) {\n        fputs(\"[Runtime Error] heap allocation failed\\n\", stderr);\n        abort();\n    }\n    for (;;) {\n        if (length + 4096 > capacity) {\n            size_t next = capacity * 2;\n            if (next < capacity) {\n                fputs(\"[Runtime Error] file read size is not representable\\n\", stderr);\n                abort();\n            }\n            capacity = next;\n            uint8_t *grown = (uint8_t *)realloc(buffer, capacity);\n            if (grown == NULL) {\n                free(buffer);\n                fputs(\"[Runtime Error] heap allocation failed\\n\", stderr);\n                abort();\n            }\n            buffer = grown;\n        }\n        size_t count = fread(buffer + length, 1, 4096, file.stream);\n        length += count;\n        if (count < 4096) {\n            if (ferror(file.stream)) {\n                free(buffer);\n                return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n            }\n            break;\n        }\n    }\n    if (!hex_utf8_valid(buffer, length)) {\n        free(buffer);\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    const hex_string *text = hex_string_from_bytes(h, buffer, length);\n    free(buffer);\n    return (%s){ .tag = %s, .payload.member_%d = text };\n}\n",
 				union.CName, union.CName, unionTagName(union, errorIndex), errorIndex, message,
 				union.CName, unionTagName(union, errorIndex), errorIndex, message,
@@ -226,8 +226,8 @@ func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, stri
 		if union != (compilerTypes.Type{}) {
 			nilIndex := unionMemberIndex(union, compilerTypes.Nil)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-			message := state.ioMessage(strings, ioCouldNotWrite)
-			modeMessage := state.ioMessage(strings, ioModeError)
+			message := state.ioMessage(stringState, ioCouldNotWrite)
+			modeMessage := state.ioMessage(stringState, ioModeError)
 			fmt.Fprintf(result, "\nstatic inline %s hex_file_write_bytes(hex_file file, const uint8_t *data, size_t length, size_t line, size_t column, const hex_string *message, const hex_string *mode_message) {\n    (void)message;\n    (void)mode_message;\n    if (file.mode == HEX_FILE_READ) {\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    size_t written = 0;\n    while (written < length) {\n        size_t count = fwrite(data + written, 1, length - written, file.stream);\n        if (count == 0) {\n            return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n        }\n        written += count;\n    }\n    return (%s){ .tag = %s };\n}\n",
 				union.CName, union.CName, unionTagName(union, errorIndex), errorIndex, modeMessage,
 				union.CName, unionTagName(union, errorIndex), errorIndex, message,
@@ -239,8 +239,8 @@ func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, stri
 		if union != (compilerTypes.Type{}) {
 			nilIndex := unionMemberIndex(union, compilerTypes.Nil)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-			message := state.ioMessage(strings, ioCouldNotWrite)
-			modeMessage := state.ioMessage(strings, ioModeError)
+			message := state.ioMessage(stringState, ioCouldNotWrite)
+			modeMessage := state.ioMessage(stringState, ioModeError)
 			fmt.Fprintf(result, "\nstatic inline %s hex_file_write_text(hex_file file, const hex_string *text, size_t line, size_t column, const hex_string *message, const hex_string *mode_message, bool standard_gate) {\n    (void)message;\n    (void)mode_message;\n    if (standard_gate) {\n        hex_io_gate_lock();\n        if (hex_io_gate_closed) {\n            hex_io_gate_unlock();\n            return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n        }\n    }\n    if (file.mode == HEX_FILE_READ) {\n        if (standard_gate) {\n            hex_io_gate_unlock();\n        }\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    size_t written = 0;\n    while (written < text->byte_length) {\n        size_t count = fwrite(text->data + written, 1, text->byte_length - written, file.stream);\n        if (count == 0) {\n            if (standard_gate) {\n                hex_io_gate_unlock();\n            }\n            return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n        }\n        written += count;\n    }\n    if (standard_gate) {\n        hex_io_gate_unlock();\n    }\n    return (%s){ .tag = %s };\n}\n",
 				union.CName, union.CName, unionTagName(union, errorIndex), errorIndex, modeMessage,
 				union.CName, unionTagName(union, errorIndex), errorIndex, modeMessage,
@@ -253,8 +253,8 @@ func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, stri
 		if union != (compilerTypes.Type{}) {
 			nilIndex := unionMemberIndex(union, compilerTypes.Nil)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-			message := state.ioMessage(strings, ioCouldNotFlush)
-			modeMessage := state.ioMessage(strings, ioModeError)
+			message := state.ioMessage(stringState, ioCouldNotFlush)
+			modeMessage := state.ioMessage(stringState, ioModeError)
 			fmt.Fprintf(result, "\nstatic inline %s hex_file_flush(hex_file file, size_t line, size_t column, const hex_string *message, const hex_string *mode_message, bool standard_gate) {\n    (void)message;\n    (void)mode_message;\n    if (standard_gate) {\n        hex_io_gate_lock();\n        if (hex_io_gate_closed) {\n            hex_io_gate_unlock();\n            return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n        }\n    }\n    if (file.mode == HEX_FILE_READ) {\n        if (standard_gate) {\n            hex_io_gate_unlock();\n        }\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    if (fflush(file.stream) != 0) {\n        if (standard_gate) {\n            hex_io_gate_unlock();\n        }\n        return (%s){ .tag = %s, .payload.member_%d = hex_io_error(line, column, &%s) };\n    }\n    if (standard_gate) {\n        hex_io_gate_unlock();\n    }\n    return (%s){ .tag = %s };\n}\n",
 				union.CName, union.CName, unionTagName(union, errorIndex), errorIndex, modeMessage,
 				union.CName, unionTagName(union, errorIndex), errorIndex, modeMessage,
@@ -287,8 +287,8 @@ func (state *generatedIOState) writeIOErrorHelper(result *strings.Builder) {
 }
 
 // ioMessage resolves one failure message literal.
-func (state *generatedIOState) ioMessage(strings *generatedStringState, payload string) string {
-	if index, ok := strings.seen[payload]; ok {
+func (state *generatedIOState) ioMessage(stringState *generatedStringState, payload string) string {
+	if index, ok := stringState.seen[payload]; ok {
 		return stringLiteralCName(index - 1)
 	}
 	return state.fileLiteral

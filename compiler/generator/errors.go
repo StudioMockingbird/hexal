@@ -95,97 +95,50 @@ func writeErrorDefinition(result *strings.Builder) {
 // temporary plus the Error-return branch) before the statement renders. Each
 // try node is then replaced by its hoisted success value.
 func hoistTryInStatement(statement checker.Statement, body *strings.Builder, state *expressionValidation, result *compilerTypes.Type, indent string) error {
-	var walkOperand func(*checker.Operand) error
-	var walkExpression func(*checker.Expression) error
-	var walkStatements func([]checker.Statement) error
-
-	walkExpression = func(node *checker.Expression) error {
+	// RFC 0057 Item 5: expression traversal lives in the shared
+	// walkStatementExpressions; this hoister only acts on try nodes and
+	// recurses into nested statement bodies itself.
+	if err := walkStatementExpressions(statement, func(node *checker.Expression) error {
 		if node.Kind == checker.TryExpression && node.Operand != nil {
 			return hoistTry(node, body, state, result, indent)
 		}
-		if node.Operand != nil {
-			if err := walkExpression(node.Operand); err != nil {
-				return err
-			}
-		}
-		if node.Left != nil {
-			if err := walkExpression(node.Left); err != nil {
-				return err
-			}
-		}
-		if node.Right != nil {
-			if err := walkExpression(node.Right); err != nil {
-				return err
-			}
-		}
-		for index := range node.Arguments {
-			if err := walkOperand(&node.Arguments[index]); err != nil {
-				return err
-			}
-		}
 		return nil
+	}); err != nil {
+		return err
 	}
-	walkOperand = func(source *checker.Operand) error {
-		if source.Node.Kind != checker.InvalidExpression {
-			return walkExpression(&source.Node)
-		}
-		return nil
-	}
-	walkStatements = func(statements []checker.Statement) error {
-		for _, nested := range statements {
+	switch statement := statement.(type) {
+	case checker.IfStatement:
+		for _, nested := range statement.Then {
 			if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
 				return err
 			}
 		}
-		return nil
-	}
-
-	switch statement := statement.(type) {
-	case checker.Declaration:
-		return walkOperand(&statement.Source)
-	case checker.Assignment:
-		if err := walkOperand(&statement.Source); err != nil {
-			return err
-		}
-		return walkOperand(&statement.Target)
-	case checker.CallStatement:
-		return walkExpression(&statement.Call.Node)
-	case checker.TryStatement:
-		// RFC 0049 item 8.3: the statement's operand is the try expression
-		// whose prologue hoists; the success value renders nothing.
-		return walkOperand(&statement.Expression)
-	case checker.ReturnStatement:
-		if statement.Value != nil {
-			return walkOperand(statement.Value)
-		}
-	case checker.IfStatement:
-		if err := walkOperand(&statement.Condition); err != nil {
-			return err
-		}
-		if err := walkStatements(statement.Then); err != nil {
-			return err
-		}
 		for _, branch := range statement.ElseIf {
-			if err := walkOperand(&branch.Condition); err != nil {
-				return err
-			}
-			if err := walkStatements(branch.Body); err != nil {
-				return err
+			for _, nested := range branch.Body {
+				if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
+					return err
+				}
 			}
 		}
 		if statement.Else != nil {
-			return walkStatements(statement.Else)
+			for _, nested := range statement.Else {
+				if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
+					return err
+				}
+			}
 		}
 	case checker.ForStatement:
-		if err := walkOperand(&statement.Source); err != nil {
-			return err
+		for _, nested := range statement.Body {
+			if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
+				return err
+			}
 		}
-		return walkStatements(statement.Body)
 	case checker.WhileStatement:
-		if err := walkOperand(&statement.Condition); err != nil {
-			return err
+		for _, nested := range statement.Body {
+			if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
+				return err
+			}
 		}
-		return walkStatements(statement.Body)
 	}
 	return nil
 }

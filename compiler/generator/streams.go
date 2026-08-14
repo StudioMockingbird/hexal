@@ -365,15 +365,9 @@ func renderStreamConstructor(node checker.Expression, state *expressionValidatio
 // renderStreamMethod lowers next, filter, map, take, free, and the List
 // source operation.
 func renderStreamMethod(node checker.Expression, state *expressionValidation) (string, error) {
-	if node.Operand == nil {
-		return "", unknownExpressionDiagnostic("stream method without a checked receiver")
-	}
-	receiver, atomic, receiverErr := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
 	if receiverErr != nil {
 		return "", receiverErr
-	}
-	if !atomic {
-		receiver = "(" + receiver + ")"
 	}
 	switch node.Name {
 	case "next":

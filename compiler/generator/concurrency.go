@@ -77,7 +77,7 @@ const (
 // entries. Literals needed by the failure-Error helper are registered in the
 // string literal registry so the Error object's String members lower through
 // the ordinary literal machinery.
-func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, strings *generatedStringState, moduleID, owner string) (*generatedConcurrencyState, error) {
+func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, stringState *generatedStringState, moduleID, owner string) (*generatedConcurrencyState, error) {
 	state := &generatedConcurrencyState{
 		taskTypes:            make(map[string]compilerTypes.Type),
 		joinTypes:            make(map[string]compilerTypes.Type),
@@ -172,11 +172,11 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 	if err := walkProgram(program, visitor); err != nil {
 		return nil, err
 	}
-	if state.used && strings != nil {
-		strings.used = true
-		strings.needStrand = true
-		state.fileLiteral = registerConcurrencyLiteral(strings, sourceFilename)
-		state.headerLiteral = registerConcurrencyLiteral(strings, "Scheduler")
+	if state.used && stringState != nil {
+		stringState.used = true
+		stringState.needStrand = true
+		state.fileLiteral = registerConcurrencyLiteral(stringState, sourceFilename)
+		state.headerLiteral = registerConcurrencyLiteral(stringState, "Scheduler")
 		for _, payload := range []string{taskCreationFailed, channelCreationFailed, channelSendFailed, mutexCreationFailed} {
 			needed := false
 			switch payload {
@@ -190,7 +190,7 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 				needed = state.mutexCreate
 			}
 			if needed {
-				registerConcurrencyLiteral(strings, payload)
+				registerConcurrencyLiteral(stringState, payload)
 			}
 		}
 	}
@@ -199,13 +199,13 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 
 // registerConcurrencyLiteral interns one payload in the string literal
 // registry and returns the C literal object name.
-func registerConcurrencyLiteral(strings *generatedStringState, payload string) string {
-	if index, ok := strings.seen[payload]; ok {
+func registerConcurrencyLiteral(stringState *generatedStringState, payload string) string {
+	if index, ok := stringState.seen[payload]; ok {
 		return stringLiteralCName(index - 1)
 	}
-	strings.literals = append(strings.literals, payload)
-	strings.seen[payload] = len(strings.literals)
-	return stringLiteralCName(len(strings.literals) - 1)
+	stringState.literals = append(stringState.literals, payload)
+	stringState.seen[payload] = len(stringState.literals)
+	return stringLiteralCName(len(stringState.literals) - 1)
 }
 
 // spawnSiteFor derives one spawn site from the checked call node: the named
@@ -253,8 +253,8 @@ func atomicSuffix(atomic compilerTypes.Type) string {
 }
 
 // messageLiteral returns the C literal object name of one failure message.
-func (state *generatedConcurrencyState) messageLiteral(strings *generatedStringState, payload string) string {
-	if index, ok := strings.seen[payload]; ok {
+func (state *generatedConcurrencyState) messageLiteral(stringState *generatedStringState, payload string) string {
+	if index, ok := stringState.seen[payload]; ok {
 		return stringLiteralCName(index - 1)
 	}
 	return state.fileLiteral
@@ -339,7 +339,7 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 // Channel and Mutex cores. Everything here holds process-wide state or is a
 // non-inline static function, so it exists exactly once per process, never in
 // a header both translation units include.
-func writeConcurrencyRuntime(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+func writeConcurrencyRuntime(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if state == nil || !state.used {
 		return
 	}
@@ -382,7 +382,7 @@ func writeConcurrencyExterns(result *strings.Builder, state *generatedConcurrenc
 // parameter types), the Task join helpers, the Channel and Mutex operation
 // families, and the Atomic family. They are state-free and only call the
 // runtime core through its main.h declarations.
-func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if state == nil || !state.used {
 		return
 	}
@@ -395,8 +395,8 @@ func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConc
 	}
 	writeSpawnArgFrames(result, state.spawns)
 	writeTaskTypeHelpers(result, state)
-	writeChannelInlineHelpers(result, state, strings)
-	writeMutexInlineHelpers(result, state, strings)
+	writeChannelInlineHelpers(result, state, stringState)
+	writeMutexInlineHelpers(result, state, stringState)
 	writeAtomicHelpers(result, state)
 }
 
@@ -1031,7 +1031,7 @@ void hex_chan_free(hex_chan *channel) {
 // into the module header. The helpers build the checked result unions
 // (Channel | Error, Nil | Error, and T | EoS) around the shared core and the
 // Error-construction helper.
-func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if len(state.channels) == 0 {
 		return
 	}
@@ -1050,7 +1050,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 			if union != (compilerTypes.Type{}) {
 				channelIndex := unionMemberIndex(union, channel)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-				message := state.messageLiteral(strings, channelCreationFailed)
+				message := state.messageLiteral(stringState, channelCreationFailed)
 				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = channel };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, channelIndex), channelIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
 			}
@@ -1060,7 +1060,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 			if union != (compilerTypes.Type{}) {
 				nilIndex := unionMemberIndex(union, compilerTypes.Nil)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-				message := state.messageLiteral(strings, channelSendFailed)
+				message := state.messageLiteral(stringState, channelSendFailed)
 				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, nilIndex), union.CName, unionTagName(union, errorIndex), errorIndex, message)
 			}
@@ -1167,7 +1167,7 @@ void hex_mutex_free(hex_mutex *mutex) {
 // writeMutexInlineHelpers emits the per-operation Mutex wrapper family into
 // the module header. The wrappers call the core and the Error-construction
 // helper; they hold no state of their own.
-func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, strings *generatedStringState) {
+func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if !state.mutexNew && !state.mutexLock && !state.mutexUnlock && !state.mutexFree {
 		return
 	}
@@ -1176,7 +1176,7 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 		if union != (compilerTypes.Type{}) {
 			mutexIndex := unionMemberIndex(union, compilerTypes.MutexType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-			message := state.messageLiteral(strings, mutexCreationFailed)
+			message := state.messageLiteral(stringState, mutexCreationFailed)
 			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = mutex };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 				union.CName, union.CName, unionTagName(union, mutexIndex), mutexIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
 		}
@@ -1225,93 +1225,50 @@ func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyStat
 // task handle. It runs before the try hoister, whose operand render may
 // reference the spawned task handle.
 func hoistConcurrencyInStatement(statement checker.Statement, body *strings.Builder, state *expressionValidation, indent string) error {
-	var walkOperand func(*checker.Operand) error
-	var walkExpression func(*checker.Expression) error
-	var walkStatements func([]checker.Statement) error
-
-	walkExpression = func(node *checker.Expression) error {
+	// RFC 0057 Item 5: expression traversal lives in the shared
+	// walkStatementExpressions; this hoister only acts on spawn nodes and
+	// recurses into nested statement bodies itself.
+	if err := walkStatementExpressions(statement, func(node *checker.Expression) error {
 		if node.Kind == checker.SpawnExpression {
 			return hoistSpawn(node, body, state, indent)
 		}
-		if node.Operand != nil {
-			if err := walkExpression(node.Operand); err != nil {
-				return err
-			}
-		}
-		if node.Left != nil {
-			if err := walkExpression(node.Left); err != nil {
-				return err
-			}
-		}
-		if node.Right != nil {
-			if err := walkExpression(node.Right); err != nil {
-				return err
-			}
-		}
-		for index := range node.Arguments {
-			if err := walkOperand(&node.Arguments[index]); err != nil {
-				return err
-			}
-		}
 		return nil
+	}); err != nil {
+		return err
 	}
-	walkOperand = func(source *checker.Operand) error {
-		if source.Node.Kind != checker.InvalidExpression {
-			return walkExpression(&source.Node)
-		}
-		return nil
-	}
-	walkStatements = func(statements []checker.Statement) error {
-		for _, nested := range statements {
+	switch statement := statement.(type) {
+	case checker.IfStatement:
+		for _, nested := range statement.Then {
 			if err := hoistConcurrencyInStatement(nested, body, state, indent); err != nil {
 				return err
 			}
 		}
-		return nil
-	}
-
-	switch statement := statement.(type) {
-	case checker.Declaration:
-		return walkOperand(&statement.Source)
-	case checker.Assignment:
-		if err := walkOperand(&statement.Source); err != nil {
-			return err
-		}
-		return walkOperand(&statement.Target)
-	case checker.CallStatement:
-		return walkExpression(&statement.Call.Node)
-	case checker.ReturnStatement:
-		if statement.Value != nil {
-			return walkOperand(statement.Value)
-		}
-	case checker.IfStatement:
-		if err := walkOperand(&statement.Condition); err != nil {
-			return err
-		}
-		if err := walkStatements(statement.Then); err != nil {
-			return err
-		}
 		for _, branch := range statement.ElseIf {
-			if err := walkOperand(&branch.Condition); err != nil {
-				return err
-			}
-			if err := walkStatements(branch.Body); err != nil {
-				return err
+			for _, nested := range branch.Body {
+				if err := hoistConcurrencyInStatement(nested, body, state, indent); err != nil {
+					return err
+				}
 			}
 		}
 		if statement.Else != nil {
-			return walkStatements(statement.Else)
+			for _, nested := range statement.Else {
+				if err := hoistConcurrencyInStatement(nested, body, state, indent); err != nil {
+					return err
+				}
+			}
 		}
 	case checker.ForStatement:
-		if err := walkOperand(&statement.Source); err != nil {
-			return err
+		for _, nested := range statement.Body {
+			if err := hoistConcurrencyInStatement(nested, body, state, indent); err != nil {
+				return err
+			}
 		}
-		return walkStatements(statement.Body)
 	case checker.WhileStatement:
-		if err := walkOperand(&statement.Condition); err != nil {
-			return err
+		for _, nested := range statement.Body {
+			if err := hoistConcurrencyInStatement(nested, body, state, indent); err != nil {
+				return err
+			}
 		}
-		return walkStatements(statement.Body)
 	}
 	return nil
 }

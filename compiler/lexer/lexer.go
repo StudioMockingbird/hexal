@@ -78,14 +78,14 @@ func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
 			if index+1 >= len(body) || body[index+1] != '{' {
 				return nil, "Unicode escape requires \\u{HEX}"
 			}
-			close := index + 2
-			for close < len(body) && body[close] != '}' {
-				close++
+			closeIndex := index + 2
+			for closeIndex < len(body) && body[closeIndex] != '}' {
+				closeIndex++
 			}
-			if close >= len(body) {
+			if closeIndex >= len(body) {
 				return nil, "Unicode escape requires \\u{HEX}"
 			}
-			digits := body[index+2 : close]
+			digits := body[index+2 : closeIndex]
 			if len(digits) == 0 {
 				return nil, "Unicode escape requires \\u{HEX}"
 			}
@@ -94,7 +94,7 @@ func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
 				return nil, "invalid Unicode scalar value in escape"
 			}
 			payload = append(payload, []byte(string(rune(value)))...)
-			index = close
+			index = closeIndex
 		default:
 			return nil, "unsupported escape \\" + string(escaped)
 		}
