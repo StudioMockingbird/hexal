@@ -187,7 +187,8 @@ reserved-word = "true" | "false" | "nil" | "eos" | "mut" | "ref"
                 | "end" | "return" | "if" | "elseif" | "else"
                 | "while" | "break" | "continue" | "defer" | "try"
                 | "errdefer" | "spawn" | "as" | "match" | "then"
-                | "self" | "for" | "in" | "do" ;
+                | "self" | "for" | "in" | "do" | "module" | "import"
+                | "export" ;
 integer-literal = decimal-integer | hexadecimal-integer
                   | binary-integer | octal-integer ;
 decimal-integer = "0" | nonzero-decimal-digit
@@ -1050,7 +1051,7 @@ MutPtr<T>.write_volatile(value: T) -> no value
 
 ## Excluded features
 
-- Modules/FFI: C imports/exports and cross-module resolution.
+- FFI: C imports/exports and foreign ABI remain draft and are not part of this language; native modules are implemented.
 - Memory: Arena, Pool, source pointer arithmetic/casts, `unsafe`, mutable View.
 - Control/iteration: ranges, counted loops, user iterators, mutable iteration binders, exceptions.
 - Functions/concurrency: closures, async/await, coroutines, user threads, task groups, `select`,
