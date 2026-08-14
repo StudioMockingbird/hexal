@@ -322,7 +322,7 @@ func (parser *Parser) whileStatement() (WhileStatement, error) {
 		return WhileStatement{}, err
 	}
 	// RFC 0028: `do` is the mandatory boundary between the header and body.
-	if _, err := parser.consume(lexer.Do, "expected 'do' after while condition"); err != nil {
+	if _, err := parser.consume(lexer.Do, "'do' after while condition"); err != nil {
 		return WhileStatement{}, err
 	}
 	body, err := parser.block("while", lexer.End)
@@ -358,14 +358,14 @@ func (parser *Parser) forStatement() (ForStatement, error) {
 	if len(binders) < 1 {
 		return ForStatement{}, parser.errorAt(keyword, "a for-in loop needs at least one binder")
 	}
-	if _, err := parser.consume(lexer.In, "expected 'in' after loop binders"); err != nil {
+	if _, err := parser.consume(lexer.In, "'in' after loop binders"); err != nil {
 		return ForStatement{}, err
 	}
 	source, err := parser.expression()
 	if err != nil {
 		return ForStatement{}, err
 	}
-	if _, err := parser.consume(lexer.Do, "expected 'do' after for source"); err != nil {
+	if _, err := parser.consume(lexer.Do, "'do' after for source"); err != nil {
 		return ForStatement{}, err
 	}
 	body, err := parser.block("for", lexer.End)
