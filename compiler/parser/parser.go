@@ -21,6 +21,14 @@ type Parser struct {
 	// arm and an unparenthesized `is` selects type mode (RFC 0049 item 3).
 	// Parenthesized subexpressions clear it.
 	matchBoundary matchBoundaryKind
+	// implReceiver is set while parsing an impl declaration's receiver type
+	// and unionMemberDepth counts union-member primaries inside it. A dotted
+	// name inside such a member (impl MutPtr<Node> | Nil.read()) is the
+	// declaration's method delimiter, never a qualified type chain; every
+	// union receiver is semantically invalid anyway, so suppressing the chain
+	// there loses nothing.
+	implReceiver     bool
+	unionMemberDepth int
 }
 
 // matchBoundaryKind selects which tokens terminate a match position's top-level
@@ -90,18 +98,76 @@ func Parse(tokens []lexer.Token) (Program, error) {
 
 func (parser *Parser) topLevelItem() (TopLevelItem, error) {
 	switch {
+	case parser.check(lexer.Export):
+		return parser.exportedDeclaration()
+	case parser.check(lexer.Module):
+		return parser.importDeclaration()
+	case parser.check(lexer.Import):
+		// A bare `import` lacks the mandatory `module <alias> =` prefix; route
+		// through importDeclaration so the diagnostic points at the keyword.
+		return parser.importDeclaration()
 	case parser.check(lexer.Type):
-		return parser.typeDeclaration()
+		return parser.typeDeclaration(false)
 	case parser.check(lexer.Fun):
-		return parser.functionDeclaration()
+		return parser.functionDeclaration(false)
 	case parser.check(lexer.Impl):
-		return parser.implDeclaration()
+		return parser.implDeclaration(false)
 	}
 	statement, err := parser.statement()
 	if err != nil {
 		return nil, err
 	}
 	return statement, nil
+}
+
+// exportedDeclaration consumes a leading `export` and requires the RFC 0034
+// exportable declaration forms: a module-level type, function, or
+// implementation declaration. Anything else is a Syntax Error.
+func (parser *Parser) exportedDeclaration() (TopLevelItem, error) {
+	parser.advance()
+	switch {
+	case parser.check(lexer.Type):
+		return parser.typeDeclaration(true)
+	case parser.check(lexer.Fun):
+		return parser.functionDeclaration(true)
+	case parser.check(lexer.Impl):
+		return parser.implDeclaration(true)
+	}
+	next := parser.peek()
+	parser.synchronize(parser.current)
+	return nil, parser.errorAt(next, "export may prefix only a module-level type, function, or implementation declaration")
+}
+
+// importDeclaration parses the exact RFC 0034 form
+// `module <identifier> = import <module-path-literal>` and binds the alias.
+func (parser *Parser) importDeclaration() (ImportDeclaration, error) {
+	moduleKeyword, err := parser.consume(lexer.Module, "'module'")
+	if err != nil {
+		return ImportDeclaration{}, err
+	}
+	alias, err := parser.consume(lexer.Identifier, "an identifier after 'module'")
+	if err != nil {
+		return ImportDeclaration{}, err
+	}
+	equal, err := parser.consume(lexer.Equal, "'='")
+	if err != nil {
+		return ImportDeclaration{}, err
+	}
+	importKeyword, err := parser.consume(lexer.Import, "'import'")
+	if err != nil {
+		return ImportDeclaration{}, err
+	}
+	path, err := parser.consume(lexer.ModulePathLiteral, "a module path literal after 'import'")
+	if err != nil {
+		return ImportDeclaration{}, err
+	}
+	return ImportDeclaration{
+		ModuleKeyword: moduleKeyword,
+		Alias:         alias,
+		Equal:         equal,
+		ImportKeyword: importKeyword,
+		Path:          path,
+	}, nil
 }
 
 func (parser *Parser) peek() lexer.Token {
@@ -190,6 +256,11 @@ func (parser *Parser) statement() (Statement, error) {
 			return nil, parser.errorAt(parser.peek(), "'elseif' cannot appear after 'else'")
 		}
 		return nil, parser.errorAt(parser.peek(), "unexpected 'elseif' outside an if statement")
+	case parser.check(lexer.Export):
+		// RFC 0034: export applies only to module-level declarations. At
+		// statement position it can never be valid, so it is rejected here
+		// rather than as a confusing identifier-form error.
+		return nil, parser.errorAt(parser.peek(), "export may prefix only a module-level type, function, or implementation declaration")
 	case parser.check(lexer.Else):
 		if len(parser.blockStack) > 0 {
 			top := parser.blockStack[len(parser.blockStack)-1]
@@ -357,6 +428,7 @@ func (parser *Parser) atStatementStart() bool {
 		return true
 	}
 	if parser.check(lexer.Type) || parser.check(lexer.Fun) || parser.check(lexer.Impl) ||
+		parser.check(lexer.Module) || parser.check(lexer.Import) || parser.check(lexer.Export) ||
 		parser.check(lexer.If) || parser.check(lexer.While) || parser.check(lexer.For) ||
 		parser.check(lexer.Break) || parser.check(lexer.Continue) || parser.check(lexer.Return) ||
 		parser.check(lexer.Self) {

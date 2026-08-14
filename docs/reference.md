@@ -21,8 +21,16 @@ lexical-separation = ? whitespace and comments are discarded between tokens,
                        except where same-line is required ? ;
 same-line = ? no line break occurs before the next token ? ;
 
-top-level-item = type-declaration | function-declaration
-                 | implementation-declaration | statement ;
+top-level-item = module-declaration | [ "export" ] , declaration-item
+                 | statement ;
+module-declaration = "module" , identifier , "=" , "import"
+                     , module-path-literal ;
+module-path-literal = ? a quoted literal scanned only when the previous
+                        token is "import" on the same line; the payload
+                        between quotes is taken verbatim (no escape decoding);
+                        a backslash in the payload is invalid ? ;
+declaration-item = type-declaration | function-declaration
+                   | implementation-declaration ;
 type-declaration = "type" , identifier , [ generic-parameter-list ]
                    , "=" , type-definition-expression ;
 function-declaration = "fun" , identifier , [ generic-parameter-list ]
@@ -78,7 +86,9 @@ union-type-expression = primary-type-expression
 primary-type-expression = named-type | generic-type | array-type
                           | pointer-type | function-type-expression
                           | "(" , type-expression , ")" ;
-named-type = identifier - special-form-type-constructor ;
+named-type = identifier - special-form-type-constructor
+             | identifier - special-form-type-constructor , "." , identifier
+               , { "." , identifier } ;
 generic-type = generic-type-name , type-argument-list ;
 generic-type-name = identifier - special-form-type-constructor ;
 special-form-type-constructor = "Array" | "Ptr" | "MutPtr" | "Fun" ;
@@ -243,7 +253,8 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Invalid or unsupported source fails closed under the diagnostic contract below.
 - Values follow C-style shallow copying. Allocation and cleanup are explicit; there are no moves,
   borrow states, retain counts, implicit destructors, or compiler-enforced exactly-once cleanup.
-- Native modules, C interop, Arena, and Pool remain draft features and are not part of this language.
+- Native modules exist in grammar and parse: every `.hex` source is a module; `module <alias> = import "<path>"` binds an alias; qualified names `Alias.Type` refer into an imported module; `export` prefixes a module-level type, function, or implementation declaration and is the only visibility marker. Import resolution and cross-module checking are not yet implemented; any `import` fails closed with a Module Error.
+- C interop, Arena, and Pool remain draft features and are not part of this language.
 - When no source name is supplied, the compilation unit uses the synthetic filename `main.hex` in
   diagnostics, generated `#line` directives, and `Error.file`. `.hex` is the intended source
   extension; file loading is unspecified.
@@ -1039,7 +1050,7 @@ MutPtr<T>.write_volatile(value: T) -> no value
 
 ## Excluded features
 
-- Modules/FFI: native module syntax, C imports/exports.
+- Modules/FFI: C imports/exports and cross-module resolution.
 - Memory: Arena, Pool, source pointer arithmetic/casts, `unsafe`, mutable View.
 - Control/iteration: ranges, counted loops, user iterators, mutable iteration binders, exceptions.
 - Functions/concurrency: closures, async/await, coroutines, user threads, task groups, `select`,

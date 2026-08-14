@@ -316,6 +316,17 @@ func Check(program parser.Program) (Program, error) {
 			if len(statementDiagnostics) == 0 && checkedStatement.Object != nil {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
+		case parser.ImportDeclaration:
+			// RFC 0034 Task 3 keeps imports grammatically; module resolution
+			// is a later phase. Until then any import is unsupported, and it
+			// must fail with a structured diagnostic rather than a blank.
+			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+				Category: compilerTypes.ModuleError,
+				Stage:    "checker",
+				Line:     statement.ModuleKeyword.Line,
+				Column:   statement.ModuleKeyword.Column,
+				Message:  "imports are not resolved yet",
+			})
 		default:
 			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 				Category: compilerTypes.UnknownError,
@@ -946,6 +957,18 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 			}
 		}
 		return resolved, nil
+	case parser.QualifiedTypeExpression:
+		// RFC 0034 Task 3: dotted type names parse; import resolution that
+		// can prove the alias exists arrives with the module phase. Until
+		// then every dotted name fails as an unknown alias.
+		message := "unknown module alias " + expression.Module.Lexeme
+		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
+			Category: compilerTypes.ModuleError,
+			Stage:    "checker",
+			Line:     expression.Module.Line,
+			Column:   expression.Module.Column,
+			Message:  message,
+		}
 	case parser.GenericTypeExpression:
 		if expression.Name.Lexeme == "View" {
 			return resolveViewTypeUse(expression, fallback, typeEnvironment, generics)

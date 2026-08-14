@@ -19,6 +19,17 @@ type NamedTypeExpression struct {
 
 func (NamedTypeExpression) typeExpressionNode() {}
 
+// QualifiedTypeExpression refers to a type through an RFC 0034 import alias:
+// Module.Names is a dotted chain whose first component is the alias. Names
+// always has at least one element; the checker resolves the chain inside the
+// imported module.
+type QualifiedTypeExpression struct {
+	Module lexer.Token
+	Names  []lexer.Token
+}
+
+func (QualifiedTypeExpression) typeExpressionNode() {}
+
 // GenericTypeExpression names a user generic type with concrete arguments.
 type GenericTypeExpression struct {
 	Name      lexer.Token
@@ -82,7 +93,9 @@ func (parser *Parser) typeExpression() (TypeExpression, error) {
 	pipes := make([]lexer.Token, 0, 1)
 	for parser.check(lexer.Pipe) {
 		pipes = append(pipes, parser.advance())
+		parser.unionMemberDepth++
 		member, err := parser.primaryTypeExpression()
+		parser.unionMemberDepth--
 		if err != nil {
 			return nil, err
 		}
@@ -140,6 +153,27 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 	name, err := parser.consume(lexer.Identifier, "a type name")
 	if err != nil {
 		return nil, err
+	}
+	// RFC 0034: a dotted chain in type position is an import-qualified type
+	// (Module.Names). The chain is greedy; the impl receiver parse peels its
+	// final component back into the method name. It is suppressed inside an
+	// impl receiver's union members, where the dot is the method delimiter.
+	if parser.check(lexer.Dot) && !(parser.implReceiver && parser.unionMemberDepth > 0) {
+		names := make([]lexer.Token, 0, 1)
+		for {
+			if _, err := parser.consume(lexer.Dot, "'.' after a type name"); err != nil {
+				return nil, err
+			}
+			component, err := parser.consume(lexer.Identifier, "a type name after '.'")
+			if err != nil {
+				return nil, err
+			}
+			names = append(names, component)
+			if !parser.check(lexer.Dot) {
+				break
+			}
+		}
+		return QualifiedTypeExpression{Module: name, Names: names}, nil
 	}
 	switch name.Lexeme {
 	case "Nil":

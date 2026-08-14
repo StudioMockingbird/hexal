@@ -6,7 +6,9 @@ import (
 	"hexal/compiler/lexer"
 )
 
-func (parser *Parser) typeDeclaration() (TypeDeclaration, error) {
+// typeDeclaration parses `type Name = Target`. The exported flag records an
+// RFC 0034 `export` prefix consumed by the caller.
+func (parser *Parser) typeDeclaration(exported bool) (TypeDeclaration, error) {
 	keyword, err := parser.consume(lexer.Type, "'type'")
 	if err != nil {
 		return TypeDeclaration{}, err
@@ -26,7 +28,7 @@ func (parser *Parser) typeDeclaration() (TypeDeclaration, error) {
 	if err != nil {
 		return TypeDeclaration{}, err
 	}
-	return TypeDeclaration{Keyword: keyword, Name: name, Parameters: parameters, Target: target}, nil
+	return TypeDeclaration{Keyword: keyword, Name: name, Parameters: parameters, Target: target, Exported: exported}, nil
 }
 
 // genericParameterList parses an optional "<" identifier { "," identifier }
@@ -59,7 +61,7 @@ func (parser *Parser) genericParameterList() ([]lexer.Token, error) {
 	return parameters, nil
 }
 
-func (parser *Parser) functionDeclaration() (FunctionDeclaration, error) {
+func (parser *Parser) functionDeclaration(exported bool) (FunctionDeclaration, error) {
 	keyword := parser.advance()
 	name, err := parser.consume(lexer.Identifier, "a function name after 'fun'")
 	if err != nil {
@@ -87,16 +89,53 @@ func (parser *Parser) functionDeclaration() (FunctionDeclaration, error) {
 		Body:            body,
 		End:             end,
 		HasSyntaxErrors: len(parser.diagnostics) > diagnosticsBeforeBody,
+		Exported:        exported,
 	}, nil
 }
 
-func (parser *Parser) implDeclaration() (ImplDeclaration, error) {
+func (parser *Parser) implDeclaration(exported bool) (ImplDeclaration, error) {
 	keyword := parser.advance()
 	// The receiver forms are exactly the identifier and pointer-constructor
-	// type expressions, so the shared type grammar covers them.
+	// type expressions, so the shared type grammar covers them. A dotted
+	// receiver like Geometry.Point.rotate() parses as one qualified chain;
+	// its final component is peeled back into the method name below so the
+	// receiver type stays Geometry.Point. A plain local receiver like
+	// Point.translate() peels back to the ordinary named type Point.
+	parser.implReceiver = true
 	selfType, err := parser.typeExpression()
+	parser.implReceiver = false
 	if err != nil {
 		return ImplDeclaration{}, err
+	}
+	if qualified, ok := selfType.(QualifiedTypeExpression); ok {
+		last := qualified.Names[len(qualified.Names)-1]
+		qualified.Names = qualified.Names[:len(qualified.Names)-1]
+		if len(qualified.Names) == 0 {
+			selfType = NamedTypeExpression{Name: qualified.Module}
+		} else {
+			selfType = qualified
+		}
+		name := last
+		parameters, returnType, err := parser.signature()
+		if err != nil {
+			return ImplDeclaration{}, err
+		}
+		diagnosticsBeforeBody := len(parser.diagnostics)
+		body, end, err := parser.body("method " + name.Lexeme)
+		if err != nil {
+			return ImplDeclaration{}, err
+		}
+		return ImplDeclaration{
+			Keyword:         keyword,
+			SelfType:        selfType,
+			Name:            name,
+			Parameters:      parameters,
+			Return:          returnType,
+			Body:            body,
+			End:             end,
+			HasSyntaxErrors: len(parser.diagnostics) > diagnosticsBeforeBody,
+			Exported:        exported,
+		}, nil
 	}
 	if _, err := parser.consume(lexer.Dot, "'.' after an impl receiver type"); err != nil {
 		return ImplDeclaration{}, err
@@ -128,6 +167,7 @@ func (parser *Parser) implDeclaration() (ImplDeclaration, error) {
 		Body:            body,
 		End:             end,
 		HasSyntaxErrors: len(parser.diagnostics) > diagnosticsBeforeBody,
+		Exported:        exported,
 	}, nil
 }
 

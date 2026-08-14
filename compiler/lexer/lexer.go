@@ -4,6 +4,7 @@ package lexer
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"unicode/utf8"
 
 	compilerTypes "hexal/compiler/types"
@@ -193,6 +194,11 @@ const (
 	// RFC 0044: byte, rune, and string literals share one escape grammar.
 	ByteLiteral
 	RuneLiteral
+	// RFC 0034: module imports, export modifiers, and module-path literals.
+	Module
+	Import
+	Export
+	ModulePathLiteral
 	EOF
 )
 
@@ -231,6 +237,10 @@ var keywords = map[string]TokenKind{
 	"for": For,
 	"in":  In,
 	"do":  Do,
+	// RFC 0034: module imports and export modifiers.
+	"module": Module,
+	"import": Import,
+	"export": Export,
 }
 
 // String returns the readable name used in parser diagnostics.
@@ -366,6 +376,14 @@ func (kind TokenKind) String() string {
 		return "in"
 	case Do:
 		return "do"
+	case Module:
+		return "module"
+	case Import:
+		return "import"
+	case Export:
+		return "export"
+	case ModulePathLiteral:
+		return "module path literal"
 	case EOF:
 		return "end of input"
 	default:
@@ -625,6 +643,49 @@ func Lex(source string) ([]Token, error) {
 			startColumn := column
 			index++
 			column++
+			// RFC 0034: the literal immediately after `import` on the same
+			// line is a module path: a raw quoted payload with no escape
+			// decoding. A backslash is rejected outright; module paths are
+			// plain relative path spellings.
+			isModulePath := len(tokens) > 0 && tokens[len(tokens)-1].Kind == Import && tokens[len(tokens)-1].Line == line
+			if isModulePath {
+				pathPayloadStart := index
+				terminated := false
+				for index < len(source) {
+					character := source[index]
+					index++
+					column++
+					if character == '"' {
+						terminated = true
+						break
+					}
+					if character == '\n' || character == '\r' {
+						break
+					}
+				}
+				if !terminated {
+					diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+						Category: compilerTypes.SyntaxError,
+						Stage:    "lexer",
+						Line:     line,
+						Column:   column,
+						Message:  "unterminated module path literal",
+					})
+				}
+				if strings.ContainsRune(source[pathPayloadStart:index-1], '\\') {
+					diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+						Category: compilerTypes.SyntaxError,
+						Stage:    "lexer",
+						Line:     line,
+						Column:   startColumn,
+						Message:  "invalid module-path literal",
+					})
+				}
+				// Keep a recovery token even when the path is malformed so
+				// the parser can synchronize on a real token sequence.
+				tokens = append(tokens, Token{Kind: ModulePathLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
+				continue
+			}
 			terminated := false
 			var newlineLine, newlineColumn int
 			hasRawNewline := false
