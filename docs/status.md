@@ -9,16 +9,17 @@ gets deleted.
 
 ## Open TODOs
 
-### Approved, ready to implement
+### Implementation-ready
 
 | Work | Spec |
 |---|---|
-| Reference contract cleanup — cohesiveness, eligibility, API completeness, syntax deduplication | [0050](specs/0050-reference-contract-cleanup.md) |
+| Compiler conformance and cleanup — 5 defects, Size target-driven, generator traversal, RFC 0050 conformance | [0049](specs/0049-conformance-bug-batch.md) |
+| Reference-derived test conformance — helpers, subtests, C23 harness, obsolete-test replacement | [0048](specs/0048-test-helpers-and-harness.md) |
 
-### Pending approval
-
-| Work | Spec |
-|---|---|
+These two are coupled. RFC 0049 §8.1 restricts standalone `Nil` and breaks ten
+test files that RFC 0048 catalogues; they land together or the suite goes red
+between them. RFC 0049 §7 rewrites the generator traversal, so the C23 harness
+RFC 0048 retains is the check that generated C still compiles.
 
 ### Design not started
 

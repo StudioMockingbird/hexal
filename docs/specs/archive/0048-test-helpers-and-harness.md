@@ -151,6 +151,22 @@ likewise unaffected.
 - Remove stale affine/move/destruction terminology from String, List, Dict, and
   C23 smoke-test comments. Use shallow copy, alias, explicit cleanup, and
   container-only cleanup.
+
+### RFC 0034 generated-artifact migration
+
+- When RFC 0034 lands, `MainC`/`MainH` denote only top-level entrypoint
+  `main.c`/`main.h` and no longer contain root module implementation text.
+- Migrate every test that inspects root generated code to
+  `Files["modules/main.c"]` or `Files["modules/main.h"]` for the synthetic
+  single-source root.
+- Add root-artifact assertion helpers only if repeated use justifies them; they
+  must read `Files`, not reinterpret `MainC`/`MainH`.
+- C23 tests materialize the complete sorted `Files` artifact set and compile
+  every required translation unit rather than compiling `MainC` alone.
+- Preserve tests that specifically inspect the thin entrypoint in
+  `MainC`/`MainH`.
+- This migration lands with RFC 0034. Do not preserve the former monolithic
+  artifact layout through a second generator path.
 - `TestListOfStrings` and `TestDictStringValues` pop/remove a String literal
   handle and free it — a runtime trap under shallow semantics that compile-only
   assertions mask. Rewrite with runtime Strings (`"...".to_string(h)`) freed
@@ -439,8 +455,9 @@ Do not add tests that impose behavior where the reference states none:
 5. Add standalone-Nil, zero-result, position, pointer/Atomic, and Fun matrices.
 6. Add numeric, control-flow, evaluation-order, and remaining static matrices.
 7. Add runtime suites by facet.
-8. Add the diagnostic-class sweep and reference-section citations.
-9. Run `go test ./...` and `go test -tags c23 ./compiler`.
+8. Apply the RFC 0034 generated-artifact migration when modules land.
+9. Add the diagnostic-class sweep and reference-section citations.
+10. Run `go test ./...` and `go test -tags c23 ./compiler`.
 
 Each step keeps the applicable suite green. A semantic mismatch found while
 adding a test is a compiler conformance bug and is not hidden by weakening the
