@@ -118,7 +118,7 @@ func TestArrayMembersAndFunctions(t *testing.T) {
 		"*hex_array_at_Int32_2(&hex_v_pair.hex_m_values, (size_t)(1))",
 		"*hex_array_at_mut_Int32_2(&hex_v_pair.hex_m_values, (size_t)(1)) = 9;",
 		"*hex_array_at_Int32_3(&hex_v_values, (size_t)(0))",
-		"hex_v_head = hex_f_first((hex_array_Int32_3){{5, 6, 7}});",
+		"hex_v_head = hex_f_3_app_first((hex_array_Int32_3){{5, 6, 7}});",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)

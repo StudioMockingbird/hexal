@@ -25,6 +25,7 @@ type FunctionDeclaration struct {
 	Defers       []DeferredAction
 	SourceLine   int
 	SourceColumn int
+	Exported     bool // RFC 0034: external linkage + prototype in this module's header
 }
 
 func (FunctionDeclaration) statementNode() {}
@@ -457,6 +458,7 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 		Name:         name,
 		SourceLine:   declaration.Name.Line,
 		SourceColumn: declaration.Name.Column,
+		Exported:     declaration.Exported,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
@@ -604,6 +606,7 @@ type MethodDeclaration struct {
 	Defers       []DeferredAction
 	SourceLine   int
 	SourceColumn int
+	Exported     bool // RFC 0034: external linkage + prototype in this module's header
 }
 
 func (MethodDeclaration) statementNode() {}
@@ -664,6 +667,7 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		Name:         name,
 		SourceLine:   declaration.Name.Line,
 		SourceColumn: declaration.Name.Column,
+		Exported:     declaration.Exported,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
@@ -2015,19 +2019,33 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 		resultType = *method.Result
 	}
 	node := Expression{
-		Kind:        MethodCallExpression,
-		Name:        name,
-		Owner:       object,
-		Operand:     &adapted.Node,
-		Arguments:   arguments,
-		OperandType: method.SelfType,
-		ResultType:  resultType,
+		Kind:             MethodCallExpression,
+		Name:             name,
+		Owner:            object,
+		Operand:          &adapted.Node,
+		Arguments:        arguments,
+		OperandType:      method.SelfType,
+		ResultType:       resultType,
+		MethodParameters: methodParameterTypes(&method),
 	}
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node},
 		typ:    resultType,
 		token:  callee.Property,
 	}
+}
+
+// methodParameterTypes extracts the declared parameter types of a method
+// record for the foreign-prototype emission in the generator.
+func methodParameterTypes(method *MethodDeclaration) []compilerTypes.Type {
+	if method == nil {
+		return nil
+	}
+	types := make([]compilerTypes.Type, 0, len(method.Parameters))
+	for _, parameter := range method.Parameters {
+		types = append(types, parameter.Type)
+	}
+	return types
 }
 
 // adaptReceiver applies RFC 0008's ordered receiver rules and returns the

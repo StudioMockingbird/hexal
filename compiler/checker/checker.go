@@ -279,7 +279,7 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	environment := moduleScope(moduleID, registry)
-	typeEnvironment := compilerTypes.NewEnvironment()
+	typeEnvironment := compilerTypes.NewEnvironmentWithOwner(moduleID)
 
 	items := program.Items
 	if items == nil {

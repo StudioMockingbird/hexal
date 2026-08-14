@@ -1,4 +1,4 @@
-﻿package generator
+package generator
 
 import (
 	"fmt"
@@ -216,7 +216,7 @@ func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Ty
 	}
 	site := spawnSite{
 		name:     node.Operand.Name,
-		function: PrivateCName(FunctionName, node.Operand.Name),
+		function: PrivateCName(FunctionName, node.Operand.Name, moduleOwner(node.Operand.Module, "")),
 		params:   append([]compilerTypes.Type(nil), signature.Signature.Parameters...),
 	}
 	if signature.Signature.Result != nil {

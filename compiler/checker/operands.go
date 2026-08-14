@@ -348,6 +348,11 @@ type Expression struct {
 	// resolved through an import alias (RFC 0034 Task 5); empty for every
 	// local reference.
 	Module string
+	// MethodParameters carries the parameter types of an imported
+	// MethodCallExpression (RFC 0034 Task 7): the call node lacks a Fun
+	// signature, so the generator needs these to declare the foreign
+	// prototype in the importer's header. Nil for local calls.
+	MethodParameters []compilerTypes.Type
 }
 
 // ViewRootKind classifies the root of a View-producing expression for the

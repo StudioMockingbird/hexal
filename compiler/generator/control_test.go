@@ -3,6 +3,8 @@
 import (
 	"strings"
 	"testing"
+
+	"hexal/compiler/checker"
 )
 
 // RFC 0049 item 8.3: try lowering. A try statement hoists the union into a
@@ -12,12 +14,13 @@ import (
 
 func TestGenerateTryStatementLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun fail(): Nil | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    try fail()\n    return 1\nend\n")
-	rootC, _, _, _, err := GenerateChecked(program)
+	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"const hex_internal_union_1 hex_try_1 = hex_f_fail();",
+		"const hex_internal_union_1 hex_try_1 = hex_f_3_app_fail();",
 		"if (hex_try_1.tag == hex_internal_union_1_tag_member_",
 		"return (hex_internal_union_2){ .tag = hex_internal_union_2_tag_member_1, .payload.member_1 = hex_try_1.payload.member_",
 	} {
@@ -32,12 +35,13 @@ func TestGenerateTryStatementLowering(t *testing.T) {
 
 func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun read_count(): Int32 | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    count: Int32 = try read_count()\n    return count\nend\n")
-	rootC, _, _, _, err := GenerateChecked(program)
+	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"const hex_internal_union_1 hex_try_1 = hex_f_read_count();",
+		"const hex_internal_union_1 hex_try_1 = hex_f_3_app_read_count();",
 		"if (hex_try_1.tag == hex_internal_union_1_tag_member_1) {",
 		"hex_v_count = hex_try_1.payload.member_0;",
 	} {
@@ -47,7 +51,8 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	}
 	// A union with several success members needs a normalization temporary.
 	multiple := checkedGeneratorSource(t, "fun read_number(): Int32 | Float32 | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    value: Int32 | Float32 = try read_number()\n    return 1\nend\n")
-	multiC, _, _, _, err := GenerateChecked(multiple)
+	files, err = GenerateChecked(map[string]checker.Program{"app.hex": multiple}, []string{"app"}, "app")
+	multiC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
 	}

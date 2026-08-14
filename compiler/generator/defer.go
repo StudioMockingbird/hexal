@@ -230,12 +230,12 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		if node.Owner == nil || len(arguments) < 1 {
 			return "", unknownExpressionDiagnostic("deferred method call without a captured receiver")
 		}
-		return methodCName(node.Owner, node.Name) + "(" + strings.Join(arguments, ", ") + ")", nil
+		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
 	case checker.CallExpression:
 		if node.Operand == nil || node.Operand.Kind != checker.FunctionReferenceExpression {
 			return "", unknownExpressionDiagnostic("deferred call without a checked function callee")
 		}
-		return PrivateCName(FunctionName, node.Operand.Name) + "(" + strings.Join(arguments, ", ") + ")", nil
+		return PrivateCName(FunctionName, node.Operand.Name, moduleOwner(node.Operand.Module, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
 	case checker.HeapFreeExpression:
 		if len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred heap free without captured arguments")

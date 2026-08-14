@@ -61,7 +61,7 @@ func streamSuffix(stream compilerTypes.Type) string {
 // discoverGeneratedStreams walks every checked statement and expression for
 // Stream constructor and method nodes and records the stream types and node
 // families the header must define.
-func discoverGeneratedStreams(program checker.Program) (*generatedStreamState, error) {
+func discoverGeneratedStreams(program checker.Program, moduleOwner string) (*generatedStreamState, error) {
 	state := &generatedStreamState{}
 	visitor := &programVisitor{
 		Expression: func(node checker.Expression) error {
@@ -70,7 +70,7 @@ func discoverGeneratedStreams(program checker.Program) (*generatedStreamState, e
 				state.add(node.OperandType)
 				state.add(node.ResultType)
 				if node.Name == "produce" && len(node.Arguments) == 3 {
-					callback, err := streamCallbackCName(node.Arguments[2])
+					callback, err := streamCallbackCName(node.Arguments[2], moduleOwner)
 					if err != nil {
 						return err
 					}
@@ -99,7 +99,7 @@ func discoverGeneratedStreams(program checker.Program) (*generatedStreamState, e
 					state.stepUnions = append(state.stepUnions, streamStepUnion{streamType: node.OperandType, unionType: node.ResultType})
 				case "map":
 					if len(node.Arguments) == 2 {
-						callback, err := streamCallbackCName(node.Arguments[1])
+						callback, err := streamCallbackCName(node.Arguments[1], moduleOwner)
 						if err != nil {
 							return err
 						}
@@ -396,7 +396,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		if err != nil {
 			return "", err
 		}
-		callback, err := streamCallbackCName(node.Arguments[1])
+		callback, err := streamCallbackCName(node.Arguments[1], state.owner)
 		if err != nil {
 			return "", err
 		}
@@ -416,7 +416,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		if err != nil {
 			return "", err
 		}
-		callback, err := streamCallbackCName(node.Arguments[1])
+		callback, err := streamCallbackCName(node.Arguments[1], state.owner)
 		if err != nil {
 			return "", err
 		}
@@ -429,9 +429,9 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 
 // streamCallbackCName resolves the checked callback operand to the generated
 // C function name.
-func streamCallbackCName(callback checker.Operand) (string, error) {
+func streamCallbackCName(callback checker.Operand, fallbackOwner string) (string, error) {
 	if callback.Node.Kind != checker.FunctionReferenceExpression || callback.Node.Name == "" {
 		return "", unknownExpressionDiagnostic("a Stream callback must be a named function")
 	}
-	return PrivateCName(FunctionName, callback.Node.Name), nil
+	return PrivateCName(FunctionName, callback.Node.Name, moduleOwner(callback.Node.Module, fallbackOwner)), nil
 }

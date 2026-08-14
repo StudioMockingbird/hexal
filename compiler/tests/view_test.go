@@ -109,9 +109,9 @@ func TestViewPassedToFunctionParameter(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"static int32_t hex_f_sum(const hex_view_Int32 hex_v_values)",
+		"static int32_t hex_f_3_app_sum(const hex_view_Int32 hex_v_values)",
 		"*hex_view_at_Int32(hex_v_values, (size_t)(0))",
-		"hex_v_total = hex_f_sum(hex_array_slice_Int32_2(&hex_v_fixed, (size_t)(0), (size_t)(2)));",
+		"hex_v_total = hex_f_3_app_sum(hex_array_slice_Int32_2(&hex_v_fixed, (size_t)(0), (size_t)(2)));",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)

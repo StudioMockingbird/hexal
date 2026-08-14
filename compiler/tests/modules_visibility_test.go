@@ -1,26 +1,36 @@
 package tests
 
 // RFC 0034 Task 5: visibility, qualification, and exported-interface
-// closure, end to end through Compile. The Task 4 gate still rejects clean
-// multi-module programs, so a resolved qualified use is asserted as "the
-// gate and nothing else" — user-program diagnostics never accompany it;
-// Task 7 removes the gate and these become plain successes.
+// closure, end to end through Compile. Since Task 7, clean multi-module
+// programs compile: a resolved qualified use asserts success with one
+// C/header pair per reachable module, and user-program diagnostics never
+// accompany it.
 
 import (
 	"hexal/compiler"
-	"strings"
 	"testing"
 )
 
-// wantGateOnly asserts the multi-module gate fired alone, which proves the
-// program resolved and checked clean.
-func wantGateOnly(t *testing.T, result compiler.CompilationResult) {
+// wantMultiSuccess asserts a clean multi-module program compiles: no
+// diagnostics, and exactly main.c, main.h, plus one C/header pair per
+// reachable module.
+func wantMultiSuccess(t *testing.T, result compiler.CompilationResult, modules ...string) {
 	t.Helper()
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 {
-		t.Fatalf("stderr = %#v, want only the gate diagnostic", result.Stderr)
+	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
+		t.Fatalf("stderr = %#v, want success with no diagnostics", result.Stderr)
 	}
-	if !strings.Contains(result.Stderr[0], "multi-module compilation is not yet implemented") {
-		t.Fatalf("stderr = %#v, want the gate diagnostic", result.Stderr)
+	wantKeys := map[string]bool{"main.c": true, "main.h": true}
+	for _, module := range modules {
+		wantKeys["modules/"+module+".c"] = true
+		wantKeys["modules/"+module+".h"] = true
+	}
+	if len(result.Files) != len(wantKeys) {
+		t.Fatalf("Files = %v, want exactly %d keys", sortedKeys(result.Files), len(wantKeys))
+	}
+	for key := range result.Files {
+		if !wantKeys[key] {
+			t.Fatalf("Files contains unexpected key %q", key)
+		}
 	}
 }
 
@@ -29,7 +39,7 @@ func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
 		"math.hex": "export fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
 	}
-	wantGateOnly(t, compileMulti(sources, "app.hex"))
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }
 
 func TestQualifiedCallToPrivateFunctionRejected(t *testing.T) {
@@ -55,7 +65,7 @@ func TestQualifiedTypeResolvesThroughAlias(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nshape: Math.Shape = 0\n",
 		"math.hex": "export type Shape = Int32\n",
 	}
-	wantGateOnly(t, compileMulti(sources, "app.hex"))
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }
 
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
@@ -63,7 +73,7 @@ func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\ns: Math.Shape = Math.Circle { x = 1 }\n",
 		"math.hex": "export type Shape = | Circle as { x: Int32 } | Square\n",
 	}
-	wantGateOnly(t, compileMulti(sources, "app.hex"))
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }
 
 func TestPrivateTypeInExportedSignatureRejected(t *testing.T) {
@@ -103,7 +113,7 @@ func TestPrivateTypeInsideExportedGenericBodyAccepted(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\n",
 		"math.hex": "type Secret = { x: Int32 }\nexport fun wrap<T>(value: T): T\n    secret: Secret = Secret { x = 1 }\n    return value\nend\n",
 	}
-	wantGateOnly(t, compileMulti(sources, "app.hex"))
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }
 
 func TestExportOnValueBindingRejected(t *testing.T) {

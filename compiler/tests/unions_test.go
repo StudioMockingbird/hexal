@@ -83,7 +83,7 @@ func TestUnionNestedPointerAndFunctionPositions(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nested/function union source: %v", result.Stderr)
 	}
-	if !strings.Contains(rootH(t, result), "hex_internal_union_") || !strings.Contains(rootC(t, result), "hex_f_identity") {
+	if !strings.Contains(rootH(t, result), "hex_internal_union_") || !strings.Contains(rootC(t, result), "hex_f_3_app_identity") {
 		t.Fatalf("nested/function union output = H:%q C:%q", rootH(t, result), rootC(t, result))
 	}
 }

@@ -1,9 +1,9 @@
 package tests
 
 // RFC 0034 Task 6: module identity, implementation ownership, and generic
-// specialization ownership, end to end through Compile. The Task 4 gate
-// still rejects clean multi-module programs; resolved/owned programs are
-// asserted as "the gate and nothing else" until Task 7 removes it.
+// specialization ownership, end to end through Compile. Since Task 7,
+// resolved/owned multi-module programs compile to one artifact pair per
+// reachable module.
 
 import (
 	"testing"
@@ -18,7 +18,7 @@ func TestSameNamedTypesInDifferentModulesAreDistinct(t *testing.T) {
 	// Both aliases resolve to transparent Int32 aliases, so the assignment
 	// is legal; the point is that neither resolver leaks the other module.
 	result := compileMulti(sources, "app.hex")
-	wantGateOnly(t, result)
+	wantMultiSuccess(t, result, "app", "math", "shapes")
 }
 
 func TestNominalTypesAcrossModulesStayDistinct(t *testing.T) {
@@ -57,7 +57,7 @@ func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point = Geometry.make()\nlength: Int32 = p.length_squared()\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point\n    return Point { x = 3, y = 4 }\nend\nexport impl Point.length_squared(): Int32\n    return self.x * self.x + self.y * self.y\nend\n",
 	}
-	wantGateOnly(t, compileMulti(sources, "app.hex"))
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "geometry")
 }
 
 func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
@@ -74,5 +74,5 @@ func TestGenericSpecializationsOwnedByDefiningModule(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\na: Int32 = Math.identity<Int32>(1)\nb: Float64 = Math.identity<Float64>(2.0)\nc: Int32 = Math.identity<Int32>(3)\n",
 		"math.hex": "export fun identity<T>(value: T): T\n    return value\nend\n",
 	}
-	wantGateOnly(t, compileMulti(sources, "app.hex"))
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }

@@ -118,7 +118,7 @@ func TestNullableObjectMemberUsesNullNiche(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"hex_t_Node *hex_m_next;",
+		"hex_t_3_app_Node *hex_m_next;",
 		".hex_m_next = nullptr,",
 	} {
 		if !strings.Contains(rootH(t, result), want) && !strings.Contains(rootC(t, result), want) {
@@ -133,9 +133,9 @@ func TestNullableFunctionResultReturnsNullptr(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"static int32_t * hex_f_absent(void) {",
+		"static int32_t * hex_f_3_app_absent(void) {",
 		"return nullptr;",
-		"int32_t *const hex_v_nothing = hex_f_absent();",
+		"int32_t *const hex_v_nothing = hex_f_3_app_absent();",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)

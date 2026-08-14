@@ -85,7 +85,7 @@ func writeErrorDefinition(result *strings.Builder) {
 	object := compilerTypes.ErrorType.Object
 	fmt.Fprintf(result, "\ntypedef struct %s %s;\nstruct %s {\n", object.CName, object.CName, object.CName)
 	for _, member := range object.Members {
-		fmt.Fprintf(result, "    %s;\n", declaration(member.Type, PrivateCName(MemberName, member.Name), true))
+		fmt.Fprintf(result, "    %s;\n", declaration(member.Type, PrivateCName(MemberName, member.Name, ""), true))
 	}
 	fmt.Fprintf(result, "};\n")
 }

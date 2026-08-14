@@ -3,11 +3,14 @@
 import (
 	"strings"
 	"testing"
+
+	"hexal/compiler/checker"
 )
 
 func TestGenerateHeapAllocationAndFree(t *testing.T) {
 	program := checkedGeneratorSource(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p)")
-	rootC, rootH, _, mainH, err := GenerateChecked(program)
+	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	rootC, rootH, mainH := files["modules/app.c"], files["modules/app.h"], files["main.h"]
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +26,8 @@ func TestGenerateHeapAllocationAndFree(t *testing.T) {
 
 func TestGenerateDeferReverseOrderAndCapture(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun record(value: Int32) end mut first: Int32 = 1 mut second: Int32 = 2 defer record(first) defer record(second)")
-	rootC, _, _, _, err := GenerateChecked(program)
+	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,11 +41,12 @@ func TestGenerateDeferReverseOrderAndCapture(t *testing.T) {
 
 func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun record(value: Int32) end fun run(): Int32\nmut flag: Bool = true\nwhile flag do\n    defer record(1)\n    break\nend\nreturn 0\nend")
-	rootC, _, _, _, err := GenerateChecked(program)
+	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootC, "hex_f_record(hex_defer_capture_1);\n        break;") {
+	if !strings.Contains(rootC, "hex_f_3_app_record(hex_defer_capture_1);\n        break;") {
 		t.Fatalf("generated C = %q, want deferred call on the break path", rootC)
 	}
 }

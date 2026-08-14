@@ -1,4 +1,4 @@
-﻿// Package generator emits readable C23 from checked Hexal data.
+// Package generator emits readable C23 from checked Hexal data.
 package generator
 
 import (
@@ -15,11 +15,12 @@ import (
 
 const mainHeaderPrefix = "#ifndef HEXAL_MAIN_H\n#define HEXAL_MAIN_H\n\n#include <stdint.h>\n#include <stdbool.h>\n#include <limits.h>\n#include <stdlib.h>\n"
 const sourceFilename = "main.hex"
+
 // RFC 0034: each module's generated C and header are modules/<canonical>.c and
 // modules/<canonical>.h; the entrypoint module's sources map key is the only
 // source file name the #line directives can know today (multi-module source
 // mapping arrives with Task 7 of RFC 0034).
-const moduleFilename = "app.hex"
+// moduleFilename is gone: RFC 0034 threads the per-module logical key\n// through the emission writers for #line directives.
 
 // NameKind identifies the Hexal-owned declaration namespace lowered by the
 // generator. The mapping is deliberately stateless and never consults a C
@@ -34,8 +35,11 @@ const (
 )
 
 // PrivateCName applies the RFC 0004 private C prefix exactly once at the
-// declaration/reference rendering boundary.
-func PrivateCName(kind NameKind, source string) string {
+// declaration/reference rendering boundary. owner is the RFC 0034 encoded
+// module owner of the declaring module ("" for compiler-owned names such as
+// locals and members, which stay unencoded): hex_f_m8_graphics6_shapes_draw
+// names module "graphics/shapes".
+func PrivateCName(kind NameKind, source, owner string) string {
 	prefix := "hex_v_"
 	switch kind {
 	case TypeName:
@@ -44,6 +48,9 @@ func PrivateCName(kind NameKind, source string) string {
 		prefix = "hex_m_"
 	case FunctionName:
 		prefix = "hex_f_"
+	}
+	if owner != "" && (kind == TypeName || kind == FunctionName) {
+		return prefix + owner + "_" + source
 	}
 	return prefix + source
 }
@@ -65,23 +72,68 @@ func isASCIILetter(character byte) bool {
 	return character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z'
 }
 
+// moduleOwner resolves the encoded owner of a callee: cross-module callees
+// carry the target module's canonical id (checked operand Module); a local
+// callee falls back to the module being generated.
+func moduleOwner(targetModule, fallbackOwner string) string {
+	if targetModule == "" {
+		return fallbackOwner
+	}
+	return compilerTypes.EncodeModuleOwner(targetModule)
+}
+
 // Generate is the compatibility wrapper used by package-level callers. The
 // compiler itself uses GenerateChecked so an internal generation failure stays
 // a structured diagnostic instead of being silently turned into source.
 func Generate(program checker.Program) (mainC string, mainH string) {
-	_, _, mainC, mainH, err := GenerateChecked(program)
+	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	if err != nil {
 		return GenerateFailure()
 	}
-	return mainC, mainH
+	return files["main.c"], files["main.h"]
 }
 
 // GenerateChecked emits direct C23 scalar and pointer operations. Checked
 // literal metadata, not raw source text, is the authority for every
-// initializer. RFC 0034: the entrypoint module's C and header are returned
-// first, then the generated main.c and main.h that host the one-per-process
-// runtime and the C entry point.
-func GenerateChecked(program checker.Program) (rootC string, rootH string, mainC string, mainH string, err error) {
+// initializer. RFC 0034: every reachable module emits its own C/header pair
+// under modules/<canonical>.c/.h; main.c and main.h host the one-per-process
+// runtime and the C entry point, generated from the entrypoint module's
+// machinery. Deterministic: the order slice is the canonical dependency-first
+// order from the resolver.
+func GenerateChecked(programs map[string]checker.Program, order []string, entrypointCanonical string) (map[string]string, error) {
+	files := make(map[string]string, 2+2*len(order))
+	for _, canonical := range order {
+		key := canonical + ".hex"
+		program, ok := programs[key]
+		if !ok {
+			key = canonical
+			program, ok = programs[key]
+		}
+		if !ok {
+			continue
+		}
+		isRoot := canonical == entrypointCanonical
+		moduleC, moduleH, mainC, mainH, generationErr := generateModule(program, canonical, key, isRoot)
+		if generationErr != nil {
+			return nil, generationErr
+		}
+		files["modules/"+canonical+".c"] = moduleC
+		files["modules/"+canonical+".h"] = moduleH
+		if isRoot {
+			files["main.c"] = mainC
+			files["main.h"] = mainH
+		}
+	}
+	return files, nil
+}
+
+// generateModule emits one module's C/header pair. canonicalID names the
+// module ("graphics/shapes"); logicalKey is its source-map filename for
+// #line directives ("graphics/shapes.hex"). The entrypoint module (isRoot)
+// additionally contributes main.c/main.h: the compiler-owned runtime and the
+// C entry point, built from this module's machinery state.
+func generateModule(program checker.Program, canonicalID, logicalKey string, isRoot bool) (moduleC string, moduleH string, mainC string, mainH string, err error) {
+	owner := compilerTypes.EncodeModuleOwner(canonicalID)
 	functions, functionErr := declaredFunctions(program)
 	if functionErr != nil {
 		return "", "", "", "", functionErr
@@ -147,7 +199,7 @@ func GenerateChecked(program checker.Program) (rootC string, rootH string, mainC
 		return "", "", "", "", conversionErr
 	}
 	divisionTypes := discoverGeneratedDivisions(program)
-	streamState, streamErr := discoverGeneratedStreams(program)
+	streamState, streamErr := discoverGeneratedStreams(program, owner)
 	if streamErr != nil {
 		return "", "", "", "", streamErr
 	}
@@ -187,7 +239,7 @@ func GenerateChecked(program checker.Program) (rootC string, rootH string, mainC
 	// exist once per process: the concurrency runtime, the I/O gate, and the
 	// spawn adapters.
 	var moduleBody strings.Builder
-	moduleBody.WriteString("#include \"main.h\"\n#include \"modules/app.h\"\n\n")
+	moduleBody.WriteString("#include \"main.h\"\n#include \"modules/" + canonicalID + ".h\"\n\n")
 
 	// Function definitions sit at file scope in source order, after the object
 	// definitions the header already carries and before the root run. Only
@@ -205,11 +257,11 @@ func GenerateChecked(program checker.Program) (rootC string, rootH string, mainC
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
-			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, spawned[PrivateCName(FunctionName, declared.Name)]); definitionErr != nil {
+			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, spawned[PrivateCName(FunctionName, declared.Name, owner)]); definitionErr != nil {
 				return "", "", "", "", definitionErr
 			}
 		case checker.MethodDeclaration:
-			if definitionErr := writeMethodDefinition(&moduleBody, declared, functions, methods, typeState, stringState); definitionErr != nil {
+			if definitionErr := writeMethodDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey); definitionErr != nil {
 				return "", "", "", "", definitionErr
 			}
 		}
@@ -219,10 +271,10 @@ func GenerateChecked(program checker.Program) (rootC string, rootH string, mainC
 	// Their bodies can call functions declared before their generic template
 	// (already emitted) or other specializations (any order), so each gets a
 	// prototype first and the definitions follow in cache order.
-	if err := writeSpecializedPrototypes(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, typeState); err != nil {
+	if err := writeSpecializedPrototypes(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, typeState, owner); err != nil {
 		return "", "", "", "", err
 	}
-	if err := writeSpecializedDefinitions(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, functions, methods, typeState, stringState); err != nil {
+	if err := writeSpecializedDefinitions(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, functions, methods, typeState, stringState, owner, logicalKey); err != nil {
 		return "", "", "", "", err
 	}
 
@@ -235,6 +287,9 @@ func GenerateChecked(program checker.Program) (rootC string, rootH string, mainC
 		methods:        methods,
 		generatedTypes: typeState,
 		strings:        stringState,
+		owner:          owner,
+		filename:       logicalKey,
+		moduleID:       canonicalID,
 	}
 	renderState.pushScope()
 	// RFC 0034: the module statements execute as hex_module_root_run, called
@@ -247,41 +302,48 @@ func GenerateChecked(program checker.Program) (rootC string, rootH string, mainC
 	}
 	moduleBody.WriteString("    return EXIT_SUCCESS;\n}\n")
 
-	var mainBody strings.Builder
-	mainBody.WriteString("#include \"main.h\"\n#include \"modules/app.h\"\n\n")
-	writeConcurrencyRuntime(&mainBody, concurrencyState, stringState)
-	writeIOGate(&mainBody, ioState, concurrencyState != nil && concurrencyState.used)
-	// RFC 0037: the spawn entry adapters follow every function definition
-	// because they call the spawned functions directly.
-	if err := writeSpawnAdaptersChecked(&mainBody, concurrencyState); err != nil {
-		return "", "", "", "", err
-	}
+	mainBody := strings.Builder{}
+	mainHeader := ""
+	if isRoot {
+		// The entrypoint module's TU is the one main.c builds on: it
+		// includes main.h and this module's own header.
+		mainBody.WriteString("#include \"main.h\"\n#include \"modules/" + canonicalID + ".h\"\n\n")
+		writeConcurrencyRuntime(&mainBody, concurrencyState, stringState)
+		writeIOGate(&mainBody, ioState, concurrencyState != nil && concurrencyState.used)
+		// RFC 0037: the spawn entry adapters follow every function definition
+		// because they call the spawned functions directly.
+		if err := writeSpawnAdaptersChecked(&mainBody, concurrencyState); err != nil {
+			return "", "", "", "", err
+		}
 
-	mainBody.WriteString("int main(void) {\n")
-	if concurrencyState.used {
-		// RFC 0037: the scheduler initializes before any Hexal source
-		// runs; the module statements execute as the root Task on worker
-		// zero, and hex_task_complete below hands the process back to main.
-		mainBody.WriteString("    hex_scheduler_init();\n")
-		mainBody.WriteString("    hex_module_root_run();\n")
-		// RFC 0037: completing the root Task wakes the scheduler, stops the
-		// workers, and switches back to main so it returns normally. Tasks
-		// still active are abandoned to process termination, as the spec
-		// requires.
-		mainBody.WriteString("    hex_task_complete(hex_root_task);\n")
-	} else {
-		mainBody.WriteString("    return hex_module_root_run();\n")
-	}
-	mainBody.WriteString("}\n")
+		mainBody.WriteString("int main(void) {\n")
+		if concurrencyState.used {
+			// RFC 0037: the scheduler initializes before any Hexal source
+			// runs; the module statements execute as the root Task on worker
+			// zero, and hex_task_complete below hands the process back to main.
+			mainBody.WriteString("    hex_scheduler_init();\n")
+			mainBody.WriteString("    hex_module_root_run();\n")
+			// RFC 0037: completing the root Task wakes the scheduler, stops the
+			// workers, and switches back to main so it returns normally. Tasks
+			// still active are abandoned to process termination, as the spec
+			// requires.
+			mainBody.WriteString("    hex_task_complete(hex_root_task);\n")
+		} else {
+			mainBody.WriteString("    return hex_module_root_run();\n")
+		}
+		mainBody.WriteString("}\n")
 
-	mainHeader := mainHeaderWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals)
+		mainHeader = mainHeaderWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals, logicalKey)
+	}
 	// RFC 0034: the spawned functions the generated main.c adapters call are
 	// declared in the module header so both translation units agree on their
 	// linkage. Their signatures were already validated when the spawn sites
 	// were discovered, so this emission has no failure mode.
 	var spawnedPrototypes strings.Builder
-	writeSpawnedFunctionPrototypes(&spawnedPrototypes, program, concurrencyState)
-	moduleHeader := moduleHeaderWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals, spawnedPrototypes.String())
+	writeSpawnedFunctionPrototypes(&spawnedPrototypes, program, concurrencyState, owner)
+	writeExportedPrototypes(&spawnedPrototypes, program, owner)
+	writeForeignPrototypes(&spawnedPrototypes, program, renderState)
+	moduleHeader := moduleHeaderWithUnions(float32Used, float64Used, nilUsed, unionState, heapState, adtState, arrayState, viewState, stringState, listState, dictState, streamState, equalityState, conversionSpecs, divisionTypes, shiftSpecs, bitCastSpecs, endianSpecs, objects, errorUsed, printState, concurrencyState, ioState, sizeLiterals, canonicalID, spawnedPrototypes.String(), logicalKey)
 	return moduleBody.String(), moduleHeader, mainBody.String(), mainHeader, nil
 }
 
@@ -294,11 +356,11 @@ func writeStatements(body *strings.Builder, statements []checker.Statement, stat
 	return writeStatementsAt(body, statements, state, result, inFunction, "    ", defers)
 }
 
-func writeControlHeader(body *strings.Builder, indent, prefix, condition string, keywordLine, conditionLine int) {
-	writeLineDirective(body, keywordLine)
+func writeControlHeader(body *strings.Builder, indent, prefix, condition string, keywordLine, conditionLine int, filename string) {
+	writeLineDirective(body, keywordLine, filename)
 	if conditionLine > 0 && conditionLine != keywordLine {
 		fmt.Fprintf(body, "%s%s (\n", indent, prefix)
-		writeLineDirective(body, conditionLine)
+		writeLineDirective(body, conditionLine, filename)
 		fmt.Fprintf(body, "%s    %s) {\n", indent, condition)
 		return
 	}
@@ -328,7 +390,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if !supportedGeneratedTypeWithState(statement.Type, state) {
 				return unknownExpressionDiagnostic("unsupported checked declaration type")
 			}
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 			name, nameErr := state.allocateBinding(statement.Binding, statement.Name, statement.Type, statement.Mutable)
 			if nameErr != nil {
 				return nameErr
@@ -350,7 +412,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if !supportedGeneratedTypeWithState(statement.Type, state) || !supportedGeneratedTypeWithState(statement.Target.Type, state) {
 				return unknownExpressionDiagnostic("unsupported checked assignment type")
 			}
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 			target, expressionErr := renderOperandWithState(statement.Target, state)
 			if expressionErr != nil {
 				return expressionErr
@@ -372,7 +434,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			}
 			fmt.Fprintf(body, "%s%s = %s;\n", indent, target, value)
 		case checker.CallStatement:
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 			if statement.Call.Node.Kind == checker.PrintExpression {
 				// RFC 0030: print is a statement-level builtin producing no
 				// value; it renders its own temporaries and helper calls.
@@ -389,12 +451,12 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		case checker.TryStatement:
 			// RFC 0049 item 8.3: the prologue already hoisted above; the
 			// success value is discarded, so the statement renders nothing.
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 		case checker.ReturnStatement:
 			if !inFunction {
 				return unknownExpressionDiagnostic("return outside a function body")
 			}
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 			text, returnErr := renderReturnStatement(statement, result, state, indent)
 			if returnErr != nil {
 				return returnErr
@@ -405,7 +467,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if conditionErr != nil {
 				return conditionErr
 			}
-			writeControlHeader(body, indent, "if", condition, statement.SourceLine, statement.ConditionLine)
+			writeControlHeader(body, indent, "if", condition, statement.SourceLine, statement.ConditionLine, state.filename)
 			state.pushScope()
 			if err := writeStatementsAt(body, statement.Then, state, result, inFunction, indent+"    ", statement.ThenDefers); err != nil {
 				return err
@@ -416,7 +478,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				if branchErr != nil {
 					return branchErr
 				}
-				writeControlHeader(body, indent, "} else if", condition, branch.SourceLine, branch.ConditionLine)
+				writeControlHeader(body, indent, "} else if", condition, branch.SourceLine, branch.ConditionLine, state.filename)
 				state.pushScope()
 				if err := writeStatementsAt(body, branch.Body, state, result, inFunction, indent+"    ", branchDefers(statement, branchIndex)); err != nil {
 					return err
@@ -424,7 +486,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				state.popScope()
 			}
 			if statement.Else != nil {
-				writeLineDirective(body, statement.ElseLine)
+				writeLineDirective(body, statement.ElseLine, state.filename)
 				fmt.Fprintf(body, "%s} else {\n", indent)
 				state.pushScope()
 				if err := writeStatementsAt(body, statement.Else, state, result, inFunction, indent+"    ", statement.ElseDefers); err != nil {
@@ -438,7 +500,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if conditionErr != nil {
 				return conditionErr
 			}
-			writeControlHeader(body, indent, "while", condition, statement.SourceLine, statement.ConditionLine)
+			writeControlHeader(body, indent, "while", condition, statement.SourceLine, statement.ConditionLine, state.filename)
 			state.pushScope()
 			previousLoopDepth := state.loopDepth
 			state.loopDepth++
@@ -459,7 +521,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if state.loopDepth == 0 {
 				return unknownExpressionDiagnostic("checked break outside a while loop")
 			}
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 			if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
 				return err
 			}
@@ -468,20 +530,20 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if state.loopDepth == 0 {
 				return unknownExpressionDiagnostic("checked continue outside a while loop")
 			}
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 			if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
 				return err
 			}
 			fmt.Fprintf(body, "%scontinue;\n", indent)
 		case checker.DeferStatement:
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 			if err := writeDeferStatement(body, statement, state, indent); err != nil {
 				return err
 			}
 		case checker.ErrdeferStatement:
 			// RFC 0029: errdefer registers exactly like defer; the Err flag
 			// decides at the exit edge whether the action runs.
-			writeLineDirective(body, statement.SourceLine)
+			writeLineDirective(body, statement.SourceLine, state.filename)
 			if err := writeDeferStatement(body, checker.DeferStatement{Expression: statement.Expression, Action: statement.Action, SourceLine: statement.SourceLine, SourceColumn: statement.SourceColumn}, state, indent); err != nil {
 				return err
 			}
@@ -675,8 +737,8 @@ func methodKey(object *compilerTypes.ObjectType, name string) string {
 	return compilerTypes.SanitizeIdentifier(object.Name) + "_" + name
 }
 
-func methodCName(object *compilerTypes.ObjectType, name string) string {
-	return PrivateCName(FunctionName, methodKey(object, name))
+func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
+	return PrivateCName(FunctionName, methodKey(object, name), owner)
 }
 
 // writeFunctionDefinition emits one C function. Parameters are fixed
@@ -684,7 +746,7 @@ func methodCName(object *compilerTypes.ObjectType, name string) string {
 // true for functions the generated main.c machinery must call (spawn
 // adapters); those keep external linkage, everything else is static to its
 // module C file.
-func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState, external bool) error {
+func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState, owner, filename string, external bool) error {
 	signature := declared.Type.Signature
 	if signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
 		return unknownExpressionDiagnostic("function declaration without a checked Fun type")
@@ -720,6 +782,8 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 		methods:        methods,
 		generatedTypes: typeState,
 		strings:        stringState,
+		owner:          owner,
+		filename:       filename,
 	}
 	state.pushScope()
 	parameters := make([]string, len(declared.Parameters))
@@ -740,12 +804,14 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 		parameters[index] = declaration(parameter.Type, name, false)
 	}
 
-	writeLineDirective(body, declared.SourceLine)
+	writeLineDirective(body, declared.SourceLine, filename)
+	// RFC 0034: exported declarations and spawn targets keep external
+	// linkage; everything else is static to the module translation unit.
 	linkage := ""
-	if !external {
+	if !external && !declared.Exported {
 		linkage = "static "
 	}
-	fmt.Fprintf(body, "%s%s %s(%s) {\n", linkage, resultSpelling, PrivateCName(FunctionName, declared.Name), parameterList(parameters))
+	fmt.Fprintf(body, "%s%s %s(%s) {\n", linkage, resultSpelling, PrivateCName(FunctionName, declared.Name, owner), parameterList(parameters))
 	if err := writeStatements(body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
@@ -757,7 +823,7 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 // function. The implicit receiver is the first fixed parameter; its written
 // receiver type determines whether C receives a structure copy, a read-only
 // pointer, or a writable pointer.
-func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState) error {
+func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState, owner, filename string) error {
 	if declared.Object == nil || declared.SelfBinding == 0 || !validSourceName(declared.Name) {
 		return unknownExpressionDiagnostic("method declaration is missing checked receiver metadata")
 	}
@@ -787,6 +853,8 @@ func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclara
 		methods:        methods,
 		generatedTypes: typeState,
 		strings:        stringState,
+		owner:          owner,
+		filename:       filename,
 	}
 	state.pushScope()
 	selfName, selfErr := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, false)
@@ -805,8 +873,12 @@ func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclara
 		parameters = append(parameters, declaration(parameter.Type, name, false))
 	}
 
-	writeLineDirective(body, declared.SourceLine)
-	fmt.Fprintf(body, "static %s %s(%s) {\n", resultSpelling, methodCName(declared.Object, declared.Name), parameterList(parameters))
+	writeLineDirective(body, declared.SourceLine, filename)
+	linkage := "static "
+	if declared.Exported {
+		linkage = ""
+	}
+	fmt.Fprintf(body, "%s%s %s(%s) {\n", linkage, resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
 	if err := writeStatements(body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
@@ -1230,8 +1302,17 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 		return true
 	}
 	object := typ.Object
-	if state.declaredObjects != nil && !state.declaredObjects[object] || !validSourceName(compilerTypes.SanitizeIdentifier(object.Name)) || object.CName != "hex_t_"+compilerTypes.SanitizeIdentifier(object.Name) {
-		return false
+	// The built-in Error object is compiler-owned: its C name is the plain
+	// hex_t_Error, never owner-encoded, even though its ModuleID is empty.
+	if object == compilerTypes.ErrorType.Object {
+		if state.declaredObjects != nil && !state.declaredObjects[object] {
+			return false
+		}
+	} else {
+		expectedCName := PrivateCName(TypeName, compilerTypes.SanitizeIdentifier(object.Name), compilerTypes.EncodeModuleOwner(object.ModuleID))
+		if state.declaredObjects != nil && !state.declaredObjects[object] || !validSourceName(compilerTypes.SanitizeIdentifier(object.Name)) || object.CName != expectedCName {
+			return false
+		}
 	}
 	if state.activeObjects == nil {
 		state.activeObjects = make(map[*compilerTypes.ObjectType]bool)
@@ -1277,6 +1358,13 @@ type expressionValidation struct {
 	methods        map[string]checker.MethodDeclaration
 	generatedTypes *generatedTypeValidation
 	deferStack     [][]checker.DeferredAction
+	// owner is the RFC 0034 encoded module owner of the module being
+	// generated; filename is its logical source key for #line directives;
+	// moduleID is the module's canonical identity, used to distinguish
+	// foreign method calls from local ones.
+	owner          string
+	filename       string
+	moduleID       string
 	loopDepths     []int
 	captureCounter int
 	returnCounter  int
@@ -1328,7 +1416,7 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 			state.variables = make(map[string]generatedBinding)
 		}
 		state.variables[sourceName] = generatedBinding{typ: typ, mutable: mutable}
-		return PrivateCName(ValueName, sourceName), nil
+		return PrivateCName(ValueName, sourceName, ""), nil
 	}
 	if state.bindings == nil {
 		state.bindings = make(map[checker.BindingID]generatedBinding)
@@ -1340,7 +1428,7 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 	if _, exists := state.bindings[id]; exists {
 		return "", unknownExpressionDiagnostic("duplicate checked binding identity")
 	}
-	base := PrivateCName(ValueName, sourceName)
+	base := PrivateCName(ValueName, sourceName, "")
 	name := base
 	for suffix := 2; state.usedNames[name]; suffix++ {
 		name = fmt.Sprintf("%s_%d", base, suffix)
@@ -1375,7 +1463,7 @@ func (state *expressionValidation) cNameFor(node checker.Expression) (string, bo
 		}
 		return name, true
 	}
-	return PrivateCName(ValueName, node.Name), true
+	return PrivateCName(ValueName, node.Name, ""), true
 }
 
 type generatedPlace struct {
@@ -1398,6 +1486,15 @@ func declaredObjects(program checker.Program) map[*compilerTypes.ObjectType]bool
 // Error object when the program references it (RFC 0029).
 func errorDeclaredObjects(program checker.Program) map[*compilerTypes.ObjectType]bool {
 	objects := declaredObjects(program)
+	// RFC 0034: imported object types are reachable through the module's
+	// statements and must validate like local ones; the header emission
+	// carries their definitions, so the validator admits them too.
+	definitions, err := objectDefinitions(program)
+	if err == nil {
+		for _, object := range definitions {
+			objects[object] = true
+		}
+	}
 	if discoverErrorUsed(program) {
 		objects[compilerTypes.ErrorType.Object] = true
 	}
@@ -2624,7 +2721,7 @@ func validateExpressionMetadata(node checker.Expression, expected compilerTypes.
 	return nil
 }
 
-// validateFunctionReference accepts a declared function used as a Fun<Ã¢â‚¬Â¦> value.
+// validateFunctionReference accepts a declared function used as a Fun<ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦> value.
 // A function is not a place, so no addressability metadata is consulted.
 func validateFunctionReference(node checker.Expression, expected compilerTypes.Type, hasExpected bool, state *expressionValidation) error {
 	if !validSourceName(node.Name) {
@@ -2633,7 +2730,10 @@ func validateFunctionReference(node checker.Expression, expected compilerTypes.T
 	if node.ResultType.Signature == nil || !supportedGeneratedTypeWithState(node.ResultType, state) {
 		return unknownExpressionDiagnostic("function reference without a checked Fun type")
 	}
-	if state.functions != nil {
+	if state.functions != nil && node.Module == "" {
+		// A cross-module callee (RFC 0034) is not in the local declaration
+		// table; the checker resolved it against the target module's
+		// exported records, and the checked Fun type is authoritative.
 		declared, ok := state.functions[node.Name]
 		if !ok || !compilerTypes.Equal(declared, node.ResultType) {
 			return unknownExpressionDiagnostic("function reference is not a declared checked function")
@@ -2695,31 +2795,44 @@ func validateMethodCallExpression(node checker.Expression, expected compilerType
 	if node.Owner == nil || !validSourceName(compilerTypes.SanitizeIdentifier(node.Owner.Name)) || !validSourceName(node.Name) || node.Operand == nil {
 		return unknownExpressionDiagnostic("method call has incomplete checked metadata")
 	}
+	// RFC 0034: a method whose receiver type another module declares is not
+	// in the local declaration table; the checker resolved it against the
+	// defining module's exported records, so the checked node is
+	// authoritative for a cross-module call (mirroring the cross-module
+	// function reference path).
+	crossModule := moduleOwner(node.Owner.ModuleID, state.owner) != state.owner
 	declared, ok := state.methods[methodKey(node.Owner, node.Name)]
-	if !ok || declared.Object != node.Owner {
-		return unknownExpressionDiagnostic("method call does not name a declared checked method")
-	}
-	if !compilerTypes.Equal(node.OperandType, declared.SelfType) || len(node.Arguments) != len(declared.Parameters) {
-		return unknownExpressionDiagnostic("method call does not match its checked signature")
-	}
-	if declared.Result == nil {
-		if node.ResultType != (compilerTypes.Type{}) || hasExpected {
-			return unknownExpressionDiagnostic("method call result type does not match its checked signature")
+	if !crossModule {
+		if !ok || declared.Object != node.Owner {
+			return unknownExpressionDiagnostic("method call does not name a declared checked method")
 		}
-	} else {
-		if node.ResultType == (compilerTypes.Type{}) || !compilerTypes.Equal(node.ResultType, *declared.Result) || hasExpected && !compilerTypes.Equal(expected, node.ResultType) {
-			return unknownExpressionDiagnostic("method call result type does not match its checked signature")
+		if !compilerTypes.Equal(node.OperandType, declared.SelfType) || len(node.Arguments) != len(declared.Parameters) {
+			return unknownExpressionDiagnostic("method call does not match its checked signature")
 		}
+		if declared.Result == nil {
+			if node.ResultType != (compilerTypes.Type{}) || hasExpected {
+				return unknownExpressionDiagnostic("method call result type does not match its checked signature")
+			}
+		} else {
+			if node.ResultType == (compilerTypes.Type{}) || !compilerTypes.Equal(node.ResultType, *declared.Result) || hasExpected && !compilerTypes.Equal(expected, node.ResultType) {
+				return unknownExpressionDiagnostic("method call result type does not match its checked signature")
+			}
+		}
+	} else if node.ResultType != (compilerTypes.Type{}) && !supportedGeneratedTypeWithState(node.ResultType, state) {
+		return unknownExpressionDiagnostic("method call result type is not a supported checked type")
 	}
 	receiverType, receiverErr := methodReceiverType(*node.Operand, node.OperandType, state)
 	if receiverErr != nil {
 		return receiverErr
 	}
-	if !generatedAssignable(node.OperandType, receiverType) {
+	if !crossModule && !generatedAssignable(node.OperandType, receiverType) {
 		return unknownExpressionDiagnostic("method call receiver type does not match its checked receiver")
 	}
 	if err := validateExpressionChildWithState(node.Operand, receiverType, state); err != nil {
 		return err
+	}
+	if crossModule {
+		return nil
 	}
 	for index, argument := range node.Arguments {
 		if !generatedAssignable(declared.Parameters[index].Type, argument.Type) {
@@ -3107,7 +3220,7 @@ func pointerSpelling(typ compilerTypes.Type) string {
 }
 
 // declaration builds the complete C declarator for typ bound to name. Every
-// type but Fun<Ã¢â‚¬Â¦> is a prefix plus the name; a function pointer wraps the name
+// type but Fun<ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¾ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦> is a prefix plus the name; a function pointer wraps the name
 // inside the declarator, which is why a CName prefix cannot express it.
 func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 	if typ.Signature != nil {
@@ -3256,7 +3369,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Name == "" {
 			return "", unknownExpressionDiagnostic("function reference without a source name")
 		}
-		return PrivateCName(FunctionName, node.Name), nil
+		return PrivateCName(FunctionName, node.Name, moduleOwner(node.Module, state.owner)), nil
 	case checker.CallExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("call without a checked callee")
@@ -3298,7 +3411,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			arguments[index] = rendered
 		}
 		allArguments := append([]string{receiver}, arguments...)
-		return methodCName(node.Owner, node.Name) + "(" + strings.Join(allArguments, ", ") + ")", nil
+		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(allArguments, ", ") + ")", nil
 	case checker.AddressOfExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("address-of without an operand")
@@ -3913,7 +4026,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if !atomic {
 			receiver = "(" + receiver + ")"
 		}
-		return receiver + "." + PrivateCName(MemberName, node.Member.Name), nil
+		return receiver + "." + PrivateCName(MemberName, node.Member.Name, ""), nil
 	case checker.NullTestExpression:
 		// RFC 0010: the nullable union shares its base pointer's null niche,
 		// so the test lowers to the ordinary C null pointer comparison.
@@ -4512,14 +4625,14 @@ func volatileEligibleGenerated(typ compilerTypes.Type) bool {
 		compilerTypes.IsSize(typ)
 }
 
-func writeLineDirective(body *strings.Builder, line int) {
+func writeLineDirective(body *strings.Builder, line int, filename string) {
 	if line > 0 {
-		fmt.Fprintf(body, "#line %d \"%s\"\n", line, moduleFilename)
+		fmt.Fprintf(body, "#line %d \"%s\"\n", line, filename)
 	}
 }
 
 func header(float32Used, float64Used, nilUsed bool, objects []*compilerTypes.ObjectType) string {
-	return mainHeaderWithUnions(float32Used, float64Used, nilUsed, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, objects, false, nil, nil, nil, nil)
+	return mainHeaderWithUnions(float32Used, float64Used, nilUsed, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, objects, false, nil, nil, nil, nil, "app.hex")
 }
 
 // mainHeaderWithUnions emits main.h: the fixed C23 target-profile preamble,
@@ -4527,7 +4640,7 @@ func header(float32Used, float64Used, nilUsed bool, objects []*compilerTypes.Obj
 // extern declarations for the runtime functions the module header's inline
 // helpers call. Everything here is included by both translation units, so no
 // definition in main.h may hold static storage.
-func mainHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string) string {
+func mainHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string, filename string) string {
 	var result strings.Builder
 	result.WriteString(mainHeaderPrefix)
 	result.WriteString("\nstatic_assert(CHAR_BIT == 8, \"Hexal requires 8-bit bytes\");\n")
@@ -4598,12 +4711,12 @@ func mainHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *genera
 // non-inline cores live in main.c. The guard is the RFC 0034 module header
 // guard shape; the entrypoint module's owner is "app" until per-module
 // naming lands.
-func moduleHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string, spawnedPrototypes string) string {
+func moduleHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *generatedUnionState, heaps *heapHelpers, adts *generatedAdtState, arrays *generatedArrayState, views *generatedViewState, stringState *generatedStringState, lists *generatedListState, dicts *generatedDictState, streams *generatedStreamState, equality *generatedEqualityState, conversions []conversionSpec, divisionTypes []compilerTypes.Type, shiftSpecs []shiftSpec, bitCastSpecs []bitCastSpec, endianSpecs []endianSpec, objects []*compilerTypes.ObjectType, errorUsed bool, printState *generatedPrintState, concurrency *generatedConcurrencyState, io *generatedIOState, sizeLiterals []string, canonicalID, spawnedPrototypes, filename string) string {
 	var result strings.Builder
-	result.WriteString("#ifndef HEX_MODULE_app_H\n#define HEX_MODULE_app_H\n\n#include \"main.h\"\n")
+	result.WriteString("#ifndef " + compilerTypes.ModuleHeaderGuard(canonicalID) + "\n#define " + compilerTypes.ModuleHeaderGuard(canonicalID) + "\n\n#include \"main.h\"\n")
 	writeAdtDefinitions(&result, adts)
 	writeUnionDefinitions(&result, unions)
-	writeObjectDefinitions(&result, objects)
+	writeObjectDefinitions(&result, objects, filename)
 	// The Stream families embed user object State types by value, so they
 	// are emitted after every object definition (RFC 0031).
 	writeStreamDefinitions(&result, streams)
@@ -4629,7 +4742,7 @@ func moduleHeaderWithUnions(float32Used, float64Used, nilUsed bool, unions *gene
 // function. The adapters in main.c call these functions, so both translation
 // units must agree on their linkage; the definitions keep external linkage
 // through the same decision in GenerateChecked.
-func writeSpawnedFunctionPrototypes(result *strings.Builder, program checker.Program, concurrency *generatedConcurrencyState) {
+func writeSpawnedFunctionPrototypes(result *strings.Builder, program checker.Program, concurrency *generatedConcurrencyState, owner string) {
 	if concurrency == nil || len(concurrency.spawns) == 0 {
 		return
 	}
@@ -4639,7 +4752,7 @@ func writeSpawnedFunctionPrototypes(result *strings.Builder, program checker.Pro
 	}
 	for _, statement := range program.Statements {
 		declared, ok := statement.(checker.FunctionDeclaration)
-		if !ok || !spawned[PrivateCName(FunctionName, declared.Name)] {
+		if !ok || !spawned[PrivateCName(FunctionName, declared.Name, owner)] {
 			continue
 		}
 		resultSpelling := "void"
@@ -4650,14 +4763,133 @@ func writeSpawnedFunctionPrototypes(result *strings.Builder, program checker.Pro
 		for index, parameter := range declared.Parameters {
 			parameters[index] = typeSpelling(parameter.Type)
 		}
-		fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name), parameterList(parameters))
+		fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name, owner), parameterList(parameters))
 	}
+}
+
+// writeExportedPrototypes emits one external prototype per exported function
+// and method of the module. Importers render calls against these encoded
+// symbols, so every exporting module's own header declares them (the module
+// .c file includes only its own header plus main.h).
+func writeExportedPrototypes(result *strings.Builder, program checker.Program, owner string) {
+	for _, statement := range program.Statements {
+		switch declared := statement.(type) {
+		case checker.FunctionDeclaration:
+			if !declared.Exported {
+				continue
+			}
+			resultSpelling := "void"
+			if declared.Result != nil {
+				resultSpelling = typeSpelling(*declared.Result)
+			}
+			parameters := make([]string, len(declared.Parameters))
+			for index, parameter := range declared.Parameters {
+				parameters[index] = typeSpelling(parameter.Type)
+			}
+			fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name, owner), parameterList(parameters))
+		case checker.MethodDeclaration:
+			if !declared.Exported {
+				continue
+			}
+			resultSpelling := "void"
+			if declared.Result != nil {
+				resultSpelling = typeSpelling(*declared.Result)
+			}
+			parameters := []string{typeSpelling(declared.SelfType)}
+			for _, parameter := range declared.Parameters {
+				parameters = append(parameters, typeSpelling(parameter.Type))
+			}
+			fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
+		}
+	}
+}
+
+// writeForeignPrototypes emits one prototype per imported (cross-module)
+// function and method the module references. C23 forbids calling an external
+// function without a prior declaration, and an importer never includes the
+// dependency's header, so its own header must declare every foreign symbol
+// it calls. Deduplicated by symbol; deterministic by visit order.
+func writeForeignPrototypes(result *strings.Builder, program checker.Program, state *expressionValidation) {
+	emitted := make(map[string]bool)
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			switch node.Kind {
+			case checker.CallExpression:
+				callee := node.Operand
+				if callee == nil || callee.Module == "" || callee.ResultType.Signature == nil {
+					return nil
+				}
+				symbol := PrivateCName(FunctionName, callee.Name, moduleOwner(callee.Module, state.owner))
+				if emitted[symbol] {
+					return nil
+				}
+				emitted[symbol] = true
+				parameters := make([]string, 0, len(callee.ResultType.Signature.Parameters))
+				for _, parameter := range callee.ResultType.Signature.Parameters {
+					parameters = append(parameters, typeSpelling(parameter))
+				}
+				resultSpelling := "void"
+				if callee.ResultType.Signature.Result != nil {
+					resultSpelling = typeSpelling(*callee.ResultType.Signature.Result)
+				}
+				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
+			case checker.MethodCallExpression:
+				if node.Owner == nil || node.Owner.ModuleID == "" || node.Owner.ModuleID == state.moduleID {
+					return nil
+				}
+				symbol := methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner))
+				if emitted[symbol] {
+					return nil
+				}
+				emitted[symbol] = true
+				parameters := []string{typeSpelling(node.OperandType)}
+				for _, parameter := range node.MethodParameters {
+					parameters = append(parameters, typeSpelling(parameter))
+				}
+				resultSpelling := "void"
+				if node.ResultType != (compilerTypes.Type{}) {
+					resultSpelling = typeSpelling(node.ResultType)
+				}
+				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
+			}
+			return nil
+		},
+	}
+	_ = walkProgram(program, visitor)
 }
 
 func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, error) {
 	objects := make([]*compilerTypes.ObjectType, 0)
 	seen := make(map[*compilerTypes.ObjectType]bool)
 	seenCNames := make(map[string]*compilerTypes.ObjectType)
+	// RFC 0034: a module's header must carry every object type its
+	// translation unit can name by value, including imported modules'
+	// exported objects referenced through the import alias. They are
+	// reachable through the checked statements' types, so the walk collects
+	// local and foreign definitions together; each module file includes
+	// only its own header plus main.h, so no translation unit ever sees two
+	// definitions of one struct.
+	visitor := &programVisitor{
+		Type: func(typ compilerTypes.Type) error {
+			object := typ.Object
+			if object == nil || typ.Incomplete {
+				return nil
+			}
+			if previous, exists := seenCNames[object.CName]; exists && previous != object {
+				return unknownExpressionDiagnostic("conflicting generated object C name")
+			}
+			seenCNames[object.CName] = object
+			if seen[object] {
+				return nil
+			}
+			seen[object] = true
+			objects = append(objects, object)
+			return nil
+		},
+	}
+	if err := walkProgram(program, visitor); err != nil {
+		return nil, err
+	}
 	for _, declaration := range program.TypeDeclarations {
 		object := declaration.Type.Object
 		if object == nil {
@@ -4676,30 +4908,30 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 	return objects, nil
 }
 
-func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.ObjectType) {
+func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.ObjectType, filename string) {
 	// Forward typedef region first, in source declaration order, so recursive
 	// and non-recursive objects share one shape and pointer members can name a
 	// not-yet-defined object.
 	for _, object := range objects {
 		result.WriteString("\n")
 		if object.SourceLine > 0 {
-			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, moduleFilename)
+			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, filename)
 		}
 		fmt.Fprintf(result, "typedef struct %s %s;\n", object.CName, object.CName)
 	}
 	for _, object := range objects {
 		result.WriteString("\n")
 		if object.SourceLine > 0 {
-			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, moduleFilename)
+			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, filename)
 		}
 		fmt.Fprintf(result, "struct %s {\n", object.CName)
 		for _, member := range object.Members {
 			if member.SourceLine > 0 {
-				fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, moduleFilename)
+				fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, filename)
 			}
 			// RFC 0035: reference-like members (String, List, Dict, Stream)
 			// are pointer-sized handles, spelled like their declarations.
-			fmt.Fprintf(result, "    %s;\n", declaration(member.Type, PrivateCName(MemberName, member.Name), true))
+			fmt.Fprintf(result, "    %s;\n", declaration(member.Type, PrivateCName(MemberName, member.Name, ""), true))
 		}
 		fmt.Fprintf(result, "};\n")
 	}
@@ -4837,7 +5069,7 @@ func objectLiteralWithState(value *checker.ObjectValue, state *expressionValidat
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&result, "\n        .%s = %s,", PrivateCName(MemberName, member.Name), rendered)
+		fmt.Fprintf(&result, "\n        .%s = %s,", PrivateCName(MemberName, member.Name, ""), rendered)
 	}
 	result.WriteString("\n    }")
 	return result.String(), nil
@@ -5104,7 +5336,7 @@ func GenerateFailure() (mainC string, mainH string) {
 
 // writeSpecializedPrototypes emits one static prototype per concrete
 // specialization so definitions can reference later specializations.
-func writeSpecializedPrototypes(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, typeState *generatedTypeValidation) error {
+func writeSpecializedPrototypes(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, typeState *generatedTypeValidation, owner string) error {
 	emitted := 0
 	for _, declared := range functions {
 		signature := declared.Type.Signature
@@ -5125,7 +5357,7 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 			}
 			parameters[index] = typeSpelling(parameter.Type)
 		}
-		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name), parameterList(parameters))
+		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name, owner), parameterList(parameters))
 		emitted++
 	}
 	for _, declared := range methods {
@@ -5147,7 +5379,7 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 			}
 			parameters = append(parameters, typeSpelling(parameter.Type))
 		}
-		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, methodCName(declared.Object, declared.Name), parameterList(parameters))
+		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
 		emitted++
 	}
 	if emitted > 0 {
@@ -5158,14 +5390,14 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 
 // writeSpecializedDefinitions emits the concrete bodies of every
 // specialization in cache order.
-func writeSpecializedDefinitions(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, functionsTable map[string]compilerTypes.Type, methodsTable map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState) error {
+func writeSpecializedDefinitions(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, functionsTable map[string]compilerTypes.Type, methodsTable map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState, owner, filename string) error {
 	for _, declared := range functions {
-		if definitionErr := writeFunctionDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, false); definitionErr != nil {
+		if definitionErr := writeFunctionDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, owner, filename, false); definitionErr != nil {
 			return definitionErr
 		}
 	}
 	for _, declared := range methods {
-		if definitionErr := writeMethodDefinition(body, declared, functionsTable, methodsTable, typeState, stringState); definitionErr != nil {
+		if definitionErr := writeMethodDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, owner, filename); definitionErr != nil {
 			return definitionErr
 		}
 	}

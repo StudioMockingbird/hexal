@@ -65,10 +65,10 @@ func TestObjectEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool hex_equal_hex_t_Point(const hex_t_Point *left, const hex_t_Point *right) {",
+		"static bool hex_equal_hex_t_3_app_Point(const hex_t_3_app_Point *left, const hex_t_3_app_Point *right) {",
 		"if (!((*left).hex_m_x == (*right).hex_m_x)) return false;",
-		"hex_v_same = hex_equal_hex_t_Point(&(hex_v_left), &(hex_v_right));",
-		"(!hex_equal_hex_t_Point(&(hex_v_left), &(hex_v_right)))",
+		"hex_v_same = hex_equal_hex_t_3_app_Point(&(hex_v_left), &(hex_v_right));",
+		"(!hex_equal_hex_t_3_app_Point(&(hex_v_left), &(hex_v_right)))",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)

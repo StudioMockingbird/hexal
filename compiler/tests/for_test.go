@@ -32,7 +32,7 @@ func TestForInTemporaryArraySource(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), "const hex_array_Int32_2 hex_for_1 = hex_f_make_fixed();") {
+	if !strings.Contains(rootC(t, result), "const hex_array_Int32_2 hex_for_1 = hex_f_3_app_make_fixed();") {
 		t.Fatalf("main.c = %q, want materialized temporary Array source", rootC(t, result))
 	}
 }
@@ -126,7 +126,7 @@ func TestForInSourceEvaluatedOnce(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if strings.Count(rootC(t, result), "hex_f_count_calls()") != 1 {
+	if strings.Count(rootC(t, result), "hex_f_3_app_count_calls()") != 1 {
 		t.Fatalf("main.c = %q, want exactly one source evaluation", rootC(t, result))
 	}
 }

@@ -19,7 +19,7 @@ import (
 // body `continue` never skips the increment, matching RFC 0028.
 func renderForStatement(body *strings.Builder, statement checker.ForStatement, state *expressionValidation, result *compilerTypes.Type, inFunction bool, indent string) error {
 	sourceType := statement.Source.Type
-	writeLineDirective(body, statement.SourceLine)
+	writeLineDirective(body, statement.SourceLine, state.filename)
 
 	state.loopCounter++
 	loop := fmt.Sprintf("hex_for_%d", state.loopCounter)
@@ -104,7 +104,7 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, lo
 
 	indexVariable := loop + "_index"
 	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s; %s++) {\n", indent, indexVariable, indexVariable, length, indexVariable)
-	writeLineDirective(body, statement.Binders[0].SourceLine)
+	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
 	valueBinder := statement.Binders[len(statement.Binders)-1]
 	if len(statement.Binders) == 2 {
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], indexVariable)
@@ -150,7 +150,7 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, loop s
 	if hasIndex {
 		fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
 	}
-	writeLineDirective(body, statement.Binders[0].SourceLine)
+	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
 	valueBinder := statement.Binders[len(statement.Binders)-1]
 	if hasIndex {
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
@@ -186,7 +186,7 @@ func renderForStream(body *strings.Builder, statement checker.ForStatement, loop
 	if hasIndex {
 		fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
 	}
-	writeLineDirective(body, statement.Binders[0].SourceLine)
+	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
 	valueBinder := statement.Binders[len(statement.Binders)-1]
 	if hasIndex {
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
@@ -224,7 +224,7 @@ func renderForDict(body *strings.Builder, statement checker.ForStatement, loop s
 	if hasIndex {
 		fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
 	}
-	writeLineDirective(body, statement.Binders[0].SourceLine)
+	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
 	if hasIndex {
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
 	}

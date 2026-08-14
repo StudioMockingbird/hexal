@@ -240,7 +240,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		fmt.Fprintf(body, "%s}\n", indent)
 	case typ.Object != nil:
 		for _, member := range typ.Object.Members {
-			writeEqualityComparisons(body, left+"."+PrivateCName(MemberName, member.Name), right+"."+PrivateCName(MemberName, member.Name), member.Type, indent)
+			writeEqualityComparisons(body, left+"."+PrivateCName(MemberName, member.Name, ""), right+"."+PrivateCName(MemberName, member.Name, ""), member.Type, indent)
 		}
 	case typ.Adt != nil:
 		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
@@ -252,7 +252,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 				continue
 			}
 			for _, member := range variant.Payload {
-				writeEqualityComparisons(body, left+".payload."+compilerTypes.SanitizeIdentifier(variant.Name)+"."+PrivateCName(MemberName, member.Name), right+".payload."+compilerTypes.SanitizeIdentifier(variant.Name)+"."+PrivateCName(MemberName, member.Name), member.Type, indent+"    ")
+				writeEqualityComparisons(body, left+".payload."+compilerTypes.SanitizeIdentifier(variant.Name)+"."+PrivateCName(MemberName, member.Name, ""), right+".payload."+compilerTypes.SanitizeIdentifier(variant.Name)+"."+PrivateCName(MemberName, member.Name, ""), member.Type, indent+"    ")
 			}
 			fmt.Fprintf(body, "%s    return true;\n", indent)
 		}

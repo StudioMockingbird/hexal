@@ -235,10 +235,38 @@ type Environment struct {
 	genericDeclarations map[string]*GenericDeclaration
 	specializations     map[string]Type
 	identity            *typeIdentity
+	// owner is the RFC 0034 encoded module owner ("" for the compiler-owned
+	// builtin environment). User object types interned here carry it in
+	// their C name: hex_t_m3_app_Point names module "app".
+	owner string
+}
+
+// EncodeModuleOwner encodes each "/"-separated component as its decimal
+// UTF-8 byte length, "_", then the source spelling. Case-preserving; no
+// case folding; "graphics/shapes" -> "m8_graphics6_shapes".
+func EncodeModuleOwner(canonicalID string) string {
+	parts := strings.Split(canonicalID, "/")
+	for index, part := range parts {
+		parts[index] = strconv.Itoa(len(part)) + "_" + part
+	}
+	return strings.Join(parts, "")
+}
+
+// ModuleHeaderGuard returns the include guard for a module header:
+// "HEX_MODULE_" + encoded owner + "_H". Case-preserving; main.h keeps its
+// own fixed guard.
+func ModuleHeaderGuard(canonicalID string) string {
+	return "HEX_MODULE_" + EncodeModuleOwner(canonicalID) + "_H"
 }
 
 // NewEnvironment returns an empty environment seeded with the builtin types.
 func NewEnvironment() *Environment {
+	return NewEnvironmentWithOwner("")
+}
+
+// NewEnvironmentWithOwner returns an environment whose user object types
+// carry the RFC 0034 module owner (canonical id) in their C names.
+func NewEnvironmentWithOwner(moduleID string) *Environment {
 	environment := &Environment{
 		names:               make(map[string]Type),
 		aliases:             make(map[string]Type),
@@ -258,6 +286,7 @@ func NewEnvironment() *Environment {
 		genericDeclarations: make(map[string]*GenericDeclaration),
 		specializations:     make(map[string]Type),
 		identity:            newTypeIdentity(nil),
+		owner:               EncodeModuleOwner(moduleID),
 	}
 	for name, typ := range builtinTypes {
 		environment.names[name] = typ
@@ -337,9 +366,13 @@ func (environment *Environment) BeginObject(name string, sourceLine, sourceColum
 	}
 	identity := newTypeIdentity(environment.identity)
 	identity.signature = "object:" + name
+	cName := "hex_t_" + SanitizeIdentifier(name)
+	if environment.owner != "" {
+		cName = "hex_t_" + environment.owner + "_" + SanitizeIdentifier(name)
+	}
 	object := &ObjectType{
 		Name:         name,
-		CName:        "hex_t_" + SanitizeIdentifier(name),
+		CName:        cName,
 		SourceLine:   sourceLine,
 		SourceColumn: sourceColumn,
 		identity:     identity,

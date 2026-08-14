@@ -218,7 +218,7 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type) {
 				fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\", \", 2);\n")
 			}
 			fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
-			fmt.Fprintf(result, "    hex_print_nested_%s(%s);\n", member.Type.CName, printNestedAddress(member.Type, "v->"+PrivateCName(MemberName, member.Name)))
+			fmt.Fprintf(result, "    hex_print_nested_%s(%s);\n", member.Type.CName, printNestedAddress(member.Type, "v->"+PrivateCName(MemberName, member.Name, "")))
 		}
 		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\" }\", 2);\n}\n")
 	case typ.Adt != nil:

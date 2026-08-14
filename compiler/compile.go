@@ -93,42 +93,16 @@ func Compile(sources map[string]string, entrypoint string) CompilationResult {
 		return failureResult(checkErr, stats, compileStarted)
 	}
 
-	// Fail-closed gate: per-module code generation lands in Task 7; until
-	// then only a single reachable module compiles. The gate sits after
-	// checking so real user-program diagnostics win over this compiler
-	// limitation. Task 7 removes the gate.
-	if len(order) > 1 {
-		err := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1,
-			"multi-module compilation is not yet implemented")
-		return failureResult(err, stats, compileStarted)
-	}
-
-	// Single module: the entrypoint is the only reachable program, so its
-	// logical key is the one entry in the programs map.
-	entrypointKey := ""
-	for key := range programs {
-		entrypointKey = key
-	}
-
 	started = time.Now()
-	rootC, rootH, mainC, mainH, generateErr := generator.GenerateChecked(checked[entrypointKey])
+	files, generateErr := generator.GenerateChecked(checked, order, canonicalModuleID(entrypoint))
 	stats.GenerateDuration = time.Since(started)
 	if generateErr != nil {
 		return failureResult(generateErr, stats, compileStarted)
 	}
 	finalizeStats(&stats, compileStarted)
-	// RFC 0034: the entrypoint module's C and header live under
-	// modules/<canonical-path>.c/.h; the compiler-owned main.c and main.h
-	// host the one-per-process runtime and the C entry point.
-	files := map[string]string{
-		"main.c":        mainC,
-		"main.h":        mainH,
-		"modules/app.c": rootC,
-		"modules/app.h": rootH,
-	}
 	return CompilationResult{
-		MainC:    mainC,
-		MainH:    mainH,
+		MainC:    files["main.c"],
+		MainH:    files["main.h"],
 		Files:    files,
 		ExitCode: ExitSuccess,
 		Stats:    stats,

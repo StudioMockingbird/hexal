@@ -1,10 +1,9 @@
 package tests
 
-// RFC 0034 Task 4: import resolution, dependency graph, and the fail-closed
-// multi-module gate. Between Task 4 and per-module codegen (Task 7), a clean
-// multi-module program cannot compile yet, so Compile rejects it with the
-// structured gate diagnostic; user-program diagnostics (resolution and
-// checker errors) always surface before the gate.
+// RFC 0034 Task 4: import resolution and the dependency graph. Since
+// Task 7, a clean multi-module program compiles to one C/header pair per
+// reachable module; user-program diagnostics (resolution and checker
+// errors) always surface before generation.
 
 import (
 	"hexal/compiler"
@@ -29,17 +28,17 @@ func wantStderr(t *testing.T, result compiler.CompilationResult, want ...string)
 	}
 }
 
-// A clean multi-module program resolves but cannot compile until per-module
-// codegen lands; the gate fires with no user diagnostics.
-func TestMultiModuleCleanProgramsHitTheGate(t *testing.T) {
+// A clean multi-module program resolves and now compiles: every reachable
+// module gets its own C/header pair, with no user diagnostics.
+func TestMultiModuleCleanProgramsGenerate(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "multi-module compilation is not yet implemented")
-	if len(result.Stderr) != 1 {
-		t.Fatalf("stderr = %#v, want only the gate diagnostic", result.Stderr)
+	wantMultiSuccess(t, result, "app", "math")
+	if len(result.Stderr) != 0 {
+		t.Fatalf("stderr = %#v, want no diagnostics", result.Stderr)
 	}
 }
 
@@ -50,10 +49,10 @@ func TestRelativeImportsResolve(t *testing.T) {
 		"shared.hex":          "fun shared_helper(): Int32\n    return 1\nend\n",
 		"graphics/shapes.hex": "fun area(): Int32\n    return 1\nend\n",
 	}
-	// Both the nested and the ./graphics/shapes spelling resolve: the only
-	// diagnostic is the gate, never a resolution error.
+	// The nested and the ./graphics/shapes spelling both canonicalize; the
+	// unreachable graphics/shapes module contributes no artifacts.
 	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "multi-module compilation is not yet implemented")
+	wantMultiSuccess(t, result, "app", "libs/tools", "shared")
 }
 
 func TestImportAboveRootFails(t *testing.T) {
@@ -98,16 +97,17 @@ func TestImportCycleReportsCanonicalChain(t *testing.T) {
 
 func TestCaseDistinctModulesAreDistinct(t *testing.T) {
 	// math.hex and Math.hex are different modules: only math.hex is
-	// imported, so the unreachable Math.hex's bad contents are ignored.
+	// imported, so the unreachable Math.hex's bad contents are ignored and
+	// only app + math artifacts are generated.
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
 		"Math.hex": "broken executable\n",
 	}
 	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "multi-module compilation is not yet implemented")
-	if len(result.Stderr) != 1 {
-		t.Fatalf("stderr = %#v, want only the gate diagnostic", result.Stderr)
+	wantMultiSuccess(t, result, "app", "math")
+	if len(result.Stderr) != 0 {
+		t.Fatalf("stderr = %#v, want no diagnostics", result.Stderr)
 	}
 }
 
@@ -179,7 +179,7 @@ func TestStatsSumOverReachableModules(t *testing.T) {
 		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "multi-module compilation is not yet implemented")
+	wantMultiSuccess(t, result, "app", "math")
 	// Two logical lines (1 app + 3 math), plus one trailing newline per
 	// source file: 2 + 4 = 6.
 	if result.Stats.SourceLines != 6 {
