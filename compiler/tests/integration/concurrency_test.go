@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// RFC 0037 concurrency integration tests: spawn, Task join/detach/yield,
-// Channel, Mutex, and Atomic programs compile end to end, and invalid uses
-// fail with the specified diagnostics. The gcc build-and-run coverage lives
-// behind the c23 build tag (c23_concurrency_smoke_test.go).
+// These tests compile concurrency programs only; build-and-run coverage
+// against a C23 toolchain lives behind the c23 build tag.
 
 func TestSpawnAndJoinCompile(t *testing.T) {
 	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"
@@ -34,8 +32,8 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.6: spawning a no-result function is a Type Error because
-// no Task<R> can be formed; effect-only tasks return an explicit payload.
+// Spawning a no-result function is a Type Error because no Task<R> can be
+// formed; effect-only tasks return an explicit payload.
 func TestSpawnRequiresFunctionWithResult(t *testing.T) {
 	source := "fun worker() do\n    Task.yield()\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 1\nend\n"
 	result := compileSource(source)
@@ -61,16 +59,16 @@ func TestChannelPipelineCompiles(t *testing.T) {
 			t.Fatalf("generated output lacks %s:\n%s", fragment, rootC(t, result))
 		}
 	}
-	// RFC 0069 Channel: the slot region is sized with a checked multiply and
-	// the constructor's manual overflow guard is gone.
+	// The slot region is sized with a checked multiply; the constructor's
+	// manual overflow guard must not appear.
 	if !strings.Contains(rootC(t, result), "ckd_mul(&slots_bytes, element_size, capacity)") {
 		t.Fatalf("channel core does not use checked slot sizing:\n%s", rootC(t, result))
 	}
 	if strings.Contains(rootC(t, result), "SIZE_MAX / capacity") {
 		t.Fatalf("channel core retains the manual overflow guard:\n%s", rootC(t, result))
 	}
-	// RFC 0069 Amendment 2 Item B: close/length/capacity/is_closed lower
-	// directly to the core; no per-element forwarding wrappers remain.
+	// Close, length, capacity, and is_closed lower directly to the core; no
+	// per-element forwarding wrappers remain.
 	if strings.Contains(rootC(t, result), "hex_chan_close_Int32(") || strings.Contains(rootH(t, result), "hex_chan_close_Int32(") {
 		t.Fatalf("channel close retains its delegating wrapper:\n%s", rootH(t, result))
 	}
@@ -85,8 +83,8 @@ func TestMutexCompiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	// RFC 0069 Amendment 2 Item B: lock and unlock call the core directly;
-	// only the constructor and free adapters remain in the module header.
+	// Lock and unlock call the core directly; only the constructor and free
+	// adapters remain in the module header.
 	if !strings.Contains(rootC(t, result), "hex_mutex_lock(hex_v_m)") {
 		t.Fatalf("generated code lacks the direct mutex lock call:\n%s", rootC(t, result))
 	}
@@ -121,9 +119,9 @@ func TestAtomicOperationsCompile(t *testing.T) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
 	}
-	// RFC 0069 Amendment 2 Item B: load/store/exchange/fetch bodies call the
-	// C23 <stdatomic.h> functions directly at sequential consistency; no
-	// delegating generic forwarder exists.
+	// Load/store/exchange/fetch bodies call the C23 <stdatomic.h> functions
+	// directly at sequential consistency; no delegating generic forwarder
+	// exists.
 	generated := rootH(t, result)
 	for _, fragment := range []string{
 		"return atomic_load_explicit(atomic, memory_order_seq_cst);",
@@ -149,9 +147,8 @@ func TestAtomicOperationsCompile(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Item B: close, length, capacity, and is_closed call
-// the non-generic hex_chan_* core directly; no per-element forwarding wrapper
-// is emitted for them.
+// Close, length, capacity, and is_closed call the non-generic hex_chan_*
+// core directly; no per-element forwarding wrapper is emitted for them.
 func TestChannelDirectCoreCalls(t *testing.T) {
 	source := "fun run(): Size | Error do\n" +
 		"    h: Heap = Heap.new()\n" +
@@ -193,8 +190,8 @@ func TestChannelDirectCoreCalls(t *testing.T) {
 		}
 	}
 	// The typed storage/union adapters survive for new and free even when a
-	// program never sends or receives (RFC 0069 Amendment 2 Item B); send and
-	// receive adapters are demand-emitted with their unions.
+	// program never sends or receives; send and receive adapters are
+	// demand-emitted with their unions.
 	for _, adapter := range []string{
 		"hex_chan_new_Int32(",
 		"hex_chan_free_Int32(",
@@ -205,9 +202,9 @@ func TestChannelDirectCoreCalls(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Item B: both the direct and the deferred Mutex free
-// evaluate the Heap argument once and pass its identity token to the same
-// retained adapter; neither path drops the argument.
+// Both the direct and the deferred Mutex free evaluate the Heap argument
+// once and pass its identity token to the same retained adapter; neither
+// path drops the argument.
 func TestMutexFreePassesHeapIdentity(t *testing.T) {
 	source := "fun run(): Int32 | Error do\n" +
 		"    h: Heap = Heap.new()\n" +
@@ -222,8 +219,7 @@ func TestMutexFreePassesHeapIdentity(t *testing.T) {
 	}
 	rootC := rootC(t, result)
 	// The direct call passes the Heap's identity token, never the whole Heap
-	// object; the Heap binding read stays a generated binding read (RFC
-	// 0068), so the identity comes from the binding.
+	// object; the identity comes from the binding read of h.
 	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex((hex_v_h).identity, hex_v_m)") {
 		t.Fatalf("direct mutex free does not pass the heap identity:\n%s", rootC)
 	}
@@ -242,10 +238,10 @@ func TestMutexFreePassesHeapIdentity(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Items C and D: the scheduler and Channel/Mutex cores
-// report every failure through the one hex_runtime_trap with the complete
-// "[Runtime Error] ...\n" literal, never through hex_sched_fatal or a
-// per-site fputs/abort pair, and the emitted scheduler text uses nullptr.
+// The scheduler and Channel/Mutex cores report every failure through the one
+// hex_runtime_trap with the complete "[Runtime Error] ...\n" literal, never
+// through hex_sched_fatal or a per-site fputs/abort pair, and the emitted
+// scheduler text uses nullptr.
 func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 	source := "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n" +
 		"    m.lock()\n" +
@@ -292,7 +288,7 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 			t.Fatalf("generated code retains %q:\n%s", gone, rootC)
 		}
 	}
-	// Item D: the scheduler text spells its null pointer constants nullptr.
+	// The scheduler text spells its null pointer constants nullptr.
 	if !strings.Contains(rootC, "task->ready_next = nullptr;") || !strings.Contains(rootC, "if (hex_root_task == nullptr) {") {
 		t.Fatalf("scheduler text does not use the nullptr spelling:\n%s", rootC)
 	}
@@ -301,8 +297,8 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 	}
 }
 
-// RFC 0069 Item D: an atomic-only program emits the Atomic typedefs and
-// helpers with the C23 nullptr spelling and no raw fputs.
+// An atomic-only program emits the Atomic typedefs and helpers with the C23
+// nullptr spelling and no raw fputs.
 func TestAtomicOnlyOutputUsesNullptr(t *testing.T) {
 	source := "fun run(): Bool do\n" +
 		"    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n" +
@@ -470,9 +466,9 @@ func TestAtomicNonCopyability(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.5: a direct Atomic element is an invalid Ptr/MutPtr
-// pointee in every spelling, while pointers to an enclosing object stay
-// valid and Atomic operations work through them.
+// A direct Atomic element is an invalid Ptr/MutPtr pointee in every
+// spelling, while pointers to an enclosing object stay valid and Atomic
+// operations work through them.
 func TestAtomicDirectPointeeRules(t *testing.T) {
 	rejected := []string{
 		"type AtomicPtr = Ptr<Atomic<Int32>>\n",
@@ -511,8 +507,8 @@ func TestChannelAndTaskRejectFunElement(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.2: no-value commands are valid as call statements and as
-// direct defer/errdefer cleanup actions.
+// No-value commands are valid as call statements and as direct
+// defer/errdefer cleanup actions.
 func TestNoValueCommandsValidAsStatementsAndCleanup(t *testing.T) {
 	source := "fun worker(): Bool do\n    Task.yield()\n    return true\nend\n" +
 		"fun run(): Int32 | Error do\n" +
@@ -536,8 +532,8 @@ func TestNoValueCommandsValidAsStatementsAndCleanup(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.2: no-value commands are rejected in value positions with
-// the "<name> produces no value" diagnostic.
+// No-value commands are rejected in value positions with the "<name>
+// produces no value" diagnostic.
 func TestNoValueCommandsRejectedInValuePositions(t *testing.T) {
 	for _, testCase := range []struct {
 		source string

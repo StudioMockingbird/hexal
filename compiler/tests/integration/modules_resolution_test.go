@@ -1,9 +1,9 @@
 package integration
 
-// RFC 0034 Task 4: import resolution and the dependency graph. Since
-// Task 7, a clean multi-module program compiles to one C/header pair per
-// reachable module; user-program diagnostics (resolution and checker
-// errors) always surface before generation.
+// Import resolution and the dependency graph drive this facet: user-program
+// diagnostics (resolution and checker errors) always surface before
+// generation, and a clean multi-module program compiles to one C/header pair
+// per reachable module.
 
 import (
 	"hexal/compiler"
@@ -28,8 +28,6 @@ func wantStderr(t *testing.T, result compiler.CompilationResult, want ...string)
 	}
 }
 
-// A clean multi-module program resolves and now compiles: every reachable
-// module gets its own C/header pair, with no user diagnostics.
 func TestMultiModuleCleanProgramsGenerate(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",

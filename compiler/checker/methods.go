@@ -25,7 +25,7 @@ type MethodDeclaration struct {
 	Defers       []DeferredAction
 	SourceLine   int
 	SourceColumn int
-	Exported     bool // RFC 0034: external linkage + prototype in this module's header
+	Exported     bool // external linkage + prototype in this module's header
 }
 
 func (MethodDeclaration) statementNode() {}
@@ -39,8 +39,8 @@ type methodTable struct {
 	byObject map[*compilerTypes.ObjectType]map[string]*MethodDeclaration
 	// cNames maps the private C spelling stem a method produces
 	// (Point_translate for impl Point.translate) to that method's source
-	// spelling. The hex_f_ encoding is not injective, so this is what lets a
-	// colliding free function name both declarations (RFC 0008, C23 lowering).
+	// spelling. The hex_f_ encoding is not injective, so a collision between
+	// a free function and a method is reported against both declarations.
 	cNames map[string]string
 }
 
@@ -117,11 +117,11 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		return checked, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
 			target.Name+" is not a nominal object type; impl requires an object")}
 	}
-	// RFC 0034 Task 6: only the type's defining module may declare its
-	// methods. An imported receiver -- or a transparent alias of one --
-	// resolves to the defining module's identity, so the ModuleID comparison
-	// rejects every spelling of it, qualified or not. Builtins carry an empty
-	// id and keep their compiler-owned behavior.
+	// Only the type's defining module may declare its methods. An imported
+	// receiver -- or a transparent alias of one -- resolves to the defining
+	// module's identity, so the ModuleID comparison rejects every spelling of
+	// it, qualified or not. Builtins carry an empty id and keep their
+	// compiler-owned behavior.
 	if object.ModuleID != "" && object.ModuleID != names.moduleID {
 		return checked, compilerTypes.Diagnostics{typeErrorAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
 			"cannot declare methods for imported type "+receiverSpelling(declaration.SelfType, object.Name))}
@@ -174,8 +174,8 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		moduleID:  names.moduleID,
 	}
 	for index := range parameters {
-		// RFC 0034: no nested scope may shadow an import alias; a
-		// conflicting parameter is rejected like any other redeclaration.
+		// No nested scope may shadow an import alias; a conflicting
+		// parameter is rejected like any other redeclaration.
 		if names.importAlias(parameters[index].Name) {
 			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 				Category: compilerTypes.NameError,
@@ -246,10 +246,10 @@ func receiverSpellingToken(expression parser.TypeExpression, fallback lexer.Toke
 // one method declared on that object.
 func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
-	// RFC 0034 Task 5: Alias.name(...) where Alias is an import alias calls
-	// the target module's exported function. This precedes every builtin
-	// receiver check so an alias always wins over a same-named builtin
-	// receiver, and a dangling alias falls through to the ordinary path.
+	// Alias.name(...) where Alias is an import alias calls the target
+	// module's exported function. This precedes every builtin receiver check
+	// so an alias always wins over a same-named builtin receiver, and a
+	// dangling alias falls through to the ordinary path.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable {
 		if target, ok := names.importAliasTarget(variable.Name.Lexeme); ok {
 			return checkQualifiedFunctionCall(call, callee.Property, target, names, typeEnvironment)
@@ -275,38 +275,36 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkDictTypeCall(call, variable.Name, names, typeEnvironment)
 	}
 	// View<T>.from_pointer() and View<T>.empty() name the built-in generic
-	// type, not a View value binding (RFC 0043).
+	// type, not a View value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "View" {
 		return checkViewBridgeCall(call, variable.Name, names, typeEnvironment)
 	}
-	// Task.yield() names the built-in Task type, not a Task value binding
-	// (RFC 0037).
+	// Task.yield() names the built-in Task type, not a Task value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Task" {
 		return checkTaskTypeCall(call, variable.Name, names, typeEnvironment)
 	}
 	// Channel<T>.new() names the built-in generic Channel type, not a
-	// Channel value binding (RFC 0037).
+	// Channel value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Channel" {
 		return checkChannelTypeCall(call, variable.Name, names, typeEnvironment)
 	}
-	// Mutex.new() names the built-in Mutex type, not a Mutex value binding
-	// (RFC 0037).
+	// Mutex.new() names the built-in Mutex type, not a Mutex value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Mutex" {
 		return checkMutexTypeCall(call, variable.Name, names, typeEnvironment)
 	}
 	// Atomic<T>.new() names the built-in generic Atomic type, not an Atomic
-	// value binding (RFC 0037).
+	// value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Atomic" {
 		return checkAtomicTypeCall(call, variable.Name, names, typeEnvironment)
 	}
 	// Int32.from_le_bytes(...) names a fixed-width integer type, not an
-	// integer value binding (RFC 0032).
+	// integer value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable &&
 		(callee.Property.Lexeme == "from_le_bytes" || callee.Property.Lexeme == "from_be_bytes") {
 		return checkEndianFromBytesCall(call, variable.Name, typeEnvironment, names)
 	}
 	// Error.new(...) names the built-in Error type, not an Error value
-	// binding (RFC 0029).
+	// binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Error" {
 		return checkErrorNewCall(call, variable.Name, names, typeEnvironment)
 	}
@@ -323,27 +321,27 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if receiverDiagnostics := initializerDiagnostics(receiver); len(receiverDiagnostics) > 0 {
 		return receiver
 	}
-	// RFC 0038: the compiler-owned `to<Dest>()` conversion resolves on
-	// eligible scalar receivers before user method lookup. A receiver
-	// depending on a generic parameter defers to specialization.
+	// The compiler-owned `to<Dest>()` conversion resolves on eligible scalar
+	// receivers before user method lookup. A receiver depending on a generic
+	// parameter defers to specialization.
 	if name == "to" &&
 		(compilerTypes.IsInteger(receiver.typ) || compilerTypes.IsFloat(receiver.typ) ||
 			compilerTypes.IsRune(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
 		return checkConversionCall(call, callee, receiver, names, typeEnvironment)
 	}
-	// RFC 0032: the compiler-owned `bit_cast<T>()` reinterprets same-width
+	// The compiler-owned `bit_cast<T>()` reinterprets same-width
 	// fixed-representation scalar bits.
 	if name == "bit_cast" && (bitCastEligibleType(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
 		return checkBitCastCall(call, callee, receiver, names, typeEnvironment)
 	}
-	// RFC 0032: explicit-endian byte conversion instance methods on
-	// fixed-width integer receivers.
+	// Explicit-endian byte conversion instance methods on fixed-width
+	// integer receivers.
 	if (name == "to_le_bytes" || name == "to_be_bytes") && (compilerTypes.IsInteger(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
 		return checkEndianToBytesCall(call, callee, receiver, names, typeEnvironment)
 	}
-	// RFC 0042: volatile integer accesses dispatch on pointer receivers. A
-	// nullable receiver is excluded so the nullable-narrowing diagnostic
-	// below owns it.
+	// Volatile integer accesses dispatch on pointer receivers. A nullable
+	// receiver is excluded so the nullable-narrowing diagnostic below owns
+	// it.
 	if receiver.typ.Element != nil && !compilerTypes.IsNullable(receiver.typ) && (name == "read_volatile" || name == "write_volatile") {
 		return checkVolatileCall(call, callee, receiver, names, typeEnvironment)
 	}
@@ -370,7 +368,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkDictMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
 	// Task, Channel, Mutex, and Atomic methods dispatch on their built-in
-	// handle receiver types (RFC 0037).
+	// handle receiver types.
 	if receiver.typ.Task != nil {
 		return checkTaskMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
@@ -388,16 +386,16 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkStringMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
 	// Strand methods dispatch on the built-in Strand receiver type; the
-	// surface is deliberately smaller than String's (RFC 0044).
+	// surface is deliberately smaller than String's.
 	if compilerTypes.IsStrand(receiver.typ) {
 		return checkStrandMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
-	// RuneCursor methods dispatch on the RFC 0044 cursor descriptor type.
+	// RuneCursor methods dispatch on the cursor descriptor type.
 	if compilerTypes.IsRuneCursor(receiver.typ) {
 		return checkRuneCursorMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
-	// RFC 0010: a nullable receiver reaches no method until a null test
-	// narrowed it to its pointer member.
+	// A nullable receiver reaches no method until a null test narrowed it to
+	// its pointer member.
 	if compilerTypes.IsNullable(receiver.typ) {
 		diagnostic := nullableAccessDiagnostic(receiver, callee.Property, placeDescription(callee.Receiver))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
@@ -413,9 +411,9 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		diagnostic := typeErrorAt(callee.Property, receiver.typ.Name+" has no method named "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	// RFC 0034 Task 6: a receiver whose type another module defines routes
-	// its method lookup to that module's recorded exported methods. Builtin
-	// receivers carry an empty id and keep the local path.
+	// A receiver whose type another module defines routes its method lookup
+	// to that module's recorded exported methods. Builtin receivers carry an
+	// empty id and keep the local path.
 	if object.ModuleID != "" && object.ModuleID != names.moduleID {
 		return checkImportedMethodCall(call, callee, name, object, receiver, names, typeEnvironment)
 	}
@@ -472,12 +470,12 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 }
 
 // checkImportedMethodCall resolves a method call whose receiver type another
-// module defines (RFC 0034 Task 6). The lookup routes to the defining
-// module's recorded methods, and only exported methods on exported receiver
-// types are visible to importers; anything else is the Task 5 visibility
-// failure at the method. The checked call mirrors a local method call: the
-// same receiver adaptation, argument checking, and node shape, with the
-// defining module's resolved signature.
+// module defines. The lookup routes to the defining module's recorded
+// methods, and only exported methods on exported receiver types are visible
+// to importers; anything else is the visibility failure at the method. The
+// checked call mirrors a local method call: the same receiver adaptation,
+// argument checking, and node shape, with the defining module's resolved
+// signature.
 func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyExpression, name string, object *compilerTypes.ObjectType, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	method, ok := names.registry.exportedMethod(object.ModuleID, object.Name, name)
 	if !ok {
@@ -539,7 +537,7 @@ func methodParameterTypes(method *MethodDeclaration) []compilerTypes.Type {
 	return types
 }
 
-// adaptReceiver applies RFC 0008's ordered receiver rules and returns the
+// adaptReceiver applies the ordered receiver rules and returns the
 // receiver already converted to the method's target form:
 //
 //  1. an exact target type is passed directly;

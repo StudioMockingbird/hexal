@@ -37,8 +37,8 @@ func TestUnionWideningPreservesSourceEvaluation(t *testing.T) {
 }
 
 func TestUnionIsNarrowsIfElseAndWhile(t *testing.T) {
-	// RFC 0048: the else arm narrows value to Nil, which is printable but
-	// cannot initialize a standalone Nil binding.
+	// The else arm narrows value to Nil, which is printable but cannot
+	// initialize a standalone Nil binding.
 	result := compileSource("value: Int32 | Float64 | Nil = 1 if value is Int32 then integer: Int32 = value elseif value != nil then floating: Float64 = value else print(value) end mut state: Int32 | Float64 = 1 while state is Int32 do current: Int32 = state state = 2 end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected flow narrowing source: %v", result.Stderr)

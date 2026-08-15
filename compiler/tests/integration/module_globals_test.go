@@ -6,10 +6,9 @@ import (
 	"testing"
 )
 
-// RFC 0041 (ADR): Hexal has no module-global or process-global values.
-// Root executable bindings lower as entry-body locals, functions cannot
-// capture root locals, and no accepted declaration emits user value storage
-// at C file scope.
+// Hexal has no module-global or process-global values. Root executable
+// bindings lower as entry-body locals, functions cannot capture root locals,
+// and no accepted declaration emits user value storage at C file scope.
 
 func TestRootBindingsLowerAsLocals(t *testing.T) {
 	source := "fun run(value: MutPtr<Int32>) do\n    value.value = 1\nend\nmut counter: Int32 = 0\nrun(ref counter)\n"

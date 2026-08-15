@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0020 Phase A: fixed inline arrays — declaration, literals, indexing,
-// built-in methods, and bounds-safe element access.
-
 func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
 	result := compileSource("fixed: Array<Int32, 3> = [10, 20, 30] total: Int32 = fixed[0] + fixed[2] count: Size = fixed.length() empty: Bool = fixed.length() == 0 last: Int32 = fixed[2]")
 	if result.ExitCode != compiler.ExitSuccess {

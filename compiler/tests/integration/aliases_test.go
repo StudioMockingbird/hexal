@@ -1,7 +1,5 @@
 package integration
 
-// Transparent type aliases, canonical lowering, and type-name resolution. Spec 0005.
-
 import (
 	"hexal/compiler"
 	"strings"

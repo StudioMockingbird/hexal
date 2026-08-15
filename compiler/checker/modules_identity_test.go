@@ -1,8 +1,7 @@
 package checker
 
-// RFC 0034 Task 6: module identity in nominal types, implementation
-// ownership, cross-module method calls, and generic specialization
-// ownership.
+// Module identity in nominal types, implementation ownership,
+// cross-module method calls, and generic specialization ownership.
 
 import (
 	"testing"
@@ -64,8 +63,8 @@ func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 	}
 }
 
-// A private method is invisible cross-module: the call is the Task 5
-// visibility failure at the method, even when the receiver type is exported.
+// A private method is invisible cross-module: the call is the visibility
+// failure at the method, even when the receiver type is exported.
 func TestImportedMethodCallRejectsPrivateMethod(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\np: Math.Point = Math.origin()\narea: Int32 = p.length_squared()\n",
@@ -97,7 +96,7 @@ func TestImportedGenericSpecializationsLandInDefiningModule(t *testing.T) {
 		t.Fatalf("app specializations = %d, want 0 (the defining module owns them)", len(checked["app.hex"].SpecializedFunctions))
 	}
 	// The checked call mirrors a local generic call, with the target module
-	// id stamped on the callee for the module phase.
+	// id stamped on the callee.
 	call := checked["app.hex"].Statements[0].(Declaration).Source.Node
 	if call.Kind != CallExpression || call.Operand == nil || call.Operand.Name != "identity_Int32" || call.Operand.Module != "math" {
 		t.Fatalf("source node = %#v, want qualified call to math's identity_Int32", call)

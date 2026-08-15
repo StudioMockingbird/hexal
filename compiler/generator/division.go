@@ -8,9 +8,9 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0017 defined division and remainder: zero-divisor guards and the
-// signed-minimum/-1 special cases run before any C division, and the trap
-// never executes the invalid operation.
+// Integer division and remainder: zero-divisor and signed-minimum/-1 guards
+// run before any C division, and the trap never executes the invalid
+// operation.
 
 // discoverGeneratedDivisions collects the integer types whose division and
 // remainder operations need guarded helpers.

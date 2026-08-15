@@ -1,7 +1,6 @@
 // declarations.go owns C declaration, definition, prototype, and symbol-name
-// emission (RFC 0059): file-scope function and method definitions,
-// specialization, exported and foreign prototypes, and RFC 0004 name
-// mangling.
+// emission: file-scope function and method definitions, specialization,
+// exported and foreign prototypes, and private name mangling.
 package generator
 
 import (
@@ -24,11 +23,11 @@ const (
 	FunctionName
 )
 
-// PrivateCName applies the RFC 0004 private C prefix exactly once at the
-// declaration/reference rendering boundary. owner is the RFC 0034 encoded
-// module owner of the declaring module ("" for compiler-owned names such as
-// locals and members, which stay unencoded): hex_f_m8_graphics6_shapes_draw
-// names module "graphics/shapes".
+// PrivateCName applies the private C prefix exactly once at the
+// declaration/reference rendering boundary. owner is the encoded module owner
+// of the declaring module ("" for compiler-owned names such as locals and
+// members, which stay unencoded): hex_f_m8_graphics6_shapes_draw names module
+// "graphics/shapes".
 func PrivateCName(kind NameKind, source, owner string) string {
 	prefix := "hex_v_"
 	switch kind {
@@ -153,9 +152,9 @@ func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
 }
 
 // writeFunctionDefinition emits one C function. Parameters are fixed
-// bindings, so their declarators carry top-level const. RFC 0034: external is
-// true for functions the generated spawn adapters must call; those keep
-// external linkage, everything else is static to its module C file.
+// bindings, so their declarators carry top-level const. external is true for
+// functions the generated spawn adapters must call; those keep external
+// linkage, everything else is static to its module C file.
 func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState, owner, filename string, external bool) error {
 	signature := declared.Type.Signature
 	if signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
@@ -215,8 +214,8 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 	}
 
 	writeLineDirective(body, declared.SourceLine, filename)
-	// RFC 0034: exported declarations and spawn targets keep external
-	// linkage; everything else is static to the module translation unit.
+	// Exported declarations and spawn targets keep external linkage;
+	// everything else is static to the module translation unit.
 	linkage := ""
 	if !external && !declared.Exported {
 		linkage = "static "

@@ -8,9 +8,6 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0029: Error values, `try` propagation, and error-only errdefer
-// cleanup.
-
 // discoverErrorUsed reports whether the program references the built-in
 // Error type anywhere (directly or inside a union), which requires its
 // generated object definition.
@@ -80,7 +77,7 @@ func returnErrorExit(valueType compilerTypes.Type, valueName string) string {
 
 // writeErrorDefinition emits the built-in Error object's full definition.
 // It runs before the union definitions that may carry Error as a payload
-// member (RFC 0029).
+// member.
 func writeErrorDefinition(result *strings.Builder) {
 	object := compilerTypes.ErrorType.Object
 	fmt.Fprintf(result, "\ntypedef struct %s %s;\nstruct %s {\n", object.CName, object.CName, object.CName)
@@ -91,13 +88,13 @@ func writeErrorDefinition(result *strings.Builder) {
 }
 
 // hoistTryInStatement walks one checked statement's expressions in
-// evaluation order and emits the RFC 0029 try prologues (the operand
-// temporary plus the Error-return branch) before the statement renders. Each
-// try node is then replaced by its hoisted success value.
+// evaluation order and emits each try prologue (the operand temporary plus
+// the Error-return branch) before the statement renders. Each try node is
+// then replaced by its hoisted success value.
 func hoistTryInStatement(statement checker.Statement, body *strings.Builder, state *expressionValidation, result *compilerTypes.Type, indent string) error {
-	// RFC 0057 Item 5: expression traversal lives in the shared
-	// walkStatementExpressions; this hoister only acts on try nodes and
-	// recurses into nested statement bodies itself.
+	// Expression traversal lives in the shared walkStatementExpressions;
+	// this hoister only acts on try nodes and recurses into nested statement
+	// bodies itself.
 	if err := walkStatementExpressions(statement, func(node *checker.Expression) error {
 		if node.Kind == checker.TryExpression && node.Operand != nil {
 			return hoistTry(node, body, state, result, indent)
@@ -179,8 +176,7 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 	// The deferred actions unwind only on the Error path, before the Error
 	// returns: the success path runs them at the scope's own exit, and
 	// running them twice would double-release the same resources. The
-	// unwind must precede the return so it executes (RFC 0048 conformance:
-	// the previous order emitted unreachable unwind code after the return).
+	// unwind must precede the return so it executes.
 	if err := unwindAllDefers(&builder, state, indent, "true"); err != nil {
 		return err
 	}

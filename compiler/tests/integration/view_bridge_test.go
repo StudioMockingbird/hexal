@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0043 integration tests: View<T>.from_pointer and View<T>.empty().
-
 func TestViewFromPointerCompiles(t *testing.T) {
 	source := "fun total(data: Ptr<Int32>, count: Size): Int32 do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\n    mut sum: Int32 = 0\n    for value in items do\n        sum = sum + value\n    end\n    return sum\nend\n"
 	result := compileSource(source)
@@ -63,8 +61,8 @@ func TestViewFromPointerRejectsNonSizeLength(t *testing.T) {
 }
 
 func TestViewFromPointerRejectsStringPointee(t *testing.T) {
-	// RFC 0048: the source fails because Ptr<String> is an invalid pointee,
-	// not because View<String> is invalid.
+	// The source fails because Ptr<String> is an invalid pointee, not
+	// because View<String> is invalid.
 	source := "fun bad(data: Ptr<String>, count: Size) do\n    items: View<String> = View<String>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "could not construct pointer type") {
@@ -91,8 +89,9 @@ func TestFromPointerRejectsStackRoots(t *testing.T) {
 			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
 		}
 	}
-	// Documented caller-side hole: wrap(ref local, 1) is not caught because the
-	// callee sees an opaque parameter; RFC 0043's trust-boundary contract owns it.
+	// Documented caller-side hole: wrap(ref local, 1) is not caught because
+	// the callee sees an opaque parameter; lifetime safety is the caller's
+	// responsibility at the from_pointer trust boundary.
 	caller := "fun wrap(p: Ptr<Int32>, n: Size): View<Int32> do\n    return View<Int32>.from_pointer(p, n)\nend\nfun f() do\n    value: Int32 = 1\n    view: View<Int32> = wrap(ref value, 1)\nend\n"
 	if result := compileSource(caller); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("caller-side from_pointer hole must compile by design: %v", result.Stderr)

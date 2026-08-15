@@ -169,9 +169,6 @@ func TestHeapDiagnosticsFailClosed(t *testing.T) {
 	}
 }
 
-// A bare h.free(p) statement releases the allocation directly. Only the
-// defer path used to render this form; the statement whitelist omitted
-// HeapFreeExpression (snippet-audit regression).
 func TestHeapFreeAsBareStatement(t *testing.T) {
 	result := compileSource("fun f(h: Heap) do\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    h.free(p)\nend\n")
 	if result.ExitCode != compiler.ExitSuccess {

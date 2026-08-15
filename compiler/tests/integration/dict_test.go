@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0020 Phase E: Dict<K, V> with Int32 and Strand keys, owning
-// dictionaries, and String-value shallow-copy and explicit-cleanup rules.
-
 func TestDictInt32Lifecycle(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool = scores.contains(1)\n    first: Int32 = scores.get(1)\n    removed: Int32 = scores.remove(2)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -30,13 +27,13 @@ func TestDictInt32Lifecycle(t *testing.T) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
-	// RFC 0069: capacity doubling and bucket-region byte sizing stay in
-	// size_t with checked multiply, and the load-factor growth decision
-	// checks every operand before comparison; the manual SIZE_MAX guard and
-	// the uint64_t temporary are gone.
-	// RFC 0069 Amendment 2: a fresh inactive bucket region zeroes with one
-	// memset, every diagnostic reports through hex_runtime_trap, and the
-	// Dict helpers carry no raw fputs or compiler-owned NULL.
+	// Capacity doubling and bucket-region byte sizing stay in size_t with
+	// checked multiply, and the load-factor growth decision checks every
+	// operand before comparison; the manual SIZE_MAX guard and the uint64_t
+	// temporary are gone.
+	// A fresh inactive bucket region zeroes with one memset, every diagnostic
+	// reports through hex_runtime_trap, and the Dict helpers carry no raw
+	// fputs or compiler-owned NULL.
 	header := hexalH(t, result)
 	for _, want := range []string{
 		"size_t next = 8;",
@@ -78,10 +75,10 @@ func TestDictStrandKeys(t *testing.T) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
-	// RFC 0069 Amendment 2: Strand Dict probing compares the canonical
-	// zero-filled 32-byte key representation with one direct memcmp and
-	// emits no per-Dict key-equality wrapper; diagnostics report through
-	// hex_runtime_trap and no compiler-owned NULL or raw fputs remains.
+	// Strand Dict probing compares the canonical zero-filled 32-byte key
+	// representation with one direct memcmp and emits no per-Dict
+	// key-equality wrapper; diagnostics report through hex_runtime_trap and
+	// no compiler-owned NULL or raw fputs remains.
 	header := hexalH(t, result)
 	for _, want := range []string{
 		"memcmp(region[index].key.data, key.data, 32) != 0",
@@ -100,8 +97,8 @@ func TestDictStrandKeys(t *testing.T) {
 }
 
 func TestDictStringValues(t *testing.T) {
-	// RFC 0048: a stored literal is never freed by the collection or by a
-	// remove; a runtime String removed from the dict is freed explicitly.
+	// A stored literal is never freed by the collection or by a remove; a
+	// runtime String removed from the dict is freed explicitly.
 	result := compileSource("fun demo(h: Heap) do\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    runtime: String = \"bob\".to_string(h)\n    people.insert(2, runtime)\n    removed: String = people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    name: String = people.get(1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
@@ -119,8 +116,8 @@ func TestDictStringValues(t *testing.T) {
 	}
 }
 
-// RFC 0035: a Dict<String> read returns a shallow String handle; mutation
-// while a read handle is live is now the programmer's responsibility.
+// A Dict<String> read returns a shallow String handle; mutation while a
+// read handle is live is the programmer's responsibility.
 func TestDictMutationAfterReadIsValid(t *testing.T) {
 	for _, source := range []string{
 		"fun demo(h: Heap) do\n    people: Dict<Int32, String> = Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String = people.get(1)\n    people.insert(2, \"b\")\nend",

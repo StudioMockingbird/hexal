@@ -807,8 +807,6 @@ func parseInitializer(t *testing.T, source string) Expression {
 	return program.Statements[0].(Declaration).Initializer
 }
 
-// RFC 0008 function, method, call, and return parsing.
-
 func parseOneItem(t *testing.T, source string) TopLevelItem {
 	t.Helper()
 	tokens, err := lexer.Lex(source)

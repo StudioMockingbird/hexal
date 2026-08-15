@@ -8,8 +8,8 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0032 low-level integer and bit operations: bitwise &, ^, |, unary ~,
-// defined << and >>, bit_cast<T>(), and endian byte conversion.
+// Low-level integer and bit operations: bitwise &, ^, |, unary ~, defined
+// << and >>, bit_cast<T>(), and endian byte conversion.
 
 type shiftSpec struct {
 	operator checker.Operator
@@ -81,14 +81,14 @@ func writeShiftHelper(result *strings.Builder, spec shiftSpec) {
 		// case is separate so the sign-fill shift never uses the full width.
 		// The mask uses the exact-width unsigned type so an Int64 operand
 		// never shifts a 32-bit 1u by 32 or more; the inner parens keep the
-		// shift inside the subtraction (RFC 0069 Amendment 1 Item B).
+		// shift inside the subtraction.
 		mask := fmt.Sprintf("(left < 0 ? (%s)(0 - ((%s)1 << (%s)(%d - (uint64_t)count))) : 0)", unsigned, unsigned, unsigned, width)
 		shifted = fmt.Sprintf("((uint64_t)count == 0 ? (%s)left : (%s)(((%s)left >> (uint64_t)count) | %s))", unsigned, unsigned, unsigned, mask)
 	}
 	if compilerTypes.IsSignedInteger(typ) {
-		// RFC 0069 Amendment 1 Item B: the qualified GCC/Clang target
-		// converts an out-of-range same-width unsigned value modulo the
-		// destination width, so the signed result is a plain cast.
+		// The qualified GCC/Clang targets convert an out-of-range
+		// same-width unsigned value modulo the destination width, so the
+		// signed result is a plain cast.
 		shifted = fmt.Sprintf("(%s)(%s)", typ.CName, shifted)
 	}
 	fmt.Fprintf(result, "\nstatic inline %s %s(%s left, uint64_t count) {\n", typ.CName, shiftHelperName(spec), typ.CName)
@@ -96,15 +96,10 @@ func writeShiftHelper(result *strings.Builder, spec shiftSpec) {
 	fmt.Fprintf(result, "    return %s;\n}\n", shifted)
 }
 
-// renderSignedReconstruct no longer exists: RFC 0069 Amendment 1 Item B
-// qualifies same-width unsigned-to-signed conversion as modular on the pinned
-// GCC/Clang targets, so every former call site emits a direct cast.
-
-// bitCastSpec is one concrete same-width scalar bit cast pair.
 // renderBitwiseOperation lowers &, ^, and | at the selected exact width:
 // operands convert to the unsigned representation, the operation runs in a
 // promotion-safe unsigned type, and a signed result is a direct cast under
-// the qualified modular-conversion contract (RFC 0069 Amendment 1).
+// the qualified modular-conversion contract.
 func renderBitwiseOperation(operator checker.Operator, typ compilerTypes.Type, left, right string) (string, error) {
 	unsigned, ok := unsignedCName(typ)
 	if !ok {
@@ -177,8 +172,7 @@ func discoverGeneratedBitCasts(program checker.Program) []bitCastSpec {
 // writeBitCastDefinitions emits one memcpy-based helper per pair. The bits
 // copy directly from the checked source object into the exact destination
 // object with no signed-source cast, unsigned intermediate, or post-copy
-// conversion (RFC 0069 Amendment 1 Item B). The memcpy prerequisite arrives
-// through hexal.h (<string.h>, RFC 0062).
+// conversion. memcpy is available because hexal.h includes <string.h>.
 func writeBitCastDefinitions(result *strings.Builder, specs []bitCastSpec) {
 	if len(specs) == 0 {
 		return
@@ -280,7 +274,8 @@ func writeEndianHelper(result *strings.Builder, spec endianSpec) {
 		fmt.Fprintf(result, "    value |= (%s)(bytes->data[%d]) << %d;\n", unsigned, index, shift)
 	}
 	if compilerTypes.IsSignedInteger(typ) {
-		// RFC 0069 Amendment 1 Item B: direct modular cast.
+		// Direct modular cast: same-width unsigned-to-signed conversion is
+		// modular on the pinned GCC/Clang targets.
 		fmt.Fprintf(result, "    return (%s)value;\n}\n", typ.CName)
 	} else {
 		fmt.Fprintf(result, "    return value;\n}\n")

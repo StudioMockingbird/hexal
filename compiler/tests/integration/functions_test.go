@@ -1,8 +1,5 @@
 package integration
 
-// Functions: declarations, Fun<...> function-pointer types, calls, returns,
-// closed function scopes, and the deferred Fun<...> positions. Spec 0008.
-
 import (
 	"hexal/compiler"
 	"strings"
@@ -178,8 +175,6 @@ func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
 		"impl A.B_c collides with impl A_B.c")
 }
 
-// Generated C23 for function lowering. Spec 0008, section "C23 lowering".
-
 func requireGeneratedC(t *testing.T, source, want string) {
 	t.Helper()
 	result := compileSource(source)
@@ -241,7 +236,7 @@ func TestGeneratedZeroParameterFunctionTakesVoid(t *testing.T) {
 
 // The stored pointer type carries unqualified parameters even though the
 // definition binds const int32_t. C ignores top-level parameter qualifiers
-// when comparing function types, and spec 0008 forbids "correcting" this.
+// when comparing function types, so the parameters must stay unqualified.
 func TestGeneratedFunctionPointerObjectsKeepUnqualifiedParameters(t *testing.T) {
 	source := "fun identity(value: Int32): Int32 do\n    return value\nend\n" +
 		"callback: Fun<(Int32) : Int32> = identity\nmut selected: Fun<(Int32) : Int32> = identity\n"

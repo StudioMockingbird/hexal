@@ -25,12 +25,6 @@ gets deleted.
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
 | Default-Heap runtime collapse — direct checked `malloc`/`free`, needs a follow-up ADR (RFC 0069 audit finding; coordinates with 0027) | [0069](specs/archive/0069/0069-c23-backed-compiler-simplification.md) |
 
-### Implementation-ready
-
-| Work | Spec |
-|---|---|
-| Code comment contract and cleanup | [0070](specs/0070-code-comment-contract.md) |
-
 ## Unowned
 
 One item survived the previous follow-up list without a determinable meaning:

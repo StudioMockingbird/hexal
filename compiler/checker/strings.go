@@ -11,12 +11,12 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0035: Strings are reference-like handles with C-style shallow copies
+// Strings are reference-like handles with C-style shallow copies
 // and manual cleanup; no provenance or ownership state is tracked.
 
 // decodeStringLiteral decodes a double-quoted literal's raw lexeme (including
-// the surrounding quotes) into its payload bytes using the shared RFC 0044
-// literal decoder, which validates every escape and UTF-8 validity.
+// the surrounding quotes) into its payload bytes using the shared literal
+// decoder, which validates every escape and UTF-8 validity.
 func decodeStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
 	if len(raw) < 2 || raw[0] != '"' || raw[len(raw)-1] != '"' {
@@ -121,7 +121,7 @@ func checkRuneLiteral(expression parser.RuneLiteral) checkedExpression {
 // checkStringLiteral resolves a string literal into a static String value
 // carrying its decoded payload. In a Strand position the same payload becomes
 // a Strand value; Strand keeps its literal-only construction and enforces
-// the RFC 0044 31-byte, NUL-free, zero-filled invariants.
+// the 31-byte, NUL-free, zero-filled invariants.
 func checkStringLiteral(expression parser.StringLiteral, expected compilerTypes.Type) checkedExpression {
 	payload, diagnostic := decodeStringLiteral(expression.Token)
 	if diagnostic != nil {
@@ -158,7 +158,7 @@ func checkStringLiteral(expression parser.StringLiteral, expected compilerTypes.
 
 // checkStringTypeCall resolves a call written as String.<name>(...), the
 // built-in type constructors String.from_bytes(heap, view) and
-// String.from_runes(heap, view) (RFC 0044).
+// String.from_runes(heap, view).
 func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
 	viewType := compilerTypes.UInt8
@@ -207,9 +207,9 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *
 	return checkedExpression{source: source, typ: compilerTypes.StringType, token: callee}
 }
 
-// checkStringMethodCall dispatches the RFC 0044 String method surface:
-// length, is_empty, bytes, slice, rune_cursor, to_string, concat, and free
-// (RFC 0063: at was removed — `[index]` yields the same Rune). Indexing
+// checkStringMethodCall dispatches the String method surface:
+// length, is_empty, bytes, slice, rune_cursor, to_string, concat, and free,
+// and rejects the removed at name with its replacement. Indexing
 // ([index]) resolves through checkIndexPlace.
 func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
@@ -219,7 +219,7 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(callee.Property, "length expects no arguments")
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		// RFC 0036: text lengths return Size and count Runes.
+		// Text lengths return Size and count Runes.
 		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: compilerTypes.SizeType, Element: compilerTypes.UInt8}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
@@ -374,9 +374,9 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 	}
 }
 
-// checkStrandMethodCall dispatches the RFC 0044 Strand surface: length,
-// is_empty, and to_string (RFC 0063: at was removed — `[index]` yields the
-// same Rune). Strand never exposes bytes, slice, rune_cursor, concat, or
+// checkStrandMethodCall dispatches the Strand surface: length,
+// is_empty, and to_string, and rejects the removed at name with its
+// replacement. Strand never exposes bytes, slice, rune_cursor, concat, or
 // free.
 func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
@@ -429,7 +429,7 @@ func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExp
 	}
 }
 
-// checkRuneCursorMethodCall dispatches the RFC 0044 RuneCursor surface:
+// checkRuneCursorMethodCall dispatches the RuneCursor surface:
 // has_next and next.
 func checkRuneCursorMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme

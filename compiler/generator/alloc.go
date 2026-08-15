@@ -55,8 +55,8 @@ func writeHeapDefinitions(result *strings.Builder, state *heapHelpers) {
 	// region: the marker write at base + offset - 8 would clobber it.
 	result.WriteString("typedef struct hex_heap_header {\n    uintptr_t allocator;\n    size_t size;\n    size_t offset;\n    bool live;\n    size_t marker;\n} hex_heap_header;\n\n")
 	// Alignment rounding and the payload offset must not wrap; align == 0
-	// is rejected first so align - 1 is never evaluated for it. Both
-	// additions use ckd_add from <stdckdint.h> (RFC 0069).
+	// is rejected first so align - 1 is never evaluated for it, and both
+	// additions use ckd_add from <stdckdint.h>.
 	result.WriteString("static void *hex_heap_raw_allocate(uintptr_t allocator, size_t size, size_t align) {\n")
 	result.WriteString("    size_t padded;\n")
 	result.WriteString("    if (align == 0 || ckd_add(&padded, sizeof(hex_heap_header), align - 1)) {\n")
@@ -93,7 +93,7 @@ func writeHeapDefinitions(result *strings.Builder, state *heapHelpers) {
 // writeHeapAllocateHelpers emits the typed allocation helpers into the module
 // header. They are per-module because the element types are module-owned
 // (objects, ADTs, unions) and must be defined before the helper; the shared
-// raw machinery lives in hexal.h (RFC 0062).
+// raw machinery lives in hexal.h.
 func writeHeapAllocateHelpers(result *strings.Builder, state *heapHelpers) {
 	if state == nil {
 		return

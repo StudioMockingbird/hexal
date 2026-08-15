@@ -98,7 +98,7 @@ func writeUnionDefinition(result *strings.Builder, union compilerTypes.Type) {
 	for index, member := range union.Union.Members {
 		if compilerTypes.IsNil(member) || compilerTypes.IsEoS(member) {
 			// Nil and EoS are tag-only alternatives: Nil is a nullable
-			// niche and EoS (RFC 0031) has no payload of its own.
+			// niche and EoS has no payload of its own.
 			continue
 		}
 		if member.Signature != nil {

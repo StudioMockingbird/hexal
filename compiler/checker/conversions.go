@@ -25,11 +25,9 @@ func truncateTowardZero(value constant.Value) constant.Value {
 	return constant.BinaryOp(numerator, gotoken.QUO_ASSIGN, constant.Denom(value))
 }
 
-// RFC 0038: the one explicit scalar conversion spelling `source.to<Dest>()`.
-// It supersedes RFC 0016's former destination-encoded method names and the
-// wrapping and saturating modes; every conversion is checked, a known-invalid
-// constant fails compilation, and an invalid runtime value traps before any
-// unsafe C conversion.
+// The one explicit scalar conversion spelling is `source.to<Dest>()`. Every
+// conversion is checked: a known-invalid constant fails compilation, and an
+// invalid runtime value traps before any unsafe C conversion.
 
 // checkConversionCall resolves the compiler-owned `to<Dest>()` method on an
 // eligible scalar receiver. The receiver-scoped builtin resolves before
@@ -128,7 +126,8 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 	return checkedExpression{source: sourceOperand, typ: target, token: callee.Property}
 }
 
-// conversionPairValid applies the RFC 0038 source/destination matrix. Integer
+// conversionPairValid applies the source/destination conversion matrix.
+// Integer
 // means the eight fixed-width integer types plus Size; Rune is not a numeric
 // arithmetic type and participates only in checked integer conversion.
 func conversionPairValid(source, target compilerTypes.Type) bool {
@@ -201,8 +200,8 @@ func foldIntegerConversion(value constant.Value, source, target compilerTypes.Ty
 		return nil, &compilerTypes.Diagnostic{Category: compilerTypes.TypeError, Stage: "checker", Line: token.Line, Column: token.Column, Message: "value is not an integer"}
 	}
 	if compilerTypes.IsRune(target) {
-		// RFC 0038: Integer-to-Rune checks Unicode scalar validity: the
-		// value must be in U+0000..U+10FFFF and outside the surrogate range.
+		// Integer-to-Rune checks Unicode scalar validity: the value must be
+		// in U+0000..U+10FFFF and outside the surrogate range.
 		if constant.Compare(integer, gotoken.LSS, constant.MakeInt64(0)) ||
 			constant.Compare(integer, gotoken.GTR, constant.MakeInt64(0x10FFFF)) ||
 			constant.Compare(integer, gotoken.GEQ, constant.MakeInt64(0xD800)) &&

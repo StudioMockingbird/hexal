@@ -4,7 +4,7 @@ package c23validation
 
 import "testing"
 
-// RFC 0044 smoke tests: byte/rune literals, the RuneCursor, the Strand
+// Smoke tests: byte/rune literals, the RuneCursor, the Strand
 // surface, and the from_bytes/from_runes constructors generate C that gcc
 // accepts, and a compiled run computes the expected values.
 
@@ -15,7 +15,7 @@ func c23GeneratedTextConformanceRuns(t *testing.T) {
 	}
 }
 
-// RFC 0044 runtime traps: invalid UTF-8 bytes, a String index outside its
+// Runtime traps: invalid UTF-8 bytes, a String index outside its
 // bounds, and RuneCursor exhaustion all terminate with a runtime
 // diagnostic.
 func c23GeneratedTextTraps(t *testing.T) {

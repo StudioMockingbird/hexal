@@ -6,17 +6,12 @@ import (
 	"testing"
 )
 
-// RFC 0024: equality, ordering, and hashability — lossless numeric widening,
-// deep value equality, pointer identity, and text ordering.
-
 func TestLosslessNumericComparisonWidening(t *testing.T) {
 	result := compileSource("fun demo() do\n    i32: Int32 = 1\n    i64: Int64 = 2\n    u32: UInt32 = 3\n    f32: Float32 = 1.5\n    same: Bool = i32 == i64\n    cross: Bool = i32 == u32\n    order: Bool = i32 < f32\n    small: Int16 = 1\n    tiny: UInt8 = 2\n    narrow: Bool = small == tiny\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		// RFC 0068: named immutable reads stay binding reads; the widening
-		// comparison shape survives on the generated bindings.
 		"((int64_t)(hex_v_i32) == hex_v_i64)",
 		"((int64_t)(hex_v_i32) == (int64_t)(hex_v_u32))",
 		"((double)(hex_v_i32) < (double)(hex_v_f32))",
@@ -113,10 +108,10 @@ func TestStringEqualityAndOrdering(t *testing.T) {
 			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), hexalH(t, result), want)
 		}
 	}
-	// RFC 0069 Amendment 2 Item A: String equality is length-first plus one
-	// memcmp over the shared nonzero length; String ordering memcmp's the
-	// shorter nonzero length and falls back to the length comparison. The
-	// global Strand equality/ordering helpers are deleted.
+	// String equality compares length first, then one memcmp over the shared
+	// nonzero length; ordering memcmp's the shorter nonzero length and falls
+	// back to the length comparison. No global Strand equality/ordering
+	// helpers are emitted.
 	for _, want := range []string{
 		"memcmp(left->data, right->data, left->byte_length)",
 		"memcmp(left->data, right->data, limit)",
@@ -132,11 +127,11 @@ func TestStringEqualityAndOrdering(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Item A: String and Strand equality/ordering produce
-// identical results through memcmp. Empty values skip the standard memory
-// call safely, prefix and differing-length payloads compare against the
-// canonical zero-filled tail, non-ASCII UTF-8 compares bytewise, and the
-// maximum 31-byte Strand payload still lower to one direct 32-byte memcmp.
+// String and Strand equality/ordering produce identical results through
+// memcmp. Empty values skip the standard memory call safely, prefix and
+// differing-length payloads compare against the canonical zero-filled tail,
+// non-ASCII UTF-8 compares bytewise, and the maximum 31-byte Strand payload
+// still lowers to one direct 32-byte memcmp.
 func TestTextEqualityOrderingThroughMemcmp(t *testing.T) {
 	maxPayload := strings.Repeat("a", 31)
 	source := "fun demo() do\n" +
@@ -173,9 +168,6 @@ func TestTextEqualityOrderingThroughMemcmp(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Item A: recursive semantic equality bodies compare a
-// Strand member with the direct 32-byte memcmp; no per-type Strand wrapper
-// is emitted inside object equality helpers.
 func TestStrandMemberEqualityUsesMemcmp(t *testing.T) {
 	source := "type Label = { tag: Strand, }\nfun demo() do\n    left: Label = Label { tag = \"a\" }\n    right: Label = Label { tag = \"a\" }\n    same: Bool = left == right\nend"
 	result := compileSource(source)
@@ -286,16 +278,14 @@ func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
 }
 
 func TestNilComparisonRulesPreserved(t *testing.T) {
-	// RFC 0049 item 8.1: == nil requires a union containing Nil. A plain
-	// pointer has no Nil member, so the literal gate rejects the comparison.
+	// == nil requires a union containing Nil. A plain pointer has no Nil
+	// member, so the literal gate rejects the comparison.
 	result := compileSource("fun demo() do\n    nilSame: Bool = nil == nil\n    mut value: Int32 = 1\n    pointer: Ptr<Int32> = ref value\n    bad: Bool = pointer == nil\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "nil requires an expected union containing Nil") {
 		t.Fatalf("Compile stderr = %#v, want standalone-nil diagnostic", result.Stderr)
 	}
 }
 
-// RFC 0049: List equality is deep element equality; Task, Channel, Mutex,
-// and Atomic handles have no equality at all.
 func TestListEqualityAccepted(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n    left: List<Int32> = List<Int32>.new(h)\n    defer left.free(h)\n    left.push(1)\n    right: List<Int32> = left\n    same: Bool = left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {

@@ -1,7 +1,7 @@
 package checker
 
 // Function declarations, Fun<...> types, calls, returns, and closed function
-// scopes. Spec 0008.
+// scopes.
 
 import (
 	"testing"
@@ -355,8 +355,8 @@ func TestSelfCannotBeAssigned(t *testing.T) {
 		"cannot assign to self; self is a fixed binding")
 }
 
-// A value receiver's self is fixed, so a member write fails; the spec's
-// workaround is an explicit mutable copy.
+// A value receiver's self is fixed, so a member write fails; the workaround
+// is an explicit mutable copy.
 func TestValueReceiverSelfIsFixed(t *testing.T) {
 	requireDiagnostic(t, point+"impl Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
 		"cannot assign to read-only member self.x")
@@ -401,7 +401,7 @@ func TestLaterMethodIsNotVisible(t *testing.T) {
 		"Point has no method named length_squared")
 }
 
-// The four ordered receiver adaptations from the spec's Calling methods.
+// The four ordered receiver adaptations.
 func TestReceiverAdaptationRules(t *testing.T) {
 	// exact target type
 	requireAccepted(t, point+"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
@@ -443,15 +443,15 @@ func TestImplTargetMustBeANominalObject(t *testing.T) {
 		"Fun<(Int32) : Int32> is not a nominal object type; impl requires an object")
 }
 
-// 10. RFC 0010 nullable integration: signatures, returns, arguments, and
-// nullable function pointers. Spec 0010.
+// Nullable integration: signatures, returns, arguments, and
+// nullable function pointers.
 
 func TestNullableFunctionSignaturesAndReturns(t *testing.T) {
 	requireAccepted(t, "fun find_none(): Ptr<Int32> | Nil do\n    return nil\nend\n")
 	requireAccepted(t, "fun pass_through(maybe: Ptr<Int32> | Nil): Ptr<Int32> | Nil do\n    return maybe\nend\n")
-	// RFC 0007 weakening then RFC 0010 injection: MutPtr<Int32> -> Ptr<Int32> | Nil
+	// MutPtr-to-Ptr weakening then union injection: MutPtr<Int32> -> Ptr<Int32> | Nil
 	requireAccepted(t, "mut value: Int32 = 1\nwriter: MutPtr<Int32> = ref value\nfun lift(source: MutPtr<Int32>): Ptr<Int32> | Nil do\n    return source\nend\nok: Ptr<Int32> | Nil = lift(writer)\n")
-	// RFC 0049 item 8.1: a function returning no value has no result type.
+	// A function returning no value has no result type.
 	requireAccepted(t, "fun absent() do\n    return\nend\nabsent()\n")
 }
 

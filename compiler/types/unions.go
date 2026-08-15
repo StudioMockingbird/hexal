@@ -74,9 +74,9 @@ func (environment *Environment) UnionType(members []Type) Type {
 		// Channel, Mutex) and the read-only View descriptor are ordinary union
 		// members: Error-carrying results return String | Error and
 		// List<Byte> | Error. Atomic values are non-copyable and are rejected
-		// here because union injection copies by definition (RFC 0046). Nil is
-		// canonical only as a union member (RFC 0049 item 8.1), so member
-		// validation admits it through allowNilMember.
+		// here because union injection copies by definition. Nil is canonical
+		// only as a union member, so member validation admits it through
+		// allowNilMember.
 		if !ContainsTypeParameter(member) &&
 			(!isCanonicalForEnvironment(environment, member, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true, allowNilMember: true}, false) || !Storable(member, PositionUnionMember)) {
 			return Type{}
@@ -92,10 +92,10 @@ func (environment *Environment) UnionType(members []Type) Type {
 			unique = append(unique, member)
 		}
 	}
-	// RFC 0049 item 8.1: a union holds at least two distinct canonical
-	// members; the flatten-and-deduplicate pass runs first, and a written
-	// union that collapses to fewer than two is an error, never an alias for
-	// the surviving member.
+	// A union holds at least two distinct canonical members; the
+	// flatten-and-deduplicate pass runs first, and a written union that
+	// collapses to fewer than two is an error, never an alias for the
+	// surviving member.
 	if len(unique) < 2 {
 		return Type{}
 	}
@@ -106,11 +106,11 @@ func (environment *Environment) UnionType(members []Type) Type {
 		return environment.NullableType(unique[0])
 	}
 	key := unionKey(unique)
-	// RFC 0034: a union is a compiler-owned builtin constructor, so its
-	// identity is canonical and compilation-global: the same member set in
-	// any module yields the same Type, one C name, and one generated
-	// definition. The key is built from canonical member identity serials,
-	// so it never depends on which module wrote the union first.
+	// A union is a compiler-owned builtin constructor, so its identity is
+	// canonical and compilation-global: the same member set in any module
+	// yields the same Type, one C name, and one generated definition. The
+	// key is built from canonical member identity serials, so it never
+	// depends on which module wrote the union first.
 	globalUnionMu.Lock()
 	defer globalUnionMu.Unlock()
 	if cached, ok := globalUnionTypes[key]; ok {
@@ -130,9 +130,7 @@ func (environment *Environment) UnionType(members []Type) Type {
 // unionCName derives one union's C name from its canonical members: a
 // deterministic, injective, length-delimited encoding of the member C names.
 // The name depends only on the members, so the same union written in any
-// module spells the same C type and different unions never collide (RFC
-// 0034: built-in specialization identity depends only on the constructor and
-// its canonical arguments, never on the requesting module).
+// module spells the same C type and different unions never collide.
 func unionCName(members []Type) string {
 	var builder strings.Builder
 	builder.WriteString("hex_union_")
@@ -225,8 +223,8 @@ func unionDisplayKey(typ Type) (int, string) {
 	return 3, typ.Name
 }
 
-// IsUnion includes the specialized nullable representation because RFC 0014
-// treats P | Nil as an ordinary union with a specialized representation.
+// IsUnion includes the specialized nullable representation because P | Nil
+// is an ordinary union with a specialized representation.
 func IsUnion(typ Type) bool { return typ.Union != nil || IsNullable(typ) }
 
 func UnionMembers(typ Type) []Type { return unionMembers(typ) }
@@ -260,9 +258,9 @@ func RemoveUnionMember(environment *Environment, union, member Type) (Type, bool
 		return Type{}, false
 	}
 	if len(remaining) == 1 {
-		// Narrowing, not written union syntax: RFC 0049 item 8.1's
-		// two-distinct-member rule does not apply to a value already proven
-		// to hold the surviving member.
+		// Narrowing, not written union syntax: the two-distinct-member rule
+		// does not apply to a value already proven to hold the surviving
+		// member.
 		return remaining[0], true
 	}
 	return environment.UnionType(remaining), true

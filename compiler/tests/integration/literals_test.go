@@ -1,7 +1,5 @@
 package integration
 
-// Scalar types, numeric literals, radices, contextual typing, and ranges. Spec 0003.
-
 import (
 	"hexal/compiler"
 	"strings"
@@ -200,9 +198,6 @@ func TestPointerScalarMappings(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 6: a Size literal whose fit depends on the C target emits a
-// static_assert against SIZE_MAX, and the generated C no longer asserts a
-// 64-bit size_t profile.
 func TestSizeLiteralTargetGuard(t *testing.T) {
 	result := compileSource("count: Size = 5000000000\nsmall: Size = 3\n")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -236,9 +231,6 @@ func TestInt32Declaration(t *testing.T) {
 		t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), wantC)
 	}
 
-	// RFC 0062 minimal output: an Int32-only program gets the guard, the
-	// exact-width <stdint.h>, and nothing else — no probe, no hex_eos, no
-	// bool/limits/float headers.
 	hexalH := hexalH(t, result)
 	if !strings.Contains(hexalH, "#ifndef HEXAL_H") || !strings.Contains(hexalH, "#include <stdint.h>") {
 		t.Fatalf("hexal.h = %q, want guard and <stdint.h>", hexalH)
@@ -266,9 +258,9 @@ func TestBoolDeclaration(t *testing.T) {
 	}
 }
 
+// Byte is the canonical transparent alias of UInt8, and byte literals
+// b'...' are ordinary UInt8 constants.
 func TestByteAndByteTypeBehavior(t *testing.T) {
-	// RFC 0044: Byte is the canonical transparent alias of UInt8 and byte
-	// literals b'...' are ordinary UInt8 constants.
 	result := compileSource("letter: UInt8 = b'A'")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile returned %#v, want byte literal accepted", result)
@@ -296,8 +288,8 @@ func TestAdditionalNumericTypes(t *testing.T) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
-	// RFC 0062: float representation facts are a toolchain contract; no
-	// generated probe or <float.h> dependency appears for float use.
+	// Float representation is a toolchain contract: no generated probe or
+	// <float.h> dependency appears for float use.
 	for _, forbidden := range []string{"static_assert(sizeof(float)", "static_assert(sizeof(double)", "#include <float.h>"} {
 		if strings.Contains(rootH(t, result), forbidden) || strings.Contains(hexalH(t, result), forbidden) {
 			t.Fatalf("generated output contains the removed target probe %q", forbidden)

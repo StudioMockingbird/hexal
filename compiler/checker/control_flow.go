@@ -108,9 +108,8 @@ func checkStatement(statement parser.Statement, names *scope, typeEnvironment *c
 		checked, diagnostics := checkErrdeferStatement(statement, names, typeEnvironment)
 		return checked, binding{}, false, diagnostics
 	case parser.TryStatement:
-		// RFC 0049 item 8.3: a try statement reuses the try-expression
-		// validation and propagation metadata; the success value is
-		// discarded.
+		// A try statement reuses the try-expression validation and
+		// propagation metadata; the success value is discarded.
 		checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(checkedTry); len(diagnostics) > 0 {
 			return nil, binding{}, false, diagnostics
@@ -134,11 +133,11 @@ func checkCondition(expression parser.Expression, names *scope, typeEnvironment 
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return checked.source, nil, checked.token, diagnostics
 	}
-	// RFC 0023: every value-producing expression is a valid condition; its
-	// truthiness decides the branch. No-result calls are rejected by
-	// checkValue before this point. The known-value metadata of a named
-	// immutable binding read is returned for constant-required consumers;
-	// the condition itself stays the binding read.
+	// Every value-producing expression is a valid condition; its truthiness
+	// decides the branch. No-result calls are rejected by checkValue before
+	// this point. The known-value metadata of a named immutable binding read
+	// is returned for constant-required consumers; the condition itself stays
+	// the binding read.
 	return checked.source, checked.known, checked.token, nil
 }
 
@@ -293,7 +292,7 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 	// (break, continue, or return), the else-side chain is the only
 	// continuation, so its narrowings become the continuing state. This is
 	// the pattern behind `if step is EoS break end` followed by an element
-	// use (RFC 0031).
+	// use.
 	if len(thenDiagnostics) == 0 && thenState != parentState && parentState != nil &&
 		sequenceTerminates(checked.Then) && elseState != nil {
 		parentState.adopt(elseState)
@@ -335,7 +334,7 @@ func statementTerminates(statement Statement) bool {
 	}
 }
 
-// checkForStatement checks the RFC 0028 for-in form: the source must be one
+// checkForStatement checks the for-in form: the source must be one
 // iterable concrete type, the binder arity must match the source kind, and
 // every binder is a fresh immutable binding in a fresh body scope.
 func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) (ForStatement, compilerTypes.Diagnostics) {
@@ -361,7 +360,7 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 
 	// The source is read as a value but keeps its place addressability when
 	// it names storage: the generator iterates an Array place in place and
-	// only materializes genuine temporaries (RFC 0028 source stabilization).
+	// only materializes genuine temporaries.
 	var source checkedExpression
 	switch statement.Source.(type) {
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
@@ -408,7 +407,7 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 
 // forBinderTypes resolves the binder list for one iterable source type. The
 // returned slice matches the written binders one to one; a count mismatch
-// reports the RFC 0028 arity diagnostic.
+// reports the arity diagnostic.
 func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compilerTypes.Type, *compilerTypes.Diagnostic) {
 	switch {
 	case source.Array != nil || source.View != nil || source.List != nil:
@@ -536,7 +535,7 @@ func checkReturnStatement(statement parser.ReturnStatement, names *scope, typeEn
 	}
 	source := value.source
 	checked.Value = &source
-	// RFC 0035: a collection return value is an ordinary shallow copy; the
-	// caller accepts the cleanup responsibility the function documents.
+	// A collection return value is an ordinary shallow copy; the caller
+	// accepts the cleanup responsibility the function documents.
 	return checked, nil
 }

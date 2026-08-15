@@ -359,8 +359,8 @@
         status.textContent = 'Compilation failed';
       } else {
         generatedFiles = result.files || {};
-        // The selected root module's C file owns the process entry point
-        // (RFC 0060); open it by default.
+        // The selected root module's C file owns the process entry point;
+        // open it by default.
         const rootC = entrypoint ? `modules/${entrypoint.replace(/\.hex$/, '')}.c` : '';
         openGeneratedFiles = new Set(rootC && Object.hasOwn(generatedFiles, rootC) ? [rootC] : []);
         renderGeneratedFiles();

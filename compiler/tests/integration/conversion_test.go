@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0038: the one explicit scalar conversion spelling `source.to<Dest>()`.
-// RFC 0068: identity and direct conversions lower to inline C; only checked
-// pairs emit one deduplicated guard-and-cast helper.
-
 func TestConversionMethods(t *testing.T) {
 	result := compileSource("fun demo() do\n    wide: Int64 = 9_000_000_000\n    small: Int8 = 12\n    narrowed: Int8 = wide.to<Int8>()\n    whole: Int32 = 3.75.to<Int32>()\n    size: Size = small.to<Size>()\n    count: UInt32 = size.to<UInt32>()\n    letter: Rune = wide.to<Rune>()\n    code: UInt32 = letter.to<UInt32>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -106,11 +102,11 @@ func TestConversionAliasCanonicalizes(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 6: Size is fully C-target-driven, so implicit conversions
-// must hold on every conforming target. Size has no implicit conversion or
-// binary common type with any distinct numeric type; identity and literal
-// contextual typing remain, and the explicit to<Size>()/to<T>() conversions
-// are the portable routes.
+// Size is fully C-target-driven, so its implicit conversions must hold on
+// every conforming target. Size has no implicit conversion or binary common
+// type with any distinct numeric type; identity and literal contextual
+// typing remain, and the explicit to<Size>()/to<T>() conversions are the
+// portable routes.
 func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 	rejected := []string{
 		"raw: UInt64 = 42\ncount: Size = raw\n",
@@ -143,10 +139,9 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 	}
 }
 
-// The full implicit lossless widening table (RFC 0016, preserved by RFC
-// 0049): a typed value converts implicitly to exactly its permitted targets
-// in binding-initializer position, and to nothing else. Byte is a
-// transparent UInt8 alias; Rune and Size widen never.
+// A typed value converts implicitly to exactly its permitted widening
+// targets in binding-initializer position, and to nothing else. Rune and
+// Size never widen.
 func TestLosslessWideningPairTable(t *testing.T) {
 	widening := map[string][]string{
 		"Int8":    {"Int16", "Int32", "Int64", "Float32", "Float64"},
@@ -223,8 +218,6 @@ func TestNegatedLiteralRequiresSignedDestination(t *testing.T) {
 	}
 }
 
-// RFC 0068 direct lowering: non-trapping conversions emit one inline cast
-// and no conversion helper.
 func TestDirectConversionLowering(t *testing.T) {
 	// Two uses of one safe pair emit two casts and no helper.
 	result := assertCompiles(t, "fun demo() do\n    value: UInt8 = 12\n    a: Float64 = value.to<Float64>()\n    b: Float64 = value.to<Float64>()\nend")
@@ -277,8 +270,6 @@ func TestDirectConversionLowering(t *testing.T) {
 	}
 }
 
-// RFC 0068 checked lowering: potentially invalid conversions keep one
-// deduplicated guard-and-cast helper.
 func TestCheckedConversionLowering(t *testing.T) {
 	// Int64 to Int8 keeps one range-checking helper for repeated uses.
 	result := assertCompiles(t, "fun demo() do\n    wide: Int64 = 9_000_000_000\n    a: Int8 = wide.to<Int8>()\n    b: Int8 = wide.to<Int8>()\nend")
@@ -317,8 +308,8 @@ func TestCheckedConversionLowering(t *testing.T) {
 	}
 }
 
-// RFC 0068 Float-to-integer correctness: one truncation, exact power-of-two
-// bounds, and the truncated temporary is cast.
+// Float-to-integer checks use one truncation, exact power-of-two bounds,
+// and cast the truncated temporary.
 func TestFloatToIntegerHelperBounds(t *testing.T) {
 	result := assertCompiles(t, "fun demo() do\n    value: Float64 = 3.75\n    signed: Int64 = value.to<Int64>()\n    code: UInt64 = value.to<UInt64>()\n    count: Size = value.to<Size>()\nend")
 	headerText := rootH(t, result)
@@ -355,9 +346,6 @@ func TestFloatToIntegerHelperBounds(t *testing.T) {
 	}
 }
 
-// RFC 0068 trap and includes: only checked conversions select the shared
-// runtime trap; the conversion family never claims <stdio.h>/<stdlib.h>
-// independently; checked float-to-integer selects <math.h>.
 func TestConversionTrapSelection(t *testing.T) {
 	// A safe-conversion-only program gets no trap and no trap-owned headers.
 	result := assertCompiles(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\nend")

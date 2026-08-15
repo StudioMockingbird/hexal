@@ -1,8 +1,5 @@
 package integration
 
-// RFC 0034 Task 7: per-module C/header emission, encoded symbols, and
-// deterministic multi-module generation, end to end through Compile.
-
 import (
 	"hexal/compiler"
 	"strings"
@@ -161,7 +158,7 @@ func TestModuleGenerationUnreachableModulesProduceNoArtifacts(t *testing.T) {
 
 // The process entry point and process-wide runtime state exist exactly once,
 // in the entrypoint module's C file: main() lives in the root C file, and no
-// non-root pair mentions it (RFC 0060).
+// non-root pair mentions it.
 func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
@@ -206,8 +203,7 @@ func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 // Built-in machinery used only in a non-root module is aggregated into the
 // program-wide pair: hexal.h carries the shared definitions and the one
 // canonical literal table, the root module C stays thin, and the module's
-// pair holds only its own user content plus inline helpers (RFC 0034
-// built-in generic ownership).
+// pair holds only its own user content plus inline helpers.
 func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.compute()\n",
@@ -244,8 +240,7 @@ func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 // Concurrency machinery used only in a non-root module is emitted once per
 // process: the scheduler runtime and the spawn entry prototypes live in the
 // root module's C file and hexal.h, while the entry adapter and its argument
-// frame live beside the spawned function's own definition (RFC 0034
-// per-module generation, RFC 0037 spawn linkage).
+// frame live beside the spawned function's own definition.
 func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nx: Int32 | Error = Math.compute()\n",

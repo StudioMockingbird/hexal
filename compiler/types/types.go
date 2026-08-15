@@ -74,13 +74,13 @@ type Type struct {
 	List *ListInfo
 	// Dict holds the metadata of owning dictionary types.
 	Dict *DictInfo
-	// Task holds the metadata of spawned task handle types (RFC 0037).
+	// Task holds the metadata of spawned task handle types.
 	Task *TaskInfo
-	// Channel holds the metadata of bounded channel handle types (RFC 0037).
+	// Channel holds the metadata of bounded channel handle types.
 	Channel *ChannelInfo
 	// Mutex holds the metadata of scheduler-aware mutex handle types.
 	Mutex *MutexInfo
-	// Atomic holds the metadata of inline atomic wrapper types (RFC 0037).
+	// Atomic holds the metadata of inline atomic wrapper types.
 	Atomic *AtomicInfo
 	// Generic, when non-nil, identifies this type as a generic parameter
 	// placeholder; GenericIndex is the parameter's position.
@@ -113,10 +113,10 @@ type ObjectType struct {
 	Name  string
 	CName string
 	// ModuleID is the canonical identity of the module that declared the
-	// object; it is empty for compiler-owned builtins (RFC 0034 Task 6).
-	// The checker stamps it on every object it creates in a module scope;
-	// imported objects carry their defining module's id, which is what
-	// lets implementation ownership and method routing find the owner.
+	// object; it is empty for compiler-owned builtins. The checker stamps
+	// it on every object it creates in a module scope; imported objects
+	// carry their defining module's id, which is what lets implementation
+	// ownership and method routing find the owner.
 	ModuleID     string
 	Members      []ObjectMember
 	SourceLine   int
@@ -230,9 +230,9 @@ type Environment struct {
 	genericDeclarations map[string]*GenericDeclaration
 	specializations     map[string]Type
 	identity            *typeIdentity
-	// owner is the RFC 0034 encoded module owner ("" for the compiler-owned
-	// builtin environment). User object types interned here carry it in
-	// their C name: hex_t_m3_app_Point names module "app".
+	// owner is the encoded module owner ("" for the compiler-owned builtin
+	// environment). User object types interned here carry it in their C
+	// name: hex_t_m3_app_Point names module "app".
 	owner string
 }
 
@@ -240,10 +240,9 @@ type Environment struct {
 // UTF-8 byte length, "_", then the source spelling, all prefixed with one
 // leading "m". Case-preserving; no case folding; "graphics/shapes" ->
 // "m8_graphics6_shapes". The leading "m" keeps the encoded owner a valid
-// identifier prefix wherever it is embedded, matching the RFC 0034
-// header-guard spelling "HEX_MODULE_m8_graphics6_shapes_H". An empty
-// canonical id (a compiler-owned type with no defining module) encodes to
-// nothing.
+// identifier prefix wherever it is embedded, as in the module header guard
+// HEX_MODULE_m8_graphics6_shapes_H. An empty canonical id (a compiler-owned
+// type with no defining module) encodes to nothing.
 func EncodeModuleOwner(canonicalID string) string {
 	if canonicalID == "" {
 		return ""
@@ -268,7 +267,7 @@ func NewEnvironment() *Environment {
 }
 
 // NewEnvironmentWithOwner returns an environment whose user object types
-// carry the RFC 0034 module owner (canonical id) in their C names.
+// carry the module owner (canonical id) in their C names.
 func NewEnvironmentWithOwner(moduleID string) *Environment {
 	environment := &Environment{
 		names:               make(map[string]Type),
@@ -429,10 +428,10 @@ func (environment *Environment) pointerType(element Type, writable bool) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, true) ||
 		IsManaged(element) ||
-		// RFC 0049 item 8.4: the pointee occupies a named position. A direct
-		// Atomic element is rejected by Storable; an enclosing object stays
-		// valid because containment stops at the indirection. The check
-		// defers for open type parameters and provisional objects, which are
+		// The pointee occupies a named position: a direct Atomic element is
+		// rejected by Storable, while an enclosing object stays valid
+		// because containment stops at the indirection. The check defers
+		// for open type parameters and provisional objects, which are
 		// rechecked when they become concrete, and keeps the explicit
 		// Unknown exception that makes Ptr<Unknown>/MutPtr<Unknown> void*.
 		(!IsUnknown(element) && !ContainsTypeParameter(element) && IsCompleteValue(element) && !Storable(element, PositionPointee)) {
@@ -598,13 +597,13 @@ func Equal(left, right Type) bool {
 // IsNil reports whether typ is the canonical Nil type.
 func IsNil(typ Type) bool { return typ.identity != nil && typ.identity == Nil.identity }
 
-// IsEoS reports whether typ is the canonical EoS type (RFC 0031).
+// IsEoS reports whether typ is the canonical EoS type.
 func IsEoS(typ Type) bool { return typ.identity != nil && typ.identity == EoS.identity }
 
-// IsRune reports whether typ is the canonical Rune type (RFC 0018/0028).
+// IsRune reports whether typ is the canonical Rune type.
 func IsRune(typ Type) bool { return typ.identity != nil && typ.identity == Rune.identity }
 
-// IsError reports whether typ is the canonical RFC 0029 Error type.
+// IsError reports whether typ is the canonical Error type.
 func IsError(typ Type) bool { return typ.identity != nil && typ.identity == ErrorType.identity }
 
 // IsUnknown reports whether typ is the canonical Unknown type.
@@ -613,8 +612,8 @@ func IsUnknown(typ Type) bool { return typ.identity != nil && typ.identity == Un
 // IsHeap reports whether typ is the canonical Heap type.
 func IsHeap(typ Type) bool { return typ.identity != nil && typ.identity == Heap.identity }
 
-// IsRuneCursor reports whether typ is the canonical RFC 0044 RuneCursor
-// descriptor type.
+// IsRuneCursor reports whether typ is the canonical RuneCursor descriptor
+// type.
 func IsRuneCursor(typ Type) bool {
 	return typ.identity != nil && typ.identity == RuneCursorType.identity
 }
@@ -666,9 +665,6 @@ func Assignable(target, source Type) bool {
 	if Equal(target, source) {
 		return true
 	}
-	// RFC 0016: a typed numeric value may widen implicitly whenever one
-	// concrete expected numeric type is known and every source value is
-	// exactly representable by it.
 	if WidensTo(source, target) {
 		return true
 	}
@@ -724,7 +720,7 @@ func Assignable(target, source Type) bool {
 	return false
 }
 
-// TruthinessKind classifies how a value's truthiness is decided (RFC 0023).
+// TruthinessKind classifies how a value's truthiness is decided.
 type TruthinessKind int
 
 const (
@@ -761,7 +757,7 @@ func Truthiness(typ Type) TruthinessKind {
 type canonicalTypeState struct {
 	allowProvisionalObjects bool
 	allowTypeParameters     bool
-	allowNilMember          bool // Nil is canonical only as a union member (RFC 0049 item 8.1)
+	allowNilMember          bool // Nil is canonical only as a union member
 	seenObjects             map[*typeIdentity]bool
 	seenADTs                map[*typeIdentity]bool
 }
@@ -777,8 +773,8 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		return false
 	}
 	if IsNil(typ) {
-		// RFC 0049 item 8.1: standalone Nil is invalid in every written
-		// position; union construction is the sole Nil-admitting resolver.
+		// Standalone Nil is invalid in every written position; union
+		// construction is the sole Nil-admitting resolver.
 		return state.allowNilMember
 	}
 	if typ.Generic != nil {
@@ -945,8 +941,8 @@ func isCanonicalUnion(environment *Environment, typ Type, state *canonicalTypeSt
 	if typ.CName != unionCName(typ.Union.Members) {
 		return false
 	}
-	// Nil is a legitimate canonical union member (RFC 0049 item 8.1), so
-	// member validation admits it; the parent union is what makes it valid.
+	// Nil is a legitimate canonical union member, so member validation
+	// admits it; the parent union is what makes it valid.
 	memberState := *state
 	memberState.allowNilMember = true
 	for _, member := range typ.Union.Members {
@@ -1050,10 +1046,9 @@ var (
 	UInt16 = scalarType("UInt16", "uint16_t", ScalarUnsignedInteger, 16)
 	UInt32 = scalarType("UInt32", "uint32_t", ScalarUnsignedInteger, 32)
 	UInt64 = scalarType("UInt64", "uint64_t", ScalarUnsignedInteger, 64)
-	// Rune is the RFC 0018 spelling for a Unicode scalar value. It lowers to
-	// the uint32_t scalar value set so text iteration and conversions share
-	// the ordinary unsigned machinery; the U+10FFFF scalar bound is a
-	// documented follow-up (docs/status.md).
+	// Rune is the spelling for a Unicode scalar value. It lowers to the
+	// uint32_t scalar value set so text iteration and conversions share the
+	// ordinary unsigned machinery.
 	Rune    = scalarType("Rune", "uint32_t", ScalarUnsignedInteger, 32)
 	Float32 = scalarType("Float32", "float", ScalarFloat, 32)
 	Float64 = scalarType("Float64", "double", ScalarFloat, 64)
@@ -1070,8 +1065,8 @@ var (
 		CName:    "nullptr_t",
 		identity: newTypeIdentity(nil),
 	}
-	// EoS is the RFC 0031 end-of-stream singleton. Its one-byte C value is
-	// never allocated; the `T | EoS` result union carries it as a tag-only
+	// EoS is the end-of-stream singleton. Its one-byte C value is never
+	// allocated; the `T | EoS` result union carries it as a tag-only
 	// alternative.
 	EoS = Type{
 		Name:     "EoS",
@@ -1100,8 +1095,8 @@ var (
 		identity: newTypeIdentity(nil),
 	}
 	// SizeType is the target-sized unsigned integer corresponding to C's
-	// size_t. It is a distinct canonical type even where its width matches a
-	// fixed-width integer (RFC 0036).
+	// size_t. It is a distinct canonical type even where its width matches
+	// a fixed-width integer.
 	SizeType = Type{
 		Name:       "Size",
 		CName:      "size_t",
@@ -1109,12 +1104,12 @@ var (
 		Bits:       64,
 		identity:   newTypeIdentity(nil),
 	}
-	// ErrorType is the RFC 0029 built-in nominal error value: five fixed
-	// fields recording the construction site and the program's category and
+	// ErrorType is the built-in nominal error value: five fixed fields
+	// recording the construction site and the program's category and
 	// message. It is reserved: user source cannot redeclare or shadow it.
 	ErrorType = errorType()
-	// MutexType is the RFC 0037 scheduler-aware mutual-exclusion handle. It is
-	// a heap-backed, pointer-sized reference-like value with one canonical
+	// MutexType is the scheduler-aware mutual-exclusion handle. It is a
+	// heap-backed, pointer-sized reference-like value with one canonical
 	// identity, like String; its control block lives on the Heap passed to
 	// Mutex.new.
 	MutexType = Type{
@@ -1122,9 +1117,9 @@ var (
 		CName:    "hex_mutex",
 		identity: newTypeIdentity(nil),
 	}
-	// RuneCursorType is the RFC 0044 non-owning UTF-8 cursor: one descriptor
-	// holding the source byte pointer, byte length, and current byte offset.
-	// It is an inline value with one canonical identity.
+	// RuneCursorType is the non-owning UTF-8 cursor: one descriptor holding
+	// the source byte pointer, byte length, and current byte offset. It is
+	// an inline value with one canonical identity.
 	RuneCursorType = Type{
 		Name:     "RuneCursor",
 		CName:    "hex_rune_cursor",
@@ -1176,8 +1171,8 @@ var builtinTypes = map[string]Type{
 	"Size":    SizeType,
 	"Error":   ErrorType,
 	"Mutex":   MutexType,
-	// RFC 0044: Byte is the canonical transparent alias of UInt8; both
-	// spellings share one identity and one C representation.
+	// Byte is the canonical transparent alias of UInt8; both spellings
+	// share one identity and one C representation.
 	"Byte":       UInt8,
 	"RuneCursor": RuneCursorType,
 }

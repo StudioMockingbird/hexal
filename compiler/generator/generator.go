@@ -5,20 +5,17 @@ import (
 	"hexal/compiler/checker"
 )
 
-// GenerateChecked emits direct C23 scalar and pointer operations. Checked
+// GenerateChecked emits every reachable module's C/header pair under
+// modules/<canonical>.c/.h, the shared program-support header hexal.h, and
+// the process entry point in the selected root module's C file. Checked
 // literal metadata, not raw source text, is the authority for every
-// initializer. RFC 0034: every reachable module emits its own C/header pair
-// under modules/<canonical>.c/.h; RFC 0060: the shared program-support
-// header is hexal.h and the selected root module's C file owns the
-// once-per-process runtime and the process entry point. Generation is
-// two-phase: every module is discovered and validated first, the built-in
-// machinery is aggregated program-wide, and only then is any file text
-// written (RFC 0034: the compiler collects every reachable built-in
-// specialization request across all modules, sorts it, and emits each exactly
-// once where external identity or state is required). Deterministic: the
-// order slice is the canonical dependency-first order from the resolver, and
-// every merged collection is deduplicated by canonical identity in that
-// order.
+// initializer. Generation is two-phase: every module is discovered and
+// validated first, the built-in machinery is aggregated program-wide, and
+// only then is any file text written, so each reachable built-in
+// specialization is emitted exactly once where external identity or state is
+// required. Deterministic: the order slice is the canonical dependency-first
+// order from the resolver, and every merged collection is deduplicated by
+// canonical identity in that order.
 func GenerateChecked(programs map[string]checker.Program, order []string, entrypointCanonical string) (map[string]string, error) {
 	files := make(map[string]string, 1+2*len(order))
 	modules := make([]*moduleEmission, 0, len(order))

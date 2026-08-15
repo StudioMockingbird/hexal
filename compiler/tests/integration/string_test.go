@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0020 Phase C: String revision — literals, shallow handle copy, the
-// hex_string handle representation, and the byte-view operations.
-
 func TestStringLiteralBinding(t *testing.T) {
 	result := compileSource("greeting: String = \"hello\"")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -83,9 +80,9 @@ func TestStringFromBytes(t *testing.T) {
 	}
 }
 
-// RFC 0069: String construction and concatenation check the complete
-// storage-header + payload + terminator chain with ckd_add before the raw
-// allocator sees any sum, and each overflow stage selects its exact message.
+// String construction and concatenation check the complete storage-header +
+// payload + terminator chain with ckd_add before the raw allocator sees any
+// sum, and each overflow stage selects its exact message.
 func TestStringAllocationSizeArithmetic(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n    text: String = \"abc\"\n    raw: View<UInt8> = text.bytes()\n    copy: String = String.from_bytes(h, raw)\n    copy.free(h)\n    runes: Array<Rune, 1> = ['a']\n    rune_view: View<Rune> = runes.slice(0, 1)\n    encoded: String = String.from_runes(h, rune_view)\n    encoded.free(h)\n    loud: String = text.concat(h, \"!\")\n    loud.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -105,11 +102,11 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 			t.Fatalf("hexal.h = %q, want %q", output, want)
 		}
 	}
-	// RFC 0069 Amendment 2: the validated payload and each concatenation
-	// input copy with guarded memcpy calls (a zero-length input never passes
-	// a possibly invalid pointer to a standard memory function), diagnostics
-	// report through hex_runtime_trap, and no raw fputs or compiler-owned
-	// NULL remains in the String machinery.
+	// The validated payload and each concatenation input copy with guarded
+	// memcpy calls, so a zero-length input never passes a possibly invalid
+	// pointer to a standard memory function; diagnostics report through
+	// hex_runtime_trap, and no raw fputs or compiler-owned NULL remains in
+	// the String machinery.
 	for _, want := range []string{
 		"if (length != 0) {",
 		"memcpy(storage->bytes, data, length);",
@@ -137,8 +134,8 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 	}
 }
 
-// RFC 0035: String handles copy by value and cleanup is manual; every
-// formerly-ownership program below is now valid C-style code.
+// String handles copy by value and cleanup is manual; every program below is
+// valid C-style code.
 
 func TestStringShallowCopySemantics(t *testing.T) {
 	for _, source := range []string{
@@ -187,8 +184,8 @@ func TestStringParameterCopiesAreValid(t *testing.T) {
 }
 
 func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
-	// RFC 0048: Array<String, N> is valid; element copies share the String
-	// handle, and the array never frees a stored literal.
+	// Array<String, N> is valid; element copies share the String handle,
+	// and the array never frees a stored literal.
 	result := compileSource("fun demo() do\n    texts: Array<String, 2> = [\"a\", \"b\"]\n    copy: Array<String, 2> = texts\n    first: String = texts[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)

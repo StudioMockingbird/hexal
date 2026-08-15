@@ -1,11 +1,10 @@
 package integration
 
-// RFC 0060: the selected root module's C/header pair (modules/app.c,
-// modules/app.h) holds every user-facing declaration, statement, #line
-// mapping, the process-wide runtime definitions, and the process entry point.
-// hexal.h holds only the shared program-support machinery. This split is the
-// ground contract for per-module artifacts; the thin-entry pair no longer
-// exists.
+// The selected root module's C/header pair (modules/app.c, modules/app.h)
+// holds every user-facing declaration, statement, #line mapping, the
+// process-wide runtime definitions, and the process entry point. hexal.h
+// holds only the shared program-support machinery. This split is the ground
+// contract for per-module artifacts; no thin-entry pair exists.
 
 import (
 	"hexal/compiler"
@@ -66,9 +65,9 @@ func TestFailureReturnsNoArtifacts(t *testing.T) {
 	}
 }
 
-// RFC 0062: hexal.h is demand-driven. Standard headers appear once, after
-// the guard and before any declaration; no generic target probe or hex_eos
-// is emitted without a source-dependent reason.
+// hexal.h is demand-driven. Standard headers appear once, after the guard
+// and before any declaration; no generic target probe or hex_eos is emitted
+// without a source-dependent reason.
 func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 	for _, testCase := range []struct {
 		name      string
@@ -154,9 +153,9 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 	}
 }
 
-// RFC 0062: an Int32-only program emits the guard and <stdint.h> and nothing
-// else, and the root C returns the C-defined successful status directly
-// without needing <stdlib.h>.
+// An Int32-only program emits the guard and <stdint.h> and nothing else,
+// and the root C returns the C-defined successful status directly without
+// needing <stdlib.h>.
 func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 	result := assertCompiles(t, "x: Int32 = 13")
 	header := hexalH(t, result)
@@ -169,10 +168,10 @@ func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Item C: every generated diagnostic trap reports through
-// one program-wide hex_runtime_trap — declared once in hexal.h, defined once
-// in the root module's C file, [[noreturn]], owning <stdio.h>/<stdlib.h> — and
-// no per-family trap or raw fputs/abort pair remains in generated C.
+// Every generated diagnostic trap reports through one program-wide
+// hex_runtime_trap — declared once in hexal.h, defined once in the root
+// module's C file, [[noreturn]], owning <stdio.h>/<stdlib.h> — and no
+// per-family trap or raw fputs/abort pair remains in generated C.
 func TestSingleRuntimeTrapContract(t *testing.T) {
 	source := "mut h: Heap = Heap.new()\nitems: List<Int32> = List<Int32>.new(h)\nitems.push(7)\nvalues: Array<Int32, 2> = [1, 2]\nview: View<Int32> = values.slice(0, 1)\ntext: String = \"hello\"\nmut count: Int32 = 0\nmut shift: Int32 = 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
 	result := assertCompiles(t, source)
@@ -209,8 +208,8 @@ func TestSingleRuntimeTrapContract(t *testing.T) {
 	}
 }
 
-// RFC 0062: every #include in hexal.h precedes its first declaration, and no
-// helper writer inserts a later include.
+// Every #include in hexal.h precedes its first declaration, and no helper
+// writer inserts a later include.
 func TestHexalHeaderIncludesPrecedeDeclarations(t *testing.T) {
 	result := assertCompiles(t, "fun count(): Int32 do\n    items: List<Int32> = List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\ncount()\n")
 	header := hexalH(t, result)
@@ -230,8 +229,8 @@ func TestHexalHeaderIncludesPrecedeDeclarations(t *testing.T) {
 	}
 }
 
-// RFC 0062: EoS is one shared typedef across modules, emitted exactly when
-// the generated program represents completion (Channel receive unions, or a
+// EoS is one shared typedef across modules, emitted exactly when the
+// generated program represents completion (Channel receive unions, or a
 // written EoS).
 func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 	sources := map[string]string{
@@ -252,7 +251,7 @@ func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 	}
 }
 
-// RFC 0062: unselected helper families contribute no standard headers.
+// Unselected helper families contribute no standard headers.
 func TestHexalHeaderUnselectedFamiliesContributeNothing(t *testing.T) {
 	result := assertCompiles(t, "x: Int32 = 13")
 	header := hexalH(t, result)

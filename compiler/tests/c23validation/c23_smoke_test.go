@@ -25,9 +25,9 @@ func c23GeneratedDictCCompiles(t *testing.T) {
 	compileGeneratedC(t, assertCompiles(t, source))
 }
 
-// Smoke-check that an RFC 0024 comparison program generates C that gcc
-// accepts with -std=c23: lossless widening, deep object/sequence equality,
-// pointer identity, and String ordering.
+// Smoke-check that a comparison program generates C that gcc accepts with
+// -std=c23: lossless widening, deep object/sequence equality, pointer
+// identity, and String ordering.
 func c23GeneratedEqualityCCompiles(t *testing.T) {
 	source := "type Point = { x: Int32, y: Int32, }\ntype Shape = | Circle as { r: Int32, } | Square as { a: Int32, }\nfun demo(h: Heap) do\n    left: Point = Point { x = 1, y = 2, }\n    right: Point = Point { x = 1, y = 2, }\n    same: Bool = left == right\n    different: Bool = left != right\n    i32: Int32 = 1\n    i64: Int64 = 2\n    widened: Bool = i32 == i64\n    text: String = \"abc\"\n    other: String = \"abd\"\n    textOrder: Bool = text < other\n    fixed: Array<Int32, 2> = [1, 2]\n    twin: Array<Int32, 2> = [1, 2]\n    arrays: Bool = fixed == twin\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    lists: Bool = values == values\n    circle: Shape = Shape.Circle { r = 1, }\n    square: Shape = Shape.Square { a = 1, }\n    shapes: Bool = circle == square\n    mut value: Int32 = 3\n    pointer: Ptr<Int32> = ref value\n    twinPointer: Ptr<Int32> = pointer\n    pointers: Bool = pointer == twinPointer\nend"
 	compileGeneratedC(t, assertCompiles(t, source))
@@ -40,9 +40,8 @@ func c23GeneratedStringCCompiles(t *testing.T) {
 	compileGeneratedC(t, assertCompiles(t, source))
 }
 
-// RFC 0046 runtime conformance: an owning List computes length, at, set,
-// pop, clear, slice, and String element round-trips through the checked heap
-// machinery.
+// Runtime conformance: an owning List computes length, at, set, pop, clear,
+// slice, and String element round-trips through the checked heap machinery.
 func c23GeneratedListRuns(t *testing.T) {
 	source := "fun demo(h: Heap): Bool do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values.set(0, 9)\n    first: Int32 = values.at(0)\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> = values.slice(0, 1)\n    total: Int32 = view[0]\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String = names.pop()\n    popped.free(h)\n    name: String = names.at(0)\n    return first == 9 and last == 5 and total == 7 and name.length() == 5\nend\nprint(demo(Heap.new()))\n"
 	if got := runGeneratedC(t, assertCompiles(t, source)); got != "true" {
@@ -50,9 +49,8 @@ func c23GeneratedListRuns(t *testing.T) {
 	}
 }
 
-// RFC 0047 runtime conformance: an owning Dict computes insert, contains,
-// get, remove, growth, and Strand-key lookup through the checked heap
-// machinery.
+// Runtime conformance: an owning Dict computes insert, contains, get, remove,
+// growth, and Strand-key lookup through the checked heap machinery.
 func c23GeneratedDictRuns(t *testing.T) {
 	source := "fun demo(h: Heap): Bool do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool = scores.contains(1)\n    first: Int32 = scores.get(1)\n    removed: Int32 = scores.remove(2)\n    scores.insert(3, 30)\n    scores.insert(4, 40)\n    scores.insert(5, 50)\n    grown: Int32 = scores.get(5)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    score: Int32 = labels.get(\"alice\")\n    return present and first == 10 and removed == 20 and grown == 50 and score == 1\nend\nprint(demo(Heap.new()))\n"
 	if got := runGeneratedC(t, assertCompiles(t, source)); got != "true" {
@@ -60,8 +58,8 @@ func c23GeneratedDictRuns(t *testing.T) {
 	}
 }
 
-// RFC 0044 runtime conformance: to_string, concat, bytes, slice, and free
-// compute byte-accurate results through the checked heap machinery.
+// Runtime conformance: to_string, concat, bytes, slice, and free compute
+// byte-accurate results through the checked heap machinery.
 func c23GeneratedStringRuns(t *testing.T) {
 	source := "fun demo(h: Heap): Bool do\n    text: String = \"ready\".to_string(h)\n    defer text.free(h)\n    loud: String = text.concat(h, \"!\")\n    defer loud.free(h)\n    ok: Bool = loud.length() == 6\n    part: View<UInt8> = text.slice(0, 2)\n    second: UInt8 = part[1]\n    return ok and second == 101\nend\nprint(demo(Heap.new()))\n"
 	if got := runGeneratedC(t, assertCompiles(t, source)); got != "true" {

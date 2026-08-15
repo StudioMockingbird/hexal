@@ -6,10 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0020 Phase D: List<T> — owning growable sequences, shallow String
-// handles, explicit cleanup, and container-only cleanup.
-// and the List<String> nested-String element rules.
-
 func TestListLifecycle(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    count: Size = values.length()\n    empty: Bool = values.length() == 0\n    first: Int32 = values[0]\n    second: Int32 = values[1]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -33,13 +29,13 @@ func TestListLifecycle(t *testing.T) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
-	// RFC 0069: growth doubling and element-region byte sizing stay in
-	// size_t and use checked multiply; the manual SIZE_MAX guard and the
-	// uint64_t temporary are gone.
-	// RFC 0069 Amendment 2: growth relocates the initialized prefix with one
-	// guarded memcpy (an empty list may hold a null data pointer), every
-	// diagnostic reports through hex_runtime_trap, and the List helpers carry
-	// no raw fputs or compiler-owned NULL.
+	// Growth doubling and element-region byte sizing stay in size_t and use
+	// checked multiply; the manual SIZE_MAX guard and the uint64_t temporary
+	// are gone.
+	// Growth relocates the initialized prefix with one guarded memcpy (an
+	// empty list may hold a null data pointer), every diagnostic reports
+	// through hex_runtime_trap, and the List helpers carry no raw fputs or
+	// compiler-owned NULL.
 	header := hexalH(t, result)
 	for _, want := range []string{
 		"size_t next = 1;",
@@ -71,8 +67,8 @@ func TestListViewDerivationAndInvalidation(t *testing.T) {
 	}
 }
 
-// RFC 0035: views are plain descriptors; mutating or freeing the source List
-// while a view is live is now the programmer's responsibility.
+// Views are plain descriptors; mutating or freeing the source List while a
+// view is live is the programmer's responsibility.
 func TestListViewAfterStructuralMutationIsValid(t *testing.T) {
 	for _, source := range []string{
 		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> = values.slice(0, 1)\n    values.push(1)\nend",
@@ -119,8 +115,8 @@ func TestListReturnHandoff(t *testing.T) {
 }
 
 func TestListOfStrings(t *testing.T) {
-	// RFC 0048: a stored literal is never freed by the collection or by a
-	// pop; a runtime String popped out of the list is freed explicitly.
+	// A stored literal is never freed by the collection or by a pop; a
+	// runtime String popped out of the list is freed explicitly.
 	result := compileSource("fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    names.set(0, \"carol\")\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
@@ -138,8 +134,8 @@ func TestListOfStrings(t *testing.T) {
 	}
 }
 
-// RFC 0035: List<String> reads copy String handles; destructive operations
-// while a read handle is live are the programmer's responsibility.
+// List<String> reads copy String handles; destructive operations while a
+// read handle is live are the programmer's responsibility.
 func TestListStringMutationAfterReadIsValid(t *testing.T) {
 	for _, source := range []string{
 		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.set(0, \"b\")\nend",
@@ -157,7 +153,7 @@ func TestListStringMutationAfterReadIsValid(t *testing.T) {
 }
 
 func TestListRestrictions(t *testing.T) {
-	// RFC 0035: an object member List is an ordinary shallow handle.
+	// An object member List is an ordinary shallow handle.
 	if result := compileSource("type Holder = { values: List<Int32>, }\nfun demo(h: Heap) do\n    holder: Holder = Holder { values = List<Int32>.new(h), }\n    holder.values.push(1)\nend"); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want 0", result.ExitCode, result.Stderr)
 	}

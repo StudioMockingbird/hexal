@@ -1,12 +1,11 @@
 package generator
 
-// RFC 0069 Amendment 1 Item A: signed wrapping +, -, *, and unary - lower
-// through ckd_* helpers. Hexal's contract is modulo-width wrapping with
-// defined two's-complement results; the overflow flag is intentionally
-// discarded. The stored result is guaranteed by the pinned GCC/Clang
-// overflow-builtin behavior (recorded as qualified target evidence in RFC
-// 0052), not by C23 §7.20.1 paragraph 5 alone, which WG14 issue 1063 leaves
-// defect-affected for out-of-range signed results.
+// Signed wrapping +, -, *, and unary - lower through ckd_* helpers. Hexal's
+// contract is modulo-width wrapping with defined two's-complement results;
+// the overflow flag is intentionally discarded. The stored result is
+// guaranteed by the pinned GCC/Clang overflow-builtin behavior, not by C23
+// §7.20.1 paragraph 5 alone, which WG14 issue 1063 leaves defect-affected
+// for out-of-range signed results.
 
 import (
 	"fmt"
@@ -90,8 +89,8 @@ func mergeWrapState(merged *generatedWrapState, module *generatedWrapState) {
 
 // writeWrapHelpers emits the selected ckd_* wrapping helpers into hexal.h
 // after <stdckdint.h> is included. The return value of each ckd_* call is
-// intentionally ignored: wrapping is the defined result, and this is the sole
-// permitted use of an ignored flag (RFC 0069 checked-arithmetic contract).
+// intentionally ignored: wrapping is the defined result, and this is the only
+// generated call that discards a checked-arithmetic flag.
 func writeWrapHelpers(result *strings.Builder, state *generatedWrapState) {
 	if state == nil {
 		return

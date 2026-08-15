@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// RFC 0033: no source-level pointer arithmetic. Pointers refer to and
-// dereference one typed object; bounds-carrying types own sequence access.
+// No source-level pointer arithmetic. Pointers refer to and dereference one
+// typed object; bounds-carrying types own sequence access.
 
 func TestPointerArithmeticRejected(t *testing.T) {
 	for _, testCase := range []struct {

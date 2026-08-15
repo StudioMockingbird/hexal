@@ -24,8 +24,8 @@ func initializerDiagnostics(initializer initializerValue) compilerTypes.Diagnost
 type expressionContext struct {
 	expected           compilerTypes.TypeUse
 	foldConstants      bool
-	inCleanup          bool // checking a defer or errdefer action expression (RFC 0029)
-	allowStandaloneNil bool // print arguments admit standalone Nil (RFC 0049 item 8.1)
+	inCleanup          bool // checking a defer or errdefer action expression
+	allowStandaloneNil bool // print arguments admit standalone Nil
 }
 
 type expressionTypeHint struct {
@@ -48,7 +48,7 @@ type checkedExpression struct {
 	function    bool // the name of a declared function, which is not storage
 	parameter   bool // a fixed function parameter binding
 	self        bool // the implicit method receiver, a fixed binding
-	loopBinder  bool // a for-in binder: fresh and immutable (RFC 0028)
+	loopBinder  bool // a for-in binder: fresh and immutable
 }
 
 // checkInitializer resolves a syntax expression into one checked operand.
@@ -70,7 +70,7 @@ func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.T
 func checkObjectLiteral(expression parser.ObjectLiteral, expectedType compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
 	literalType, ok := typeEnvironment.Lookup(expression.TypeName.Lexeme)
 	if compilerTypes.IsError(literalType) {
-		// RFC 0029: Error is built-in and constructed only through
+		// Error is built-in and constructed only through
 		// Error.new(header, message); a raw object initializer is rejected.
 		return initializerValue{token: expression.TypeName, diagnostic: &compilerTypes.Diagnostic{
 			Category: compilerTypes.TypeError,
@@ -235,10 +235,10 @@ func checkExpression(expression parser.Expression, context expressionContext, en
 		source := nilOperand(expression.Token.Lexeme)
 		known := source
 		expected := context.expected.Type
-		// RFC 0049 item 8.1: the nil literal requires a contextual union
-		// containing Nil, except as a print argument (allowStandaloneNil),
-		// which is the sole position admitting standalone Nil. A Nil expected
-		// type arises only from the nil == nil / nil != nil equality path.
+		// The nil literal requires a contextual union containing Nil, except
+		// as a print argument (allowStandaloneNil), which is the sole position
+		// admitting standalone Nil. A Nil expected type arises only from the
+		// nil == nil / nil != nil equality path.
 		if context.allowStandaloneNil || compilerTypes.IsNil(expected) ||
 			(compilerTypes.IsUnion(expected) && compilerTypes.ContainsUnionMember(expected, compilerTypes.Nil)) {
 			return checkedExpression{source: source, typ: compilerTypes.Nil, token: expression.Token, known: &known}

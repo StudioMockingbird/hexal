@@ -21,9 +21,9 @@ func checkCallStatement(call parser.CallExpression, names *scope, typeEnvironmen
 }
 
 // checkCall resolves a callee, checks arity, and checks each argument in its
-// parameter's expected-type position so RFC 0003/0009 contextual literals and
-// RFC 0007's MutPtr-to-Ptr weakening both apply. The returned type is the zero
-// Type for a no-return callee; only a call statement accepts that.
+// parameter's expected-type position so contextual literals and MutPtr-to-Ptr
+// weakening both apply. The returned type is the zero Type for a no-return
+// callee; only a call statement accepts that.
 func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	if property, isMethod := call.Callee.(parser.PropertyExpression); isMethod {
 		return checkMethodCall(call, property, names, typeEnvironment)
@@ -41,13 +41,13 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 	if callee.Name.Kind == lexer.Self {
 		return checkedExpression{token: callee.Name, diagnostic: selfNotBoundDiagnostic(callee.Name)}
 	}
-	// RFC 0030: the protected builtin `print` resolves before ordinary
+	// The protected builtin `print` resolves before ordinary
 	// free-function lookup and cannot be redeclared or referenced as a
 	// value.
 	if callee.Name.Lexeme == "print" {
 		return checkPrintCall(call, callee.Name, names, typeEnvironment)
 	}
-	// RFC 0042: the protected layout queries resolve before ordinary
+	// The protected layout queries resolve before ordinary
 	// free-function lookup.
 	if layoutBuiltins[callee.Name.Lexeme] {
 		return checkLayoutCall(call, callee.Name, names, typeEnvironment)
@@ -66,10 +66,10 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 	if bound.kind == genericFunctionBinding {
 		return checkGenericCall(call, bound, name, callee.Name, names, typeEnvironment)
 	}
-	// RFC 0010: a call resolves the callee's effective type from the
-	// branch-local flow facts, so a null test can narrow a nullable Fun<...>
-	// binding to its callable member. The declared binding itself still holds
-	// the nullable storage type.
+	// A call resolves the callee's effective type from the branch-local
+	// flow facts, so a null test can narrow a nullable Fun<...> binding to
+	// its callable member. The declared binding itself still holds the
+	// nullable storage type.
 	calleeType := bound.typ
 	if bound.kind != functionBinding {
 		if narrowed, ok := names.flow.narrowedType(bound.id); ok {
@@ -130,10 +130,11 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 // checkQualifiedFunctionCall resolves Alias.name(args) where Alias is an
 // import alias: the callee is the target module's exported function. The call
 // is checked against the recorded signature exactly like a local call; the
-// node carries the target module id for the module phase. A name that is not
+// node carries the target module id for the downstream stage. A name that is
+// not
 // an exported concrete function may be an exported generic template, which
-// the call specializes against the defining module's collection (RFC 0034
-// Task 6); only then is it the visibility failure.
+// the call specializes against the defining module's collection; only then is
+// it the visibility failure.
 func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token, target string, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	function, ok := names.registry.exportedFunction(target, property.Lexeme)
 	if !ok {
@@ -188,11 +189,10 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 // specialized signature. The specialization is resolved and its body re-checked
 // in the requesting module's environment, exactly like a local generic call,
 // but the record is stored into the defining module's registry collection, so
-// its checked output carries the request (RFC 0034 Task 6). Repeated requests
-// of one (declaration, argument) pair reuse the one recorded specialization.
+// its checked output carries the request. Repeated requests of one
+// (declaration, argument) pair reuse the one recorded specialization.
 // The requested body was not part of the defining module's starvation scan,
-// which ran before this request arrived; re-scanning imported generic bodies
-// is a codegen-phase follow-up.
+// which ran before this request arrived.
 func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunction, property lexer.Token, target string, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	var arguments []compilerTypes.Type
 	if len(call.TypeArguments) > 0 {
@@ -268,8 +268,8 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 }
 
 // checkArguments checks each written argument in its parameter's expected-type
-// position, so contextual literals and RFC 0007 weakening both apply. Callee
-// is only used to spell diagnostics.
+// position, so contextual literals and MutPtr-to-Ptr weakening both apply.
+// Callee is only used to spell diagnostics.
 func checkArguments(callee string, expected []compilerTypes.TypeUse, written []parser.Expression, token lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) ([]Operand, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	arguments := make([]Operand, 0, len(written))

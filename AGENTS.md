@@ -35,8 +35,16 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 - **Architecture and style.** Align the compiler's architecture and coding
   style with the 'Clox' compiler tutorials in *Crafting Interpreters* by Robert
   Nystrom.
-- **Code is documentation.** Keep code well-commented, clearly stating what it
-  does and why. Add detailed comments in complex areas.
+- **Comments (CARE).** Every comment must contribute at least one Contract,
+  Architecture, Rationale, or Edge fact that the code, type, or name does not
+  already convey; pure narration, provenance, and stale coordinates are
+  deleted. Comments are self-contained, present-tense, and never cite an
+  internal RFC, ADR, plan, spec number, spec title, or `docs/specs/` path:
+  closed specs are historical records, not the language authority. Comments
+  contain only ASCII characters. Complex subsystems expose a short narrative
+  spine at their entrypoint; safety reasoning sits adjacent to the operation
+  it protects. Prefer an accurate name over a comment, and a deletion over a
+  restatement of the next line.
 - **C23 is also the refernce** When in doubt, always try to align to how C does things and keep it simple.
 
 - **Simplify.** Before adding an implementation, ask:
@@ -171,8 +179,9 @@ authority. Do not copy a rule out of a spec without checking it against
   language facet, named for the facet (`pointers_test.go`,
   `operators_test.go`). They are package `integration`, import `hexal/compiler`,
   and exercise only its exported API. Never name a test file after a spec, and
-  never put a spec number in a test function name — cite the spec in a header
-  comment instead. Together these files must verify the public compiler
+  never put a spec number in a test function name or comment — state the
+  behavior or edge condition the test protects; provenance belongs in git and
+  the spec archive. Together these files must verify the public compiler
   behavior end to end.
 - Dormant compile-only C23 canaries live in `compiler/tests/c23validation/`
   (`package c23validation`), gated by `//go:build c23`. They have no runnable

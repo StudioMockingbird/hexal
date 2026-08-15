@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// RFC 0037 smoke tests: a spawn/Channel program generates C that gcc
+// Smoke tests: a spawn/Channel program generates C that gcc
 // accepts, and a compiled run computes the expected total through a real
 // task. The task runtime requires C23 <threads.h>; toolchains that define
 // __STDC_NO_THREADS__ (such as the MinGW builds without winpthreads

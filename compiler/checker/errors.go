@@ -9,11 +9,11 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0029: ordinary Error values, `T | Error` results, `try` propagation,
-// and error-only deferred cleanup.
+// Ordinary Error values, `T | Error` results, `try` propagation, and
+// error-only deferred cleanup.
 
 // sourceFilename is the logical source-unit name used by diagnostics and C
-// #line output; Error.file records the same name (RFC 0029).
+// #line output; Error.file records the same name.
 const sourceFilename = "main.hex"
 
 // resultAcceptsError reports whether a function result type can carry an
@@ -109,7 +109,7 @@ func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, names *sc
 	return checkedExpression{source: source, typ: compilerTypes.ErrorType, token: property}
 }
 
-// checkTryExpression resolves the RFC 0029 `try` form: the operand must be a
+// checkTryExpression resolves the `try` form: the operand must be a
 // union containing Error and at least one success member, the enclosing
 // function's result must accept Error, and the try yields the normalized
 // success value or union.
@@ -183,7 +183,7 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 	return checkedExpression{source: source, typ: success, token: expression.Keyword}
 }
 
-// checkErrdeferStatement registers an error-only cleanup action (RFC 0029).
+// checkErrdeferStatement registers an error-only cleanup action.
 // Registration and capture follow `defer` exactly; the action runs only when
 // the current function exits by returning Error.
 func checkErrdeferStatement(statement parser.ErrdeferStatement, names *scope, typeEnvironment *compilerTypes.Environment) (ErrdeferStatement, compilerTypes.Diagnostics) {
@@ -218,7 +218,7 @@ func checkErrdeferStatement(statement parser.ErrdeferStatement, names *scope, ty
 }
 
 // ErrdeferStatement is the checked registration of one error-only cleanup
-// action (RFC 0029).
+// action.
 type ErrdeferStatement struct {
 	Expression   Operand
 	Action       DeferredAction

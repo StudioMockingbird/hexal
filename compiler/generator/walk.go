@@ -1,9 +1,9 @@
 package generator
 
-// walk.go — RFC 0049 item 7: the single fail-closed program walker shared by
-// every discovery pass. Adding a new checked statement or expression shape
-// requires updating only this file; collectors stay focused on what they
-// collect and never re-implement traversal.
+// walk.go — the single fail-closed program walker shared by every discovery
+// pass. Adding a new checked statement or expression shape requires updating
+// only this file; collectors stay focused on what they collect and never
+// re-implement traversal.
 //
 // The walk is a deterministic pre-order: every callback fires at node entry,
 // before the node's children. Discovery passes relying on first-visit order
@@ -139,8 +139,8 @@ func walkTypeTreeSeen(typ compilerTypes.Type, visit func(compilerTypes.Type) err
 // sub-expressions (Operand, Left, Right, Arguments), in written operand and
 // argument order. It does not descend into nested statement bodies; statement
 // walkers recurse into those themselves so a nested statement's hoisted
-// prologue stays at that statement's indentation (RFC 0057 Item 5). An
-// unknown statement shape is a generator error, never a silent skip.
+// prologue stays at that statement's indentation. An unknown statement shape
+// is a generator error, never a silent skip.
 func walkStatementExpressions(statement checker.Statement, visit func(*checker.Expression) error) error {
 	if visit == nil {
 		return nil

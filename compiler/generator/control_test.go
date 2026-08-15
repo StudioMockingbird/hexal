@@ -7,10 +7,10 @@ import (
 	"hexal/compiler/checker"
 )
 
-// RFC 0049 item 8.3: try lowering. A try statement hoists the union into a
-// hex_try_N temporary, propagates the Error member, and discards the success
-// value without a normalization temporary; a try expression rebinds a
-// multi-success payload through a hex_try_result_N temporary.
+// A try statement hoists the union into a hex_try_N temporary, propagates
+// the Error member, and discards the success value without a normalization
+// temporary; a try expression rebinds a multi-success payload through a
+// hex_try_result_N temporary.
 
 func TestGenerateTryStatementLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun fail(): Nil | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    try fail()\n    return 1\nend\n")
@@ -61,9 +61,9 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Item B: the Atomic helpers emit the C23
-// <stdatomic.h> operations directly at sequential consistency; no delegating
-// generic forwarder over the handle typedef exists.
+// The Atomic helpers emit the C23 <stdatomic.h> operations directly at
+// sequential consistency; no delegating generic forwarder over the handle
+// typedef exists.
 func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
@@ -87,9 +87,9 @@ func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Items B, C, and D: lock/unlock lower directly to the
-// core, the scheduler reports failures through hex_runtime_trap with the
-// complete literal, and its null constants spell nullptr.
+// lock/unlock lower directly to the core, the scheduler reports failures
+// through hex_runtime_trap with the complete literal, and its null constants
+// spell nullptr.
 func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun worker(m: Mutex): Bool do\n    m.lock()\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(m)\n    task.join()\n    return 0\nend\n")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")

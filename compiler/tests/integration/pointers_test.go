@@ -1,9 +1,5 @@
 package integration
 
-// Pointers and mutability: ref typing by place writability, MutPtr weakening,
-// declarator lowering, recursive pointer members, and member auto-dereference.
-// Specs 0007 and 0008.
-
 import (
 	"hexal/compiler"
 	"strings"
@@ -173,8 +169,6 @@ func TestWeakeningThroughObjectMemberInitializer(t *testing.T) {
 }
 
 func TestPointerObjectMembers(t *testing.T) {
-	// RFC 0010: nil cannot initialize a non-nullable pointer member, and a
-	// nullable member takes the null value freely.
 	invalid := compileSource("type Node = { value: Int32, mut next: MutPtr<Node>, } mut first: Node = Node { value = 1, next = nil, }")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) == 0 || !strings.Contains(strings.Join(invalid.Stderr, "\n"), "nil requires an expected union containing Nil") {
 		t.Fatalf("nil into non-nullable member = %#v, want standalone-nil diagnostic", invalid)

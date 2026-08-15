@@ -4,7 +4,7 @@ package c23validation
 
 // C23 harness: the single compile/run path for every C23-tagged test.
 // The tag gates the suite; an explicitly requested tagged run fails when
-// the toolchain is missing instead of skipping (RFC 0048).
+// the toolchain is missing instead of skipping.
 
 import (
 	"hexal/compiler"
@@ -18,7 +18,7 @@ import (
 
 // assertCompiles requires the source to compile and returns the result.
 // Private copy of the integration package's helper: this package must remain
-// independent of the active suite (ADR 0054).
+// independent of the active suite.
 func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 	t.Helper()
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex")
@@ -75,11 +75,9 @@ func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string
 
 // compileGeneratedC writes every generated artifact and compiles every .c
 // translation unit with -std=c23 -Wall -Wextra -Werror: any warning or error
-// fails the test.
-// ponytail: -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
-// tolerate generator helper-family emission and legally-unused bindings;
-// const-discards and other warnings still fail. Family-emission debt in
-// status.md.
+// fails the test. The -Wno-unused-function, -Wno-unused-variable, and
+// -Wno-unused-parameter flags tolerate generator helper-family emission and
+// legally-unused bindings; const-discards and other warnings still fail.
 func compileGeneratedC(t *testing.T, result compiler.CompilationResult) {
 	t.Helper()
 	buildGeneratedC(t, result, t.TempDir())

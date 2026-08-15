@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0042 integration tests: size_of<T>()/align_of<T>() layout queries and
-// volatile integer pointer accesses.
-
 func TestLayoutQueriesCompile(t *testing.T) {
 	source := "type Node = {\n    x: Int32,\n    y: Float64,\n}\nfun layout_demo(): Size do\n    a: Size = size_of<Int32>()\n    b: Size = align_of<Node>()\n    c: Size = size_of<String>()\n    d: Size = size_of<Array<UInt8, 4>>()\n    return a + b + c + d\nend\n"
 	result := compileSource(source)
@@ -50,8 +47,6 @@ func TestVolatileWriteRequiresMutPtr(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.2: write_volatile produces no value, so it is valid as a
-// statement and rejected in value positions with the standard diagnostic.
 func TestVolatileWriteProducesNoValue(t *testing.T) {
 	valid := compileSource("mut value: Int32 = 1 slot: MutPtr<Int32> = ref value slot.write_volatile(2)")
 	if valid.ExitCode != compiler.ExitSuccess {

@@ -1,6 +1,6 @@
-// validation.go owns the generator-side validation layer (RFC 0059):
-// checked-program, statement, expression, operand, constant, and
-// generated-type validation, kept separate from rendering.
+// validation.go owns the generator-side validation layer: checked-program,
+// statement, expression, operand, constant, and generated-type validation,
+// kept separate from rendering.
 package generator
 
 import (
@@ -152,7 +152,7 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				return err
 			}
 			// The target names the declared storage slot, so its checked type
-			// is that slot's type exactly, except that RFC 0010 branch
+			// is that slot's type exactly, except that null-test branch
 			// narrowing may present it as the non-Nil member or as Nil.
 			targetMatches := compilerTypes.Equal(statement.Type, statement.Target.Type)
 			if !targetMatches {
@@ -166,16 +166,16 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			}
 		case checker.CallStatement:
 			if statement.Call.Node.Kind == checker.PrintExpression {
-				// RFC 0030: print validates its arguments and produces no
-				// value; the statement renderer emits its own statements.
+				// print validates its arguments and produces no value; the
+				// statement renderer emits its own statements.
 				return nil
 			}
 			if _, err := renderCallStatement(statement, state); err != nil {
 				return err
 			}
 		case checker.TryStatement:
-			// RFC 0049 item 8.3: the operand carries the try propagation
-			// metadata and validates its own subtree.
+			// The operand carries the try propagation metadata and validates
+			// its own subtree.
 			if err := validateCheckedOperandWithState(statement.Expression, state); err != nil {
 				return err
 			}
@@ -270,8 +270,8 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 }
 
 func validateCondition(condition checker.Operand, state *expressionValidation) error {
-	// RFC 0023: nil is always falsey and needs no further validation (the
-	// nil literal's other generator paths fail closed by RFC 0010).
+	// Nil is always falsey and needs no further validation (the nil
+	// literal's other generator paths fail closed).
 	switch compilerTypes.Truthiness(condition.Type) {
 	case compilerTypes.TruthinessNil:
 		return nil
@@ -295,10 +295,10 @@ type generatedTypeValidation struct {
 // generator-specific source-name and declaration checks.
 func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidation, throughPointer bool) bool {
 	if compilerTypes.IsNil(typ) {
-		// RFC 0049 item 8.1: Nil is not canonical outside union construction,
-		// but the checker admits it only where the reference allows it (union
-		// members, nil operands, narrowed payloads). The generator validates
-		// the checker's output, so the singleton passes as-is.
+		// Nil is not canonical outside union construction, but the checker
+		// admits it only where the language allows it (union members, nil
+		// operands, narrowed payloads). The generator validates the
+		// checker's output, so the singleton passes as-is.
 		return true
 	}
 	if !compilerTypes.IsCanonical(typ) {
@@ -311,8 +311,8 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 		return false
 	}
 	if typ.Signature != nil {
-		// A Fun result would have to wrap a second declarator around the name,
-		// which RFC 0008 defers, so it fails closed here.
+		// A Fun result would have to wrap a second declarator around the
+		// name; the language does not support it, so it fails closed here.
 		if typ.Signature.Result != nil && (typ.Signature.Result.Signature != nil || !validateGeneratedType(*typ.Signature.Result, state, false)) {
 			return false
 		}
@@ -416,12 +416,12 @@ func declaredObjects(program checker.Program) map[*compilerTypes.ObjectType]bool
 }
 
 // errorDeclaredObjects augments the declared object table with the built-in
-// Error object when the program references it (RFC 0029).
+// Error object when the program references it.
 func errorDeclaredObjects(program checker.Program) map[*compilerTypes.ObjectType]bool {
 	objects := declaredObjects(program)
-	// RFC 0034: imported object types are reachable through the module's
-	// statements and must validate like local ones; the header emission
-	// carries their definitions, so the validator admits them too.
+	// Imported object types are reachable through the module's statements
+	// and must validate like local ones; the header emission carries their
+	// definitions, so the validator admits them too.
 	definitions, err := objectDefinitions(program)
 	if err == nil {
 		for _, object := range definitions {
@@ -446,8 +446,8 @@ func validateCheckedOperand(source checker.Operand) error {
 }
 
 func validateConstantOperand(source checker.Operand) error {
-	// RFC 0029: object constants (Error.new results wrapped by union
-	// injection) validate their object value.
+	// Object constants (Error.new results wrapped by union injection)
+	// validate their object value.
 	if source.Object != nil {
 		return validateObjectValue(source.Object, &expressionValidation{})
 	}
@@ -456,7 +456,7 @@ func validateConstantOperand(source checker.Operand) error {
 	if compilerTypes.IsNil(source.Type) {
 		return nil
 	}
-	// EoS is the RFC 0031 singleton: its one value is a tag-only marker and
+	// EoS is a singleton: its one value is a tag-only marker and
 	// carries no go/constant, like Nil.
 	if compilerTypes.IsEoS(source.Type) {
 		return nil
@@ -620,8 +620,8 @@ func objectMember(object *compilerTypes.ObjectType, member *compilerTypes.Object
 
 // generatedAssignable re-validates the checker's assignment relation so the
 // generator never accepts a program the checker rejected. It is the complete
-// type-level relation: RFC 0007 weakening, RFC 0010 nullable injection (P or
-// Nil into P | Nil) and the one-row Unknown erasure/recovery table.
+// type-level relation: weakening, nullable injection (P or Nil into P | Nil),
+// and the one-row Unknown erasure/recovery table.
 func generatedAssignable(target, source compilerTypes.Type) bool {
 	return compilerTypes.Assignable(target, source)
 }
@@ -676,10 +676,10 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 				return unknownExpressionDiagnostic("variable is not present in checked bindings")
 			}
 			if hasExpected && !compilerTypes.Equal(binding.typ, expected) {
-				// RFC 0010: a null test narrows a local binding's reads to
-				// its non-Nil base (or to Nil) inside the branch where the
-				// test holds; the binding itself still holds the declared
-				// nullable type, so a narrowed read is a stricter type.
+				// A null test narrows a local binding's reads to its non-Nil
+				// base (or to Nil) inside the branch where the test holds;
+				// the binding itself still holds the declared nullable type,
+				// so a narrowed read is a stricter type.
 				if !compilerTypes.Assignable(binding.typ, expected) {
 					return unknownExpressionDiagnostic("variable type does not match its checked type")
 				}
@@ -736,8 +736,8 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 			return unknownExpressionDiagnostic("unary operation with invalid checked metadata")
 		}
 		if node.Operator == checker.LogicalNotOperator {
-			// RFC 0023: not accepts any value-producing operand; the
-			// operand is validated through its truthiness.
+			// not accepts any value-producing operand; the operand is
+			// validated through its truthiness.
 			if !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.Truthiness(node.OperandType) == compilerTypes.TruthinessInvalid {
 				return unknownExpressionDiagnostic("logical not requires a truthy-compatible operand and a Bool result")
 			}
@@ -761,8 +761,8 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 			return unknownExpressionDiagnostic("binary operation with invalid checked metadata")
 		}
 		if node.Operator == checker.LogicalAndOperator || node.Operator == checker.LogicalOrOperator {
-			// RFC 0023: and/or accept any value-producing operands, mixed
-			// types included; each side is validated through its truthiness.
+			// and/or accept any value-producing operands, mixed types
+			// included; each side is validated through its truthiness.
 			if !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.Truthiness(node.OperandType) == compilerTypes.TruthinessInvalid {
 				return unknownExpressionDiagnostic("logical operation requires a truthy-compatible operand and a Bool result")
 			}
@@ -788,8 +788,8 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 		}
 		return validateExpressionChildWithState(node.Right, node.OperandType, state)
 	case checker.NullTestExpression:
-		// RFC 0010: == nil and != nil test a nullable operand's active member.
-		// The operand carries the pre-test nullable type; the result is Bool.
+		// == nil and != nil test a nullable operand's active member. The
+		// operand carries the pre-test nullable type; the result is Bool.
 		if node.Operand == nil {
 			return unknownExpressionDiagnostic("null test without a checked operand")
 		}
@@ -1552,9 +1552,9 @@ func validateFunctionReference(node checker.Expression, expected compilerTypes.T
 		return unknownExpressionDiagnostic("function reference without a checked Fun type")
 	}
 	if state.functions != nil && node.Module == "" {
-		// A cross-module callee (RFC 0034) is not in the local declaration
-		// table; the checker resolved it against the target module's
-		// exported records, and the checked Fun type is authoritative.
+		// A cross-module callee is not in the local declaration table; the
+		// checker resolved it against the target module's exported records,
+		// and the checked Fun type is authoritative.
 		declared, ok := state.functions[node.Name]
 		if !ok || !compilerTypes.Equal(declared, node.ResultType) {
 			return unknownExpressionDiagnostic("function reference is not a declared checked function")
@@ -1570,8 +1570,8 @@ func validateFunctionReference(node checker.Expression, expected compilerTypes.T
 }
 
 // validateCallExpression checks a call against its callee's signature. The
-// arguments carry no ordering metadata: RFC 0008 inherits C's unspecified
-// argument evaluation order rather than introducing temporaries.
+// arguments carry no ordering metadata: C's unspecified argument evaluation
+// order is inherited rather than fixed with temporaries.
 func validateCallExpression(node checker.Expression, expected compilerTypes.Type, hasExpected bool, state *expressionValidation) error {
 	if node.Operand == nil {
 		return unknownExpressionDiagnostic("call without a checked callee")
@@ -1616,11 +1616,11 @@ func validateMethodCallExpression(node checker.Expression, expected compilerType
 	if node.Owner == nil || !validSourceName(compilerTypes.SanitizeIdentifier(node.Owner.Name)) || !validSourceName(node.Name) || node.Operand == nil {
 		return unknownExpressionDiagnostic("method call has incomplete checked metadata")
 	}
-	// RFC 0034: a method whose receiver type another module declares is not
-	// in the local declaration table; the checker resolved it against the
-	// defining module's exported records, so the checked node is
-	// authoritative for a cross-module call (mirroring the cross-module
-	// function reference path).
+	// A method whose receiver type another module declares is not in the
+	// local declaration table; the checker resolved it against the defining
+	// module's exported records, so the checked node is authoritative for a
+	// cross-module call (mirroring the cross-module function reference
+	// path).
 	crossModule := moduleOwner(node.Owner.ModuleID, state.owner) != state.owner
 	declared, ok := state.methods[methodKey(node.Owner, node.Name)]
 	if !crossModule {
@@ -1686,9 +1686,9 @@ func methodReceiverType(node checker.Expression, target compilerTypes.Type, stat
 		return pointer, nil
 	}
 	if typ, ok := expressionTypeWithState(node, state); ok {
-		// RFC 0010: the checker only adapted a nullable receiver after a null
-		// test narrowed it to its pointer member, so when the binding still
-		// holds the declared nullable type and the method's self type is that
+		// The checker only adapted a nullable receiver after a null test
+		// narrowed it to its pointer member, so when the binding still holds
+		// the declared nullable type and the method's self type is that
 		// member, the receiver's effective type is the non-null member.
 		if base, nullable := compilerTypes.NullableBase(typ); nullable && compilerTypes.Equal(base, target) {
 			return base, nil
@@ -1894,9 +1894,9 @@ func validateExpressionChildWithState(child *checker.Expression, expected compil
 	return validateExpressionNode(*child, expected, expected != (compilerTypes.Type{}), state)
 }
 
-// validateTruthinessChild validates a logical operand per RFC 0023. The nil
-// literal is checker-supported but its other generator paths fail closed
-// (RFC 0010); truthiness contexts accept it as the constant false.
+// validateTruthinessChild validates a logical operand through its
+// truthiness. The nil literal is checker-supported but its other generator
+// paths fail closed; truthiness contexts accept it as the constant false.
 func validateTruthinessChild(child *checker.Expression, state *expressionValidation) error {
 	if child.Kind == checker.NilExpression {
 		return nil

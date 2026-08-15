@@ -2,10 +2,10 @@ package checker
 
 import "testing"
 
-// RFC 0049 item 8.4: position eligibility composition. Function parameters,
-// function results, spawn arguments, and heap allocation go through the
-// shared position model, so Atomic and Atomic-containing aggregates are
-// rejected from every copy-requiring position.
+// Position eligibility composition: function parameters, function results,
+// spawn arguments, and heap allocation go through the shared position model,
+// so Atomic and Atomic-containing aggregates are rejected from every
+// copy-requiring position.
 
 func TestPositionEligibilityRejectsAtomicInCopyPositions(t *testing.T) {
 	requireDiagnostic(t, "fun f(counter: Atomic<Int32>): Int32 do\nreturn 0\nend\n",

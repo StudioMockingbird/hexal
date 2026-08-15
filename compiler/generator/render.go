@@ -1,6 +1,6 @@
-// render.go owns shared statement and expression rendering (RFC 0059):
-// rendering dispatch, writeStatements and writeStatementsAt, shared C
-// declaration spelling, and the shared rendering state (expressionValidation,
+// render.go owns shared statement and expression rendering: rendering
+// dispatch, writeStatements and writeStatementsAt, shared C declaration
+// spelling, and the shared rendering state (expressionValidation,
 // generatedBinding, and their scope/binding/name-resolution methods).
 package generator
 
@@ -44,13 +44,13 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 	state.deferStack = append(state.deferStack, defers)
 	defer func() { state.deferStack = state.deferStack[:len(state.deferStack)-1] }()
 	for _, statement := range statements {
-		// RFC 0037: spawn prologues emit before the try prologues so a try
-		// operand that spawns can name the already-created task handle.
+		// Spawn prologues emit before the try prologues so a try operand
+		// that spawns can name the already-created task handle.
 		if err := hoistConcurrencyInStatement(statement, body, state, indent); err != nil {
 			return err
 		}
-		// RFC 0029: try prologues for this statement emit before it renders,
-		// in evaluation order, so nested and repeated operands evaluate once.
+		// Try prologues for this statement emit before it renders, in
+		// evaluation order, so nested and repeated operands evaluate once.
 		if err := hoistTryInStatement(statement, body, state, result, indent); err != nil {
 			return err
 		}
@@ -105,8 +105,8 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		case checker.CallStatement:
 			writeLineDirective(body, statement.SourceLine, state.filename)
 			if statement.Call.Node.Kind == checker.PrintExpression {
-				// RFC 0030: print is a statement-level builtin producing no
-				// value; it renders its own temporaries and helper calls.
+				// print is a statement-level builtin producing no value; it
+				// renders its own temporaries and helper calls.
 				if err := renderPrintStatement(body, statement.Call.Node, state, indent); err != nil {
 					return err
 				}
@@ -118,8 +118,8 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			}
 			fmt.Fprintf(body, "%s%s;\n", indent, call)
 		case checker.TryStatement:
-			// RFC 0049 item 8.3: the prologue already hoisted above; the
-			// success value is discarded, so the statement renders nothing.
+			// The try prologue already hoisted above; the success value is
+			// discarded, so the statement renders nothing.
 			writeLineDirective(body, statement.SourceLine, state.filename)
 		case checker.ReturnStatement:
 			if !inFunction {
@@ -210,8 +210,8 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return err
 			}
 		case checker.ErrdeferStatement:
-			// RFC 0029: errdefer registers exactly like defer; the Err flag
-			// decides at the exit edge whether the action runs.
+			// errdefer registers exactly like defer; the Err flag decides at
+			// the exit edge whether the action runs.
 			writeLineDirective(body, statement.SourceLine, state.filename)
 			if err := writeDeferStatement(body, checker.DeferStatement{Expression: statement.Expression, Action: statement.Action, SourceLine: statement.SourceLine, SourceColumn: statement.SourceColumn}, state, indent); err != nil {
 				return err
@@ -253,8 +253,8 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
 		checker.VolatileWriteExpression,
 		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression:
-		// RFC 0035: discarding a constructor result is legal; it simply
-		// leaks the allocation, which is the programmer's choice.
+		// Discarding a constructor result is legal; it simply leaks the
+		// allocation, which is the programmer's choice.
 	default:
 		return "", unknownExpressionDiagnostic("call statement without a checked call")
 	}
@@ -297,7 +297,7 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 	// runs from innermost to outermost scope, then the return executes. When
 	// errdefers are pending, the exit classification decides which actions
 	// run: an Error exit runs defers and errdefers, any other exit runs only
-	// defers (RFC 0029).
+	// defers.
 	if hasPendingActions(state) {
 		state.returnCounter++
 		name := fmt.Sprintf("hex_return_%d", state.returnCounter)
@@ -330,9 +330,9 @@ func hasPendingDefers(state *expressionValidation) bool {
 	return false
 }
 
-// renderTruthiness renders a checked condition (RFC 0023): nil is false,
-// Bool and nullable values render as themselves, and every other value is
-// evaluated once and then yields true.
+// renderTruthiness renders a checked condition: nil is false, Bool and
+// nullable values render as themselves, and every other value is evaluated
+// once and then yields true.
 func renderTruthiness(operand *checker.Operand, state *expressionValidation) (string, error) {
 	if compilerTypes.Truthiness(operand.Type) == compilerTypes.TruthinessNil {
 		return "false", nil
@@ -347,8 +347,8 @@ func renderTruthiness(operand *checker.Operand, state *expressionValidation) (st
 	return truthinessExpression(operand.Type, rendered, state)
 }
 
-// renderTruthinessChild renders a logical operand per RFC 0023. The nil
-// literal renders as false without touching the (RFC 0010 fail-closed) nil
+// renderTruthinessChild renders a logical operand through its truthiness.
+// The nil literal renders as false without touching the fail-closed nil
 // rendering paths. parentOperandType is a last-resort classification for
 // nodes whose own type metadata is absent; well-formed checked operands
 // always resolve their own type.
@@ -374,8 +374,8 @@ func renderTruthinessChild(child *checker.Expression, state *expressionValidatio
 }
 
 // truthinessExpression wraps a rendered value so its truthiness is the C
-// result (RFC 0023): Bool stays as-is, nil becomes false, a nullable becomes
-// a null test, and every other value is evaluated once and then yields true.
+// result: Bool stays as-is, nil becomes false, a nullable becomes a null
+// test, and every other value is evaluated once and then yields true.
 // The comma expression keeps evaluation order and side effects intact and
 // composes with &&/|| short-circuiting.
 func truthinessExpression(typ compilerTypes.Type, rendered string, state *expressionValidation) (string, error) {
@@ -396,9 +396,9 @@ func truthinessExpression(typ compilerTypes.Type, rendered string, state *expres
 		}
 		return unionTruthinessCall(typ, rendered), nil
 	case compilerTypes.TruthinessAlwaysTrue:
-		// RFC 0023: a non-Bool, non-Nil, non-union value is always truthy.
-		// The (void) cast marks the discarded operand intentional so the
-		// generated C is warning-free under -Wunused-value.
+		// A non-Bool, non-Nil, non-union value is always truthy. The (void)
+		// cast marks the discarded operand intentional so the generated C is
+		// warning-free under -Wunused-value.
 		return "((void)(" + rendered + "), true)", nil
 	default:
 		return "", unknownExpressionDiagnostic("unsupported operand in a truthiness context")
@@ -418,10 +418,10 @@ type expressionValidation struct {
 	methods        map[string]checker.MethodDeclaration
 	generatedTypes *generatedTypeValidation
 	deferStack     [][]checker.DeferredAction
-	// owner is the RFC 0034 encoded module owner of the module being
-	// generated; filename is its logical source key for #line directives;
-	// moduleID is the module's canonical identity, used to distinguish
-	// foreign method calls from local ones.
+	// owner is the encoded module owner of the module being generated;
+	// filename is its logical source key for #line directives; moduleID is
+	// the module's canonical identity, used to distinguish foreign method
+	// calls from local ones.
 	owner          string
 	filename       string
 	moduleID       string
@@ -430,19 +430,19 @@ type expressionValidation struct {
 	returnCounter  int
 	captures       map[*checker.Operand][]string
 	matchCounter   int
-	loopCounter    int // unique hex_for_N stem for for-in lowering (RFC 0028)
-	tryCounter     int // unique hex_try_N stems for RFC 0029 hoisting
+	loopCounter    int // unique hex_for_N stem for for-in lowering
+	tryCounter     int // unique hex_try_N stems for try prologue hoisting
 	hoistedTries   map[*checker.Expression]string
-	// spawnCounter and hoistedSpawns carry RFC 0037 spawn prologues: each
-	// spawn's argument frame and task handle are declared before the
-	// statement renders, and the expression renders as the task handle.
+	// spawnCounter and hoistedSpawns carry spawn prologues: each spawn's
+	// argument frame and task handle are declared before the statement
+	// renders, and the expression renders as the task handle.
 	spawnCounter  int
 	hoistedSpawns map[*checker.Expression]string
 	// registeredDefers records the deferred actions whose statements were
 	// processed, in registration order. A try error branch may render
-	// earlier than a later defer statement, and must not run it (RFC 0029).
+	// earlier than a later defer statement, and must not run it.
 	registeredDefers []checker.DeferredAction
-	printCounter     int                   // unique hex_print_arg_N stems for RFC 0030
+	printCounter     int                   // unique hex_print_arg_N stems for print temporaries
 	strings          *generatedStringState // literal index lookup for rendering
 }
 
@@ -582,9 +582,9 @@ func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 		return typ.CName + " *const " + name
 	}
 	if compilerTypes.IsRuneCursor(typ) {
-		// RFC 0044: a RuneCursor is a mutable-through descriptor; next()
-		// advances its offset, so the binding carries no top-level const
-		// even without a mut declaration.
+		// A RuneCursor is a mutable-through descriptor; next() advances its
+		// offset, so the binding carries no top-level const even without a
+		// mut declaration.
 		return typ.CName + " " + name
 	}
 	if typ.Element == nil {
@@ -610,8 +610,8 @@ func qualifyLastPointer(typeName string) string { return typeName + "const" }
 // funDeclaration renders a C function-pointer declarator, with name empty when
 // the type appears in a position that declares nothing (a parameter of another
 // function-pointer type). Its own parameters are always spelled unqualified:
-// RFC 0008 keeps top-level parameter const on the definition's local binding,
-// never on the type, and C ignores it when comparing function types.
+// top-level parameter const lives on the definition's local binding, never on
+// the type, and C ignores it when comparing function types.
 func funDeclaration(typ compilerTypes.Type, name string, mutable bool) string {
 	result := "void"
 	if typ.Signature.Result != nil {
@@ -965,7 +965,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", unknownExpressionDiagnostic("string literal is missing from the checked literal registry: " + node.Name)
 		}
 		if compilerTypes.IsStrand(node.ResultType) {
-			// RFC 0044: a Strand is a 32-byte zero-padded inline value.
+			// A Strand is a 32-byte zero-padded inline value.
 			payload := node.Name
 			var builder strings.Builder
 			builder.WriteString("(hex_strand){{")
@@ -1136,8 +1136,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			right = "&(" + right + ")"
 		}
 		if compilerTypes.IsStrand(node.OperandType) {
-			// RFC 0069 Amendment 2 Item A: Strand equality is a direct
-			// memcmp of the canonical 32-byte zero-filled representation.
+			// Strand equality is a direct memcmp of the canonical 32-byte
+			// zero-filled representation.
 			result := "(memcmp(" + left + ".data, " + right + ".data, 32) == 0)"
 			if node.Operator == checker.NotEqualOperator {
 				result = "(memcmp(" + left + ".data, " + right + ".data, 32) != 0)"
@@ -1162,9 +1162,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", rightErr
 		}
 		if compilerTypes.IsStrand(node.OperandType) {
-			// RFC 0069 Amendment 2 Item A: Strand ordering is a direct
-			// memcmp of the canonical 32-byte zero-filled representation;
-			// its sign is the ordering result.
+			// Strand ordering is a direct memcmp of the canonical 32-byte
+			// zero-filled representation; its sign is the ordering result.
 			comparison := " < 0"
 			switch node.Operator {
 			case checker.LessEqualOperator:
@@ -1214,8 +1213,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 	case checker.AtomicMethodCallExpression:
 		return renderAtomicMethod(node, state)
 	case checker.LayoutExpression:
-		// RFC 0042: the C23 compiler is the final authority for the selected
-		// target layout; the checker already proved T complete.
+		// The C23 compiler is the final authority for the selected target
+		// layout; the checker already proved T complete.
 		if node.Name == "align_of" {
 			return "(size_t)alignof(" + typeSpelling(node.OperandType) + ")", nil
 		}
@@ -1247,9 +1246,9 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		return "*(volatile " + typeSpelling(node.Element) + " *)(" + receiver + ") = " + value, nil
 	case checker.ViewBridgeExpression:
-		// RFC 0043: the descriptor is one pointer-and-count initialization;
-		// the pointer expression precedes the length expression in source
-		// order and each appears exactly once.
+		// The descriptor is one pointer-and-count initialization; the pointer
+		// expression precedes the length expression in source order and each
+		// appears exactly once.
 		if node.OperandType.View == nil {
 			return "", unknownExpressionDiagnostic("view bridge without a checked View type")
 		}
@@ -1288,8 +1287,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		return receiver + "." + PrivateCName(MemberName, node.Member.Name, ""), nil
 	case checker.NullTestExpression:
-		// RFC 0010: the nullable union shares its base pointer's null niche,
-		// so the test lowers to the ordinary C null pointer comparison.
+		// The nullable union shares its base pointer's null niche, so the
+		// test lowers to the ordinary C null pointer comparison.
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("null test without a checked operand")
 		}
@@ -1422,8 +1421,8 @@ func renderUnaryOperationWithState(node checker.Expression, state *expressionVal
 	}
 }
 
-// renderLogicalNotWithState renders !operand per RFC 0023: the operand's
-// truthiness is negated, so any value-producing operand is valid.
+// renderLogicalNotWithState renders !operand: the operand's truthiness is
+// negated, so any value-producing operand is valid.
 func renderLogicalNotWithState(node checker.Expression, state *expressionValidation) (string, error) {
 	if !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.Truthiness(node.OperandType) == compilerTypes.TruthinessInvalid {
 		return "", unknownExpressionDiagnostic("logical not requires a truthy-compatible operand and a Bool result")
@@ -1449,8 +1448,8 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 	if !supportedGeneratedScalarType(node.OperandType) && node.OperandType.Element == nil || !supportedGeneratedScalarType(node.ResultType) {
 		return "", unknownExpressionDiagnostic("binary operation with an unsupported type")
 	}
-	// RFC 0032: a shift count keeps its own integer type; it never takes the
-	// left operand's type.
+	// A shift count keeps its own integer type; it never takes the left
+	// operand's type.
 	rightExpected := node.OperandType
 	if node.Operator == checker.ShiftLeftOperator || node.Operator == checker.ShiftRightOperator {
 		if rightType, ok := expressionTypeWithState(*node.Right, state); ok {
@@ -1491,14 +1490,14 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 		// renderLogicalOperationWithState before the scalar guards.
 		resultIsBool = true
 	case checker.BitwiseAndOperator, checker.BitwiseXorOperator, checker.BitwiseOrOperator:
-		// RFC 0032: bitwise operations require an eligible integer type at
-		// the selected exact width.
+		// Bitwise operations require an eligible integer type at the
+		// selected exact width.
 		arithmeticResult = true
 		if !compilerTypes.IsInteger(node.OperandType) || compilerTypes.IsRune(node.OperandType) {
 			return "", unknownExpressionDiagnostic("bitwise operation with an unsupported type")
 		}
 	case checker.ShiftLeftOperator, checker.ShiftRightOperator:
-		// RFC 0032: shifts preserve the left operand's type.
+		// Shifts preserve the left operand's type.
 		arithmeticResult = true
 		if !compilerTypes.IsInteger(node.OperandType) || compilerTypes.IsRune(node.OperandType) {
 			return "", unknownExpressionDiagnostic("shift operation with an unsupported type")
@@ -1559,10 +1558,10 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 	return "(" + left + " " + operator + " " + right + ")", nil
 }
 
-// renderLogicalOperationWithState renders and/or per RFC 0023: operands of
-// any value-producing type are rendered through their truthiness; the
-// generated &&/|| preserve the short-circuit rule from RFC 0015, and the
-// comma expressions keep each operand's evaluation when it is reached.
+// renderLogicalOperationWithState renders and/or: operands of any
+// value-producing type are rendered through their truthiness; the generated
+// &&/|| preserve the short-circuit rule, and the comma expressions keep each
+// operand's evaluation when it is reached.
 func renderLogicalOperationWithState(node checker.Expression, state *expressionValidation) (string, error) {
 	if !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.Truthiness(node.OperandType) == compilerTypes.TruthinessInvalid {
 		return "", unknownExpressionDiagnostic("logical operation requires a truthy-compatible operand and a Bool result")
@@ -1733,10 +1732,10 @@ func renderExpressionNodeWithExpectedState(node checker.Expression, expected com
 }
 
 // renderReceiver renders one method receiver with its checked expected type
-// and parenthesizes it unless it is already one C atom. The receiver-
-// render-and-parenthesize block lives only here (RFC 0057 Item 4); the nil
-// guard keeps every call site safe even where earlier whole-expression
-// validation already proved the operand present.
+// and parenthesizes it unless it is already one C atom. The receiver-render-
+// and-parenthesize block lives only here; the nil guard keeps every call
+// site safe even where earlier whole-expression validation already proved
+// the operand present.
 func renderReceiver(operand *checker.Expression, expected compilerTypes.Type, state *expressionValidation) (string, error) {
 	if operand == nil {
 		return "", unknownExpressionDiagnostic("receiver expression is missing")
@@ -1880,8 +1879,8 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 		}
 		return renderExpressionExpectedWithState(source.Node, source.Type, true, state)
 	case checker.ConstantOperand:
-		// RFC 0029: an object constant (Error.new result wrapped by union
-		// injection) renders its object value.
+		// An object constant (Error.new result wrapped by union injection)
+		// renders its object value.
 		if source.Object != nil {
 			return objectLiteralWithState(source.Object, state)
 		}
@@ -1890,8 +1889,8 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 		if compilerTypes.IsNil(source.Type) {
 			return "nullptr", nil
 		}
-		// EoS is the RFC 0031 singleton: its one value is the tag-only
-		// marker and carries no go/constant.
+		// EoS is a singleton: its one value is the tag-only marker and
+		// carries no go/constant.
 		if compilerTypes.IsEoS(source.Type) {
 			return "((hex_eos){ 0 })", nil
 		}
@@ -2088,7 +2087,7 @@ func formatInteger(value uint64, radix checker.LiteralRadix) string {
 }
 
 // formatDecimalFloat renders an already rounded IEEE value as the shortest
-// readable decimal C literal that round-trips to the same bits (RFC 0068).
+// readable decimal C literal that round-trips to the same bits.
 // Formatting starts from the checked rounded bits, never from the original
 // source spelling; the standard formatter produces the shortest decimal that
 // reparses to those exact bits. An integral-looking mantissa receives a

@@ -139,9 +139,8 @@ func TestControlFlowReturnDiagnosticsDoNotMaskChildErrors(t *testing.T) {
 		t.Fatalf("parser diagnostic/fallthrough handling = %#v", parsedInvalid)
 	}
 
-	// A parse failure aborts before checking (RFC 0034 Task 4): the
-	// unrelated parse diagnostic appears alone, and the checker's
-	// fallthrough diagnostic never joins it.
+	// A parse failure aborts before checking: the unrelated parse diagnostic
+	// appears alone, and the checker's fallthrough diagnostic never joins it.
 	unrelatedParserError := compileSource("broken\nfun unrelated_bad(value: Int32): Int32 do\n    local: Int32 = 1\nend")
 	unrelatedMessage := strings.Join(unrelatedParserError.Stderr, "\n")
 	if unrelatedParserError.ExitCode != compiler.ExitFailure || !strings.Contains(unrelatedMessage, "expected ':' for a declaration or '=' for an assignment") || strings.Contains(unrelatedMessage, "may fall through without returning") {

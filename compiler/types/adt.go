@@ -1,7 +1,7 @@
 package types
 
 // AdtVariant is one variant of a nominal ADT. Payload is empty for a unit
-// variant. Payload fields are immutable in RFC 0022's nongeneric phase.
+// variant; payload fields are immutable.
 type AdtVariant struct {
 	Name    string
 	Payload []ObjectMember

@@ -4,7 +4,7 @@ package c23validation
 
 import "testing"
 
-// Smoke-check that RFC 0030 print programs generate C that gcc accepts and
+// Smoke-check that print programs generate C that gcc accepts and
 // that a compiled run emits the expected text (newlines translated by the C
 // text stream on Windows, so the comparison normalizes line endings).
 func c23GeneratedPrintRuns(t *testing.T) {
@@ -16,7 +16,7 @@ func c23GeneratedPrintRuns(t *testing.T) {
 	}
 }
 
-// RFC 0030 runtime conformance: arguments evaluate once, left to right, and
+// Runtime conformance: arguments evaluate once, left to right, and
 // the writes follow after all evaluation completes.
 func c23GeneratedPrintEvaluationOrderRuns(t *testing.T) {
 	source := "fun a(): Int32 do\n    print(\"a\")\n    return 1\nend\nfun b(): Int32 do\n    print(\"b\")\n    return 2\nend\nprint(a(), b(), a())\n"
@@ -25,7 +25,7 @@ func c23GeneratedPrintEvaluationOrderRuns(t *testing.T) {
 	}
 }
 
-// RFC 0030 runtime conformance: collection and String arguments print their
+// Runtime conformance: collection and String arguments print their
 // element formats (brackets, quoted text, braces) through the nested
 // helpers.
 func c23GeneratedPrintCollectionsRuns(t *testing.T) {

@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0032: bitwise and shift operators, bit_cast<T>(), and endian byte
-// conversion.
-
 func TestBitwiseOperators(t *testing.T) {
 	result := compileSource("fun demo() do\n    masked: UInt32 = 0xFFFF0000 & 0x0000FFFF\n    xor: UInt32 = 0xFF00 ^ 0x0FF0\n    combined: UInt8 = 0xF0 | 0x0F\n    complement: UInt8 = ~0x0F\n    small: UInt8 = 0xF0\n    wide: UInt16 = 0x0F0F\n    widened: UInt16 = small & wide\n    flags: UInt32 = 0xFFFF\n    result: UInt32 = flags & 0x00FF\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -19,8 +16,6 @@ func TestBitwiseOperators(t *testing.T) {
 		"const uint32_t hex_v_xor = 61680;",
 		"const uint8_t hex_v_combined = 255;",
 		"const uint8_t hex_v_complement = 240;",
-		// RFC 0068: a named immutable read stays a binding read; the
-		// bitwise operation runs on the generated bindings.
 		"const uint16_t hex_v_widened = (uint16_t)((uint16_t)(uint16_t)(hex_v_small) & (uint16_t)hex_v_wide);",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
@@ -29,9 +24,6 @@ func TestBitwiseOperators(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 1 Item B: signed bitwise results are direct modular
-// casts; literal-only expressions still fold to their literal spellings,
-// while named immutable reads stay binding reads (RFC 0068).
 func TestBitwiseSignedDirectCast(t *testing.T) {
 	result := compileSource("fun demo() do\n    mask: Int8 = ~0\n    low: Int8 = 0x0F\n    signed: Int8 = mask & low\n    negative: Int32 = -1\n    bits: UInt32 = 0x80000000\n    cross: Int32 = negative & 0x7FFFFFFF\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -48,9 +40,9 @@ func TestBitwiseSignedDirectCast(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 1 Item B: the Int64 sign-fill mask uses the exact-width
-// unsigned type so no 32-bit 1u is shifted by 32 or more, and no negative
-// value is shifted; the subtraction stays inside the shift's parentheses.
+// The Int64 sign-fill mask uses the exact-width unsigned type so no 32-bit
+// 1u is shifted by 32 or more, and no negative value is shifted; the
+// subtraction stays inside the shift's parentheses.
 func TestShiftInt64SignFillMaskUsesExactWidth(t *testing.T) {
 	result := compileSource("fun demo() do\n    mut negative64: Int64 = -8\n    halved64: Int64 = negative64 >> 1\n    sign64: Int64 = negative64 >> 63\n    mut negative32: Int32 = -8\n    halved32: Int32 = negative32 >> 1\n    mut negative8: Int8 = -8\n    halved8: Int8 = negative8 >> 7\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -145,8 +137,8 @@ func TestBitCast(t *testing.T) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
-	// RFC 0069 Amendment 1 Item B: no unsigned source cast or signed
-	// reconstruction remains in bit-cast helpers.
+	// Bit-cast helpers must contain no unsigned source cast or signed
+	// reconstruction.
 	for _, forbidden := range []string{
 		"&(value)",
 		"(uint32_t)value",
@@ -218,8 +210,6 @@ func TestBitwisePrecedence(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		// RFC 0068: named immutable reads stay binding reads; the
-		// precedence shape survives on the generated bindings.
 		"const uint32_t hex_v_packed = (uint32_t)((uint32_t)(uint32_t)((uint32_t)hex_shl_uint32_t(hex_v_red, (uint64_t)(16)) | (uint32_t)hex_shl_uint32_t(hex_v_green, (uint64_t)(8))) | (uint32_t)hex_v_blue);",
 		"const bool hex_v_mixed = true;",
 	} {

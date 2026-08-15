@@ -104,9 +104,8 @@ func TestPtrAndMutPtrInterningIsCompilationScoped(t *testing.T) {
 	}
 }
 
-// Fun<…> coverage follows docs/specs/archive/0008-functions.md "Function-pointer rules":
-// identity is the ordered parameter types plus the presence and type of a result.
-
+// Fun<…> identity is the ordered parameter types plus the presence and type
+// of a result.
 func TestFunTypeIsInterned(t *testing.T) {
 	environment := NewEnvironment()
 	result := Int32
@@ -261,8 +260,8 @@ func TestIsCanonicalTypes(t *testing.T) {
 	}
 }
 
-// RFC 0023: truthiness is decided by the type's category. false and nil are
-// falsey; every other complete value, including zero, is truthy.
+// Truthiness is decided by the type's category: false and nil are falsey;
+// every other complete value, including zero, is truthy.
 func TestTruthiness(t *testing.T) {
 	environment := NewEnvironment()
 	point := environment.BeginObject("Point", 1, 1)

@@ -33,9 +33,9 @@ type genericTable struct {
 	methodSpecializations   map[string]MethodDeclaration
 
 	// registry and moduleID name the enclosing module's import graph: a
-	// QualifiedTypeExpression resolves through them (RFC 0034 Task 5).
-	// moduleScope installs both; the table is per module, so the pair is
-	// stable for the whole compilation.
+	// QualifiedTypeExpression resolves through them. moduleScope installs
+	// both; the table is per module, so the pair is stable for the whole
+	// compilation.
 	registry *ModuleRegistry
 	moduleID string
 }
@@ -264,7 +264,7 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 	provisional := typeEnvironment.BeginObject(specializedName, token.Line, token.Column)
 	// The specialized object is a nominal type of the module whose table
 	// created it, so it is stamped with that module's identity like any
-	// locally declared object (RFC 0034 Task 6).
+	// locally declared object.
 	provisional.Object.ModuleID = generics.moduleID
 	generics.objectSpecializations[key] = provisional
 	generics.objectOpen[provisional.Object] = open
@@ -392,8 +392,8 @@ func parameterNamesOf(parameters []lexer.Token) []string {
 // argument frame and the body is re-checked with concrete types, so dependent
 // operations are validated at specialization time. The record is cached in
 // the requesting module's own table; imports of another module's generic go
-// through specializeFunctionIn with the defining module's collection instead
-// (RFC 0034 Task 6).
+// through specializeFunctionIn with the defining module's collection
+// instead.
 func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (FunctionDeclaration, *compilerTypes.Diagnostic) {
 	return specializeFunctionIn(open, arguments, names, typeEnvironment, names.generics.functionSpecializations)
 }

@@ -68,8 +68,8 @@ func writeStringDefinitions(result *strings.Builder, stringState *generatedStrin
 	result.WriteString("\ntypedef struct hex_string {\n    const uint8_t *data;\n    size_t byte_length;\n} hex_string;\n")
 	result.WriteString("typedef struct hex_string_storage {\n    hex_string header;\n    uint8_t bytes[];\n} hex_string_storage;\n")
 	if stringState.needStrand {
-		// RFC 0044: a Strand is exactly 32 inline bytes; the first zero byte
-		// bounds the logical payload and the tail is zero-filled.
+		// A Strand is exactly 32 inline bytes; the first zero byte bounds the
+		// logical payload and the tail is zero-filled.
 		result.WriteString("typedef struct hex_strand {\n    uint8_t data[32];\n} hex_strand;\n")
 	}
 	for index, payload := range stringState.literals {
@@ -133,14 +133,14 @@ func writeStringDefinitions(result *strings.Builder, stringState *generatedStrin
 	result.WriteString("    out[3] = (uint8_t)(0x80 | (value & 0x3F));\n")
 	result.WriteString("    return 4;\n}\n")
 	result.WriteString("\nstatic inline const hex_string *hex_string_from_bytes(hex_heap h, const uint8_t *data, size_t length) {\n")
-	result.WriteString("    // RFC 0044: the complete sequence validates before any allocation.\n")
+	result.WriteString("    // The complete sequence validates before any allocation.\n")
 	result.WriteString("    size_t index = 0;\n")
 	result.WriteString("    while (index < length) {\n")
 	result.WriteString("        hex_utf8_next(data, length, &index);\n")
 	result.WriteString("    }\n")
-	result.WriteString("    // RFC 0069: the header, payload, and terminator chain is checked\n")
-	result.WriteString("    // with ckd_add before the raw allocator sees any sum; every stage\n")
-	result.WriteString("    // traps with the same allocation-size message.\n")
+	result.WriteString("    // The header, payload, and terminator chain is checked with ckd_add\n")
+	result.WriteString("    // before the raw allocator sees any sum; every stage traps with the\n")
+	result.WriteString("    // same allocation-size message.\n")
 	result.WriteString("    size_t total;\n")
 	result.WriteString("    if (ckd_add(&total, sizeof(hex_string_storage), length) ||\n")
 	result.WriteString("        ckd_add(&total, total, 1)) {\n")
@@ -148,8 +148,7 @@ func writeStringDefinitions(result *strings.Builder, stringState *generatedStrin
 	result.WriteString("    hex_string_storage *storage = hex_heap_raw_allocate(h.identity, total, _Alignof(hex_string_storage));\n")
 	result.WriteString("    storage->header.data = storage->bytes;\n")
 	result.WriteString("    storage->header.byte_length = length;\n")
-	// RFC 0069 Amendment 2: the validated payload copies with one guarded
-	// memcpy; a zero-length payload skips the call so a possibly invalid
+	// A zero-length payload skips the guarded memcpy so a possibly invalid
 	// source pointer is never passed to a standard memory function.
 	result.WriteString("    if (length != 0) {\n")
 	result.WriteString("        memcpy(storage->bytes, data, length);\n")
@@ -157,8 +156,8 @@ func writeStringDefinitions(result *strings.Builder, stringState *generatedStrin
 	result.WriteString("    storage->bytes[length] = 0;\n")
 	result.WriteString("    return &storage->header;\n}\n")
 	result.WriteString("\nstatic inline const hex_string *hex_string_from_runes(hex_heap h, const uint32_t *data, size_t length) {\n")
-	result.WriteString("    // RFC 0044: every scalar validates, the byte count is computed with\n")
-	result.WriteString("    // checked Size arithmetic, and one allocation encodes directly.\n")
+	result.WriteString("    // Every scalar validates as the byte count accumulates with ckd_add,\n")
+	result.WriteString("    // so the single allocation below encodes a validated result.\n")
 	result.WriteString("    size_t bytes = 0;\n")
 	result.WriteString("    for (size_t index = 0; index < length; index++) {\n")
 	result.WriteString("        uint32_t value = data[index];\n")
@@ -179,8 +178,8 @@ func writeStringDefinitions(result *strings.Builder, stringState *generatedStrin
 	result.WriteString("            hex_runtime_trap(\"[Runtime Error] string allocation size overflow\\n\");\n")
 	result.WriteString("        }\n")
 	result.WriteString("    }\n")
-	result.WriteString("    // RFC 0069: the header, payload, and terminator chain is checked\n")
-	result.WriteString("    // with ckd_add before the raw allocator sees any sum.\n")
+	result.WriteString("    // The header, payload, and terminator chain is checked with ckd_add\n")
+	result.WriteString("    // before the raw allocator sees any sum.\n")
 	result.WriteString("    size_t total;\n")
 	result.WriteString("    if (ckd_add(&total, sizeof(hex_string_storage), bytes) ||\n")
 	result.WriteString("        ckd_add(&total, total, 1)) {\n")
@@ -197,9 +196,9 @@ func writeStringDefinitions(result *strings.Builder, stringState *generatedStrin
 	result.WriteString("\nstatic inline const hex_string *hex_string_to_string(hex_heap h, const hex_string *text) {\n")
 	result.WriteString("    return hex_string_from_bytes(h, text->data, text->byte_length);\n}\n")
 	result.WriteString("\nstatic inline const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const hex_string *right) {\n")
-	result.WriteString("    // RFC 0069: the combined payload, header, and terminator chain is\n")
-	result.WriteString("    // checked with ckd_add before the raw allocator sees any sum; every\n")
-	result.WriteString("    // stage traps with the same concatenation-length message.\n")
+	result.WriteString("    // The combined payload, header, and terminator chain is checked\n")
+	result.WriteString("    // with ckd_add before the raw allocator sees any sum; every stage\n")
+	result.WriteString("    // traps with the same concatenation-length message.\n")
 	result.WriteString("    size_t length;\n")
 	result.WriteString("    if (ckd_add(&length, left->byte_length, right->byte_length)) {\n")
 	result.WriteString("        hex_runtime_trap(\"[Runtime Error] string concatenation length overflow\\n\");\n    }\n")
@@ -210,8 +209,8 @@ func writeStringDefinitions(result *strings.Builder, stringState *generatedStrin
 	result.WriteString("    hex_string_storage *storage = hex_heap_raw_allocate(h.identity, total, _Alignof(hex_string_storage));\n")
 	result.WriteString("    storage->header.data = storage->bytes;\n")
 	result.WriteString("    storage->header.byte_length = length;\n")
-	// RFC 0069 Amendment 2: each input copies with a guarded memcpy; the
-	// freshly allocated destination cannot overlap the immutable inputs.
+	// Each input copies with a guarded memcpy; the freshly allocated
+	// destination cannot overlap the immutable inputs.
 	result.WriteString("    if (left->byte_length != 0) {\n")
 	result.WriteString("        memcpy(storage->bytes, left->data, left->byte_length);\n")
 	result.WriteString("    }\n")

@@ -22,10 +22,10 @@ func branchDefers(statement checker.IfStatement, branchIndex int) []checker.Defe
 // expression is recorded whole and evaluated at scope exit.
 func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement, state *expressionValidation, indent string) error {
 	action := statement.Action
-	// RFC 0029: an action is active only after its defer or errdefer
-	// statement is reached. The checked scope lists every action of the
-	// scope, so a try error branch that renders earlier must not run actions
-	// whose statements appear later in source order.
+	// An action is active only after its defer or errdefer statement is
+	// reached. The checked scope lists every action of the scope, so a try
+	// error branch that renders earlier must not run actions whose statements
+	// appear later in source order.
 	state.registeredDefers = append(state.registeredDefers, action)
 	if !action.IsCall {
 		return nil
@@ -87,7 +87,7 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression:
 		// defer ch.free(h), mutex.unlock(), or task.join() captures the
 		// handle at registration so the cleanup always targets the exact
-		// handle the defer saw (RFC 0037).
+		// handle the defer saw.
 		if node.Operand == nil {
 			return unknownExpressionDiagnostic("deferred handle method without a receiver")
 		}
@@ -129,13 +129,11 @@ func (state *expressionValidation) captureOperand(body *strings.Builder, operand
 func writeDeferredActions(body *strings.Builder, actions []checker.DeferredAction, state *expressionValidation, indent string, errorExit string) error {
 	for index := len(actions) - 1; index >= 0; index-- {
 		action := actions[index]
-		// Only actions whose defer or errdefer statement was already
-		// processed run here; later statements are not registered yet.
 		if !deferredActionRegistered(state, action) {
 			continue
 		}
-		// RFC 0029: errdefer actions run only on an Error exit; errorExit is
-		// the literal "false", the literal "true", or a bool variable name.
+		// errdefer actions run only on an Error exit; errorExit is the
+		// literal "false", the literal "true", or a bool variable name.
 		wrapErr := false
 		if action.Err && errorExit != "false" && errorExit != "true" {
 			wrapErr = true
@@ -258,15 +256,12 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 	case checker.MutexMethodCallExpression:
 		switch node.Name {
 		case "lock":
-			// RFC 0069 Amendment 2 Item B: lock/unlock call the direct core
-			// operation on the captured handle.
 			return "hex_mutex_lock(" + arguments[0] + ")", nil
 		case "unlock":
 			return "hex_mutex_unlock(" + arguments[0] + ")", nil
 		case "free":
 			// The captures hold the receiver (the Mutex handle) first and
-			// the heap second; the retained adapter takes the heap's
-			// identity token (RFC 0069 Amendment 2 Item B).
+			// the heap second; the adapter takes the heap's identity token.
 			return "hex_mutex_free_hex_mutex(" + arguments[1] + ".identity, " + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred mutex method without a captured receiver")

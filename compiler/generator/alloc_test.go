@@ -25,10 +25,10 @@ func TestGenerateHeapAllocationAndFree(t *testing.T) {
 	assertRawAllocateCheckedArithmetic(t, hexalH)
 }
 
-// assertRawAllocateCheckedArithmetic verifies the RFC 0069 shape of
-// hex_heap_raw_allocate: both size additions go through ckd_add with size_t
-// destinations, zero alignment is rejected before align - 1 is evaluated,
-// and neither old wrap-detection pattern remains.
+// assertRawAllocateCheckedArithmetic verifies hex_heap_raw_allocate: both
+// size additions go through ckd_add with size_t destinations, zero alignment
+// is rejected before align - 1 is evaluated, and no wrap-detection pattern
+// superseded by the checked arithmetic remains.
 func assertRawAllocateCheckedArithmetic(t *testing.T, hexalH string) {
 	t.Helper()
 	start := strings.Index(hexalH, "hex_heap_raw_allocate")
@@ -84,13 +84,13 @@ func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
 	}
 }
 
-// RFC 0069: List and Dict growth helpers keep every capacity temporary in
-// size_t and lower doubling, element-region byte sizing, and the Dict
-// load-factor decision through checked arithmetic.
-// RFC 0069 Amendment 2: List relocation uses one guarded memcpy, a fresh
-// Dict bucket region zeroes with one memset, Strand key probes compare the
-// canonical 32-byte representation with memcmp, every diagnostic reports
-// through hex_runtime_trap, and no compiler-owned NULL or raw fputs remains.
+// The List and Dict growth helpers keep every capacity temporary in size_t
+// and lower doubling, element-region byte sizing, and the Dict load-factor
+// decision through checked arithmetic; List relocation uses one guarded
+// memcpy, a fresh Dict bucket region zeroes with one memset, Strand key
+// probes compare the canonical 32-byte representation with memcmp, every
+// diagnostic reports through hex_runtime_trap, and no compiler-owned NULL or
+// raw fputs remains.
 func TestGenerateListAndDictCheckedGrowth(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")

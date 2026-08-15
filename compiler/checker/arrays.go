@@ -149,7 +149,7 @@ func checkIndexPlace(expression parser.IndexExpression, environment *scope, type
 		element = receiver.typ.List.Element
 		writable = true
 	} else if compilerTypes.IsString(receiver.typ) || compilerTypes.IsStrand(receiver.typ) {
-		// RFC 0044: text indexing is rune-oriented and read-only.
+		// Text indexing yields a Rune and is never writable.
 		element = compilerTypes.Rune
 	}
 	if element == (compilerTypes.Type{}) {
@@ -188,8 +188,8 @@ func checkIndexPlace(expression parser.IndexExpression, environment *scope, type
 }
 
 // checkCollectionMethodCall dispatches the built-in Array and View methods
-// length and slice (RFC 0063: is_empty and at were removed — their
-// replacements `length() == 0` and `[index]` are identical and O(1)).
+// length and slice, and rejects the removed at and is_empty names with their
+// replacement spellings.
 func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	collectionType := receiver.typ

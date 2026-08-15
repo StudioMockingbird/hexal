@@ -1,7 +1,5 @@
 package integration
 
-// Nominal object types, members, member modes, and header layout. Spec 0006.
-
 import (
 	"hexal/compiler"
 	"strings"
@@ -104,7 +102,6 @@ func TestObjectFloatDependency(t *testing.T) {
 			t.Fatalf("modules/app.h = %q, want %q", rootH(t, result), want)
 		}
 	}
-	// RFC 0062: float members need no representation probe.
 	for _, forbidden := range []string{"static_assert(sizeof(float)", "FLT_MANT_DIG", "#include <float.h>"} {
 		if strings.Contains(rootH(t, result), forbidden) || strings.Contains(hexalH(t, result), forbidden) {
 			t.Fatalf("generated output contains the removed target probe %q", forbidden)

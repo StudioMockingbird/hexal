@@ -10,9 +10,9 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// literalEscapeSet selects the escape grammar of one quoted literal form
-// (RFC 0044). String and Rune share the Unicode escape set; Byte adds \xHH
-// and excludes \" and \u{...}.
+// literalEscapeSet selects the escape grammar of one quoted literal form.
+// String and Rune share the Unicode escape set; Byte adds \xHH and excludes
+// \" and \u{...}.
 type literalEscapeSet int
 
 const (
@@ -159,7 +159,6 @@ const (
 	RightParen
 	LeftBracket
 	RightBracket
-	// RFC 0032: bitwise and shift operator tokens.
 	Amp
 	Caret
 	Tilde
@@ -191,10 +190,8 @@ const (
 	For
 	In
 	Do
-	// RFC 0044: byte, rune, and string literals share one escape grammar.
 	ByteLiteral
 	RuneLiteral
-	// RFC 0034: module imports, export modifiers, and module-path literals.
 	Module
 	Import
 	Export
@@ -213,8 +210,8 @@ var keywords = map[string]TokenKind{
 	"and":   And,
 	"or":    Or,
 	"is":    Is,
-	// RFC 0008 reserved words. `Fun` the type name stays an ordinary
-	// identifier; only lowercase `fun` is a keyword.
+	// `Fun` the type name stays an ordinary identifier; only lowercase `fun`
+	// is a keyword.
 	"fun":      Fun,
 	"impl":     Impl,
 	"end":      End,
@@ -233,14 +230,12 @@ var keywords = map[string]TokenKind{
 	"match":    Match,
 	"then":     Then,
 	"self":     Self,
-	// RFC 0028: for-in iteration and the mandatory loop-body delimiter.
-	"for": For,
-	"in":  In,
-	"do":  Do,
-	// RFC 0034: module imports and export modifiers.
-	"module": Module,
-	"import": Import,
-	"export": Export,
+	"for":      For,
+	"in":       In,
+	"do":       Do,
+	"module":   Module,
+	"import":   Import,
+	"export":   Export,
 }
 
 // String returns the readable name used in parser diagnostics.
@@ -461,7 +456,6 @@ func Lex(source string) ([]Token, error) {
 				column++
 			}
 		case ch == 'b' && index+1 < len(source) && source[index+1] == '\'':
-			// RFC 0044: byte literals b'...' contain exactly one byte.
 			start, startColumn := index, column
 			index += 2
 			column += 2
@@ -494,8 +488,6 @@ func Lex(source string) ([]Token, error) {
 			column += end - index
 			index = end
 		case ch == '\'':
-			// RFC 0044: rune literals '...' contain exactly one Unicode
-			// scalar.
 			start, startColumn := index, column
 			index++
 			column++
@@ -584,7 +576,7 @@ func Lex(source string) ([]Token, error) {
 			if index+1 < len(source) && source[index+1] == '=' {
 				kind, lexeme = LessEqual, "<="
 			} else if index+1 < len(source) && source[index+1] == '<' {
-				// RFC 0032: shift-left is one maximal-munch token.
+				// Shift-left is one maximal-munch token.
 				kind, lexeme = ShiftLeft, "<<"
 			}
 			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
@@ -595,8 +587,8 @@ func Lex(source string) ([]Token, error) {
 			if index+1 < len(source) && source[index+1] == '=' {
 				kind, lexeme = GreaterEqual, ">="
 			} else if index+1 < len(source) && source[index+1] == '>' {
-				// RFC 0032: shift-right is one maximal-munch token; the
-				// parser splits it into two generic closers when needed.
+				// Shift-right is one maximal-munch token; the parser
+				// splits it into two generic closers when needed.
 				kind, lexeme = ShiftRight, ">>"
 			}
 			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
@@ -643,10 +635,10 @@ func Lex(source string) ([]Token, error) {
 			startColumn := column
 			index++
 			column++
-			// RFC 0034: the literal immediately after `import` on the same
-			// line is a module path: a raw quoted payload with no escape
-			// decoding. A backslash is rejected outright; module paths are
-			// plain relative path spellings.
+			// The literal immediately after `import` on the same line is a
+			// module path: a raw quoted payload with no escape decoding. A
+			// backslash is rejected outright; module paths are plain
+			// relative path spellings.
 			isModulePath := len(tokens) > 0 && tokens[len(tokens)-1].Kind == Import && tokens[len(tokens)-1].Line == line
 			if isModulePath {
 				pathPayloadStart := index
@@ -732,7 +724,7 @@ func Lex(source string) ([]Token, error) {
 				}
 			}
 			if hasRawNewline {
-				// RFC 0049: a raw newline is a Syntax Error and produces no
+				// A raw newline is a Syntax Error and produces no
 				// StringLiteral token; consume through the closing quote or
 				// EOF for recovery and never emit a second diagnostic.
 				diagnostics = append(diagnostics, compilerTypes.Diagnostic{

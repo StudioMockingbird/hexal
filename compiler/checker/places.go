@@ -31,9 +31,8 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 				},
 			}
 		case nameModuleData:
-			// RFC 0008 closed scopes: module storage lives in generated main
-			// and is unreachable from a function body, Fun<...> bindings
-			// included.
+			// Module storage lives in generated main and is unreachable from
+			// a function body, Fun<...> bindings included.
 			diagnostic := moduleDataDiagnostic(environment.owner, expression.Name.Lexeme, expression.Name)
 			return checkedExpression{token: expression.Name, diagnostic: &diagnostic}
 		}
@@ -98,10 +97,9 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 			loopBinder:  binding.loopBinder,
 		}
 	case parser.PropertyExpression:
-		// RFC 0034 Task 5: Alias.x with an import-alias receiver resolves x
-		// against the target module's exported frame instead of the
-		// property path: an exported unit variant first, then an exported
-		// function reference.
+		// Alias.x with an import-alias receiver resolves x against the
+		// target module's exported frame instead of the property path: an
+		// exported unit variant first, then an exported function reference.
 		if variable, isVariable := expression.Receiver.(parser.VariableExpression); isVariable {
 			if target, ok := environment.importAliasTarget(variable.Name.Lexeme); ok {
 				return checkModuleQualifiedReference(expression, target, environment)
@@ -119,14 +117,14 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 		if receiver.variant != nil {
 			return variantPayloadPlace(receiver, expression.Property)
 		}
-		// RFC 0010: a nullable receiver has no members or .value until a null
+		// A nullable receiver has no members or .value until a null
 		// test narrowed it to its pointer member. A bare binding names the
 		// failing narrowing; a member path is never narrowable at all.
 		if compilerTypes.IsNullable(receiver.typ) {
 			diagnostic := nullableAccessDiagnostic(receiver, expression.Property, placeDescription(expression.Receiver))
 			return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
 		}
-		// RFC 0008 auto-dereference: on a pointer to an object, pointer.m means
+		// On a pointer to an object, pointer.m means
 		// pointer.value.m. One layer only, and the built-in .value property
 		// wins, so an object member named value is reached as p.value.value.
 		if receiver.typ.Element != nil && receiver.typ.Element.Object != nil && expression.Property.Lexeme != "value" {
@@ -215,7 +213,7 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 // checkModuleQualifiedReference resolves Alias.x in a value position where
 // Alias is an import alias. The property resolves to the target module's
 // exported unit variant when one exists, then to its exported function; any
-// other name is the RFC 0034 Task 5 visibility failure.
+// other name is the visibility failure.
 func checkModuleQualifiedReference(expression parser.PropertyExpression, target string, environment *scope) checkedExpression {
 	if adtType, variant, ok := environment.registry.findExportedADTVariant(target, expression.Property.Lexeme); ok {
 		return adtUnitVariant(adtType, variant, expression.Property)
@@ -238,7 +236,7 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 }
 
 // dereferencePlace walks one pointer layer, for both the explicit .value
-// spelling and RFC 0008's inserted auto-dereference. Place rule case 3: the
+// spelling and the inserted auto-dereference. The
 // pointee is writable exactly when the receiver's pointer type has a writable
 // pointee. Read the type, never a place mode carried by the pointer value.
 func dereferencePlace(receiver checkedExpression, token lexer.Token) checkedExpression {
@@ -316,8 +314,8 @@ func checkReference(expression parser.RefExpression, environment *scope, typeEnv
 	if place.diagnostic != nil {
 		return place
 	}
-	// Neither a function declaration nor a Fun<...> binding is addressable in
-	// this RFC; the function's name already supplies the callable pointer.
+	// Neither a function declaration nor a Fun<...> binding is addressable;
+	// the function's name already supplies the callable pointer.
 	if place.function {
 		diagnostic := typeErrorAt(place.token, "function declarations are not addressable; use "+place.token.Lexeme+" as a Fun value")
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}

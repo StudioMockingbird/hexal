@@ -8,8 +8,6 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0032: bit_cast<T>() and the explicit-endian byte conversions.
-
 // bitCastEligibleType reports whether typ may be a bit_cast source or
 // destination: a fixed-representation scalar at 8, 16, 32, or 64 bits.
 // Size, Rune, Bool, pointers, aggregates, and managed values are rejected.
@@ -32,7 +30,7 @@ func endianEligibleType(typ compilerTypes.Type) bool {
 	return compilerTypes.IsInteger(typ) && !compilerTypes.IsRune(typ) && !compilerTypes.Equal(typ, compilerTypes.SizeType)
 }
 
-// checkBitCastCall resolves `receiver.bit_cast<Dest>()` (RFC 0032). The
+// checkBitCastCall resolves `receiver.bit_cast<Dest>()`. The
 // method takes exactly one explicit type argument and no value arguments;
 // source and destination must be same-width eligible scalars.
 func checkBitCastCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
@@ -83,7 +81,7 @@ func checkBitCastCall(call parser.CallExpression, callee parser.PropertyExpressi
 }
 
 // checkEndianToBytesCall resolves `value.to_le_bytes()` and
-// `value.to_be_bytes()` (RFC 0032). The result is Array<Byte, width / 8>.
+// `value.to_be_bytes()`. The result is Array<Byte, width / 8>.
 func checkEndianToBytesCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
 		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
@@ -123,8 +121,8 @@ func checkEndianToBytesCall(call parser.CallExpression, callee parser.PropertyEx
 }
 
 // checkEndianFromBytesCall resolves the type-qualified
-// `Int32.from_le_bytes(bytes)` and `Int32.from_be_bytes(bytes)` intrinsics
-// (RFC 0032). The argument must be exactly Array<Byte, width / 8>.
+// `Int32.from_le_bytes(bytes)` and `Int32.from_be_bytes(bytes)` intrinsics.
+// The argument must be exactly Array<Byte, width / 8>.
 func checkEndianFromBytesCall(call parser.CallExpression, callee lexer.Token, typeEnvironment *compilerTypes.Environment, environment *scope) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	integerType, ok := typeEnvironment.Lookup(callee.Lexeme)

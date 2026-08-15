@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// RFC 0049 item 8.3: every argument position evaluates each argument exactly
-// once, in source order. Hexal functions cannot mutate module data, so
-// once-and-left-to-right is proven at compile time by counting call sites in
+// Hexal functions cannot mutate module data, so once-and-left-to-right
+// argument evaluation is provable at compile time by counting call sites in
 // the generated C; the print output order is proven at runtime in the C23
 // suite (c23_print_smoke_test.go).
 

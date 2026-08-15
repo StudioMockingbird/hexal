@@ -7,8 +7,8 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0024: equality and ordering eligibility, the lossless numeric
-// comparison widening, and the deep-comparison nodes for non-scalar values.
+// Equality and ordering eligibility, the lossless numeric comparison
+// widening, and the deep-comparison nodes for non-scalar values.
 
 // equalityAvailable reports whether typ supports == and !=, returning the
 // first member name that makes it unavailable. Pointers compare identity,

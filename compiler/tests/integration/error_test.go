@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0029: Error values, T | Error results, try propagation, and errdefer.
-
 func TestErrorNewConstruction(t *testing.T) {
 	result := compileSource("fun demo() do\n    err: Error = Error.new(\"File Error\", \"file not found\")\n    header: Strand = err.header\n    message: String = err.message\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -48,9 +46,6 @@ func TestTryExpression(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.3: try is a statement as well as an expression. The
-// prologue hoists and propagates Error; the success value is discarded with
-// no normalization temporary.
 func TestTryStatement(t *testing.T) {
 	nilSuccess := compileSource("fun fail(): Nil | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    try fail()\n    return 1\nend\n")
 	if nilSuccess.ExitCode != compiler.ExitSuccess {
@@ -74,9 +69,9 @@ func TestTryStatement(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.3: a try statement requires a compatible enclosing
-// function and a union operand with exactly one Error member, and does not
-// admit arbitrary value expressions as statements.
+// A try statement requires a compatible enclosing function and a union
+// operand with exactly one Error member, and does not admit arbitrary value
+// expressions as statements.
 func TestTryStatementDiagnostics(t *testing.T) {
 	for _, testCase := range []struct {
 		source string

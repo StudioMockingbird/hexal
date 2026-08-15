@@ -6,7 +6,7 @@
       "modules/app.h": "250c61ad0a3e5d9a5b124d1a701d813411010499e360eccf2f77b985d357e28a"
     },
     "collections-array-statistics": {
-      "hexal.h": "608a19510fda3acf6902854a9ceb8a2e5458a7b94eba6e1ad318a21cafd5e423",
+      "hexal.h": "dee1e69cac8c61b8d3c6e1f6809cdd5376af1dcf69c66573bc78dae36a49c457",
       "modules/app.c": "12c0f86f4c0ca590adf924e83f4b302621c3843b282651ef240b3f7dbe6c761d",
       "modules/app.h": "ff307c769993e2626d5aa47c5dc0d19f7d37d6e4c721b89e79045e681abda7ff"
     },
@@ -16,7 +16,7 @@
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
     "collections-element-cleanup": {
-      "hexal.h": "d439589b9e89100c3f37a63a1c641b274e8fbfd12716b55fc8c50869b95b6c18",
+      "hexal.h": "f106088b827c94cfbcbcbdc413fb1fc6625e3c7c95a6ab13c71ea3aa9c48b8c3",
       "modules/app.c": "c3ac2f439fe9a741cee3e6138237981e9593fc134a214d045dda82185576c064",
       "modules/app.h": "935124466ef8ba73847003e51923f043acb6e77128286adcbd51ca0f141aa25e"
     },
@@ -26,7 +26,7 @@
       "modules/app.h": "7d601a829f382ea338d1f9cfdc72d8b6fb4236dd7b8c170c36d864d5244cfe11"
     },
     "collections-handle-elements": {
-      "hexal.h": "73e54890f92bdaffadb9bcc8bf40663d431e1aecfcf361d06d63f1af7cc5448d",
+      "hexal.h": "35daed761684bd39e92ba469017f23347809e100e4abb58e8fd751155e806c14",
       "modules/app.c": "031773a173271284e94b8f496b4f94da6ec4865350dbad8b82c67ee44acefe0a",
       "modules/app.h": "f9ffa7f2f85d42ba272842b5dfbeb057f607c36e3e466c7db2a76bd25be336c0"
     },
@@ -36,7 +36,7 @@
       "modules/app.h": "bd0b245dd632097ff2e43b0be66d19e244998607e225c0bfb47c6dd73ba0f0b5"
     },
     "collections-list-stack": {
-      "hexal.h": "9fc6e652048b794f6ed8a37152d1e5424aa3316953348d4e38e24e320902ae8d",
+      "hexal.h": "0d5743fd824e147aae732eb2c7c50688c63d7d722c776f7e1e261d97b83f8a23",
       "modules/app.c": "ab35cc210297ec944ae88be493d1c2c804a26fa7f33414fa1a452585fa3d1369",
       "modules/app.h": "fd5e0beca7960d6dbbb986c2a37c9b217932f24c24242a490f5b85c3f27f5bde"
     },
@@ -68,7 +68,7 @@
       "modules/app.h": "787aea5d5e849c6ce0e093fdec5c8be452c31d589ab25ab484084115e90a484b"
     },
     "control-grade-bands": {
-      "hexal.h": "badcec9452cb44dd4e366f36c00877bf101e0e99857b063c80a0b0d7cb8d0e25",
+      "hexal.h": "2290c8e406d41470b960576cd8986c69fbb4aebda0f79be530a43b9bdc08addf",
       "modules/app.c": "0db80e03fd12e1989d71a38a8eb79edbba078838695933e286bb8c03d86a5a0b",
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
@@ -93,12 +93,12 @@
       "modules/app.h": "05c44b10c5da9263dcb2bac3ddad4e4c71bc5236b074e89b67d51f49eee1d366"
     },
     "control-three-value-iteration": {
-      "hexal.h": "3a3ed9cf00b04a3045f5cfd02922625f424b007852f6a0e344a38fc71c9a695e",
+      "hexal.h": "ceed1a02362a3582b989c4ce5d2a302110208ac1340cdf876028ae3236d334c8",
       "modules/app.c": "35e43fde527fd11110602b7794595935fbff3ed08afcf529fcd896a5cfa97de8",
       "modules/app.h": "0c31a0c2576e35e3faa9d290980fa3cd6d17816df648dc559138f964993cf72f"
     },
     "control-truthiness": {
-      "hexal.h": "7c6f90d23e4ce6a6b053bf897acc68b587ac6d4b695851a98a77723b6cadf733",
+      "hexal.h": "383d68d34fdb08d18450fcb954a8a10c74b2cff669f3ec1ac5fd39410cfc9cc1",
       "modules/app.c": "b5004599f4c0d88dd921e1e35b3bee00b9e3fa355cddd950eb105513d89b4490",
       "modules/app.h": "9c39fc8bb73908302cf1b77cf75517b807329a0ef0b540cd7ff357066fd2cac5"
     }
@@ -115,12 +115,12 @@
       "modules/app.h": "756cd17f11133922f44903f2e6fb66311f041c1df5ef6131475ef614df399a8a"
     },
     "errors-failure-cleanup": {
-      "hexal.h": "43509bd0ab289f03e00f1ac588772b799d564a8ea2e35c798a2c7b55d09c575d",
+      "hexal.h": "edd52410cc4dc764c2b4871ea4c27afb523ce88f0467db96d9f2f91dec8ba836",
       "modules/app.c": "ba4016f0eb6fe68251c8220be9219a150d713fb384664fee09d364f82f653080",
       "modules/app.h": "03344882537bae38edcb39e86f8e4b2661637916295ea5e82ebd31352c7aea4b"
     },
     "errors-propagating-read": {
-      "hexal.h": "84f1f4bceec2978c59c70eaf90a530dd4fb8c08052d3fe87f7dab5cb9ef2159f",
+      "hexal.h": "bf27f7f3efc6d3dc8e0e56823ff6d09ce4be7bdb240aca8e9fc6653c3652a27d",
       "modules/app.c": "05e64c41d3b6f9c3be132821d17c057467e967b9ae8dbb92e943359762e90067",
       "modules/app.h": "03344882537bae38edcb39e86f8e4b2661637916295ea5e82ebd31352c7aea4b"
     },
@@ -130,7 +130,7 @@
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
     "errors-validation-error": {
-      "hexal.h": "6c2240522da42155672cc1856a1c0ec14eddb6db8234be3b0092344e4d21ce1f",
+      "hexal.h": "1147051926d4fc5d5086c8874f1983eea67fef06972910421b90b1f9f6e36517",
       "modules/app.c": "90cf4ccfe281f9d2d7cde2a3d45f5f36df78fba8a9e2f705c912f48331d47837",
       "modules/app.h": "03344882537bae38edcb39e86f8e4b2661637916295ea5e82ebd31352c7aea4b"
     }
@@ -147,7 +147,7 @@
       "modules/app.h": "aebf305ee7ebe064d77ed240e0679d0cf03c8813f3d7c7a5c28336cca39c3710"
     },
     "functions-generic-identity": {
-      "hexal.h": "62dee531b5b17798b5620f4c2817c86d79dd26d1ec2142b4e3388caa0af6da54",
+      "hexal.h": "c6222b2cbfca6cf0edae3715481bebee3bd1c02ef6dd1680e163dd575d156b57",
       "modules/app.c": "2c56578feaa3463f25d7333d77ba703591de272ce576a9fe597d5d0f16c68491",
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
@@ -157,12 +157,12 @@
       "modules/app.h": "47f10fb105604bbee90d69e091a1672d0e8ba163446ac0395a38db613f12be75"
     },
     "functions-no-result-notifier": {
-      "hexal.h": "f6a189baa204bf46c4576a195133f9ac1f2ea8709b89679abc741c448661b0f7",
+      "hexal.h": "64acc40f0100145a7676ad826ed3cc38c6316a2b45c8d3b578ae7b1c27608f25",
       "modules/app.c": "b9965220f0242dd3d6fceb7e145343d8c1b7e84a6ada22676339f02bbf006674",
       "modules/app.h": "1f6d4c99334dcd7c74ebb978878c304b219bc6966b658368bb20bdba3497da8a"
     },
     "functions-object-formatter": {
-      "hexal.h": "72d832509a7a53aa997ed03b42142d04c6bad8e1466e86a034d8ac83289efc4a",
+      "hexal.h": "c9e25651d53457ea69f5870d004a6129d5c43519eb57111f6f521bf769495f0e",
       "modules/app.c": "5e5931fbb86781d35a74793a5eb44f6708d91179eaf454892ab65e977b0ba2f7",
       "modules/app.h": "2d1c8a57210a96dc0609ef0dc0baaa9d341e6ae80693a9d58007253c0648f73f"
     },
@@ -177,7 +177,7 @@
       "modules/app.h": "6a31e5e23460a28cdf826535732e7e26563b284a570bd95ff1f74705ba0136b9"
     },
     "functions-temperature-classifier": {
-      "hexal.h": "ea3c601c96086ccc76f540306bc49faeb70c85179737377bd555e3d1450efd95",
+      "hexal.h": "15487fc3e39d1c1d045e427a558bca91b14437f780901a4aec46b579980bbbbb",
       "modules/app.c": "7bfae498810bf83eed6b4a13414cceb63fc5e875fe56de7817047fd203e300c3",
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
@@ -191,16 +191,16 @@
     "module-import-export": {
       "hexal.h": "c2a63f4e2d12f1e3b11b0fe9633b58443e6a4490301e5ee5bb8c76e4895723b8",
       "modules/app.c": "26eacc9a83cb5b1bf8b38ce736ff1db8c612528bb910e5b26867f3c7411f4a2c",
-      "modules/app.h": "01ff6b462bdb4d0d255d47d4ff0587bc2bcec7dfb1772007a980f143f46acc0c",
+      "modules/app.h": "9cdd710f4d6c94169da618c54ed262f81832d3f3c667b52576e82c12c0525a3d",
       "modules/math.c": "cd0f52f1fce9c8063d89d8cab9e8a15503dfeb2bdcbd3ef742c56c9be486813d",
-      "modules/math.h": "2331410e4380d117abb2970ff8ef2eec5c24bdf60a2b8970d11171e3584feda7"
+      "modules/math.h": "c5e3597ff06b0137cdffcac174251e409922d577999ec55ef5de8e3898db27d1"
     },
     "modules-nested-import": {
       "hexal.h": "f6278db9a824805ac973518233f8e3c7de4f3101314ef003285b450c63f226b1",
       "modules/app.c": "44f3ecd03fa716eb463a697a1a8fd5e26c2ffc93c179d49e6baba8709547c1a4",
-      "modules/app.h": "d205e0a7c9a216095a3655fc8e6f390cb64669db7a4e9d758a77ff7214dc43ae",
+      "modules/app.h": "8adab2b72acdab1ea4b6d44838d01756d396f41afcd96f267fc3831fe7e42d2e",
       "modules/graphics/shapes.c": "95da79c738317ad1b77b5a2e1bed7d64e7d1bd6f26d9b776cb66cd34795670d7",
-      "modules/graphics/shapes.h": "f4e224c2c8473116b50e3864d322417b8dc70a70c183a70e9cc00dc3bec5021f"
+      "modules/graphics/shapes.h": "6ff3bb16fd889fb0475ce731d591fe9de84ede79295a6942011332b9196d1919"
     }
   },
   "numeric-and-operators": {
@@ -240,7 +240,7 @@
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
     "numeric-range-comparison": {
-      "hexal.h": "c9678eeb1d2ba44ccd311d2dff2c7c140fe373f3f5f002e0c462b333f9665378",
+      "hexal.h": "8531ae879365db90bf65564c971243e4f53ea1d87a50399b30e067bb4b8ede01",
       "modules/app.c": "7e35aae6f8b77b4a2ea5a7de95fa8a7fe0d76373286a1701b0b75111f8b7315b",
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
@@ -314,99 +314,99 @@
       "modules/app.h": "db2bdb5bdffe81754facdce9f6fe2ce219d91e08cc7f102c1d6c65c51795958e"
     },
     "concurrency-channel-receive": {
-      "hexal.h": "fddfcb644bbdae8f73711cdc04a43a478b6fa9e1455bebd78d6f884ecf304b7a",
+      "hexal.h": "63da3cf96ebb53470327becf8d6e108443bbf193ddea3f910c8cbc5f16f3381b",
       "modules/app.c": "958c3143b508a1a5c47c1719187aeb5abc7c7d5d6d9cb5b40f5ff124899d3d3e",
       "modules/app.h": "4f954fcedb989c3da7b7dfae1c305843cc0a07c8100758afd7095aebb4235b8d"
     },
     "concurrency-channel-round-trip": {
-      "hexal.h": "fddfcb644bbdae8f73711cdc04a43a478b6fa9e1455bebd78d6f884ecf304b7a",
+      "hexal.h": "63da3cf96ebb53470327becf8d6e108443bbf193ddea3f910c8cbc5f16f3381b",
       "modules/app.c": "9390edd991108ca41e063529b564f775ab24de6beca909d08274b84eec7a7cce",
       "modules/app.h": "4f954fcedb989c3da7b7dfae1c305843cc0a07c8100758afd7095aebb4235b8d"
     },
     "concurrency-channel-send": {
-      "hexal.h": "fddfcb644bbdae8f73711cdc04a43a478b6fa9e1455bebd78d6f884ecf304b7a",
+      "hexal.h": "63da3cf96ebb53470327becf8d6e108443bbf193ddea3f910c8cbc5f16f3381b",
       "modules/app.c": "f31e1a1658970bbd8eadf94bc2d777379b9908881e213c67654124ca8d257023",
       "modules/app.h": "d3ba06956bca7ff33287a5471e7b7706e9bee25b60124554eb140e293f332174"
     },
     "concurrency-concurrent-cleanup": {
-      "hexal.h": "f2d2101f3627785e5bd83fb7b463ff604be66c954d6b979140663d8ee8f0811d",
+      "hexal.h": "9551d5aa6a8f2af5863a3dd1e0ada3ac57d3eed3e0c112ae4a8acf5c999e1f60",
       "modules/app.c": "983e45722b39666753ee84d25a2e7d52fc8d8083657cfd6ad9d098ad877313f8",
       "modules/app.h": "24bfb48d9a764b151b34ee2a94095679eafb1141aaf58e318e38fc6f92cfa06c"
     },
     "concurrency-mutex-critical-section": {
-      "hexal.h": "91c8b8686236af6b4316ed0e51e9ce370bdb4d07bde60fa1a1e9da2ce05c4859",
+      "hexal.h": "dbdf0892ad2f64742340f0c10afe53d6615ed07625a64d80b45a303c73084654",
       "modules/app.c": "29afe2f3abca5f44e406967dbf9707da9be0cecb3741c70b9a49a3494f356894",
       "modules/app.h": "ea82c56408dd71da91fe7184124b9334a739e82c8c7fc27f75892a6401fc8007"
     },
     "concurrency-spawn-join": {
-      "hexal.h": "af2f2ec2e5ad81d7e0c5691f7157da57bc00ac2bf1d67458ba2ee1fb6e3695fd",
+      "hexal.h": "fdbd12fb1905901ceeb30d0d10fba5b7c4d808bcdace5d0250edd4709f789d0f",
       "modules/app.c": "3f99e38753c0643d5b7640acbc887f528ee6eb24a4084500612570840e131d41",
       "modules/app.h": "711f82ec52f436e01c59382fff831d0c365cae130b7e2ed1194fc6d243a17518"
     },
     "concurrency-two-tasks": {
-      "hexal.h": "17494ed4c917b9675628589e53c69e02927abb03e78376dd6b6ddffb7e2d447d",
+      "hexal.h": "05e0e103ad41e4144cadd33dff99d679d86756abe2970cb1e3ab2fd2db288e71",
       "modules/app.c": "30e9770236d692a6a8c714dd6c605df4b7b5ef8f12503f75cb8e1e9f6a7f3be9",
       "modules/app.h": "1a8a0aea6b0e8757a5918098400bd02228424ace7891ea545d5458b6b55e1f1a"
     },
     "concurrency-worker-handoff": {
-      "hexal.h": "f15bd840a45f163bce3feaaf6ec754f0ce59cafecf8cbaad0d05657026a9ac12",
+      "hexal.h": "68ebcc498b40bf1b29af606efa9ac8c6be7c6868cefb1f5ea9962b1781d13efe",
       "modules/app.c": "a8e479b4747e5178b1a30baaacf2a21c37294b1345b64b026ac6d97fce1655a6",
       "modules/app.h": "b22ca86986eb84122ddc1d19195c98a0d188beabe8a508bada52043cc7452cc7"
     },
     "concurrency-yield-loop": {
-      "hexal.h": "5e0ec716393b9376ed9a3f68ee517a16d9d3e47c1c3b78e0e2682d54ccf24069",
+      "hexal.h": "6870ae85fef0d958428adb84a0d7d638d83d1eb52b80acc1ef7ca69a5e77514e",
       "modules/app.c": "83ab70c28b7e456a30ad8cf7f0200f2cf8ed18ed5c99412adafade60b7aa44c2",
       "modules/app.h": "2dbe7cdf464bbf12dcd65af9ed775391ec33db7a78d01cdff0655c33cc704f0e"
     }
   },
   "text": {
     "text-byte-inspection": {
-      "hexal.h": "a301ab2389fcbfc9f6c18b96a002b8a7b59b32373b2c5418c756df95fbe70e9e",
+      "hexal.h": "a6903a5df7252643118af089f9339dd25332777c170abd491d841a6b7f051804",
       "modules/app.c": "1adc31785922d53bb428ba05ececdc6b3d71cd2346917383d6969bd5e5913c96",
       "modules/app.h": "3d94248663277ebe0c5f53e7b8da1b87af5b6dac37c6bbf1da3a6a22da37e50e"
     },
     "text-byte-view": {
-      "hexal.h": "0428d5da2c6d3aefd50995cddb366906d6fb44c862a149538e7a425b02a45e1e",
+      "hexal.h": "841da3048d89dec8c145b457e9a15172c2c13289a520cf43a8f59971cb055c46",
       "modules/app.c": "0f5ee53f99bf7a5b0aba8cee7dc95287a531baf9c872594af673a2bd540f7392",
       "modules/app.h": "3d94248663277ebe0c5f53e7b8da1b87af5b6dac37c6bbf1da3a6a22da37e50e"
     },
     "text-comparison": {
-      "hexal.h": "bfae00a52fcdaba3ad6b2224dda9f7d481139ff9c8b635f82b4f81d5291edc2c",
+      "hexal.h": "b7a2ec2ccf396b68b7996f6ab761397693bd0d8b060d083cb81d5e617049a704",
       "modules/app.c": "7428d636ca881c70e550eba3ff4132848764769ac4b2b9c28591355e07a4e525",
       "modules/app.h": "356c1b6d729776692f3f9abd0678224f72e7ae9e554bf2e1d79440d7a8300edc"
     },
     "text-escaped-message": {
-      "hexal.h": "18ffafbf574a9d5e82e8755e6765af8bc26e82e9ccb3b7c9268e802aae5dd64b",
+      "hexal.h": "5004d7feb4cbb67c9db0783039530ab1cb597e406592076f3fd49f0329110657",
       "modules/app.c": "b432529d5352e7b8b3d6e559764c43260466889337c29ed51d2dbf4342b91f51",
       "modules/app.h": "c45a9733c7f41a0c5b616342169dd8adf5af1f8f3232ff37c6dd950eb14f7a8b"
     },
     "text-protocol-parser": {
-      "hexal.h": "bb90307176f8a1cf10b1949e107b6d641dd8f08d11a58e938e0c8f96f8e458c9",
+      "hexal.h": "e898f3c8e18c3bee9a057279b5b221a49bc7f8d924c167b2a4cfc4e1243d64a4",
       "modules/app.c": "0293aedcd6ff793af6b599f23c88c385f9ac7a7be96764baa3b9d47573594288",
       "modules/app.h": "66688c88fcd618591dee44dad59237c3c8cbf6b54f58e12815fd340a708d93b3"
     },
     "text-rune-cursor": {
-      "hexal.h": "30f53a31560e8f187b71a97cc86c6d7a50857f4ca49b32a044b0b3865bcb5f32",
+      "hexal.h": "3d36a996de942989ff1c726174d079671855a18d28dca923c74f9f7409adc821",
       "modules/app.c": "e66e1f82ab4ec26576156271d933197580156f85fe701aa20e9c87e654acdb22",
       "modules/app.h": "c45a9733c7f41a0c5b616342169dd8adf5af1f8f3232ff37c6dd950eb14f7a8b"
     },
     "text-strand-inline": {
-      "hexal.h": "7a0910441cb9720c189f3b450cf10c72a3cccd53a54f3019e62e73ff284a422f",
+      "hexal.h": "f59edd61e76066bc7fde3534afc94c5a632d2da905778e4e3f946ed6cefa6f0c",
       "modules/app.c": "538c0957ec3f3cc9e9ff2bc38fd7604d3d8b7868073fb9430c48e859f2a0fb2d",
       "modules/app.h": "c45a9733c7f41a0c5b616342169dd8adf5af1f8f3232ff37c6dd950eb14f7a8b"
     },
     "text-string-building": {
-      "hexal.h": "ee75089f4acd6cca11627168c5e626593800a1f34069ea39ad2ef50ea28811c1",
+      "hexal.h": "bac087666a0cdc3ae6befffeb7009687e3ee4155474442d060c0fdbef8d2fef6",
       "modules/app.c": "8aa78b4aa272dda199321726868f6f7f2f1c3e2d8c557ebe8a21f2e531d00312",
       "modules/app.h": "71da9ef4cef9066d8cf519d4255b1949cf67b73e3db4798635090a6f1dac293c"
     },
     "text-text-inspection": {
-      "hexal.h": "21cbe9c76f802e720794ecf281f2dab17c48ac504247b76a64432c14eea6ea86",
+      "hexal.h": "5c5d4c120ee81509bf2a9e9bee2757feb1fb456be3b5d684e8554476e4232634",
       "modules/app.c": "7b82992179b3b89132eccad57c1d384952a7446b44a65afcbea1f88ff2e850c1",
       "modules/app.h": "3d94248663277ebe0c5f53e7b8da1b87af5b6dac37c6bbf1da3a6a22da37e50e"
     },
     "text-text-report": {
-      "hexal.h": "eb1596bf21dc9e3a1cf1a5bc991014946bd681824051d20a7a0f4fd017e66ca2",
+      "hexal.h": "6956d2bfca338280f657ec8004eacfed339c0f6624c2124294e59aff1df91d79",
       "modules/app.c": "f0c407a8aed16f384f374371bdffe9723a60991ae928e2572407e26dbae38b14",
       "modules/app.h": "2a975e7e4286a852b67b71ff43443e4da832e2375b7b7cba5c892e84f18a4550"
     }
@@ -443,7 +443,7 @@
       "modules/app.h": "f1cead918deae1622a60d85eaaeb1a29eba5651ea0293cc860426d6bd8732596"
     },
     "types-result-like-union": {
-      "hexal.h": "baa915171a2d5a95e62983541ea4cc25caf9a58a3add3c5ee7e788b2d5492f62",
+      "hexal.h": "770c1db520db865069bf6ad04e0423fe08af4ff6dc803ecfe4398b3f1f6d80e7",
       "modules/app.c": "89a24b926f9fabac3cbfac89e3ba39ed8ec8e973d8008e3e58e7dba2bae06020",
       "modules/app.h": "03344882537bae38edcb39e86f8e4b2661637916295ea5e82ebd31352c7aea4b"
     },
@@ -453,7 +453,7 @@
       "modules/app.h": "60357c4df1e8184bfff967abf194fd4065f05960cb8cb80637d15e70b485b32a"
     },
     "types-type-based-formatting": {
-      "hexal.h": "36885fefde2f645ad184381b00afc9f49a2565638c53d37eecadfe3a8ea8e4ff",
+      "hexal.h": "e880e6eeb61a6c549dc3b4d901154b40790339f0115df11b2718053e412ab791",
       "modules/app.c": "0f881a56c36a9c38e4dcc36abad28014447e8ffa4b6b2df5154b468037402ad4",
       "modules/app.h": "4bc3e53b9e09902374bcc9f8c45d761c142aa99ede8a41441f85c93c961279ea"
     },
@@ -475,7 +475,7 @@
       "modules/app.h": "37d23ea9411f97168f46fbf6535aee86808ab1e5cf8e7f2b625a20764c9f6b44"
     },
     "values-immutable-snapshot": {
-      "hexal.h": "9844c2f53ed322d4bdf9984011ef64efd3dcb6c1335d034bbe18556af6090e81",
+      "hexal.h": "a2ae7179afda3fb54978be0336572ae0d757519a40c1f3b75e15533887312aed",
       "modules/app.c": "43f7bfd5e4ff1e94e73f560e3ac6d4fbb1e9f2e4e8eb6184b1fd81b072e2b4de",
       "modules/app.h": "1ca52e7faace708ef80c707414be0c81b470ee95fc7014f7745bf68b9f2b7972"
     },
@@ -485,7 +485,7 @@
       "modules/app.h": "04c10591032ad153448b78031125927888246e5522fd952320222eac5621a75d"
     },
     "values-literal-normalization": {
-      "hexal.h": "0c11725493a02b77edbea461ad70a58b7707effbb3619f4f007492b77372a365",
+      "hexal.h": "9da7c68561fee0f61a01c633e83f02c3d739ff4d82f8f4ff5182d2df3c5418d2",
       "modules/app.c": "9c58145e58080325483790fe9d7ea1d31b2a2d9601eb8d338f0b3b63f6ed7748",
       "modules/app.h": "c45a9733c7f41a0c5b616342169dd8adf5af1f8f3232ff37c6dd950eb14f7a8b"
     },
@@ -510,7 +510,7 @@
       "modules/app.h": "f82c85406b153bb7000137ffeb3f6366f7c03e5d80ae182f5a283256e13fcbea"
     },
     "values-text-record": {
-      "hexal.h": "68668685c86f582ab15d8878b222b10aafc97ccd0d99c92f9916b56421ae2624",
+      "hexal.h": "5a7fc52922fff1a6ea82fa34be863148c0584213f29b06c8297760cd69f7bbaf",
       "modules/app.c": "bd8cdc4aae81e578d4c42d7fe72c70cc42fb55c0ec3a170d10e3234800c770eb",
       "modules/app.h": "10c7fcd590ada1f291ece8f0c218450240035c4d8774af39db7c13c54b899c98"
     }

@@ -8,15 +8,15 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// renderForStatement lowers the RFC 0028 for-in form. The source is
-// stabilized exactly once: Array places iterate in place through their
-// address, temporary Arrays and Strands are materialized into one inline
-// copy, and String, List, and Dict sources copy their pointer-sized handle.
+// renderForStatement lowers the for-in form. The source is stabilized exactly
+// once: Array places iterate in place through their address, temporary Arrays
+// and Strands are materialized into one inline copy, and String, List, and
+// Dict sources copy their pointer-sized handle.
 //
 // Index semantics: Array, View, and List bind the Size loop counter directly
 // (a body `continue` lands on the loop increment). String, Strand, and Dict
 // loops pre-increment their produced-entry ordinal before the body, so a
-// body `continue` never skips the increment, matching RFC 0028.
+// body `continue` never skips the increment.
 func renderForStatement(body *strings.Builder, statement checker.ForStatement, state *expressionValidation, result *compilerTypes.Type, inFunction bool, indent string) error {
 	sourceType := statement.Source.Type
 	writeLineDirective(body, statement.SourceLine, state.filename)

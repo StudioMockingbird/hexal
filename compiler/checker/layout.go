@@ -8,8 +8,7 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0042: size_of<T>(), align_of<T>(), and volatile integer pointer
-// accesses.
+// size_of<T>(), align_of<T>(), and volatile integer pointer accesses.
 
 // layoutBuiltins is the set of protected layout-query names.
 var layoutBuiltins = map[string]bool{

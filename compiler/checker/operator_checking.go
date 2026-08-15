@@ -36,7 +36,7 @@ func checkUnaryExpression(expression parser.UnaryExpression, context expressionC
 		return checkedExpression{token: expression.Operator, diagnostics: diagnostics}
 	}
 	if environment.generics != nil && environment.generics.open && compilerTypes.ContainsTypeParameter(operand.typ) {
-		// RFC 0019: an operation whose validity depends on a substituted type
+		// An operation whose validity depends on a substituted type
 		// is deferred during open generic checking and rechecked at
 		// specialization with concrete types.
 		return operationUnaryResult(operator, operand, operand.typ, operand.typ, expression.Operator)
@@ -84,11 +84,11 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return checkedExpression{token: expression.Operator, diagnostics: diagnostics}
 	}
 
-	// RFC 0010 null tests own the == and != pairs that mention Nil: a null
+	// Null tests own the == and != pairs that mention Nil: a null
 	// test yields Bool, while pairs without a Nil side stay with ordinary
 	// scalar equality below.
 	if operator == EqualOperator || operator == NotEqualOperator {
-		// RFC 0031: EoS is a singleton, so eos == eos is provably true and
+		// EoS is a singleton, so eos == eos is provably true and
 		// eos != eos is provably false, matching nil == nil.
 		if compilerTypes.IsEoS(left.typ) && compilerTypes.IsEoS(right.typ) {
 			result := foldedBoolResult(operator == EqualOperator, expression.Operator)
@@ -104,7 +104,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 
 	if environment.generics != nil && environment.generics.open &&
 		(compilerTypes.ContainsTypeParameter(left.typ) || compilerTypes.ContainsTypeParameter(right.typ)) {
-		// RFC 0019: an operation whose validity depends on a substituted type
+		// An operation whose validity depends on a substituted type
 		// is deferred during open generic checking and rechecked at
 		// specialization with concrete types.
 		resultType := left.typ
@@ -117,7 +117,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return operationBinaryResult(operator, left, right, left.typ, resultType, expression.Operator)
 	}
 
-	// RFC 0050: Rune is not an arithmetic operand. Reject any binary
+	// Rune is not an arithmetic operand. Reject any binary
 	// arithmetic with a Rune operand before folding or common-type selection,
 	// owning same-type and mixed cases with one diagnostic at the operator.
 	if (operator == AddOperator || operator == SubtractOperator || operator == MultiplyOperator ||
@@ -127,7 +127,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 	}
 
-	// RFC 0016/0017: mixed numeric arithmetic selects the unique least
+	// Mixed numeric arithmetic selects the unique least
 	// lossless common type before the operation; the result has that type
 	// and wraps at it.
 	if (operator == AddOperator || operator == SubtractOperator || operator == MultiplyOperator ||
@@ -155,7 +155,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return checkedExpression{source: source, typ: common, token: expression.Operator}
 	}
 
-	// RFC 0032: bitwise &, ^, and | use the unique least lossless common
+	// Bitwise &, ^, and | use the unique least lossless common
 	// integer type; the operation happens at that exact width and wraps at
 	// it.
 	if isBitwiseArithmetic(operator) {
@@ -182,7 +182,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return checkedExpression{source: source, typ: common, token: expression.Operator}
 	}
 
-	// RFC 0032: shifts preserve the left operand's type; the count is any
+	// Shifts preserve the left operand's type; the count is any
 	// integer and never participates in common-type selection.
 	if isShiftOperator(operator) {
 		if !isBitwiseEligible(left.typ) {
@@ -216,7 +216,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return checkedExpression{source: source, typ: left.typ, token: expression.Operator}
 	}
 
-	// RFC 0024: equality and ordering resolve through the lossless numeric
+	// Equality and ordering resolve through the lossless numeric
 	// widening and the recursive deep-comparison rules before the ordinary
 	// identical-scalar path.
 	if operator == EqualOperator || operator == NotEqualOperator ||
@@ -261,7 +261,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 	return foldBinary(operator, left, right, left.typ, resultType, expression.Operator, context.foldConstants)
 }
 
-// checkNullTest resolves RFC 0010/0014 null tests: == and != accept exactly the
+// checkNullTest resolves null tests: == and != accept exactly the
 // operand pairs where one side is Nil and the other is any union containing
 // Nil. The result is Bool, and the checked node is normalized so the union
 // operand always sits in the node's Operand slot. Pairs without a Nil side
@@ -279,7 +279,7 @@ func checkNullTest(operator Operator, left, right checkedExpression, token lexer
 		result := foldedBoolResult(operator == EqualOperator, token)
 		return &result
 	case compilerTypes.IsEoS(left.typ) && compilerTypes.IsEoS(right.typ):
-		// RFC 0031: EoS is a singleton, so eos == eos is provably true and
+		// EoS is a singleton, so eos == eos is provably true and
 		// eos != eos is provably false, matching nil == nil.
 		result := foldedBoolResult(operator == EqualOperator, token)
 		return &result
@@ -289,9 +289,9 @@ func checkNullTest(operator Operator, left, right checkedExpression, token lexer
 		operand = left
 	}
 	if !compilerTypes.IsUnion(operand.typ) || !compilerTypes.ContainsUnionMember(operand.typ, compilerTypes.Nil) {
-		// The C habit of null-checking every pointer produces this diagnostic
-		// often during migration, so it names the reason: the operand's type
-		// can never hold Nil, which makes the test a constant result.
+		// The operand's type can never hold Nil, which makes the test a
+		// constant result; the diagnostic names that reason instead of
+		// rejecting the test outright.
 		verdict := "true"
 		if operator == EqualOperator {
 			verdict = "false"
@@ -341,7 +341,7 @@ func foldUnary(operator Operator, operand checkedExpression, operandType, result
 			return foldedBoolResult(!value, token)
 		}
 	case BitwiseNotOperator:
-		// RFC 0032: complement inverts every bit of the fixed-width
+		// Complement inverts every bit of the fixed-width
 		// representation and reconstructs the signed value when needed.
 		if compilerTypes.IsInteger(operandType) && operand.source.Constant != nil {
 			width := uint(operandType.Bits)
@@ -402,7 +402,7 @@ func foldBinary(operator Operator, left, right checkedExpression, operandType, r
 		} else {
 			value = constant.BinaryOp(left.source.Constant, operation, right.source.Constant)
 		}
-		// RFC 0017: integer arithmetic wraps to the result type; the
+		// Integer arithmetic wraps to the result type; the
 		// signed-minimum/-1 division and remainder pairs fold to their
 		// defined values.
 		if operator == DivideOperator || operator == RemainderOperator {
@@ -466,7 +466,7 @@ func foldedIntegerResult(value constant.Value, typ compilerTypes.Type, token lex
 }
 
 // wrapIntegerConstant reduces an exact integer result to the result type's
-// range using the defined two's-complement-style wrapping rule (RFC 0017).
+// range using the defined two's-complement-style wrapping rule.
 func wrapIntegerConstant(value constant.Value, typ compilerTypes.Type) constant.Value {
 	minimum, maximum := integerBounds(typ)
 	if constant.Compare(value, gotoken.GEQ, minimum) && constant.Compare(value, gotoken.LEQ, maximum) {
@@ -647,7 +647,7 @@ func knownTruthinessMetadata(expression checkedExpression) (bool, bool) {
 }
 
 // knownTruthiness reports whether the operand's truthiness is decided at
-// compile time (RFC 0023): a constant Bool carries its value, nil is falsey,
+// compile time: a constant Bool carries its value, nil is falsey,
 // and a constant of an always-truthy type is truthy. Non-constant operands
 // are never folded here — their evaluation must survive in the checked AST.
 func knownTruthiness(expression checkedExpression) (bool, bool) {
@@ -811,9 +811,8 @@ func staticDivisionDiagnostic(operator Operator, left, right checkedExpression, 
 			Message:  "division by zero",
 		}
 	}
-	// RFC 0017 supersedes RFC 0009's rejection of signed minimum divided by
-	// -1: the quotient wraps to the signed minimum and the remainder is
-	// zero, both at compile time and at runtime.
+	// Signed minimum divided by -1 wraps to the signed minimum and the
+	// remainder is zero, both at compile time and at runtime.
 	return nil
 }
 
@@ -842,7 +841,7 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 	case parser.NilLiteral:
 		return expressionTypeHint{typ: compilerTypes.Nil, token: expression.Token}
 	case parser.StringLiteral:
-		// RFC 0044: a literal in an expression position is String unless the
+		// A literal in an expression position is String unless the
 		// context demands a Strand.
 		typ := compilerTypes.StringType
 		if compilerTypes.IsStrand(expected) {
@@ -996,7 +995,7 @@ func operatorAllowsType(operator Operator, typ compilerTypes.Type) bool {
 	case LessOperator, LessEqualOperator, GreaterOperator, GreaterEqualOperator:
 		return compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ)
 	case LogicalAndOperator, LogicalOrOperator, LogicalNotOperator:
-		// RFC 0023: any value-producing operand is allowed; truthiness is
+		// Any value-producing operand is allowed; truthiness is
 		// contextual, never a Bool requirement.
 		return true
 	case NegateOperator:
@@ -1006,7 +1005,7 @@ func operatorAllowsType(operator Operator, typ compilerTypes.Type) bool {
 	}
 }
 
-// isBitwiseEligible reports whether typ may participate in RFC 0032 bitwise
+// isBitwiseEligible reports whether typ may participate in bitwise
 // and shift operations: a fixed-width integer or Size, excluding Rune.
 func isBitwiseEligible(typ compilerTypes.Type) bool {
 	return compilerTypes.IsInteger(typ) && !compilerTypes.IsRune(typ)
@@ -1018,9 +1017,9 @@ func operandContextType(operator Operator, expected compilerTypes.Type) compiler
 	}
 	switch operator {
 	case EqualOperator, NotEqualOperator, LessOperator, LessEqualOperator, GreaterOperator, GreaterEqualOperator, LogicalAndOperator, LogicalOrOperator, LogicalNotOperator:
-		// A result Bool is not a numeric operand context, and RFC 0023 makes
-		// logical operands truthiness contexts. Nested arithmetic therefore
-		// keeps RFC 0003's fallback instead of becoming Bool.
+		// A result Bool is not a numeric operand context, and logical
+		// operands are truthiness contexts. Nested arithmetic therefore keeps
+		// its fallback literal type instead of becoming Bool.
 		return compilerTypes.Type{}
 	default:
 		if operatorAllowsType(operator, expected) {

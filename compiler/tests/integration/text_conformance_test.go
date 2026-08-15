@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0044 integration tests: Byte alias, byte/rune literals, the String and
-// Strand surfaces, RuneCursor, and the from_bytes/from_runes constructors.
-
 func TestByteAliasIsUInt8(t *testing.T) {
 	source := "byte: Byte = b'A'\nnumber: UInt8 = byte\nagain: Byte = number\n"
 	result := compileSource(source)

@@ -2,9 +2,9 @@ package types
 
 import "testing"
 
-// RFC 0049 item 8.4: every concrete type is checked in its named position.
-// This matrix pins the registry over the exceptional types Fun, Nil, Unknown,
-// View, Atomic, and an aggregate containing Atomic.
+// Every concrete type is checked in its named position. This matrix pins
+// the registry over the exceptional types Fun, Nil, Unknown, View, Atomic,
+// and an aggregate containing Atomic.
 func TestPositionEligibilityMatrix(t *testing.T) {
 	environment := NewEnvironment()
 	result := Int32

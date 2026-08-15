@@ -114,7 +114,7 @@ type WhileStatement struct {
 
 func (WhileStatement) statementNode() {}
 
-// ForStatement iterates one built-in collection or text source (RFC 0028).
+// ForStatement iterates one built-in collection or text source.
 // Binders are fresh immutable names typed by the source; Source is evaluated
 // once before the loop and never re-evaluated.
 type ForStatement struct {
@@ -159,7 +159,7 @@ type DeferredAction struct {
 	IsCall bool
 	Call   *Operand
 	Value  *Operand
-	// Err marks an RFC 0029 errdefer action: it runs only when the current
+	// Err marks an errdefer action: it runs only when the current
 	// function exits by returning Error.
 	Err bool
 }
@@ -194,7 +194,7 @@ type CallStatement struct {
 
 func (CallStatement) statementNode() {}
 
-// TryStatement discards the success value of an RFC 0029 try operand. The
+// TryStatement discards the success value of a try operand. The
 // checked Expression is a TryExpression carrying the propagation metadata;
 // the generator hoists its prologue and emits no value use.
 type TryStatement struct {
@@ -212,18 +212,17 @@ type binding struct {
 	known      *Operand
 	kind       bindingKind
 	parameter  bool // fixed function parameter: readable, never assignable
-	loopBinder bool // a for-in binder: fresh and immutable (RFC 0028)
+	loopBinder bool // a for-in binder: fresh and immutable
 	id         BindingID
 	// viewRoots and viewRootKind record a View binding's root so a later
-	// return of the binding can classify it (RFC 0046 item 4).
+	// return of the binding can classify it.
 	viewRoots    []BindingID
 	viewRootKind ViewRootKind
 	// fromRef records that this binding's value originated from a `ref`
-	// expression in this function body, so from_pointer can reject it
-	// (RFC 0046 item 4).
+	// expression in this function body, so from_pointer can reject it.
 	fromRef bool
-	// moduleID is the target canonical module of an aliasBinding import
-	// (RFC 0034). It is empty for every value and function binding.
+	// moduleID is the target canonical module of an aliasBinding import.
+	// It is empty for every value and function binding.
 	moduleID string
 }
 
@@ -268,19 +267,18 @@ func CheckModules(programs map[string]parser.Program, order []string, entrypoint
 		diagnostics = append(diagnostics, moduleDiagnostics...)
 		checked[key] = moduleChecked
 		if len(moduleDiagnostics) == 0 {
-			// RFC 0034 Task 5: a clean module publishes its exported
-			// interface before its own closure is validated, so importers see
-			// complete records and the walker can prove its own exports
-			// against the registry.
+			// A clean module publishes its exported interface before its own
+			// closure is validated, so importers see complete records and the
+			// walker can prove its own exports against the registry.
 			registry.registerExports(moduleID, moduleChecked)
 			diagnostics = append(diagnostics, registry.checkExportedClosure(moduleID, moduleChecked)...)
 		}
 	}
-	// RFC 0034 Task 6: after every module checks, fold each defining module's
-	// specialization collection -- its own requests plus every importer's --
-	// into its checked program, deduplicated by key and deterministically
-	// ordered. Requests recorded while a later module failed are harmless:
-	// the compilation already reports diagnostics.
+	// After every module checks, fold each defining module's specialization
+	// collection -- its own requests plus every importer's -- into its checked
+	// program, deduplicated by key and deterministically ordered. Requests
+	// recorded while a later module failed are harmless: the compilation
+	// already reports diagnostics.
 	for _, moduleID := range order {
 		key := moduleID + ".hex"
 		program, ok := checked[key]
@@ -303,7 +301,7 @@ func CheckModules(programs map[string]parser.Program, order []string, entrypoint
 // checkModule checks one module in its own scope. moduleID is the module's
 // canonical identity; entrypointCanonical is the root module's canonical
 // identity, the only module allowed to execute statements. registry carries
-// the import aliases every module scope sees (RFC 0034).
+// the import aliases every module scope sees.
 func checkModule(program parser.Program, moduleID string, entrypointCanonical string, registry *ModuleRegistry) (Program, compilerTypes.Diagnostics) {
 	checked := Program{
 		TypeDeclarations: make([]TypeDeclaration, 0),
@@ -322,9 +320,9 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 	}
 	sawNonImportItem := false
 	for _, item := range items {
-		// RFC 0034: only the entrypoint module executes statements; an
-		// imported module's top level is declarations only. The offending
-		// statement is skipped entirely, never partially checked.
+		// Only the entrypoint module executes statements; an imported
+		// module's top level is declarations only. The offending statement is
+		// skipped entirely, never partially checked.
 		if moduleID != entrypointCanonical {
 			if token, executable := executableItemToken(item); executable {
 				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
@@ -337,8 +335,8 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 				continue
 			}
 		}
-		// RFC 0034: imports must form the module's prefix; the first item
-		// that is not a declaration ends it.
+		// Imports must form the module's prefix; the first item that is
+		// not a declaration ends it.
 		if !declarationItem(item) {
 			sawNonImportItem = true
 		}
@@ -383,9 +381,9 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.TryStatement:
-			// RFC 0049 item 8.3: a try statement reuses the try-expression
-			// validation and propagation metadata; only the success value
-			// differs, and it is discarded.
+			// A try statement reuses the try-expression validation and
+			// propagation metadata; only the success value differs, and it is
+			// discarded.
 			checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, environment, typeEnvironment)
 			if errs := initializerDiagnostics(checkedTry); len(errs) > 0 {
 				diagnostics = append(diagnostics, errs...)
@@ -430,10 +428,9 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.ErrdeferStatement:
-			// RFC 0049: errdefer is grammatically a statement at root but is
-			// valid only where an enclosing function result accepts Error;
-			// the shared check owns that diagnostic. Never append the invalid
-			// action.
+			// errdefer is grammatically a statement at root but is valid only
+			// where an enclosing function result accepts Error; the shared
+			// check owns that diagnostic. Never append the invalid action.
 			_, statementDiagnostics := checkErrdeferStatement(statement, environment, typeEnvironment)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 		case parser.ImplDeclaration:
@@ -456,10 +453,9 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 					Message:  "imports must precede all other items",
 				})
 			}
-			// RFC 0034 Task 4: the alias is a fixed module identity, not a
-			// value; it is registered as an alias record and name lookup skips
-			// it, so resolution to the module's names arrives with the module
-			// phase.
+			// The alias is a fixed module identity, not a value; name lookup
+			// skips it and qualified resolution reaches the target module's
+			// names instead.
 			target := canonicalModuleID(moduleID, strings.Trim(statement.Path.Lexeme, "\""))
 			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
 				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
@@ -487,16 +483,16 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 	if len(diagnostics) > 0 {
 		return checked, diagnostics
 	}
-	// RFC 0037: the starvation rule runs only after the program checked
-	// clean, so its Semantic Errors are never mixed with earlier failures.
+	// The starvation rule runs only after the program checked clean, so its
+	// Semantic Errors are never mixed with earlier failures.
 	starvationDiagnostics := checkStarvation(checked)
 	if len(starvationDiagnostics) > 0 {
 		return checked, starvationDiagnostics
 	}
 	if registry != nil {
-		// RFC 0034 Task 6: a clean module publishes its generic templates and
-		// its own specialization requests, so importers resolve and record
-		// against the defining module's collection.
+		// A clean module publishes its generic templates and its own
+		// specialization requests, so importers resolve and record against
+		// the defining module's collection.
 		registry.registerGenerics(moduleID, environment.generics)
 	}
 	return checked, nil
@@ -504,7 +500,7 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 
 // declarationItem reports whether item is one of the four module-level
 // declaration forms. Only these may follow the import prefix without ending
-// it (RFC 0034).
+// it.
 func declarationItem(item parser.TopLevelItem) bool {
 	switch item.(type) {
 	case parser.TypeDeclaration, parser.FunctionDeclaration, parser.ImplDeclaration, parser.ImportDeclaration:
@@ -516,7 +512,7 @@ func declarationItem(item parser.TopLevelItem) bool {
 // executableItemToken classifies one top-level item as an executable
 // statement, returning the token diagnostics point at: the declared name for
 // a data declaration, the statement keyword when one exists, or 1,1. An
-// imported module may contain none of these (RFC 0034).
+// imported module may contain none of these.
 func executableItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 	switch statement := item.(type) {
 	case parser.Declaration:

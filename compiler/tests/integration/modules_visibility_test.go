@@ -1,11 +1,5 @@
 package integration
 
-// RFC 0034 Task 5: visibility, qualification, and exported-interface
-// closure, end to end through Compile. Since Task 7, clean multi-module
-// programs compile: a resolved qualified use asserts success with one
-// C/header pair per reachable module, and user-program diagnostics never
-// accompany it.
-
 import (
 	"hexal/compiler"
 	"strings"
@@ -43,9 +37,9 @@ func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }
 
-// A qualified use through an alias of a nested (directory) import resolves to
-// the full canonical module identity, not the basename (RFC 0034 §Path
-// resolution: "graphics/shapes" is one identity).
+// A qualified use through an alias of a nested (directory) import resolves
+// to the full canonical module identity, not the basename: "graphics/shapes"
+// is one identity.
 func TestQualifiedUseThroughNestedPathAlias(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":             "module Shapes = import \"./graphics/shapes\"\np: Shapes.Point = Shapes.origin()\n",

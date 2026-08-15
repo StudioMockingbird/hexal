@@ -8,8 +8,8 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0068 classification matrix: identity for one canonical type, direct for
-// the proven non-trapping families (integer/Rune to float, Float32 widening,
+// Classification matrix: identity for one canonical type, direct for the
+// proven non-trapping families (integer/Rune to float, Float32 widening,
 // domain-fitted integer widening), checked for everything else, with Size
 // never classified direct except identity and Size-to-float.
 func TestClassifyConversionMatrix(t *testing.T) {
@@ -70,9 +70,9 @@ func TestClassifyConversionMatrix(t *testing.T) {
 	}
 }
 
-// RFC 0068: identity and direct conversions stay in the checked program but
-// never enter the helper set; only checked pairs are collected, deduplicated
-// by concrete pair.
+// Identity and direct conversions stay in the checked program but never
+// enter the helper set; only checked pairs are collected, deduplicated by
+// concrete pair.
 func TestDiscoverGeneratedConversionsCollectsOnlyChecked(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\n    big: Int64 = 9000000000\n    narrow: Int8 = big.to<Int8>()\n    again: Int8 = big.to<Int8>()\n    same: Int64 = big.to<Int64>()\nend")
 	specs, _, err := discoverGeneratedConversions(program)
@@ -98,11 +98,11 @@ func TestDiscoverGeneratedConversionsIdentityNotCollected(t *testing.T) {
 	}
 }
 
-// RFC 0068: dynamic Float-to-integer helpers truncate exactly once into a
-// temporary of the source floating type, check exact power-of-two bounds
-// (inclusive lower, exclusive upper), and cast only the temporary. Size uses
-// a target-derived threshold from SIZE_MAX converted to the source floating
-// type before adding floating one.
+// Dynamic Float-to-integer helpers truncate exactly once into a temporary of
+// the source floating type, check exact power-of-two bounds (inclusive lower,
+// exclusive upper), and cast only the temporary. Size uses a target-derived
+// threshold from SIZE_MAX converted to the source floating type before adding
+// floating one.
 func TestWriteFloatToIntegerConversionShapes(t *testing.T) {
 	testCases := []struct {
 		source compilerTypes.Type
@@ -194,9 +194,8 @@ func TestWriteFloatToIntegerConversionNeverConvertsLimitMacros(t *testing.T) {
 	}
 }
 
-// RFC 0068: rendering dispatches by classification; the operand renders
-// exactly once and a non-atomic operand is parenthesized inside a direct
-// cast.
+// Rendering dispatches by classification; the operand renders exactly once
+// and a non-atomic operand is parenthesized inside a direct cast.
 func TestRenderConversionClassification(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -298,9 +297,9 @@ func TestRenderConversionClassification(t *testing.T) {
 	}
 }
 
-// RFC 0068: a direct-only program emits no conversion helper, no runtime
-// trap, and no trap-owned headers; a checked program emits one deduplicated
-// helper per concrete pair and the shared trap.
+// A direct-only program emits no conversion helper, no runtime trap, and no
+// trap-owned headers; a checked program emits one deduplicated helper per
+// concrete pair and the shared trap.
 func TestGenerateDirectConversionEmitsCastOnly(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\nend")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")

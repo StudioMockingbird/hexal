@@ -75,8 +75,8 @@ func checkListTypeCall(call parser.CallExpression, callee lexer.Token, names *sc
 }
 
 // checkListMethodCall dispatches the built-in List methods: length, slice,
-// push, pop, set, clear, and free (RFC 0063: is_empty and at were removed —
-// `length() == 0` and `[index]` are identical and O(1)).
+// push, pop, set, clear, and free, and rejects the removed is_empty and at
+// names with their replacement spellings.
 func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	listType := receiver.typ
@@ -218,8 +218,8 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 }
 
 // listElementArgument checks one push or set value against the element type.
-// RFC 0035: a String result is stored by shallow handle copy; cleanup stays
-// the programmer's responsibility.
+// A String result is stored by shallow handle copy; cleanup stays the
+// programmer's responsibility.
 func listElementArgument(expression parser.Expression, fallback lexer.Token, element compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) (Operand, *compilerTypes.Diagnostic) {
 	checked := checkInitializer(expression, compilerTypes.NewTypeUse(element), fallback, environment, typeEnvironment)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {

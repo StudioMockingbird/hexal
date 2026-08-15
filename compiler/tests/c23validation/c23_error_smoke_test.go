@@ -4,14 +4,14 @@ package c23validation
 
 import "testing"
 
-// Smoke-check that RFC 0029 Error/try/errdefer programs generate C that gcc
+// Smoke-check that Error/try/errdefer programs generate C that gcc
 // accepts.
 func c23GeneratedErrorCCompiles(t *testing.T) {
 	source := "fun cleanup(value: Int32) do\nend\nfun read_count(): Int32 | Error do\n    return Error.new(\"Read Error\", \"no count\")\nend\nfun demo(release: Bool): Int32 | Error do\n    errdefer cleanup(1)\n    defer cleanup(2)\n    mut total: Int32 = 0\n    while true do\n        count: Int32 = try read_count()\n        total = total + count\n        break\n    end\n    if release then\n        return Error.new(\"Final Error\", \"done\")\n    end\n    return total\nend"
 	compileGeneratedC(t, assertCompiles(t, source))
 }
 
-// RFC 0029 runtime conformance: a try success unwinds defer statements in
+// Runtime conformance: a try success unwinds defer statements in
 // reverse registration order while skipping errdefer, and a try failure
 // unwinds both sets in reverse order before the Error propagates.
 func c23GeneratedErrorControlFlowRuns(t *testing.T) {

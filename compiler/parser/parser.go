@@ -14,12 +14,12 @@ type Parser struct {
 	blockStack  []string
 	diagnostics compilerTypes.Diagnostics
 	// pendingGreater carries the second half of a `>>` token split into two
-	// generic closers while parsing nested type arguments (RFC 0032).
+	// generic closers while parsing nested type arguments.
 	pendingGreater bool
 	// matchBoundary suspends the `|` (and, for a scrutinee, `is`) operator at
 	// match-expression depth zero so an unparenthesized `|` starts the next
-	// arm and an unparenthesized `is` selects type mode (RFC 0049 item 3).
-	// Parenthesized subexpressions clear it.
+	// arm and an unparenthesized `is` selects type mode. Parenthesized
+	// subexpressions clear it.
 	matchBoundary matchBoundaryKind
 	// implReceiver is set while parsing an impl declaration's receiver type
 	// and unionMemberDepth counts union-member primaries inside it. A dotted
@@ -120,9 +120,9 @@ func (parser *Parser) topLevelItem() (TopLevelItem, error) {
 	return statement, nil
 }
 
-// exportedDeclaration consumes a leading `export` and requires the RFC 0034
-// exportable declaration forms: a module-level type, function, or
-// implementation declaration. Anything else is a Syntax Error.
+// exportedDeclaration consumes a leading `export` and requires the exportable
+// declaration forms: a module-level type, function, or implementation
+// declaration. Anything else is a Syntax Error.
 func (parser *Parser) exportedDeclaration() (TopLevelItem, error) {
 	parser.advance()
 	switch {
@@ -138,7 +138,7 @@ func (parser *Parser) exportedDeclaration() (TopLevelItem, error) {
 	return nil, parser.errorAt(next, "export may prefix only a module-level type, function, or implementation declaration")
 }
 
-// importDeclaration parses the exact RFC 0034 form
+// importDeclaration parses the exact form
 // `module <identifier> = import <module-path-literal>` and binds the alias.
 func (parser *Parser) importDeclaration() (ImportDeclaration, error) {
 	moduleKeyword, err := parser.consume(lexer.Module, "'module'")
@@ -257,9 +257,9 @@ func (parser *Parser) statement() (Statement, error) {
 		}
 		return nil, parser.errorAt(parser.peek(), "unexpected 'elseif' outside an if statement")
 	case parser.check(lexer.Export):
-		// RFC 0034: export applies only to module-level declarations. At
-		// statement position it can never be valid, so it is rejected here
-		// rather than as a confusing identifier-form error.
+		// export applies only to module-level declarations. At statement
+		// position it can never be valid, so it is rejected here rather than
+		// as a confusing identifier-form error.
 		return nil, parser.errorAt(parser.peek(), "export may prefix only a module-level type, function, or implementation declaration")
 	case parser.check(lexer.Else):
 		if len(parser.blockStack) > 0 {
@@ -277,8 +277,8 @@ func (parser *Parser) statement() (Statement, error) {
 	case parser.check(lexer.Self):
 		return parser.postfixStatement(VariableExpression{Name: parser.advance()})
 	case parser.check(lexer.Try):
-		// RFC 0049 item 8.3: `try <unary-expression>` is a statement as well
-		// as an expression, with the same unary boundary as prefix try.
+		// `try <unary-expression>` is a statement as well as an expression,
+		// with the same unary boundary as prefix try.
 		keyword := parser.advance()
 		operand, err := parser.unaryExpression()
 		if err != nil {

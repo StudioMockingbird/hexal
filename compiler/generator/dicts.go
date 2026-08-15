@@ -77,9 +77,8 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		}
 		result.WriteString("    size_t index = hash & (capacity - 1);\n")
 		if compilerTypes.IsStrand(key) {
-			// RFC 0069 Amendment 2: the canonical zero-filled 32-byte key
-			// representation compares with one direct memcmp; no per-Dict
-			// equality wrapper is emitted.
+			// The canonical zero-filled 32-byte key representation compares
+			// with one direct memcmp; no per-Dict equality wrapper is emitted.
 			result.WriteString("    while (region[index].active && memcmp(region[index].key.data, key.data, 32) != 0) {\n        index = (index + 1) & (capacity - 1);\n    }\n")
 		} else {
 			result.WriteString("    while (region[index].active && region[index].key != key) {\n        index = (index + 1) & (capacity - 1);\n    }\n")
@@ -103,7 +102,7 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		result.WriteString("    header->buckets = nullptr;\n    header->length = 0;\n    header->capacity = 0;\n    header->allocator = h.identity;\n")
 		fmt.Fprintf(result, "    return header;\n}\n")
 		fmt.Fprintf(result, "static inline void hex_dict_grow_%s(%s *dict) {\n", suffix, dict.CName)
-		// RFC 0069: doubling stays in size_t; the multiply is checked so an
+		// Doubling stays in size_t; the multiply is checked so an
 		// unrepresentable capacity traps instead of wrapping.
 		result.WriteString("    size_t next = 8;\n")
 		result.WriteString("    if (dict->capacity != 0) {\n")
@@ -116,17 +115,17 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		result.WriteString("        hex_runtime_trap(\"[Runtime Error] dictionary capacity is not representable\\n\");\n")
 		result.WriteString("    }\n")
 		result.WriteString("    " + entryName + " *region = hex_heap_raw_allocate(dict->allocator, bytes, _Alignof(" + entryName + "));\n")
-		// RFC 0069 Amendment 2: a fresh inactive bucket region zeroes with
-		// one memset after the checked byte count and successful allocation.
-		// Inactive keys and values are never read, so zeroing adds no value
-		// semantics beyond a valid active flag.
+		// A fresh inactive bucket region zeroes with one memset after the
+		// checked byte count and successful allocation. Inactive keys and
+		// values are never read, so zeroing adds no value semantics beyond a
+		// valid active flag.
 		result.WriteString("    memset(region, 0, bytes);\n")
 		fmt.Fprintf(result, "    for (size_t index = 0; index < dict->capacity; index++) {\n        if (dict->buckets[index].active) {\n            uint64_t probe = hex_dict_probe_%s_region(region, next, dict->buckets[index].key);\n            region[probe] = dict->buckets[index];\n        }\n    }\n", suffix)
 		result.WriteString("    if (dict->buckets != nullptr) {\n        hex_heap_free(dict->buckets, dict->allocator);\n    }\n    dict->buckets = region;\n    dict->capacity = next;\n}\n")
 		fmt.Fprintf(result, "static inline void hex_dict_insert_%s(%s *dict, %s key, %s value) {\n", suffix, dict.CName, keySpelling, valueSpelling)
-		// RFC 0069: the load-factor decision checks every arithmetic operand
-		// before comparison; an unrepresentable decision traps as
-		// unrepresentable capacity and never wraps to skip required growth.
+		// The load-factor decision checks every arithmetic operand before
+		// comparison; an unrepresentable decision traps as unrepresentable
+		// capacity and never wraps to skip required growth.
 		result.WriteString("    if (dict->capacity == 0) {\n        hex_dict_grow_" + suffix + "(dict);\n    } else {\n")
 		result.WriteString("        size_t length_plus_one;\n        size_t load_times_10;\n        size_t capacity_times_7;\n")
 		result.WriteString("        if (ckd_add(&length_plus_one, dict->length, 1) || ckd_mul(&load_times_10, length_plus_one, 10) || ckd_mul(&capacity_times_7, dict->capacity, 7)) {\n")
@@ -159,8 +158,8 @@ func writeDictDefinitions(result *strings.Builder, dicts *generatedDictState) {
 		result.WriteString("    if (dict == nullptr || dict->allocator != h.identity) {\n")
 		result.WriteString("        hex_runtime_trap(\"[Runtime Error] deallocation used the wrong allocator\\n\");\n    }\n")
 		// Both regions came from hex_heap_raw_allocate; only hex_heap_free can
-		// release them (RFC 0048 conformance: freeing the interior pointer
-		// directly is heap corruption).
+		// release them, since freeing the interior pointer directly is heap
+		// corruption.
 		result.WriteString("    if (dict->buckets != nullptr) {\n        hex_heap_free(dict->buckets, dict->allocator);\n    }\n")
 		result.WriteString("    hex_heap_free(dict, h.identity);\n}\n")
 	}

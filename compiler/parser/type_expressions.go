@@ -19,7 +19,7 @@ type NamedTypeExpression struct {
 
 func (NamedTypeExpression) typeExpressionNode() {}
 
-// QualifiedTypeExpression refers to a type through an RFC 0034 import alias:
+// QualifiedTypeExpression refers to a type through an import alias:
 // Module.Names is a dotted chain whose first component is the alias. Names
 // always has at least one element; the checker resolves the chain inside the
 // imported module.
@@ -82,9 +82,9 @@ func (parser *Parser) typeExpression() (TypeExpression, error) {
 	if err != nil {
 		return nil, err
 	}
-	// RFC 0032: when a `>>` token was split and one closer is still pending,
-	// that closer belongs to an enclosing generic constructor; a `|` here
-	// must not extend this union past it.
+	// When a `>>` token was split and one closer is still pending, that
+	// closer belongs to an enclosing generic constructor; a `|` here must
+	// not extend this union past it.
 	if parser.pendingGreater || !parser.check(lexer.Pipe) {
 		return first, nil
 	}
@@ -154,7 +154,7 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 	if err != nil {
 		return nil, err
 	}
-	// RFC 0034: a dotted chain in type position is an import-qualified type
+	// A dotted chain in type position is an import-qualified type
 	// (Module.Names). The chain is greedy; the impl receiver parse peels its
 	// final component back into the method name. It is suppressed inside an
 	// impl receiver's union members, where the dot is the method delimiter.

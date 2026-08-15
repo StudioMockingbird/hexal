@@ -10,7 +10,7 @@ import (
 // bindingKind separates storage from a declared function and from an import
 // alias. A function name is not a place: it can be read as a Fun<...> value
 // and nothing else. An import alias is not a value at all: name lookup skips
-// it, and only the module phase resolves it (RFC 0034).
+// it, and only qualified resolution reaches its target module.
 type bindingKind uint8
 
 const (
@@ -27,8 +27,8 @@ type scope struct {
 	module       map[string]binding
 	local        map[string]binding // nil only at module level
 	parent       *scope
-	moduleID     string            // the enclosing module's canonical identity (RFC 0034)
-	imports      map[string]string // import alias -> canonical module id (RFC 0034)
+	moduleID     string            // the enclosing module's canonical identity
+	imports      map[string]string // import alias -> canonical module id
 	owner        string            // enclosing function or method name, for diagnostics
 	result       *compilerTypes.Type
 	resultUse    *compilerTypes.TypeUse
@@ -37,12 +37,12 @@ type scope struct {
 	selfID       BindingID
 	function     bool
 	nextID       *BindingID
-	flow         *flowState // RFC 0010 branch-local narrowing facts
+	flow         *flowState // branch-local narrowing facts
 	generics     *genericTable
 	defers       []DeferredAction
-	cleanupDepth int // checking a defer or errdefer action (RFC 0029)
-	// registry is the compilation's module graph (RFC 0034 Task 5): it
-	// resolves import aliases against the target modules' exported records.
+	cleanupDepth int // checking a defer or errdefer action
+	// registry is the compilation's module graph: it resolves import aliases
+	// against the target modules' exported records.
 	// It is shared by reference with every child scope.
 	registry *ModuleRegistry
 }
@@ -63,9 +63,8 @@ func moduleScope(moduleID string, registry *ModuleRegistry) *scope {
 	}
 	generics := newGenericTable()
 	if registry != nil {
-		// RFC 0034 Task 5: qualified type references resolve through the
-		// module's import graph, which the generic table carries for the
-		// type resolver.
+		// Qualified type references resolve through the module's import
+		// graph, which the generic table carries for the type resolver.
 		generics.registry = registry
 		generics.moduleID = moduleID
 	}
@@ -83,9 +82,8 @@ type flowFact struct {
 	variant *compilerTypes.AdtVariant // active ADT variant when variant-narrowed
 }
 
-// ownerState, ownerFact, and the flowState owner table implemented RFC 0020's
-// affine collection ownership. RFC 0035 removes ownership tracking: cleanup is
-// the programmer's responsibility, so only narrowing facts remain.
+// The flow table records narrowing facts only: collection ownership tracking
+// is gone, so cleanup is entirely the programmer's responsibility.
 
 // flowState is the narrowing table for one function body (or module scope),
 // keyed by binding identity. Branch checking clones the state, narrows the
@@ -263,10 +261,9 @@ const (
 )
 
 // lookup resolves a name for the current scope. Inside a function body a
-// module-level data binding is deliberately unreachable (RFC 0008 scope rule
-// 5); only previously declared functions remain visible. An import alias is
-// never a value and is skipped entirely, so a bare alias reference fails as
-// an unknown variable (RFC 0034).
+// module-level data binding is deliberately unreachable; only previously
+// declared functions remain visible. An import alias is never a value and is
+// skipped entirely, so a bare alias reference fails as an unknown variable.
 func (names *scope) lookup(name string) (binding, lookupStatus) {
 	for current := names; current != nil && current.local != nil; current = current.parent {
 		if bound, ok := current.local[name]; ok {
@@ -284,8 +281,7 @@ func (names *scope) lookup(name string) (binding, lookupStatus) {
 
 // importAlias reports whether name is an import alias of the enclosing
 // module. The module frame is shared by reference through every child scope,
-// so one lookup reaches it at any depth; shadowing an alias is forbidden
-// (RFC 0034).
+// so one lookup reaches it at any depth; shadowing an alias is forbidden.
 func (names *scope) importAlias(name string) bool {
 	bound, exists := names.module[name]
 	return exists && bound.kind == aliasBinding
@@ -293,10 +289,9 @@ func (names *scope) importAlias(name string) bool {
 
 // importAliasTarget returns the canonical id of the module an import alias
 // names, when that module's source is present in this compilation. The alias
-// binding lives in the shared module frame and records its target (RFC
-// 0034); a dangling alias whose target has no source resolves nowhere and
-// keeps failing as an unknown variable until the module phase reports the
-// missing path.
+// binding lives in the shared module frame and records its target; a dangling
+// alias whose target has no source resolves nowhere and keeps failing as an
+// unknown variable until the missing path is reported.
 func (names *scope) importAliasTarget(name string) (string, bool) {
 	bound, exists := names.module[name]
 	if !exists || bound.kind != aliasBinding || bound.moduleID == "" {
@@ -311,7 +306,7 @@ func (names *scope) importAliasTarget(name string) (string, bool) {
 
 // declaredHere reports a duplicate in the innermost scope only, so a local may
 // shadow a module-level value. An import alias is the exception: it is fixed
-// for the whole module, so no nested scope may shadow one (RFC 0034).
+// for the whole module, so no nested scope may shadow one.
 func (names *scope) declaredHere(name string) bool {
 	if names.local != nil {
 		if _, exists := names.local[name]; exists {

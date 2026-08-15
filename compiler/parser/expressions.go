@@ -2,8 +2,8 @@ package parser
 
 import "hexal/compiler/lexer"
 
-// expression starts the precedence ladder. Expression-side mut was removed by
-// RFC 0007: mut only appears before a binding or member name in a declaration.
+// expression starts the precedence ladder. mut is only valid before a binding
+// or member name in a declaration, never as an expression prefix.
 func (parser *Parser) expression() (Expression, error) {
 	return parser.orExpression()
 }
@@ -40,8 +40,8 @@ func (parser *Parser) andExpression() (Expression, error) {
 	return expression, nil
 }
 
-// bitwiseOrExpression parses the `|` level (RFC 0032). Inside a match
-// position, an unparenthesized `|` is the next arm separator, not an operator.
+// bitwiseOrExpression parses the `|` level. Inside a match position, an
+// unparenthesized `|` is the next arm separator, not an operator.
 func (parser *Parser) bitwiseOrExpression() (Expression, error) {
 	expression, err := parser.bitwiseXorExpression()
 	if err != nil {
@@ -58,7 +58,6 @@ func (parser *Parser) bitwiseOrExpression() (Expression, error) {
 	return expression, nil
 }
 
-// bitwiseXorExpression parses the `^` level (RFC 0032).
 func (parser *Parser) bitwiseXorExpression() (Expression, error) {
 	expression, err := parser.bitwiseAndExpression()
 	if err != nil {
@@ -75,7 +74,6 @@ func (parser *Parser) bitwiseXorExpression() (Expression, error) {
 	return expression, nil
 }
 
-// bitwiseAndExpression parses the `&` level (RFC 0032).
 func (parser *Parser) bitwiseAndExpression() (Expression, error) {
 	expression, err := parser.equalityExpression()
 	if err != nil {
@@ -115,7 +113,7 @@ func (parser *Parser) typeTestExpression() (Expression, error) {
 	}
 	// In a match scrutinee an unparenthesized `is` selects type mode rather
 	// than testing the scrutinee type; a scrutinee containing `is` must be
-	// parenthesized (RFC 0049 item 3).
+	// parenthesized.
 	if parser.matchBoundary == scrutineeBoundary || !parser.check(lexer.Is) {
 		return expression, nil
 	}
@@ -147,7 +145,6 @@ func (parser *Parser) relationalExpression() (Expression, error) {
 	return expression, nil
 }
 
-// shiftExpression parses the `<<` and `>>` level (RFC 0032).
 func (parser *Parser) shiftExpression() (Expression, error) {
 	expression, err := parser.additiveExpression()
 	if err != nil {
@@ -224,7 +221,6 @@ func (parser *Parser) unaryExpression() (Expression, error) {
 		}
 		return UnaryExpression{Operator: operator, Operand: operand}, nil
 	case parser.check(lexer.Tilde):
-		// RFC 0032: unary bitwise complement.
 		operator := parser.advance()
 		operand, err := parser.unaryExpression()
 		if err != nil {
@@ -232,7 +228,6 @@ func (parser *Parser) unaryExpression() (Expression, error) {
 		}
 		return UnaryExpression{Operator: operator, Operand: operand}, nil
 	case parser.check(lexer.Try):
-		// RFC 0029: `try` propagates an Error from the enclosing function.
 		keyword := parser.advance()
 		operand, err := parser.unaryExpression()
 		if err != nil {
@@ -240,7 +235,6 @@ func (parser *Parser) unaryExpression() (Expression, error) {
 		}
 		return TryExpression{Keyword: keyword, Operand: operand}, nil
 	case parser.check(lexer.Spawn):
-		// RFC 0037: `spawn` requires a direct call to a named function.
 		keyword := parser.advance()
 		operand, err := parser.unaryExpression()
 		if err != nil {
@@ -289,8 +283,8 @@ func (parser *Parser) place() (Expression, error) {
 		return nil, err
 	}
 	expression := Expression(VariableExpression{Name: name})
-	// RFC 0049 item 4: a place is an addressable root followed by any ordered
-	// sequence of member and index suffixes, so `ref rows[0].field` and
+	// A place is an addressable root followed by any ordered sequence of
+	// member and index suffixes, so `ref rows[0].field` and
 	// `ref grid[0].cells[1].value` are valid. The checker derives capability
 	// from the complete place.
 	for {
@@ -304,7 +298,7 @@ func (parser *Parser) place() (Expression, error) {
 			continue
 		}
 		if parser.check(lexer.LeftBracket) {
-			// RFC 0033: ref accepts addressable collection elements too, so
+			// ref accepts addressable collection elements too, so
 			// `ref values[2]` refers to one element without creating an array
 			// pointer.
 			open := parser.advance()
@@ -523,11 +517,8 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 	}
 }
 
-// balancedTypeArgumentEnd scans from a '<' at the current position to the
-// matching '>' tracking nested '<' pairs, and returns the index of the
-// matching '>' token, or -1 when no balanced close exists.
 // consumeGenericClose consumes one '>' generic closer, splitting a '>>'
-// token into two closers when nested type arguments need both (RFC 0032).
+// token into two closers when nested type arguments need both.
 func (parser *Parser) consumeGenericClose(expected string) (lexer.Token, error) {
 	if parser.pendingGreater {
 		return parser.consume(lexer.Greater, expected)
@@ -540,6 +531,9 @@ func (parser *Parser) consumeGenericClose(expected string) (lexer.Token, error) 
 	return parser.consume(lexer.Greater, expected)
 }
 
+// balancedTypeArgumentEnd scans from a '<' at the current position to the
+// matching '>' tracking nested '<' pairs, and returns the index of the
+// matching '>' token, or -1 when no balanced close exists.
 func (parser *Parser) balancedTypeArgumentEnd() int {
 	depth := 0
 	for index := parser.current; index < len(parser.tokens); index++ {
@@ -671,7 +665,7 @@ func (parser *Parser) matchExpression() (Expression, error) {
 	// The scrutinee uses the full expression grammar under a boundary that
 	// stops the top-level chain before an unparenthesized `is` (type-mode
 	// marker) or `|` (first arm). Parenthesized subexpressions suspend the
-	// boundary (RFC 0049 item 3).
+	// boundary.
 	outer := parser.matchBoundary
 	parser.matchBoundary = scrutineeBoundary
 	scrutinee, err := parser.orExpression()

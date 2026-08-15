@@ -11,9 +11,9 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0049 item 7: the shared walker must visit every statement and
-// expression shape the discovery passes relied on, in deterministic pre-order.
-// The unknown-statement branch of the walker is unreachable from outside the
+// The shared walker must visit every statement and expression shape the
+// discovery passes relied on, in deterministic pre-order. The
+// unknown-statement branch of the walker is unreachable from outside the
 // checker package (checker.Statement's marker method is unexported), so the
 // fail-closed behavior is enforced by the branch itself, not a test.
 

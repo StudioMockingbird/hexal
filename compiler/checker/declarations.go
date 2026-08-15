@@ -66,7 +66,7 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 		// member may reach this object behind at least one pointer layer. The
 		// identity is abandoned if any member fails and finalized only on
 		// complete success. The object is stamped with the declaring module's
-		// canonical id: that id is what owns its methods (RFC 0034 Task 6).
+		// canonical id: that id is what owns its methods.
 		beginResult := typeEnvironment.BeginObject(name, declaration.Name.Line, declaration.Name.Column)
 		beginResult.Object.ModuleID = environment.moduleID
 		members, memberDiagnostics := resolveObjectMembers(name, object, typeEnvironment, environment.generics)
@@ -166,14 +166,14 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 			continue
 		}
 		if resolved.Signature != nil {
-			// Supported-position whitelist: a Fun<...> member would be callback
-			// data in the object layout, which this RFC defers.
+			// Supported-position whitelist: a Fun<...> member would be
+			// callback data in the object layout, which is not supported.
 			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "Fun<…> object members are not supported"))
 			continue
 		}
-		// RFC 0046 item 2: any complete, finitely sized value may be an object
-		// member except Fun, Unknown, and Atomic at non-construction positions.
-		// An open type parameter defers to specialization rechecking.
+		// Any complete, finitely sized value may be an object member except
+		// Fun, Unknown, and Atomic at non-construction positions. An open type
+		// parameter defers to specialization rechecking.
 		if !compilerTypes.ContainsTypeParameter(resolved) && !compilerTypes.Storable(resolved, compilerTypes.PositionObjectMember) {
 			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 				Category: compilerTypes.TypeError,
@@ -317,7 +317,7 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		diagnostics = append(diagnostics, *diagnostic)
 	}
 	if declaration.Name.Lexeme == "print" {
-		// RFC 0030: the protected builtin name cannot be bound by a local or
+		// The protected builtin name cannot be bound by a local or
 		// module declaration.
 		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 			Category: compilerTypes.NameError,
@@ -328,7 +328,7 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		})
 	}
 	if layoutBuiltins[declaration.Name.Lexeme] {
-		// RFC 0042: the layout query names cannot be bound by a local or
+		// The layout query names cannot be bound by a local or
 		// module declaration.
 		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 			Category: compilerTypes.NameError,

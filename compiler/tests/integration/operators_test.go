@@ -1,7 +1,5 @@
 package integration
 
-// Unary and binary operators: lowering, folding, precedence, wrapping. Spec 0009.
-
 import (
 	"fmt"
 	"hexal/compiler"
@@ -74,7 +72,6 @@ func TestCompleteOperatorProgram(t *testing.T) {
 			t.Fatalf("modules/app.c = %q, want fragment %q", rootC(t, result), want)
 		}
 	}
-	// RFC 0062: float use emits no representation probe.
 	for _, forbidden := range []string{"static_assert(sizeof(float)", "static_assert(sizeof(double)"} {
 		if strings.Contains(rootH(t, result), forbidden) || strings.Contains(hexalH(t, result), forbidden) {
 			t.Fatalf("modules/app.h = %q, removed target probe %q emitted", rootH(t, result), forbidden)
@@ -97,23 +94,19 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 	}
 }
 
-// RFC 0068: named immutable arithmetic stays binding reads — the operation
-// runs on the generated bindings and the wrapping contract survives at
-// runtime. Literal-only expressions still fold, including RFC 0017's
-// overflow-wrapping and minimum/-1 edge cases.
 func TestImmutableArithmeticStaysRuntimeAndLiteralFoldingSurvives(t *testing.T) {
 	result := compileSource("count: UInt8 = 200 next: UInt8 = count + 1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_next = (uint8_t)((uint32_t)hex_v_count + (uint32_t)1);") {
 		t.Fatalf("Compile returned %#v, want runtime UInt8 wrapping on the binding read", result)
 	}
 
-	// RFC 0017: integer overflow wraps at the result type during folding.
+	// Integer overflow wraps at the result type during folding.
 	result = compileSource("over: UInt8 = 200 + 100")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_over = 44;") {
 		t.Fatalf("Compile returned %#v, want folded wrapped value 44", result)
 	}
 
-	// RFC 0017: signed minimum divided by -1 folds to the signed minimum.
+	// Signed minimum divided by -1 folds to the signed minimum.
 	result = compileSource("quotient: Int8 = -128 / -1 remainder: Int8 = -128 % -1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 ||
 		!strings.Contains(rootC(t, result), "const int8_t hex_v_quotient = INT8_MIN;") ||
@@ -157,7 +150,7 @@ func TestShortCircuitReachability(t *testing.T) {
 	for _, source := range []string{
 		"result: Bool = true or (1 / 0 == 0)",
 		"result: Bool = false and (1 / 0 == 0)",
-		// RFC 0023: mixed-type logical operands are valid; the unreachable
+		// Mixed-type logical operands are valid; the unreachable
 		// RHS folds away without ever evaluating.
 		"result: Bool = true or (1 and 2)",
 		"result: Bool = false and (1 or 2)",

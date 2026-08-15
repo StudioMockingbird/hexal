@@ -46,8 +46,8 @@ func listSuffix(list compilerTypes.Type) string {
 }
 
 // writeListDefinitions emits one header struct plus the element helpers per
-// list type. RFC 0046: every element, String included, is stored and discarded
-// by shallow C copy; free and clear release only the container's own region.
+// list type. Every element, String included, is stored and discarded by
+// shallow C copy; free and clear release only the container's own region.
 func writeListDefinitions(result *strings.Builder, lists *generatedListState, views *generatedViewState) {
 	if lists == nil {
 		return
@@ -94,8 +94,7 @@ func writeListDefinitions(result *strings.Builder, lists *generatedListState, vi
 		result.WriteString("        hex_runtime_trap(\"[Runtime Error] deallocation used the wrong allocator\\n\");\n    }\n")
 		// The regions come from hex_heap_raw_allocate, whose returned pointer
 		// carries the offset header before it; only hex_heap_free can release
-		// them (RFC 0048 conformance: freeing the interior pointer directly is
-		// heap corruption).
+		// them, since freeing the interior pointer directly is heap corruption.
 		result.WriteString("    if (list->data != nullptr) {\n        hex_heap_free(list->data, list->allocator);\n    }\n")
 		result.WriteString("    hex_heap_free(list, h.identity);\n}\n")
 		if view := matchingView(views, element); view != (compilerTypes.Type{}) {
@@ -117,7 +116,7 @@ func writeListBoundsGuard(result *strings.Builder, list compilerTypes.Type) {
 func writeListGrowHelper(result *strings.Builder, list compilerTypes.Type, elementSpelling string) {
 	suffix := listSuffix(list)
 	fmt.Fprintf(result, "static inline void hex_list_grow_%s(%s *list) {\n", suffix, list.CName)
-	// RFC 0069: doubling stays in size_t; the multiply is checked so an
+	// Doubling stays in size_t; the multiply is checked so an
 	// unrepresentable capacity traps instead of wrapping.
 	result.WriteString("    size_t next = 1;\n")
 	result.WriteString("    if (list->capacity != 0) {\n")
@@ -130,16 +129,16 @@ func writeListGrowHelper(result *strings.Builder, list compilerTypes.Type, eleme
 	result.WriteString("        hex_runtime_trap(\"[Runtime Error] list capacity is not representable\\n\");\n")
 	result.WriteString("    }\n")
 	result.WriteString("    " + elementSpelling + " *region = hex_heap_raw_allocate(list->allocator, bytes, _Alignof(" + elementSpelling + "));\n")
-	// RFC 0069 Amendment 2: the initialized prefix relocates with one guarded
-	// memcpy. An empty list may have a null data pointer, and ISO C requires
-	// valid pointer arguments even for a zero count; the byte count is a
-	// sub-product of the checked bytes value, so it cannot overflow.
+	// The initialized prefix relocates with one guarded memcpy. An empty list
+	// may have a null data pointer, and ISO C requires valid pointer arguments
+	// even for a zero count; the byte count is a sub-product of the checked
+	// bytes value, so it cannot overflow.
 	result.WriteString("    if (list->length != 0) {\n")
 	result.WriteString("        memcpy(region, list->data, list->length * sizeof(" + elementSpelling + "));\n")
 	result.WriteString("    }\n")
-	// The old region came from hex_heap_raw_allocate, so only hex_heap_free
-	// can release it; it is nullptr on the first grow (RFC 0048 conformance:
-	// freeing the interior pointer directly is heap corruption).
+	// The region came from hex_heap_raw_allocate, so only hex_heap_free can
+	// release it; freeing the interior pointer directly is heap corruption.
+	// The pointer is nullptr on the first grow.
 	result.WriteString("    if (list->data != nullptr) {\n        hex_heap_free(list->data, list->allocator);\n    }\n")
 	result.WriteString("    list->data = region;\n")
 	result.WriteString("    list->capacity = next;\n}\n")

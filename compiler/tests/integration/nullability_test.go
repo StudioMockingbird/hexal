@@ -1,9 +1,5 @@
 package integration
 
-// Explicit nullability: Nil/nil lowering, the null niche for pointer-like
-// unions, null tests, branch narrowing, and the erased Unknown pointee.
-// Spec 0010.
-
 import (
 	"hexal/compiler"
 	"strings"
@@ -11,8 +7,8 @@ import (
 )
 
 func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
-	// RFC 0048: standalone `nothing: Nil = nil` is invalid; null-pointer
-	// lowering survives through the nullable union form.
+	// Standalone `nothing: Nil = nil` is invalid; null-pointer lowering
+	// survives only through the nullable union form.
 	assertRejects(t, "nothing: Nil = nil", "Nil is valid only as a member of a union with a non-Nil type")
 	result := compileSource("maybe: Ptr<Int32> | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -25,8 +21,8 @@ func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
 			t.Fatalf("generated output = %q %q, want %q", rootH(t, result), rootC(t, result), want)
 		}
 	}
-	// RFC 0069 Amendment 2 Item D: the C23 nullptr keyword needs no header,
-	// so Nil alone does not select <stddef.h>.
+	// The C23 nullptr keyword needs no header, so Nil alone does not select
+	// <stddef.h>.
 	if strings.Contains(hexalH(t, result), "#include <stddef.h>") {
 		t.Fatalf("hexal.h = %q, Nil must not select <stddef.h>", hexalH(t, result))
 	}
@@ -47,9 +43,9 @@ func TestNullablePointerUsesTheNullNiche(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.7: the pointer-plus-Nil null niche applies only to
-// pointers. Handle types like String have no null representation, so their
-// unions lower to tagged unions instead.
+// The pointer-plus-Nil null niche applies only to pointers. Handle types
+// like String have no null representation, so their unions lower to tagged
+// unions instead.
 func TestNullableHandleUnionDoesNotUseTheNullNiche(t *testing.T) {
 	result := compileSource("text: String | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -163,8 +159,6 @@ func TestErasedUnknownPointersLowerToVoidPointers(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 2 Item D: <stddef.h> is selected only by an actual
-// declaration consumer (size_t), never by Nil, nullptr, or NULL.
 func TestStddefSelectedOnlyByDeclarationConsumer(t *testing.T) {
 	withNull := compileSource("mut maybe: Ptr<Int32> | Nil = nil if maybe != nil then noop: Int32 = 0 end")
 	if withNull.ExitCode != compiler.ExitSuccess || strings.Contains(hexalH(t, withNull), "#include <stddef.h>") {
@@ -211,8 +205,6 @@ func TestNullabilityDiagnostics(t *testing.T) {
 	}
 }
 
-// RFC 0049 item 8.1 regression at the integration level: standalone Nil is
-// rejected through generic substitution and spawn arguments.
 func TestNilRejectedThroughSubstitution(t *testing.T) {
 	assertRejects(t, "type Box<T> = { value: T }\nbad: Box<Nil> = Box<Nil> { value = nil }\n", "Nil is valid only as a member of a union with a non-Nil type")
 	assertRejects(t, "fun worker(flag: Nil): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> = try spawn worker(nil)\n    return 0\nend\n", "Nil is valid only as a member of a union with a non-Nil type")

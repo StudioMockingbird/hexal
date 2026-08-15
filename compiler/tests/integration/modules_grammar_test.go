@@ -1,9 +1,9 @@
 package integration
 
-// RFC 0034 Task 3 grammar: module/import/export keywords, module-path
-// literals, and dotted qualified types in type position. Grammar failures
-// surface as Syntax Errors; well-formed imports resolve (Task 4) and fail
-// only when their target module is absent.
+// Module/import/export keywords, module-path literals, and dotted qualified
+// types in type position parse here. Grammar failures surface as Syntax
+// Errors; well-formed imports resolve and fail only when their target module
+// is absent.
 
 import (
 	"hexal/compiler"
@@ -12,10 +12,9 @@ import (
 )
 
 func TestModuleImportResolvesToNotFound(t *testing.T) {
-	// Task 4 resolution: "./math" is a valid module-path literal that
-	// resolves; no source provides it, so the build fails with the
-	// resolution diagnostic rather than a grammar error — the grammar
-	// itself parsed.
+	// "./math" is a valid module-path literal that resolves; no source
+	// provides it, so the build fails with the resolution diagnostic rather
+	// than a grammar error — the grammar itself parsed.
 	result := compileSource("module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want failure until ./math exists, got %#v", result)
@@ -55,7 +54,7 @@ func TestExportRequiresModuleLevelDeclaration(t *testing.T) {
 func TestExportPrefixesDeclarations(t *testing.T) {
 	assertCompiles(t, "export fun f(): Int32 do\n    return 1\nend\n")
 	assertCompiles(t, "export type Point = { x: Int32, }\npoint: Point = Point { x = 1, }\n")
-	// An exported method needs an exported receiver type (Task 5 closure).
+	// An exported method needs an exported receiver type.
 	assertCompiles(t, "export type Point = { x: Int32, }\nexport impl Point.getX(): Int32 do\n    return self.x\nend\np: Point = Point { x = 1, }\nv: Int32 = p.getX()\n")
 }
 

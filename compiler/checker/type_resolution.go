@@ -21,7 +21,7 @@ func resolveType(expression parser.TypeExpression, fallback lexer.Token, typeEnv
 func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	switch expression := expression.(type) {
 	case parser.NilTypeExpression:
-		// RFC 0049 item 8.1: standalone Nil is invalid in every written type
+		// Standalone Nil is invalid in every written type
 		// position (aliases, bindings, parameters, results, members,
 		// payloads, collection positions, generic arguments). Union members
 		// and match type patterns resolve through resolveUnionMemberUse.
@@ -48,11 +48,11 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		}
 		return resolved, nil
 	case parser.QualifiedTypeExpression:
-		// RFC 0034 Task 5: a dotted type name whose leftmost name is an
+		// A dotted type name whose leftmost name is an
 		// import alias resolves against the target module's exported type
 		// records. A known alias whose name is absent or private reports the
-		// visibility failure; an unknown leftmost name keeps the Task 3
-		// Module Error.
+		// visibility failure; an unknown leftmost name keeps the module
+		// alias error.
 		if generics != nil && generics.registry != nil {
 			if target, ok := generics.registry.importTarget(generics.moduleID, expression.Module.Lexeme); ok {
 				use, found := generics.registry.exportedType(target, expression.Names[0].Lexeme)
@@ -103,7 +103,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		element := elementUse.Type
 		if element.Signature != nil {
 			// Supported-position whitelist: a pointer to a function pointer
-			// needs C declarator and FFI rules this RFC defers.
+			// needs C declarator and FFI rules that are not supported.
 			diagnostic := typeErrorAt(expression.Keyword, expression.Keyword.Lexeme+"<"+element.Name+"> is not supported")
 			return compilerTypes.TypeUse{}, &diagnostic
 		}
@@ -142,7 +142,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 				canonical = append(canonical, candidate.Type)
 			}
 		}
-		// RFC 0049 item 8.1: alias resolution and generic substitution run
+		// Alias resolution and generic substitution run
 		// before the member count, so a written union that collapses to fewer
 		// than two distinct canonical members is an error, never an alias for
 		// the survivor.
@@ -190,7 +190,7 @@ func typeUseCandidates(use compilerTypes.TypeUse) []compilerTypes.TypeUse {
 
 // resolveUnionMemberUse resolves a type in a Nil-admitting context: a union
 // member, a match type pattern, or an is-test query. Everywhere else Nil is
-// rejected by resolveTypeUse (RFC 0049 item 8.1). Parenthesized members and
+// rejected by resolveTypeUse. Parenthesized members and
 // nested written unions recurse so `Int32 | (Nil | Float32)` flattens
 // correctly.
 func resolveUnionMemberUse(expression parser.TypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {

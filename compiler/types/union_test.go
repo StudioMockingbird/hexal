@@ -11,9 +11,8 @@ func TestUnionTypeNormalizesIdentity(t *testing.T) {
 	if !Equal(left, right) || !Equal(nested, flat) {
 		t.Fatalf("union identity is order/grouping dependent: %v %v %v %v", left.Name, right.Name, nested.Name, flat.Name)
 	}
-	// RFC 0049 item 8.1: a union must have at least two distinct canonical
-	// members, so duplicates collapse to the zero Type instead of a one-member
-	// alias.
+	// A union must have at least two distinct canonical members, so
+	// duplicates collapse to the zero Type instead of a one-member alias.
 	if got := environment.UnionType([]Type{Int32, Int32}); got != (Type{}) {
 		t.Fatalf("duplicate union = %s, want zero Type", got.Name)
 	}

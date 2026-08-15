@@ -1,11 +1,10 @@
 package checker
 
-// Module identity, import registration, and the import-prefix rules of RFC
-// 0034 Task 4, plus the exported-interface records of RFC 0034 Task 5.
-// Resolution of import paths to files is the module phase's job (compile.go);
-// this file assembles the alias -> canonical-id pairs every module scope
-// carries while checking and the per-module exported records importers
-// resolve against.
+// Module identity, import registration, and the import-prefix rules, plus
+// the exported-interface records importers resolve against. Resolution of
+// import paths to files happens outside the checker; this file assembles the
+// alias -> canonical-id pairs every module scope carries while checking and
+// the per-module exported records.
 
 import (
 	"sort"
@@ -21,7 +20,7 @@ import (
 // and the root module. It is assembled by CheckModules before any module is
 // checked; the per-module exported records are published as each module
 // checks clean, in dependency order, so an importer always sees the complete
-// exported interface of its dependencies (RFC 0034 Task 5).
+// exported interface of its dependencies.
 type ModuleRegistry struct {
 	modules    map[string]*moduleEntry // canonical id -> entry
 	order      []string                // canonical ids, dependencies first
@@ -32,21 +31,21 @@ type ModuleRegistry struct {
 // its exported interface records: every exported function, type, and method
 // resolved in that module's own type environment. The export set comes from
 // the AST's export flags; the checked records are published by
-// registerExports. RFC 0034 Task 6 adds the defining module's open generic
-// templates (published by registerGenerics) and its specialization
-// collection: the module's own requests plus every importer's, folded into
-// its checked output by assembleSpecializations.
+// registerExports. The defining module's open generic templates (published
+// by registerGenerics) and its specialization collection -- the module's own
+// requests plus every importer's -- fold into its checked output by
+// assembleSpecializations.
 type moduleEntry struct {
 	imports map[string]string // import alias -> canonical module id
 
-	exports   map[string]bool                  // exported declaration names, from the AST (RFC 0034 Task 5)
+	exports   map[string]bool                  // exported declaration names, from the AST
 	functions map[string]FunctionDeclaration   // exported functions by name
 	types     map[string]compilerTypes.TypeUse // exported type names -> resolved use
 	methods   map[string][]MethodDeclaration   // receiver type name -> exported methods
 
 	// genericFunctions holds the module's exported generic function
 	// templates. Importers resolve qualified generic calls through them and
-	// record the specialization with the defining module (RFC 0034 Task 6).
+	// record the specialization with the defining module.
 	genericFunctions map[string]*openGenericFunction
 	// functionSpecializations and methodSpecializations are the defining
 	// module's specialization collections: its own requests, published by
@@ -61,7 +60,7 @@ type moduleEntry struct {
 // export flags in dependency order. A module whose source key is absent is
 // skipped exactly like CheckModules skips it. Paths are not resolved here: a
 // payload that cannot canonicalize simply is kept as written, and resolution
-// errors belong to the module phase.
+// errors are reported outside the checker.
 func buildModuleRegistry(programs map[string]parser.Program, order []string, entrypointCanonical string) *ModuleRegistry {
 	registry := &ModuleRegistry{
 		modules:    make(map[string]*moduleEntry, len(order)),
@@ -167,7 +166,7 @@ func (registry *ModuleRegistry) exportedType(moduleID, name string) (compilerTyp
 
 // registerGenerics publishes one module's open generic function templates and
 // its own specialization requests into the registry after the module checks
-// clean (RFC 0034 Task 6). Importers resolve qualified generic calls against
+// clean. Importers resolve qualified generic calls against
 // the template records and record their requests beside the module's own, so
 // the defining module's checked output carries every specialization of its
 // declarations. Only exported templates are published; a private template is
@@ -194,7 +193,7 @@ func (registry *ModuleRegistry) registerGenerics(moduleID string, generics *gene
 }
 
 // genericFunction resolves one exported generic function template of the
-// target module by name (RFC 0034 Task 6). Importers specialize it and
+// target module by name. Importers specialize it and
 // record the result with the defining module.
 func (registry *ModuleRegistry) genericFunction(moduleID, name string) (*openGenericFunction, bool) {
 	entry, ok := registry.modules[moduleID]
@@ -219,7 +218,7 @@ func (registry *ModuleRegistry) specializationStore(moduleID string) map[string]
 }
 
 // exportedMethod resolves one exported method of the target module by
-// receiver type name and method name (RFC 0034 Task 6). Only exported
+// receiver type name and method name. Only exported
 // methods are recorded, so a private method resolves nowhere and the caller
 // reports the visibility failure at the call site.
 func (registry *ModuleRegistry) exportedMethod(moduleID, objectName, name string) (MethodDeclaration, bool) {
@@ -236,8 +235,8 @@ func (registry *ModuleRegistry) exportedMethod(moduleID, objectName, name string
 }
 
 // assembleSpecializations folds a defining module's specialization collection
-// -- its own requests plus every importer's -- into its checked program
-// (RFC 0034 Task 6). The records are deduplicated by specialization key and
+// -- its own requests plus every importer's -- into its checked program.
+// The records are deduplicated by specialization key and
 // emitted in the deterministic order the generator consumes: declaration
 // name, then the canonical argument signature string.
 func (registry *ModuleRegistry) assembleSpecializations(moduleID string, program *Program) {
@@ -253,7 +252,7 @@ func (registry *ModuleRegistry) assembleSpecializations(moduleID string, program
 // collection in specialization-key ascending order (declaration name first,
 // then canonical argument signature string). The keys are the interner's
 // specializeKey spellings, so sorting them is exactly the (decl, args) order
-// the RFC requires.
+// the generator consumes.
 func sortedFunctionSpecializations(collection map[string]FunctionDeclaration) []FunctionDeclaration {
 	keys := make([]string, 0, len(collection))
 	for key := range collection {
@@ -326,8 +325,8 @@ func (registry *ModuleRegistry) findExportedADTVariant(moduleID, variant string)
 	return compilerTypes.Type{}, nil, false
 }
 
-// privateToModuleDiagnostic is the RFC 0034 Task 5 visibility failure: a
-// cross-module use of a name that is private or unknown in its target module.
+// privateToModuleDiagnostic is the visibility failure for a cross-module use
+// of a name that is private or unknown in its target module.
 func privateToModuleDiagnostic(token lexer.Token, name, target string) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.NameError,
@@ -345,7 +344,7 @@ func privateToModuleDiagnostic(token lexer.Token, name, target string) compilerT
 // or exported by its defining module; the first violation reports the
 // exported declaration and the first private type. Only interfaces are
 // validated: private types used inside exported generic bodies stay out of
-// the walk until the module phase compiles those bodies, and interfaces
+// the walk until those bodies are compiled elsewhere, and interfaces
 // contain no code.
 func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Program) compilerTypes.Diagnostics {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
@@ -403,8 +402,8 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 	return diagnostics
 }
 
-// exportedClosureDiagnostic is the RFC 0034 Task 5 interface-closure failure,
-// located at the offending exported declaration.
+// exportedClosureDiagnostic is the interface-closure failure, located at the
+// offending exported declaration.
 func exportedClosureDiagnostic(name, private string, line, column int) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.TypeError,

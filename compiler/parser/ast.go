@@ -23,8 +23,8 @@ type Statement interface {
 
 // TypeDeclaration names an already-resolvable type expression. The checker
 // turns it into a transparent alias without adding an executable statement.
-// Exported records an RFC 0034 `export` prefix; it is a Hexal-visibility
-// marker only and never changes the lowering.
+// Exported records an `export` prefix; it is a Hexal-visibility marker only
+// and never changes the lowering.
 type TypeDeclaration struct {
 	Keyword    lexer.Token
 	Name       lexer.Token
@@ -35,9 +35,9 @@ type TypeDeclaration struct {
 
 func (TypeDeclaration) topLevelItemNode() {}
 
-// ImportDeclaration binds one local alias to one module path (RFC 0034). It
-// is a top-level item but never a statement: imports are declarations-only
-// and carry no runtime emission of their own.
+// ImportDeclaration binds one local alias to one module path. It is a
+// top-level item but never a statement: imports are declarations-only and
+// carry no runtime emission of their own.
 type ImportDeclaration struct {
 	ModuleKeyword lexer.Token
 	Alias         lexer.Token
@@ -101,9 +101,9 @@ type Assignment struct {
 func (Assignment) topLevelItemNode() {}
 func (Assignment) statementNode()    {}
 
-// FunctionDeclaration is a named module-level function. RFC 0008 has no
-// nested functions, so this is a top-level item and never a statement.
-// Exported records an RFC 0034 `export` prefix.
+// FunctionDeclaration is a named module-level function; there are no nested
+// functions, so this is a top-level item and never a statement. Exported
+// records an `export` prefix.
 type FunctionDeclaration struct {
 	Keyword         lexer.Token
 	Name            lexer.Token
@@ -121,7 +121,7 @@ func (FunctionDeclaration) topLevelItemNode() {}
 // ImplDeclaration is a method attached to a receiver type. SelfType keeps the
 // written receiver form (Point, Ptr<Point>, MutPtr<Point>) unresolved; the
 // checker decides whether it names a nominal object type. Exported records an
-// RFC 0034 `export` prefix.
+// `export` prefix.
 type ImplDeclaration struct {
 	Keyword         lexer.Token
 	SelfType        TypeExpression
@@ -176,8 +176,8 @@ type ElseIfClause struct {
 	Body      []Statement
 }
 
-// WhileStatement is a pre-test loop with one lexical body scope. RFC 0028
-// makes `do` the mandatory delimiter between the condition and the body.
+// WhileStatement is a pre-test loop with one lexical body scope. `do` is the
+// mandatory delimiter between the condition and the body.
 type WhileStatement struct {
 	Keyword   lexer.Token
 	Condition Expression
@@ -188,9 +188,9 @@ type WhileStatement struct {
 func (WhileStatement) topLevelItemNode() {}
 func (WhileStatement) statementNode()    {}
 
-// TryStatement discards the success value of an RFC 0029 `try` operand: the
-// operand propagates Error from the enclosing function exactly like a try
-// expression, and the normalized success value is unused.
+// TryStatement discards the success value of a `try` operand: the operand
+// propagates Error from the enclosing function exactly like a try expression,
+// and the normalized success value is unused.
 type TryStatement struct {
 	Keyword lexer.Token
 	Operand Expression
@@ -201,7 +201,7 @@ func (TryStatement) statementNode()    {}
 
 // ForStatement iterates one built-in collection or text source. Binders are
 // fresh immutable names in a fresh body scope; the first binder is always the
-// optional Size index (RFC 0028).
+// optional Size index.
 type ForStatement struct {
 	Keyword lexer.Token
 	Binders []lexer.Token // 1, 2, or 3 names in written order
@@ -240,7 +240,7 @@ func (DeferStatement) topLevelItemNode() {}
 func (DeferStatement) statementNode()    {}
 
 // ErrdeferStatement registers one cleanup action that runs only when the
-// current function exits by returning Error (RFC 0029).
+// current function exits by returning Error.
 type ErrdeferStatement struct {
 	Keyword    lexer.Token
 	Expression Expression
@@ -249,9 +249,9 @@ type ErrdeferStatement struct {
 func (ErrdeferStatement) topLevelItemNode() {}
 func (ErrdeferStatement) statementNode()    {}
 
-// TryExpression is the RFC 0029 prefix `try` form: the operand must produce a
-// union containing Error, which `try` returns from the enclosing function
-// while yielding the active success value otherwise.
+// TryExpression is the prefix `try` form: the operand must produce a union
+// containing Error, which `try` returns from the enclosing function while
+// yielding the active success value otherwise.
 type TryExpression struct {
 	Keyword lexer.Token
 	Operand Expression
@@ -259,8 +259,8 @@ type TryExpression struct {
 
 func (TryExpression) expressionNode() {}
 
-// SpawnExpression is the RFC 0037 prefix `spawn` form: the operand must be a
-// direct call to a named function whose execution becomes a new Task.
+// SpawnExpression is the prefix `spawn` form: the operand must be a direct
+// call to a named function whose execution becomes a new Task.
 type SpawnExpression struct {
 	Keyword lexer.Token
 	Operand Expression
@@ -304,8 +304,8 @@ type NilLiteral struct {
 
 func (NilLiteral) expressionNode() {}
 
-// EosLiteral is the RFC 0031 end-of-stream singleton value `eos` before
-// semantic resolution.
+// EosLiteral is the end-of-stream singleton value `eos` before semantic
+// resolution.
 type EosLiteral struct {
 	Token lexer.Token
 }
@@ -321,9 +321,9 @@ type StringLiteral struct {
 
 func (StringLiteral) expressionNode() {}
 
-// ByteLiteral is a single-quoted b'...' literal carrying exactly one byte
-// (RFC 0044). The lexer validated the escape grammar and cardinality; the
-// checker decodes the payload value.
+// ByteLiteral is a single-quoted b'...' literal carrying exactly one byte.
+// The lexer validated the escape grammar and cardinality; the checker decodes
+// the payload value.
 type ByteLiteral struct {
 	Token lexer.Token
 }
@@ -331,8 +331,8 @@ type ByteLiteral struct {
 func (ByteLiteral) expressionNode() {}
 
 // RuneLiteral is a single-quoted '...' literal carrying exactly one Unicode
-// scalar (RFC 0044). The lexer validated the escape grammar and scalar
-// validity; the checker decodes the payload value.
+// scalar. The lexer validated the escape grammar and scalar validity; the
+// checker decodes the payload value.
 type RuneLiteral struct {
 	Token lexer.Token
 }
@@ -412,7 +412,8 @@ type BinaryExpression struct {
 func (BinaryExpression) expressionNode() {}
 
 // TypeTestExpression asks whether one runtime union member is active. The
-// checker resolves Type and enforces RFC 0014's exact-member rules.
+// checker resolves Type and enforces that it names one exact member of the
+// operand's union.
 type TypeTestExpression struct {
 	Operand Expression
 	IsToken lexer.Token

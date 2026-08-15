@@ -111,8 +111,7 @@ func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpressi
 
 // viewReturnDiagnostic rejects a returned View rooted in a local binding of
 // this function. Parameter-reachable, foreign (from_pointer), and rootless
-// (empty) Views are permitted; a local binding's storage dies at the return
-// (RFC 0046 item 4).
+// (empty) Views are permitted; a local binding's storage dies at the return.
 func viewReturnDiagnostic(node Expression, token lexer.Token, names *scope) *compilerTypes.Diagnostic {
 	if node.RootKind != ViewRootBindings {
 		return nil

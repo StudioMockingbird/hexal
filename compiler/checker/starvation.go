@@ -6,7 +6,7 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0037 starvation check: when a program links the scheduler runtime, every
+// Starvation check: when a program links the scheduler runtime, every
 // literal `while true` loop in code reachable from the entry point or a direct
 // spawn entry must execute an explicit Task.yield() call on every path that
 // repeats the loop. Paths ending in break targeting that loop, return, or an
@@ -15,7 +15,7 @@ import (
 // loops and calls to helper functions never count.
 
 // checkStarvation applies the must-yield rule to a checked program. It is a
-// no-op for programs that do not use any RFC 0037 runtime feature.
+// no-op for programs that do not use any scheduler runtime feature.
 func checkStarvation(program Program) compilerTypes.Diagnostics {
 	scanner := &starvationScanner{byName: make(map[string][]Statement)}
 	scanner.scanRoot(program.Statements)
@@ -63,7 +63,7 @@ func (scanner *starvationScanner) scanStatements(statements []Statement) {
 	}
 }
 
-// scanStatement walks one statement for RFC 0037 expression kinds. Spawn
+// scanStatement walks one statement for concurrency expression kinds. Spawn
 // targets become independent roots; any other concurrency kind links the
 // scheduler runtime.
 func (scanner *starvationScanner) scanStatement(statement Statement) {

@@ -65,7 +65,7 @@ func TestCheckContextualTypingUsesOnlyAdmissibleExpectedTypes(t *testing.T) {
 }
 
 func TestCheckContextualTypingAllowsLosslessResultWidening(t *testing.T) {
-	// RFC 0016: an expected destination may widen a completed arithmetic
+	// An expected destination may widen a completed arithmetic
 	// result losslessly.
 	checked, err := Check(parseProgram(t, "a: Int32 = 2 doubled: Int64 = a + a"))
 	if err != nil {
@@ -96,7 +96,7 @@ func TestCheckOperatorDomains(t *testing.T) {
 }
 
 func TestCheckOperatorSelectsLosslessCommonArithmeticType(t *testing.T) {
-	// RFC 0016/0017: mixed arithmetic selects the unique least lossless
+	// Mixed arithmetic selects the unique least lossless
 	// common type.
 	checked, err := Check(parseProgram(t, "small: Int16 = 1 large: Int32 = 2 total: Int32 = small + large"))
 	if err != nil {
@@ -124,7 +124,7 @@ func TestCheckFoldsLiteralArithmeticAndWrapsOverflow(t *testing.T) {
 		t.Fatalf("next value = %v, want 201", next.Source.Constant)
 	}
 
-	// RFC 0017: integer overflow wraps at the result type during folding.
+	// Integer overflow wraps at the result type during folding.
 	checked, err = Check(parseProgram(t, "over: UInt8 = 200 + 100"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
@@ -212,7 +212,7 @@ func TestCheckRejectsStaticZeroDivisorsIncludingFoldedExpressions(t *testing.T) 
 }
 
 func TestCheckFoldsStaticSignedMinimumDivisors(t *testing.T) {
-	// RFC 0017: signed minimum divided by -1 wraps to the minimum; the
+	// Signed minimum divided by -1 wraps to the minimum; the
 	// remainder is zero. The fold is asserted with literal spellings, since
 	// a read of the named immutable `minimum` binding stays runtime.
 	checked, err := Check(parseProgram(t, "quotient: Int8 = -128 / -1"))
@@ -236,14 +236,14 @@ func TestCheckFoldsStaticSignedMinimumDivisors(t *testing.T) {
 	}
 }
 
-func TestCheckRFC0009ShortCircuitReachability(t *testing.T) {
+func TestCheckShortCircuitReachability(t *testing.T) {
 	for _, testCase := range []struct {
 		source string
 		want   bool
 	}{
 		{"result: Bool = true or (1 / 0 == 0)", true},
 		{"result: Bool = false and (1 / 0 == 0)", false},
-		// RFC 0023: mixed-type logical operands fold through their
+		// Mixed-type logical operands fold through their
 		// truthiness; the unreachable RHS never evaluates.
 		{"result: Bool = true or (1 and 2)", true},
 		{"result: Bool = false and (1 or 2)", false},
@@ -275,7 +275,7 @@ func TestCheckAcceptsUnknownRuntimeDivisors(t *testing.T) {
 	}
 }
 
-// RFC 0023: and/or accept mixed operand types and the result is always Bool;
+// and/or accept mixed operand types and the result is always Bool;
 // constant operands fold through their truthiness.
 func TestCheckLogicalOperandsAcceptMixedTypes(t *testing.T) {
 	checked, err := Check(parseProgram(t, "mut count: Int32 = 1 ready: Bool = true flag: Bool = count and ready"))
@@ -311,7 +311,7 @@ func TestCheckLogicalOperandsAcceptMixedTypes(t *testing.T) {
 	}
 }
 
-// RFC 0023: not accepts any value-producing operand; a runtime non-Bool
+// not accepts any value-producing operand; a runtime non-Bool
 // operand stays a runtime operation.
 func TestCheckLogicalNotAcceptsNonBoolOperand(t *testing.T) {
 	checked, err := Check(parseProgram(t, "mut count: Int32 = 1 flag: Bool = !count"))
@@ -324,7 +324,7 @@ func TestCheckLogicalNotAcceptsNonBoolOperand(t *testing.T) {
 	}
 }
 
-// RFC 0023: a call that produces no value stays rejected in a condition.
+// A call that produces no value stays rejected in a condition.
 func TestCheckConditionRejectsNoResultCall(t *testing.T) {
 	requireDiagnostic(t, "fun reset() do\n    return\nend\nif reset() then end\n", "reset produces no value")
 }

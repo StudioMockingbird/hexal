@@ -6,8 +6,6 @@ import (
 	"testing"
 )
 
-// RFC 0030: the print builtin.
-
 func TestPrintScalars(t *testing.T) {
 	result := compileSource("fun demo() do\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    letter: Rune = (65).to<Rune>()\n    print(letter)\n    size: Size = 7\n    print(size)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -101,8 +99,8 @@ func TestPrintDiagnostics(t *testing.T) {
 }
 
 func TestPrintNoResult(t *testing.T) {
-	// RFC 0048: the destination is otherwise valid, so failure proves that
-	// print produces no value rather than that standalone Nil is invalid.
+	// The destination is otherwise valid, so failure proves that print
+	// produces no value rather than that standalone Nil is invalid.
 	result := compileSource("fun demo() do\n    bad: Int32 = print(\"x\")\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "print produces no value") {
 		t.Fatalf("Compile stderr = %#v, want no-result rejection", result.Stderr)

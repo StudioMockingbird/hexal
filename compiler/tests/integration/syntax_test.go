@@ -126,9 +126,9 @@ func TestReportsIndependentStatementErrors(t *testing.T) {
 }
 
 func TestParseErrorsAbortBeforeChecking(t *testing.T) {
-	// RFC 0034 Task 4: a parse failure in any module fails the build with
-	// the parse diagnostics; the checker never sees invalid syntax, so its
-	// diagnostics are not stacked on top (earliest diagnostic ownership).
+	// A parse failure in any module fails the build with the parse
+	// diagnostics; the checker never sees invalid syntax, so its diagnostics
+	// are not stacked on top (earliest diagnostic ownership).
 	result := compileSource("x: Int32 = 13 y z: Bogus = 1")
 	want := []string{
 		"[Syntax Error] expected ':' for a declaration or '=' for an assignment at 1:17",
@@ -149,8 +149,8 @@ func TestDoesNotBindFailedDeclaration(t *testing.T) {
 	}
 }
 
-// RFC 0061: every structured body opens with an explicit delimiter. `do`
-// opens function, method, while, and for bodies; `then` opens if, elseif, and
+// Every structured body opens with an explicit delimiter. `do` opens
+// function, method, while, and for bodies; `then` opens if, elseif, and
 // match-arm bodies; `else` is its own opener.
 func TestExplicitBlockOpenersAccepted(t *testing.T) {
 	assertCompiles(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nvalue: Int32 = identity(1)\n")
@@ -165,8 +165,8 @@ func TestExplicitBlockOpenersAccepted(t *testing.T) {
 	assertCompiles(t, "fun choose(flag: Bool): Int32 do\n    if flag then\n        return 1\n    elseif !flag then\n        return 2\n    else\n        return 3\n    end\nend\n")
 }
 
-// The opener may sit on the next line or after a comment (RFC 0061: the
-// opener is separated by ordinary lexical separation, not a newline rule).
+// The opener may sit on the next line or after a comment: it is separated
+// by ordinary lexical separation, not a newline rule.
 func TestExplicitBlockOpenerPlacement(t *testing.T) {
 	assertCompiles(t, "fun identity(value: Int32): Int32\n    do\n    return value\nend\nvalue: Int32 = identity(1)\n")
 	assertCompiles(t, "fun identity(value: Int32): Int32 do -- opener after comment\n    return value\nend\nvalue: Int32 = identity(1)\n")
@@ -196,8 +196,8 @@ func TestExplicitBlockOpenersRejectFormerForms(t *testing.T) {
 }
 
 // Missing-delimiter recovery keeps the following branches and sibling
-// statements available (RFC 0061: recovery must not consume elseif, else, or
-// end as part of a malformed condition or body). The delimiters surface as
+// statements available: recovery must not consume elseif, else, or end as
+// part of a malformed condition or body. The delimiters surface as
 // statement-level diagnostics instead of being swallowed by the broken if.
 func TestExplicitBlockOpenerRecoveryPreservesBranches(t *testing.T) {
 	result := compileSource("if true\n    noop: Int32 = 1\nelseif false\n    noop: Int32 = 2\nelse\n    noop: Int32 = 3\nend\nsibling: Int32 = 4\n")
@@ -216,8 +216,8 @@ func TestExplicitBlockOpenerRecoveryPreservesBranches(t *testing.T) {
 	}
 }
 
-// RFC 0063: every removed spelling produces a diagnostic naming its
-// replacement, one negative test per removed operation.
+// Every removed spelling produces a diagnostic naming its replacement; one
+// negative test per removed operation.
 func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 	for _, testCase := range []struct {
 		source string
@@ -238,9 +238,9 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 	}
 }
 
-// RFC 0063: String.is_empty, Strand.is_empty, and String.bytes are retained
-// because their replacements would be asymptotically worse; they still lower
-// to their constant-time helpers (positive test, not an absence check).
+// String.is_empty, Strand.is_empty, and String.bytes are retained because
+// their replacements would be asymptotically worse; they still lower to
+// their constant-time helpers (positive test, not an absence check).
 func TestRetainedTextOperationsKeepConstantTimeHelpers(t *testing.T) {
 	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    text: String = \"hello\"\n    emptyText: Bool = text.is_empty()\n    raw: View<UInt8> = text.bytes()\n    label: Strand = \"hexal\"\n    emptyLabel: Bool = label.is_empty()\n    return emptyText and emptyLabel\nend\n")
 	for _, want := range []string{

@@ -8,10 +8,10 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0030: the `print` builtin. Arguments evaluate exactly once from left
-// to right into temporaries, then the generated helpers write each one in
-// source order. All helpers are length-aware, never use source bytes as
-// format strings, and check every write result.
+// The `print` builtin: arguments evaluate exactly once from left to right
+// into temporaries, then the generated helpers write each one in source
+// order. All helpers are length-aware, never use source bytes as format
+// strings, and check every write result.
 
 type generatedPrintState struct {
 	used  bool
@@ -159,8 +159,8 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) 
 	for _, typ := range state.types {
 		// A container helper calls the helpers of its element and member
 		// types, which may follow it in discovery order, so every nested
-		// helper is declared before any definition (RFC 0048 conformance:
-		// generated C must compile warning-free as-is).
+		// helper is declared before any definition; the generated C must
+		// compile warning-free as-is.
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value);\n", typ.CName)
 	}
 	for _, typ := range state.types {
@@ -171,6 +171,7 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) 
 // writePrintNestedHelper emits one nested-context helper per concrete type.
 // Every helper takes `const void *` and casts internally, so aggregate call
 // sites can pass member and element addresses uniformly.
+
 // printNestedAddress renders the argument expression for a nested helper
 // call: pointer-semantic values (List, Dict, String) pass their pointer
 // directly, every other type passes its address.
@@ -323,7 +324,7 @@ func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, ind
 		fmt.Fprintf(body, "%shex_print_text(%s->data, %s->byte_length);\n", indent, name, name)
 	case compilerTypes.IsStrand(typ):
 		// A Strand's logical payload ends at the first NUL byte of its
-		// 32-byte inline storage (RFC 0044).
+		// 32-byte inline storage.
 		fmt.Fprintf(body, "%s{\n", indent)
 		fmt.Fprintf(body, "%s    size_t length = 0;\n", indent)
 		fmt.Fprintf(body, "%s    while (length < 32 && %s.data[length] != 0) {\n", indent, name)

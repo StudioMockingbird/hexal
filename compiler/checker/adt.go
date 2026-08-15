@@ -148,8 +148,8 @@ func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, e
 
 // checkQualifiedVariant resolves a record-variant constructor.
 func checkQualifiedVariant(expression parser.QualifiedVariantExpression, expectedType compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
-	// RFC 0034 Task 5: an import-alias owner routes to the target module's
-	// exported ADT variants before ordinary owner resolution.
+	// An import-alias owner routes to the target module's exported ADT
+	// variants before ordinary owner resolution.
 	if target, ok := environment.importAliasTarget(expression.Owner.Lexeme); ok {
 		return checkModuleVariantConstructor(expression, target, environment, typeEnvironment)
 	}

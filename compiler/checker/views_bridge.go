@@ -8,8 +8,6 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0043: View<T>.from_pointer(pointer, length) and View<T>.empty().
-
 // checkViewBridgeCall resolves the explicit pointer-plus-length View
 // constructor and the empty View. The pointer must be a statically non-null
 // Ptr<T> or MutPtr<T>; the length must be a Size under ordinary lossless

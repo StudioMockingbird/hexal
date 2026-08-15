@@ -1,8 +1,7 @@
 package checker
 
-// RFC 0034 Task 5: alias-qualified resolution of exported functions, types,
-// and ADT variants; the private-name diagnostic; and the exported-interface
-// closure check.
+// Alias-qualified resolution of exported functions, types, and ADT variants;
+// the private-name diagnostic; and the exported-interface closure check.
 
 import (
 	"testing"
@@ -23,7 +22,7 @@ func checkModules(t *testing.T, app, math string) (map[string]Program, error) {
 
 // A qualified call to an exported function resolves against the target
 // module's recorded signature, and the call node carries the target module
-// id for the module phase.
+// id for the downstream stage.
 func TestQualifiedCallResolvesExportedFunction(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
@@ -45,7 +44,7 @@ func TestQualifiedCallResolvesExportedFunction(t *testing.T) {
 	}
 }
 
-// A qualified call to a name the target module keeps private is the Task 5
+// A qualified call to a name the target module keeps private is the
 // visibility failure at the property.
 func TestQualifiedCallRejectsPrivateFunction(t *testing.T) {
 	_, err := checkModules(t,
@@ -74,7 +73,7 @@ func TestQualifiedTypeResolvesExportedAndRejectsPrivate(t *testing.T) {
 	requireMessage(t, err, "declaration Shape is private to module math")
 }
 
-// An unknown leftmost name keeps the Task 3 Module Error.
+// An unknown leftmost name keeps the unknown-module-alias error.
 func TestQualifiedTypeKeepsUnknownModuleAlias(t *testing.T) {
 	requireDiagnostic(t, "shape: Nope.Shape = 0\n", "unknown module alias Nope")
 }
@@ -112,8 +111,8 @@ func TestExportedClosureAcceptsExportedInterface(t *testing.T) {
 }
 
 // An exported generic template closes over its interface; specialization
-// requests from importers are Task 6, so this only exercises the template
-// declarations themselves.
+// requests from importers are folded in later, so this only exercises the
+// template declarations themselves.
 func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\n",

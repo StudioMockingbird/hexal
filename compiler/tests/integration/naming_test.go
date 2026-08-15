@@ -1,7 +1,5 @@
 package integration
 
-// Source-to-C identifier mapping and private name prefixes. Spec 0004.
-
 import (
 	"hexal/compiler"
 	"strings"
@@ -46,9 +44,9 @@ func TestReferencesUsePrivateValueNames(t *testing.T) {
 	}
 }
 
-// Every built-in type name is protected from redeclaration (reference.md
-// protected-name list). Aliases, scalars, collections, handles, and marker
-// types all share the same diagnostic.
+// Every built-in type name is protected from redeclaration. Aliases,
+// scalars, collections, handles, and marker types all share the same
+// diagnostic.
 func TestBuiltinTypeNamesAreProtected(t *testing.T) {
 	names := map[string]string{
 		"Int8": "", "Int16": "", "Int32": "", "Int64": "",

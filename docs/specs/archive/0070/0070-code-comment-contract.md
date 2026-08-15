@@ -1,7 +1,15 @@
 # RFC 0070: Code Comment Contract and Cleanup
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; conformance verified 2026-08-16. The CARE comment
+  framework is adopted in `AGENTS.md`; all batches are complete across the
+  compiler packages, generator families, integration and dormant tests,
+  generated C/header comments, and the workbench. The mechanical negative
+  gate is clean across `compiler/` and `workbench/` with one classified
+  false positive (a diagnostic string, not a comment). `docs/reference.md`
+  was reviewed and explicitly requires no edit: it is the language
+  contract, contains no comment guidance, and this RFC changed no syntax or
+  semantics.
 - Created: 2026-08-16
 - Updated: 2026-08-16
 - Scope: comments in maintained source, tests, workbench code, embedded test

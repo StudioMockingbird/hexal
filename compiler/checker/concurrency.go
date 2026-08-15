@@ -9,8 +9,8 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0037: Task<T>, spawn, join/detach/yield, Channel<T>, Mutex, and
-// Atomic<T>.
+// Concurrency surface: Task<T>, spawn, join/detach/yield, Channel<T>, Mutex,
+// and Atomic<T>.
 
 // resolveTaskTypeUse resolves Task<R>.
 func resolveTaskTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
@@ -127,8 +127,8 @@ func checkSpawnExpression(expression parser.SpawnExpression, environment *scope,
 	checked := checkCallValue(call, environment, typeEnvironment)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		if checked.typ == (compilerTypes.Type{}) {
-			// RFC 0049 item 8.6: a no-result callee cannot form a Task<R>,
-			// and Hexal does not manufacture a hidden unit value for it.
+			// A no-result callee cannot form a Task<R>, and Hexal does not
+			// manufacture a hidden unit value for it.
 			return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
 				Category: compilerTypes.TypeError, Stage: "checker",
 				Line: expression.Keyword.Line, Column: expression.Keyword.Column,
@@ -144,9 +144,8 @@ func checkSpawnExpression(expression parser.SpawnExpression, environment *scope,
 			Message: "spawn requires a direct call to a named function",
 		}}
 	}
-	// RFC 0049 item 8.4: spawn arguments are copied into the task frame and
-	// then into the entry function, so each argument must be eligible in both
-	// positions.
+	// Spawn arguments are copied into the task frame and then into the entry
+	// function, so each argument must be eligible in both positions.
 	for _, argument := range checked.source.Node.Arguments {
 		if !compilerTypes.Eligible(argument.Type, compilerTypes.PositionTaskArgument) ||
 			!compilerTypes.Eligible(argument.Type, compilerTypes.PositionFunctionParam) {
@@ -161,8 +160,8 @@ func checkSpawnExpression(expression parser.SpawnExpression, environment *scope,
 	if resultType == (compilerTypes.Type{}) {
 		resultType = compilerTypes.Nil
 	}
-	// RFC 0049 item 8.4: the spawned task returns its function's result and
-	// stores it in the task frame, so it must be eligible in both positions.
+	// The spawned task returns its function's result and stores it in the
+	// task frame, so it must be eligible in both positions.
 	if !compilerTypes.Eligible(resultType, compilerTypes.PositionFunctionResult) ||
 		!compilerTypes.Eligible(resultType, compilerTypes.PositionTaskResult) {
 		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{

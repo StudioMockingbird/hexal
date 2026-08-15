@@ -8,12 +8,12 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0030: the compiler-owned `print` builtin. It writes the textual form
-// of each argument to standard output in source order with no separators or
-// implicit newline; it has no result and requires at least one argument.
+// The compiler-owned `print` builtin writes the textual form of each argument
+// to standard output in source order with no separators or implicit newline;
+// it has no result and requires at least one argument.
 
-// printable reports whether typ has a compiler-defined print form (RFC
-// 0030). Aggregates are printable only when every recursively visited
+// printable reports whether typ has a compiler-defined print form.
+// Aggregates are printable only when every recursively visited
 // member, payload field, or element is printable.
 func printable(typ compilerTypes.Type) bool {
 	switch {
@@ -51,7 +51,7 @@ func printable(typ compilerTypes.Type) bool {
 }
 
 // printUnsupportedPath describes the first unsupported member path of an
-// aggregate argument for the RFC 0030 diagnostic.
+// aggregate argument for the print diagnostic.
 func printUnsupportedPath(typ compilerTypes.Type) string {
 	switch {
 	case typ.Object != nil:
@@ -107,7 +107,7 @@ func checkPrintCall(call parser.CallExpression, callee lexer.Token, names *scope
 	}
 	arguments := make([]Operand, 0, len(call.Arguments))
 	for _, argument := range call.Arguments {
-		// RFC 0049 item 8.1: a print argument is the sole position admitting
+		// A print argument is the sole position admitting
 		// standalone Nil, so arguments check under allowStandaloneNil.
 		checked := checkExpression(argument, expressionContext{foldConstants: true, allowStandaloneNil: true}, names, typeEnvironment)
 		if checked.token.Line == 0 {

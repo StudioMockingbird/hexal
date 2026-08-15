@@ -2,11 +2,11 @@ package checker
 
 import "testing"
 
-// RFC 0049 item 8.3: try requires an enclosing function whose result accepts
-// Error, a union operand with exactly one Error member, and valid statement
-// or expression placement. Parser and integration coverage live in
-// parser/try_test.go and compiler/error_test.go; this file proves the
-// checker-level contract directly.
+// try requires an enclosing function whose result accepts Error, a union
+// operand with exactly one Error member, and valid statement or expression
+// placement. Parser and integration coverage live in parser/try_test.go and
+// compiler/error_test.go; this file proves the checker-level contract
+// directly.
 
 func TestCheckerAcceptsTryInErrorResultFunction(t *testing.T) {
 	requireAccepted(t, "fun read(): Int32 | Error do\n    return Error.new(\"x\", \"y\")\nend\nfun demo(): Int32 | Error do\n    count: Int32 = try read()\n    return count\nend\n")

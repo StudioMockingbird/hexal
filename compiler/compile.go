@@ -25,7 +25,7 @@ type CompilationResult struct {
 	// Files is the authoritative generated-artifact map: every emitted
 	// C/header file under its normalized logical key. Success returns
 	// "hexal.h" plus one modules/<canonical-path>.c/.h pair per reachable
-	// module; failure returns a non-nil empty map (RFC 0060).
+	// module; failure returns a non-nil empty map.
 	Files    map[string]string
 	Stderr   []string
 	ExitCode int
@@ -159,9 +159,8 @@ func resolveImportPath(fromModule, rawPath string) (string, error) {
 	components := strings.Split(rest, "/")
 	for _, component := range components {
 		// A component with its own dot (beyond a stripped ".hex") is an
-		// opaque filename like "math.txt": not an identifier, but it is
-		// still a legal path that simply fails lookup (RFC 0034 plan
-		// Task 4 Step 5 expects "./math.txt" to be "not found").
+		// opaque filename like "math.txt": not an identifier, but still a
+		// legal path that simply fails lookup as "not found".
 		if strings.Contains(component, ".") {
 			continue
 		}
@@ -378,9 +377,9 @@ func mergeDiagnostics(errors ...error) error {
 
 func failureResult(err error, stats CompilationStats, compileStarted time.Time) CompilationResult {
 	finalizeStats(&stats, compileStarted)
-	// RFC 0060: a failed source program has no valid generated project. The
-	// result carries the failure status itself, so no failure C program or
-	// partial module artifact is emitted; Files stays non-nil and empty.
+	// A failed source program has no valid generated project: the result
+	// carries the failure status itself, so no failure C program or partial
+	// module artifact is emitted and Files stays non-nil and empty.
 	return CompilationResult{
 		Files:    map[string]string{},
 		Stderr:   compilerTypes.ErrorMessages(err),

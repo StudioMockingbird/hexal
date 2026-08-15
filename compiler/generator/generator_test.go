@@ -613,7 +613,7 @@ func TestGenerateCheckedRejectsForgedReturningDeclarationWithoutReturn(t *testin
 	}
 }
 
-// Spec 0015: function and method declarations remain module-level only.
+// Function and method declarations remain module-level only.
 func TestGenerateCheckedRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 	environment := compilerTypes.NewEnvironment()
 	point := environment.BeginObject("Point", 1, 1)
@@ -902,9 +902,8 @@ func TestRenderSignedInt8Addition(t *testing.T) {
 	}
 }
 
-// RFC 0069 Amendment 1 Item A: signed wrapping +, -, *, and unary - lower
-// through ckd_* helpers; no unsigned intermediate or reconstruction ternary
-// remains.
+// Signed wrapping +, -, *, and unary - lower through ckd_* helpers; no
+// unsigned intermediate or reconstruction ternary remains.
 func TestRenderSignedArithmeticUsesWrapHelpers(t *testing.T) {
 	testCases := []struct {
 		typ      compilerTypes.Type
@@ -975,7 +974,7 @@ func TestRenderUnsignedNarrowMultiplicationUsesUInt32Intermediate(t *testing.T) 
 	}
 }
 
-// RFC 0062: generated C contains no generic target-profile probes. Toolchain
+// Generated C contains no generic target-profile probes. Toolchain
 // qualification (8-bit bytes, exact-width integers, IEC float representations)
 // is a supported-toolchain contract owned outside generated source.
 func TestNoTargetProfileProbesEmitted(t *testing.T) {
@@ -1047,8 +1046,8 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 	if !strings.Contains(rootC, wantWrapped) {
 		t.Fatalf("modules/app.c = %q, want the ckd_* wrap helper for Int8 127 + 1", rootC)
 	}
-	// RFC 0069 Amendment 1 Item A: no unsigned intermediate or reconstruction
-	// ternary remains for wrapping arithmetic.
+	// No unsigned intermediate or reconstruction ternary remains for
+	// wrapping arithmetic.
 	for _, forbidden := range []string{
 		"((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) <= (uint64_t)INT8_MAX",
 		"hex_v_negated = (int8_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum);",
@@ -1318,10 +1317,10 @@ func TestRenderSupportsValidFoldedFloatSpecialValues(t *testing.T) {
 	}
 }
 
-// RFC 0068: every finite float literal renders as the shortest readable
-// decimal C literal that reparses to the exact checked IEEE bits, with the f
-// suffix for Float32, a fractional point on integral mantissas, and the
-// retained negative-zero sign.
+// Every finite float literal renders as the shortest readable decimal C
+// literal that reparses to the exact checked IEEE bits, with the f suffix
+// for Float32, a fractional point on integral mantissas, and the retained
+// negative-zero sign.
 func TestRenderFiniteFloatLiteralsRoundTripDecimal(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string
@@ -1584,9 +1583,9 @@ func TestGenerateCheckedRejectsMismatchedObjectIdentity(t *testing.T) {
 	assertGeneratorUnknownError(t, err)
 }
 
-// RFC 0034: an object reachable from the module's statements is part of the
-// module's generated definitions even without a type declaration (the
-// validator admits reachable object types), so this shape now generates.
+// An object reachable from the module's statements is part of the module's
+// generated definitions even without a type declaration (the validator
+// admits reachable object types).
 func TestGenerateCheckedAcceptsReachableObjectReferenceWithoutTypeDeclaration(t *testing.T) {
 	environment := compilerTypes.NewEnvironment()
 	point := environment.BeginObject("Point", 1, 1)
@@ -1630,7 +1629,7 @@ func TestTypeRequirementsTraverseOperationNodes(t *testing.T) {
 	requirements := &cHeaderRequirements{}
 	collectTypeRequirements(program, requirements)
 	// Float comparisons emit no headers: the representation facts are a
-	// toolchain contract, not program facts (RFC 0062).
+	// toolchain contract, not program facts.
 	if len(requirements.headers) != 0 {
 		t.Fatalf("collectTypeRequirements() = %v, want no headers for float-only operations", requirements.headers)
 	}
@@ -1689,8 +1688,8 @@ func TestRenderOperationsRejectMalformedScalarMetadata(t *testing.T) {
 			name: "comparison result must be Bool",
 			node: binaryExpression(checker.EqualOperator, compilerTypes.Int32, compilerTypes.Int32, variableNode("left"), variableNode("right")),
 		},
-		// RFC 0023: a non-Bool logical operand is valid (its truthiness is
-		// rendered), so only a non-Bool result stays malformed.
+		// A non-Bool logical operand is valid (its truthiness is rendered),
+		// so only a non-Bool result stays malformed.
 		{
 			name: "logical result must be Bool",
 			node: binaryExpression(checker.LogicalAndOperator, compilerTypes.Bool, compilerTypes.Int32, variableNode("left"), variableNode("right")),
@@ -1730,8 +1729,8 @@ func TestRenderOperationsRejectMalformedScalarMetadata(t *testing.T) {
 	}
 }
 
-// RFC 0023: conditions render through truthiness — nil as false, a nullable
-// as a null test, and an always-truthy value as a comma evaluation.
+// Conditions render through truthiness: nil as false, a nullable as a null
+// test, and an always-truthy value as a comma evaluation.
 func TestRenderTruthinessConditions(t *testing.T) {
 	environment := compilerTypes.NewEnvironment()
 	nullable := environment.NullableType(environment.PtrType(compilerTypes.Int32))
@@ -1791,8 +1790,8 @@ func TestRenderTruthinessConditions(t *testing.T) {
 	}
 }
 
-// RFC 0023: logical operations render mixed and non-Bool operands through
-// their truthiness; constant operands need no bindings.
+// Logical operations render mixed and non-Bool operands through their
+// truthiness; constant operands need no bindings.
 func TestRenderLogicalOperationWithMixedOperands(t *testing.T) {
 	boolConstant := func(value bool) checker.Expression {
 		literal := "false"
@@ -1906,8 +1905,8 @@ func nestedDereferenceNode(name string) checker.Expression {
 	return checker.Expression{Kind: checker.DereferenceExpression, Operand: &operand}
 }
 
-// Function lowering (spec 0008 "C23 lowering"): definitions at file scope,
-// function-pointer declarators, calls, and returns.
+// Function lowering: definitions at file scope, function-pointer
+// declarators, calls, and returns.
 
 func funReferenceNode(name string, typ compilerTypes.Type) checker.Expression {
 	return checker.Expression{Kind: checker.FunctionReferenceExpression, Name: name, ResultType: typ}
@@ -2010,7 +2009,7 @@ func TestGenerateZeroParameterFunction(t *testing.T) {
 }
 
 // The stored pointer type carries unqualified parameters even though the
-// definition binds const int32_t. Spec 0008 forbids "correcting" that.
+// definition binds const int32_t; the type keeps the unqualified spelling.
 func TestGenerateFunctionPointerObjects(t *testing.T) {
 	environment := compilerTypes.NewEnvironment()
 	result := compilerTypes.Int32

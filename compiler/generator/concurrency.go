@@ -9,19 +9,20 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0037: Task<T>, spawn, join/detach/yield, Channel<T>, Mutex, and
-// Atomic<T>.
+// Concurrency lowering emits the Task<T>, spawn, join/detach/yield,
+// Channel<T>, Mutex, and Atomic<T> families.
 //
-// The scheduler runtime is a single C23 block emitted into the generated
-// header: one global ready queue guarded by a native mutex and condition
+// The scheduler runtime is a single C23 block emitted into the root module's
+// C file: one global ready queue guarded by a native mutex and condition
 // variable, a fixed set of worker threads created with C23 <threads.h>, and
-// platform fiber contexts. Windows uses the verified Fiber APIs; POSIX uses
-// ucontext with one caller-allocated stack per task. Task control blocks and
-// argument frames are scheduler-owned malloc storage; user payloads keep
-// their explicit allocators.
+// platform fiber contexts. Windows uses the Fiber APIs; POSIX uses ucontext
+// with one caller-allocated stack per task. Task control blocks and argument
+// frames are scheduler-owned malloc storage; user payloads keep their
+// explicit allocators.
 
-// generatedConcurrencyState records every RFC 0037 feature the program uses,
-// so the emitted runtime contains exactly the families the program needs.
+// generatedConcurrencyState records every concurrency feature the program
+// uses, so the emitted runtime contains exactly the families the program
+// needs.
 type generatedConcurrencyState struct {
 	used        bool // Task, Channel, or Mutex linked the scheduler runtime
 	taskTypes   map[string]compilerTypes.Type
@@ -54,7 +55,7 @@ type generatedConcurrencyState struct {
 // spawnSite is one spawned function: its checked signature drives the
 // argument frame and the entry adapter. module is the canonical id of the
 // module that owns the spawned function; the adapter is emitted beside that
-// function's definition (RFC 0034 per-module generation).
+// function's definition.
 type spawnSite struct {
 	name     string
 	function string
@@ -63,8 +64,9 @@ type spawnSite struct {
 	result   compilerTypes.Type // zero Type means Nil
 }
 
-// errorMessagePayloads are the RFC 0037 recoverable-failure messages. Each
-// is registered as a String literal only when the matching operation is used.
+// errorMessagePayloads are the recoverable-failure messages of the Task,
+// Channel, and Mutex operations. Each is registered as a String literal only
+// when the matching operation is used.
 const (
 	taskCreationFailed    = "task creation failed"
 	channelCreationFailed = "channel creation failed"
@@ -260,8 +262,8 @@ func (state *generatedConcurrencyState) messageLiteral(stringState *generatedStr
 	return state.fileLiteral
 }
 
-// hex_sched_error_spelling is the runtime Error-construction helper, emitted
-// once before any operation family that can fail.
+// writeErrorHelper emits the runtime Error-construction helper hex_sched_error
+// once, before any operation family that can fail.
 func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder) {
 	fmt.Fprintf(result, "\nstatic inline hex_t_Error hex_sched_error(size_t line, size_t column, const hex_string *message) {\n")
 	fmt.Fprintf(result, "    return (hex_t_Error){\n")
@@ -290,12 +292,11 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 		return
 	}
 	if state.used {
-		// RFC 0037: the task control block is a compiler-owned type
-		// definition every translation unit needs: the spawn entry adapters
-		// and the join helpers dereference hex_task in the module pairs, so
-		// the complete struct lives in hexal.h, never in the root C runtime
-		// alone.
-		result.WriteString("\n/* RFC 0037 handle typedefs */\n")
+		// Every translation unit needs the complete hex_task definition: the
+		// spawn entry adapters and the join helpers dereference it in the
+		// module pairs, so the struct lives in hexal.h, never in the root C
+		// runtime alone.
+		result.WriteString("\n/* Task, channel, and mutex handle typedefs. */\n")
 		result.WriteString("typedef struct hex_task hex_task;\n")
 		result.WriteString("typedef struct hex_chan hex_chan;\n")
 		result.WriteString("typedef struct hex_mutex_control hex_mutex;\n")
@@ -321,8 +322,8 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 		}
 	}
 	if len(state.atomics) > 0 {
-		// The _Atomic typedefs depend on <stdatomic.h>, contributed to the
-		// hexal.h umbrella by requirement discovery (RFC 0062).
+		// The _Atomic typedefs depend on <stdatomic.h>, which requirement
+		// discovery contributes to the hexal.h umbrella.
 		atomicNames := make([]string, 0, len(state.atomics))
 		for name := range state.atomics {
 			atomicNames = append(atomicNames, name)
@@ -336,19 +337,20 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 	if !state.used {
 		return
 	}
-	// RFC 0037: the spawn entry adapters are emitted in the module that owns
-	// the spawned function, so hexal.h declares them with external linkage
-	// for every translation unit that contains a spawn prologue.
+	// The spawn entry adapters are emitted in the module that owns the
+	// spawned function, so hexal.h declares them with external linkage for
+	// every translation unit that contains a spawn prologue.
 	for _, site := range state.spawns {
 		fmt.Fprintf(result, "void hex_task_entry_%s(hex_task *task);\n", site.function)
 	}
 }
 
-// writeConcurrencyRuntime emits the RFC 0037 runtime into the root module's
-// C file: the fiber platform layer, the M:N scheduler, the task/join/yield
-// machinery, the Channel and Mutex cores. Everything here holds process-wide
-// state or is a non-inline static function, so it exists exactly once per
-// process, never in a header every translation unit includes.
+// writeConcurrencyRuntime emits the concurrency runtime into the root
+// module's C file: the fiber platform layer, the M:N scheduler, the
+// task/join/yield machinery, and the Channel and Mutex cores. Everything here
+// holds process-wide state or is a non-inline static function, so it exists
+// exactly once per process, never in a header every translation unit
+// includes.
 func writeConcurrencyRuntime(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if state == nil || !state.used {
 		return
@@ -366,7 +368,7 @@ func writeConcurrencyExterns(result *strings.Builder, state *generatedConcurrenc
 	if state == nil || !state.used {
 		return
 	}
-	result.WriteString("\n/* RFC 0037 runtime entry points, defined in the root module's C file */\n")
+	result.WriteString("\n/* Runtime core entry points, defined in the root module's C file. */\n")
 	result.WriteString("hex_task *hex_task_spawn(void (*entry)(hex_task *), size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align);\n")
 	result.WriteString("void *hex_task_join(hex_task *task);\n")
 	result.WriteString("void hex_task_yield(void);\n")
@@ -398,10 +400,10 @@ func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConc
 	}
 	if state.used {
 		if state.spawnFail || state.channelNew || state.channelSend || state.mutexNew {
-			// RFC 0037: every recoverable operation constructs its failure
-			// Error through hex_sched_error, spawn prologues included. One
-			// helper precedes every family that references it; the
-			// per-family writers must not re-emit it.
+			// Every recoverable operation constructs its failure Error
+			// through hex_sched_error, spawn prologues included. One helper
+			// precedes every family that references it; the per-family
+			// writers must not re-emit it.
 			state.writeErrorHelper(result)
 		}
 		writeSpawnArgFrames(result, state.spawns)
@@ -413,7 +415,7 @@ func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConc
 }
 
 // writeSchedulerRuntime emits the platform context layer and the shared M:N
-// scheduler. The spec's platform surface is deliberately small: context
+// scheduler. The platform surface is deliberately small: context
 // create/switch/destroy plus a logical-processor query. Everything else is
 // shared ISO C23 (<threads.h>, <stdatomic.h>, <string.h>).
 func writeSchedulerRuntime(result *strings.Builder) {
@@ -1037,8 +1039,7 @@ void hex_chan_free(hex_chan *channel) {
 // module header: new, send, and receive build the checked result unions
 // (Channel | Error, Nil | Error, and T | EoS) around the shared core, and
 // free adapts the checked Heap identity argument. close, length, capacity,
-// and is_closed lower directly to the core (RFC 0069 Amendment 2 Item B) and
-// need no inline wrapper.
+// and is_closed lower directly to the core and need no inline wrapper.
 func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if len(state.channels) == 0 {
 		return
@@ -1075,9 +1076,8 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 		}
 		// The receive union is emitted for every used Channel<T>: receive
 		// needs the T | EoS union. close, length, capacity, is_closed, and
-		// free lower directly to the core (RFC 0069 Amendment 2 Item B); the
-		// free adapter is emitted here because it adapts the checked Heap
-		// identity argument.
+		// free lower directly to the core; the free adapter is emitted here
+		// because it adapts the checked Heap identity argument.
 		receiveUnion := state.channelReceiveUnions[channel.CName]
 		if receiveUnion != (compilerTypes.Type{}) {
 			elementIndex := unionMemberIndex(receiveUnion, element)
@@ -1169,8 +1169,8 @@ void hex_mutex_free(hex_mutex *mutex) {
 // writeMutexInlineHelpers emits the Mutex adapters into the module header:
 // the constructor/Error union adapter and the free adapter, which evaluates
 // and accepts the checked Heap identity even though the current runtime
-// ignores it. lock and unlock lower directly to the core (RFC 0069 Amendment
-// 2 Item B) and need no inline wrapper.
+// ignores it. lock and unlock lower directly to the core and need no inline
+// wrapper.
 func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if !state.mutexNew && !state.mutexLock && !state.mutexUnlock && !state.mutexFree {
 		return
@@ -1192,8 +1192,7 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 // _Atomic(T) plus one sequentially consistent operation family per used
 // element. Bool excludes fetch_add and fetch_sub. The receiver methods take
 // the Atomic's address; the helper never copies an Atomic value. The
-// <stdatomic.h> prerequisite arrives through the hexal.h umbrella (RFC
-// 0062).
+// <stdatomic.h> prerequisite arrives through the hexal.h umbrella.
 func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyState) {
 	if len(state.atomics) == 0 {
 		return
@@ -1225,15 +1224,15 @@ func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyStat
 	}
 }
 
-// hoistConcurrencyInStatement emits the RFC 0037 spawn prologues for one
-// statement before it renders: each spawn's argument frame is filled in
-// source order and the task is created, so the later render only names the
-// task handle. It runs before the try hoister, whose operand render may
-// reference the spawned task handle.
+// hoistConcurrencyInStatement emits the spawn prologues for one statement
+// before it renders: each spawn's argument frame is filled in source order
+// and the task is created, so the later render only names the task handle.
+// It runs before the try hoister, whose operand render may reference the
+// spawned task handle.
 func hoistConcurrencyInStatement(statement checker.Statement, body *strings.Builder, state *expressionValidation, indent string) error {
-	// RFC 0057 Item 5: expression traversal lives in the shared
-	// walkStatementExpressions; this hoister only acts on spawn nodes and
-	// recurses into nested statement bodies itself.
+	// Expression traversal lives in the shared walkStatementExpressions;
+	// this hoister acts only on spawn nodes and recurses into nested
+	// statement bodies itself.
 	if err := walkStatementExpressions(statement, func(node *checker.Expression) error {
 		if node.Kind == checker.SpawnExpression {
 			return hoistSpawn(node, body, state, indent)

@@ -160,7 +160,7 @@ func Validate(categories []Category) error {
 }
 
 // LineLimitWarnings reports snippets longer than the 20-non-empty-line
-// catalog target (RFC 0056 rule 3). The limit is a soft upper bound: longer
+// catalog target. The limit is a soft upper bound: longer
 // snippets are reported, never rejected.
 func LineLimitWarnings(categories []Category) []string {
 	warnings := make([]string, 0)

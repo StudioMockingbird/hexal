@@ -9,9 +9,8 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0038 conversion lowering, refined by RFC 0068: every explicit
-// conversion is classified as identity (the operand itself), direct (one C
-// cast that cannot trap), or checked (one deduplicated guard-and-cast
+// Explicit conversions classify as identity (the operand itself), direct
+// (one C cast that cannot trap), or checked (one deduplicated guard-and-cast
 // helper). Identity and direct conversions render inline; only checked pairs
 // enter the helper set, so a safe-only program selects no conversion helper
 // and no runtime trap.
@@ -38,7 +37,7 @@ const (
 // classifyConversion decides how one explicit conversion lowers. Direct
 // requires proof over the complete source domain; Size is target-sized, so
 // its synthetic Bits field is a placeholder, never evidence, and every
-// non-identity pair involving Size stays checked (RFC 0068).
+// non-identity pair involving Size stays checked.
 func classifyConversion(source, target compilerTypes.Type) conversionKind {
 	if compilerTypes.Equal(source, target) {
 		// Identity; Byte/UInt8 identity follows canonical aliasing.
@@ -57,8 +56,8 @@ func classifyConversion(source, target compilerTypes.Type) conversionKind {
 	}
 	if compilerTypes.IsInteger(source) && compilerTypes.IsInteger(target) {
 		// Integer to Rune validates Unicode scalar range, so it is always
-		// checked. Rune to UInt32 is same width, so its old vacuous
-		// <= UINT32_MAX guard was never a check; the cast is direct.
+		// checked. Rune to UInt32 is same width, so the <= UINT32_MAX guard
+		// would be vacuous; the cast is direct.
 		if !compilerTypes.IsRune(target) &&
 			(integerRangeFits(source, target) || compilerTypes.IsRune(source) && compilerTypes.Equal(target, compilerTypes.UInt32)) {
 			return conversionDirect
@@ -72,10 +71,9 @@ func classifyConversion(source, target compilerTypes.Type) conversionKind {
 
 // discoverGeneratedConversions collects the checked conversion helpers the
 // program needs and the Size-typed integer literal values whose fit depends
-// on the C target (RFC 0049 item 6). SIZE_MAX is at least 65535 on every
-// conforming target, so only literals above that are target-dependent.
-// Identity and direct conversions remain in the checked program but never
-// enter the helper set (RFC 0068).
+// on the C target. SIZE_MAX is at least 65535 on every conforming target, so
+// only literals above that are target-dependent. Identity and direct
+// conversions remain in the checked program but never enter the helper set.
 func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []string, error) {
 	var specs []conversionSpec
 	seen := make(map[string]bool)
@@ -156,11 +154,10 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 	body := ""
 	switch {
 	case compilerTypes.IsRune(target):
-		// RFC 0038: Integer-to-Rune checks Unicode scalar validity, not just
-		// the 32-bit range: the value must be in U+0000..U+10FFFF and
-		// outside the surrogate range. The negative check applies only to
-		// signed sources; an unsigned C type makes `value < 0` a
-		// always-false comparison.
+		// Integer-to-Rune checks Unicode scalar validity, not just the 32-bit
+		// range: the value must be in U+0000..U+10FFFF and outside the
+		// surrogate range. The negative check applies only to signed sources;
+		// an unsigned C type makes `value < 0` an always-false comparison.
 		negative := ""
 		if compilerTypes.IsSignedInteger(source) {
 			negative = "value < 0 || "
@@ -198,8 +195,7 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 // integerRangeFits reports whether every source value fits the destination
 // integer type. Size is target-sized, so its synthetic Bits field is a
 // placeholder, not representation evidence: no non-identity pair involving
-// Size is proven to fit here (RFC 0068), and Size conversions stay on the
-// checked path.
+// Size is proven to fit here, and Size conversions stay on the checked path.
 func integerRangeFits(source, target compilerTypes.Type) bool {
 	if compilerTypes.Equal(source, target) {
 		return true
@@ -248,11 +244,10 @@ func writeCheckedIntegerConversion(source, target compilerTypes.Type) string {
 // writeFloatToIntegerConversion emits a checked Float-to-integer helper: the
 // value is truncated exactly once into a temporary of the source floating
 // type, that temporary is checked against exact power-of-two destination
-// bounds, and only the temporary is cast (RFC 0068). Integer maximum macros
-// are never converted to Float and compared, because the converted upper
-// bound rounds and can admit the first unrepresentable value; fromfp and
-// ufromfp are not used because their domain-error result is not a direct
-// success test.
+// bounds, and only the temporary is cast. Integer maximum macros are never
+// converted to Float and compared, because the converted upper bound rounds
+// and can admit the first unrepresentable value; fromfp and ufromfp are not
+// used because their domain-error result is not a direct success test.
 func writeFloatToIntegerConversion(source, target compilerTypes.Type) string {
 	trunc := "truncf"
 	if compilerTypes.Equal(source, compilerTypes.Float64) {

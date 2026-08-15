@@ -8,10 +8,10 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// RFC 0024 equality and ordering lowering: one equality helper per concrete
-// compared type, recursive member-wise bodies, and String comparison through
-// memcmp; no storage memcmp is used for values with padding, NaNs, pointers,
-// inactive union bytes, or capacity state.
+// Equality and ordering lowering emits one equality helper per concrete
+// compared type with recursive member-wise bodies, and compares Strings
+// through memcmp; no storage memcmp is used for values with padding, NaNs,
+// pointers, inactive union bytes, or capacity state.
 
 // generatedEqualityState records the types needing equality helpers, in
 // dependency order.
@@ -230,9 +230,9 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 	case compilerTypes.IsString(typ):
 		fmt.Fprintf(body, "%sif (!hex_equal_hex_string(%s, %s)) return false;\n", indent, left, right)
 	case compilerTypes.IsStrand(typ):
-		// RFC 0069 Amendment 2: a Strand's NUL-free payload and mandatory
-		// zero-filled tail make the complete 32-byte representation
-		// canonical, so the whole value compares with one direct memcmp.
+		// A Strand's NUL-free payload and mandatory zero-filled tail make the
+		// complete 32-byte representation canonical, so the whole value
+		// compares with one direct memcmp.
 		fmt.Fprintf(body, "%sif (memcmp(%s.data, %s.data, 32) != 0) return false;\n", indent, left, right)
 	case typ.Element != nil:
 		fmt.Fprintf(body, "%sif (!(%s == %s)) return false;\n", indent, left, right)

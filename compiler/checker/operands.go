@@ -53,7 +53,7 @@ const (
 	// NilExpression is the singleton Nil literal. It carries no go/constant
 	// value: Nil has exactly one value, which the generator lowers directly.
 	NilExpression
-	// EosExpression is the RFC 0031 end-of-stream singleton literal. Like
+	// EosExpression is the end-of-stream singleton literal. Like
 	// NilExpression it carries no go/constant: EoS has exactly one value.
 	EosExpression
 	// NullTestExpression tests a nullable operand against Nil with == or !=
@@ -90,8 +90,8 @@ const (
 	// OperandType is the array type.
 	IndexExpression
 	// CollectionMethodCallExpression is one built-in Array or View method:
-	// length, is_empty, or at. Name selects the operation; Arguments carries
-	// the single at index; Element is the element type.
+	// length or slice. Name selects the operation; Element is the element
+	// type.
 	CollectionMethodCallExpression
 	// CollectionSliceExpression builds a View<T> from an Array or View
 	// receiver. OperandType is the receiver type, Arguments holds the two
@@ -101,16 +101,16 @@ const (
 	// StringLiteralExpression is a static-provenance String literal; Name
 	// carries the decoded payload bytes.
 	StringLiteralExpression
-	// StringMethodCallExpression is one built-in String method: bytes,
-	// slice, to_string, concat, or free. Name selects the operation; Element
+	// StringMethodCallExpression is one built-in String method: length,
+	// is_empty, bytes, slice, rune_cursor, to_string, concat, or free. Name
+	// selects the operation; Element
 	// is the byte view element type for bytes and slice.
 	StringMethodCallExpression
 	// StringFromBytesExpression constructs a fresh owning String by copying
 	// a View<Byte> payload through a Heap.
 	StringFromBytesExpression
 	// StringFromRunesExpression constructs a fresh owning String by
-	// validating and encoding a View<Rune> payload through a Heap (RFC
-	// 0044).
+	// validating and encoding a View<Rune> payload through a Heap.
 	StringFromRunesExpression
 	// ListNewExpression constructs a fresh owning List<T> header through a
 	// Heap; Element is T.
@@ -119,21 +119,21 @@ const (
 	// a Heap; Element is V.
 	DictNewExpression
 	// BitCastExpression reinterprets the receiver's exact representation
-	// bits as the same-width destination scalar (RFC 0032).
+	// bits as the same-width destination scalar.
 	BitCastExpression
 	// EndianConversionExpression converts a fixed-width integer to or from
-	// its explicit-endian byte sequence (RFC 0032). Name is "to" or "from";
+	// its explicit-endian byte sequence. Name is "to" or "from";
 	// MemberIndex is 0 for little endian and 1 for big endian; Element is
 	// the integer type; Operand is the receiver (or the type marker for
 	// from) and Arguments carries the bytes for from.
 	EndianConversionExpression
-	// TryExpression propagates an Error from the enclosing function (RFC
-	// 0029). OperandType is the source union; MemberIndex is the Error
+	// TryExpression propagates an Error from the enclosing function.
+	// OperandType is the source union; MemberIndex is the Error
 	// member's index; ResultType is the normalized success value or union;
 	// Element is the enclosing function's declared result type.
 	TryExpression
 	// PrintExpression is one checked print call; it produces no value and
-	// carries the ordered argument operands (RFC 0030).
+	// carries the ordered argument operands.
 	PrintExpression
 	// DeepEqualityExpression compares two non-scalar values through the
 	// per-type equality helper. OperandType is the compared type; Left and
@@ -150,8 +150,8 @@ const (
 	// conversion method; OperandType is the source type, ResultType the
 	// destination, and MemberIndex the conversion mode.
 	ConversionExpression
-	// SpawnExpression starts one new Task<R> running a named function
-	// (RFC 0037). Operand is the checked call node; OperandType is the Task
+	// SpawnExpression starts one new Task<R> running a named function.
+	// Operand is the checked call node; OperandType is the Task
 	// handle type; ResultType is Task<R> | Error; Element is R.
 	SpawnExpression
 	// TaskYieldExpression is the Task.yield() intrinsic: a hint that parks
@@ -183,26 +183,26 @@ const (
 	// fetch_add, fetch_sub, or compare_exchange. Operand is the Atomic
 	// lvalue; OperandType is the Atomic type; Element is T.
 	AtomicMethodCallExpression
-	// LayoutExpression is size_of<T>() or align_of<T>() (RFC 0042). Name
+	// LayoutExpression is size_of<T>() or align_of<T>(). Name
 	// selects the query; OperandType is the measured type; ResultType is
 	// Size.
 	LayoutExpression
 	// VolatileReadExpression reads one integer through a volatile-qualified
-	// pointer (RFC 0042). Operand is the Ptr or MutPtr receiver; OperandType
+	// pointer. Operand is the Ptr or MutPtr receiver; OperandType
 	// is the pointer type; Element is the integer element.
 	VolatileReadExpression
 	// VolatileWriteExpression writes one integer through a
-	// volatile-qualified MutPtr (RFC 0042). Operand is the receiver;
+	// volatile-qualified MutPtr. Operand is the receiver;
 	// Arguments holds the written value; OperandType is the pointer type;
 	// Element is the integer element.
 	VolatileWriteExpression
 	// ViewBridgeExpression is View<T>.from_pointer(pointer, length) or
-	// View<T>.empty() (RFC 0043). Name selects the form; Arguments holds the
+	// View<T>.empty(). Name selects the form; Arguments holds the
 	// pointer and length for from_pointer; OperandType is the View type;
 	// Element is T.
 	ViewBridgeExpression
 	// RuneCursorMethodCallExpression is one RuneCursor method: has_next or
-	// next (RFC 0044). Operand is the cursor descriptor; OperandType is the
+	// next. Operand is the cursor descriptor; OperandType is the
 	// RuneCursor type.
 	RuneCursorMethodCallExpression
 )
@@ -310,29 +310,29 @@ type Expression struct {
 	MemberMap    []int
 	Element      compilerTypes.Type
 	// ViewRoots is the ordered binding chain a View-producing expression is
-	// borrowed from, outermost root first (RFC 0020, RFC 0046 item 4).
+	// borrowed from, outermost root first.
 	ViewRoots []BindingID
 	// RootKind classifies a View's root at its return site: no root (empty),
 	// a foreign from_pointer region, or the bindings in ViewRoots.
 	RootKind ViewRootKind
 	// SourceLine and SourceColumn name the source site of compiler-built
 	// runtime failures: the Error constructed when a spawn, Channel, or
-	// Mutex operation fails (RFC 0037). Zero for all other kinds.
+	// Mutex operation fails. Zero for all other kinds.
 	SourceLine   int
 	SourceColumn int
 	// Module is the canonical module id of a FunctionReferenceExpression
-	// resolved through an import alias (RFC 0034 Task 5); empty for every
+	// resolved through an import alias; empty for every
 	// local reference.
 	Module string
 	// MethodParameters carries the parameter types of an imported
-	// MethodCallExpression (RFC 0034 Task 7): the call node lacks a Fun
+	// MethodCallExpression: the call node lacks a Fun
 	// signature, so the generator needs these to declare the foreign
 	// prototype in the importer's header. Nil for local calls.
 	MethodParameters []compilerTypes.Type
 }
 
 // ViewRootKind classifies the root of a View-producing expression for the
-// return check (RFC 0046 item 4).
+// return check.
 type ViewRootKind uint8
 
 const (
@@ -403,7 +403,7 @@ func nilOperand(literal string) Operand {
 	}
 }
 
-// eosOperand builds the checked RFC 0031 end-of-stream singleton. The kind
+// eosOperand builds the checked end-of-stream singleton. The kind
 // stays ConstantOperand so immutable eos bindings retain a known value, and
 // the node kind marks the literal for EoS equality folding and union
 // narrowing. EoS has one value, so no go/constant is carried.

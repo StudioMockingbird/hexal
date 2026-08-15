@@ -1,7 +1,7 @@
 package checker
 
 // Module import scaffolding: alias registration, import ordering, and the
-// declaration-only rule for imported modules. RFC 0034 Task 4.
+// declaration-only rule for imported modules.
 
 import (
 	"testing"
@@ -29,7 +29,7 @@ func requireMessage(t *testing.T, err error, want string) {
 
 // The single-module path registers an import alias and leaves the alias
 // invisible to value lookup: a bare alias reference fails as an ordinary
-// unknown variable until the module phase resolves it.
+// unknown variable until the missing path is reported.
 func TestImportAliasIsNotAValue(t *testing.T) {
 	requireAccepted(t, "module Math = import \"./math\"\n")
 	requireDiagnostic(t, "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n", "unknown variable Math")

@@ -2,12 +2,6 @@ package integration
 
 import "testing"
 
-// RFC 0049 item 8.2: commands that produce no value are valid only as
-// statements. The matrix below proves the reject-in-value-position and
-// accept-as-statement sides for every no-result command family: collections
-// and text. (Concurrency commands already have coverage in
-// concurrency_test.go, and print in print_test.go.)
-
 func TestNoResultCommandsRejectedInValuePositions(t *testing.T) {
 	for _, testCase := range []struct {
 		name   string

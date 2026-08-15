@@ -27,12 +27,12 @@ type DictInfo struct {
 	Value Type
 }
 
-// TaskInfo describes one spawned task handle type (RFC 0037).
+// TaskInfo is the metadata of one spawned task handle type.
 type TaskInfo struct {
 	Result Type
 }
 
-// ChannelInfo describes one bounded channel handle type (RFC 0037).
+// ChannelInfo is the metadata of one bounded channel handle type.
 type ChannelInfo struct {
 	Element Type
 }
@@ -40,7 +40,7 @@ type ChannelInfo struct {
 // MutexInfo is the metadata of the scheduler-aware mutex handle type.
 type MutexInfo struct{}
 
-// AtomicInfo describes one inline atomic wrapper type (RFC 0037).
+// AtomicInfo is the metadata of one inline atomic wrapper type.
 type AtomicInfo struct {
 	Element Type
 }
@@ -58,22 +58,22 @@ func IsList(typ Type) bool { return typ.List != nil }
 func IsDict(typ Type) bool { return typ.Dict != nil }
 
 // IsManaged reports whether typ is a reference-like handle value rejected
-// from inline positions, storage, and union alternatives in v1. Views are
+// from inline positions, storage, and union alternatives. Views are
 // the borrowed form; String, List, and Dict are owning forms.
 func IsManaged(typ Type) bool {
 	return typ.View != nil || IsString(typ) || IsList(typ) || IsDict(typ)
 }
 
-// IsTask reports whether typ is a Task<R> handle (RFC 0037).
+// IsTask reports whether typ is a Task<R> handle.
 func IsTask(typ Type) bool { return typ.Task != nil }
 
-// IsChannel reports whether typ is a Channel<T> handle (RFC 0037).
+// IsChannel reports whether typ is a Channel<T> handle.
 func IsChannel(typ Type) bool { return typ.Channel != nil }
 
 // IsMutex reports whether typ is the canonical scheduler-aware Mutex handle.
 func IsMutex(typ Type) bool { return typ.identity != nil && typ.identity == MutexType.identity }
 
-// IsAtomic reports whether typ is an inline Atomic<T> wrapper (RFC 0037).
+// IsAtomic reports whether typ is an inline Atomic<T> wrapper.
 func IsAtomic(typ Type) bool { return typ.Atomic != nil }
 
 // IsString reports whether typ is the canonical String type.
@@ -170,7 +170,7 @@ func UnionContainsEoS(typ Type) bool {
 	return false
 }
 
-// Position is one storing position from RFC 0046's position model. Storage
+// Position is one storing position in the shared position model. Storage
 // restrictions are stated against an explicit position set so no aggregate or
 // generic specialization can bypass one by accident.
 type Position int
@@ -197,12 +197,12 @@ func isConstructionPosition(position Position) bool {
 	return position == PositionBinding || position == PositionObjectMember
 }
 
-// Storable reports whether typ may occupy position under RFC 0046 item 2:
-// complete and finite, not Unknown, not an unspecialized type parameter, and
-// Fun only in Binding, UnionMember, or FunctionParam. Atomic is storable only
-// in a construction position (Binding or ObjectMember); every other position
-// acquires its value by copying and is governed by the separate Copyable rule.
-// Nil is storable only as a union member (RFC 0049 item 8.1).
+// Storable reports whether typ may occupy position: complete and finite, not
+// Unknown, not an unspecialized type parameter, and Fun only in Binding,
+// UnionMember, or FunctionParam. Atomic is storable only in a construction
+// position (Binding or ObjectMember); every other position acquires its value
+// by copying and is governed by the separate Copyable rule. Nil is storable
+// only as a union member.
 func Storable(typ Type, position Position) bool {
 	if !IsCompleteValue(typ) || IsUnknown(typ) || ContainsTypeParameter(typ) {
 		return false
@@ -222,16 +222,16 @@ func Storable(typ Type, position Position) bool {
 // Eligible reports whether a concrete element may be stored at position: it
 // must be storable and copyable. An open type parameter defers to
 // specialization rechecking and is always eligible here. This is the shared
-// position model every compiler stage consults (RFC 0046, RFC 0049 item 8.4).
+// position model every compiler stage consults.
 func Eligible(element Type, position Position) bool {
 	return ContainsTypeParameter(element) || (Storable(element, position) && !ContainsAtomic(element))
 }
 
 // ContainsAtomic reports whether typ contains an inline Atomic<T> value
 // recursively through objects, ADTs, arrays, and unions. Atomic values cannot
-// be copied, so any shallow-copy position that reaches one is invalid (RFC
-// 0037, RFC 0046). It stops at every indirection: copying a Ptr<T>, MutPtr<T>,
-// or a handle copies the pointer, never the pointee.
+// be copied, so any shallow-copy position that reaches one is invalid. It
+// stops at every indirection: copying a Ptr<T>, MutPtr<T>, or a handle copies
+// the pointer, never the pointee.
 func ContainsAtomic(typ Type) bool {
 	if typ.Atomic != nil {
 		return true
@@ -319,15 +319,15 @@ func (environment *Environment) ChannelType(element Type) Type {
 	return typ
 }
 
-// isAtomicElement reports whether element is a supported v1 Atomic payload:
-// Bool, Int32, UInt32, Int64, UInt64, or Size (RFC 0037).
+// isAtomicElement reports whether element is a supported Atomic payload:
+// Bool, Int32, UInt32, Int64, UInt64, or Size.
 func isAtomicElement(element Type) bool {
 	return Equal(element, Bool) || Equal(element, Int32) || Equal(element, UInt32) ||
 		Equal(element, Int64) || Equal(element, UInt64) || Equal(element, SizeType)
 }
 
 // AtomicType constructs or retrieves the canonical inline Atomic<T> wrapper
-// over C23 _Atomic(T). Only the six v1 payload scalars are accepted.
+// over C23 _Atomic(T). Only the six payload scalars are accepted.
 func (environment *Environment) AtomicType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
@@ -350,15 +350,14 @@ func (environment *Environment) AtomicType(element Type) Type {
 	return typ
 }
 
-// IsDictKey reports whether typ may be a dictionary key in v1: exactly
-// Int32 or Strand.
+// IsDictKey reports whether typ may be a dictionary key: exactly Int32
+// or Strand.
 func IsDictKey(typ Type) bool {
 	return Equal(typ, Int32) || IsStrand(typ)
 }
 
 // DictType constructs or retrieves the canonical Dict<K, V> type of one key
-// and one collection-element value. Only Int32 and Strand keys are valid in
-// v1.
+// and one collection-element value. Only Int32 and Strand keys are valid.
 func (environment *Environment) DictType(key, value Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, key, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||

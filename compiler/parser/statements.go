@@ -7,7 +7,7 @@ import (
 )
 
 // typeDeclaration parses `type Name = Target`. The exported flag records an
-// RFC 0034 `export` prefix consumed by the caller.
+// `export` prefix consumed by the caller.
 func (parser *Parser) typeDeclaration(exported bool) (TypeDeclaration, error) {
 	keyword, err := parser.consume(lexer.Type, "'type'")
 	if err != nil {
@@ -376,7 +376,7 @@ func (parser *Parser) whileStatement() (WhileStatement, error) {
 	if err != nil {
 		return WhileStatement{}, err
 	}
-	// RFC 0028: `do` is the mandatory boundary between the header and body.
+	// `do` is the mandatory boundary between the header and body.
 	if _, err := parser.consume(lexer.Do, "'do' after while condition"); err != nil {
 		return WhileStatement{}, err
 	}
@@ -391,8 +391,8 @@ func (parser *Parser) whileStatement() (WhileStatement, error) {
 	return WhileStatement{Keyword: keyword, Condition: condition, Body: body, End: end}, nil
 }
 
-// forStatement parses the RFC 0028 for-in form: a comma-separated binder list,
-// `in`, one iterable source expression, `do`, a body, and `end`.
+// forStatement parses the for-in form: a comma-separated binder list, `in`,
+// one iterable source expression, `do`, a body, and `end`.
 func (parser *Parser) forStatement() (ForStatement, error) {
 	keyword := parser.advance()
 	binders := make([]lexer.Token, 0, 3)

@@ -13,8 +13,8 @@ import (
 
 // Every workbench example is also a public-API compiler smoke test. This keeps
 // the executable examples from drifting away from the language implementation.
-// RFC 0057 Item 1: the test also verifies the committed generated-artifact
-// SHA-256 baseline, so any change to generated C is explicit and intentional.
+// The test also verifies the committed generated-artifact SHA-256 baseline, so
+// any change to generated C is explicit and intentional.
 func TestCatalogProgramsCompile(t *testing.T) {
 	catalog, err := snippets.Load()
 	if err != nil {
@@ -70,7 +70,7 @@ func TestCatalogProgramsCompile(t *testing.T) {
 }
 
 // loadGeneratedManifest reads the committed baseline of every catalog
-// snippet's generated artifacts (RFC 0057 Item 1).
+// snippet's generated artifacts.
 func loadGeneratedManifest(t *testing.T) map[string]map[string]map[string]string {
 	t.Helper()
 	data, err := os.ReadFile("testdata/generated-c-sha256.json")

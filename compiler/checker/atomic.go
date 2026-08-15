@@ -8,8 +8,8 @@ import (
 // isFreshAtomicConstruction reports whether source builds an Atomic-containing
 // value entirely from fresh .new() constructions, with no read of existing
 // storage. Such an expression may initialize a Binding or ObjectMember in
-// place; any other use of an Atomic-containing value is a copy and is rejected
-// (RFC 0037, RFC 0046 item 5).
+// place; any other use of an Atomic-containing value is a copy and is
+// rejected.
 func isFreshAtomicConstruction(source Operand) bool {
 	switch source.Node.Kind {
 	case AtomicConstructorExpression:

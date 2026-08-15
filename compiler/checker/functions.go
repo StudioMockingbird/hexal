@@ -1,7 +1,7 @@
 package checker
 
-// Function declarations, parameters, and results: declaration structure
-// and validation (RFC 0008).
+// Function declarations, parameters, and results: declaration structure and
+// validation.
 
 import (
 	"fmt"
@@ -24,13 +24,13 @@ type FunctionDeclaration struct {
 	Defers       []DeferredAction
 	SourceLine   int
 	SourceColumn int
-	Exported     bool // RFC 0034: external linkage + prototype in this module's header
+	Exported     bool // external linkage + prototype in this module's header
 }
 
 func (FunctionDeclaration) statementNode() {}
 
-// FunctionParameter is one resolved parameter. Parameters are fixed bindings in
-// this RFC, so no mutability field exists.
+// FunctionParameter is one resolved parameter. Parameters are fixed bindings,
+// so no mutability field exists.
 type FunctionParameter struct {
 	Name         string
 	Binding      BindingID
@@ -40,7 +40,7 @@ type FunctionParameter struct {
 	SourceColumn int
 }
 
-// checkFunctionDeclaration follows RFC 0008's single-pass order exactly:
+// checkFunctionDeclaration follows the single-pass order exactly:
 // resolve the complete signature, bind the name, then check the body with
 // everything visible at this source position. Binding before the body is what
 // makes direct self-recursion work; no later signature is collected.
@@ -55,8 +55,8 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
 	if name == "print" {
-		// RFC 0030: the protected builtin name cannot be bound by a
-		// function declaration.
+		// The protected builtin name cannot be bound by a function
+		// declaration.
 		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 			Category: compilerTypes.NameError,
 			Stage:    "checker",
@@ -66,7 +66,7 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 		})
 	}
 	if layoutBuiltins[name] {
-		// RFC 0042: the layout query names cannot be bound by a function
+		// The layout query names cannot be bound by a function
 		// declaration.
 		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 			Category: compilerTypes.NameError,
@@ -141,8 +141,8 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 		moduleID:  names.moduleID,
 	}
 	for index := range parameters {
-		// RFC 0034: no nested scope may shadow an import alias; a
-		// conflicting parameter is rejected like any other redeclaration.
+		// No nested scope may shadow an import alias; a conflicting
+		// parameter is rejected like any other redeclaration.
 		if names.importAlias(parameters[index].Name) {
 			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 				Category: compilerTypes.NameError,
@@ -197,9 +197,9 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
 		}
-		// RFC 0049 item 8.4: parameters copy their values at every call, so
-		// they go through the shared position model like every other
-		// copy-requiring position.
+		// Parameters copy their values at every call, so they go through
+		// the shared position model like every other copy-requiring
+		// position.
 		if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionParam) {
 			diagnostics = append(diagnostics, typeErrorAt(parameter.Name,
 				"function parameter "+resolved.Name+" is not shallow-copyable"))
@@ -233,11 +233,11 @@ func checkResultType(written parser.TypeExpression, fallback lexer.Token, typeEn
 	}
 	if resolved.Signature != nil {
 		// Supported-position whitelist: a Fun<...> result needs C declarator
-		// rules this RFC defers.
+		// rules that are not supported.
 		return nil, nil, compilerTypes.Diagnostics{typeErrorAt(fallback, "returning "+resolved.Name+" is not supported")}
 	}
-	// RFC 0049 item 8.4: a result is returned by value, so it goes through
-	// the shared position model like every other copy-requiring position.
+	// A result is returned by value, so it goes through the shared position
+	// model like every other copy-requiring position.
 	if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionResult) {
 		return nil, nil, compilerTypes.Diagnostics{typeErrorAt(fallback, "function result "+resolved.Name+" is not shallow-copyable")}
 	}

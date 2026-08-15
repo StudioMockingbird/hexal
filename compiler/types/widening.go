@@ -1,9 +1,9 @@
 package types
 
-// RFC 0016/0024 lossless numeric widening: a typed numeric value may widen
-// implicitly only when every value of the source type is exactly
-// representable by the destination. The relation is a single widening step;
-// identity counts as a step.
+// Lossless numeric widening: a typed numeric value may widen implicitly
+// only when every value of the source type is exactly representable by the
+// destination. The relation is a single widening step; identity counts as a
+// step.
 
 var losslessWideningTargets = map[string][]string{
 	"Int8":    {"Int16", "Int32", "Int64", "Float32", "Float64"},
@@ -16,17 +16,17 @@ var losslessWideningTargets = map[string][]string{
 	"UInt64":  {},
 	"Float32": {"Float64"},
 	"Float64": {},
-	// RFC 0049 item 6: Size is C-target-driven, so no implicit conversion
-	// is portable across targets. Size appears in no widening edge and has
-	// no binary common type with a distinct numeric type; identity remains.
+	// Size is C-target-driven, so no implicit conversion is portable across
+	// targets. Size appears in no widening edge and has no binary common
+	// type with a distinct numeric type; identity remains.
 	"Size": {},
 }
 
 // wideningRank orders the candidate types so the least common type is the
 // minimum of the candidate intersection. Int8 and UInt8 never appear in an
 // intersection of distinct operands, so they are unreachable in practice.
-// The order matches the RFC 0016/0024 examples: Int16 < UInt16 < Int32 <
-// UInt32 < Int64 < UInt64 < Float32 < Float64.
+// The order is Int16 < UInt16 < Int32 < UInt32 < Int64 < UInt64 <
+// Float32 < Float64.
 var wideningRank = map[string]int{
 	"Int8":    0,
 	"UInt8":   1,
@@ -79,8 +79,8 @@ func WidensTo(source, target Type) bool {
 // Candidates are the types reachable from both operands by zero or one
 // widening step; the least candidate is the minimum under wideningRank.
 // No runtime range test is needed because validity follows from the source
-// and destination type ranges. RFC 0049 item 6: Size has no widening edges,
-// so a Size operand only ever shares a common type with itself.
+// and destination type ranges. Size has no widening edges, so a Size
+// operand only ever shares a common type with itself.
 func LosslessCommonType(left, right Type) (Type, bool) {
 	if Equal(left, right) {
 		return left, true
