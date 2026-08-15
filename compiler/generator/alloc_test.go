@@ -25,7 +25,7 @@ func TestGenerateHeapAllocationAndFree(t *testing.T) {
 }
 
 func TestGenerateDeferReverseOrderAndCapture(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun record(value: Int32) end mut first: Int32 = 1 mut second: Int32 = 2 defer record(first) defer record(second)")
+	program := checkedGeneratorSource(t, "fun record(value: Int32) do end mut first: Int32 = 1 mut second: Int32 = 2 defer record(first) defer record(second)")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -40,7 +40,7 @@ func TestGenerateDeferReverseOrderAndCapture(t *testing.T) {
 }
 
 func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun record(value: Int32) end fun run(): Int32\nmut flag: Bool = true\nwhile flag do\n    defer record(1)\n    break\nend\nreturn 0\nend")
+	program := checkedGeneratorSource(t, "fun record(value: Int32) do end fun run(): Int32 do\nmut flag: Bool = true\nwhile flag do\n    defer record(1)\n    break\nend\nreturn 0\nend")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {

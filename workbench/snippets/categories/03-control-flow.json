@@ -8,10 +8,10 @@
       "description": "Uses an if/elseif/else chain to classify a score.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun band(score: Int32): Strand",
-        "    if score >= 90",
+        "fun band(score: Int32): Strand do",
+        "    if score >= 90 then",
         "        return \"A\"",
-        "    elseif score >= 75",
+        "    elseif score >= 75 then",
         "        return \"B\"",
         "    else",
         "        return \"C\"",
@@ -20,7 +20,7 @@
         "grade: Strand = band(82)"
       ]},
       "features": ["functions", "if-elseif-else"],
-      "reservedWords": ["fun", "if", "elseif", "else", "return", "end"]
+      "reservedWords": ["fun", "if", "elseif", "else", "return", "end", "do", "then"]
     },
     {
       "id": "control-search-break",
@@ -32,7 +32,7 @@
         "mut found: Bool = false",
         "mut index: Int32 = 0",
         "while index < 4 do",
-        "    if values.at(index) == 7",
+        "    if values.at(index) == 7 then",
         "        found = true",
         "        break",
         "    end",
@@ -40,7 +40,7 @@
         "end"
       ]},
       "features": ["while", "arrays"],
-      "reservedWords": ["mut", "while", "do", "if", "break", "end", "true", "false"]
+      "reservedWords": ["mut", "while", "do", "if", "break", "end", "true", "false", "then"]
     },
     {
       "id": "control-filter-continue",
@@ -48,11 +48,11 @@
       "description": "Iterates through values while skipping unwanted elements.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun sum_nonzero()",
+        "fun sum_nonzero() do",
         "    values: Array<Int32, 5> = [1, 0, 3, 0, 5]",
         "    mut total: Int32 = 0",
         "    for value in values do",
-        "        if value == 0",
+        "        if value == 0 then",
         "            continue",
         "        end",
         "        total = total + value",
@@ -60,7 +60,7 @@
         "end"
       ]},
       "features": ["for", "arrays"],
-      "reservedWords": ["fun", "for", "in", "do", "if", "continue", "end", "mut"]
+      "reservedWords": ["fun", "for", "in", "do", "if", "continue", "end", "mut", "then"]
     },
     {
       "id": "control-bounded-counter",
@@ -72,13 +72,13 @@
         "mut limit: Int32 = 5",
         "while count < limit do",
         "    count = count + 1",
-        "    if count > 2",
+        "    if count > 2 then",
         "        limit = limit + 2",
         "    end",
         "end"
       ]},
       "features": ["while", "bindings"],
-      "reservedWords": ["mut", "while", "do", "if", "end"]
+      "reservedWords": ["mut", "while", "do", "if", "end", "then"]
     },
     {
       "id": "control-nested-coordinate-scan",
@@ -86,7 +86,7 @@
       "description": "Traverses a small grid using nested loops.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun scan_grid()",
+        "fun scan_grid() do",
         "    grid: Array<Array<Int32, 3>, 2> = [[1, 2, 3], [4, 5, 6]]",
         "    mut total: Int32 = 0",
         "    for row in grid do",
@@ -105,7 +105,7 @@
       "description": "Uses for index, value in array to calculate a weighted total.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun weighted_total()",
+        "fun weighted_total() do",
         "    scores: Array<Int32, 3> = [10, 20, 30]",
         "    mut weighted: Int32 = 0",
         "    for index, value in scores do",
@@ -122,7 +122,7 @@
       "description": "Uses the supported three-binder for ... in form to expose iteration context.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    names: Dict<Int32, Strand> = Dict<Int32, Strand>.new(h)",
         "    defer names.free(h)",
         "    names.insert(1, \"one\")",
@@ -142,8 +142,8 @@
       "description": "Rejects an invalid state early before performing an update.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun apply_damage(health: MutPtr<Int32>, amount: Int32): Bool",
-        "    if amount <= 0",
+        "fun apply_damage(health: MutPtr<Int32>, amount: Int32): Bool do",
+        "    if amount <= 0 then",
         "        return false",
         "    end",
         "    health.value = health.value - amount",
@@ -153,7 +153,7 @@
         "applied: Bool = apply_damage(ref hp, 3)"
       ]},
       "features": ["functions", "pointers"],
-      "reservedWords": ["fun", "if", "return", "end", "mut", "ref", "false", "true"]
+      "reservedWords": ["fun", "if", "return", "end", "mut", "ref", "false", "true", "do", "then"]
     },
     {
       "id": "control-boolean-state-machine",
@@ -164,9 +164,9 @@
         "mut phase: Int32 = 0",
         "mut running: Bool = true",
         "while running do",
-        "    if phase == 0",
+        "    if phase == 0 then",
         "        phase = 1",
-        "    elseif phase == 1",
+        "    elseif phase == 1 then",
         "        phase = 2",
         "    else",
         "        running = false",
@@ -174,7 +174,7 @@
         "end"
       ]},
       "features": ["while", "bindings"],
-      "reservedWords": ["mut", "while", "do", "if", "elseif", "else", "end", "true", "false"]
+      "reservedWords": ["mut", "while", "do", "if", "elseif", "else", "end", "true", "false", "then"]
     },
     {
       "id": "control-truthiness",
@@ -186,18 +186,18 @@
         "label: Strand = \"\"",
         "values: View<Int32> = View<Int32>.empty()",
         "mut truthy: Int32 = 0",
-        "if count",
+        "if count then",
         "    truthy = truthy + 1",
         "end",
-        "if label",
+        "if label then",
         "    truthy = truthy + 1",
         "end",
-        "if values",
+        "if values then",
         "    truthy = truthy + 1",
         "end"
       ]},
       "features": ["truthiness", "bindings"],
-      "reservedWords": ["mut", "if", "end"]
+      "reservedWords": ["mut", "if", "end", "then"]
     }
   ]
 }

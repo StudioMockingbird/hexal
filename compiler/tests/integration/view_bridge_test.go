@@ -9,7 +9,7 @@ import (
 // RFC 0043 integration tests: View<T>.from_pointer and View<T>.empty().
 
 func TestViewFromPointerCompiles(t *testing.T) {
-	source := "fun total(data: Ptr<Int32>, count: Size): Int32\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\n    mut sum: Int32 = 0\n    for value in items do\n        sum = sum + value\n    end\n    return sum\nend\n"
+	source := "fun total(data: Ptr<Int32>, count: Size): Int32 do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\n    mut sum: Int32 = 0\n    for value in items do\n        sum = sum + value\n    end\n    return sum\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -20,7 +20,7 @@ func TestViewFromPointerCompiles(t *testing.T) {
 }
 
 func TestViewFromPointerAcceptsMutPtr(t *testing.T) {
-	source := "fun total(data: MutPtr<Int32>, count: Size): Int32\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\n    return items[0]\nend\n"
+	source := "fun total(data: MutPtr<Int32>, count: Size): Int32 do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\n    return items[0]\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -28,7 +28,7 @@ func TestViewFromPointerAcceptsMutPtr(t *testing.T) {
 }
 
 func TestViewEmptyCompiles(t *testing.T) {
-	source := "fun empty_demo(): View<Int32>\n    return View<Int32>.empty()\nend\n"
+	source := "fun empty_demo(): View<Int32> do\n    return View<Int32>.empty()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -39,7 +39,7 @@ func TestViewEmptyCompiles(t *testing.T) {
 }
 
 func TestViewFromPointerRequiresMatchingPointer(t *testing.T) {
-	source := "fun bad(data: Ptr<Float64>, count: Size)\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
+	source := "fun bad(data: Ptr<Float64>, count: Size) do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires Ptr<Int32> or MutPtr<Int32>") {
 		t.Fatalf("want pointer-type diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -47,7 +47,7 @@ func TestViewFromPointerRequiresMatchingPointer(t *testing.T) {
 }
 
 func TestViewFromPointerRejectsNullablePointer(t *testing.T) {
-	source := "fun bad(data: Ptr<Int32> | Nil, count: Size)\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
+	source := "fun bad(data: Ptr<Int32> | Nil, count: Size) do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "must be narrowed") {
 		t.Fatalf("want nullable diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -55,7 +55,7 @@ func TestViewFromPointerRejectsNullablePointer(t *testing.T) {
 }
 
 func TestViewFromPointerRejectsNonSizeLength(t *testing.T) {
-	source := "fun bad(data: Ptr<Int32>, count: Int64)\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
+	source := "fun bad(data: Ptr<Int32>, count: Int64) do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Size") {
 		t.Fatalf("want length diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -65,7 +65,7 @@ func TestViewFromPointerRejectsNonSizeLength(t *testing.T) {
 func TestViewFromPointerRejectsStringPointee(t *testing.T) {
 	// RFC 0048: the source fails because Ptr<String> is an invalid pointee,
 	// not because View<String> is invalid.
-	source := "fun bad(data: Ptr<String>, count: Size)\n    items: View<String> = View<String>.from_pointer(data, count)\nend\n"
+	source := "fun bad(data: Ptr<String>, count: Size) do\n    items: View<String> = View<String>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "could not construct pointer type") {
 		t.Fatalf("want pointee diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -74,8 +74,8 @@ func TestViewFromPointerRejectsStringPointee(t *testing.T) {
 
 func TestFromPointerRejectsStackRoots(t *testing.T) {
 	rejected := []string{
-		"fun f()\n    mut value: Int32 = 1\n    view: View<Int32> = View<Int32>.from_pointer(ref value, 1)\nend\n",
-		"fun f()\n    value: Int32 = 1\n    p: Ptr<Int32> = ref value\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
+		"fun f() do\n    mut value: Int32 = 1\n    view: View<Int32> = View<Int32>.from_pointer(ref value, 1)\nend\n",
+		"fun f() do\n    value: Int32 = 1\n    p: Ptr<Int32> = ref value\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
@@ -83,8 +83,8 @@ func TestFromPointerRejectsStackRoots(t *testing.T) {
 		}
 	}
 	accepted := []string{
-		"fun f(h: Heap)\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
-		"fun wrap(p: Ptr<Int32>, n: Size): View<Int32>\n    return View<Int32>.from_pointer(p, n)\nend\n",
+		"fun f(h: Heap) do\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
+		"fun wrap(p: Ptr<Int32>, n: Size): View<Int32> do\n    return View<Int32>.from_pointer(p, n)\nend\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -93,7 +93,7 @@ func TestFromPointerRejectsStackRoots(t *testing.T) {
 	}
 	// Documented caller-side hole: wrap(ref local, 1) is not caught because the
 	// callee sees an opaque parameter; RFC 0043's trust-boundary contract owns it.
-	caller := "fun wrap(p: Ptr<Int32>, n: Size): View<Int32>\n    return View<Int32>.from_pointer(p, n)\nend\nfun f()\n    value: Int32 = 1\n    view: View<Int32> = wrap(ref value, 1)\nend\n"
+	caller := "fun wrap(p: Ptr<Int32>, n: Size): View<Int32> do\n    return View<Int32>.from_pointer(p, n)\nend\nfun f() do\n    value: Int32 = 1\n    view: View<Int32> = wrap(ref value, 1)\nend\n"
 	if result := compileSource(caller); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("caller-side from_pointer hole must compile by design: %v", result.Stderr)
 	}

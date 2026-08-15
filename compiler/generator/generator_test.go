@@ -120,7 +120,7 @@ func TestGenerateUnionOperations(t *testing.T) {
 }
 
 func TestGenerateUnionTruthiness(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Bool | Nil = true if value noop: Int32 = 0 end")
+	program := checkedGeneratorSource(t, "value: Int32 | Bool | Nil = true if value then noop: Int32 = 0 end")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -132,7 +132,7 @@ func TestGenerateUnionTruthiness(t *testing.T) {
 }
 
 func TestGenerateNarrowedUnionPayloadRead(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Float64 = 1 if value is Int32 result: Int32 = value end")
+	program := checkedGeneratorSource(t, "value: Int32 | Float64 = 1 if value is Int32 then result: Int32 = value end")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {

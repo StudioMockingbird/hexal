@@ -13,13 +13,13 @@
           "answer: Int32 = Math.add(20, 22)"
         ],
         "math.hex": [
-          "export fun add(left: Int32, right: Int32): Int32",
+          "export fun add(left: Int32, right: Int32): Int32 do",
           "    return left + right",
           "end"
         ]
       },
       "features": ["modules", "exports"],
-      "reservedWords": ["module", "import", "export", "fun", "return", "end"]
+      "reservedWords": ["module", "import", "export", "fun", "return", "end", "do"]
     },
     {
       "id": "modules-nested-import",
@@ -34,16 +34,16 @@
         ],
         "graphics/shapes.hex": [
           "export type Point = { x: Int32, y: Int32 }",
-          "export fun origin(): Point",
+          "export fun origin(): Point do",
           "    return Point { x = 10, y = 20 }",
           "end",
-          "export impl Point.width(): Int32",
+          "export impl Point.width(): Int32 do",
           "    return self.x",
           "end"
         ]
       },
       "features": ["modules", "exports", "methods"],
-      "reservedWords": ["module", "import", "export", "type", "fun", "impl", "self", "return", "end"]
+      "reservedWords": ["module", "import", "export", "type", "fun", "impl", "self", "return", "end", "do"]
     }
   ]
 }

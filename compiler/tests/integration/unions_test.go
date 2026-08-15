@@ -39,7 +39,7 @@ func TestUnionWideningPreservesSourceEvaluation(t *testing.T) {
 func TestUnionIsNarrowsIfElseAndWhile(t *testing.T) {
 	// RFC 0048: the else arm narrows value to Nil, which is printable but
 	// cannot initialize a standalone Nil binding.
-	result := compileSource("value: Int32 | Float64 | Nil = 1 if value is Int32 integer: Int32 = value elseif value != nil floating: Float64 = value else print(value) end mut state: Int32 | Float64 = 1 while state is Int32 do current: Int32 = state state = 2 end")
+	result := compileSource("value: Int32 | Float64 | Nil = 1 if value is Int32 then integer: Int32 = value elseif value != nil then floating: Float64 = value else print(value) end mut state: Int32 | Float64 = 1 while state is Int32 do current: Int32 = state state = 2 end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected flow narrowing source: %v", result.Stderr)
 	}
@@ -49,7 +49,7 @@ func TestUnionIsNarrowsIfElseAndWhile(t *testing.T) {
 }
 
 func TestUnionNullTestsAndTruthiness(t *testing.T) {
-	result := compileSource("value: Int32 | Bool | Nil = true present: Bool = value != nil if value end")
+	result := compileSource("value: Int32 | Bool | Nil = true present: Bool = value != nil if value then end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected Nil/truthiness source: %v", result.Stderr)
 	}
@@ -69,7 +69,7 @@ func TestUnionEqualityUsesTagsAndPayloads(t *testing.T) {
 }
 
 func TestNullablePointerUnionKeepsNullNiche(t *testing.T) {
-	result := compileSource("mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil result: Int32 = maybe.value end")
+	result := compileSource("mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil then result: Int32 = maybe.value end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nullable pointer source: %v", result.Stderr)
 	}
@@ -79,7 +79,7 @@ func TestNullablePointerUnionKeepsNullNiche(t *testing.T) {
 }
 
 func TestUnionNestedPointerAndFunctionPositions(t *testing.T) {
-	result := compileSource("fun identity(value: Int32 | Bool): Int32 | Bool return value end mut value: Int32 | Bool = true slot: MutPtr<Int32 | Bool> = ref value result: Int32 | Bool = identity(value)")
+	result := compileSource("fun identity(value: Int32 | Bool): Int32 | Bool do return value end mut value: Int32 | Bool = true slot: MutPtr<Int32 | Bool> = ref value result: Int32 | Bool = identity(value)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nested/function union source: %v", result.Stderr)
 	}

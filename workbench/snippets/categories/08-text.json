@@ -8,7 +8,7 @@
       "description": "Read the first rune and first byte from a string.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    text: String = \"caf\\u{00E9}\"",
         "    first: Rune = text.at(0)",
         "    indexed: Rune = text[0]",
@@ -18,7 +18,7 @@
         "end"
       ]},
       "features": ["text", "views"],
-      "reservedWords": ["fun", "return", "end", "and"]
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "text-rune-cursor",
@@ -26,12 +26,12 @@
       "description": "Iterate through text using a RuneCursor.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun count_letters(text: String): Int32",
+        "fun count_letters(text: String): Int32 do",
         "    cursor: RuneCursor = text.rune_cursor()",
         "    mut letters: Int32 = 0",
         "    while cursor.has_next() do",
         "        value: Rune = cursor.next()",
-        "        if value == ' '",
+        "        if value == ' ' then",
         "            continue",
         "        end",
         "        letters = letters + 1",
@@ -40,7 +40,7 @@
         "end"
       ]},
       "features": ["text", "while"],
-      "reservedWords": ["fun", "while", "do", "if", "continue", "return", "end", "mut"]
+      "reservedWords": ["fun", "while", "do", "if", "continue", "return", "end", "mut", "then"]
     },
     {
       "id": "text-byte-view",
@@ -48,7 +48,7 @@
       "description": "Expose a string's bytes as a View<Byte>.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    text: String = \"hello\"",
         "    raw: View<Byte> = text.bytes()",
         "    count: Size = raw.length()",
@@ -57,7 +57,7 @@
         "end"
       ]},
       "features": ["text", "views"],
-      "reservedWords": ["fun", "return", "end", "and"]
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "text-byte-inspection",
@@ -65,7 +65,7 @@
       "description": "Read selected bytes from a text view.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    text: String = \"abc\"",
         "    raw: View<Byte> = text.bytes()",
         "    first: Byte = raw[0]",
@@ -75,7 +75,7 @@
         "end"
       ]},
       "features": ["text", "views"],
-      "reservedWords": ["fun", "return", "end", "and"]
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "text-text-report",
@@ -83,16 +83,16 @@
       "description": "Print multiple text values as one formatted report.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun report_line(label: String, value: Int32)",
+        "fun report_line(label: String, value: Int32) do",
         "    print(label, value)",
         "end",
-        "fun demo()",
+        "fun demo() do",
         "    report_line(\"health\", 100)",
         "    report_line(\"armor\", 50)",
         "end"
       ]},
       "features": ["text", "print", "functions", "no-result-functions"],
-      "reservedWords": ["fun", "end"]
+      "reservedWords": ["fun", "end", "do"]
     },
     {
       "id": "text-escaped-message",
@@ -100,13 +100,13 @@
       "description": "Build a message containing newline, tab, and quote escapes.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    text: String = \"a\\\"b\\\\c\\nd\\te\\rf\"",
         "    return text.length() == 11",
         "end"
       ]},
       "features": ["text", "literals"],
-      "reservedWords": ["fun", "return", "end"]
+      "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "text-string-building",
@@ -114,10 +114,10 @@
       "description": "Build a runtime String with concat and to_string, then free it exactly once.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun load_body(h: Heap): String | Error",
+        "fun load_body(h: Heap): String | Error do",
         "    return \"ready\".to_string(h)",
         "end",
-        "fun build_report(h: Heap): Int32 | Error",
+        "fun build_report(h: Heap): Int32 | Error do",
         "    prefix: String = \"report: \".to_string(h)",
         "    errdefer prefix.free(h)",
         "    body: String = try load_body(h)",
@@ -130,7 +130,7 @@
         "end"
       ]},
       "features": ["text", "errors", "try-errdefer"],
-      "reservedWords": ["fun", "return", "end", "errdefer", "try"]
+      "reservedWords": ["fun", "return", "end", "errdefer", "try", "do"]
     },
     {
       "id": "text-strand-inline",
@@ -138,7 +138,7 @@
       "description": "Use Strand as an inline literal-only value and convert it to a String.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap): Bool",
+        "fun demo(h: Heap): Bool do",
         "    label: Strand = \"hexal\"",
         "    first: Rune = label.at(0)",
         "    text: String = label.to_string(h)",
@@ -148,7 +148,7 @@
         "end"
       ]},
       "features": ["text", "literals"],
-      "reservedWords": ["fun", "return", "end", "and"]
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "text-comparison",
@@ -156,7 +156,7 @@
       "description": "Compare String values by bytes and order them lexicographically.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    left: String = \"abc\"",
         "    right: String = \"abd\"",
         "    same: Bool = left == right",
@@ -167,7 +167,7 @@
         "end"
       ]},
       "features": ["text", "equality-ordering"],
-      "reservedWords": ["fun", "return", "end", "and"]
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "text-protocol-parser",
@@ -177,8 +177,8 @@
       "sources": {"app.hex": [
         "type Token = | Digit as { value: Rune } | Other as { value: Rune }",
         "",
-        "fun next_token(cursor: RuneCursor): Token | EoS",
-        "    if !cursor.has_next()",
+        "fun next_token(cursor: RuneCursor): Token | EoS do",
+        "    if !cursor.has_next() then",
         "        return eos",
         "    end",
         "    letter: Rune = cursor.next()",
@@ -189,12 +189,12 @@
         "    return token",
         "end",
         "",
-        "fun digit_sum(text: String): Int32",
+        "fun digit_sum(text: String): Int32 do",
         "    cursor: RuneCursor = text.rune_cursor()",
         "    mut total: Int32 = 0",
         "    while true do",
         "        step: Token | EoS = next_token(cursor)",
-        "        if step is EoS",
+        "        if step is EoS then",
         "            break",
         "        end",
         "        add: Int32 = (match step is | Token.Digit then 1 | Token.Other then 0 end)",

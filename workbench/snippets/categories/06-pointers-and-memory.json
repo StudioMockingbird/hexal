@@ -34,8 +34,8 @@
       "description": "Handle a pointer that may contain nil.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun total(maybe: Ptr<Int32> | Nil): Int32",
-        "    if maybe != nil",
+        "fun total(maybe: Ptr<Int32> | Nil): Int32 do",
+        "    if maybe != nil then",
         "        return maybe.value",
         "    end",
         "    return 0",
@@ -46,7 +46,7 @@
         "result: Int32 = total(present) + total(absent)"
       ]},
       "features": ["pointers", "nullability", "unions"],
-      "reservedWords": ["fun", "if", "return", "end", "mut", "ref", "nil"]
+      "reservedWords": ["fun", "if", "return", "end", "mut", "ref", "nil", "do", "then"]
     },
     {
       "id": "memory-pointer-view",
@@ -54,14 +54,14 @@
       "description": "Convert pointer plus length into a bounded View<T>.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap): Int32",
+        "fun demo(h: Heap): Int32 do",
         "    p: MutPtr<Int32> = h.allocate<Int32>(7)",
         "    view: View<Int32> = View<Int32>.from_pointer(p, 1)",
         "    return view[0]",
         "end"
       ]},
       "features": ["pointers", "views", "view-pointer-bridge", "heap-allocation"],
-      "reservedWords": ["fun", "return", "end"]
+      "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "memory-opaque-pointer",
@@ -84,7 +84,7 @@
       "description": "Allocate an integer, update it, and release it.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap): Int32",
+        "fun demo(h: Heap): Int32 do",
         "    p: MutPtr<Int32> = h.allocate<Int32>(1)",
         "    defer h.free(p)",
         "    p.value = p.value + 41",
@@ -93,7 +93,7 @@
         "end"
       ]},
       "features": ["heap-allocation", "pointers"],
-      "reservedWords": ["fun", "defer", "return", "end"]
+      "reservedWords": ["fun", "defer", "return", "end", "do"]
     },
     {
       "id": "memory-deferred-free",
@@ -101,7 +101,7 @@
       "description": "Ensure heap cleanup runs when a function returns.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap): Int32",
+        "fun demo(h: Heap): Int32 do",
         "    p: MutPtr<Int32> = h.allocate<Int32>(1)",
         "    defer h.free(p)",
         "    q: MutPtr<Int32> = h.allocate<Int32>(2)",
@@ -111,7 +111,7 @@
         "end"
       ]},
       "features": ["heap-allocation", "defer", "pointers"],
-      "reservedWords": ["fun", "defer", "return", "end"]
+      "reservedWords": ["fun", "defer", "return", "end", "do"]
     },
     {
       "id": "memory-heap-object",
@@ -120,7 +120,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Counter = { mut count: Int32, }",
-        "fun demo(h: Heap): Int32",
+        "fun demo(h: Heap): Int32 do",
         "    p: MutPtr<Counter> = h.allocate<Counter>(Counter { count = 0 })",
         "    defer h.free(p)",
         "    p.count = p.count + 3",
@@ -129,7 +129,7 @@
         "end"
       ]},
       "features": ["heap-allocation", "objects", "pointers"],
-      "reservedWords": ["type", "fun", "defer", "mut", "return", "end"]
+      "reservedWords": ["type", "fun", "defer", "mut", "return", "end", "do"]
     },
     {
       "id": "memory-pointer-swap",
@@ -137,12 +137,12 @@
       "description": "Exchange two values through mutable pointers.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun swap(a: MutPtr<Int32>, b: MutPtr<Int32>)",
+        "fun swap(a: MutPtr<Int32>, b: MutPtr<Int32>) do",
         "    temp: Int32 = a.value",
         "    a.value = b.value",
         "    b.value = temp",
         "end",
-        "fun demo(): Int32",
+        "fun demo(): Int32 do",
         "    mut left: Int32 = 1",
         "    mut right: Int32 = 2",
         "    swap(ref left, ref right)",
@@ -150,7 +150,7 @@
         "end"
       ]},
       "features": ["pointers", "functions", "no-result-functions"],
-      "reservedWords": ["fun", "mut", "return", "end", "ref"]
+      "reservedWords": ["fun", "mut", "return", "end", "ref", "do"]
     },
     {
       "id": "memory-volatile-register",
@@ -158,10 +158,10 @@
       "description": "Write and read a simulated memory-mapped register.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun write_register(register: MutPtr<UInt32>)",
+        "fun write_register(register: MutPtr<UInt32>) do",
         "    register.write_volatile(0x10)",
         "end",
-        "fun demo(): UInt32",
+        "fun demo(): UInt32 do",
         "    mut storage: UInt32 = 0",
         "    register: MutPtr<UInt32> = ref storage",
         "    write_register(register)",
@@ -170,7 +170,7 @@
         "end"
       ]},
       "features": ["volatile", "pointers"],
-      "reservedWords": ["fun", "mut", "return", "end", "ref"]
+      "reservedWords": ["fun", "mut", "return", "end", "ref", "do"]
     }
   ]
 }

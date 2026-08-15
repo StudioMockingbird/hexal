@@ -41,7 +41,7 @@ func TestCheckHeapFreeRequiresHeapReceiver(t *testing.T) {
 
 func TestCheckHeapAllocateRejectsIncompleteAndFunctionTypes(t *testing.T) {
 	requireDiagnostic(t, "h: Heap = Heap.new() p: MutPtr<Unknown> = h.allocate<Unknown>(nil)", "allocation requires a complete finite type")
-	requireDiagnostic(t, "fun f(): Int32 return 1 end h: Heap = Heap.new() p: MutPtr<Fun<(Int32) : Int32>> = h.allocate<Fun<(Int32) : Int32>>(f)", "allocation requires a complete finite type")
+	requireDiagnostic(t, "fun f(): Int32 do return 1 end h: Heap = Heap.new() p: MutPtr<Fun<(Int32) : Int32>> = h.allocate<Fun<(Int32) : Int32>>(f)", "allocation requires a complete finite type")
 }
 
 func TestCheckHeapAllocateRequiresExplicitInitializer(t *testing.T) {
@@ -49,7 +49,7 @@ func TestCheckHeapAllocateRequiresExplicitInitializer(t *testing.T) {
 }
 
 func TestCheckDeferCapturesDirectCall(t *testing.T) {
-	checked, err := Check(parseProgram(t, "fun record(value: Int32) end mut value: Int32 = 1 defer record(value) value = 2"))
+	checked, err := Check(parseProgram(t, "fun record(value: Int32) do end mut value: Int32 = 1 defer record(value) value = 2"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestCheckDeferDefersNonCallExpression(t *testing.T) {
 }
 
 func TestCheckDeferInsideBranchIsBranchScoped(t *testing.T) {
-	checked, err := Check(parseProgram(t, "h: Heap = Heap.new() flag: Bool = true if flag p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p) end"))
+	checked, err := Check(parseProgram(t, "h: Heap = Heap.new() flag: Bool = true if flag then p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p) end"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -108,7 +108,7 @@ func TestArrayElementClassRejectsFunctionValues(t *testing.T) {
 }
 
 func TestArrayMembersAndFunctions(t *testing.T) {
-	result := compileSource("type Pair = { mut values: Array<Int32, 2>, }\nmut pair: Pair = Pair { values = [3, 4], }\nsum: Int32 = pair.values[0] + pair.values.at(1)\npair.values[1] = 9\nfun first(values: Array<Int32, 3>): Int32\n    return values[0]\nend\nhead: Int32 = first([5, 6, 7])")
+	result := compileSource("type Pair = { mut values: Array<Int32, 2>, }\nmut pair: Pair = Pair { values = [3, 4], }\nsum: Int32 = pair.values[0] + pair.values.at(1)\npair.values[1] = 9\nfun first(values: Array<Int32, 3>): Int32 do\n    return values[0]\nend\nhead: Int32 = first([5, 6, 7])")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

@@ -16,10 +16,10 @@ func TestTruthinessConditions(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"if 0 end", "if ((0, true)) {"},
-		{"p: Ptr<Int32> | Nil = nil if p end", "if ((hex_v_p != NULL)) {"},
-		{"if true end", "if (true) {"},
-		{"mut count: Int32 = 1 if count count = count - 1 end", "if ((hex_v_count, true)) {"},
+		{"if 0 then end", "if ((0, true)) {"},
+		{"p: Ptr<Int32> | Nil = nil if p then end", "if ((hex_v_p != NULL)) {"},
+		{"if true then end", "if (true) {"},
+		{"mut count: Int32 = 1 if count then count = count - 1 end", "if ((hex_v_count, true)) {"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
@@ -34,7 +34,7 @@ func TestTruthinessConditions(t *testing.T) {
 func TestTruthinessConditionLoweringPreservesBranches(t *testing.T) {
 	// A falsey condition still emits its branches: the checker must have
 	// type-checked them, and the generated C keeps them for runtime.
-	result := compileSource("p: Ptr<Int32> | Nil = nil if p missing: Int32 = 1 end")
+	result := compileSource("p: Ptr<Int32> | Nil = nil if p then missing: Int32 = 1 end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want successful nil-condition program", result)
 	}
@@ -47,7 +47,7 @@ func TestNullableTruthinessCondition(t *testing.T) {
 	// The if and elseif conditions are the bare nullable binding; deref of
 	// maybe would need a narrowing null test, so the branches only touch it
 	// through truthiness.
-	result := compileSource("mut value: Int32 = 5 mut maybe: Ptr<Int32> | Nil = ref value if maybe noop: Int32 = 0 elseif maybe result: Int32 = 1 end")
+	result := compileSource("mut value: Int32 = 5 mut maybe: Ptr<Int32> | Nil = ref value if maybe then noop: Int32 = 0 elseif maybe then result: Int32 = 1 end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want a successful nullable truthiness program", result)
 	}
@@ -126,7 +126,7 @@ func TestTruthinessShortCircuitSkipsFoldedSide(t *testing.T) {
 }
 
 func TestTruthinessRejectsNoResultCalls(t *testing.T) {
-	result := compileSource("fun reset()\n    return\nend\nif reset() end\n")
+	result := compileSource("fun reset() do\n    return\nend\nif reset() then end\n")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "reset produces no value") {
 		t.Fatalf("Compile = %#v, want a no-result condition diagnostic", result)
 	}

@@ -16,8 +16,8 @@ func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
 	for _, source := range []string{
 		"type Bad = Nil",
 		"bad: Nil = nil",
-		"fun bad(argument: Nil) return end",
-		"fun bad(): Nil return end",
+		"fun bad(argument: Nil) do return end",
+		"fun bad(): Nil do return end",
 		"type Bad = { marker: Nil, }",
 		"type Bad = | One as { marker: Nil } | Two as { value: Int32 }",
 		"bad: Array<Nil, 4> = [nil, nil, nil, nil]",
@@ -27,13 +27,13 @@ func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
 		"bad: Dict<Int32, Nil> = Dict<Int32, Nil>.new(Heap.new())",
 		"bad: Ptr<Nil> = alloc(Nil)",
 		"bad: MutPtr<Nil> = alloc(Nil)",
-		"fun nothing(value: Int32) return end bad: Fun<(Nil) : Int32> = nothing",
-		"fun nothing(value: Int32) return end bad: Fun<(Int32) : Nil> = nothing",
-		"fun square(value: Int32): Int32 return value * value end bad: Task<Nil> = try spawn square(6)",
+		"fun nothing(value: Int32) do return end bad: Fun<(Nil) : Int32> = nothing",
+		"fun nothing(value: Int32) do return end bad: Fun<(Int32) : Nil> = nothing",
+		"fun square(value: Int32): Int32 do return value * value end bad: Task<Nil> = try spawn square(6)",
 		"h: Heap = Heap.new() bad: Channel<Nil> = Channel<Nil>.new(h, 8)",
 		"bad: Stream<Nil> = Stream<Nil>.new()",
 		"h: Heap = Heap.new() bad: MutPtr<Nil> = h.allocate<Nil>(0)",
-		"value: Int32 | Nil = nil if value is Int32 noop: Int32 = 0 else bad: Nil = value end",
+		"value: Int32 | Nil = nil if value is Int32 then noop: Int32 = 0 else bad: Nil = value end",
 	} {
 		requireDiagnostic(t, source, want)
 	}
@@ -49,7 +49,7 @@ func TestCheckerAcceptsNilOnlyInContext(t *testing.T) {
 	requireAccepted(t, "value: Int32 | Bool | Nil = nil")
 	requireAccepted(t, "value: Int32 | Bool | Nil = nil flag: Bool = value != nil")
 	requireAccepted(t, "print(nil)")
-	requireAccepted(t, "value: Int32 | Nil = nil if value != nil noop: Int32 = value else print(value) end")
+	requireAccepted(t, "value: Int32 | Nil = nil if value != nil then noop: Int32 = value else print(value) end")
 }
 
 func TestCheckerResolvesNilUnknownAndNullableAliases(t *testing.T) {
@@ -136,7 +136,7 @@ func TestCheckerPreservesFunctionPositionRestrictions(t *testing.T) {
 }
 
 func TestCheckerRoutesNullableAndUnknownAssignabilityThroughAllContexts(t *testing.T) {
-	requireAccepted(t, "type Node = { value: Int32, } type Holder = { link: Ptr<Node> | Nil, erased: Ptr<Unknown>, } fun erase(source: MutPtr<Node>): Ptr<Unknown> return source end fun recover(source: Ptr<Unknown>): Ptr<Node> return source end fun accept(source: Ptr<Node>): Int32 return source.value.value end mut node: Node = Node { value = 1, } writer: MutPtr<Node> = ref node mut maybe: Ptr<Node> | Nil = writer maybe = writer mut erased: Ptr<Unknown> = writer mut restored: Ptr<Node> = erased maybe_erased: Ptr<Unknown> | Nil = writer maybe_restored: Ptr<Node> | Nil = maybe_erased holder: Holder = Holder { link = writer, erased = writer, } assigned: Ptr<Node> = recover(erased) erased = writer restored = erased erase_result: Ptr<Unknown> = erase(writer) accepted: Int32 = accept(erased)")
+	requireAccepted(t, "type Node = { value: Int32, } type Holder = { link: Ptr<Node> | Nil, erased: Ptr<Unknown>, } fun erase(source: MutPtr<Node>): Ptr<Unknown> do return source end fun recover(source: Ptr<Unknown>): Ptr<Node> do return source end fun accept(source: Ptr<Node>): Int32 do return source.value.value end mut node: Node = Node { value = 1, } writer: MutPtr<Node> = ref node mut maybe: Ptr<Node> | Nil = writer maybe = writer mut erased: Ptr<Unknown> = writer mut restored: Ptr<Node> = erased maybe_erased: Ptr<Unknown> | Nil = writer maybe_restored: Ptr<Node> | Nil = maybe_erased holder: Holder = Holder { link = writer, erased = writer, } assigned: Ptr<Node> = recover(erased) erased = writer restored = erased erase_result: Ptr<Unknown> = erase(writer) accepted: Int32 = accept(erased)")
 }
 
 func TestCheckerRejectsNullableAndNilRemovalWithExactDiagnostics(t *testing.T) {
@@ -216,7 +216,7 @@ func TestCheckerPointerEqualityAndNullableIdentityRules(t *testing.T) {
 // expression is a valid condition, including a nullable value, and not
 // accepts any value-producing operand.
 func TestCheckerAcceptsNullableTruthinessAsCondition(t *testing.T) {
-	requireAccepted(t, "maybe: Ptr<Int32> | Nil = nil if maybe end")
+	requireAccepted(t, "maybe: Ptr<Int32> | Nil = nil if maybe then end")
 	requireAccepted(t, "maybe: Ptr<Int32> | Nil = nil flag: Bool = !maybe")
 }
 
@@ -225,57 +225,57 @@ func TestCheckerAcceptsNullableTruthinessAsCondition(t *testing.T) {
 // `!= nil` proves P in the true branch and Nil in the false branch; `== nil`
 // reverses those facts. The commuted spelling narrows identically.
 func TestCheckerNarrowsNullTestsByBranch(t *testing.T) {
-	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil result: Int32 = maybe.value end")
-	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if nil != maybe result: Int32 = maybe.value end")
-	requireAccepted(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = nil if maybe == nil noop: Int32 = 0 else result: Int32 = maybe.value end")
-	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe == nil noop: Int32 = 0 elseif flag result: Int32 = maybe.value end")
-	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil result: Int32 = maybe.value else bad: Int32 = maybe.value end", "cannot access .value on Nil; expected Ptr<T>")
-	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe == nil bad: Int32 = maybe.value end", "cannot access .value on Nil; expected Ptr<T>")
-	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil noop: Int32 = 0 elseif flag bad: Int32 = maybe.value end", "cannot access .value on Nil; expected Ptr<T>")
+	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil then result: Int32 = maybe.value end")
+	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if nil != maybe then result: Int32 = maybe.value end")
+	requireAccepted(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = nil if maybe == nil then noop: Int32 = 0 else result: Int32 = maybe.value end")
+	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe == nil then noop: Int32 = 0 elseif flag then result: Int32 = maybe.value end")
+	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil then result: Int32 = maybe.value else bad: Int32 = maybe.value end", "cannot access .value on Nil; expected Ptr<T>")
+	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe == nil then bad: Int32 = maybe.value end", "cannot access .value on Nil; expected Ptr<T>")
+	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil then noop: Int32 = 0 elseif flag then bad: Int32 = maybe.value end", "cannot access .value on Nil; expected Ptr<T>")
 }
 
 func TestCheckerNarrowingIsBranchLocal(t *testing.T) {
-	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil result: Int32 = maybe.value end")
-	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil result: Int32 = maybe.value end if maybe != nil result: Int32 = maybe.value end")
-	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil result: Int32 = maybe.value end bad: Int32 = maybe.value", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil then result: Int32 = maybe.value end")
+	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil then result: Int32 = maybe.value end if maybe != nil then result: Int32 = maybe.value end")
+	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil then result: Int32 = maybe.value end bad: Int32 = maybe.value", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value while maybe != nil do maybe = nil end bad: Int32 = maybe.value", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 }
 
 func TestCheckerRejectsNullableAccessWithoutNarrowing(t *testing.T) {
 	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value bad: Int32 = maybe.value", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
-	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil and flag bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
-	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if flag bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil and flag then bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if flag then bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 }
 
 func TestCheckerRejectsMemberPathNarrowing(t *testing.T) {
-	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut first: Node = Node { value = 1, next = nil, } node: MutPtr<Node> = ref first if node.next != nil bad: Int32 = node.next.value end", "only a local binding can be narrowed; bind node.next before testing it")
+	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut first: Node = Node { value = 1, next = nil, } node: MutPtr<Node> = ref first if node.next != nil then bad: Int32 = node.next.value end", "only a local binding can be narrowed; bind node.next before testing it")
 }
 
 func TestCheckerInvalidatesNarrowingOnAssignmentAndWritableRef(t *testing.T) {
-	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value if maybe != nil maybe = nil bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
-	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil if flag maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
-	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value if maybe != nil slot: MutPtr<Ptr<Int32> | Nil> = ref maybe bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
-	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value slot: MutPtr<Ptr<Int32> | Nil> = ref maybe if maybe != nil bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
-	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil if flag slot: MutPtr<Ptr<Int32> | Nil> = ref maybe end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value if maybe != nil then maybe = nil bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil then if flag then maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value if maybe != nil then slot: MutPtr<Ptr<Int32> | Nil> = ref maybe bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value slot: MutPtr<Ptr<Int32> | Nil> = ref maybe if maybe != nil then bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil then if flag then slot: MutPtr<Ptr<Int32> | Nil> = ref maybe end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 }
 
 func TestCheckerPreservesNarrowingAcrossReadOnlyRef(t *testing.T) {
-	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil reader: Ptr<Ptr<Int32> | Nil> = ref maybe result: Int32 = maybe.value end")
+	requireAccepted(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil then reader: Ptr<Ptr<Int32> | Nil> = ref maybe result: Int32 = maybe.value end")
 }
 
 func TestCheckerReportsRedundantNullTestInsideNarrowedBranch(t *testing.T) {
 	// The branch narrows maybe to a plain pointer, which has no Nil member,
 	// so the inner null test's nil literal is rejected by the union gate.
-	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil bad: Bool = maybe != nil end", "nil requires an expected union containing Nil")
+	requireDiagnostic(t, "mut value: Int32 = 1 maybe: Ptr<Int32> | Nil = ref value if maybe != nil then bad: Bool = maybe != nil end", "nil requires an expected union containing Nil")
 }
 
 func TestCheckerNarrowingSurvivesWhileLoopBody(t *testing.T) {
 	requireAccepted(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value while maybe != nil do result: Int32 = maybe.value maybe = nil end")
-	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil while flag do maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil then while flag do maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 }
 
 func TestCheckerNarrowsFunctionParameters(t *testing.T) {
-	requireAccepted(t, "fun read(maybe: Ptr<Int32> | Nil): Int32 if maybe != nil return maybe.value end return 0 end")
+	requireAccepted(t, "fun read(maybe: Ptr<Int32> | Nil): Int32 do if maybe != nil then return maybe.value end return 0 end")
 }
 
 // Task 7: nullable object members, member access, and methods on nullable
@@ -319,19 +319,19 @@ func TestCheckerNullableMemberValueRequiresBindThenTest(t *testing.T) {
 		"mut first: Node = Node { value = 1, next = nil, }\n"+
 		"node: MutPtr<Node> = ref first\n"+
 		"next: MutPtr<Node> | Nil = node.next\n"+
-		"if next != nil\n"+
+		"if next != nil then\n"+
 		"    tail: Node = next.value\n"+
 		"end\n")
 }
 
 func TestCheckerMethodsOnNullableReceiversRequireNarrowing(t *testing.T) {
 	requireAccepted(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"impl Node.read(): Int32\n    return self.value\nend\n"+
+		"impl Node.read(): Int32 do\n    return self.value\nend\n"+
 		"mut first: Node = Node { value = 1, next = nil, }\n"+
 		"maybe: MutPtr<Node> | Nil = ref first\n"+
-		"if maybe != nil\n    result: Int32 = maybe.read()\nend\n")
+		"if maybe != nil then\n    result: Int32 = maybe.read()\nend\n")
 	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"impl Node.read(): Int32\n    return self.value\nend\n"+
+		"impl Node.read(): Int32 do\n    return self.value\nend\n"+
 		"mut first: Node = Node { value = 1, next = nil, }\n"+
 		"maybe: MutPtr<Node> | Nil = ref first\n"+
 		"bad: Int32 = maybe.read()\n",
@@ -348,24 +348,24 @@ func TestCheckerKeepsByValueRecursionRejectedWithNullableMembers(t *testing.T) {
 // body's effects must still merge into the pre-test flow. Regression for a
 // lost-invalidation bug where the missing else dropped the merge entirely.
 func TestCheckerElseifWithoutElseStillMergesInvalidation(t *testing.T) {
-	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil if flag maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
-	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil other: Bool = false if other noop: Int32 = 0 elseif flag maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil then if flag then maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 = 1 mut maybe: Ptr<Int32> | Nil = ref value flag: Bool = true if maybe != nil then other: Bool = false if other then noop: Int32 = 0 elseif flag then maybe = nil end bad: Int32 = maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 }
 
 // RFC 0049 item 8.1: standalone Nil is rejected even through generic
 // substitution and spawn arguments, not only in direct spellings.
 func TestCheckerRejectsNilThroughGenericSubstitution(t *testing.T) {
 	requireDiagnostic(t, "type Box<T> = { value: T } bad: Box<Nil> = Box<Nil> { value = nil }", "Nil is valid only as a member of a union with a non-Nil type")
-	requireDiagnostic(t, "type Box<T> = { value: T } fun unwrap(box: Box<Nil>): Int32 return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
-	requireDiagnostic(t, "fun worker(flag: Nil): Bool return true end fun run(): Int32 | Error task: Task<Bool> = try spawn worker(nil) return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
+	requireDiagnostic(t, "type Box<T> = { value: T } fun unwrap(box: Box<Nil>): Int32 do return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
+	requireDiagnostic(t, "fun worker(flag: Nil): Bool do return true end fun run(): Int32 | Error do task: Task<Bool> = try spawn worker(nil) return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
 }
 
 // Reference.md: a branch-established fact survives only on the sole
 // continuing path when every alternative terminates with return, break, or
 // continue.
 func TestCheckerSoleContinuingPathNarrowing(t *testing.T) {
-	requireAccepted(t, "fun f(): Int32 mut maybe: Ptr<Int32> | Nil = nil if maybe == nil return 0 end return maybe.value end")
-	requireAccepted(t, "fun f(): Int32 mut maybe: Ptr<Int32> | Nil = nil while true do if maybe == nil break end return maybe.value end return 0 end")
-	requireAccepted(t, "fun f(): Int32 mut maybe: Ptr<Int32> | Nil = nil mut total: Int32 = 0 while true do if maybe == nil continue end total = maybe.value break end return total end")
-	requireDiagnostic(t, "fun f(): Int32 mut maybe: Ptr<Int32> | Nil = nil if maybe != nil print(maybe.value) end return maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireAccepted(t, "fun f(): Int32 do mut maybe: Ptr<Int32> | Nil = nil if maybe == nil then return 0 end return maybe.value end")
+	requireAccepted(t, "fun f(): Int32 do mut maybe: Ptr<Int32> | Nil = nil while true do if maybe == nil then break end return maybe.value end return 0 end")
+	requireAccepted(t, "fun f(): Int32 do mut maybe: Ptr<Int32> | Nil = nil mut total: Int32 = 0 while true do if maybe == nil then continue end total = maybe.value break end return total end")
+	requireDiagnostic(t, "fun f(): Int32 do mut maybe: Ptr<Int32> | Nil = nil if maybe != nil then print(maybe.value) end return maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 }

@@ -27,7 +27,7 @@ func checkModules(t *testing.T, app, math string) (map[string]Program, error) {
 func TestQualifiedCallResolvesExportedFunction(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
-		"export fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n")
+		"export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified call: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestQualifiedCallResolvesExportedFunction(t *testing.T) {
 func TestQualifiedCallRejectsPrivateFunction(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
-		"fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n")
+		"fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
 	requireMessage(t, err, "declaration add is private to module math")
 }
 
@@ -85,7 +85,7 @@ func TestQualifiedTypeKeepsUnknownModuleAlias(t *testing.T) {
 func TestExportedClosureRejectsPrivateType(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"type Secret = { x: Int32 }\nexport fun f(): Secret\n    return Secret { x = 1 }\nend\n")
+		"type Secret = { x: Int32 }\nexport fun f(): Secret do\n    return Secret { x = 1 }\nend\n")
 	requireMessage(t, err, "exported function f exposes private type Secret")
 }
 
@@ -94,7 +94,7 @@ func TestExportedClosureRejectsPrivateType(t *testing.T) {
 func TestExportedClosureWalksNestedAndCycles(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"type Secret = { x: Int32 }\nexport type Node = { next: MutPtr<Node> | Nil, items: List<Secret> }\nexport fun f(): Node\n    return Node { next = nil, items = List<Secret>.new(Heap.new()) }\nend\n")
+		"type Secret = { x: Int32 }\nexport type Node = { next: MutPtr<Node> | Nil, items: List<Secret> }\nexport fun f(): Node do\n    return Node { next = nil, items = List<Secret>.new(Heap.new()) }\nend\n")
 	requireMessage(t, err, "exported function f exposes private type Secret")
 }
 
@@ -102,7 +102,7 @@ func TestExportedClosureWalksNestedAndCycles(t *testing.T) {
 func TestExportedClosureAcceptsExportedInterface(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"export type Point = { x: Int32, y: Int32 }\nexport fun f(p: Ptr<Point>): Point\n    return Point { x = 1, y = 2 }\nend\n")
+		"export type Point = { x: Int32, y: Int32 }\nexport fun f(p: Ptr<Point>): Point do\n    return Point { x = 1, y = 2 }\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected a closed exported interface: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestExportedClosureAcceptsExportedInterface(t *testing.T) {
 func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"export type Box<T> = { item: T }\nexport fun new_box<T>(item: T): Box<T>\n    return Box<T> { item = item }\nend\n")
+		"export type Box<T> = { item: T }\nexport fun new_box<T>(item: T): Box<T> do\n    return Box<T> { item = item }\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the generic interface: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestQualifiedVariantRejectsUnknownExport(t *testing.T) {
 func TestUnqualifiedUseOfExportedNameFails(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\nresult: Int32 = add(2, 3)\n",
-		"export fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n")
+		"export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
 	requireMessage(t, err, "unknown function add; functions must be declared before use")
 }
 

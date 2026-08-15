@@ -24,7 +24,7 @@ func TestSameNamedTypesInDifferentModulesAreDistinct(t *testing.T) {
 func TestNominalTypesAcrossModulesStayDistinct(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":    "module Math = import \"./math\"\nmodule Shapes = import \"./shapes\"\nm: Math.Point = Math.make()\ns: Shapes.Point = m\n",
-		"math.hex":   "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point\n    return Point { x = 1, y = 2 }\nend\n",
+		"math.hex":   "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 1, y = 2 }\nend\n",
 		"shapes.hex": "export type Point = { x: Int32, y: Int32 }\n",
 	}
 	// math.Point and shapes.Point are distinct nominal identities despite
@@ -36,7 +36,7 @@ func TestNominalTypesAcrossModulesStayDistinct(t *testing.T) {
 
 func TestCannotDeclareMethodsForImportedType(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":      "module Geometry = import \"./geometry\"\nimpl Geometry.Point.rotate(): Geometry.Point\n    return self\nend\n",
+		"app.hex":      "module Geometry = import \"./geometry\"\nimpl Geometry.Point.rotate(): Geometry.Point do\n    return self\nend\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\n",
 	}
 	result := compileMulti(sources, "app.hex")
@@ -45,7 +45,7 @@ func TestCannotDeclareMethodsForImportedType(t *testing.T) {
 
 func TestCannotDeclareMethodsThroughAliasOfImportedType(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":      "module Geometry = import \"./geometry\"\ntype LocalPoint = Geometry.Point\nimpl LocalPoint.rotate(): LocalPoint\n    return self\nend\n",
+		"app.hex":      "module Geometry = import \"./geometry\"\ntype LocalPoint = Geometry.Point\nimpl LocalPoint.rotate(): LocalPoint do\n    return self\nend\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\n",
 	}
 	result := compileMulti(sources, "app.hex")
@@ -55,7 +55,7 @@ func TestCannotDeclareMethodsThroughAliasOfImportedType(t *testing.T) {
 func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point = Geometry.make()\nlength: Int32 = p.length_squared()\n",
-		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point\n    return Point { x = 3, y = 4 }\nend\nexport impl Point.length_squared(): Int32\n    return self.x * self.x + self.y * self.y\nend\n",
+		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nexport impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n",
 	}
 	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "geometry")
 }
@@ -63,7 +63,7 @@ func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point = Geometry.make()\nlength: Int32 = p.length_squared()\n",
-		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point\n    return Point { x = 3, y = 4 }\nend\nimpl Point.length_squared(): Int32\n    return self.x * self.x + self.y * self.y\nend\n",
+		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nimpl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "declaration length_squared is private to module geometry")
@@ -72,7 +72,7 @@ func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
 func TestGenericSpecializationsOwnedByDefiningModule(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\na: Int32 = Math.identity<Int32>(1)\nb: Float64 = Math.identity<Float64>(2.0)\nc: Int32 = Math.identity<Int32>(3)\n",
-		"math.hex": "export fun identity<T>(value: T): T\n    return value\nend\n",
+		"math.hex": "export fun identity<T>(value: T): T do\n    return value\nend\n",
 	}
 	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }

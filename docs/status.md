@@ -19,6 +19,12 @@ gets deleted.
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem and build driver | [0055](specs/0055-filesystem-and-build-driver.md) |
 
+### Implementation-ready
+
+| Work | Spec |
+|---|---|
+| Demand-driven `hexal.h` | [0062](specs/0062-demand-driven-hexal-header.md) |
+
 ## Unowned
 
 One item survived the previous follow-up list without a determinable meaning:

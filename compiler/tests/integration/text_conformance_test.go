@@ -47,7 +47,7 @@ func TestRuneLiteralsCompile(t *testing.T) {
 }
 
 func TestStringUnicodeEscapesCompile(t *testing.T) {
-	source := "fun demo(): Bool\n    text: String = \"caf\\u{00E9} \\u{1F980}\\0\"\n    return text.is_empty()\nend\n"
+	source := "fun demo(): Bool do\n    text: String = \"caf\\u{00E9} \\u{1F980}\\0\"\n    return text.is_empty()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -55,7 +55,7 @@ func TestStringUnicodeEscapesCompile(t *testing.T) {
 }
 
 func TestStringSurfaceCompiles(t *testing.T) {
-	source := "fun demo(): Size\n    text: String = \"hello\"\n    count: Size = text.length()\n    empty: Bool = text.is_empty()\n    first: Rune = text.at(0)\n    indexed: Rune = text[1]\n    cursor: RuneCursor = text.rune_cursor()\n    return count\nend\n"
+	source := "fun demo(): Size do\n    text: String = \"hello\"\n    count: Size = text.length()\n    empty: Bool = text.is_empty()\n    first: Rune = text.at(0)\n    indexed: Rune = text[1]\n    cursor: RuneCursor = text.rune_cursor()\n    return count\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -75,7 +75,7 @@ func TestStringSurfaceCompiles(t *testing.T) {
 }
 
 func TestRuneCursorIterationCompiles(t *testing.T) {
-	source := "fun demo(): Int32\n    text: String = \"caf\\u{00E9}\"\n    cursor: RuneCursor = text.rune_cursor()\n    mut count: Int32 = 0\n    while cursor.has_next() do\n        value: Rune = cursor.next()\n        count = count + 1\n    end\n    return count\nend\n"
+	source := "fun demo(): Int32 do\n    text: String = \"caf\\u{00E9}\"\n    cursor: RuneCursor = text.rune_cursor()\n    mut count: Int32 = 0\n    while cursor.has_next() do\n        value: Rune = cursor.next()\n        count = count + 1\n    end\n    return count\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -83,7 +83,7 @@ func TestRuneCursorIterationCompiles(t *testing.T) {
 }
 
 func TestStrandSurfaceCompiles(t *testing.T) {
-	source := "fun demo(h: Heap): Bool\n    label: Strand = \"hexal\"\n    count: Size = label.length()\n    empty: Bool = label.is_empty()\n    first: Rune = label.at(0)\n    indexed: Rune = label[1]\n    text: String = label.to_string(h)\n    text.free(h)\n    return empty\nend\n"
+	source := "fun demo(h: Heap): Bool do\n    label: Strand = \"hexal\"\n    count: Size = label.length()\n    empty: Bool = label.is_empty()\n    first: Rune = label.at(0)\n    indexed: Rune = label[1]\n    text: String = label.to_string(h)\n    text.free(h)\n    return empty\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -108,7 +108,7 @@ func TestStrandRejectsInvalidLiterals(t *testing.T) {
 }
 
 func TestStrandRejectsStringOnlyMethods(t *testing.T) {
-	source := "fun demo()\n    label: Strand = \"x\"\n    view: View<Byte> = label.bytes()\nend\n"
+	source := "fun demo() do\n    label: Strand = \"x\"\n    view: View<Byte> = label.bytes()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Strand has no method bytes") {
 		t.Fatalf("want Strand method diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -116,7 +116,7 @@ func TestStrandRejectsStringOnlyMethods(t *testing.T) {
 }
 
 func TestStringFromBytesAndFromRunesCompile(t *testing.T) {
-	source := "fun demo(h: Heap): Bool\n    bytes: Array<UInt8, 3> = [97, 98, 99]\n    view: View<UInt8> = bytes.slice(0, 3)\n    made: String = String.from_bytes(h, view)\n    made.free(h)\n    runes: Array<Rune, 2> = ['a', '\\u{1F980}']\n    rune_view: View<Rune> = runes.slice(0, 2)\n    encoded: String = String.from_runes(h, rune_view)\n    encoded.free(h)\n    return true\nend\n"
+	source := "fun demo(h: Heap): Bool do\n    bytes: Array<UInt8, 3> = [97, 98, 99]\n    view: View<UInt8> = bytes.slice(0, 3)\n    made: String = String.from_bytes(h, view)\n    made.free(h)\n    runes: Array<Rune, 2> = ['a', '\\u{1F980}']\n    rune_view: View<Rune> = runes.slice(0, 2)\n    encoded: String = String.from_runes(h, rune_view)\n    encoded.free(h)\n    return true\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -129,7 +129,7 @@ func TestStringFromBytesAndFromRunesCompile(t *testing.T) {
 }
 
 func TestStringFromBytesRejectsWrongView(t *testing.T) {
-	source := "fun demo(h: Heap)\n    runes: Array<Rune, 1> = ['a']\n    view: View<Rune> = runes.slice(0, 1)\n    made: String = String.from_bytes(h, view)\nend\n"
+	source := "fun demo(h: Heap) do\n    runes: Array<Rune, 1> = ['a']\n    view: View<Rune> = runes.slice(0, 1)\n    made: String = String.from_bytes(h, view)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires View<Byte>") {
 		t.Fatalf("want from_bytes view diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -151,7 +151,7 @@ func TestByteAndRuneLiteralDiagnostics(t *testing.T) {
 }
 
 func TestRuneCursorHasNoUnknownMethods(t *testing.T) {
-	source := "fun demo(): Rune\n    text: String = \"a\"\n    cursor: RuneCursor = text.rune_cursor()\n    return cursor.rewind()\nend\n"
+	source := "fun demo(): Rune do\n    text: String = \"a\"\n    cursor: RuneCursor = text.rune_cursor()\n    return cursor.rewind()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "RuneCursor has no method rewind") {
 		t.Fatalf("want cursor method diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)

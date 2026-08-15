@@ -14,13 +14,13 @@
         "enabled: Bool = true",
         "steps: Size = 4",
         "mut adjusted: Float64 = balance.to<Float64>() + power_level.to<Float64>()",
-        "if enabled",
+        "if enabled then",
         "    adjusted = adjusted + steps.to<Float64>()",
         "end",
         "adjusted = adjusted - (fan_speed.to<Float64>() * 0.25)"
       ]},
       "features": ["bindings", "scalar-types"],
-      "reservedWords": ["mut", "if", "end", "true"]
+      "reservedWords": ["mut", "if", "end", "true", "then"]
     },
     {
       "id": "values-mutable-accumulator",
@@ -28,7 +28,7 @@
       "description": "Updates a mutable integer through several meaningful steps and returns the total.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun total_after_steps(seed: Int32): Int32",
+        "fun total_after_steps(seed: Int32): Int32 do",
         "    mut total: Int32 = seed",
         "    total = total + 5",
         "    total = total * 2",
@@ -38,7 +38,7 @@
         "result: Int32 = total_after_steps(10)"
       ]},
       "features": ["bindings", "functions"],
-      "reservedWords": ["fun", "mut", "return", "end"]
+      "reservedWords": ["fun", "mut", "return", "end", "do"]
     },
     {
       "id": "values-packet-header",

@@ -34,10 +34,10 @@ declaration-item = type-declaration | function-declaration
 type-declaration = "type" , identifier , [ generic-parameter-list ]
                    , "=" , type-definition-expression ;
 function-declaration = "fun" , identifier , [ generic-parameter-list ]
-                       , signature , block , "end" ;
+                       , signature , "do" , block , "end" ;
 implementation-declaration = "impl" , type-expression , "." , identifier
                              , [ generic-parameter-list ] , signature
-                             , block , "end" ;
+                             , "do" , block , "end" ;
 signature = "(" , [ parameter-list ] , ")" , [ ":" , type-expression ] ;
 parameter-list = parameter , { "," , parameter } ;
 parameter = identifier , ":" , type-expression ;
@@ -59,8 +59,8 @@ try-statement = "try" , unary-expression ;
 return-statement = "return" , [ same-line , expression ] ;
 defer-statement = "defer" , expression ;
 errdefer-statement = "errdefer" , expression ;
-if-statement = "if" , expression , block
-               , { "elseif" , expression , block }
+if-statement = "if" , expression , "then" , block
+               , { "elseif" , expression , "then" , block }
                , [ "else" , block ] , "end" ;
 while-statement = "while" , expression , "do" , block , "end" ;
 for-statement = "for" , for-binders , "in" , expression
@@ -588,7 +588,9 @@ destinations only. `none` means no fixed-width destination.
 
 ## Control flow and cleanup
 
-- `if`/`elseif`/`else` and pre-tested `while` end with `end`; loops require `do`. `break` and
+- Every structured body opens with an explicit delimiter (RFC 0061): function, method, `while`, and
+  `for` bodies open with `do`; `if` and `elseif` bodies open with `then`; `else` is itself the opener;
+  match arms open with `then`. All forms end with `end`. `break` and
   `continue` target the nearest loop.
 - Branches and loop iterations are scopes. Locals may shadow outer names; assignments may reach
   accessible outer mutable bindings.

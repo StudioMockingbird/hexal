@@ -417,7 +417,7 @@ func TestParseRecoversAfterConsumedMalformedStatement(t *testing.T) {
 }
 
 func TestParseRecoveryPreservesNestedBlockDelimiters(t *testing.T) {
-	tokens, err := lexer.Lex("if true while false do else end end recovered: Int32 = 1")
+	tokens, err := lexer.Lex("if true then while false do else end end recovered: Int32 = 1")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -442,7 +442,7 @@ func TestParseRecoveryPreservesNestedBlockDelimiters(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsInvalidDelimiterInsideWhile(t *testing.T) {
-	tokens, err := lexer.Lex("if true while false do else sibling: Int32 = 1 end after: Int32 = 2 end")
+	tokens, err := lexer.Lex("if true then while false do else sibling: Int32 = 1 end after: Int32 = 2 end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestParseRecoveryKeepsInvalidDelimiterInsideWhile(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsValidReturnSibling(t *testing.T) {
-	tokens, err := lexer.Lex("fun choose(): Int32 if true broken return 1 else return 2 end end")
+	tokens, err := lexer.Lex("fun choose(): Int32 do if true then broken return 1 else return 2 end end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -500,14 +500,14 @@ func TestParseRecoveryKeepsValidReturnSibling(t *testing.T) {
 }
 
 func TestParseRecoveryReportsMissingEndAfterMalformedStatement(t *testing.T) {
-	message := parseError(t, "if true broken")
+	message := parseError(t, "if true then broken")
 	if !strings.Contains(message, "expected end to close if") {
 		t.Fatalf("Parse error = %q, want missing-if-end diagnostic", message)
 	}
 }
 
 func TestParseRecoveryKeepsSelfAssignmentSibling(t *testing.T) {
-	tokens, err := lexer.Lex("if true broken self.value = 1 end")
+	tokens, err := lexer.Lex("if true then broken self.value = 1 end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestParseRecoveryKeepsSelfAssignmentSibling(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsSiblingInsideMalformedNestedLoop(t *testing.T) {
-	tokens, err := lexer.Lex("fun keep() while true do else value: Int32 = 1 end after: Int32 = 2 end")
+	tokens, err := lexer.Lex("fun keep() do while true do else value: Int32 = 1 end after: Int32 = 2 end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -559,7 +559,7 @@ func TestParseRecoveryKeepsSiblingInsideMalformedNestedLoop(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsDottedCallSibling(t *testing.T) {
-	tokens, err := lexer.Lex("if true broken point.step(1) end")
+	tokens, err := lexer.Lex("if true then broken point.step(1) end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -839,7 +839,7 @@ func parseError(t *testing.T, source string) string {
 }
 
 func TestParseFunctionDeclaration(t *testing.T) {
-	item := parseOneItem(t, "fun adder(left: Int32, right: Int32) : Int32\nreturn left\nend")
+	item := parseOneItem(t, "fun adder(left: Int32, right: Int32) : Int32 do\nreturn left\nend")
 	function, ok := item.(FunctionDeclaration)
 	if !ok {
 		t.Fatalf("item = %#v, want FunctionDeclaration", item)
@@ -868,7 +868,7 @@ func TestParseFunctionDeclaration(t *testing.T) {
 }
 
 func TestParseFunctionDeclarationIsNotAStatement(t *testing.T) {
-	item := parseOneItem(t, "fun reset()\nend")
+	item := parseOneItem(t, "fun reset() do\nend")
 	if _, ok := item.(Statement); ok {
 		t.Fatal("FunctionDeclaration implements Statement; it is module-level only")
 	}
@@ -882,7 +882,7 @@ func TestParseFunctionDeclarationIsNotAStatement(t *testing.T) {
 }
 
 func TestParseFunctionOneParameter(t *testing.T) {
-	function := parseOneItem(t, "fun twice(value: Int32) : Int32\nreturn value\nend").(FunctionDeclaration)
+	function := parseOneItem(t, "fun twice(value: Int32) : Int32 do\nreturn value\nend").(FunctionDeclaration)
 	if len(function.Parameters) != 1 {
 		t.Fatalf("parameter count = %d, want 1", len(function.Parameters))
 	}
@@ -895,9 +895,9 @@ func TestParseImplReceiverForms(t *testing.T) {
 		pointer    bool
 		typeLexeme string
 	}{
-		{source: "impl Point.translate(dx: Int32)\nend", typeLexeme: "Point"},
-		{source: "impl Ptr<Point>.length()\nend", pointer: true, typeLexeme: "Point"},
-		{source: "impl MutPtr<Point>.reset()\nend", pointer: true, writable: true, typeLexeme: "Point"},
+		{source: "impl Point.translate(dx: Int32) do\nend", typeLexeme: "Point"},
+		{source: "impl Ptr<Point>.length() do\nend", pointer: true, typeLexeme: "Point"},
+		{source: "impl MutPtr<Point>.reset() do\nend", pointer: true, writable: true, typeLexeme: "Point"},
 	} {
 		item := parseOneItem(t, testCase.source)
 		method, ok := item.(ImplDeclaration)
@@ -926,7 +926,7 @@ func TestParseImplReceiverForms(t *testing.T) {
 }
 
 func TestParseImplMethodName(t *testing.T) {
-	method := parseOneItem(t, "impl Point.translate(dx: Int32)\nself.x = dx\nend").(ImplDeclaration)
+	method := parseOneItem(t, "impl Point.translate(dx: Int32) do\nself.x = dx\nend").(ImplDeclaration)
 	if method.Name.Lexeme != "translate" {
 		t.Fatalf("method name = %q, want translate", method.Name.Lexeme)
 	}
@@ -993,13 +993,13 @@ func TestParseChainEndingInMemberIsNotAStatement(t *testing.T) {
 }
 
 func TestParseReturnForms(t *testing.T) {
-	function := parseOneItem(t, "fun f() : Int32\nreturn 1\nend").(FunctionDeclaration)
+	function := parseOneItem(t, "fun f() : Int32 do\nreturn 1\nend").(FunctionDeclaration)
 	valued, ok := function.Body[0].(ReturnStatement)
 	if !ok || valued.Value == nil {
 		t.Fatalf("body[0] = %#v, want a valued return", function.Body[0])
 	}
 
-	function = parseOneItem(t, "fun f()\nreturn\nend").(FunctionDeclaration)
+	function = parseOneItem(t, "fun f() do\nreturn\nend").(FunctionDeclaration)
 	bare, ok := function.Body[0].(ReturnStatement)
 	if !ok || bare.Value != nil {
 		t.Fatalf("body[0] = %#v, want a bare return", function.Body[0])
@@ -1007,7 +1007,7 @@ func TestParseReturnForms(t *testing.T) {
 }
 
 func TestParseReturnNil(t *testing.T) {
-	function := parseOneItem(t, "fun find() : Nil\nreturn nil\nend").(FunctionDeclaration)
+	function := parseOneItem(t, "fun find() : Nil do\nreturn nil\nend").(FunctionDeclaration)
 	statement, ok := function.Body[0].(ReturnStatement)
 	if !ok || statement.Value == nil {
 		t.Fatalf("body[0] = %#v, want a valued return", function.Body[0])
@@ -1018,14 +1018,14 @@ func TestParseReturnNil(t *testing.T) {
 }
 
 func TestParseReturnNilUsesValueOnlyRecovery(t *testing.T) {
-	message := parseError(t, "fun find() : Nil\nreturn\nnil\nend")
+	message := parseError(t, "fun find() : Nil do\nreturn\nnil\nend")
 	if !strings.Contains(message, "a return value must begin on the same line as return") {
 		t.Fatalf("Parse error = %q, want same-line return diagnostic", message)
 	}
 }
 
 func TestParseBareReturnFollowedByCall(t *testing.T) {
-	function := parseOneItem(t, "fun f()\nreturn\ncleanup()\nend").(FunctionDeclaration)
+	function := parseOneItem(t, "fun f() do\nreturn\ncleanup()\nend").(FunctionDeclaration)
 	if len(function.Body) != 2 {
 		t.Fatalf("body length = %d, want 2", len(function.Body))
 	}
@@ -1057,13 +1057,13 @@ func TestParseCallSameLineRule(t *testing.T) {
 
 func TestParseReturnSameLineRule(t *testing.T) {
 	// Positive: the value begins on the return's line.
-	function := parseOneItem(t, "fun f() : Int32\nreturn 1 +\n2\nend").(FunctionDeclaration)
+	function := parseOneItem(t, "fun f() : Int32 do\nreturn 1 +\n2\nend").(FunctionDeclaration)
 	if statement := function.Body[0].(ReturnStatement); statement.Value == nil {
 		t.Fatal("return value starting on the return line was dropped")
 	}
 
 	// Negative: a value-only token on the next line cannot be a statement.
-	message := parseError(t, "fun f() : Int32\nreturn\n1\nend")
+	message := parseError(t, "fun f() : Int32 do\nreturn\n1\nend")
 	if !strings.Contains(message, "a return value must begin on the same line as return") {
 		t.Fatalf("error = %q, want the same-line return diagnostic", message)
 	}
@@ -1074,11 +1074,11 @@ func TestParseFunctionDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun adder(left: Int32)\nreturn left", "expected end to close function adder"},
+		{"fun adder(left: Int32) do\nreturn left", "expected end to close function adder"},
 		{"fun adder(left)\nend", "function parameters require type annotations"},
 		{"mut fun adder()\nend", "mut cannot modify a function declaration; declare a mut Fun binding"},
-		{"fun outer()\nfun inner()\nend\nend", "function declarations are module-level only"},
-		{"fun outer()\nimpl Point.m()\nend\nend", "impl declarations are module-level only"},
+		{"fun outer() do\nfun inner()\nend\nend", "function declarations are module-level only"},
+		{"fun outer() do\nimpl Point.m()\nend\nend", "impl declarations are module-level only"},
 	} {
 		message := parseError(t, testCase.source)
 		if !strings.Contains(message, testCase.want) {
@@ -1095,7 +1095,7 @@ func TestParseRejectsModuleLevelReturn(t *testing.T) {
 }
 
 func TestParseSelfReceiverExpression(t *testing.T) {
-	method := parseOneItem(t, "impl Point.grow()\nself.x = 1\nend").(ImplDeclaration)
+	method := parseOneItem(t, "impl Point.grow() do\nself.x = 1\nend").(ImplDeclaration)
 	assignment, ok := method.Body[0].(Assignment)
 	if !ok {
 		t.Fatalf("body[0] = %#v, want an assignment", method.Body[0])

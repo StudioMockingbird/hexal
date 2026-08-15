@@ -54,20 +54,20 @@ func TestWalkProgramCoversEveryStatementShape(t *testing.T) {
 	visited, err := walkTestProgram(t, `
 type Pair = { mut values: Array<Int32, 2>, }
 type Box<T> = { value: T }
-impl Box<T>.get(): T
+impl Box<T>.get(): T do
     return self.value
 end
-fun area(radius: Float64): Float64
+fun area(radius: Float64): Float64 do
     return 3.14 * radius
 end
-fun onerror(): Int32 | Error
+fun onerror(): Int32 | Error do
     errdefer print("err")
     return 0
 end
-fun read_count(): Int32 | Error
+fun read_count(): Int32 | Error do
     return 0
 end
-fun demo(h: Heap): Int32 | Error
+fun demo(h: Heap): Int32 | Error do
     mut count: Int32 = 1
     count = count + 1
     print("hi")
@@ -76,7 +76,7 @@ fun demo(h: Heap): Int32 | Error
     defer print("bye")
     values: Array<Int32, 3> = [1, 2, 3]
     for i in values do
-        if count > 0
+        if count > 0 then
             count = count - 1
             continue
         else
@@ -104,7 +104,7 @@ end
 }
 
 func TestWalkProgramIsDeterministicPreOrder(t *testing.T) {
-	source := "fun demo(count: Int32): Int32\n    total: Int32 = count + 2\n    return total\nend\n"
+	source := "fun demo(count: Int32): Int32 do\n    total: Int32 = count + 2\n    return total\nend\n"
 	first, err := walkTestProgram(t, source)
 	if err != nil {
 		t.Fatalf("walk: %v", err)
@@ -128,7 +128,7 @@ func TestWalkProgramIsDeterministicPreOrder(t *testing.T) {
 }
 
 func TestWalkProgramAcceptsNilVisitor(t *testing.T) {
-	source := "fun demo(count: Int32): Int32\n    total: Int32 = count + 2\n    return total\nend\n"
+	source := "fun demo(count: Int32): Int32 do\n    total: Int32 = count + 2\n    return total\nend\n"
 	tokens, err := lexer.Lex(source)
 	if err != nil {
 		t.Fatalf("lex: %v", err)

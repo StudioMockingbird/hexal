@@ -147,7 +147,7 @@ func TestCheckUnionRejectsOrdering(t *testing.T) {
 func TestCheckUnionIsNarrowsIfElseAndElseIf(t *testing.T) {
 	// RFC 0049 item 8.1: the else arm narrows value to Nil, which is
 	// printable but cannot initialize a standalone Nil binding.
-	_, err := Check(parseProgram(t, "value: Int32 | Float64 | Nil = 1 if value is Int32 integer: Int32 = value elseif value != nil floating: Float64 = value else print(value) end"))
+	_, err := Check(parseProgram(t, "value: Int32 | Float64 | Nil = 1 if value is Int32 then integer: Int32 = value elseif value != nil then floating: Float64 = value else print(value) end"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,14 +161,14 @@ func TestCheckUnionIsNarrowsWhileBody(t *testing.T) {
 }
 
 func TestCheckUnionWritableEscapePreventsNarrowing(t *testing.T) {
-	_, err := Check(parseProgram(t, "mut value: Int32 | Bool = true writer: MutPtr<Int32 | Bool> = ref value if value is Int32 bad: Int32 = value end"))
+	_, err := Check(parseProgram(t, "mut value: Int32 | Bool = true writer: MutPtr<Int32 | Bool> = ref value if value is Int32 then bad: Int32 = value end"))
 	if err == nil || !strings.Contains(err.Error(), "cannot be narrowed") {
 		t.Fatalf("error = %v, want writable-escape narrowing diagnostic", err)
 	}
 }
 
 func TestCheckUnionNarrowedReadUsesPayloadNode(t *testing.T) {
-	checked, err := Check(parseProgram(t, "value: Int32 | Float64 = 1 if value is Int32 result: Int32 = value end"))
+	checked, err := Check(parseProgram(t, "value: Int32 | Float64 = 1 if value is Int32 then result: Int32 = value end"))
 	if err != nil {
 		t.Fatal(err)
 	}

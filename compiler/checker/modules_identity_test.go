@@ -15,7 +15,7 @@ import (
 // receiver spelling as written.
 func TestImplRejectsImportedType(t *testing.T) {
 	_, err := checkModules(t,
-		"module Geometry = import \"./math\"\nimpl Geometry.Point.rotate(): Int32\n    return 0\nend\n",
+		"module Geometry = import \"./math\"\nimpl Geometry.Point.rotate(): Int32 do\n    return 0\nend\n",
 		"export type Point = { x: Int32, y: Int32 }\n")
 	requireMessage(t, err, "cannot declare methods for imported type Geometry.Point")
 }
@@ -25,7 +25,7 @@ func TestImplRejectsImportedType(t *testing.T) {
 // diagnostic uses the alias spelling.
 func TestImplRejectsImportedTypeThroughAlias(t *testing.T) {
 	_, err := checkModules(t,
-		"module Math = import \"./math\"\ntype P = Math.Point\nimpl P.rotate(): Int32\n    return 0\nend\n",
+		"module Math = import \"./math\"\ntype P = Math.Point\nimpl P.rotate(): Int32 do\n    return 0\nend\n",
 		"export type Point = { x: Int32, y: Int32 }\n")
 	requireMessage(t, err, "cannot declare methods for imported type P")
 }
@@ -35,7 +35,7 @@ func TestImplRejectsImportedTypeThroughAlias(t *testing.T) {
 func TestImplOwnModuleTypeStillDeclaresMethods(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"export type Point = { x: Int32, y: Int32 }\nexport impl Point.length_squared(): Int32\n    return self.x * self.x\nend\n")
+		"export type Point = { x: Int32, y: Int32 }\nexport impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the defining module's own impl: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestImplOwnModuleTypeStillDeclaresMethods(t *testing.T) {
 func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\np: Math.Point = Math.origin()\narea: Int32 = p.length_squared()\n",
-		"export type Point = { x: Int32, y: Int32 }\nexport impl Point.length_squared(): Int32\n    return self.x * self.x + self.y * self.y\nend\nexport fun origin(): Point\n    return Point { x = 3, y = 4 }\nend\n")
+		"export type Point = { x: Int32, y: Int32 }\nexport impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\nexport fun origin(): Point do\n    return Point { x = 3, y = 4 }\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the imported method call: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 func TestImportedMethodCallRejectsPrivateMethod(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\np: Math.Point = Math.origin()\narea: Int32 = p.length_squared()\n",
-		"export type Point = { x: Int32, y: Int32 }\nimpl Point.length_squared(): Int32\n    return self.x\nend\nexport fun origin(): Point\n    return Point { x = 3, y = 4 }\nend\n")
+		"export type Point = { x: Int32, y: Int32 }\nimpl Point.length_squared(): Int32 do\n    return self.x\nend\nexport fun origin(): Point do\n    return Point { x = 3, y = 4 }\nend\n")
 	requireMessage(t, err, "declaration length_squared is private to module math")
 }
 
@@ -80,7 +80,7 @@ func TestImportedMethodCallRejectsPrivateMethod(t *testing.T) {
 func TestImportedGenericSpecializationsLandInDefiningModule(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\na: Int32 = Math.identity<Int32>(1)\nb: Float64 = Math.identity<Float64>(2.0)\nc: Int32 = Math.identity<Int32>(3)\n",
-		"export fun identity<T>(value: T): T\n    return value\nend\n")
+		"export fun identity<T>(value: T): T do\n    return value\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the imported generic calls: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestImportedGenericSpecializationsLandInDefiningModule(t *testing.T) {
 func TestImportedGenericRepeatedRequestDeduplicates(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\na: Int32 = Math.identity<Int32>(1)\nb: Float64 = Math.identity<Float64>(2.0)\nc: Int32 = Math.identity<Int32>(3)\nd: Float64 = Math.identity<Float64>(4.0)\n",
-		"export fun identity<T>(value: T): T\n    return value\nend\n")
+		"export fun identity<T>(value: T): T do\n    return value\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the imported generic calls: %v", err)
 	}

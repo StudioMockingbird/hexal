@@ -59,7 +59,7 @@ func TestImportedModuleRejectsExecutableStatements(t *testing.T) {
 // A dependency with only declarations checks clean in its own scope.
 func TestImportedModuleDeclarationsOnly(t *testing.T) {
 	app := parseProgram(t, "module Math = import \"./vec3\"\n")
-	dep := parseProgram(t, "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n")
+	dep := parseProgram(t, "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
 	checked, err := CheckModules(map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, []string{"vec3", "app"}, "app")
 	if err != nil {
 		t.Fatalf("CheckModules rejected declarations-only modules: %v", err)
@@ -71,7 +71,7 @@ func TestImportedModuleDeclarationsOnly(t *testing.T) {
 
 // A function parameter may not shadow an import alias.
 func TestParameterCannotShadowImportAlias(t *testing.T) {
-	requireDiagnostic(t, "module Math = import \"./math\"\nfun f(Math: Int32)\nend\n", "import alias Math conflicts with an existing name")
+	requireDiagnostic(t, "module Math = import \"./math\"\nfun f(Math: Int32) do\nend\n", "import alias Math conflicts with an existing name")
 }
 
 func TestCanonicalModuleID(t *testing.T) {

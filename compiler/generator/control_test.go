@@ -13,7 +13,7 @@ import (
 // multi-success payload through a hex_try_result_N temporary.
 
 func TestGenerateTryStatementLowering(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun fail(): Nil | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    try fail()\n    return 1\nend\n")
+	program := checkedGeneratorSource(t, "fun fail(): Nil | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    try fail()\n    return 1\nend\n")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -34,7 +34,7 @@ func TestGenerateTryStatementLowering(t *testing.T) {
 }
 
 func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun read_count(): Int32 | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    count: Int32 = try read_count()\n    return count\nend\n")
+	program := checkedGeneratorSource(t, "fun read_count(): Int32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    count: Int32 = try read_count()\n    return count\nend\n")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -50,7 +50,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 		}
 	}
 	// A union with several success members needs a normalization temporary.
-	multiple := checkedGeneratorSource(t, "fun read_number(): Int32 | Float32 | Error\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error\n    value: Int32 | Float32 = try read_number()\n    return 1\nend\n")
+	multiple := checkedGeneratorSource(t, "fun read_number(): Int32 | Float32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    value: Int32 | Float32 = try read_number()\n    return 1\nend\n")
 	files, err = GenerateChecked(map[string]checker.Program{"app.hex": multiple}, []string{"app"}, "app")
 	multiC := files["modules/app.c"]
 	if err != nil {

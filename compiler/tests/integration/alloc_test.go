@@ -48,7 +48,7 @@ func TestHeapAllocateRejectsIncompleteAndFunTargets(t *testing.T) {
 }
 
 func TestDeferCapturesDirectCallArguments(t *testing.T) {
-	result := compileSource("fun record(value: Int32) end mut value: Int32 = 1 defer record(value) value = 2")
+	result := compileSource("fun record(value: Int32) do end mut value: Int32 = 1 defer record(value) value = 2")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -68,7 +68,7 @@ func TestDeferEvaluatesOtherExpressionsAtExit(t *testing.T) {
 }
 
 func TestDeferRunsInReverseRegistrationOrder(t *testing.T) {
-	result := compileSource("fun record(value: Int32) end defer record(1) defer record(2)")
+	result := compileSource("fun record(value: Int32) do end defer record(1) defer record(2)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -80,7 +80,7 @@ func TestDeferRunsInReverseRegistrationOrder(t *testing.T) {
 }
 
 func TestDeferRunsOnBranchCompletion(t *testing.T) {
-	result := compileSource("fun record(value: Int32) end h: Heap = Heap.new() flag: Bool = true if flag defer record(1) end")
+	result := compileSource("fun record(value: Int32) do end h: Heap = Heap.new() flag: Bool = true if flag then defer record(1) end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -90,7 +90,7 @@ func TestDeferRunsOnBranchCompletion(t *testing.T) {
 }
 
 func TestDeferRunsOnLoopIterationCompletion(t *testing.T) {
-	result := compileSource("fun record(value: Int32) end mut flag: Bool = true while flag do defer record(1) flag = false end")
+	result := compileSource("fun record(value: Int32) do end mut flag: Bool = true while flag do defer record(1) flag = false end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -100,7 +100,7 @@ func TestDeferRunsOnLoopIterationCompletion(t *testing.T) {
 }
 
 func TestDeferRunsOnReturn(t *testing.T) {
-	result := compileSource("fun record(value: Int32) end fun run(): Int32\nmut flag: Bool = true\nif flag\n    defer record(1)\n    return 0\nend\nreturn 1\nend")
+	result := compileSource("fun record(value: Int32) do end fun run(): Int32 do\nmut flag: Bool = true\nif flag then\n    defer record(1)\n    return 0\nend\nreturn 1\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -110,7 +110,7 @@ func TestDeferRunsOnReturn(t *testing.T) {
 }
 
 func TestDeferRunsOnBreakAndContinue(t *testing.T) {
-	result := compileSource("fun record(value: Int32) end mut flag: Bool = true while flag do defer record(1) break end")
+	result := compileSource("fun record(value: Int32) do end mut flag: Bool = true while flag do defer record(1) break end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -120,7 +120,7 @@ func TestDeferRunsOnBreakAndContinue(t *testing.T) {
 }
 
 func TestDeferNestedScopesUnwindInnerToOuter(t *testing.T) {
-	result := compileSource("fun record(value: Int32) end fun run(): Int32\nmut flag: Bool = true\nif flag\n    defer record(1)\n    while flag do\n        defer record(2)\n        break\n    end\n    return 0\nend\nreturn 1\nend")
+	result := compileSource("fun record(value: Int32) do end fun run(): Int32 do\nmut flag: Bool = true\nif flag then\n    defer record(1)\n    while flag do\n        defer record(2)\n        break\n    end\n    return 0\nend\nreturn 1\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -142,7 +142,7 @@ func TestHeapDiagnosticsFailClosed(t *testing.T) {
 // defer path used to render this form; the statement whitelist omitted
 // HeapFreeExpression (snippet-audit regression).
 func TestHeapFreeAsBareStatement(t *testing.T) {
-	result := compileSource("fun f(h: Heap)\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    h.free(p)\nend\n")
+	result := compileSource("fun f(h: Heap) do\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    h.free(p)\nend\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

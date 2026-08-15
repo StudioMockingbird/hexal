@@ -8,16 +8,16 @@
       "description": "Spawn a typed function and return its joined result.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun square(value: Int32): Int32",
+        "fun square(value: Int32): Int32 do",
         "    return value * value",
         "end",
-        "fun run(): Int32 | Error",
+        "fun run(): Int32 | Error do",
         "    task: Task<Int32> = try spawn square(6)",
         "    return task.join()",
         "end"
       ]},
       "features": ["tasks", "errors"],
-      "reservedWords": ["fun", "return", "end", "try", "spawn"]
+      "reservedWords": ["fun", "return", "end", "try", "spawn", "do"]
     },
     {
       "id": "concurrency-two-tasks",
@@ -25,17 +25,17 @@
       "description": "Spawn two independent calculations and combine results.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun square(value: Int32): Int32",
+        "fun square(value: Int32): Int32 do",
         "    return value * value",
         "end",
-        "fun run(): Int32 | Error",
+        "fun run(): Int32 | Error do",
         "    first: Task<Int32> = try spawn square(3)",
         "    second: Task<Int32> = try spawn square(4)",
         "    return first.join() + second.join()",
         "end"
       ]},
       "features": ["tasks", "errors"],
-      "reservedWords": ["fun", "return", "end", "try", "spawn"]
+      "reservedWords": ["fun", "return", "end", "try", "spawn", "do"]
     },
     {
       "id": "concurrency-channel-send",
@@ -43,7 +43,7 @@
       "description": "Create a bounded channel, send a value, and close it.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun run(h: Heap): Nil | Error",
+        "fun run(h: Heap): Nil | Error do",
         "    channel: Channel<Int32> = try Channel<Int32>.new(h, 4)",
         "    defer channel.free(h)",
         "    channel.send(1)",
@@ -53,7 +53,7 @@
         "end"
       ]},
       "features": ["channels", "errors", "defer"],
-      "reservedWords": ["fun", "try", "defer", "return", "nil", "end"]
+      "reservedWords": ["fun", "try", "defer", "return", "nil", "end", "do"]
     },
     {
       "id": "concurrency-channel-receive",
@@ -61,20 +61,20 @@
       "description": "Receive a value and distinguish it from EoS.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun run(h: Heap): Int32 | Error",
+        "fun run(h: Heap): Int32 | Error do",
         "    channel: Channel<Int32> = try Channel<Int32>.new(h, 2)",
         "    defer channel.free(h)",
         "    channel.send(7)",
         "    channel.close()",
         "    step: Int32 | EoS = channel.receive()",
-        "    if step is Int32",
+        "    if step is Int32 then",
         "        return step",
         "    end",
         "    return 0",
         "end"
       ]},
       "features": ["channels", "errors", "defer"],
-      "reservedWords": ["fun", "try", "defer", "if", "is", "return", "end"]
+      "reservedWords": ["fun", "try", "defer", "if", "is", "return", "end", "do", "then"]
     },
     {
       "id": "concurrency-channel-round-trip",
@@ -82,20 +82,20 @@
       "description": "Send a computed value through a channel and consume it.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun run(h: Heap): Int32 | Error",
+        "fun run(h: Heap): Int32 | Error do",
         "    channel: Channel<Int32> = try Channel<Int32>.new(h, 2)",
         "    defer channel.free(h)",
         "    channel.send(20 + 22)",
         "    channel.close()",
         "    step: Int32 | EoS = channel.receive()",
-        "    if step is Int32",
+        "    if step is Int32 then",
         "        return step",
         "    end",
         "    return 0",
         "end"
       ]},
       "features": ["channels", "errors"],
-      "reservedWords": ["fun", "try", "defer", "if", "is", "return", "end"]
+      "reservedWords": ["fun", "try", "defer", "if", "is", "return", "end", "do", "then"]
     },
     {
       "id": "concurrency-mutex-critical-section",
@@ -103,7 +103,7 @@
       "description": "Lock and unlock a heap-backed mutex around a short operation.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun run(h: Heap): Nil | Error",
+        "fun run(h: Heap): Nil | Error do",
         "    mutex: Mutex = try Mutex.new(h)",
         "    defer mutex.free(h)",
         "    mut total: Int32 = 0",
@@ -114,7 +114,7 @@
         "end"
       ]},
       "features": ["mutex", "errors", "defer"],
-      "reservedWords": ["fun", "mut", "try", "defer", "return", "nil", "end"]
+      "reservedWords": ["fun", "mut", "try", "defer", "return", "nil", "end", "do"]
     },
     {
       "id": "concurrency-atomic-counter",
@@ -123,10 +123,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Shared = { count: Atomic<Int32>, }",
-        "fun bump(shared: MutPtr<Shared>)",
+        "fun bump(shared: MutPtr<Shared>) do",
         "    shared.count.fetch_add(1)",
         "end",
-        "fun run(): Int32",
+        "fun run(): Int32 do",
         "    mut shared: Shared = Shared { count = Atomic<Int32>.new(0) }",
         "    pointer: MutPtr<Shared> = ref shared",
         "    pointer.count.store(5)",
@@ -136,7 +136,7 @@
         "end"
       ]},
       "features": ["atomics", "objects", "pointers"],
-      "reservedWords": ["type", "mut", "fun", "ref", "return", "end"]
+      "reservedWords": ["type", "mut", "fun", "ref", "return", "end", "do"]
     },
     {
       "id": "concurrency-yield-loop",
@@ -144,23 +144,23 @@
       "description": "Show why every repeating path through a task-reachable while true must execute Task.yield().",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun worker(): Bool",
+        "fun worker(): Bool do",
         "    while true do",
-        "        if false",
+        "        if false then",
         "            break",
         "        end",
         "        Task.yield()",
         "    end",
         "    return true",
         "end",
-        "fun run(): Int32 | Error",
+        "fun run(): Int32 | Error do",
         "    task: Task<Bool> = try spawn worker()",
         "    task.join()",
         "    return 0",
         "end"
       ]},
       "features": ["tasks", "while"],
-      "reservedWords": ["fun", "while", "true", "do", "if", "break", "end", "try", "spawn", "return"]
+      "reservedWords": ["fun", "while", "true", "do", "if", "break", "end", "try", "spawn", "return", "then"]
     },
     {
       "id": "concurrency-worker-handoff",
@@ -168,25 +168,25 @@
       "description": "Send work through a channel and receive the result.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun worker(channel: Channel<Int32>): Bool",
+        "fun worker(channel: Channel<Int32>): Bool do",
         "    channel.send(40 + 2)",
         "    channel.close()",
         "    return true",
         "end",
-        "fun run(h: Heap): Int32 | Error",
+        "fun run(h: Heap): Int32 | Error do",
         "    channel: Channel<Int32> = try Channel<Int32>.new(h, 2)",
         "    defer channel.free(h)",
         "    task: Task<Bool> = try spawn worker(channel)",
         "    task.join()",
         "    step: Int32 | EoS = channel.receive()",
-        "    if step is Int32",
+        "    if step is Int32 then",
         "        return step",
         "    end",
         "    return 0",
         "end"
       ]},
       "features": ["tasks", "channels", "errors", "defer"],
-      "reservedWords": ["fun", "try", "defer", "spawn", "if", "is", "return", "end"]
+      "reservedWords": ["fun", "try", "defer", "spawn", "if", "is", "return", "end", "do", "then"]
     },
     {
       "id": "concurrency-concurrent-cleanup",
@@ -194,12 +194,12 @@
       "description": "Combine task creation with deferred channel or mutex cleanup.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun worker(mutex: Mutex): Bool",
+        "fun worker(mutex: Mutex): Bool do",
         "    mutex.lock()",
         "    mutex.unlock()",
         "    return true",
         "end",
-        "fun run(h: Heap): Int32 | Error",
+        "fun run(h: Heap): Int32 | Error do",
         "    mutex: Mutex = try Mutex.new(h)",
         "    defer mutex.free(h)",
         "    task: Task<Bool> = try spawn worker(mutex)",
@@ -208,7 +208,7 @@
         "end"
       ]},
       "features": ["tasks", "mutex", "errors", "defer"],
-      "reservedWords": ["fun", "try", "defer", "spawn", "return", "end"]
+      "reservedWords": ["fun", "try", "defer", "spawn", "return", "end", "do"]
     }
   ]
 }

@@ -9,7 +9,7 @@ import (
 // RFC 0038: the one explicit scalar conversion spelling `source.to<Dest>()`.
 
 func TestConversionMethods(t *testing.T) {
-	result := compileSource("fun demo()\n    wide: Int64 = 9_000_000_000\n    small: Int8 = 12\n    narrowed: Int8 = wide.to<Int8>()\n    whole: Int32 = 3.75.to<Int32>()\n    size: Size = small.to<Size>()\n    count: UInt32 = size.to<UInt32>()\n    letter: Rune = wide.to<Rune>()\n    code: UInt32 = letter.to<UInt32>()\nend")
+	result := compileSource("fun demo() do\n    wide: Int64 = 9_000_000_000\n    small: Int8 = 12\n    narrowed: Int8 = wide.to<Int8>()\n    whole: Int32 = 3.75.to<Int32>()\n    size: Size = small.to<Size>()\n    count: UInt32 = size.to<UInt32>()\n    letter: Rune = wide.to<Rune>()\n    code: UInt32 = letter.to<UInt32>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -64,15 +64,15 @@ func TestConversionMatrixRejections(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo()\n    flag: Bool = true\n    bad: Int32 = flag.to<Int32>()\nend", "Bool has no method named to"},
-		{"fun demo()\n    letter: Rune = (65).to<Rune>()\n    bad: Rune = letter.to<Rune>()\nend", "supported scalar source and destination"},
-		{"fun demo()\n    whole: Float64 = 1.5\n    bad: Rune = whole.to<Rune>()\nend", "supported scalar source and destination"},
-		{"fun demo()\n    value: Int32 = 1\n    bad: Bool = value.to<Bool>()\nend", "supported scalar source and destination"},
-		{"fun demo()\n    value: Int32 = 1\n    pointer: Ptr<Int32> = ref value\n    bad: UInt64 = pointer.to<UInt64>()\nend", "Ptr<Int32> has no method named to"},
-		{"fun demo()\n    value: Int32 = 1\n    bad: Int32 = value.to()\nend", "to requires exactly 1 explicit type argument"},
-		{"fun demo()\n    value: Int32 = 1\n    bad: Int32 = value.to(1)\nend", "to requires exactly 1 explicit type argument"},
-		{"fun demo()\n    value: Int32 = 1\n    bad: Int32 = value.to<Int32>(1)\nend", "to accepts no value arguments"},
-		{"fun demo()\n    value: Int32 = 1\n    bad: Int32 = value.to_int32()\nend", "Int32 has no method named to_int32"},
+		{"fun demo() do\n    flag: Bool = true\n    bad: Int32 = flag.to<Int32>()\nend", "Bool has no method named to"},
+		{"fun demo() do\n    letter: Rune = (65).to<Rune>()\n    bad: Rune = letter.to<Rune>()\nend", "supported scalar source and destination"},
+		{"fun demo() do\n    whole: Float64 = 1.5\n    bad: Rune = whole.to<Rune>()\nend", "supported scalar source and destination"},
+		{"fun demo() do\n    value: Int32 = 1\n    bad: Bool = value.to<Bool>()\nend", "supported scalar source and destination"},
+		{"fun demo() do\n    value: Int32 = 1\n    pointer: Ptr<Int32> = ref value\n    bad: UInt64 = pointer.to<UInt64>()\nend", "Ptr<Int32> has no method named to"},
+		{"fun demo() do\n    value: Int32 = 1\n    bad: Int32 = value.to()\nend", "to requires exactly 1 explicit type argument"},
+		{"fun demo() do\n    value: Int32 = 1\n    bad: Int32 = value.to(1)\nend", "to requires exactly 1 explicit type argument"},
+		{"fun demo() do\n    value: Int32 = 1\n    bad: Int32 = value.to<Int32>(1)\nend", "to accepts no value arguments"},
+		{"fun demo() do\n    value: Int32 = 1\n    bad: Int32 = value.to_int32()\nend", "Int32 has no method named to_int32"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -82,18 +82,18 @@ func TestConversionMatrixRejections(t *testing.T) {
 }
 
 func TestConversionGenericSpecialization(t *testing.T) {
-	result := compileSource("fun convert<Source, Destination>(value: Source): Destination\n    return value.to<Destination>()\nend\nfun demo()\n    good: Int32 = convert<Int64, Int32>(10)\nend")
+	result := compileSource("fun convert<Source, Destination>(value: Source): Destination do\n    return value.to<Destination>()\nend\nfun demo() do\n    good: Int32 = convert<Int64, Int32>(10)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	result = compileSource("fun convert<Source, Destination>(value: Source): Destination\n    return value.to<Destination>()\nend\nfun demo()\n    bad: Bool = convert<Int32, Bool>(10)\nend")
+	result = compileSource("fun convert<Source, Destination>(value: Source): Destination do\n    return value.to<Destination>()\nend\nfun demo() do\n    bad: Bool = convert<Int32, Bool>(10)\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
 		t.Fatalf("Compile stderr = %#v, want specialization rejection", result.Stderr)
 	}
 }
 
 func TestConversionAliasCanonicalizes(t *testing.T) {
-	result := compileSource("type Count = Int32\nfun demo()\n    value: Int64 = 5\n    count: Count = value.to<Count>()\nend")
+	result := compileSource("type Count = Int32\nfun demo() do\n    value: Int64 = 5\n    count: Count = value.to<Count>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

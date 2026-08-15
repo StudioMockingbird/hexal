@@ -8,16 +8,16 @@
       "description": "Create an allocation-free empty stream and observe immediate EoS.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo()",
+        "fun demo() do",
         "    empty: Stream<Int32> = Stream<Int32>.new()",
         "    step: Int32 | EoS = empty.next()",
-        "    if step is EoS",
+        "    if step is EoS then",
         "        print(\"empty\")",
         "    end",
         "end"
       ]},
       "features": ["streams", "print"],
-      "reservedWords": ["fun", "if", "is", "end"]
+      "reservedWords": ["fun", "if", "is", "end", "do", "then"]
     },
     {
       "id": "streams-list-source",
@@ -25,7 +25,7 @@
       "description": "Pull values from a list-backed stream.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    values: List<Int32> = List<Int32>.new(h)",
         "    defer values.free(h)",
         "    values.push(1)",
@@ -36,7 +36,7 @@
         "end"
       ]},
       "features": ["streams", "lists", "defer"],
-      "reservedWords": ["fun", "defer", "end"]
+      "reservedWords": ["fun", "defer", "end", "do"]
     },
     {
       "id": "streams-manual-pull",
@@ -44,20 +44,20 @@
       "description": "Call next and distinguish a value from the end marker.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    values: List<Int32> = List<Int32>.new(h)",
         "    defer values.free(h)",
         "    values.push(5)",
         "    source: Stream<Int32> = values.stream(h)",
         "    defer source.free(h)",
         "    step: Int32 | EoS = source.next()",
-        "    if step is Int32",
+        "    if step is Int32 then",
         "        print(step)",
         "    end",
         "end"
       ]},
       "features": ["streams", "print"],
-      "reservedWords": ["fun", "defer", "if", "is", "end"]
+      "reservedWords": ["fun", "defer", "if", "is", "end", "do", "then"]
     },
     {
       "id": "streams-for-iteration",
@@ -65,7 +65,7 @@
       "description": "Consume a stream with for ... in until it completes.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    values: List<Int32> = List<Int32>.new(h)",
         "    defer values.free(h)",
         "    values.push(1)",
@@ -87,10 +87,10 @@
       "description": "Keep only the values a predicate accepts.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun is_even(value: Int32): Bool",
+        "fun is_even(value: Int32): Bool do",
         "    return value % 2 == 0",
         "end",
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    values: List<Int32> = List<Int32>.new(h)",
         "    defer values.free(h)",
         "    values.push(1)",
@@ -102,7 +102,7 @@
         "end"
       ]},
       "features": ["streams"],
-      "reservedWords": ["fun", "return", "defer", "end"]
+      "reservedWords": ["fun", "return", "defer", "end", "do"]
     },
     {
       "id": "streams-map",
@@ -110,10 +110,10 @@
       "description": "Transform each value into another type.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun widen(value: Int32): Int64",
+        "fun widen(value: Int32): Int64 do",
         "    return value.to<Int64>()",
         "end",
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    values: List<Int32> = List<Int32>.new(h)",
         "    defer values.free(h)",
         "    values.push(3)",
@@ -124,7 +124,7 @@
         "end"
       ]},
       "features": ["streams"],
-      "reservedWords": ["fun", "return", "defer", "end"]
+      "reservedWords": ["fun", "return", "defer", "end", "do"]
     },
     {
       "id": "streams-take",
@@ -132,7 +132,7 @@
       "description": "Limit a stream to a fixed number of values.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    values: List<Int32> = List<Int32>.new(h)",
         "    defer values.free(h)",
         "    values.push(1)",
@@ -144,7 +144,7 @@
         "end"
       ]},
       "features": ["streams"],
-      "reservedWords": ["fun", "defer", "end"]
+      "reservedWords": ["fun", "defer", "end", "do"]
     },
     {
       "id": "streams-adapter-chain",
@@ -152,13 +152,13 @@
       "description": "Compose filter, map, and take over one Heap, and stop using the upstream handles.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun is_even(value: Int32): Bool",
+        "fun is_even(value: Int32): Bool do",
         "    return value % 2 == 0",
         "end",
-        "fun double(value: Int32): Int32",
+        "fun double(value: Int32): Int32 do",
         "    return value * 2",
         "end",
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    values: List<Int32> = List<Int32>.new(h)",
         "    defer values.free(h)",
         "    values.push(1)",
@@ -172,7 +172,7 @@
         "end"
       ]},
       "features": ["streams"],
-      "reservedWords": ["fun", "return", "defer", "end"]
+      "reservedWords": ["fun", "return", "defer", "end", "do"]
     },
     {
       "id": "streams-produce",
@@ -184,15 +184,15 @@
         "    mut current: Int32,",
         "    limit: Int32,",
         "}",
-        "fun counter_next(state: MutPtr<Counter>): Int32 | EoS",
-        "    if state.current >= state.limit",
+        "fun counter_next(state: MutPtr<Counter>): Int32 | EoS do",
+        "    if state.current >= state.limit then",
         "        return eos",
         "    end",
         "    result: Int32 = state.current",
         "    state.current = state.current + 1",
         "    return result",
         "end",
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    initial: Counter = Counter { current = 0, limit = 3 }",
         "    numbers: Stream<Int32> = Stream<Int32>.produce(h, initial, counter_next)",
         "    defer numbers.free(h)",
@@ -200,7 +200,7 @@
         "end"
       ]},
       "features": ["streams"],
-      "reservedWords": ["type", "mut", "fun", "if", "return", "eos", "end", "defer"]
+      "reservedWords": ["type", "mut", "fun", "if", "return", "eos", "end", "defer", "do", "then"]
     },
     {
       "id": "streams-cleanup",
@@ -208,10 +208,10 @@
       "description": "Free the adapter chain once; exhaustion alone releases nothing.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun is_even(value: Int32): Bool",
+        "fun is_even(value: Int32): Bool do",
         "    return value % 2 == 0",
         "end",
-        "fun demo(h: Heap)",
+        "fun demo(h: Heap) do",
         "    values: List<Int32> = List<Int32>.new(h)",
         "    defer values.free(h)",
         "    values.push(1)",
@@ -223,7 +223,7 @@
         "end"
       ]},
       "features": ["streams", "defer"],
-      "reservedWords": ["fun", "return", "defer", "end"]
+      "reservedWords": ["fun", "return", "defer", "end", "do"]
     }
   ]
 }

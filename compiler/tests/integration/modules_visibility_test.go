@@ -38,7 +38,7 @@ func wantMultiSuccess(t *testing.T, result compiler.CompilationResult, modules .
 func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
-		"math.hex": "export fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"math.hex": "export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }
@@ -49,7 +49,7 @@ func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 func TestQualifiedUseThroughNestedPathAlias(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":             "module Shapes = import \"./graphics/shapes\"\np: Shapes.Point = Shapes.origin()\n",
-		"graphics/shapes.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun origin(): Point\n    return Point { x = 0, y = 0 }\nend\n",
+		"graphics/shapes.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun origin(): Point do\n    return Point { x = 0, y = 0 }\nend\n",
 	}
 	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "graphics/shapes")
 }
@@ -60,8 +60,8 @@ func TestQualifiedUseThroughNestedPathAlias(t *testing.T) {
 func TestSameBasenameModulesAreDistinct(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":             "module Graphics = import \"./graphics/shapes\"\nmodule Audio = import \"./audio/shapes\"\ng: Graphics.Shape = Graphics.make()\na: Audio.Shape = Audio.make()\n",
-		"graphics/shapes.hex": "export type Shape = { kind: Int32 }\nexport fun make(): Shape\n    return Shape { kind = 1 }\nend\n",
-		"audio/shapes.hex":    "export type Shape = { kind: Int32 }\nexport fun make(): Shape\n    return Shape { kind = 2 }\nend\n",
+		"graphics/shapes.hex": "export type Shape = { kind: Int32 }\nexport fun make(): Shape do\n    return Shape { kind = 1 }\nend\n",
+		"audio/shapes.hex":    "export type Shape = { kind: Int32 }\nexport fun make(): Shape do\n    return Shape { kind = 2 }\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantMultiSuccess(t, result, "app", "graphics/shapes", "audio/shapes")
@@ -79,8 +79,8 @@ func TestSameBasenameModulesAreDistinct(t *testing.T) {
 func TestQualifiedUseThroughParentRelativeImport(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":              "module Apps = import \"./apps/tools\"\nresult: Int32 = Apps.value()\n",
-		"apps/tools.hex":       "module Shared = import \"../shared/constants\"\nexport fun value(): Int32\n    return Shared.answer()\nend\n",
-		"shared/constants.hex": "export fun answer(): Int32\n    return 42\nend\n",
+		"apps/tools.hex":       "module Shared = import \"../shared/constants\"\nexport fun value(): Int32 do\n    return Shared.answer()\nend\n",
+		"shared/constants.hex": "export fun answer(): Int32 do\n    return 42\nend\n",
 	}
 	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "apps/tools", "shared/constants")
 }
@@ -88,7 +88,7 @@ func TestQualifiedUseThroughParentRelativeImport(t *testing.T) {
 func TestQualifiedCallToPrivateFunctionRejected(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
-		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "declaration add is private to module math")
@@ -97,7 +97,7 @@ func TestQualifiedCallToPrivateFunctionRejected(t *testing.T) {
 func TestUnqualifiedUseOfExportedNameRejected(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = add(2, 3)\n",
-		"math.hex": "export fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"math.hex": "export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "unknown function add; functions must be declared before use")
@@ -122,7 +122,7 @@ func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 func TestPrivateTypeInExportedSignatureRejected(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "type Secret = { x: Int32 }\nexport fun f(): Secret\n    return Secret { x = 1 }\nend\n",
+		"math.hex": "type Secret = { x: Int32 }\nexport fun f(): Secret do\n    return Secret { x = 1 }\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "exported function f exposes private type Secret")
@@ -131,7 +131,7 @@ func TestPrivateTypeInExportedSignatureRejected(t *testing.T) {
 func TestExportedMethodRequiresExportedReceiver(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "type Point = { x: Int32 }\nexport impl Point.getX(): Int32\n    return self.x\nend\n",
+		"math.hex": "type Point = { x: Int32 }\nexport impl Point.getX(): Int32 do\n    return self.x\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "exported function getX exposes private type Point")
@@ -143,7 +143,7 @@ func TestPrivateTypeBehindNestedContainersRejected(t *testing.T) {
 		// Secret is declared before Node (source order); Node's exported
 		// interface reaches the private Secret through List and Ptr, so the
 		// closure walk reports Node first.
-		"math.hex": "type Secret = { x: Int32 }\nexport type Node = { items: List<Secret>, next: MutPtr<Node> | Nil }\nexport fun f(): Node\n    return Node { items = List<Secret>.new(Heap.new()), next = nil }\nend\n",
+		"math.hex": "type Secret = { x: Int32 }\nexport type Node = { items: List<Secret>, next: MutPtr<Node> | Nil }\nexport fun f(): Node do\n    return Node { items = List<Secret>.new(Heap.new()), next = nil }\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "exported function Node exposes private type Secret")
@@ -154,7 +154,7 @@ func TestPrivateTypeInsideExportedGenericBodyAccepted(t *testing.T) {
 	// an exported generic's body is fine.
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "type Secret = { x: Int32 }\nexport fun wrap<T>(value: T): T\n    secret: Secret = Secret { x = 1 }\n    return value\nend\n",
+		"math.hex": "type Secret = { x: Int32 }\nexport fun wrap<T>(value: T): T do\n    secret: Secret = Secret { x = 1 }\n    return value\nend\n",
 	}
 	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }

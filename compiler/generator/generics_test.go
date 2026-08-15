@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateGenericFunctionSpecialization(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun identity<T>(value: T): T\nreturn value\nend answer: Int32 = identity(42)")
+	program := checkedGeneratorSource(t, "fun identity<T>(value: T): T do\nreturn value\nend answer: Int32 = identity(42)")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -38,7 +38,7 @@ func TestGenerateGenericObjectSpecialization(t *testing.T) {
 }
 
 func TestGenerateGenericMethodSpecialization(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Box<T> = { value: T }\nimpl Box<T>.get(): T\nreturn self.value\nend box: Box<Int32> = Box<Int32> { value = 42 }\nvalue: Int32 = box.get()")
+	program := checkedGeneratorSource(t, "type Box<T> = { value: T }\nimpl Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> = Box<Int32> { value = 42 }\nvalue: Int32 = box.get()")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {

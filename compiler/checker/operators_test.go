@@ -317,5 +317,5 @@ func TestCheckLogicalNotAcceptsNonBoolOperand(t *testing.T) {
 
 // RFC 0023: a call that produces no value stays rejected in a condition.
 func TestCheckConditionRejectsNoResultCall(t *testing.T) {
-	requireDiagnostic(t, "fun reset()\n    return\nend\nif reset() end\n", "reset produces no value")
+	requireDiagnostic(t, "fun reset() do\n    return\nend\nif reset() then end\n", "reset produces no value")
 }

@@ -9,7 +9,7 @@ import (
 // RFC 0028: for-in iteration over arrays, views, lists, text, and dicts.
 
 func TestForInSequenceLoops(t *testing.T) {
-	result := compileSource("fun demo()\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    view: View<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\nend\nfun list_sum(h: Heap): Int32\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    mut total: Int32 = 0\n    for i, value in values do\n        total = total + value + i.to<Int32>()\n    end\n    return total\nend")
+	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    view: View<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\nend\nfun list_sum(h: Heap): Int32 do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    mut total: Int32 = 0\n    for i, value in values do\n        total = total + value + i.to<Int32>()\n    end\n    return total\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -28,7 +28,7 @@ func TestForInSequenceLoops(t *testing.T) {
 }
 
 func TestForInTemporaryArraySource(t *testing.T) {
-	result := compileSource("fun make_fixed(): Array<Int32, 2>\n    return [1, 2]\nend\nfun demo()\n    mut total: Int32 = 0\n    for value in make_fixed() do\n        total = total + value\n    end\nend")
+	result := compileSource("fun make_fixed(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    mut total: Int32 = 0\n    for value in make_fixed() do\n        total = total + value\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -38,7 +38,7 @@ func TestForInTemporaryArraySource(t *testing.T) {
 }
 
 func TestForInTextRunes(t *testing.T) {
-	result := compileSource("fun demo()\n    text: String = \"café\"\n    mut count: Int32 = 0\n    for rune in text do\n        count = count + 1\n    end\n    for i, rune in text do\n        count = count + 1\n    end\n    strand: Strand = \"hi\"\n    for i, rune in strand do\n        count = count + 1\n    end\nend")
+	result := compileSource("fun demo() do\n    text: String = \"café\"\n    mut count: Int32 = 0\n    for rune in text do\n        count = count + 1\n    end\n    for i, rune in text do\n        count = count + 1\n    end\n    strand: Strand = \"hi\"\n    for i, rune in strand do\n        count = count + 1\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -57,7 +57,7 @@ func TestForInTextRunes(t *testing.T) {
 }
 
 func TestForInDictEntries(t *testing.T) {
-	result := compileSource("fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    mut total: Int32 = 0\n    for key, value in scores do\n        total = total + key + value\n    end\n    for i, key, value in scores do\n        total = total + value + i.to<Int32>()\n    end\nend")
+	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    mut total: Int32 = 0\n    for key, value in scores do\n        total = total + key + value\n    end\n    for i, key, value in scores do\n        total = total + value + i.to<Int32>()\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -76,7 +76,7 @@ func TestForInDictEntries(t *testing.T) {
 }
 
 func TestForInBinderShadowingAndImmutability(t *testing.T) {
-	result := compileSource("fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    value: Int32 = 100\n    for value in fixed do\n        current: Int32 = value\n    end\n    for value in fixed do\n        value = 10\n    end\nend")
+	result := compileSource("fun demo() do\n    fixed: Array<Int32, 2> = [1, 2]\n    value: Int32 = 100\n    for value in fixed do\n        current: Int32 = value\n    end\n    for value in fixed do\n        value = 10\n    end\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "loop binder value is immutable") {
 		t.Fatalf("Compile stderr = %#v, want binder immutability diagnostic", result.Stderr)
 	}
@@ -88,12 +88,12 @@ func TestForInDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"not iterable", "fun demo()\n    count: Int32 = 3\n    for value in count do\n    end\nend", "value of type Int32 is not iterable"},
-		{"sequence arity", "fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    for a, b, c in fixed do\n    end\nend", "sequence iteration requires one value binder or index and value binders"},
-		{"dict arity", "fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    for key in scores do\n    end\nend", "dictionary iteration requires key and value binders or index, key, and value binders"},
-		{"stream arity", "fun demo(h: Heap)\n    source: Stream<Int32> = Stream<Int32>.new()\n    for i, value, extra in source do\n    end\nend", "stream iteration requires one value binder or index and value binders"},
-		{"excess binders", "fun demo(h: Heap)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    for i, key, value, extra in scores do\n    end\nend", "a for-in loop takes at most 3 binders"},
-		{"duplicate binder", "fun demo()\n    fixed: Array<Int32, 2> = [1, 2]\n    for value, value in fixed do\n    end\nend", "duplicate loop binder name value"},
+		{"not iterable", "fun demo() do\n    count: Int32 = 3\n    for value in count do\n    end\nend", "value of type Int32 is not iterable"},
+		{"sequence arity", "fun demo() do\n    fixed: Array<Int32, 2> = [1, 2]\n    for a, b, c in fixed do\n    end\nend", "sequence iteration requires one value binder or index and value binders"},
+		{"dict arity", "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    for key in scores do\n    end\nend", "dictionary iteration requires key and value binders or index, key, and value binders"},
+		{"stream arity", "fun demo(h: Heap) do\n    source: Stream<Int32> = Stream<Int32>.new()\n    for i, value, extra in source do\n    end\nend", "stream iteration requires one value binder or index and value binders"},
+		{"excess binders", "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    for i, key, value, extra in scores do\n    end\nend", "a for-in loop takes at most 3 binders"},
+		{"duplicate binder", "fun demo() do\n    fixed: Array<Int32, 2> = [1, 2]\n    for value, value in fixed do\n    end\nend", "duplicate loop binder name value"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileSource(testCase.source)
@@ -122,7 +122,7 @@ func TestForInParserErrors(t *testing.T) {
 }
 
 func TestForInSourceEvaluatedOnce(t *testing.T) {
-	result := compileSource("fun count_calls(): Array<Int32, 2>\n    return [1, 2]\nend\nfun demo()\n    mut total: Int32 = 0\n    for value in count_calls() do\n        total = total + value\n    end\nend")
+	result := compileSource("fun count_calls(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    mut total: Int32 = 0\n    for value in count_calls() do\n        total = total + value\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

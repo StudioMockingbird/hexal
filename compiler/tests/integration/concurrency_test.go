@@ -12,7 +12,7 @@ import (
 // behind the c23 build tag (c23_concurrency_smoke_test.go).
 
 func TestSpawnAndJoinCompile(t *testing.T) {
-	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"
+	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -37,7 +37,7 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 // RFC 0049 item 8.6: spawning a no-result function is a Type Error because
 // no Task<R> can be formed; effect-only tasks return an explicit payload.
 func TestSpawnRequiresFunctionWithResult(t *testing.T) {
-	source := "fun worker()\n    Task.yield()\nend\nfun run(): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 1\nend\n"
+	source := "fun worker() do\n    Task.yield()\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 1\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "spawn requires a function with a result") {
 		t.Fatalf("want spawn-without-result diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -45,7 +45,7 @@ func TestSpawnRequiresFunctionWithResult(t *testing.T) {
 }
 
 func TestChannelPipelineCompiles(t *testing.T) {
-	source := "fun produce(ch: Channel<Int32>): Bool\n    ch.send(1)\n    ch.send(2)\n    ch.close()\n    return true\nend\nfun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    defer ch.free(h)\n    producer: Task<Bool> = try spawn produce(ch)\n    producer.join()\n    mut total: Int32 = 0\n    while true do\n        step: Int32 | EoS = ch.receive()\n        if step is EoS\n            break\n        end\n        total = total + step\n        Task.yield()\n    end\n    return total\nend\n"
+	source := "fun produce(ch: Channel<Int32>): Bool do\n    ch.send(1)\n    ch.send(2)\n    ch.close()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    defer ch.free(h)\n    producer: Task<Bool> = try spawn produce(ch)\n    producer.join()\n    mut total: Int32 = 0\n    while true do\n        step: Int32 | EoS = ch.receive()\n        if step is EoS then\n            break\n        end\n        total = total + step\n        Task.yield()\n    end\n    return total\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -65,7 +65,7 @@ func TestChannelPipelineCompiles(t *testing.T) {
 }
 
 func TestMutexCompiles(t *testing.T) {
-	source := "fun worker(m: Mutex): Bool\n    m.lock()\n    m.unlock()\n    return true\nend\nfun run(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    defer m.free(h)\n    mutex_task: Task<Bool> = try spawn worker(m)\n    mutex_task.join()\n    return 0\nend\n"
+	source := "fun worker(m: Mutex): Bool do\n    m.lock()\n    m.unlock()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    defer m.free(h)\n    mutex_task: Task<Bool> = try spawn worker(m)\n    mutex_task.join()\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -76,7 +76,7 @@ func TestMutexCompiles(t *testing.T) {
 }
 
 func TestAtomicOperationsCompile(t *testing.T) {
-	source := "fun run(): Bool\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    old: Int32 = counter.fetch_add(1)\n    counter.fetch_sub(1)\n    counter.store(5)\n    loaded: Int32 = counter.load()\n    swapped: Int32 = counter.exchange(6)\n    expected: Bool = counter.compare_exchange(6, 7)\n    mut flag: Atomic<Bool> = Atomic<Bool>.new(true)\n    ready: Bool = flag.load()\n    return ready and expected\nend\n"
+	source := "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    old: Int32 = counter.fetch_add(1)\n    counter.fetch_sub(1)\n    counter.store(5)\n    loaded: Int32 = counter.load()\n    swapped: Int32 = counter.exchange(6)\n    expected: Bool = counter.compare_exchange(6, 7)\n    mut flag: Atomic<Bool> = Atomic<Bool>.new(true)\n    ready: Bool = flag.load()\n    return ready and expected\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -98,7 +98,7 @@ func TestAtomicOperationsCompile(t *testing.T) {
 }
 
 func TestTaskMethodCallsRequireCorrectArity(t *testing.T) {
-	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    task: Task<Int32> = try spawn square(6)\n    return task.join(1)\nend\n"
+	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join(1)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "join expects no arguments") {
 		t.Fatalf("want join arity diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -106,7 +106,7 @@ func TestTaskMethodCallsRequireCorrectArity(t *testing.T) {
 }
 
 func TestTaskHasNoUnknownMethods(t *testing.T) {
-	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    task: Task<Int32> = try spawn square(6)\n    task.cancel()\n    return 0\nend\n"
+	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    task.cancel()\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Task has no method cancel") {
 		t.Fatalf("want unknown-method diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -115,8 +115,8 @@ func TestTaskHasNoUnknownMethods(t *testing.T) {
 
 func TestSpawnRejectsNonDirectCall(t *testing.T) {
 	for _, source := range []string{
-		"fun run(): Int32 | Error\n    task: Task<Int32> = try spawn 5\n    return 0\nend\n",
-		"type Point = { x: Int32, }\nfun scale(point: Point, factor: Int32): Int32\n    return point.x * factor\nend\nfun run(): Int32 | Error\n    point: Point = Point { x = 2 }\n    task: Task<Int32> = try spawn point.scale(3)\n    return 0\nend\n",
+		"fun run(): Int32 | Error do\n    task: Task<Int32> = try spawn 5\n    return 0\nend\n",
+		"type Point = { x: Int32, }\nfun scale(point: Point, factor: Int32): Int32 do\n    return point.x * factor\nend\nfun run(): Int32 | Error do\n    point: Point = Point { x = 2 }\n    task: Task<Int32> = try spawn point.scale(3)\n    return 0\nend\n",
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "spawn requires a direct call") {
@@ -126,12 +126,12 @@ func TestSpawnRejectsNonDirectCall(t *testing.T) {
 }
 
 func TestSpawnRejectsNonCopyableArguments(t *testing.T) {
-	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    task: Task<Int32> = try spawn square(0)\n    return 0\nend\n"
+	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    task: Task<Int32> = try spawn square(0)\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("atomic not passed to spawn should still compile: %v", result.Stderr)
 	}
-	bad := "fun take_atomic(counter: Atomic<Int32>): Int32\n    return 0\nend\nfun run(): Int32 | Error\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    task: Task<Int32> = try spawn take_atomic(counter)\n    return 0\nend\n"
+	bad := "fun take_atomic(counter: Atomic<Int32>): Int32 do\n    return 0\nend\nfun run(): Int32 | Error do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    task: Task<Int32> = try spawn take_atomic(counter)\n    return 0\nend\n"
 	result = compileSource(bad)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Atomic") {
 		t.Fatalf("want atomic-argument diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -139,7 +139,7 @@ func TestSpawnRejectsNonCopyableArguments(t *testing.T) {
 }
 
 func TestSpawnRejectsAtomicResult(t *testing.T) {
-	source := "fun make_atomic(): Atomic<Int32>\n    return Atomic<Int32>.new(0)\nend\nfun run(): Int32 | Error\n    task: Task<Atomic<Int32>> = try spawn make_atomic()\n    return 0\nend\n"
+	source := "fun make_atomic(): Atomic<Int32> do\n    return Atomic<Int32>.new(0)\nend\nfun run(): Int32 | Error do\n    task: Task<Atomic<Int32>> = try spawn make_atomic()\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "shallow-copyable") {
 		t.Fatalf("want atomic-result diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -148,8 +148,8 @@ func TestSpawnRejectsAtomicResult(t *testing.T) {
 
 func TestChannelRejectsInvalidElements(t *testing.T) {
 	for _, source := range []string{
-		"fun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32 | EoS> = try Channel<Int32 | EoS>.new(h, 4)\n    return 0\nend\n",
-		"fun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Atomic<Int32>> = try Channel<Atomic<Int32>>.new(h, 4)\n    return 0\nend\n",
+		"fun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32 | EoS> = try Channel<Int32 | EoS>.new(h, 4)\n    return 0\nend\n",
+		"fun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Atomic<Int32>> = try Channel<Atomic<Int32>>.new(h, 4)\n    return 0\nend\n",
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
@@ -159,7 +159,7 @@ func TestChannelRejectsInvalidElements(t *testing.T) {
 }
 
 func TestChannelZeroCapacityRejectedAtCompileTime(t *testing.T) {
-	source := "fun run(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 0)\n    return 0\nend\n"
+	source := "fun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 0)\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "capacity must be positive") {
 		t.Fatalf("want capacity diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -167,7 +167,7 @@ func TestChannelZeroCapacityRejectedAtCompileTime(t *testing.T) {
 }
 
 func TestAtomicRejectsUnsupportedElements(t *testing.T) {
-	source := "fun run(): Atomic<Float64>\n    return Atomic<Float64>.new(1.5)\nend\n"
+	source := "fun run(): Atomic<Float64> do\n    return Atomic<Float64>.new(1.5)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Atomic element type is not supported") {
 		t.Fatalf("want atomic element diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -175,7 +175,7 @@ func TestAtomicRejectsUnsupportedElements(t *testing.T) {
 }
 
 func TestAtomicFetchAddUnavailableForBool(t *testing.T) {
-	source := "fun run(): Bool\n    flag: Atomic<Bool> = Atomic<Bool>.new(true)\n    old: Bool = flag.fetch_add(true)\n    return old\nend\n"
+	source := "fun run(): Bool do\n    flag: Atomic<Bool> = Atomic<Bool>.new(true)\n    old: Bool = flag.fetch_add(true)\n    return old\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "unavailable for Bool") {
 		t.Fatalf("want Bool fetch diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -183,7 +183,7 @@ func TestAtomicFetchAddUnavailableForBool(t *testing.T) {
 }
 
 func TestSpawnRejectedInsideDefer(t *testing.T) {
-	source := "fun square(value: Int32): Int32\n    return value * value\nend\nfun run(): Int32 | Error\n    defer spawn square(1)\n    return 0\nend\n"
+	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    defer spawn square(1)\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "not permitted inside defer") {
 		t.Fatalf("want defer diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -191,7 +191,7 @@ func TestSpawnRejectedInsideDefer(t *testing.T) {
 }
 
 func TestWhileTrueWithoutYieldRejectedWhenSchedulerLinked(t *testing.T) {
-	source := "fun worker(): Bool\n    while true do\n    end\n    return true\nend\nfun run(): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 0\nend\n"
+	source := "fun worker(): Bool do\n    while true do\n    end\n    return true\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "while true loop must execute Task.yield()") {
 		t.Fatalf("want starvation diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -199,7 +199,7 @@ func TestWhileTrueWithoutYieldRejectedWhenSchedulerLinked(t *testing.T) {
 }
 
 func TestWhileTrueWithYieldOnEveryRepeatingPathAccepted(t *testing.T) {
-	source := "fun worker(): Bool\n    while true do\n        if false\n            break\n        end\n        Task.yield()\n    end\n    return true\nend\nfun run(): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 0\nend\n"
+	source := "fun worker(): Bool do\n    while true do\n        if false then\n            break\n        end\n        Task.yield()\n    end\n    return true\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -207,7 +207,7 @@ func TestWhileTrueWithYieldOnEveryRepeatingPathAccepted(t *testing.T) {
 }
 
 func TestWhileTrueWithoutSchedulerIsUnchecked(t *testing.T) {
-	source := "fun spin(): Int32\n    while true do\n    end\n    return 0\nend\n"
+	source := "fun spin(): Int32 do\n    while true do\n    end\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("a program without the scheduler must not apply the starvation rule: %v", result.Stderr)
@@ -279,8 +279,8 @@ func TestAtomicDirectPointeeRules(t *testing.T) {
 
 func TestChannelAndTaskRejectFunElement(t *testing.T) {
 	rejected := []string{
-		"fun identity(x: Int32): Int32\n    return x\nend\nfun f(h: Heap): Nil | Error\n    ch: Channel<Fun<(Int32) : Int32>> = try Channel<Fun<(Int32) : Int32>>.new(h, 2)\n    return nil\nend\n",
-		"fun identity(x: Int32): Int32\n    return x\nend\nfun f(h: Heap): Nil | Error\n    t: Task<Fun<(Int32) : Int32>> = try spawn identity(1)\n    return nil\nend\n",
+		"fun identity(x: Int32): Int32 do\n    return x\nend\nfun f(h: Heap): Nil | Error do\n    ch: Channel<Fun<(Int32) : Int32>> = try Channel<Fun<(Int32) : Int32>>.new(h, 2)\n    return nil\nend\n",
+		"fun identity(x: Int32): Int32 do\n    return x\nend\nfun f(h: Heap): Nil | Error do\n    t: Task<Fun<(Int32) : Int32>> = try spawn identity(1)\n    return nil\nend\n",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
@@ -292,8 +292,8 @@ func TestChannelAndTaskRejectFunElement(t *testing.T) {
 // RFC 0049 item 8.2: no-value commands are valid as call statements and as
 // direct defer/errdefer cleanup actions.
 func TestNoValueCommandsValidAsStatementsAndCleanup(t *testing.T) {
-	source := "fun worker(): Bool\n    Task.yield()\n    return true\nend\n" +
-		"fun run(): Int32 | Error\n" +
+	source := "fun worker(): Bool do\n    Task.yield()\n    return true\nend\n" +
+		"fun run(): Int32 | Error do\n" +
 		"    h: Heap = Heap.new()\n" +
 		"    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n" +
 		"    defer ch.free(h)\n" +
@@ -321,17 +321,17 @@ func TestNoValueCommandsRejectedInValuePositions(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    bad: Int32 = ch.close()\n    return 0\nend\n", "close produces no value"},
-		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    bad: Int32 = ch.free(h)\n    return 0\nend\n", "free produces no value"},
-		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.lock()\n    return 0\nend\n", "lock produces no value"},
-		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.unlock()\n    return 0\nend\n", "unlock produces no value"},
-		{"fun f(): Int32 | Error\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.free(h)\n    return 0\nend\n", "free produces no value"},
+		{"fun f(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    bad: Int32 = ch.close()\n    return 0\nend\n", "close produces no value"},
+		{"fun f(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    bad: Int32 = ch.free(h)\n    return 0\nend\n", "free produces no value"},
+		{"fun f(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.lock()\n    return 0\nend\n", "lock produces no value"},
+		{"fun f(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.unlock()\n    return 0\nend\n", "unlock produces no value"},
+		{"fun f(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    bad: Int32 = m.free(h)\n    return 0\nend\n", "free produces no value"},
 		{"counter: Atomic<Int32> = Atomic<Int32>.new(0) bad: Int32 = counter.store(1)", "store produces no value"},
-		{"fun worker(): Bool\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    bad: Int32 = task.detach()\n    return 0\nend\n", "detach produces no value"},
-		{"fun worker(): Bool\n    Task.yield()\n    return true\nend\nfun f(): Int32\n    bad: Int32 = Task.yield()\n    return 0\nend\n", "yield produces no value"},
-		{"fun bad(ch: Channel<Int32>): Int32\n    return ch.close()\nend\n", "close produces no value"},
-		{"fun f(ch: Channel<Int32>): Int32\n    if ch.close() noop: Int32 = 0 end\n    return 0\nend\n", "close produces no value"},
-		{"fun f(ch: Channel<Int32>)\n    print(ch.close())\nend\n", "close produces no value"},
+		{"fun worker(): Bool do\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    bad: Int32 = task.detach()\n    return 0\nend\n", "detach produces no value"},
+		{"fun worker(): Bool do\n    Task.yield()\n    return true\nend\nfun f(): Int32 do\n    bad: Int32 = Task.yield()\n    return 0\nend\n", "yield produces no value"},
+		{"fun bad(ch: Channel<Int32>): Int32 do\n    return ch.close()\nend\n", "close produces no value"},
+		{"fun f(ch: Channel<Int32>): Int32 do\n    if ch.close() then noop: Int32 = 0 end\n    return 0\nend\n", "close produces no value"},
+		{"fun f(ch: Channel<Int32>) do\n    print(ch.close())\nend\n", "close produces no value"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), testCase.want) {

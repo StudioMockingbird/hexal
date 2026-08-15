@@ -96,7 +96,7 @@ func TestMatchExhaustivenessDiagnostic(t *testing.T) {
 }
 
 func TestMatchScrutineeEvaluatedOnce(t *testing.T) {
-	result := compileSource("fun read_value(): Int32 return 1 end label: Int64 = match read_value()\n| else then 1\nend")
+	result := compileSource("fun read_value(): Int32 do return 1 end label: Int64 = match read_value()\n| else then 1\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

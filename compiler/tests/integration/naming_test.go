@@ -50,7 +50,7 @@ func TestStreamNameIsProtected(t *testing.T) {
 	rejected := []string{
 		"type Stream = Int32",
 		"Stream: Int32 = 1",
-		"fun use<Stream>(value: Stream): Stream\n    return value\nend\n",
+		"fun use<Stream>(value: Stream): Stream do\n    return value\nend\n",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {

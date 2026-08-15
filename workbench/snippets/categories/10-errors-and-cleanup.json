@@ -8,22 +8,22 @@
       "description": "Return Int32 | Error when an input is invalid, and inspect the union at the call site.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun validate(score: Int32): Int32 | Error",
-        "    if score < 0 or score > 100",
+        "fun validate(score: Int32): Int32 | Error do",
+        "    if score < 0 or score > 100 then",
         "        return Error.new(\"Validation Error\", \"score out of range\")",
         "    end",
         "    return score",
         "end",
-        "fun demo(): Int32",
+        "fun demo(): Int32 do",
         "    check: Int32 | Error = validate(150)",
-        "    if check is Int32",
+        "    if check is Int32 then",
         "        return check",
         "    end",
         "    return 0",
         "end"
       ]},
       "features": ["errors", "unions"],
-      "reservedWords": ["fun", "if", "or", "return", "end", "is"]
+      "reservedWords": ["fun", "if", "or", "return", "end", "is", "do", "then"]
     },
     {
       "id": "errors-propagating-read",
@@ -31,17 +31,17 @@
       "description": "Use try to propagate a failure through two sequential operations.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun read_score(): Int32 | Error",
+        "fun read_score(): Int32 | Error do",
         "    return Error.new(\"Read Error\", \"no score\")",
         "end",
-        "fun load_total(): Int32 | Error",
+        "fun load_total(): Int32 | Error do",
         "    first: Int32 = try read_score()",
         "    second: Int32 = try read_score()",
         "    return first + second",
         "end"
       ]},
       "features": ["errors", "try-errdefer"],
-      "reservedWords": ["fun", "return", "end", "try"]
+      "reservedWords": ["fun", "return", "end", "try", "do"]
     },
     {
       "id": "errors-success-cleanup",
@@ -49,18 +49,18 @@
       "description": "Use defer to release a resource on every return path.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun release(value: Int32)",
+        "fun release(value: Int32) do",
         "end",
-        "fun load(valid: Bool): Int32",
+        "fun load(valid: Bool): Int32 do",
         "    defer release(1)",
-        "    if valid",
+        "    if valid then",
         "        return 10",
         "    end",
         "    return 0",
         "end"
       ]},
       "features": ["defer"],
-      "reservedWords": ["fun", "defer", "if", "return", "end"]
+      "reservedWords": ["fun", "defer", "if", "return", "end", "do", "then"]
     },
     {
       "id": "errors-failure-cleanup",
@@ -68,18 +68,18 @@
       "description": "Use errdefer so cleanup runs only on an Error exit and is discarded on success.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun rollback()",
+        "fun rollback() do",
         "end",
-        "fun apply(value: Int32): Int32 | Error",
+        "fun apply(value: Int32): Int32 | Error do",
         "    errdefer rollback()",
-        "    if value < 0",
+        "    if value < 0 then",
         "        return Error.new(\"Apply Error\", \"negative\")",
         "    end",
         "    return value",
         "end"
       ]},
       "features": ["errors", "try-errdefer"],
-      "reservedWords": ["fun", "errdefer", "if", "return", "end"]
+      "reservedWords": ["fun", "errdefer", "if", "return", "end", "do", "then"]
     },
     {
       "id": "errors-defer-order",
@@ -88,10 +88,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Tracer = { mut log: Int32, }",
-        "fun trace(tracer: MutPtr<Tracer>, step: Int32)",
+        "fun trace(tracer: MutPtr<Tracer>, step: Int32) do",
         "    tracer.log = tracer.log * 10 + step",
         "end",
-        "fun demo(): Int32",
+        "fun demo(): Int32 do",
         "    mut tracer: Tracer = Tracer { log = 0 }",
         "    defer trace(ref tracer, 1)",
         "    defer trace(ref tracer, 2)",
@@ -100,7 +100,7 @@
         "end"
       ]},
       "features": ["defer", "objects", "pointers"],
-      "reservedWords": ["type", "mut", "fun", "defer", "ref", "return", "end"]
+      "reservedWords": ["type", "mut", "fun", "defer", "ref", "return", "end", "do"]
     },
     {
       "id": "errors-cleanup-helper",
@@ -108,10 +108,10 @@
       "description": "Keep resource cleanup in a dedicated no-result function.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun release(heap: Heap, values: List<Int32>)",
+        "fun release(heap: Heap, values: List<Int32>) do",
         "    values.free(heap)",
         "end",
-        "fun load(): Int32",
+        "fun load(): Int32 do",
         "    h: Heap = Heap.new()",
         "    numbers: List<Int32> = List<Int32>.new(h)",
         "    defer release(h, numbers)",
@@ -120,7 +120,7 @@
         "end"
       ]},
       "features": ["defer", "lists", "no-result-functions"],
-      "reservedWords": ["fun", "defer", "return", "end"]
+      "reservedWords": ["fun", "defer", "return", "end", "do"]
     },
     {
       "id": "errors-file-write",
@@ -128,7 +128,7 @@
       "description": "Open, write, flush, and close a file with deferred cleanup.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun write_report(path: String, report: String): Nil | Error",
+        "fun write_report(path: String, report: String): Nil | Error do",
         "    file: File = try File.open(path, FileMode.Write)",
         "    defer file.close()",
         "    try file.write_text(report)",
@@ -137,7 +137,7 @@
         "end"
       ]},
       "features": ["file-io", "errors", "defer"],
-      "reservedWords": ["fun", "try", "defer", "return", "nil", "end"]
+      "reservedWords": ["fun", "try", "defer", "return", "nil", "end", "do"]
     },
     {
       "id": "errors-file-read",
@@ -145,20 +145,20 @@
       "description": "Read a file's text, handle malformed UTF-8 as a recoverable Error, and free the result.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun read_report(h: Heap, path: String): String | Error",
+        "fun read_report(h: Heap, path: String): String | Error do",
         "    file: File = try File.open(path, FileMode.Read)",
         "    defer file.close()",
         "    text: String = try file.read_text(h)",
         "    return text",
         "end",
-        "fun demo(h: Heap): Nil | Error",
+        "fun demo(h: Heap): Nil | Error do",
         "    report: String = try read_report(h, \"notes.txt\")",
         "    defer report.free(h)",
         "    return nil",
         "end"
       ]},
       "features": ["file-io", "errors", "text"],
-      "reservedWords": ["fun", "try", "defer", "return", "nil", "end"]
+      "reservedWords": ["fun", "try", "defer", "return", "nil", "end", "do"]
     }
   ]
 }

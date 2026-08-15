@@ -12,7 +12,7 @@ import (
 // at C file scope.
 
 func TestRootBindingsLowerAsLocals(t *testing.T) {
-	source := "fun run(value: MutPtr<Int32>)\n    value.value = 1\nend\nmut counter: Int32 = 0\nrun(ref counter)\n"
+	source := "fun run(value: MutPtr<Int32>) do\n    value.value = 1\nend\nmut counter: Int32 = 0\nrun(ref counter)\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -26,7 +26,7 @@ func TestRootBindingsLowerAsLocals(t *testing.T) {
 }
 
 func TestFunctionCannotCaptureRootLocal(t *testing.T) {
-	source := "mut counter: Int32 = 0\nfun increment()\n    counter = counter + 1\nend\n"
+	source := "mut counter: Int32 = 0\nfun increment() do\n    counter = counter + 1\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
 		t.Fatalf("want capture diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)

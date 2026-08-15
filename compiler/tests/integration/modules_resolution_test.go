@@ -33,7 +33,7 @@ func wantStderr(t *testing.T, result compiler.CompilationResult, want ...string)
 func TestMultiModuleCleanProgramsGenerate(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantMultiSuccess(t, result, "app", "math")
@@ -46,8 +46,8 @@ func TestRelativeImportsResolve(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":             "module Tools = import \"./libs/tools\"\n",
 		"libs/tools.hex":      "module Shared = import \"../shared\"\n",
-		"shared.hex":          "fun shared_helper(): Int32\n    return 1\nend\n",
-		"graphics/shapes.hex": "fun area(): Int32\n    return 1\nend\n",
+		"shared.hex":          "fun shared_helper(): Int32 do\n    return 1\nend\n",
+		"graphics/shapes.hex": "fun area(): Int32 do\n    return 1\nend\n",
 	}
 	// The nested and the ./graphics/shapes spelling both canonicalize; the
 	// unreachable graphics/shapes module contributes no artifacts.
@@ -71,7 +71,7 @@ func TestHexSuffixSpellingResolvesSameModule(t *testing.T) {
 	// missing module.
 	result := compileMulti(map[string]string{
 		"app.hex":  "module A = import \"./math\"\nmodule B = import \"./math.hex\"\n",
-		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}, "app.hex")
 	wantStderr(t, result, "duplicate import of canonical module math")
 }
@@ -101,7 +101,7 @@ func TestCaseDistinctModulesAreDistinct(t *testing.T) {
 	// only app + math artifacts are generated.
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 		"Math.hex": "broken executable\n",
 	}
 	result := compileMulti(sources, "app.hex")
@@ -114,8 +114,8 @@ func TestCaseDistinctModulesAreDistinct(t *testing.T) {
 func TestImportAliasConflictsWithExistingBinding(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":   "module Math = import \"./math\"\nmodule Math = import \"./math2\"\n",
-		"math.hex":  "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
-		"math2.hex": "fun sub(x: Int32, y: Int32): Int32\n    return x - y\nend\n",
+		"math.hex":  "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
+		"math2.hex": "fun sub(x: Int32, y: Int32): Int32 do\n    return x - y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "import alias Math conflicts with an existing name")
@@ -123,8 +123,8 @@ func TestImportAliasConflictsWithExistingBinding(t *testing.T) {
 
 func TestParameterCannotShadowImportAlias(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\nfun f(Math: Int32)\nend\n",
-		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"app.hex":  "module Math = import \"./math\"\nfun f(Math: Int32) do\nend\n",
+		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "import alias Math conflicts with an existing name")
@@ -133,7 +133,7 @@ func TestParameterCannotShadowImportAlias(t *testing.T) {
 func TestImportsMustPrecedeOtherItems(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "value: Int32 = 1\nmodule Math = import \"./math\"\n",
-		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantStderr(t, result, "imports must precede all other items")
@@ -176,7 +176,7 @@ func TestUnreachableSourcesAreIgnored(t *testing.T) {
 func TestStatsSumOverReachableModules(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "fun add(x: Int32, y: Int32): Int32\n    return x + y\nend\n",
+		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	wantMultiSuccess(t, result, "app", "math")

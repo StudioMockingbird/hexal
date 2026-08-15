@@ -75,6 +75,9 @@ func (parser *Parser) functionDeclaration(exported bool) (FunctionDeclaration, e
 	if err != nil {
 		return FunctionDeclaration{}, err
 	}
+	if err := parser.requireDelimiter(lexer.Do, "'do' after function signature"); err != nil {
+		return FunctionDeclaration{}, err
+	}
 	diagnosticsBeforeBody := len(parser.diagnostics)
 	body, end, err := parser.body("function " + name.Lexeme)
 	if err != nil {
@@ -120,6 +123,9 @@ func (parser *Parser) implDeclaration(exported bool) (ImplDeclaration, error) {
 		if err != nil {
 			return ImplDeclaration{}, err
 		}
+		if err := parser.requireDelimiter(lexer.Do, "'do' after method signature"); err != nil {
+			return ImplDeclaration{}, err
+		}
 		diagnosticsBeforeBody := len(parser.diagnostics)
 		body, end, err := parser.body("method " + name.Lexeme)
 		if err != nil {
@@ -150,6 +156,9 @@ func (parser *Parser) implDeclaration(exported bool) (ImplDeclaration, error) {
 	}
 	parameters, returnType, err := parser.signature()
 	if err != nil {
+		return ImplDeclaration{}, err
+	}
+	if err := parser.requireDelimiter(lexer.Do, "'do' after method signature"); err != nil {
 		return ImplDeclaration{}, err
 	}
 	diagnosticsBeforeBody := len(parser.diagnostics)
@@ -308,6 +317,9 @@ func (parser *Parser) ifStatement() (IfStatement, error) {
 	if err != nil {
 		return IfStatement{}, err
 	}
+	if err := parser.requireDelimiter(lexer.Then, "'then' after if condition"); err != nil {
+		return IfStatement{}, err
+	}
 	thenBody, err := parser.block("if", lexer.ElseIf, lexer.Else, lexer.End)
 	if err != nil {
 		return IfStatement{}, err
@@ -319,6 +331,9 @@ func (parser *Parser) ifStatement() (IfStatement, error) {
 		branchCondition, branchErr := parser.condition("elseif")
 		if branchErr != nil {
 			return IfStatement{}, branchErr
+		}
+		if err := parser.requireDelimiter(lexer.Then, "'then' after elseif condition"); err != nil {
+			return IfStatement{}, err
 		}
 		branchBody, bodyErr := parser.block("elseif", lexer.ElseIf, lexer.Else, lexer.End)
 		if bodyErr != nil {
@@ -424,7 +439,7 @@ func (parser *Parser) forStatement() (ForStatement, error) {
 // as a misleading generic "expected a value" error.
 func (parser *Parser) condition(keyword string) (Expression, error) {
 	switch parser.peek().Kind {
-	case lexer.EOF, lexer.ElseIf, lexer.Else, lexer.End:
+	case lexer.EOF, lexer.ElseIf, lexer.Else, lexer.End, lexer.Then:
 		return nil, parser.errorAtCurrent("expected a condition after '" + keyword + "'")
 	default:
 		return parser.expression()

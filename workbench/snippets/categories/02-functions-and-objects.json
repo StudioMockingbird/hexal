@@ -8,10 +8,10 @@
       "description": "Returns a label from a function using conditional branches.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun classify(temp: Float64): Strand",
-        "    if temp < 0.0",
+        "fun classify(temp: Float64): Strand do",
+        "    if temp < 0.0 then",
         "        return \"cold\"",
-        "    elseif temp < 20.0",
+        "    elseif temp < 20.0 then",
         "        return \"mild\"",
         "    else",
         "        return \"hot\"",
@@ -20,7 +20,7 @@
         "label: Strand = classify(15.0)"
       ]},
       "features": ["functions", "if-elseif-else"],
-      "reservedWords": ["fun", "if", "elseif", "else", "return", "end"]
+      "reservedWords": ["fun", "if", "elseif", "else", "return", "end", "do", "then"]
     },
     {
       "id": "functions-counter-method",
@@ -29,7 +29,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Counter = { mut count: Int32, }",
-        "impl MutPtr<Counter>.tick(): Int32",
+        "impl MutPtr<Counter>.tick(): Int32 do",
         "    self.count = self.count + 1",
         "    return self.count",
         "end",
@@ -37,7 +37,7 @@
         "next: Int32 = counter.tick()"
       ]},
       "features": ["objects", "methods"],
-      "reservedWords": ["type", "impl", "mut", "self", "return", "end"]
+      "reservedWords": ["type", "impl", "mut", "self", "return", "end", "do"]
     },
     {
       "id": "functions-point-translation",
@@ -46,7 +46,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Point = { mut x: Int32, mut y: Int32, }",
-        "impl MutPtr<Point>.translate(dx: Int32, dy: Int32)",
+        "impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do",
         "    self.x = self.x + dx",
         "    self.y = self.y + dy",
         "end",
@@ -54,7 +54,7 @@
         "origin.translate(3, -4)"
       ]},
       "features": ["objects", "methods"],
-      "reservedWords": ["type", "impl", "mut", "self", "end"]
+      "reservedWords": ["type", "impl", "mut", "self", "end", "do"]
     },
     {
       "id": "functions-value-pipeline",
@@ -62,14 +62,14 @@
       "description": "Stores a named function in a Fun value and invokes it with typed arguments.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun combine(a: Int32, b: Int32): Int32",
+        "fun combine(a: Int32, b: Int32): Int32 do",
         "    return a * 2 + b",
         "end",
         "step: Fun<(Int32, Int32) : Int32> = combine",
         "result: Int32 = step(3, 4)"
       ]},
       "features": ["functions", "function-values"],
-      "reservedWords": ["fun", "return", "end"]
+      "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "functions-no-result-notifier",
@@ -77,14 +77,14 @@
       "description": "Defines and calls a function without a return value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun notify(name: Strand)",
+        "fun notify(name: Strand) do",
         "    print(\"notify \", name)",
         "end",
         "boot: Strand = \"boot\"",
         "notify(boot)"
       ]},
       "features": ["no-result-functions", "print"],
-      "reservedWords": ["fun", "end"]
+      "reservedWords": ["fun", "end", "do"]
     },
     {
       "id": "functions-generic-identity",
@@ -92,7 +92,7 @@
       "description": "Preserves a value's type through a generic function.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun identity<T>(value: T): T",
+        "fun identity<T>(value: T): T do",
         "    return value",
         "end",
         "number: Int32 = identity(7)",
@@ -100,7 +100,7 @@
         "text: Strand = identity(word)"
       ]},
       "features": ["generics", "functions"],
-      "reservedWords": ["fun", "return", "end"]
+      "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "functions-generic-container",
@@ -109,14 +109,14 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Box<T> = { value: T, }",
-        "impl Box<T>.get(): T",
+        "impl Box<T>.get(): T do",
         "    return self.value",
         "end",
         "box: Box<Int32> = Box { value = 42 }",
         "stored: Int32 = box.get()"
       ]},
       "features": ["generics", "objects"],
-      "reservedWords": ["type", "impl", "self", "return", "end"]
+      "reservedWords": ["type", "impl", "self", "return", "end", "do"]
     },
     {
       "id": "functions-object-formatter",
@@ -152,13 +152,13 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Meter = { mut reading: Int32, }",
-        "impl Meter.peek(): Int32",
+        "impl Meter.peek(): Int32 do",
         "    return self.reading",
         "end",
-        "impl Ptr<Meter>.seen(): Int32",
+        "impl Ptr<Meter>.seen(): Int32 do",
         "    return self.reading",
         "end",
-        "impl MutPtr<Meter>.raise()",
+        "impl MutPtr<Meter>.raise() do",
         "    self.reading = self.reading + 1",
         "end",
         "mut meter: Meter = Meter { reading = 1 }",
@@ -167,7 +167,7 @@
         "meter.raise()"
       ]},
       "features": ["objects", "methods"],
-      "reservedWords": ["type", "impl", "mut", "self", "return", "end"]
+      "reservedWords": ["type", "impl", "mut", "self", "return", "end", "do"]
     }
   ]
 }

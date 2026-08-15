@@ -57,14 +57,14 @@ func TestParseGenericTypeExpressionRequiresArgument(t *testing.T) {
 }
 
 func TestParseGenericFunctionDeclaration(t *testing.T) {
-	program := parseOneItem(t, "fun identity<T>(value: T): T\nreturn value\nend").(FunctionDeclaration)
+	program := parseOneItem(t, "fun identity<T>(value: T): T do\nreturn value\nend").(FunctionDeclaration)
 	if len(program.TypeParameters) != 1 || program.TypeParameters[0].Lexeme != "T" {
 		t.Fatalf("type parameters = %#v, want [T]", program.TypeParameters)
 	}
 }
 
 func TestParseGenericMethodDeclaration(t *testing.T) {
-	program := parseOneItem(t, "impl Box<T>.same<U>(other: U): Bool\nreturn false\nend").(ImplDeclaration)
+	program := parseOneItem(t, "impl Box<T>.same<U>(other: U): Bool do\nreturn false\nend").(ImplDeclaration)
 	if len(program.TypeParameters) != 1 || program.TypeParameters[0].Lexeme != "U" {
 		t.Fatalf("method type parameters = %#v, want [U]", program.TypeParameters)
 	}

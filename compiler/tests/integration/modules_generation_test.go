@@ -12,8 +12,8 @@ import (
 func TestModuleGenerationEmitsOnePairPerModule(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":             "module Math = import \"./math\"\nmodule Shapes = import \"./graphics/shapes\"\n",
-		"math.hex":            "export fun add(a: Int32, b: Int32): Int32\n    return a + b\nend\n",
-		"graphics/shapes.hex": "export fun area(): Int32\n    return 1\nend\n",
+		"math.hex":            "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
+		"graphics/shapes.hex": "export fun area(): Int32 do\n    return 1\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -38,7 +38,7 @@ func TestModuleGenerationEmitsOnePairPerModule(t *testing.T) {
 func TestModuleGenerationSymbolsAndGuards(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
-		"math.hex": "export fun add(a: Int32, b: Int32): Int32\n    return a + b\nend\n",
+		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -72,7 +72,7 @@ func TestModuleGenerationSymbolsAndGuards(t *testing.T) {
 func TestModuleGenerationPrivateStaysStatic(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.secret(1)\n",
-		"math.hex": "fun secret(a: Int32): Int32\n    return a\nend\n",
+		"math.hex": "fun secret(a: Int32): Int32 do\n    return a\nend\n",
 	}
 	// The private call fails at checking before generation.
 	result := compileMulti(sources, "app.hex")
@@ -82,9 +82,9 @@ func TestModuleGenerationPrivateStaysStatic(t *testing.T) {
 func TestModuleGenerationDiamondEmittedOnce(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":       "module Math = import \"./math\"\nmodule Shapes = import \"./shapes\"\n",
-		"math.hex":      "module Constants = import \"./constants\"\nexport fun half(): Int32\n    return Constants.value() / 2\nend\n",
-		"shapes.hex":    "module Constants = import \"./constants\"\nexport fun area(): Int32\n    return Constants.value()\nend\n",
-		"constants.hex": "export fun value(): Int32\n    return 10\nend\n",
+		"math.hex":      "module Constants = import \"./constants\"\nexport fun half(): Int32 do\n    return Constants.value() / 2\nend\n",
+		"shapes.hex":    "module Constants = import \"./constants\"\nexport fun area(): Int32 do\n    return Constants.value()\nend\n",
+		"constants.hex": "export fun value(): Int32 do\n    return 10\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -109,7 +109,7 @@ func TestModuleGenerationDiamondEmittedOnce(t *testing.T) {
 func TestModuleGenerationLineDirectivesPerModule(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "export fun add(a: Int32, b: Int32): Int32\n    return a + b\nend\n",
+		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -124,7 +124,7 @@ func TestModuleGenerationLineDirectivesPerModule(t *testing.T) {
 func TestModuleGenerationDeterministic(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
-		"math.hex": "export fun add(a: Int32, b: Int32): Int32\n    return a + b\nend\n",
+		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 	}
 	first := compileMulti(sources, "app.hex")
 	second := compileMulti(sources, "app.hex")
@@ -141,7 +141,7 @@ func TestModuleGenerationDeterministic(t *testing.T) {
 func TestModuleGenerationUnreachableModulesProduceNoArtifacts(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "export fun add(a: Int32, b: Int32): Int32\n    return a + b\nend\n",
+		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 		"junk.hex": "broken executable\n",
 	}
 	result := compileMulti(sources, "app.hex")
@@ -165,7 +165,7 @@ func TestModuleGenerationUnreachableModulesProduceNoArtifacts(t *testing.T) {
 func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
-		"math.hex": "export fun add(a: Int32, b: Int32): Int32\n    return a + b\nend\n",
+		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -211,7 +211,7 @@ func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.compute()\n",
-		"math.hex": "export fun compute(): Int32\n    items: List<Int32> = List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\n",
+		"math.hex": "export fun compute(): Int32 do\n    items: List<Int32> = List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -248,7 +248,7 @@ func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nx: Int32 | Error = Math.compute()\n",
-		"math.hex": "fun double(v: Int32): Int32\n    return v * 2\nend\nexport fun compute(): Int32 | Error\n    task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\n",
+		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nexport fun compute(): Int32 | Error do\n    task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -294,7 +294,7 @@ func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 func TestModuleGenerationIOGateProgramWide(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":   "module Files = import \"./files\"\nx: Nil | Error = Files.write_line()\n",
-		"files.hex": "export fun write_line(): Nil | Error\n    result: Nil | Error = try Stdio.stdout().write_text(\"hi\")\n    return result\nend\n",
+		"files.hex": "export fun write_line(): Nil | Error do\n    result: Nil | Error = try Stdio.stdout().write_text(\"hi\")\n    return result\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {

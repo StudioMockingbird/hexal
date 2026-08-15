@@ -14,7 +14,7 @@ import (
 )
 
 func TestRootModuleArtifactsSplit(t *testing.T) {
-	source := "type Point = { x: Int32, }\nfun area(point: Point): Int32\n    return point.x\nend\nvalue: Int32 = 13\n"
+	source := "type Point = { x: Int32, }\nfun area(point: Point): Int32 do\n    return point.x\nend\nvalue: Int32 = 13\n"
 	result := assertCompiles(t, source)
 
 	rootC := rootC(t, result)

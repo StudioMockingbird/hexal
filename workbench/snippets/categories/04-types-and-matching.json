@@ -9,12 +9,12 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "score: Int32 | Nil = 42",
-        "if score != nil",
+        "if score != nil then",
         "    display: Int32 = score",
         "end"
       ]},
       "features": ["unions", "nullability"],
-      "reservedWords": ["if", "nil", "end"]
+      "reservedWords": ["if", "nil", "end", "then"]
     },
     {
       "id": "types-multi-type-value",
@@ -23,16 +23,16 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "value: Int32 | Bool | Nil = true",
-        "if value is Int32",
+        "if value is Int32 then",
         "    number: Int32 = value",
-        "elseif value != nil",
+        "elseif value != nil then",
         "    flag: Bool = value",
         "else",
         "    print(value)",
         "end"
       ]},
       "features": ["unions", "if-elseif-else"],
-      "reservedWords": ["if", "elseif", "else", "is", "end", "true", "nil"]
+      "reservedWords": ["if", "elseif", "else", "is", "end", "true", "nil", "then"]
     },
     {
       "id": "types-direction-match",
@@ -105,8 +105,8 @@
       "description": "Returns either a value or Error from a function.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun lookup(key: Int32): Int32 | Error",
-        "    if key == 1",
+        "fun lookup(key: Int32): Int32 | Error do",
+        "    if key == 1 then",
         "        return 100",
         "    end",
         "    return Error.new(\"Lookup Error\", \"unknown key\")",
@@ -114,7 +114,7 @@
         "value: Int32 | Error = lookup(1)"
       ]},
       "features": ["unions", "errors"],
-      "reservedWords": ["fun", "if", "return", "end"]
+      "reservedWords": ["fun", "if", "return", "end", "do", "then"]
     },
     {
       "id": "types-exhaustive-protocol",

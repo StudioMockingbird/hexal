@@ -471,10 +471,10 @@ func TestAutoDereferenceMissingMemberNamesSourceSpelling(t *testing.T) {
 
 func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 	accepted := []string{
-		"type Row = { value: Int32 }\nfun f()\n    rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: Ptr<Int32> = ref rows[0].value\nend\n",
-		"type Row = { mut value: Int32 }\nfun f()\n    mut rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: MutPtr<Int32> = ref rows[0].value\nend\n",
-		"type Cell = { mut value: Int32 }\ntype Box = { mut cells: Array<Cell, 2> }\nfun f()\n    mut grid: Array<Box, 2> = [Box { cells = [Cell { value = 1 }, Cell { value = 2 }] }, Box { cells = [Cell { value = 3 }, Cell { value = 4 }] }]\n    p: MutPtr<Int32> = ref grid[0].cells[1].value\nend\n",
-		"type Row = { mut values: Array<Int32, 2> }\nfun f()\n    mut pair: Row = Row { values = [1, 2] }\n    p: MutPtr<Int32> = ref pair.values[0]\nend\n",
+		"type Row = { value: Int32 }\nfun f() do\n    rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: Ptr<Int32> = ref rows[0].value\nend\n",
+		"type Row = { mut value: Int32 }\nfun f() do\n    mut rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: MutPtr<Int32> = ref rows[0].value\nend\n",
+		"type Cell = { mut value: Int32 }\ntype Box = { mut cells: Array<Cell, 2> }\nfun f() do\n    mut grid: Array<Box, 2> = [Box { cells = [Cell { value = 1 }, Cell { value = 2 }] }, Box { cells = [Cell { value = 3 }, Cell { value = 4 }] }]\n    p: MutPtr<Int32> = ref grid[0].cells[1].value\nend\n",
+		"type Row = { mut values: Array<Int32, 2> }\nfun f() do\n    mut pair: Row = Row { values = [1, 2] }\n    p: MutPtr<Int32> = ref pair.values[0]\nend\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -482,7 +482,7 @@ func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 		}
 	}
 	// A fixed member downgrades the final place to Ptr even under a writable root.
-	rejected := "type Row = { value: Int32 }\nfun f()\n    mut rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: MutPtr<Int32> = ref rows[0].value\nend\n"
+	rejected := "type Row = { value: Int32 }\nfun f() do\n    mut rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: MutPtr<Int32> = ref rows[0].value\nend\n"
 	if result := compileSource(rejected); result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want fixed-member ref downgraded to Ptr, got accept:\n%s", rejected)
 	}
@@ -496,11 +496,11 @@ func TestPointeeEligibilityMatrix(t *testing.T) {
 		name   string
 		source string
 	}{
-		{"String", "fun f(h: Heap)\n    s: String = \"x\".to_string(h)\n    p: Ptr<String> = ref s\nend\n"},
-		{"List", "fun f(h: Heap)\n    values: List<Int32> = List<Int32>.new(h)\n    p: Ptr<List<Int32>> = ref values\nend\n"},
-		{"Dict", "fun f(h: Heap)\n    d: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    p: Ptr<Dict<Int32, Int32>> = ref d\nend\n"},
-		{"Stream", "fun f()\n    s: Stream<Int32> = Stream<Int32>.new()\n    p: Ptr<Stream<Int32>> = ref s\nend\n"},
-		{"View", "fun f()\n    v: View<Int32> = View<Int32>.empty()\n    p: Ptr<View<Int32>> = ref v\nend\n"},
+		{"String", "fun f(h: Heap) do\n    s: String = \"x\".to_string(h)\n    p: Ptr<String> = ref s\nend\n"},
+		{"List", "fun f(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    p: Ptr<List<Int32>> = ref values\nend\n"},
+		{"Dict", "fun f(h: Heap) do\n    d: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    p: Ptr<Dict<Int32, Int32>> = ref d\nend\n"},
+		{"Stream", "fun f() do\n    s: Stream<Int32> = Stream<Int32>.new()\n    p: Ptr<Stream<Int32>> = ref s\nend\n"},
+		{"View", "fun f() do\n    v: View<Int32> = View<Int32>.empty()\n    p: Ptr<View<Int32>> = ref v\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertRejects(t, testCase.source, "could not construct pointer type")
@@ -510,9 +510,9 @@ func TestPointeeEligibilityMatrix(t *testing.T) {
 		name   string
 		source string
 	}{
-		{"Task", "fun worker(): Bool\n    return true\nend\nfun f(h: Heap): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    p: Ptr<Task<Bool>> = ref task\n    return 0\nend\n"},
-		{"Channel", "fun f(h: Heap): Int32 | Error\n    channel: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    p: Ptr<Channel<Int32>> = ref channel\n    return 0\nend\n"},
-		{"Mutex", "fun f(h: Heap): Int32 | Error\n    mutex: Mutex = try Mutex.new(h)\n    p: Ptr<Mutex> = ref mutex\n    return 0\nend\n"},
+		{"Task", "fun worker(): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    p: Ptr<Task<Bool>> = ref task\n    return 0\nend\n"},
+		{"Channel", "fun f(h: Heap): Int32 | Error do\n    channel: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    p: Ptr<Channel<Int32>> = ref channel\n    return 0\nend\n"},
+		{"Mutex", "fun f(h: Heap): Int32 | Error do\n    mutex: Mutex = try Mutex.new(h)\n    p: Ptr<Mutex> = ref mutex\n    return 0\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertCompiles(t, testCase.source)

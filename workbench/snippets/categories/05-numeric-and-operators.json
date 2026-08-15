@@ -8,7 +8,7 @@
       "description": "Combine addition, subtraction, multiplication, division, and remainder.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Int32",
+        "fun demo(): Int32 do",
         "    left: Int32 = 10",
         "    right: Int32 = 3",
         "    sum: Int32 = left + right",
@@ -20,7 +20,7 @@
         "end"
       ]},
       "features": ["arithmetic"],
-      "reservedWords": ["fun", "return", "end"]
+      "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "numeric-precedence-check",
@@ -28,7 +28,7 @@
       "description": "Show how grouped and ungrouped expressions produce different results.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    first: Int32 = 2",
         "    second: Int32 = 3",
         "    third: Int32 = 4",
@@ -38,7 +38,7 @@
         "end"
       ]},
       "features": ["arithmetic"],
-      "reservedWords": ["fun", "return", "end"]
+      "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "numeric-range-comparison",
@@ -46,19 +46,19 @@
       "description": "Use relational decisions to classify a number.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun classify(value: Int32): Strand",
-        "    if value < 0",
+        "fun classify(value: Int32): Strand do",
+        "    if value < 0 then",
         "        return \"negative\"",
-        "    elseif value < 10",
+        "    elseif value < 10 then",
         "        return \"small\"",
-        "    elseif value < 100",
+        "    elseif value < 100 then",
         "        return \"medium\"",
         "    end",
         "    return \"large\"",
         "end"
       ]},
       "features": ["equality-ordering", "if-elseif-else"],
-      "reservedWords": ["fun", "if", "elseif", "return", "end"]
+      "reservedWords": ["fun", "if", "elseif", "return", "end", "do", "then"]
     },
     {
       "id": "numeric-bit-mask-test",
@@ -66,7 +66,7 @@
       "description": "Test and combine flag bits with &, |, and shifts.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    flags: UInt32 = 0b1010",
         "    mask: UInt32 = 0b0010",
         "    enabled: Bool = (flags & mask) != 0",
@@ -76,7 +76,7 @@
         "end"
       ]},
       "features": ["bitwise"],
-      "reservedWords": ["fun", "return", "end", "and"]
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "numeric-bit-flag-update",
@@ -84,7 +84,7 @@
       "description": "Set, clear, and toggle individual flags.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): UInt8",
+        "fun demo(): UInt8 do",
         "    mut flags: UInt8 = 0b0000",
         "    enabled: UInt8 = 0b0001",
         "    flags = flags | enabled",
@@ -94,7 +94,7 @@
         "end"
       ]},
       "features": ["bitwise"],
-      "reservedWords": ["fun", "mut", "return", "end"]
+      "reservedWords": ["fun", "mut", "return", "end", "do"]
     },
     {
       "id": "numeric-signed-conversion",
@@ -102,7 +102,7 @@
       "description": "Convert a wide signed integer to a narrow type explicitly.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Int32",
+        "fun demo(): Int32 do",
         "    mut wide: Int64 = 100",
         "    small: Int8 = wide.to<Int8>()",
         "    back: Int64 = small.to<Int64>()",
@@ -110,7 +110,7 @@
         "end"
       ]},
       "features": ["numeric-conversions"],
-      "reservedWords": ["fun", "mut", "return", "end"]
+      "reservedWords": ["fun", "mut", "return", "end", "do"]
     },
     {
       "id": "numeric-floating-conversion",
@@ -118,7 +118,7 @@
       "description": "Widen an integer into a floating-point value without explicit syntax.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Float64",
+        "fun demo(): Float64 do",
         "    whole: Int32 = 5",
         "    ratio: Float64 = whole",
         "    half: Float64 = ratio / 2.0",
@@ -126,7 +126,7 @@
         "end"
       ]},
       "features": ["lossless-widening"],
-      "reservedWords": ["fun", "return", "end"]
+      "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "numeric-rune-conversion",
@@ -134,7 +134,7 @@
       "description": "Convert a numeric code point into a Rune.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    code: UInt32 = 0x41",
         "    letter: Rune = code.to<Rune>()",
         "    same: Bool = letter == 'A'",
@@ -143,7 +143,7 @@
         "end"
       ]},
       "features": ["numeric-conversions"],
-      "reservedWords": ["fun", "return", "end", "and"]
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "numeric-bit-cast",
@@ -151,7 +151,7 @@
       "description": "Reinterpret a UInt32 bit pattern as Float32.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    bits: UInt32 = 0x3F800000",
         "    floating: Float32 = bits.bit_cast<Float32>()",
         "    restored: UInt32 = floating.bit_cast<UInt32>()",
@@ -159,7 +159,7 @@
         "end"
       ]},
       "features": ["bit-casting"],
-      "reservedWords": ["fun", "return", "end"]
+      "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "numeric-endian-round-trip",
@@ -167,7 +167,7 @@
       "description": "Encode an integer as bytes and reconstruct it.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(): Bool",
+        "fun demo(): Bool do",
         "    value: UInt32 = 0x01020304",
         "    little: Array<UInt8, 4> = value.to_le_bytes()",
         "    big: Array<UInt8, 4> = value.to_be_bytes()",
@@ -177,7 +177,7 @@
         "end"
       ]},
       "features": ["endian-conversion"],
-      "reservedWords": ["fun", "return", "end", "and"]
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     }
   ]
 }

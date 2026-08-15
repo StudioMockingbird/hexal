@@ -18,10 +18,10 @@ func TestArgumentsEvaluatedOnceInSourceOrder(t *testing.T) {
 		source string
 		count  int
 	}{
-		{"array literal elements", "fun bump(): Int32\n    return 1\nend\nfun f()\n    values: Array<Int32, 2> = [bump(), bump()]\nend\n", 2},
-		{"print arguments", "fun bump(): Int32\n    return 1\nend\nfun f()\n    print(bump(), bump())\nend\n", 2},
-		{"spawn arguments", "fun bump(): Int32\n    return 1\nend\nfun worker(a: Int32, b: Int32): Bool\n    return a == b\nend\nfun f(h: Heap): Int32 | Error\n    task: Task<Bool> = try spawn worker(bump(), bump())\n    return 0\nend\n", 2},
-		{"from_pointer length", "fun bump(): Size\n    return 1\nend\nfun f(h: Heap)\n    p: MutPtr<Int32> = h.allocate<Int32>(1)\n    view: View<Int32> = View<Int32>.from_pointer(p, bump())\nend\n", 1},
+		{"array literal elements", "fun bump(): Int32 do\n    return 1\nend\nfun f() do\n    values: Array<Int32, 2> = [bump(), bump()]\nend\n", 2},
+		{"print arguments", "fun bump(): Int32 do\n    return 1\nend\nfun f() do\n    print(bump(), bump())\nend\n", 2},
+		{"spawn arguments", "fun bump(): Int32 do\n    return 1\nend\nfun worker(a: Int32, b: Int32): Bool do\n    return a == b\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> = try spawn worker(bump(), bump())\n    return 0\nend\n", 2},
+		{"from_pointer length", "fun bump(): Size do\n    return 1\nend\nfun f(h: Heap) do\n    p: MutPtr<Int32> = h.allocate<Int32>(1)\n    view: View<Int32> = View<Int32>.from_pointer(p, bump())\nend\n", 1},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileSource(testCase.source)

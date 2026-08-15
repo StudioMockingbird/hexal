@@ -9,7 +9,7 @@ import (
 // RFC 0030: the print builtin.
 
 func TestPrintScalars(t *testing.T) {
-	result := compileSource("fun demo()\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    letter: Rune = (65).to<Rune>()\n    print(letter)\n    size: Size = 7\n    print(size)\nend")
+	result := compileSource("fun demo() do\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    letter: Rune = (65).to<Rune>()\n    print(letter)\n    size: Size = 7\n    print(size)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -30,7 +30,7 @@ func TestPrintScalars(t *testing.T) {
 }
 
 func TestPrintStringsDirectAndNested(t *testing.T) {
-	result := compileSource("type Point = {\n    x: Int32,\n    y: Int32,\n}\nfun demo(h: Heap)\n    text: String = \"hello\"\n    print(text)\n    names: List<Int32> = List<Int32>.new(h)\n    defer names.free(h)\n    names.push(1)\n    print(names)\n    point: Point = Point { x = 10, y = 20 }\n    print(point)\nend")
+	result := compileSource("type Point = {\n    x: Int32,\n    y: Int32,\n}\nfun demo(h: Heap) do\n    text: String = \"hello\"\n    print(text)\n    names: List<Int32> = List<Int32>.new(h)\n    defer names.free(h)\n    names.push(1)\n    print(names)\n    point: Point = Point { x = 10, y = 20 }\n    print(point)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -48,7 +48,7 @@ func TestPrintStringsDirectAndNested(t *testing.T) {
 }
 
 func TestPrintNestedStringQuoting(t *testing.T) {
-	result := compileSource("fun demo(h: Heap)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"hello\")\n    print(names)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"hello\")\n    print(names)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -64,7 +64,7 @@ func TestPrintNestedStringQuoting(t *testing.T) {
 }
 
 func TestPrintError(t *testing.T) {
-	result := compileSource("fun demo()\n    err: Error = Error.new(\"File Error\", \"file not found\")\n    print(err)\nend")
+	result := compileSource("fun demo() do\n    err: Error = Error.new(\"File Error\", \"file not found\")\n    print(err)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -78,22 +78,22 @@ func TestPrintDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo()\n    print()\nend", "print expects at least 1 argument"},
-		{"fun demo()\n    value: Int32 = 1\n    pointer: Ptr<Int32> = ref value\n    print(pointer)\nend", "print does not support Ptr<Int32>"},
-		{"type Node = {\n    value: Int32,\n    next: Ptr<Int32>,\n}\nfun demo()\n    value: Int32 = 1\n    node: Node = Node { value = 1, next = ref value }\n    print(node)\nend", "print does not support Node because next is Ptr<Int32>"},
-		{"fun demo()\n    value: Int32 | Float32 = 1\n    print(value)\nend", "print does not support Int32 | Float32; narrow or match it first"},
-		{"fun demo()\n    stream: Stream<Int32> = Stream<Int32>.new()\n    print(stream)\nend", "print does not support Stream<Int32>"},
-		{"fun demo()\n    heap: Heap = Heap.new()\n    print(heap)\nend", "print does not support Heap"},
-		{"fun f(): Int32 | Error\n    file: File = try File.open(\"x\", FileMode.Read)\n    print(file)\n    return 0\nend", "print does not support File"},
-		{"fun worker(): Bool\n    return true\nend\nfun f(h: Heap): Int32 | Error\n    task: Task<Bool> = try spawn worker()\n    print(task)\n    return 0\nend", "print does not support Task<Bool>"},
-		{"fun f(h: Heap): Int32 | Error\n    channel: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    print(channel)\n    return 0\nend", "print does not support Channel<Int32>"},
-		{"fun f(h: Heap): Int32 | Error\n    mutex: Mutex = try Mutex.new(h)\n    print(mutex)\n    return 0\nend", "print does not support Mutex"},
+		{"fun demo() do\n    print()\nend", "print expects at least 1 argument"},
+		{"fun demo() do\n    value: Int32 = 1\n    pointer: Ptr<Int32> = ref value\n    print(pointer)\nend", "print does not support Ptr<Int32>"},
+		{"type Node = {\n    value: Int32,\n    next: Ptr<Int32>,\n}\nfun demo() do\n    value: Int32 = 1\n    node: Node = Node { value = 1, next = ref value }\n    print(node)\nend", "print does not support Node because next is Ptr<Int32>"},
+		{"fun demo() do\n    value: Int32 | Float32 = 1\n    print(value)\nend", "print does not support Int32 | Float32; narrow or match it first"},
+		{"fun demo() do\n    stream: Stream<Int32> = Stream<Int32>.new()\n    print(stream)\nend", "print does not support Stream<Int32>"},
+		{"fun demo() do\n    heap: Heap = Heap.new()\n    print(heap)\nend", "print does not support Heap"},
+		{"fun f(): Int32 | Error do\n    file: File = try File.open(\"x\", FileMode.Read)\n    print(file)\n    return 0\nend", "print does not support File"},
+		{"fun worker(): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    print(task)\n    return 0\nend", "print does not support Task<Bool>"},
+		{"fun f(h: Heap): Int32 | Error do\n    channel: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    print(channel)\n    return 0\nend", "print does not support Channel<Int32>"},
+		{"fun f(h: Heap): Int32 | Error do\n    mutex: Mutex = try Mutex.new(h)\n    print(mutex)\n    return 0\nend", "print does not support Mutex"},
 		{"counter: Atomic<Int32> = Atomic<Int32>.new(0)\nprint(counter)", "print does not support Atomic<Int32>"},
-		{"fun helper()\nend\nprint(helper)", "print does not support Fun<()>"},
-		{"type Inner = {\n    next: Ptr<Int32>,\n}\ntype Outer = {\n    inner: Inner,\n}\nfun demo()\n    mut value: Int32 = 1\n    outer: Outer = Outer { inner = Inner { next = ref value } }\n    print(outer)\nend", "print does not support Outer because inner is Inner"},
+		{"fun helper() do\nend\nprint(helper)", "print does not support Fun<()>"},
+		{"type Inner = {\n    next: Ptr<Int32>,\n}\ntype Outer = {\n    inner: Inner,\n}\nfun demo() do\n    mut value: Int32 = 1\n    outer: Outer = Outer { inner = Inner { next = ref value } }\n    print(outer)\nend", "print does not support Outer because inner is Inner"},
 		{"print: Int32 = 1", "print is a protected built-in name"},
-		{"fun print()\nend", "print is a protected built-in name"},
-		{"fun demo()\n    step: Int32 | EoS = 1\n    print(step)\nend", "print does not support Int32 | EoS"},
+		{"fun print() do\nend", "print is a protected built-in name"},
+		{"fun demo() do\n    step: Int32 | EoS = 1\n    print(step)\nend", "print does not support Int32 | EoS"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -105,14 +105,14 @@ func TestPrintDiagnostics(t *testing.T) {
 func TestPrintNoResult(t *testing.T) {
 	// RFC 0048: the destination is otherwise valid, so failure proves that
 	// print produces no value rather than that standalone Nil is invalid.
-	result := compileSource("fun demo()\n    bad: Int32 = print(\"x\")\nend")
+	result := compileSource("fun demo() do\n    bad: Int32 = print(\"x\")\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "print produces no value") {
 		t.Fatalf("Compile stderr = %#v, want no-result rejection", result.Stderr)
 	}
 }
 
 func TestPrintDeferred(t *testing.T) {
-	result := compileSource("fun demo()\n    defer print(\"leaving\\n\")\n    text: String = \"early\"\n    defer print(text)\nend")
+	result := compileSource("fun demo() do\n    defer print(\"leaving\\n\")\n    text: String = \"early\"\n    defer print(text)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
