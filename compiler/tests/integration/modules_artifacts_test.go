@@ -179,11 +179,11 @@ func TestHexalHeaderIncludesPrecedeDeclarations(t *testing.T) {
 }
 
 // RFC 0062: EoS is one shared typedef across modules, emitted exactly when
-// the generated program represents completion (Stream step unions, Channel
-// receive unions, or a written EoS).
+// the generated program represents completion (Channel receive unions, or a
+// written EoS).
 func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":   "module Files = import \"./files\"\nfun run(): Int32 do\n    stream: Stream<Int32> = Stream<Int32>.new()\n    return 1\nend\n",
+		"app.hex":   "module Files = import \"./files\"\nfun run(): Int32 do\n    return 1\nend\n",
 		"files.hex": "export fun helper(): Bool do\n    end_marker: EoS = eos\n    return true\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")

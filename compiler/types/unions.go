@@ -70,9 +70,9 @@ func (environment *Environment) UnionType(members []Type) Type {
 		// never pass canonical validation while they still contain a
 		// placeholder.
 		//
-		// Owning pointer-sized handles (String, List, Dict, Stream, Task,
+		// Owning pointer-sized handles (String, List, Dict, Task,
 		// Channel, Mutex) and the read-only View descriptor are ordinary union
-		// members: RFC 0040's File reads return String | Error and
+		// members: Error-carrying results return String | Error and
 		// List<Byte> | Error. Atomic values are non-copyable and are rejected
 		// here because union injection copies by definition (RFC 0046). Nil is
 		// canonical only as a union member (RFC 0049 item 8.1), so member

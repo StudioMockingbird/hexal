@@ -99,6 +99,23 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 - The same standard applies to generated C23: humans maintain and debug it, so
   it should remain as plain as the compiler source.
 - The generated C23 must always try to use the latest features released for C, as long as the latest gcc & clang versions support that.
+- **Never reinvent a C23 or toolchain facility.** Before writing a generated-C
+  helper, a lowering formula, or a portability workaround, check whether the
+  standard already provides it: a C23 header (`<stdckdint.h>` for checked
+  add/subtract/multiply, `<stdbit.h>` for bit and endianness queries,
+  `<stdatomic.h>`, `<threads.h>`), a C23 language feature (`nullptr`,
+  `constexpr`, `typeof`, `[[noreturn]]` and the other attributes, one-argument
+  `static_assert`), or a builtin both GCC and Clang document. Use it directly;
+  do not wrap it in a helper that only delegates. Write a compiler-owned helper
+  only when no standard facility implements the required semantics exactly, and
+  say in a comment which facility was considered and why it does not fit. This
+  rule applies to the generated C, not to the compiler's own Go.
+- **Sweep when a contract changes.** A specification that establishes a new
+  invariant — a toolchain guarantee, a representation fact, a target
+  qualification — must also remove the code that existed only because that
+  invariant was previously absent. Removing the assertion without removing the
+  defense it justified leaves dead caution behind. Name the swept code in the
+  spec, or state explicitly that none exists.
 
 ## Documentation
 
@@ -138,10 +155,13 @@ secondarily a lookup document for humans. Optimize it for precise retrieval:
   over explanatory prose while preserving every semantic edge case.
 
 Closed specs are historical records, superseded wherever they disagree with
-`docs/reference.md`. Several contain syntax the language never had — `:=`
-inference (RFCs 0016, 0017, 0029, 0036) and `if cond then` (RFCs 0029, 0037,
-0043). Do not reintroduce either, and do not copy a rule out of a spec without
-checking it against `reference.md` first.
+`docs/reference.md`. Some contain syntax the language never had — `:=`
+inference (RFCs 0016, 0017, 0029, 0036); do not reintroduce it. Others
+predate RFC 0061 and show the old delimiter-free forms (`fun f()` or
+`if cond` without the mandatory `do`/`then`); the language now requires those
+block openers, so treat their absence in a closed spec as superseded, not as
+authority. Do not copy a rule out of a spec without checking it against
+`reference.md` first.
 
 ## Testing
 

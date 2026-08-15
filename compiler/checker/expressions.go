@@ -266,16 +266,6 @@ func checkExpression(expression parser.Expression, context expressionContext, en
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
 		if property, isProperty := expression.(parser.PropertyExpression); isProperty {
 			if variable, isVariable := property.Receiver.(parser.VariableExpression); isVariable && property.Property.Kind == lexer.Identifier {
-				if variable.Name.Lexeme == "FileMode" {
-					// RFC 0040: the protected FileMode ADT's unit variants
-					// resolve before any other lookup.
-					if reference, diagnostic := checkFileModeVariant(variable.Name, property.Property); reference != nil || diagnostic != nil {
-						if diagnostic != nil {
-							return checkedExpression{token: property.Property, diagnostic: diagnostic}
-						}
-						return *reference
-					}
-				}
 				if reference, diagnostic := checkUnitVariant(variable.Name, property.Property, context.expected.Type, environment, typeEnvironment); reference != nil || diagnostic != nil {
 					if diagnostic != nil {
 						return checkedExpression{token: property.Property, diagnostic: diagnostic}

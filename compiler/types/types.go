@@ -74,8 +74,6 @@ type Type struct {
 	List *ListInfo
 	// Dict holds the metadata of owning dictionary types.
 	Dict *DictInfo
-	// Stream holds the metadata of lazy pull stream types (RFC 0031).
-	Stream *StreamInfo
 	// Task holds the metadata of spawned task handle types (RFC 0037).
 	Task *TaskInfo
 	// Channel holds the metadata of bounded channel handle types (RFC 0037).
@@ -226,7 +224,6 @@ type Environment struct {
 	viewTypes           map[string]Type
 	listTypes           map[string]Type
 	dictTypes           map[string]Type
-	streamTypes         map[string]Type
 	taskTypes           map[string]Type
 	channelTypes        map[string]Type
 	atomicTypes         map[string]Type
@@ -284,7 +281,6 @@ func NewEnvironmentWithOwner(moduleID string) *Environment {
 		viewTypes:           make(map[string]Type),
 		listTypes:           make(map[string]Type),
 		dictTypes:           make(map[string]Type),
-		streamTypes:         make(map[string]Type),
 		taskTypes:           make(map[string]Type),
 		channelTypes:        make(map[string]Type),
 		atomicTypes:         make(map[string]Type),
@@ -623,16 +619,6 @@ func IsRuneCursor(typ Type) bool {
 	return typ.identity != nil && typ.identity == RuneCursorType.identity
 }
 
-// IsFileMode reports whether typ is the canonical RFC 0040 FileMode type.
-func IsFileMode(typ Type) bool {
-	return typ.identity != nil && typ.identity == FileModeType.identity
-}
-
-// IsFile reports whether typ is the canonical RFC 0040 File handle type.
-func IsFile(typ Type) bool {
-	return typ.identity != nil && typ.identity == FileType.identity
-}
-
 // IsPointerLike reports whether typ is a pointer, a function pointer, or a
 // nullable form of either — the values that can hold Nil.
 func IsPointerLike(typ Type) bool {
@@ -827,9 +813,6 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 	}
 	if typ.Dict != nil {
 		return isCanonicalDict(environment, typ, state)
-	}
-	if typ.Stream != nil {
-		return isCanonicalForEnvironment(environment, typ.Stream.Element, state, false)
 	}
 	if typ.Task != nil {
 		if typ.identity.signature != "task:"+strconv.FormatUint(typ.Task.Result.identity.serial, 10) {
@@ -1032,7 +1015,7 @@ func IsProtectedTypeName(name string) bool {
 		return true
 	}
 	switch name {
-	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Task", "Channel", "Atomic", "Stream":
+	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Task", "Channel", "Atomic":
 		return true
 	}
 	return false
@@ -1147,22 +1130,6 @@ var (
 		CName:    "hex_rune_cursor",
 		identity: newTypeIdentity(nil),
 	}
-	// FileModeType is the RFC 0040 protected mode ADT with exactly the Read,
-	// Write, and Append variants. It lowers to a small C enum and is
-	// equality-comparable like an ordinary unit-variant ADT.
-	FileModeType = Type{
-		Name:     "FileMode",
-		CName:    "hex_file_mode",
-		identity: newTypeIdentity(nil),
-	}
-	// FileType is the RFC 0040 inline File handle: one small struct naming a
-	// C stream, its mode, and ownership. It copies shallowly and has no
-	// literal, default, or equality.
-	FileType = Type{
-		Name:     "File",
-		CName:    "hex_file",
-		identity: newTypeIdentity(nil),
-	}
 )
 
 // errorType constructs the canonical built-in Error object, linking its
@@ -1213,8 +1180,6 @@ var builtinTypes = map[string]Type{
 	// spellings share one identity and one C representation.
 	"Byte":       UInt8,
 	"RuneCursor": RuneCursorType,
-	"FileMode":   FileModeType,
-	"File":       FileType,
 }
 
 // Lookup resolves a builtin type by name.

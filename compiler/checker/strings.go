@@ -208,8 +208,9 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *
 }
 
 // checkStringMethodCall dispatches the RFC 0044 String method surface:
-// length, is_empty, at, bytes, slice, rune_cursor, to_string, concat, and
-// free. Indexing ([index]) resolves through checkIndexPlace.
+// length, is_empty, bytes, slice, rune_cursor, to_string, concat, and free
+// (RFC 0063: at was removed — `[index]` yields the same Rune). Indexing
+// ([index]) resolves through checkIndexPlace.
 func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
@@ -231,17 +232,8 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
 	case "at":
-		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, "at expects 1 argument")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		index, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
-		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
-		}
-		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{index}, OperandType: receiver.typ, ResultType: compilerTypes.Rune, Element: compilerTypes.UInt8}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Rune, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Rune, token: callee.Property}
+		diagnostic := typeErrorAt(callee.Property, "`at` was removed; use `receiver[index]`")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	case "bytes":
 		if len(call.Arguments) != 0 {
 			diagnostic := typeErrorAt(callee.Property, "bytes expects no arguments")
@@ -383,8 +375,9 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 }
 
 // checkStrandMethodCall dispatches the RFC 0044 Strand surface: length,
-// is_empty, at, and to_string. Strand never exposes bytes, slice,
-// rune_cursor, concat, or free.
+// is_empty, and to_string (RFC 0063: at was removed — `[index]` yields the
+// same Rune). Strand never exposes bytes, slice, rune_cursor, concat, or
+// free.
 func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
@@ -405,17 +398,8 @@ func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
 	case "at":
-		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, "at expects 1 argument")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		index, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
-		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
-		}
-		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{index}, OperandType: receiver.typ, ResultType: compilerTypes.Rune, Element: compilerTypes.UInt8}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Rune, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Rune, token: callee.Property}
+		diagnostic := typeErrorAt(callee.Property, "`at` was removed; use `receiver[index]`")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	case "to_string":
 		if len(call.Arguments) != 1 {
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("to_string expects 1 argument, got %d", len(call.Arguments)))

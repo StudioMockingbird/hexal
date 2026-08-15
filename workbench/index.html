@@ -200,13 +200,13 @@
     }
 
     function highlightHexal(value) {
-      const pattern = /--\[[\s\S]*?\]--|---[^\n]*|--[^\n]*|b'(?:\\.|[^'\\])'|'(?:\\.|[^'\\])'|"(?:\\.|[^"\\])*"|0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*(?:\.[\d_]+)?(?:[eE][+-]?[\d_]+)?|\b(?:module|import|export|true|false|nil|eos|mut|ref|type|and|or|is|fun|impl|end|return|if|elseif|else|while|break|continue|defer|try|errdefer|spawn|as|match|then|self|for|in|do)\b|\b(?:UInt8|UInt16|UInt32|UInt64|Int8|Int16|Int32|Int64|Float32|Float64|Bool|Size|Byte|Rune|String|Strand|Nil|EoS|Error|Unknown|Heap|Array|View|List|Dict|Stream|Task|Channel|Mutex|Atomic|File|FileMode|Stdio|Ptr|MutPtr|Fun)\b|!=|==|<=|>=|<<|>>|[{}\[\]:,=<>.!+\-*\/%()|&^~]|\b[A-Za-z][A-Za-z0-9_]*\b/g;
+      const pattern = /--\[[\s\S]*?\]--|---[^\n]*|--[^\n]*|b'(?:\\.|[^'\\])'|'(?:\\.|[^'\\])'|"(?:\\.|[^"\\])*"|0[xX][0-9A-Fa-f_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*(?:\.[\d_]+)?(?:[eE][+-]?[\d_]+)?|\b(?:module|import|export|true|false|nil|eos|mut|ref|type|and|or|is|fun|impl|end|return|if|elseif|else|while|break|continue|defer|try|errdefer|spawn|as|match|then|self|for|in|do)\b|\b(?:UInt8|UInt16|UInt32|UInt64|Int8|Int16|Int32|Int64|Float32|Float64|Bool|Size|Byte|Rune|String|Strand|Nil|EoS|Error|Unknown|Heap|Array|View|List|Dict|Task|Channel|Mutex|Atomic|Ptr|MutPtr|Fun)\b|!=|==|<=|>=|<<|>>|[{}\[\]:,=<>.!+\-*\/%()|&^~]|\b[A-Za-z][A-Za-z0-9_]*\b/g;
       return highlightedTokens(value, pattern, token => {
         if (/^--/.test(token)) return 'syntax-comment';
         if (/^(?:b?'|\")/.test(token)) return 'syntax-string';
         if (/^0[xXbBoO]|^\d/.test(token)) return 'syntax-number';
         if (/^(module|import|export|true|false|nil|eos|mut|ref|type|and|or|is|fun|impl|end|return|if|elseif|else|while|break|continue|defer|try|errdefer|spawn|as|match|then|self|for|in|do)$/.test(token)) return 'syntax-keyword';
-        if (/^(UInt8|UInt16|UInt32|UInt64|Int8|Int16|Int32|Int64|Float32|Float64|Bool|Size|Byte|Rune|String|Strand|Nil|EoS|Error|Unknown|Heap|Array|View|List|Dict|Stream|Task|Channel|Mutex|Atomic|File|FileMode|Stdio|Ptr|MutPtr|Fun)$/.test(token)) return 'syntax-type';
+        if (/^(UInt8|UInt16|UInt32|UInt64|Int8|Int16|Int32|Int64|Float32|Float64|Bool|Size|Byte|Rune|String|Strand|Nil|EoS|Error|Unknown|Heap|Array|View|List|Dict|Task|Channel|Mutex|Atomic|Ptr|MutPtr|Fun)$/.test(token)) return 'syntax-type';
         if (/^(?:!=|==|<=|>=|<<|>>|[{}\[\]:,=<>.!+\-*\/%()|&^~])$/.test(token)) return 'syntax-punctuation';
         return '';
       });

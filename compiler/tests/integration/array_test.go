@@ -10,7 +10,7 @@ import (
 // built-in methods, and bounds-safe element access.
 
 func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
-	result := compileSource("fixed: Array<Int32, 3> = [10, 20, 30] total: Int32 = fixed[0] + fixed[2] count: Size = fixed.length() empty: Bool = fixed.is_empty() last: Int32 = fixed.at(2)")
+	result := compileSource("fixed: Array<Int32, 3> = [10, 20, 30] total: Int32 = fixed[0] + fixed[2] count: Size = fixed.length() empty: Bool = fixed.length() == 0 last: Int32 = fixed[2]")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -53,7 +53,6 @@ func TestArrayMutableElementWrite(t *testing.T) {
 func TestArrayConstantIndexOutOfBoundsIsACompileError(t *testing.T) {
 	for _, source := range []string{
 		"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed[2]",
-		"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at(2)",
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "out of bounds") {
@@ -90,7 +89,7 @@ func TestArrayIndexErrors(t *testing.T) {
 		{"value: Int32 = 1 bad: Int32 = value[0]", "cannot index Int32; expected Array<T, N>"},
 		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.first()", "Array<Int32, 2> has no method first"},
 		{"fixed: Array<Int32, 2> = [1, 2] bad: UInt64 = fixed.length(1)", "length expects no arguments"},
-		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at()", "at expects 1 argument, got 0"},
+		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at()", "`at` was removed; use `receiver[index]`"},
 		{"type A = Array<Int32, 0>", "an array length must be a positive decimal integer"},
 	} {
 		result := compileSource(testCase.source)
@@ -108,14 +107,14 @@ func TestArrayElementClassRejectsFunctionValues(t *testing.T) {
 }
 
 func TestArrayMembersAndFunctions(t *testing.T) {
-	result := compileSource("type Pair = { mut values: Array<Int32, 2>, }\nmut pair: Pair = Pair { values = [3, 4], }\nsum: Int32 = pair.values[0] + pair.values.at(1)\npair.values[1] = 9\nfun first(values: Array<Int32, 3>): Int32 do\n    return values[0]\nend\nhead: Int32 = first([5, 6, 7])")
+	result := compileSource("type Pair = { mut values: Array<Int32, 2>, }\nmut pair: Pair = Pair { values = [3, 4], }\nsum: Int32 = pair.values[0] + pair.values[1]\npair.values[1] = 9\nfun first(values: Array<Int32, 3>): Int32 do\n    return values[0]\nend\nhead: Int32 = first([5, 6, 7])")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
 		"int32_t data[2];",
 		"*hex_array_at_mut_Int32_2(&hex_v_pair.hex_m_values, (size_t)(0))",
-		"*hex_array_at_Int32_2(&hex_v_pair.hex_m_values, (size_t)(1))",
+		"*hex_array_at_mut_Int32_2(&hex_v_pair.hex_m_values, (size_t)(1))",
 		"*hex_array_at_mut_Int32_2(&hex_v_pair.hex_m_values, (size_t)(1)) = 9;",
 		"*hex_array_at_Int32_3(&hex_v_values, (size_t)(0))",
 		"hex_v_head = hex_f_m3_app_first((hex_array_Int32_3){{5, 6, 7}});",

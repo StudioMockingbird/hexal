@@ -27,11 +27,6 @@ type DictInfo struct {
 	Value Type
 }
 
-// StreamInfo is the metadata of one lazy pull stream type (RFC 0031).
-type StreamInfo struct {
-	Element Type
-}
-
 // TaskInfo describes one spawned task handle type (RFC 0037).
 type TaskInfo struct {
 	Result Type
@@ -64,13 +59,10 @@ func IsDict(typ Type) bool { return typ.Dict != nil }
 
 // IsManaged reports whether typ is a reference-like handle value rejected
 // from inline positions, storage, and union alternatives in v1. Views are
-// the borrowed form; String, List, Dict, and Stream are owning forms.
+// the borrowed form; String, List, and Dict are owning forms.
 func IsManaged(typ Type) bool {
-	return typ.View != nil || IsString(typ) || IsList(typ) || IsDict(typ) || IsStream(typ)
+	return typ.View != nil || IsString(typ) || IsList(typ) || IsDict(typ)
 }
-
-// IsStream reports whether typ is a Stream<T> handle.
-func IsStream(typ Type) bool { return typ.Stream != nil }
 
 // IsTask reports whether typ is a Task<R> handle (RFC 0037).
 func IsTask(typ Type) bool { return typ.Task != nil }
@@ -167,32 +159,6 @@ func (environment *Environment) ListType(element Type) Type {
 	return typ
 }
 
-// StreamType constructs or retrieves the canonical Stream<T> type. The
-// element must be complete and finite-sized, and it must not be EoS or a
-// union containing EoS as a top-level member: the produced-value and
-// completion alternatives would be indistinguishable (RFC 0031).
-func (environment *Environment) StreamType(element Type) Type {
-	if environment == nil ||
-		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!Eligible(element, PositionStreamElement) || IsEoS(element) || UnionContainsEoS(element) {
-		return Type{}
-	}
-	key := "stream:" + strconv.FormatUint(element.identity.serial, 10)
-	if cached, ok := environment.streamTypes[key]; ok {
-		return cached
-	}
-	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
-	typ := Type{
-		Name:     "Stream<" + element.Name + ">",
-		CName:    "hex_stream_" + SanitizeIdentifier(element.Name),
-		Stream:   &StreamInfo{Element: element},
-		identity: identity,
-	}
-	environment.streamTypes[key] = typ
-	return typ
-}
-
 // UnionContainsEoS reports whether a union type includes EoS as one of its
 // normalized top-level members.
 func UnionContainsEoS(typ Type) bool {
@@ -223,8 +189,6 @@ const (
 	PositionTaskArgument
 	PositionTaskResult
 	PositionChannelElement
-	PositionStreamElement
-	PositionStreamState
 	PositionPointee
 	PositionHeapAllocation
 )

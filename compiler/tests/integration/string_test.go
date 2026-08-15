@@ -135,7 +135,7 @@ func TestStringParameterCopiesAreValid(t *testing.T) {
 func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
 	// RFC 0048: Array<String, N> is valid; element copies share the String
 	// handle, and the array never frees a stored literal.
-	result := compileSource("fun demo() do\n    texts: Array<String, 2> = [\"a\", \"b\"]\n    copy: Array<String, 2> = texts\n    first: String = texts.at(0)\nend")
+	result := compileSource("fun demo() do\n    texts: Array<String, 2> = [\"a\", \"b\"]\n    copy: Array<String, 2> = texts\n    first: String = texts[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

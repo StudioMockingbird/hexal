@@ -177,7 +177,7 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) 
 // call: pointer-semantic values (List, Dict, String) pass their pointer
 // directly, every other type passes its address.
 func printNestedAddress(typ compilerTypes.Type, expression string) string {
-	if typ.List != nil || typ.Dict != nil || typ.Stream != nil || compilerTypes.IsString(typ) {
+	if typ.List != nil || typ.Dict != nil || compilerTypes.IsString(typ) {
 		return expression
 	}
 	return "&(" + expression + ")"

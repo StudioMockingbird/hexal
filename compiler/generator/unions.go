@@ -86,9 +86,7 @@ func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState) 
 }
 
 // writeUnionDefinition emits one union's tag enum, payload union, and struct
-// typedef. Shared by the union family and the Stream step unions, which are
-// internal T | EoS unions the base next helper references even when no
-// source call names the union type directly.
+// typedef.
 func writeUnionDefinition(result *strings.Builder, union compilerTypes.Type) {
 	name := union.CName
 	fmt.Fprintf(result, "\ntypedef enum %s_tag {\n", name)

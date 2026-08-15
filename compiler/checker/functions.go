@@ -76,17 +76,6 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 			Message:  name + " is a protected built-in name",
 		})
 	}
-	if name == "Stdio" {
-		// RFC 0040: the intrinsic qualifier is not a function and cannot be
-		// redeclared.
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.NameError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "Stdio is a protected intrinsic qualifier",
-		})
-	}
 	if compilerTypes.IsProtectedTypeName(name) || typeEnvironment.Contains(name) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+name+" is already declared as a type"))
 	} else if names.declaredHere(name) {

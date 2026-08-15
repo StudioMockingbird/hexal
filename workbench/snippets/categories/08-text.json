@@ -10,7 +10,7 @@
       "sources": {"app.hex": [
         "fun demo(): Bool do",
         "    text: String = \"caf\\u{00E9}\"",
-        "    first: Rune = text.at(0)",
+        "    first: Rune = text[0]",
         "    indexed: Rune = text[0]",
         "    raw: View<Byte> = text.bytes()",
         "    first_byte: Byte = raw[0]",
@@ -52,7 +52,7 @@
         "    text: String = \"hello\"",
         "    raw: View<Byte> = text.bytes()",
         "    count: Size = raw.length()",
-        "    empty: Bool = raw.is_empty()",
+        "    empty: Bool = raw.length() == 0",
         "    return count == 5 and !empty",
         "end"
       ]},
@@ -69,7 +69,7 @@
         "    text: String = \"abc\"",
         "    raw: View<Byte> = text.bytes()",
         "    first: Byte = raw[0]",
-        "    second: Byte = raw.at(1)",
+        "    second: Byte = raw[1]",
         "    part: View<Byte> = text.slice(1, 3)",
         "    return first == b'a' and second == b'b' and part[0] == b'b'",
         "end"
@@ -140,7 +140,7 @@
       "sources": {"app.hex": [
         "fun demo(h: Heap): Bool do",
         "    label: Strand = \"hexal\"",
-        "    first: Rune = label.at(0)",
+        "    first: Rune = label[0]",
         "    text: String = label.to_string(h)",
         "    count: Size = text.length()",
         "    text.free(h)",

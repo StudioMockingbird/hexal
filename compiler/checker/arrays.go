@@ -186,17 +186,11 @@ func checkIndexPlace(expression parser.IndexExpression, environment *scope, type
 }
 
 // checkCollectionMethodCall dispatches the built-in Array and View methods
-// length, is_empty, at, and slice. at checks its index exactly like an
-// indexed read; slice builds a source-tied View.
+// length and slice (RFC 0063: is_empty and at were removed — their
+// replacements `length() == 0` and `[index]` are identical and O(1)).
 func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	collectionType := receiver.typ
-	var element compilerTypes.Type
-	if collectionType.Array != nil {
-		element = collectionType.Array.Element
-	} else {
-		element = collectionType.View.Element
-	}
 	switch name {
 	case "length":
 		if len(call.Arguments) != 0 {
@@ -206,43 +200,14 @@ func checkCollectionMethodCall(call parser.CallExpression, callee parser.Propert
 		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: collectionType, ResultType: compilerTypes.SizeType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
-	case "is_empty":
-		if len(call.Arguments) != 0 {
-			diagnostic := typeErrorAt(callee.Property, "is_empty expects no arguments")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: collectionType, ResultType: compilerTypes.Bool}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
-	case "at":
-		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("at expects 1 argument, got %d", len(call.Arguments)))
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		index, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
-		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
-		}
-		if index.Constant != nil && index.Constant.Kind() == constant.Int {
-			if value, exact := constant.Uint64Val(index.Constant); exact && collectionType.Array != nil && value >= collectionType.Array.Length {
-				indexToken := tokenOf(call.Arguments[0])
-				diagnostic := typeErrorAt(indexToken, fmt.Sprintf("array index %d is out of bounds for %s", value, collectionType.Name))
-				return checkedExpression{token: indexToken, diagnostic: &diagnostic}
-			}
-		}
-		node := Expression{
-			Kind:        CollectionMethodCallExpression,
-			Name:        name,
-			Operand:     &receiver.source.Node,
-			Arguments:   []Operand{index},
-			OperandType: collectionType,
-			ResultType:  element,
-			Element:     element,
-		}
-		source := Operand{Kind: ExpressionOperand, Type: element, Name: name, Node: node}
-		return checkedExpression{source: source, typ: element, token: callee.Property}
 	case "slice":
 		return checkSliceMethod(call, callee, receiver, environment, typeEnvironment)
+	case "at":
+		diagnostic := typeErrorAt(callee.Property, "`at` was removed; use `receiver[index]`")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	case "is_empty":
+		diagnostic := typeErrorAt(callee.Property, "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	default:
 		diagnostic := typeErrorAt(callee.Property, collectionType.Name+" has no method "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

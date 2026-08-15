@@ -1,7 +1,7 @@
 # RFC 0063: Language Surface Reduction
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; conformance verified 2026-08-15
 - Created: 2026-08-15
 - Updated: 2026-08-15
 - Scope: user-visible language surface — two builtin method removals and two

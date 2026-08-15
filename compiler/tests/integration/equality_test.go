@@ -212,7 +212,7 @@ func TestNilComparisonRulesPreserved(t *testing.T) {
 }
 
 // RFC 0049: List equality is deep element equality; Task, Channel, Mutex,
-// Atomic, and Stream handles have no equality at all.
+// and Atomic handles have no equality at all.
 func TestListEqualityAccepted(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n    left: List<Int32> = List<Int32>.new(h)\n    defer left.free(h)\n    left.push(1)\n    right: List<Int32> = left\n    same: Bool = left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -232,7 +232,6 @@ func TestManagedHandleEqualityRejected(t *testing.T) {
 		{"Channel", "fun f(h: Heap): Int32 | Error do\n    channel: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    same: Bool = channel == channel\n    return 0\nend\n"},
 		{"Mutex", "fun f(h: Heap): Int32 | Error do\n    mutex: Mutex = try Mutex.new(h)\n    same: Bool = mutex == mutex\n    return 0\nend\n"},
 		{"Atomic", "counter: Atomic<Int32> = Atomic<Int32>.new(0)\nsame: Bool = counter == counter\n"},
-		{"Stream", "fun f() do\n    s: Stream<Int32> = Stream<Int32>.new()\n    same: Bool = s == s\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertRejects(t, testCase.source, "equality is unavailable")

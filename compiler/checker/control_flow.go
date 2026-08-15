@@ -447,16 +447,6 @@ func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compile
 			diagnostic := typeErrorAt(binders[0], "dictionary iteration requires key and value binders or index, key, and value binders")
 			return nil, &diagnostic
 		}
-	case source.Stream != nil:
-		switch len(binders) {
-		case 1:
-			return []compilerTypes.Type{source.Stream.Element}, nil
-		case 2:
-			return []compilerTypes.Type{compilerTypes.SizeType, source.Stream.Element}, nil
-		default:
-			diagnostic := typeErrorAt(binders[0], "stream iteration requires one value binder or index and value binders")
-			return nil, &diagnostic
-		}
 	default:
 		diagnostic := typeErrorAt(binders[0], "value of type "+source.Name+" is not iterable")
 		return nil, &diagnostic

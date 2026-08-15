@@ -349,9 +349,6 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 	if typ.Dict != nil {
 		return validateGeneratedType(typ.Dict.Key, state, false) && validateGeneratedType(typ.Dict.Value, state, false)
 	}
-	if typ.Stream != nil {
-		return validateGeneratedType(typ.Stream.Element, state, false)
-	}
 	if compilerTypes.IsEoS(typ) {
 		return true
 	}
@@ -950,17 +947,6 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) && !compilerTypes.Equal(node.ResultType, compilerTypes.UInt64) {
 				return unknownExpressionDiagnostic("collection length call has invalid checked metadata")
 			}
-		case "is_empty":
-			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
-				return unknownExpressionDiagnostic("collection is_empty call has invalid checked metadata")
-			}
-		case "at":
-			if len(node.Arguments) != 1 || !compilerTypes.Equal(node.Element, element) || !compilerTypes.Equal(node.ResultType, node.Element) {
-				return unknownExpressionDiagnostic("collection at call has invalid checked metadata")
-			}
-			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
-				return err
-			}
 		case "push":
 			if node.OperandType.List == nil || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic("list push call has invalid checked metadata")
@@ -1074,15 +1060,6 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
 				return unknownExpressionDiagnostic("text is_empty call has invalid checked metadata")
 			}
-		case "at":
-			if len(node.Arguments) != 1 || !compilerTypes.Equal(node.ResultType, compilerTypes.Rune) {
-				return unknownExpressionDiagnostic("text at call has invalid checked metadata")
-			}
-			for _, argument := range node.Arguments {
-				if err := validateCheckedOperandWithState(argument, state); err != nil {
-					return err
-				}
-			}
 		case "bytes":
 			if strand || len(node.Arguments) != 0 || node.ResultType.View == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
 				return unknownExpressionDiagnostic("string bytes call has invalid checked metadata")
@@ -1160,88 +1137,6 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 			return err
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
-	case checker.FileModeLiteralExpression:
-		if node.ResultType == (compilerTypes.Type{}) || !compilerTypes.IsFileMode(node.ResultType) {
-			return unknownExpressionDiagnostic("FileMode literal has invalid checked metadata")
-		}
-		if _, ok := fileModeVariants[node.Name]; !ok {
-			return unknownExpressionDiagnostic("unknown FileMode variant " + node.Name)
-		}
-		if hasExpected && !compilerTypes.Equal(expected, node.ResultType) {
-			return unknownExpressionDiagnostic("FileMode literal type does not match its expected type")
-		}
-		return nil
-	case checker.FileOpenExpression:
-		if len(node.Arguments) != 2 || !compilerTypes.IsFile(node.OperandType) || !compilerTypes.Equal(node.Element, compilerTypes.StringType) || node.ResultType.Union == nil || node.SourceLine <= 0 {
-			return unknownExpressionDiagnostic("File.open has invalid checked metadata")
-		}
-		if unionMemberIndex(node.ResultType, compilerTypes.FileType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
-			return unknownExpressionDiagnostic("File.open result union is missing its File or Error member")
-		}
-		if hasExpected && !compilerTypes.Equal(expected, node.ResultType) {
-			return unknownExpressionDiagnostic("File.open result type does not match its expected type")
-		}
-		if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
-			return err
-		}
-		return validateCheckedOperandWithState(node.Arguments[1], state)
-	case checker.StdioCallExpression:
-		if !compilerTypes.IsFile(node.ResultType) {
-			return unknownExpressionDiagnostic("Stdio call has invalid checked metadata")
-		}
-		switch node.Name {
-		case "stdin", "stdout", "stderr":
-		default:
-			return unknownExpressionDiagnostic("unknown Stdio operation " + node.Name)
-		}
-		if hasExpected && !compilerTypes.Equal(expected, node.ResultType) {
-			return unknownExpressionDiagnostic("Stdio call result type does not match its expected type")
-		}
-		return nil
-	case checker.FileMethodCallExpression:
-		if node.Operand == nil || !compilerTypes.IsFile(node.OperandType) {
-			return unknownExpressionDiagnostic("file method has invalid checked metadata")
-		}
-		switch node.Name {
-		case "read_bytes", "read_text":
-			if len(node.Arguments) != 1 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || node.SourceLine <= 0 {
-				return unknownExpressionDiagnostic("file read has invalid checked metadata")
-			}
-			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
-				return err
-			}
-		case "write":
-			if len(node.Arguments) != 1 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.Nil) < 0 || node.SourceLine <= 0 {
-				return unknownExpressionDiagnostic("file write has invalid checked metadata")
-			}
-			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
-				return err
-			}
-		case "write_text":
-			if len(node.Arguments) != 1 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.Nil) < 0 || node.SourceLine <= 0 {
-				return unknownExpressionDiagnostic("file write_text has invalid checked metadata")
-			}
-			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
-				return err
-			}
-		case "flush":
-			if len(node.Arguments) != 0 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.Nil) < 0 || node.SourceLine <= 0 {
-				return unknownExpressionDiagnostic("file flush has invalid checked metadata")
-			}
-		case "close":
-			if len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("file close has invalid checked metadata")
-			}
-			if hasExpected {
-				return unknownExpressionDiagnostic("file close produces no value")
-			}
-		default:
-			return unknownExpressionDiagnostic("unknown file method " + node.Name)
-		}
-		if node.Name != "close" && hasExpected && !compilerTypes.Equal(expected, node.ResultType) {
-			return unknownExpressionDiagnostic("file method result type does not match its expected type")
-		}
-		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.RuneCursorMethodCallExpression:
 		if node.Operand == nil || !compilerTypes.IsRuneCursor(node.OperandType) {
 			return unknownExpressionDiagnostic("rune cursor method has invalid checked metadata")
@@ -1325,16 +1220,6 @@ func validateExpressionNode(node checker.Expression, expected compilerTypes.Type
 			return unknownExpressionDiagnostic("numeric conversion result does not match its expected type")
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
-	case checker.StreamConstructorExpression:
-		if err := validateStreamConstructor(node, expected, hasExpected, state); err != nil {
-			return err
-		}
-		return nil
-	case checker.StreamMethodCallExpression:
-		if err := validateStreamMethod(node, expected, hasExpected, state); err != nil {
-			return err
-		}
-		return nil
 	case checker.BitCastExpression:
 		if node.Operand == nil || !bitCastEligible(node.OperandType) || !bitCastEligible(node.ResultType) || node.OperandType.Bits != node.ResultType.Bits {
 			return unknownExpressionDiagnostic("bit cast has invalid checked metadata")

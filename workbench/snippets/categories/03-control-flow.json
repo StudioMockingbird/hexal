@@ -32,7 +32,7 @@
         "mut found: Bool = false",
         "mut index: Int32 = 0",
         "while index < 4 do",
-        "    if values.at(index) == 7 then",
+        "    if values[index] == 7 then",
         "        found = true",
         "        break",
         "    end",

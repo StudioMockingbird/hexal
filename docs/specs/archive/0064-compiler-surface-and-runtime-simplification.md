@@ -1,7 +1,9 @@
 # RFC 0064: Compiler Surface and Runtime Simplification
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Approved direction; focused implementation specs required
+- Status: Implemented; conformance verified 2026-08-15 (Items 1 and 2 via
+  execution plans 0066 and 0067; Items 3-6 retained decisions with no code
+  change)
 - Created: 2026-08-15
 - Scope: remove low-return compiler-owned runtime features and reduce
   cross-cutting language special cases

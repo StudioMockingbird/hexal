@@ -40,8 +40,6 @@ func TestPositionEligibilityMatrix(t *testing.T) {
 		PositionTaskArgument,
 		PositionTaskResult,
 		PositionChannelElement,
-		PositionStreamElement,
-		PositionStreamState,
 		PositionPointee,
 		PositionHeapAllocation,
 	}

@@ -24,17 +24,12 @@ gets deleted.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
 
-### Implementation planning required
-
-| Work | Spec |
-|---|---|
-| Stream removal, File builtin removal, and RFC 0051 closure | [0064](specs/0064-compiler-surface-and-runtime-simplification.md) |
-
 ### Implementation-ready
 
 | Work | Spec |
 |---|---|
-| Language surface reduction | [0063](specs/0063-language-surface-reduction.md) |
+| Direct scalar lowering and source-faithful generated C | [0068](specs/0068-direct-safe-conversion-lowering.md) |
+| C23-backed compiler simplification | [0069](specs/0069-c23-backed-compiler-simplification.md) |
 
 ## Unowned
 

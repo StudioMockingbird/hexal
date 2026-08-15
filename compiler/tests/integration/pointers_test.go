@@ -488,7 +488,7 @@ func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 	}
 }
 
-// The pointee matrix: managed collections, text, streams, views, functions,
+// The pointee matrix: managed collections, text, views, functions,
 // and Nil cannot be pointed to; Tasks, Channels, Mutexes, and ordinary types
 // can. (Direct Atomic pointees are covered in concurrency_test.go.)
 func TestPointeeEligibilityMatrix(t *testing.T) {
@@ -499,7 +499,6 @@ func TestPointeeEligibilityMatrix(t *testing.T) {
 		{"String", "fun f(h: Heap) do\n    s: String = \"x\".to_string(h)\n    p: Ptr<String> = ref s\nend\n"},
 		{"List", "fun f(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    p: Ptr<List<Int32>> = ref values\nend\n"},
 		{"Dict", "fun f(h: Heap) do\n    d: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    p: Ptr<Dict<Int32, Int32>> = ref d\nend\n"},
-		{"Stream", "fun f() do\n    s: Stream<Int32> = Stream<Int32>.new()\n    p: Ptr<Stream<Int32>> = ref s\nend\n"},
 		{"View", "fun f() do\n    v: View<Int32> = View<Int32>.empty()\n    p: Ptr<View<Int32>> = ref v\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

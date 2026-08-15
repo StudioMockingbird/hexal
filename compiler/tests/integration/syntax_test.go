@@ -215,3 +215,41 @@ func TestExplicitBlockOpenerRecoveryPreservesBranches(t *testing.T) {
 		}
 	}
 }
+
+// RFC 0063: every removed spelling produces a diagnostic naming its
+// replacement, one negative test per removed operation.
+func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
+	for _, testCase := range []struct {
+		source string
+		want   string
+	}{
+		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at(0)", "`at` was removed; use `receiver[index]`"},
+		{"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    first: Int32 = values.at(0)\nend", "`at` was removed; use `receiver[index]`"},
+		{"text: String = \"hi\" first: Rune = text.at(0)", "`at` was removed; use `receiver[index]`"},
+		{"label: Strand = \"hi\" first: Rune = label.at(0)", "`at` was removed; use `receiver[index]`"},
+		{"fixed: Array<Int32, 2> = [1, 2] bad: Bool = fixed.is_empty()", "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`"},
+		{"fixed: Array<Int32, 3> = [1, 2, 3] view: View<Int32> = fixed.slice(0, 2) bad: Bool = view.is_empty()", "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`"},
+		{"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    empty: Bool = values.is_empty()\nend", "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`"},
+	} {
+		result := compileSource(testCase.source)
+		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
+			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
+		}
+	}
+}
+
+// RFC 0063: String.is_empty, Strand.is_empty, and String.bytes are retained
+// because their replacements would be asymptotically worse; they still lower
+// to their constant-time helpers (positive test, not an absence check).
+func TestRetainedTextOperationsKeepConstantTimeHelpers(t *testing.T) {
+	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    text: String = \"hello\"\n    emptyText: Bool = text.is_empty()\n    raw: View<UInt8> = text.bytes()\n    label: Strand = \"hexal\"\n    emptyLabel: Bool = label.is_empty()\n    return emptyText and emptyLabel\nend\n")
+	for _, want := range []string{
+		"hex_string_is_empty(",
+		"hex_strand_is_empty(",
+		"hex_string_bytes(",
+	} {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+			t.Fatalf("generated output lacks the retained constant-time helper %q", want)
+		}
+	}
+}

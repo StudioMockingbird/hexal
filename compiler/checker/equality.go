@@ -52,13 +52,10 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 		return true, ""
 	case compilerTypes.IsString(typ), compilerTypes.IsStrand(typ),
 		compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ),
-		compilerTypes.Equal(typ, compilerTypes.Bool), compilerTypes.IsNil(typ),
-		compilerTypes.IsFileMode(typ):
+		compilerTypes.Equal(typ, compilerTypes.Bool), compilerTypes.IsNil(typ):
 		return true, ""
 	case typ.Signature != nil:
 		return false, ""
-	case compilerTypes.IsFile(typ):
-		return false, "File values are not equality-comparable"
 	case typ.Dict != nil, compilerTypes.IsHeap(typ), compilerTypes.IsUnknown(typ):
 		return false, ""
 	}
@@ -75,8 +72,6 @@ func equalityUnavailableDiagnostic(typ compilerTypes.Type, reason string, token 
 			diagnostic = typeErrorAt(token, "function values are not equality-comparable")
 		case compilerTypes.IsHeap(typ):
 			diagnostic = typeErrorAt(token, "allocator handles are not equality-comparable")
-		case compilerTypes.IsFile(typ):
-			diagnostic = typeErrorAt(token, "File values are not equality-comparable")
 		case typ.Dict != nil:
 			diagnostic = typeErrorAt(token, "dictionary equality is not available in v1")
 		}

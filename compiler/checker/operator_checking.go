@@ -799,15 +799,6 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 	case parser.RuneLiteral:
 		return expressionTypeHint{typ: compilerTypes.Rune, token: expression.Token}
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
-		if property, isProperty := expression.(parser.PropertyExpression); isProperty {
-			if variable, isVariable := property.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "FileMode" {
-				// RFC 0040: the FileMode variants resolve before place
-				// lookup in every expression position.
-				if reference, _ := checkFileModeVariant(variable.Name, property.Property); reference != nil {
-					return expressionTypeHint{typ: reference.typ, token: reference.token}
-				}
-			}
-		}
 		place := checkPlace(expression, environment, typeEnvironment)
 		return expressionTypeHint{typ: place.typ, token: place.token, diagnostic: place.diagnostic}
 	case parser.ObjectLiteral:

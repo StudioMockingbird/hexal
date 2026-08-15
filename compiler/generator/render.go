@@ -245,12 +245,12 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 
 func renderCallStatement(statement checker.CallStatement, state *expressionValidation) (string, error) {
 	switch statement.Call.Node.Kind {
-	case checker.CallExpression, checker.MethodCallExpression, checker.StringMethodCallExpression, checker.CollectionMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression, checker.StreamMethodCallExpression, checker.StreamConstructorExpression,
+	case checker.CallExpression, checker.MethodCallExpression, checker.StringMethodCallExpression, checker.CollectionMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
-		checker.VolatileWriteExpression, checker.FileMethodCallExpression,
+		checker.VolatileWriteExpression,
 		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression:
 		// RFC 0035: discarding a constructor result is legal; it simply
 		// leaks the allocation, which is the programmer's choice.
@@ -580,15 +580,6 @@ func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 		}
 		return typ.CName + " *const " + name
 	}
-	if compilerTypes.IsStream(typ) {
-		// A source Stream value is a pointer-sized owning handle to a
-		// mutable header-and-state object (RFC 0031); mutation flows
-		// through it without a mut binding.
-		if mutable {
-			return typ.CName + " *" + name
-		}
-		return typ.CName + " *const " + name
-	}
 	if compilerTypes.IsRuneCursor(typ) {
 		// RFC 0044: a RuneCursor is a mutable-through descriptor; next()
 		// advances its offset, so the binding carries no top-level const
@@ -841,37 +832,6 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				return "(" + receiver + ")->length", nil
 			}
 			return "(" + receiver + ").length", nil
-		case "is_empty":
-			if node.OperandType.Array != nil {
-				return "false", nil
-			}
-			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-			if receiverErr != nil {
-				return "", receiverErr
-			}
-			if node.OperandType.List != nil || node.OperandType.Dict != nil {
-				return "((" + receiver + ")->length == 0)", nil
-			}
-			return "((" + receiver + ").length == 0)", nil
-		case "at":
-			if node.Operand == nil || len(node.Arguments) != 1 {
-				return "", unknownExpressionDiagnostic("collection at without a checked index")
-			}
-			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-			if receiverErr != nil {
-				return "", receiverErr
-			}
-			index, indexErr := renderOperandWithState(node.Arguments[0], state)
-			if indexErr != nil {
-				return "", indexErr
-			}
-			if node.OperandType.View != nil {
-				return "*hex_view_at_" + strings.TrimPrefix(node.OperandType.CName, "hex_view_") + "(" + receiver + ", (size_t)(" + index + "))", nil
-			}
-			if node.OperandType.List != nil {
-				return "*hex_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
-			}
-			return "*" + arrayAccessorCName(node.OperandType, false) + "(&" + receiver + ", (size_t)(" + index + "))", nil
 		case "push", "set", "clear", "pop":
 			if node.Operand == nil || node.OperandType.List == nil {
 				return "", unknownExpressionDiagnostic("list mutation without a checked list receiver")
@@ -1034,18 +994,6 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 				return "hex_strand_is_empty(" + receiver + ")", nil
 			}
 			return "hex_string_is_empty(" + receiver + ")", nil
-		case "at":
-			if len(node.Arguments) != 1 {
-				return "", unknownExpressionDiagnostic("string at without a checked index")
-			}
-			index, indexErr := renderOperandWithState(node.Arguments[0], state)
-			if indexErr != nil {
-				return "", indexErr
-			}
-			if compilerTypes.IsStrand(node.OperandType) {
-				return "hex_strand_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
-			}
-			return "hex_string_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
 		case "rune_cursor":
 			return "hex_string_rune_cursor(" + receiver + ")", nil
 		case "bytes":
@@ -1125,14 +1073,6 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", viewErr
 		}
 		return "hex_string_from_runes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
-	case checker.FileModeLiteralExpression:
-		return renderFileModeLiteral(node)
-	case checker.FileOpenExpression:
-		return renderFileOpen(node, state)
-	case checker.StdioCallExpression:
-		return renderStdioCall(node)
-	case checker.FileMethodCallExpression:
-		return renderFileMethod(node, state)
 	case checker.RuneCursorMethodCallExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("rune cursor method without a checked receiver")
@@ -1227,10 +1167,6 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "(" + helper + "(" + left + ", " + right + ")" + comparison + ")", nil
 	case checker.ConversionExpression:
 		return renderConversion(node, state)
-	case checker.StreamConstructorExpression:
-		return renderStreamConstructor(node, state)
-	case checker.StreamMethodCallExpression:
-		return renderStreamMethod(node, state)
 	case checker.BitCastExpression:
 		return renderBitCast(node, state)
 	case checker.EndianConversionExpression:
@@ -1818,13 +1754,12 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression,
 		checker.CollectionSliceExpression, checker.StringLiteralExpression, checker.StringMethodCallExpression,
 		checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.RuneCursorMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression,
-		checker.StreamConstructorExpression, checker.StreamMethodCallExpression,
 		checker.DeepEqualityExpression, checker.StringCompareExpression, checker.WideningExpression, checker.ConversionExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
-		checker.LayoutExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression, checker.ViewBridgeExpression, checker.FileModeLiteralExpression, checker.FileOpenExpression, checker.StdioCallExpression, checker.FileMethodCallExpression:
+		checker.LayoutExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression, checker.ViewBridgeExpression:
 		return node.ResultType, true
 	case checker.HeapFreeExpression:
 		return compilerTypes.Type{}, false

@@ -121,44 +121,6 @@
       ]},
       "features": ["defer", "lists", "no-result-functions"],
       "reservedWords": ["fun", "defer", "return", "end", "do"]
-    },
-    {
-      "id": "errors-file-write",
-      "name": "File write",
-      "description": "Open, write, flush, and close a file with deferred cleanup.",
-      "entrypoint": "app.hex",
-      "sources": {"app.hex": [
-        "fun write_report(path: String, report: String): Nil | Error do",
-        "    file: File = try File.open(path, FileMode.Write)",
-        "    defer file.close()",
-        "    try file.write_text(report)",
-        "    try file.flush()",
-        "    return nil",
-        "end"
-      ]},
-      "features": ["file-io", "errors", "defer"],
-      "reservedWords": ["fun", "try", "defer", "return", "nil", "end", "do"]
-    },
-    {
-      "id": "errors-file-read",
-      "name": "File read",
-      "description": "Read a file's text, handle malformed UTF-8 as a recoverable Error, and free the result.",
-      "entrypoint": "app.hex",
-      "sources": {"app.hex": [
-        "fun read_report(h: Heap, path: String): String | Error do",
-        "    file: File = try File.open(path, FileMode.Read)",
-        "    defer file.close()",
-        "    text: String = try file.read_text(h)",
-        "    return text",
-        "end",
-        "fun demo(h: Heap): Nil | Error do",
-        "    report: String = try read_report(h, \"notes.txt\")",
-        "    defer report.free(h)",
-        "    return nil",
-        "end"
-      ]},
-      "features": ["file-io", "errors", "text"],
-      "reservedWords": ["fun", "try", "defer", "return", "nil", "end", "do"]
     }
   ]
 }

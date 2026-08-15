@@ -11,17 +11,6 @@ import (
 func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, environment *scope) (TypeDeclaration, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	name := declaration.Name.Lexeme
-	if name == "Stdio" {
-		// RFC 0040: the intrinsic qualifier is not a type and cannot be
-		// redeclared.
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.NameError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "Stdio is a protected intrinsic qualifier",
-		})
-	}
 	previousType, hadPreviousType := typeEnvironment.Lookup(name)
 	previousUse, hadPreviousUse := typeEnvironment.LookupUse(name)
 	if compilerTypes.IsProtectedTypeName(name) {
@@ -347,17 +336,6 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 			Line:     declaration.Name.Line,
 			Column:   declaration.Name.Column,
 			Message:  declaration.Name.Lexeme + " is a protected built-in name",
-		})
-	}
-	if declaration.Name.Lexeme == "Stdio" {
-		// RFC 0040: the intrinsic qualifier is not a value and cannot be
-		// redeclared.
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.NameError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "Stdio is a protected intrinsic qualifier",
 		})
 	}
 	if compilerTypes.IsProtectedTypeName(declaration.Name.Lexeme) {

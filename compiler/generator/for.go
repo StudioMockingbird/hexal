@@ -59,8 +59,6 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 		return renderForText(body, statement, loop, binderNames, &bodyText, state, indent)
 	case compilerTypes.IsStrand(sourceType):
 		return renderForText(body, statement, loop, binderNames, &bodyText, state, indent)
-	case sourceType.Stream != nil:
-		return renderForStream(body, statement, loop, binderNames, &bodyText, state, indent)
 	case sourceType.Dict != nil:
 		return renderForDict(body, statement, loop, binderNames, &bodyText, state, indent)
 	default:
@@ -156,42 +154,6 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, loop s
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
 	}
 	fmt.Fprintf(body, "%s    const %s %s = (%s);\n", indent, valueBinder.Type.CName, binderNames[len(binderNames)-1], runeVariable)
-	body.WriteString(bodyText.String())
-	fmt.Fprintf(body, "%s}\n", indent)
-	return nil
-}
-
-// renderForStream lowers Stream<T> iteration to a plain pull loop through
-// the internal next ABI. Unlike the finite collections it captures no
-// traversal boundary: the loop ends when next returns false. The
-// produced-entry ordinal is pre-incremented so a body `continue` never
-// skips it (RFC 0031).
-func renderForStream(body *strings.Builder, statement checker.ForStatement, loop string, binderNames []string, bodyText *strings.Builder, state *expressionValidation, indent string) error {
-	source, err := renderOperandWithState(statement.Source, state)
-	if err != nil {
-		return err
-	}
-	sourceType := statement.Source.Type
-	element := sourceType.Stream.Element
-	valueVariable := loop + "_value"
-	ordinalVariable := loop + "_ordinal"
-	hasIndex := len(statement.Binders) == 2
-
-	fmt.Fprintf(body, "%s%s *const %s = %s;\n", indent, sourceType.CName, loop, source)
-	fmt.Fprintf(body, "%s%s %s;\n", indent, typeSpelling(element), valueVariable)
-	if hasIndex {
-		fmt.Fprintf(body, "%ssize_t %s = (size_t)-1;\n", indent, ordinalVariable)
-	}
-	fmt.Fprintf(body, "%swhile (%s->ops->next((void *)%s, &%s)) {\n", indent, loop, loop, valueVariable)
-	if hasIndex {
-		fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
-	}
-	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
-	valueBinder := statement.Binders[len(statement.Binders)-1]
-	if hasIndex {
-		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
-	}
-	fmt.Fprintf(body, "%s    const %s %s = %s;\n", indent, valueBinder.Type.CName, binderNames[len(binderNames)-1], valueVariable)
 	body.WriteString(bodyText.String())
 	fmt.Fprintf(body, "%s}\n", indent)
 	return nil

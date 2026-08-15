@@ -84,23 +84,10 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 			return err
 		}
 		captured = append(captured, name)
-	case checker.StreamMethodCallExpression:
-		// defer stream.free(h) captures the Stream handle at registration so
-		// the cleanup always frees the exact chain object the defer saw
-		// (RFC 0031).
-		if node.Name != "free" || node.OperandType.Stream == nil || node.Operand == nil {
-			return unknownExpressionDiagnostic("deferred stream free without a receiver")
-		}
-		receiverOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: node.OperandType, Node: *node.Operand}
-		name, err := state.captureOperand(body, receiverOperand, indent)
-		if err != nil {
-			return err
-		}
-		captured = append(captured, name)
-	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression, checker.FileMethodCallExpression:
-		// defer ch.free(h), mutex.unlock(), task.join(), or file.close()
-		// captures the handle at registration so the cleanup always targets
-		// the exact handle the defer saw (RFC 0037/0040).
+	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression:
+		// defer ch.free(h), mutex.unlock(), or task.join() captures the
+		// handle at registration so the cleanup always targets the exact
+		// handle the defer saw (RFC 0037).
 		if node.Operand == nil {
 			return unknownExpressionDiagnostic("deferred handle method without a receiver")
 		}
@@ -261,13 +248,6 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return "hex_list_free_" + listSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 		}
 		return "hex_dict_free_" + dictSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
-	case checker.StreamMethodCallExpression:
-		if node.Name != "free" || node.OperandType.Stream == nil || len(arguments) != 2 {
-			return "", unknownExpressionDiagnostic("deferred stream free without captured arguments")
-		}
-		// The captures hold the receiver (the Stream handle) first and the
-		// heap second; the helper takes them in the opposite order.
-		return "hex_stream_free_" + streamSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.ChannelMethodCallExpression:
 		if node.Name != "free" || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred channel free without captured arguments")
@@ -293,11 +273,6 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return "hex_task_detach(" + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred task method without a captured receiver")
-	case checker.FileMethodCallExpression:
-		if node.Name != "close" {
-			return "", unknownExpressionDiagnostic("deferred file method must be close")
-		}
-		return "hex_file_close(" + arguments[0] + ")", nil
 	default:
 		return "", unknownExpressionDiagnostic("unsupported deferred call node")
 	}

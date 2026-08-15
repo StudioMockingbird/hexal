@@ -483,8 +483,6 @@ func (registry *ModuleRegistry) privateTypeInUse(typ compilerTypes.Type, seenObj
 			return private
 		}
 		return registry.privateTypeInUse(typ.Dict.Value, seenObjects, seenADTs)
-	case typ.Stream != nil:
-		return registry.privateTypeInUse(typ.Stream.Element, seenObjects, seenADTs)
 	case typ.Task != nil:
 		return registry.privateTypeInUse(typ.Task.Result, seenObjects, seenADTs)
 	case typ.Channel != nil:

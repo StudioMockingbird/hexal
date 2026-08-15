@@ -270,9 +270,9 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   forward calls and mutual recursion are unavailable.
 - Type and value names share one namespace. Protected names cannot be redeclared or shadowed.
   Protected types are every scalar plus `Size`, `Byte`, `Rune`, `String`, `Strand`, `Nil`, `EoS`,
-  `Unknown`, `Heap`, `Error`, `File`, `FileMode`, `RuneCursor`, `Mutex`, and constructors `Ptr`,
-  `MutPtr`, `Fun`, `Array`, `View`, `List`, `Dict`, `Stream`, `Task`, `Channel`, `Atomic`.
-  Protected operations are `print`, `size_of`, `align_of`, and qualifier `Stdio`.
+  `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, and constructors `Ptr`,
+  `MutPtr`, `Fun`, `Array`, `View`, `List`, `Dict`, `Task`, `Channel`, `Atomic`.
+  Protected operations are `print`, `size_of`, and `align_of`.
 - Every binding and written parameter has an explicit type. Compiler-typed `self` and
   `for` binders are the exceptions; `:=` does not exist.
 - Bindings and object members are fixed by default. `mut` permits replacement and appears only on
@@ -325,13 +325,13 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 ## Values, copying, and evaluation
 
 - Every value is stored inline. Every copy copies the C representation. Scalars and
-  inline aggregates (`Strand`, Array, objects, ADTs, File) copy all inline bytes. Pointers and
-  `String`, List, Dict, Stream, Task, Channel, Mutex copy their handle representation. View copies
+  inline aggregates (`Strand`, Array, objects, ADTs) copy all inline bytes. Pointers and
+  `String`, List, Dict, Task, Channel, Mutex copy their handle representation. View copies
   its pointer-length descriptor. Heap copies a compile-time allocator identity.
 - Assignment, arguments, returns, object/ADT construction, collection insertion, union injection,
   and Task capture are shallow copies. Copying does not invalidate the source.
-- Values referring to external state include String, List, Dict, Stream, Task, Channel, Mutex,
-  File, RuneCursor, View, and aggregates containing them. Copies alias the same state. Freeing one
+- Values referring to external state include String, List, Dict, Task, Channel, Mutex,
+  RuneCursor, View, and aggregates containing them. Copies alias the same state. Freeing one
   alias leaves others dangling; losing the last handle can leak.
 - Every value is copyable except `Atomic<T>` and inline aggregates transitively containing one.
   Atomic containment traversal stops at every pointer and handle indirection.
@@ -347,7 +347,7 @@ they accept.
 Binding          ObjectMember     ADTPayload       UnionMember
 ArrayElement     ViewElement      ListElement      DictValue
 FunctionParam    FunctionResult   TaskArgument     TaskResult
-ChannelElement   StreamElement    StreamState      Pointee
+ChannelElement   Pointee
 HeapAllocation
 ```
 
@@ -376,6 +376,12 @@ HeapAllocation
 | `Rune` | Unicode scalar value | `uint32_t` |
 | `Nil` | zero-state `nil`; valid only as a union member | no stable foreign ABI |
 | `EoS` | zero-state completion `eos`; valid standalone | no stable foreign ABI |
+
+- `Byte` is the canonical spelling wherever the value is raw storage rather than a number:
+  `View<Byte>`, `Array<Byte, N>`, `List<Byte>`, and byte-oriented parameters and results. `UInt8`
+  is canonical wherever the value is an 8-bit integer participating in arithmetic, comparison, or
+  conversion. Both remain the same canonical type; this rule governs spelling, not semantics
+  (RFC 0063).
 
 - `Size` always lowers directly to the selected C compiler's `size_t`; that target decides width,
   range, alignment, and representation. Hexal has no Size width, no width assertion, and never
@@ -420,7 +426,7 @@ HeapAllocation
   with `== nil`, `!= nil`, or match before dereference. The null niche adds no tag or allocation.
 - `Unknown` is incomplete and valid only behind Ptr/MutPtr. One pointer layer may erase to or recover
   from Unknown; Unknown cannot be stored or dereferenced by value.
-- String, List, Dict, Stream, and View cannot be Ptr/MutPtr pointees. Each already carries its own
+- String, List, Dict, and View cannot be Ptr/MutPtr pointees. Each already carries its own
   aliasing and invalidation rules over borrowed or allocated storage, and a pointer to one would add
   a second aliasing layer with no defined semantics. This is not a general handle exclusion:
   `Task<R>`, `Channel<T>`, and `Mutex` are shared by handle copy and are valid pointees.
@@ -435,7 +441,7 @@ HeapAllocation
   omit `: R` for no result.
 - Fun is valid only as a binding, function parameter, parameter inside another Fun, or union member.
   It is invalid as a result, object/ADT member, collection element/value, Task argument/result,
-  Channel element, Stream element/state, Ptr/MutPtr pointee, or `ref` target. Function declarations
+  Channel element, Ptr/MutPtr pointee, or `ref` target. Function declarations
   are not addressable.
 - Calls require exact arity and assignable arguments. No-result calls are statements only. Results
   must match their declarations; result-producing bodies cannot fall through.
@@ -578,7 +584,7 @@ destinations only. `none` means no fixed-width destination.
   members; ADTs by tag/payload; unions by member; Array/View/List by length then elements.
 - `== nil` and `!= nil` test whether a union's active member is Nil. They require a union containing
   Nil, are the only Nil comparison, and read no payload. Nil has no standalone value to compare.
-- String and Strand are not mutually comparable. Functions, allocators, Files, and Dicts have no
+- String and Strand are not mutually comparable. Functions, allocators, and Dicts have no
   equality. An aggregate is comparable only when all recursively compared components are.
 - Ordering exists only for numeric scalars, Rune, String, and Strand. Text uses unsigned-byte
   lexicographic order with shorter prefix first.
@@ -614,16 +620,15 @@ destinations only. `none` means no fixed-width destination.
 
 | Source | Binders | Binder types and order |
 | --- | ---: | --- |
-| Array, View, List, String, Strand, Stream | 1 | value |
-| Array, View, List, String, Strand, Stream | 2 | `index: Size`, value |
+| Array, View, List, String, Strand | 1 | value |
+| Array, View, List, String, Strand | 2 | `index: Size`, value |
 | Dict | 2 | key, value |
 | Dict | 3 | `index: Size`, key, value |
 
 Every other source/arity combination is invalid.
-- Text iterates decoded Runes; Dict order is unspecified; Stream pulls until eos.
+- Text iterates decoded Runes; Dict order is unspecified.
 - Finite-source traversal boundaries are captured once. Array places iterate in place; temporary
-  Arrays and Strands materialize once; handles copy shallowly. Stream captures its source but no
-  boundary and keeps pulling until eos.
+  Arrays and Strands materialize once; handles copy shallowly.
 - Binders are fresh immutable copies each iteration and names in one header are distinct. Nullable or
   union sources must first narrow to one iterable type.
 - Array/List element replacement during iteration is allowed. Structural List changes and every Dict
@@ -680,16 +685,16 @@ Heap.free<T>(pointer: MutPtr<T>) -> no value
   `read-only-place<T>` describe writable and read-only expression results; they are not source types.
 - Lengths, capacities, indices, and normalized bounds use Size. Index arguments may be any integer
   and are normalized with compile-time rejection or dynamic traps.
-- Ranges are zero-based and end-exclusive. `length`, `is_empty`, `at`, indexing, and `slice` use the
-  same bounds where available.
+- Ranges are zero-based and end-exclusive. `length`, indexing, and `slice` use the
+  same bounds where available. `at` and the Array/View/List `is_empty` methods were
+  removed (RFC 0063): `receiver[index]` and `receiver.length() == 0` are their
+  identical O(1) replacements.
 - Array/View/List equality compares length then elements. No collection ordering; no Dict equality.
 
 ### `Array<T, N>`
 
 ```text
 Array<T,N>.length() -> Size
-Array<T,N>.is_empty() -> Bool
-Array<T,N>.at(index: Integer) -> T
 Array<T,N>[index: Integer] -> place<T>
 Array<T,N>.slice(start: Integer, end: Integer) -> View<T>
 ```
@@ -707,8 +712,6 @@ Array<T,N>.slice(start: Integer, end: Integer) -> View<T>
 View<T>.from_pointer(pointer: Ptr<T> | MutPtr<T>, length: Size) -> View<T>
 View<T>.empty() -> View<T>
 View<T>.length() -> Size
-View<T>.is_empty() -> Bool
-View<T>.at(index: Integer) -> T
 View<T>[index: Integer] -> read-only-place<T>
 View<T>.slice(start: Integer, end: Integer) -> View<T>
 ```
@@ -734,8 +737,6 @@ View<T>.slice(start: Integer, end: Integer) -> View<T>
 ```text
 List<T>.new(heap: Heap) -> List<T>
 List<T>.length() -> Size
-List<T>.is_empty() -> Bool
-List<T>.at(index: Integer) -> T
 List<T>[index: Integer] -> place<T>
 List<T>.slice(start: Integer, end: Integer) -> View<T>
 List<T>.push(value: T) -> no value
@@ -743,7 +744,6 @@ List<T>.pop() -> T
 List<T>.set(index: Integer, value: T) -> no value
 List<T>.clear() -> no value
 List<T>.free(heap: Heap) -> no value
-List<T>.stream(heap: Heap) -> Stream<T>
 ```
 
 - Growable allocated sequence. A fixed handle can mutate its List; `mut` only reassigns the handle.
@@ -779,7 +779,6 @@ Dict<K,V>.free(heap: Heap) -> no value
 ```text
 String.length() -> Size
 String.is_empty() -> Bool
-String.at(index: Integer) -> Rune
 String[index: Integer] -> Rune
 String.bytes() -> View<Byte>
 String.slice(start: Integer, end: Integer) -> View<Byte>
@@ -791,7 +790,6 @@ String.from_bytes(heap: Heap, bytes: View<Byte>) -> String
 String.from_runes(heap: Heap, runes: View<Rune>) -> String
 Strand.length() -> Size
 Strand.is_empty() -> Bool
-Strand.at(index: Integer) -> Rune
 Strand[index: Integer] -> Rune
 Strand.to_string(heap: Heap) -> String
 RuneCursor.has_next() -> Bool
@@ -814,37 +812,7 @@ RuneCursor.next() -> Rune
   be freed. Collection reads produce aliases without ownership transfer or lifetime protection.
 - String and Strand dispatch separately; Strand exposes no View into inline bytes.
 
-## Streams
-
-```text
-Stream<T>.new() -> Stream<T>
-Stream<T>.produce(heap: Heap, state: State,
-                  callback: Fun<(MutPtr<State>) : T | EoS>) -> Stream<T>
-List<T>.stream(heap: Heap) -> Stream<T>
-Stream<T>.next() -> T | EoS
-Stream<T>.filter(heap: Heap, predicate: Fun<(T) : Bool>) -> Stream<T>
-Stream<T>.map<U>(heap: Heap, mapper: Fun<(T) : U>) -> Stream<U>
-Stream<T>.take(heap: Heap, count: Size) -> Stream<T>
-Stream<T>.free(heap: Heap) -> no value
-```
-
-- `Stream<T>` is lazy, single-pass, single-threaded pull state with no length, capacity, random
-  access, rewind, or concurrent communication. T must be valid in StreamElement; producer State must
-  be valid in StreamState. Both are complete, finite, and copyable. T cannot be EoS or a top-level
-  union containing EoS.
-- `Stream<T>.new()` is allocation-free empty. `produce(heap,state,callback)` stores shallow State and
-  named `Fun<(MutPtr<State>) : T | EoS>`. `List<T>.stream(heap)` borrows the List.
-- `next()` returns `T | EoS`; one call yields at most one public value, though filtering may pull
-  upstream repeatedly. `filter(heap,predicate)`, `map(heap,mapper)`, and `take(heap,count)` allocate
-  lazy adapters that own their upstream. Successful construction consumes upstream: no alias may
-  subsequently pull, adapt, or free that state. One chain uses one Heap.
-- `for` pulls until eos and does not free; breaking permits later pulls. Indexed loops count produced
-  values, not rejected filter inputs.
-- `free(heap)` releases the adapter chain; exhaustion does not. External producer referents remain
-  caller-owned. A List source captures length, sees later same-length replacements, and requires the
-  List alive and structurally unchanged until Stream free. Aliases share one non-reentrant cursor.
-
-## Output and files
+## Output
 
 ### `print`
 
@@ -879,35 +847,8 @@ Array/View/List use `[]` when empty. Dict uses `: `, `{}` when empty, and unspec
   Error prints `file:line:column: header: message` with no trailing newline; nested, it uses the
   object form with declaration-ordered fields and quoted text.
 - A whole call is atomic relative to print and standard text writes. It does not flush per call.
-  Root defers finish before the output gate closes; shutdown then flushes stdout/applicable stderr.
+  Root defers finish before process exit; shutdown then flushes stdout/applicable stderr.
   Detected output failure is unrecoverable.
-
-### Files
-
-```text
-File.open(path: String, mode: FileMode) -> File | Error
-File.read_bytes(heap: Heap) -> List<Byte> | Error
-File.read_text(heap: Heap) -> String | Error
-File.write(bytes: View<Byte>) -> Nil | Error
-File.write_text(text: String) -> Nil | Error
-File.flush() -> Nil | Error
-File.close() -> no value
-Stdio.stdin() -> File
-Stdio.stdout() -> File
-Stdio.stderr() -> File
-```
-
-- FileMode variants: `Read`=`rb`, `Write`=`wb`, `Append`=`ab`; opened files are binary on all
-  platforms. FileMode is a qualified unit-variant ADT.
-- V1 paths are nonempty non-NUL ASCII. Bad literals fail compilation; dynamic failures return Error.
-- Malformed UTF-8 from `read_text` returns Error. Writes attempt the full payload but may leave
-  partial effects. Owned close failure traps. Flush does not promise physical-media durability.
-- Runtime mode mismatch returns Error before C access. I/O Errors use header `"I/O Error"` and static
-  portable message; no errno/host code is exposed.
-- `Stdio.stdin()`, `Stdio.stdout()`, and `Stdio.stderr()` return borrowed text-mode Files that cannot
-  close. Direct invalid operations fail compilation; copied handles retain runtime checks.
-- File handles shallow-alias one C stream; closing one invalidates all aliases. Containers never
-  close Files. File and Stream are separate; File I/O is synchronous and may block a worker.
 
 ## Tasks and synchronization
 
@@ -989,7 +930,7 @@ Atomic<T>.compare_exchange(expected: T, desired: T) -> Bool
   preserves the value and returns false. Expected is input-only.
 - Atomic and inline aggregates containing one are non-copyable. Their direct in-place construction is
   valid only in Binding and ObjectMember positions. Copy-requiring parameters/results, ADT payloads,
-  unions, collections, Tasks, Channels, Streams, and HeapAllocation are invalid.
+  unions, collections, Tasks, Channels, and HeapAllocation are invalid.
 - Atomic itself is invalid in Pointee; an enclosing object containing Atomic remains valid in Pointee.
 - `Atomic<T>.new(value)` directly initializes fresh binding or object-member storage; these are its
   only placements. Nested object construction initializes each member in place. The resulting object
@@ -1038,6 +979,12 @@ MutPtr<T>.write_volatile(value: T) -> no value
   exact-width integers, IEC 60559 binary32/binary64 floats) is a supported GCC/Clang plus
   compatible-C-library contract, not a generated probe; only source-dependent target assertions
   (target-sized `Size` literals) are emitted (RFC 0062).
+- Generated C uses the standard facility whenever one implements the required semantics exactly: a
+  C23 header, a C23 language feature, or a builtin documented by both GCC and Clang. It is used
+  directly, never behind a helper that only delegates. A compiler-owned helper or lowering formula
+  exists only where no standard facility applies, and reproducing a standard facility with generated
+  predicates or target-width reasoning is a conformance bug. This is a contract on generated output;
+  the compiler's own implementation language is unconstrained by it.
 - Objects/ADTs lower to source-ordered structs; unions to checked tagged values except pointer-null
   niches; generics are monomorphized. Object forward typedefs precede source-ordered definitions.
 - Pointer qualification follows type layers only: Ptr adds pointee `const`, MutPtr does not, and a
@@ -1085,8 +1032,8 @@ MutPtr<T>.write_volatile(value: T) -> no value
   in `hexal.h` when its type arguments originate in one module. Its guard is `HEXAL_H`; every
   module header includes it, and no other compiler-support header exists.
 - `modules/<canonical>.h` is one module's header: it includes `hexal.h`, holds the module's types
-  (ADTs, unions, objects) and stateless inline helpers (streams, print, equality, conversions,
-  shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, I/O inline helpers, typed heap
+  (ADTs, unions, objects) and stateless inline helpers (print, equality, conversions,
+  shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, typed heap
   allocation helpers), the entry-adapter argument frames of its spawn sites, referenced complete
   type definitions, and its exported and referenced cross-module prototypes. Program-wide builtin
   specializations remain in `hexal.h`. Root selection adds nothing to this header. Its guard is
@@ -1129,5 +1076,6 @@ MutPtr<T>.write_volatile(value: T) -> no value
   reflection, serialization schemas, runtime type objects.
 - Expressions: compound assignment, increment/decrement, conditional operator, numeric suffixes,
   wrapping/saturating conversion or arithmetic modes.
-- I/O: ReadWrite/seek File modes, Path, sockets, asynchronous I/O, File Streams, builders, in-memory
+- I/O: all File APIs (the built-in `File`/`FileMode`/`Stdio` were removed by RFC 0064; a library API
+  returns later through C interop), Path, sockets, asynchronous I/O, builders, in-memory
   output streams.

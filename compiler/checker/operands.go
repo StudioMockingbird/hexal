@@ -118,15 +118,6 @@ const (
 	// DictNewExpression constructs a fresh owning Dict<K, V> header through
 	// a Heap; Element is V.
 	DictNewExpression
-	// StreamConstructorExpression constructs a Stream<T>: "new" is the
-	// canonical empty handle and "produce" allocates one header-and-State
-	// node. OperandType is the Stream type; Element is T.
-	StreamConstructorExpression
-	// StreamMethodCallExpression is one built-in Stream or List-source
-	// operation: next, filter, map, take, free, or list_stream. Name selects
-	// the operation; OperandType is the receiver type; Element is the source
-	// element type T.
-	StreamMethodCallExpression
 	// BitCastExpression reinterprets the receiver's exact representation
 	// bits as the same-width destination scalar (RFC 0032).
 	BitCastExpression
@@ -214,21 +205,6 @@ const (
 	// next (RFC 0044). Operand is the cursor descriptor; OperandType is the
 	// RuneCursor type.
 	RuneCursorMethodCallExpression
-	// FileModeLiteralExpression is one FileMode variant: Read, Write, or
-	// Append (RFC 0040). Name selects the variant.
-	FileModeLiteralExpression
-	// FileOpenExpression is File.open(path, mode) (RFC 0040). Arguments
-	// holds the path and mode operands; ResultType is File | Error.
-	FileOpenExpression
-	// StdioCallExpression is Stdio.stdin(), Stdio.stdout(), or
-	// Stdio.stderr() (RFC 0040). Name selects the stream; ResultType is
-	// File.
-	StdioCallExpression
-	// FileMethodCallExpression is one File method: read_bytes, read_text,
-	// write, write_text, flush, or close (RFC 0040). Operand is the File
-	// receiver; Arguments holds the operation operands; ResultType varies;
-	// Element is the byte element of read_bytes.
-	FileMethodCallExpression
 )
 
 // Operator is the resolved semantic operator carried by a checked operation.

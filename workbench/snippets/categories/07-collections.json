@@ -41,7 +41,7 @@
         "    middle: View<Int32> = fixed.slice(1, 4)",
         "    count: Size = middle.length()",
         "    first: Int32 = middle[0]",
-        "    last: Int32 = middle.at(2)",
+        "    last: Int32 = middle[2]",
         "    return first + last",
         "end"
       ]},
@@ -88,7 +88,7 @@
         "fun demo(h: Heap): Int32 do",
         "    values: List<Int32> = build_values(h)",
         "    defer values.free(h)",
-        "    first: Int32 = values.at(0)",
+        "    first: Int32 = values[0]",
         "    last: Int32 = values[2]",
         "    return first + last",
         "end"
@@ -103,7 +103,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun pop_safe(values: List<Int32>): Int32 | Error do",
-        "    if values.is_empty() then",
+        "    if values.length() == 0 then",
         "        return Error.new(\"catalog\", \"stack underflow\")",
         "    end",
         "    return values.pop()",
@@ -181,7 +181,7 @@
         "    names.push(texts[0])",
         "    runtime: String = \"carol\".to_string(h)",
         "    names.push(runtime)",
-        "    first: String = names.at(0)",
+        "    first: String = names[0]",
         "    runtime.free(h)",
         "    return first",
         "end"

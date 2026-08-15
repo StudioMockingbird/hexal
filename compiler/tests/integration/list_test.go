@@ -11,7 +11,7 @@ import (
 // and the List<String> nested-String element rules.
 
 func TestListLifecycle(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    count: Size = values.length()\n    empty: Bool = values.is_empty()\n    first: Int32 = values.at(0)\n    second: Int32 = values[1]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\nend")
+	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    count: Size = values.length()\n    empty: Bool = values.length() == 0\n    first: Int32 = values[0]\n    second: Int32 = values[1]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -23,7 +23,7 @@ func TestListLifecycle(t *testing.T) {
 		"hex_list_push_Int32(hex_v_values, 1);",
 		"(hex_v_values)->length",
 		"(hex_v_values)->length == 0",
-		"*hex_list_at_Int32(hex_v_values, (size_t)(0))",
+		"*hex_list_at_mut_Int32(hex_v_values, (size_t)(0))",
 		"*hex_list_at_mut_Int32(hex_v_values, (size_t)(1)) = 5;",
 		"hex_v_last = hex_list_pop_Int32(hex_v_values);",
 		"hex_list_clear_Int32(hex_v_values);",
@@ -95,7 +95,7 @@ func TestListReturnHandoff(t *testing.T) {
 func TestListOfStrings(t *testing.T) {
 	// RFC 0048: a stored literal is never freed by the collection or by a
 	// pop; a runtime String popped out of the list is freed explicitly.
-	result := compileSource("fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    names.set(0, \"carol\")\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names.at(0)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    names.set(0, \"carol\")\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -116,13 +116,13 @@ func TestListOfStrings(t *testing.T) {
 // while a read handle is live are the programmer's responsibility.
 func TestListStringMutationAfterReadIsValid(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names.set(0, \"b\")\nend",
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    dropped: String = names.pop()\nend",
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names.clear()\nend",
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names.free(h)\nend",
-		"fun demo(h: Heap) do\n    mut names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names = List<String>.new(h)\nend",
-		"fun inspect(names: List<String>) do\nend\nfun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    inspect(names)\nend",
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names.at(0)\n    names.push(\"b\")\nend",
+		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.set(0, \"b\")\nend",
+		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    dropped: String = names.pop()\nend",
+		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.clear()\nend",
+		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.free(h)\nend",
+		"fun demo(h: Heap) do\n    mut names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names = List<String>.new(h)\nend",
+		"fun inspect(names: List<String>) do\nend\nfun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    inspect(names)\nend",
+		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.push(\"b\")\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)

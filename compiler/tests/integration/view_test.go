@@ -10,7 +10,7 @@ import (
 // lexical lifetimes, and the slice operations on Array and View.
 
 func TestViewSliceReadOperations(t *testing.T) {
-	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    view: View<Int32> = fixed.slice(0, 2)\n    count: Size = view.length()\n    empty: Bool = view.is_empty()\n    first: Int32 = view.at(0)\n    second: Int32 = view[1]\n    tail: View<Int32> = view.slice(1, 2)\n    last: Int32 = tail[0]\nend")
+	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    view: View<Int32> = fixed.slice(0, 2)\n    count: Size = view.length()\n    empty: Bool = view.length() == 0\n    first: Int32 = view[0]\n    second: Int32 = view[1]\n    tail: View<Int32> = view.slice(1, 2)\n    last: Int32 = tail[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

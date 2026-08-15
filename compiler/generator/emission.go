@@ -62,7 +62,6 @@ type moduleEmission struct {
 	stringState      *generatedStringState
 	listState        *generatedListState
 	dictState        *generatedDictState
-	streamState      *generatedStreamState
 	equalityState    *generatedEqualityState
 	conversionSpecs  []conversionSpec
 	sizeLiterals     []string
@@ -71,7 +70,6 @@ type moduleEmission struct {
 	bitCastSpecs     []bitCastSpec
 	endianSpecs      []endianSpec
 	printState       *generatedPrintState
-	ioState          *generatedIOState
 	concurrencyState *generatedConcurrencyState
 	objects          []*compilerTypes.ObjectType
 }
@@ -164,16 +162,10 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.conversionSpecs = conversionSpecs
 	emission.sizeLiterals = sizeLiterals
 	emission.divisionTypes = discoverGeneratedDivisions(program)
-	streamState, streamErr := discoverGeneratedStreams(program, owner)
-	if streamErr != nil {
-		return nil, streamErr
-	}
-	emission.streamState = streamState
 	emission.shiftSpecs = discoverGeneratedShifts(program)
 	emission.bitCastSpecs = discoverGeneratedBitCasts(program)
 	emission.endianSpecs = discoverGeneratedEndian(program)
 	emission.printState = discoverGeneratedPrint(program)
-	emission.ioState = discoverGeneratedIO(program, stringState)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, stringState, canonicalID, owner)
 	if concurrencyErr != nil {
 		return nil, concurrencyErr
@@ -194,9 +186,9 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// The String helpers allocate through the heap machinery.
 		heapState.required = true
 	}
-	if len(listState.order) > 0 || len(dictState.order) > 0 || len(streamState.order) > 0 {
-		// The List, Dict, and Stream helpers allocate and trap through the
-		// heap machinery and fputs.
+	if len(listState.order) > 0 || len(dictState.order) > 0 {
+		// The List and Dict helpers allocate and trap through the heap
+		// machinery and fputs.
 		heapState.required = true
 	}
 	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
@@ -218,7 +210,6 @@ type programEmission struct {
 	dictState        *generatedDictState
 	arrayState       *generatedArrayState
 	concurrencyState *generatedConcurrencyState
-	ioState          *generatedIOState
 	sizeLiterals     []string
 	// requirements is the demand-driven standard-header and hex_eos set built
 	// from every reachable module's checked types and selected helper
@@ -252,7 +243,6 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 			channelSendUnions:    make(map[string]compilerTypes.Type),
 			channelReceiveUnions: make(map[string]compilerTypes.Type),
 		},
-		ioState:      &generatedIOState{},
 		adapterSites: make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -266,7 +256,6 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeStringsInto(merged.stringState, module.stringState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
-		mergeIOInto(merged.ioState, module.ioState)
 		if module.arrayState != nil {
 			arrayOrders = append(arrayOrders, module.arrayState.order)
 		}
@@ -346,13 +335,6 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			// and trap via fputs/stderr/abort; NULL appears in initializers.
 			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
 		}
-		if streamStateUsed(module.streamState) {
-			// Stream handles carry uintptr_t, free through the heap
-			// machinery with fputs/stderr/abort traps, and every step union
-			// represents completion as hex_eos.
-			requirements.add("stdint.h", "stdio.h", "stdlib.h")
-			requirements.eos = true
-		}
 		if equalityStateUsed(module.equalityState) {
 			// Byte-compare helpers iterate size_t lengths; union equality
 			// helpers abort on an impossible tag.
@@ -387,11 +369,6 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			// snprintf/fwrite on stdout, classifies floats through
 			// <math.h>, and uses uint8_t/size_t/bool.
 			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h", "inttypes.h", "math.h")
-		}
-		if module.ioState != nil && module.ioState.used {
-			// The File family owns FILE and the stdio operations, grows
-			// buffers with malloc/realloc/free, and uses uint8_t/size_t.
-			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
 		}
 		concurrency := module.concurrencyState
 		if concurrency != nil && (concurrency.used || len(concurrency.atomics) > 0) {
@@ -438,13 +415,6 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		requirements.add("stddef.h", "stdint.h")
 	}
 	return requirements
-}
-
-// streamStateUsed reports whether any stream machinery is emitted.
-func streamStateUsed(state *generatedStreamState) bool {
-	return state != nil && (len(state.order) > 0 || len(state.produceNodes) > 0 ||
-		len(state.listNodes) > 0 || len(state.filterTypes) > 0 ||
-		len(state.takeTypes) > 0 || len(state.mapNodes) > 0)
 }
 
 // equalityStateUsed reports whether any equality helper is emitted.
@@ -589,41 +559,6 @@ func mergeTypeMap(merged, state map[string]compilerTypes.Type) {
 	}
 }
 
-// mergeIOInto unions one module's RFC 0040 machinery into the program-wide
-// state. The per-operation result unions are canonical, so the first
-// non-empty record stands in deterministically for the family.
-func mergeIOInto(merged, state *generatedIOState) {
-	if state == nil || !state.used {
-		return
-	}
-	merged.used = true
-	merged.open = merged.open || state.open
-	merged.readBytes = merged.readBytes || state.readBytes
-	merged.readText = merged.readText || state.readText
-	merged.write = merged.write || state.write
-	merged.writeText = merged.writeText || state.writeText
-	merged.flush = merged.flush || state.flush
-	merged.close = merged.close || state.close
-	merged.stdin = merged.stdin || state.stdin
-	merged.stdout = merged.stdout || state.stdout
-	merged.stderr = merged.stderr || state.stderr
-	if merged.openUnion == (compilerTypes.Type{}) {
-		merged.openUnion = state.openUnion
-	}
-	if merged.readBytesUnion == (compilerTypes.Type{}) {
-		merged.readBytesUnion = state.readBytesUnion
-	}
-	if merged.readTextUnion == (compilerTypes.Type{}) {
-		merged.readTextUnion = state.readTextUnion
-	}
-	if merged.writeUnion == (compilerTypes.Type{}) {
-		merged.writeUnion = state.writeUnion
-	}
-	if merged.listType == (compilerTypes.Type{}) {
-		merged.listType = state.listType
-	}
-}
-
 // routeSpawnSites assigns every program-wide spawn site to the canonical id
 // of the module that owns the spawned function, deduplicated by entry
 // symbol. emitModulePair places each module's adapters after its function
@@ -652,10 +587,6 @@ func rebaseLiteralNames(modules []*moduleEmission, stringState *generatedStringS
 		if module.concurrencyState != nil && module.concurrencyState.used {
 			module.concurrencyState.fileLiteral = literalObjectName(stringState, sourceFilename)
 			module.concurrencyState.headerLiteral = literalObjectName(stringState, "Scheduler")
-		}
-		if module.ioState != nil && module.ioState.used {
-			module.ioState.fileLiteral = literalObjectName(stringState, sourceFilename)
-			module.ioState.headerLiteral = literalObjectName(stringState, "I/O Error")
 		}
 	}
 }
@@ -750,12 +681,10 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	if isRoot {
 		// RFC 0060: the selected root module's C file owns the process-wide
 		// runtime definitions and the C entry point. The runtime cores are
-		// emitted after the module's own definitions and before main(), in
-		// their unchanged order: the concurrency runtime first, then the I/O
-		// gate. Every module header includes hexal.h, which declares the
-		// runtime entry points with external linkage.
+		// emitted after the module's own definitions and before main().
+		// Every module header includes hexal.h, which declares the runtime
+		// entry points with external linkage.
 		writeConcurrencyRuntime(&moduleBody, merged.concurrencyState, merged.stringState)
-		writeIOGate(&moduleBody, merged.ioState, merged.concurrencyState != nil && merged.concurrencyState.used)
 
 		renderState.pushScope()
 		// RFC 0060: the module statements execute directly inside main().
@@ -798,7 +727,6 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	moduleHeader := moduleHeader(moduleHeaderInput{
 		unions:        emission.unionState,
 		adts:          emission.adtState,
-		streams:       emission.streamState,
 		equality:      emission.equalityState,
 		conversions:   emission.conversionSpecs,
 		divisionTypes: emission.divisionTypes,
@@ -809,7 +737,6 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		heaps:         emission.heapState,
 		printState:    emission.printState,
 		concurrency:   emission.concurrencyState,
-		io:            emission.ioState,
 		stringState:   stringState,
 		canonicalID:   canonicalID,
 		prototypes:    headerPrototypes.String(),
@@ -850,7 +777,6 @@ type hexalHeaderInput struct {
 	dicts        *generatedDictState
 	arrays       *generatedArrayState
 	concurrency  *generatedConcurrencyState
-	io           *generatedIOState
 	sizeLiterals []string
 	// requirements is the demand-driven standard-header and hex_eos set
 	// (RFC 0062).
@@ -862,7 +788,6 @@ type hexalHeaderInput struct {
 type moduleHeaderInput struct {
 	unions        *generatedUnionState
 	adts          *generatedAdtState
-	streams       *generatedStreamState
 	equality      *generatedEqualityState
 	conversions   []conversionSpec
 	divisionTypes []compilerTypes.Type
@@ -873,7 +798,6 @@ type moduleHeaderInput struct {
 	heaps         *heapHelpers
 	printState    *generatedPrintState
 	concurrency   *generatedConcurrencyState
-	io            *generatedIOState
 	stringState   *generatedStringState
 	canonicalID   string
 	prototypes    string
@@ -927,12 +851,10 @@ func hexalHeader(input hexalHeaderInput) string {
 	}
 	result.WriteString("\n")
 	writeConcurrencyTypePrelude(&result, input.concurrency)
-	writeIOPrelude(&result, input.io)
 	// RFC 0034: the module header's inline helpers call the runtime core,
 	// which lives in the root module's C file with external linkage. hexal.h
 	// declares those entry points before any module content.
 	writeConcurrencyExterns(&result, input.concurrency)
-	writeIOExterns(&result, input.io)
 	writeHeapDefinitions(&result, input.heaps)
 	writeViewDefinitions(&result, input.views)
 	writeStringDefinitions(&result, input.stringState)
@@ -963,9 +885,6 @@ func moduleHeader(input moduleHeaderInput) string {
 	// The typed heap allocation helpers reference module-owned element
 	// types, so they follow the object definitions (RFC 0062).
 	writeHeapAllocateHelpers(&result, input.heaps)
-	// The Stream families embed user object State types by value, so they
-	// are emitted after every object definition (RFC 0031).
-	writeStreamDefinitions(&result, input.streams, input.unions)
 	writeShiftDefinitions(&result, input.shiftSpecs)
 	writeBitCastDefinitions(&result, input.bitCastSpecs)
 	writeEndianDefinitions(&result, input.endianSpecs)
@@ -974,7 +893,6 @@ func moduleHeader(input moduleHeaderInput) string {
 	writeDivisionDefinitions(&result, input.divisionTypes)
 	writeConversionDefinitions(&result, input.conversions)
 	writeConcurrencyInlineHelpers(&result, input.concurrency, input.stringState)
-	writeIOInlineHelpers(&result, input.io, input.stringState)
 	if input.prototypes != "" {
 		result.WriteString("\n/* RFC 0034: exported and foreign function prototypes */\n")
 		result.WriteString(input.prototypes)
@@ -1058,7 +976,7 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 			if member.SourceLine > 0 {
 				fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, filename)
 			}
-			// RFC 0035: reference-like members (String, List, Dict, Stream)
+			// RFC 0035: reference-like members (String, List, Dict)
 			// are pointer-sized handles, spelled like their declarations.
 			fmt.Fprintf(result, "    %s;\n", declaration(member.Type, PrivateCName(MemberName, member.Name, ""), true))
 		}

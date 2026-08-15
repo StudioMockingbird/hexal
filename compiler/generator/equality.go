@@ -15,17 +15,16 @@ import (
 // generatedEqualityState records the types needing equality helpers and the
 // String/Strand compare helpers, in dependency order.
 type generatedEqualityState struct {
-	order         []compilerTypes.Type
-	seenObjects   map[*compilerTypes.ObjectType]bool
-	seenADTs      map[*compilerTypes.AdtType]bool
-	seenArrays    map[*compilerTypes.ArrayInfo]bool
-	seenViews     map[*compilerTypes.ViewInfo]bool
-	seenLists     map[*compilerTypes.ListInfo]bool
-	seenUnions    map[*compilerTypes.UnionInfo]bool
-	needString    bool
-	needStrand    bool
-	compareNeed   bool
-	seenFileModes bool
+	order       []compilerTypes.Type
+	seenObjects map[*compilerTypes.ObjectType]bool
+	seenADTs    map[*compilerTypes.AdtType]bool
+	seenArrays  map[*compilerTypes.ArrayInfo]bool
+	seenViews   map[*compilerTypes.ViewInfo]bool
+	seenLists   map[*compilerTypes.ListInfo]bool
+	seenUnions  map[*compilerTypes.UnionInfo]bool
+	needString  bool
+	needStrand  bool
+	compareNeed bool
 }
 
 // discoverEqualityTypes walks the program collecting the compared types and,
@@ -83,12 +82,6 @@ func discoverEqualityTypes(program checker.Program) (*generatedEqualityState, er
 				state.needString = true
 			case compilerTypes.IsStrand(typ):
 				state.needStrand = true
-			case compilerTypes.IsFileMode(typ):
-				if state.seenFileModes {
-					return nil
-				}
-				state.seenFileModes = true
-				state.order = append(state.order, typ)
 			}
 			return nil
 		},

@@ -287,25 +287,3 @@ func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 		t.Fatalf("app.c carries spawn adapters:\n%s", appC)
 	}
 }
-
-// The I/O gate used only in a non-root module is emitted once in the root
-// module's C file, and the module's inline helpers call it through the
-// hexal.h externs.
-func TestModuleGenerationIOGateProgramWide(t *testing.T) {
-	sources := map[string]string{
-		"app.hex":   "module Files = import \"./files\"\nx: Nil | Error = Files.write_line()\n",
-		"files.hex": "export fun write_line(): Nil | Error do\n    result: Nil | Error = try Stdio.stdout().write_text(\"hi\")\n    return result\nend\n",
-	}
-	result := compileMulti(sources, "app.hex")
-	if result.ExitCode != compiler.ExitSuccess {
-		t.Fatalf("generation failed: %#v", result.Stderr)
-	}
-	appC := result.Files["modules/app.c"]
-	hexalH := result.Files["hexal.h"]
-	if !strings.Contains(appC, "hex_io_gate_lock") {
-		t.Fatalf("app.c lacks the IO gate for files.hex:\n%s", appC)
-	}
-	if !strings.Contains(hexalH, "extern bool hex_io_gate_closed;") {
-		t.Fatalf("hexal.h lacks the IO gate externs:\n%s", hexalH)
-	}
-}

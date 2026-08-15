@@ -31,7 +31,6 @@ func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
 		"fun nothing(value: Int32) do return end bad: Fun<(Int32) : Nil> = nothing",
 		"fun square(value: Int32): Int32 do return value * value end bad: Task<Nil> = try spawn square(6)",
 		"h: Heap = Heap.new() bad: Channel<Nil> = Channel<Nil>.new(h, 8)",
-		"bad: Stream<Nil> = Stream<Nil>.new()",
 		"h: Heap = Heap.new() bad: MutPtr<Nil> = h.allocate<Nil>(0)",
 		"value: Int32 | Nil = nil if value is Int32 then noop: Int32 = 0 else bad: Nil = value end",
 	} {

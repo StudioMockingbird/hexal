@@ -67,7 +67,7 @@ var RequiredFeatures = []string{
 	"lossless-widening", "numeric-conversions", "arithmetic", "bitwise", "equality-ordering",
 	"bit-casting", "endian-conversion", "truthiness", "if-elseif-else", "while", "for", "defer", "errors",
 	"try-errdefer", "heap-allocation", "arrays", "views", "view-pointer-bridge",
-	"lists", "dicts", "text", "streams", "print", "file-io", "tasks",
+	"lists", "dicts", "text", "print", "tasks",
 	"channels", "mutex", "atomics", "layout", "volatile", "unknown-pointers", "modules", "exports",
 }
 

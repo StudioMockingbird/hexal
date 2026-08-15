@@ -274,25 +274,10 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Dict" {
 		return checkDictTypeCall(call, variable.Name, names, typeEnvironment)
 	}
-	// Stream<T>.new() and Stream<T>.produce() name the built-in generic
-	// type, not a Stream value binding (RFC 0031).
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Stream" {
-		return checkStreamTypeCall(call, variable.Name, names, typeEnvironment)
-	}
 	// View<T>.from_pointer() and View<T>.empty() name the built-in generic
 	// type, not a View value binding (RFC 0043).
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "View" {
 		return checkViewBridgeCall(call, variable.Name, names, typeEnvironment)
-	}
-	// File.open() names the built-in File type, not a File value binding
-	// (RFC 0040).
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "File" {
-		return checkFileOpenCall(call, variable.Name, names, typeEnvironment)
-	}
-	// Stdio.stdin(), Stdio.stdout(), and Stdio.stderr() name the protected
-	// intrinsic qualifier, not a value binding (RFC 0040).
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Stdio" {
-		return checkStdioCall(call, variable.Name, names, typeEnvironment)
 	}
 	// Task.yield() names the built-in Task type, not a Task value binding
 	// (RFC 0037).
@@ -376,11 +361,6 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if receiver.typ.Array != nil || receiver.typ.View != nil {
 		return checkCollectionMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
-	// List.stream(h) builds a non-owning lazy Stream over the List (RFC
-	// 0031); it dispatches before ordinary List methods.
-	if receiver.typ.List != nil && name == "stream" {
-		return checkListStreamCall(call, callee, receiver, names, typeEnvironment)
-	}
 	// List methods dispatch on the built-in list receiver type.
 	if receiver.typ.List != nil {
 		return checkListMethodCall(call, callee, receiver, names, typeEnvironment)
@@ -388,11 +368,6 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// Dict methods dispatch on the built-in dictionary receiver type.
 	if receiver.typ.Dict != nil {
 		return checkDictMethodCall(call, callee, receiver, names, typeEnvironment)
-	}
-	// Stream methods dispatch on the built-in stream receiver type (RFC
-	// 0031): next, filter, map, take, and free.
-	if receiver.typ.Stream != nil {
-		return checkStreamMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
 	// Task, Channel, Mutex, and Atomic methods dispatch on their built-in
 	// handle receiver types (RFC 0037).
@@ -420,10 +395,6 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// RuneCursor methods dispatch on the RFC 0044 cursor descriptor type.
 	if compilerTypes.IsRuneCursor(receiver.typ) {
 		return checkRuneCursorMethodCall(call, callee, receiver, names, typeEnvironment)
-	}
-	// File methods dispatch on the RFC 0040 File handle type.
-	if compilerTypes.IsFile(receiver.typ) {
-		return checkFileMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
 	// RFC 0010: a nullable receiver reaches no method until a null test
 	// narrowed it to its pointer member.
