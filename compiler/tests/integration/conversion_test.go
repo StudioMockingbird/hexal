@@ -7,6 +7,8 @@ import (
 )
 
 // RFC 0038: the one explicit scalar conversion spelling `source.to<Dest>()`.
+// RFC 0068: identity and direct conversions lower to inline C; only checked
+// pairs emit one deduplicated guard-and-cast helper.
 
 func TestConversionMethods(t *testing.T) {
 	result := compileSource("fun demo() do\n    wide: Int64 = 9_000_000_000\n    small: Int8 = 12\n    narrowed: Int8 = wide.to<Int8>()\n    whole: Int32 = 3.75.to<Int32>()\n    size: Size = small.to<Size>()\n    count: UInt32 = size.to<UInt32>()\n    letter: Rune = wide.to<Rune>()\n    code: UInt32 = letter.to<UInt32>()\nend")
@@ -21,11 +23,16 @@ func TestConversionMethods(t *testing.T) {
 		"hex_convert_size_t_uint32_t(hex_v_size)",
 		"static inline uint32_t hex_convert_int64_t_rune(int64_t value) {",
 		"hex_v_letter = hex_convert_int64_t_rune(hex_v_wide);",
-		"hex_convert_rune_uint32_t(hex_v_letter)",
+		"(uint32_t)hex_v_letter",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
+	}
+	// Rune to UInt32 is same width: it lowers directly and never emits the
+	// old vacuous <= UINT32_MAX helper.
+	if strings.Contains(rootH(t, result), "hex_convert_rune_uint32_t") {
+		t.Fatalf("generated header = %q, Rune-to-UInt32 must not emit a helper", rootH(t, result))
 	}
 }
 
@@ -213,5 +220,169 @@ func TestNegatedLiteralRequiresSignedDestination(t *testing.T) {
 		t.Run(target, func(t *testing.T) {
 			assertRejects(t, "value: "+target+" = -0\n", "negated integer literal requires a signed destination")
 		})
+	}
+}
+
+// RFC 0068 direct lowering: non-trapping conversions emit one inline cast
+// and no conversion helper.
+func TestDirectConversionLowering(t *testing.T) {
+	// Two uses of one safe pair emit two casts and no helper.
+	result := assertCompiles(t, "fun demo() do\n    value: UInt8 = 12\n    a: Float64 = value.to<Float64>()\n    b: Float64 = value.to<Float64>()\nend")
+	bodyC, bodyH := rootC(t, result), rootH(t, result)
+	if strings.Count(bodyC, "(double)hex_v_value") != 2 {
+		t.Fatalf("modules/app.c = %q, want two inline casts", bodyC)
+	}
+	if strings.Contains(bodyH, "hex_convert_uint8_t_double") {
+		t.Fatalf("modules/app.h = %q, safe pair must not emit a helper", bodyH)
+	}
+	// Widening integer, unsigned to float, float widening, and Rune to
+	// UInt32 all cast inline.
+	for _, testCase := range []struct {
+		source string
+		want   string
+	}{
+		{"value: Int16 = 3\nwide: Int64 = value.to<Int64>()", "(int64_t)hex_v_value"},
+		{"value: UInt64 = 3\nwide: Float32 = value.to<Float32>()", "(float)hex_v_value"},
+		{"value: Float32 = 1.5\nwide: Float64 = value.to<Float64>()", "(double)hex_v_value"},
+		{"value: Rune = (65).to<Rune>()\ncode: UInt32 = value.to<UInt32>()", "(uint32_t)hex_v_value"},
+	} {
+		source := "fun demo() do\n    " + testCase.source + "\nend"
+		result := assertCompiles(t, source)
+		if !strings.Contains(rootC(t, result), testCase.want) {
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), testCase.want)
+		}
+	}
+	// Identity emits neither helper nor cast.
+	result = assertCompiles(t, "fun demo() do\n    value: Int32 = 3\n    same: Int32 = value.to<Int32>()\nend")
+	bodyC, bodyH = rootC(t, result), rootH(t, result)
+	if !strings.Contains(bodyC, "const int32_t hex_v_same = hex_v_value;") {
+		t.Fatalf("modules/app.c = %q, want the identity operand read", bodyC)
+	}
+	if strings.Contains(bodyH, "hex_convert_int32_t_int32_t") || strings.Contains(bodyC, "(int32_t)hex_v_value") {
+		t.Fatalf("identity conversion = C:%q H:%q, want no cast and no helper", bodyC, bodyH)
+	}
+	// A non-atomic operand expression appears exactly once inside the
+	// direct cast.
+	result = assertCompiles(t, "fun demo(left: Float32, right: Float32) do\n    total: Float64 = (left + right).to<Float64>()\nend")
+	bodyC = rootC(t, result)
+	initializer := ""
+	for _, line := range strings.Split(bodyC, "\n") {
+		if strings.Contains(line, "hex_v_total") {
+			initializer = line
+			break
+		}
+	}
+	if strings.Count(initializer, "hex_v_left") != 1 || strings.Count(initializer, "hex_v_right") != 1 || !strings.Contains(initializer, "(double)((hex_v_left + hex_v_right))") {
+		t.Fatalf("modules/app.c = %q, want the operand rendered exactly once inside the cast", bodyC)
+	}
+}
+
+// RFC 0068 checked lowering: potentially invalid conversions keep one
+// deduplicated guard-and-cast helper.
+func TestCheckedConversionLowering(t *testing.T) {
+	// Int64 to Int8 keeps one range-checking helper for repeated uses.
+	result := assertCompiles(t, "fun demo() do\n    wide: Int64 = 9_000_000_000\n    a: Int8 = wide.to<Int8>()\n    b: Int8 = wide.to<Int8>()\nend")
+	if strings.Count(rootH(t, result), "static inline int8_t hex_convert_int64_t_int8_t") != 1 {
+		t.Fatalf("modules/app.h = %q, want one deduplicated helper", rootH(t, result))
+	}
+	// Signed to unsigned retains lower and upper checks.
+	result = assertCompiles(t, "fun demo() do\n    value: Int32 = -3\n    code: UInt32 = value.to<UInt32>()\nend")
+	headerText := rootH(t, result)
+	for _, want := range []string{"static inline uint32_t hex_convert_int32_t_uint32_t(int32_t value) {", "if (!(value >= 0 && value <= UINT32_MAX)) {"} {
+		if !strings.Contains(headerText, want) {
+			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+		}
+	}
+	// Integer to Rune retains Unicode scalar validation.
+	result = assertCompiles(t, "fun demo() do\n    value: UInt32 = 0x1F600\n    letter: Rune = value.to<Rune>()\nend")
+	headerText = rootH(t, result)
+	for _, want := range []string{"static inline uint32_t hex_convert_uint32_t_rune(uint32_t value) {", "value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)"} {
+		if !strings.Contains(headerText, want) {
+			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+		}
+	}
+	// Float64 to Float32 retains the finite-overflow validation.
+	result = assertCompiles(t, "fun demo() do\n    value: Float64 = 1.5\n    small: Float32 = value.to<Float32>()\nend")
+	headerText = rootH(t, result)
+	for _, want := range []string{"static inline float hex_convert_double_float(double value) {", "if (isfinite(value) && isinf(result)) {"} {
+		if !strings.Contains(headerText, want) {
+			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+		}
+	}
+	// Mixed safe and checked emit helpers only for the checked pair.
+	result = assertCompiles(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\n    big: Int64 = 9_000_000_000\n    narrow: Int8 = big.to<Int8>()\nend")
+	headerText = rootH(t, result)
+	if !strings.Contains(headerText, "hex_convert_int64_t_int8_t") || strings.Contains(headerText, "hex_convert_uint8_t_double") {
+		t.Fatalf("modules/app.h = %q, want only the checked helper", headerText)
+	}
+}
+
+// RFC 0068 Float-to-integer correctness: one truncation, exact power-of-two
+// bounds, and the truncated temporary is cast.
+func TestFloatToIntegerHelperBounds(t *testing.T) {
+	result := assertCompiles(t, "fun demo() do\n    value: Float64 = 3.75\n    signed: Int64 = value.to<Int64>()\n    code: UInt64 = value.to<UInt64>()\n    count: Size = value.to<Size>()\nend")
+	headerText := rootH(t, result)
+	for _, want := range []string{
+		"static inline int64_t hex_convert_double_int64_t(double value) {",
+		"double truncated = trunc(value);",
+		"if (!(truncated >= -0x1p63 && truncated < 0x1p63)) {",
+		"return (int64_t)truncated;",
+		"if (!(truncated >= 0.0 && truncated < 0x1p64)) {",
+		"return (uint64_t)truncated;",
+		"if (!(truncated >= 0.0 && truncated < (double)SIZE_MAX + 1.0)) {",
+		"return (size_t)truncated;",
+	} {
+		if !strings.Contains(headerText, want) {
+			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+		}
+	}
+	for _, forbidden := range []string{"INT64_MAX", "UINT64_MAX", "truncated <= SIZE_MAX", "fromfp", "ufromfp", "errno", "truncated >= -9223372036854775808.0"} {
+		if strings.Contains(headerText, forbidden) {
+			t.Fatalf("modules/app.h = %q, must not contain %q", headerText, forbidden)
+		}
+	}
+	// Float32 sources truncate with truncf and check exact bounds.
+	result = assertCompiles(t, "fun demo() do\n    value: Float32 = 3.75\n    whole: Int16 = value.to<Int16>()\n    count: Size = value.to<Size>()\nend")
+	headerText = rootH(t, result)
+	for _, want := range []string{
+		"float truncated = truncf(value);",
+		"if (!(truncated >= -0x1p15 && truncated < 0x1p15)) {",
+		"if (!(truncated >= 0.0 && truncated < (float)SIZE_MAX + 1.0f)) {",
+	} {
+		if !strings.Contains(headerText, want) {
+			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+		}
+	}
+}
+
+// RFC 0068 trap and includes: only checked conversions select the shared
+// runtime trap; the conversion family never claims <stdio.h>/<stdlib.h>
+// independently; checked float-to-integer selects <math.h>.
+func TestConversionTrapSelection(t *testing.T) {
+	// A safe-conversion-only program gets no trap and no trap-owned headers.
+	result := assertCompiles(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\nend")
+	header := hexalH(t, result)
+	for _, forbidden := range []string{"hex_runtime_trap", "<stdio.h>", "<stdlib.h>", "<math.h>"} {
+		if strings.Contains(header, forbidden) {
+			t.Fatalf("hexal.h = %q, safe-only program must not select %q", header, forbidden)
+		}
+	}
+	// A checked integer conversion selects the trap but no <math.h>.
+	result = assertCompiles(t, "fun demo() do\n    value: Int64 = 9_000_000_000\n    narrow: Int8 = value.to<Int8>()\nend")
+	header = hexalH(t, result)
+	if !strings.Contains(header, "[[noreturn]] void hex_runtime_trap(const char *message);") {
+		t.Fatalf("hexal.h = %q, want the trap declaration", header)
+	}
+	if strings.Contains(header, "<math.h>") {
+		t.Fatalf("hexal.h = %q, integer-source helpers must not select <math.h>", header)
+	}
+	// A checked float-to-integer conversion selects the trap and <math.h>;
+	// stdio/stdlib come only from the trap definition.
+	result = assertCompiles(t, "fun demo() do\n    value: Float64 = 3.75\n    whole: Int32 = value.to<Int32>()\nend")
+	header = hexalH(t, result)
+	for _, want := range []string{"[[noreturn]] void hex_runtime_trap(const char *message);", "#include <math.h>", "#include <stdio.h>", "#include <stdlib.h>"} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("hexal.h = %q, want %q", header, want)
+		}
 	}
 }

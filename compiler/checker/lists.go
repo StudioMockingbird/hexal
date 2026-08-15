@@ -101,11 +101,11 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments, got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		start, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
+		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		end, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, environment, typeEnvironment)
+		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, environment, typeEnvironment)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
@@ -152,7 +152,7 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 				diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("set expects 2 arguments, got %d", len(call.Arguments)))
 				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 			}
-			index, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
+			index, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
 			if diagnostic != nil {
 				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 			}

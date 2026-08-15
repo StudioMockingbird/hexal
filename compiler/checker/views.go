@@ -50,11 +50,11 @@ func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpressi
 		diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments, got %d", len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	start, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
+	start, startKnown, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
-	end, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, environment, typeEnvironment)
+	end, endKnown, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, environment, typeEnvironment)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -72,9 +72,10 @@ func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpressi
 			diagnostic := typeErrorAt(callee.Property, "a view cannot be rooted in a temporary Array")
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		if start.Constant != nil && start.Constant.Kind() == constant.Int && end.Constant != nil && end.Constant.Kind() == constant.Int {
-			startValue, startExact := constant.Int64Val(start.Constant)
-			endValue, endExact := constant.Int64Val(end.Constant)
+		if startKnown != nil && startKnown.Constant != nil && startKnown.Constant.Kind() == constant.Int &&
+			endKnown != nil && endKnown.Constant != nil && endKnown.Constant.Kind() == constant.Int {
+			startValue, startExact := constant.Int64Val(startKnown.Constant)
+			endValue, endExact := constant.Int64Val(endKnown.Constant)
 			if startExact && endExact && (startValue > endValue || endValue > int64(receiver.typ.Array.Length)) {
 				diagnostic := typeErrorAt(tokenOf(call.Arguments[0]), fmt.Sprintf("slice range [%d, %d) is out of bounds for %s", startValue, endValue, receiver.typ.Name))
 				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

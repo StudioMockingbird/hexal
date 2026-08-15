@@ -129,15 +129,17 @@ func checkStatement(statement parser.Statement, names *scope, typeEnvironment *c
 	}
 }
 
-func checkCondition(expression parser.Expression, names *scope, typeEnvironment *compilerTypes.Environment) (Operand, lexer.Token, compilerTypes.Diagnostics) {
+func checkCondition(expression parser.Expression, names *scope, typeEnvironment *compilerTypes.Environment) (Operand, *Operand, lexer.Token, compilerTypes.Diagnostics) {
 	checked := checkValue(expression, names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
-		return checked.source, checked.token, diagnostics
+		return checked.source, nil, checked.token, diagnostics
 	}
 	// RFC 0023: every value-producing expression is a valid condition; its
 	// truthiness decides the branch. No-result calls are rejected by
-	// checkValue before this point.
-	return checked.source, checked.token, nil
+	// checkValue before this point. The known-value metadata of a named
+	// immutable binding read is returned for constant-required consumers;
+	// the condition itself stays the binding read.
+	return checked.source, checked.known, checked.token, nil
 }
 
 // narrowingFact is the branch-local fact a checked null test proves about one
@@ -196,7 +198,7 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		ElseColumn:   statement.ElseKeyword.Column,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	condition, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, names, typeEnvironment)
+	condition, _, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, names, typeEnvironment)
 	diagnostics = append(diagnostics, conditionDiagnostics...)
 	checked.Condition = condition
 	checked.ConditionLine = conditionToken.Line
@@ -238,7 +240,7 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		// clone of that chain and only its invalidations merge onward.
 		conditionScope := names.child()
 		conditionScope.flow = elseState
-		branchCondition, branchToken, branchConditionDiagnostics := checkCondition(branch.Condition, conditionScope, typeEnvironment)
+		branchCondition, _, branchToken, branchConditionDiagnostics := checkCondition(branch.Condition, conditionScope, typeEnvironment)
 		diagnostics = append(diagnostics, branchConditionDiagnostics...)
 		// Always clone the else-side chain for the branch body: its own
 		// invalidations must not leak into the next elseif condition, and they
@@ -461,9 +463,10 @@ func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvi
 		EndColumn:    statement.End.Column,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	condition, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, names, typeEnvironment)
+	condition, conditionKnown, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, names, typeEnvironment)
 	diagnostics = append(diagnostics, conditionDiagnostics...)
 	checked.Condition = condition
+	checked.ConditionKnown = conditionKnown
 	checked.ConditionLine = conditionToken.Line
 	checked.ConditionColumn = conditionToken.Column
 

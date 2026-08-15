@@ -15,10 +15,12 @@ func TestLosslessNumericComparisonWidening(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"((int64_t)((1)) == INT64_C(2))",
-		"((int64_t)((1)) == (int64_t)((3)))",
-		"((double)((1)) < (double)((0x1.4p+0f)))",
-		"hex_v_narrow = (1 == (int16_t)((2)));",
+		// RFC 0068: named immutable reads stay binding reads; the widening
+		// comparison shape survives on the generated bindings.
+		"((int64_t)(hex_v_i32) == hex_v_i64)",
+		"((int64_t)(hex_v_i32) == (int64_t)(hex_v_u32))",
+		"((double)(hex_v_i32) < (double)(hex_v_f32))",
+		"hex_v_narrow = (hex_v_small == (int16_t)(hex_v_tiny));",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)

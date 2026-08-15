@@ -19,7 +19,9 @@ func TestBitwiseOperators(t *testing.T) {
 		"const uint32_t hex_v_xor = 61680;",
 		"const uint8_t hex_v_combined = 255;",
 		"const uint8_t hex_v_complement = 240;",
-		"const uint16_t hex_v_widened = 0;",
+		// RFC 0068: a named immutable read stays a binding read; the
+		// bitwise operation runs on the generated bindings.
+		"const uint16_t hex_v_widened = (uint16_t)((uint16_t)(uint16_t)(hex_v_small) & (uint16_t)hex_v_wide);",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -28,7 +30,8 @@ func TestBitwiseOperators(t *testing.T) {
 }
 
 // RFC 0069 Amendment 1 Item B: signed bitwise results are direct modular
-// casts; constant results still fold to their literal spellings.
+// casts; literal-only expressions still fold to their literal spellings,
+// while named immutable reads stay binding reads (RFC 0068).
 func TestBitwiseSignedDirectCast(t *testing.T) {
 	result := compileSource("fun demo() do\n    mask: Int8 = ~0\n    low: Int8 = 0x0F\n    signed: Int8 = mask & low\n    negative: Int32 = -1\n    bits: UInt32 = 0x80000000\n    cross: Int32 = negative & 0x7FFFFFFF\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -36,7 +39,8 @@ func TestBitwiseSignedDirectCast(t *testing.T) {
 	}
 	for _, want := range []string{
 		"const int8_t hex_v_mask = -1;",
-		"const int8_t hex_v_signed = 15;",
+		"const int8_t hex_v_signed = (int8_t)((uint8_t)((uint8_t)hex_v_mask & (uint8_t)hex_v_low));",
+		"const int32_t hex_v_cross = (int32_t)((uint32_t)((uint32_t)hex_v_negative & (uint32_t)0x7FFFFFFF));",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -214,7 +218,10 @@ func TestBitwisePrecedence(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const uint32_t hex_v_packed = 66051;",
+		// RFC 0068: named immutable reads stay binding reads; the
+		// precedence shape survives on the generated bindings.
+		"const uint32_t hex_v_packed = (uint32_t)((uint32_t)(uint32_t)((uint32_t)hex_shl_uint32_t(hex_v_red, (uint64_t)(16)) | (uint32_t)hex_shl_uint32_t(hex_v_green, (uint64_t)(8))) | (uint32_t)hex_v_blue);",
+		"const bool hex_v_mixed = true;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)

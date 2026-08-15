@@ -286,16 +286,15 @@ func valueFromPlace(place checkedExpression) checkedExpression {
 			return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token}
 		}
 	}
-	if place.known != nil {
-		source := *place.known
-		source.Addressable = false
-		source.Writable = false
-		return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token, known: place.known}
-	}
+	// An ordinary read of a named binding keeps the binding's variable read
+	// in the checked program: `if enabled then` renders the generated
+	// binding, never its initializer literal. The initializer value stays
+	// available as known-value metadata so compile-time diagnostics and
+	// constant-required checks keep working.
 	source := place.source
 	source.Addressable = false
 	source.Writable = false
-	return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token}
+	return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token, known: place.known}
 }
 
 // nullableAccessDiagnostic reports member or .value access through a nullable

@@ -74,7 +74,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 	left := checkExpression(expression.Left, expressionContext{expected: compilerTypes.NewTypeUse(operandType), foldConstants: context.foldConstants}, environment, typeEnvironment)
 	rightEvaluation := context.foldConstants
 	if rightEvaluation && (operator == LogicalAndOperator || operator == LogicalOrOperator) {
-		if leftValue, known := knownTruthiness(left); known {
+		if leftValue, known := knownTruthinessMetadata(left); known {
 			rightEvaluation = (operator == LogicalAndOperator && leftValue) || (operator == LogicalOrOperator && !leftValue)
 		}
 	}
@@ -141,12 +141,12 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 			return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 		}
 		if context.foldConstants && left.source.Kind == ConstantOperand && right.source.Kind == ConstantOperand {
-			return foldWidenedArithmetic(operator, left.source, right.source, common, expression.Operator)
+			return foldWidenedArithmetic(operator, left, right, common, expression.Operator)
 		}
 		leftNode := widenNode(expressionNode(left.source), left.typ, common)
 		rightNode := widenNode(expressionNode(right.source), right.typ, common)
 		if operator == DivideOperator || operator == RemainderOperator {
-			if diagnostic := staticDivisionDiagnostic(operator, left.source, right.source, common, expression.Operator); diagnostic != nil {
+			if diagnostic := staticDivisionDiagnostic(operator, left, right, common, expression.Operator); diagnostic != nil {
 				return checkedExpression{typ: common, token: expression.Operator, diagnostic: diagnostic}
 			}
 		}
@@ -173,7 +173,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 			}
 		}
 		if context.foldConstants && left.source.Kind == ConstantOperand && right.source.Kind == ConstantOperand {
-			return foldWidenedArithmetic(operator, left.source, right.source, common, expression.Operator)
+			return foldWidenedArithmetic(operator, left, right, common, expression.Operator)
 		}
 		leftNode := widenNode(expressionNode(left.source), left.typ, common)
 		rightNode := widenNode(expressionNode(right.source), right.typ, common)
@@ -193,10 +193,10 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 			diagnostic := typeErrorAt(expression.Operator, "shift count must be an integer; got "+right.typ.Name)
 			return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 		}
-		if right.source.Kind == ConstantOperand && right.source.Constant != nil {
-			count, exact := constant.Int64Val(right.source.Constant)
-			if exact && (count < 0 || count >= int64(left.typ.Bits)) {
-				diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("shift count %d is outside the valid range for %s", count, left.typ.Name))
+		if count := staticConstantValue(right); count != nil && count.Kind() == constant.Int {
+			value, exact := constant.Int64Val(count)
+			if exact && (value < 0 || value >= int64(left.typ.Bits)) {
+				diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("shift count %d is outside the valid range for %s", value, left.typ.Name))
 				return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 			}
 		}
@@ -364,7 +364,7 @@ func foldBinary(operator Operator, left, right checkedExpression, operandType, r
 	if !evaluate {
 		return runtime
 	}
-	if diagnostic := staticDivisionDiagnostic(operator, left.source, right.source, operandType, token); diagnostic != nil {
+	if diagnostic := staticDivisionDiagnostic(operator, left, right, operandType, token); diagnostic != nil {
 		return checkedExpression{typ: resultType, token: token, diagnostic: diagnostic}
 	}
 
@@ -448,6 +448,18 @@ func operationBinaryResult(operator Operator, left, right checkedExpression, ope
 func foldedIntegerResult(value constant.Value, typ compilerTypes.Type, token lexer.Token) checkedExpression {
 	source := constantOperand(typ, value, value.ExactString())
 	source.Negative = constant.Sign(value) < 0
+	if compilerTypes.IsFloat(typ) {
+		// A folded float result keeps its rounded IEEE bits so a later
+		// explicit conversion reasons from the rounded value rather than
+		// the exact integer the fold keeps.
+		if compilerTypes.Equal(typ, compilerTypes.Float32) {
+			converted, _ := constant.Float32Val(value)
+			source.FloatBits = uint64(math.Float32bits(converted))
+		} else {
+			converted, _ := constant.Float64Val(value)
+			source.FloatBits = math.Float64bits(converted)
+		}
+	}
 	source.Node = constantNode(source)
 	known := source
 	return checkedExpression{source: source, typ: typ, token: token, known: &known}
@@ -488,25 +500,27 @@ func wrapIntegerConstant(value constant.Value, typ compilerTypes.Type) constant.
 }
 
 // foldWidenedArithmetic folds a mixed-type constant arithmetic operation
-// after selecting the common numeric type.
-func foldWidenedArithmetic(operator Operator, left, right Operand, common compilerTypes.Type, token lexer.Token) checkedExpression {
+// after selecting the common numeric type. Only genuine literal constants
+// fold; a read of a named immutable binding stays a runtime operation while
+// its known-value metadata still feeds the division-by-zero diagnostic.
+func foldWidenedArithmetic(operator Operator, left, right checkedExpression, common compilerTypes.Type, token lexer.Token) checkedExpression {
 	if operator == DivideOperator || operator == RemainderOperator {
 		if diagnostic := staticDivisionDiagnostic(operator, left, right, common, token); diagnostic != nil {
 			return checkedExpression{typ: common, token: token, diagnostic: diagnostic}
 		}
 	}
 	operation, ok := integerConstantOperator(operator)
-	if !ok || left.Constant == nil || right.Constant == nil {
+	if !ok || left.source.Constant == nil || right.source.Constant == nil {
 		return checkedExpression{typ: common, token: token, diagnostic: &compilerTypes.Diagnostic{
 			Category: compilerTypes.UnknownError,
 			Stage:    "checker",
 			Message:  "unfoldable widened arithmetic",
 		}}
 	}
-	value := constant.BinaryOp(left.Constant, operation, right.Constant)
+	value := constant.BinaryOp(left.source.Constant, operation, right.source.Constant)
 	if operator == DivideOperator || operator == RemainderOperator && compilerTypes.IsSignedInteger(common) {
 		minimum, _ := integerBounds(common)
-		if constant.Compare(left.Constant, gotoken.EQL, minimum) && constant.Compare(right.Constant, gotoken.EQL, constant.MakeInt64(-1)) {
+		if constant.Compare(left.source.Constant, gotoken.EQL, minimum) && constant.Compare(right.source.Constant, gotoken.EQL, constant.MakeInt64(-1)) {
 			if operator == RemainderOperator {
 				value = constant.MakeInt64(0)
 			} else {
@@ -593,6 +607,43 @@ func foldedFloatResultFromBinary(operator Operator, left, right Operand, typ com
 		return checkedExpression{source: Operand{Kind: ExpressionOperand, Type: typ}, typ: typ, token: token}
 	}
 	return foldedFloatResult(typ, math.Float64bits(result), token)
+}
+
+// staticConstantValue returns the compile-time value a constant-required
+// diagnostic may rely on for a checked expression: a true literal constant,
+// or the known-value metadata of a named immutable binding read. The read
+// itself stays in the checked program; only the diagnostic consumes the
+// metadata.
+func staticConstantValue(expression checkedExpression) constant.Value {
+	if expression.source.Kind == ConstantOperand && expression.source.Constant != nil {
+		return expression.source.Constant
+	}
+	if expression.known != nil && expression.known.Kind == ConstantOperand && expression.known.Constant != nil {
+		return expression.known.Constant
+	}
+	return nil
+}
+
+// knownTruthinessMetadata extends knownTruthiness to the known-value
+// metadata of a named immutable binding read. The read stays in the checked
+// program; only compile-time short-circuit reasoning (whether the other
+// side is reachable) consults the metadata.
+func knownTruthinessMetadata(expression checkedExpression) (bool, bool) {
+	if expression.known == nil {
+		return false, false
+	}
+	switch compilerTypes.Truthiness(expression.typ) {
+	case compilerTypes.TruthinessBool:
+		if expression.known.Constant == nil || expression.known.Constant.Kind() != constant.Bool {
+			return false, false
+		}
+		return constant.BoolVal(expression.known.Constant), true
+	case compilerTypes.TruthinessAlwaysTrue:
+		return true, true
+	case compilerTypes.TruthinessNil:
+		return false, true
+	}
+	return false, false
 }
 
 // knownTruthiness reports whether the operand's truthiness is decided at
@@ -743,11 +794,15 @@ func compareFloatOperands(operator Operator, leftBits, rightBits uint64, typ com
 	}
 }
 
-func staticDivisionDiagnostic(operator Operator, left, right Operand, operandType compilerTypes.Type, token lexer.Token) *compilerTypes.Diagnostic {
-	if (operator != DivideOperator && operator != RemainderOperator) || !compilerTypes.IsInteger(operandType) || right.Kind != ConstantOperand || right.Constant == nil || right.Constant.Kind() == constant.Unknown {
+func staticDivisionDiagnostic(operator Operator, left, right checkedExpression, operandType compilerTypes.Type, token lexer.Token) *compilerTypes.Diagnostic {
+	if (operator != DivideOperator && operator != RemainderOperator) || !compilerTypes.IsInteger(operandType) {
 		return nil
 	}
-	if constant.Sign(right.Constant) == 0 {
+	divisor := staticConstantValue(right)
+	if divisor == nil || divisor.Kind() == constant.Unknown {
+		return nil
+	}
+	if constant.Sign(divisor) == 0 {
 		return &compilerTypes.Diagnostic{
 			Category: compilerTypes.TypeError,
 			Stage:    "checker",

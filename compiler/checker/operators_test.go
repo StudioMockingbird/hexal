@@ -108,12 +108,15 @@ func TestCheckOperatorSelectsLosslessCommonArithmeticType(t *testing.T) {
 	}
 }
 
-func TestCheckFoldsImmutableConstantsAndWrapsOverflow(t *testing.T) {
-	checked, err := Check(parseProgram(t, "count: UInt8 = 200 next: UInt8 = count + 1"))
+func TestCheckFoldsLiteralArithmeticAndWrapsOverflow(t *testing.T) {
+	// Literal-only arithmetic still folds; a read of a named immutable
+	// binding stays a runtime operation, so the fold assertions use
+	// literal spellings.
+	checked, err := Check(parseProgram(t, "next: UInt8 = 200 + 1"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
-	next := checked.Statements[1].(Declaration)
+	next := checked.Statements[0].(Declaration)
 	if next.Source.Kind != ConstantOperand {
 		t.Fatalf("next source = %#v, want a folded constant", next.Source)
 	}
@@ -122,11 +125,11 @@ func TestCheckFoldsImmutableConstantsAndWrapsOverflow(t *testing.T) {
 	}
 
 	// RFC 0017: integer overflow wraps at the result type during folding.
-	checked, err = Check(parseProgram(t, "count: UInt8 = 200 over: UInt8 = count + 100"))
+	checked, err = Check(parseProgram(t, "over: UInt8 = 200 + 100"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
-	over := checked.Statements[1].(Declaration)
+	over := checked.Statements[0].(Declaration)
 	if got, ok := constant.Uint64Val(over.Source.Constant); !ok || got != 44 {
 		t.Fatalf("over value = %v, want wrapped 44", over.Source.Constant)
 	}
@@ -168,7 +171,9 @@ func TestCheckFoldsIntegerBooleanAndComparisonOperations(t *testing.T) {
 }
 
 func TestCheckFoldsFloatBitsAndIEEEComparisons(t *testing.T) {
-	checked, err := Check(parseProgram(t, "sum: Float32 = 1.5 + 2.25 negativeZero: Float64 = -0.0 negatedZero: Float64 = -negativeZero nan: Float64 = 0.0 / 0.0 nanEqual: Bool = nan == nan nanDifferent: Bool = nan != nan"))
+	// Fold assertions use literal spellings: `-negativeZero` and `nan ==
+	// nan` read named bindings, which stay runtime operations.
+	checked, err := Check(parseProgram(t, "sum: Float32 = 1.5 + 2.25 negativeZero: Float64 = -0.0 negatedZero: Float64 = -(-0.0) nan: Float64 = 0.0 / 0.0 nanEqual: Bool = (0.0 / 0.0) == (0.0 / 0.0) nanDifferent: Bool = (0.0 / 0.0) != (0.0 / 0.0)"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -208,20 +213,24 @@ func TestCheckRejectsStaticZeroDivisorsIncludingFoldedExpressions(t *testing.T) 
 
 func TestCheckFoldsStaticSignedMinimumDivisors(t *testing.T) {
 	// RFC 0017: signed minimum divided by -1 wraps to the minimum; the
-	// remainder is zero.
-	checked, err := Check(parseProgram(t, "minimum: Int8 = -128 quotient: Int8 = minimum / -1"))
+	// remainder is zero. The fold is asserted with literal spellings, since
+	// a read of the named immutable `minimum` binding stays runtime.
+	checked, err := Check(parseProgram(t, "quotient: Int8 = -128 / -1"))
 	if err != nil {
 		t.Fatalf("Check error = %v, want folded minimum/-1 division", err)
 	}
-	quotient := checked.Statements[1].(Declaration)
+	quotient := checked.Statements[0].(Declaration)
+	if quotient.Source.Kind != ConstantOperand {
+		t.Fatalf("quotient source = %#v, want a folded constant", quotient.Source)
+	}
 	if got, ok := constant.Int64Val(quotient.Source.Constant); !ok || got != -128 {
 		t.Fatalf("quotient value = %v, want -128", quotient.Source.Constant)
 	}
-	checked, err = Check(parseProgram(t, "minimum: Int8 = -128 remainder: Int8 = minimum % -1"))
+	checked, err = Check(parseProgram(t, "remainder: Int8 = -128 % -1"))
 	if err != nil {
 		t.Fatalf("Check error = %v, want folded minimum/-1 remainder", err)
 	}
-	remainder := checked.Statements[1].(Declaration)
+	remainder := checked.Statements[0].(Declaration)
 	if got, ok := constant.Int64Val(remainder.Source.Constant); !ok || got != 0 {
 		t.Fatalf("remainder value = %v, want 0", remainder.Source.Constant)
 	}

@@ -29,7 +29,6 @@ gets deleted.
 
 | Work | Spec |
 |---|---|
-| Direct scalar lowering and source-faithful generated C | [0068](specs/0068-direct-safe-conversion-lowering.md) |
 | Code comment contract and cleanup | [0070](specs/0070-code-comment-contract.md) |
 
 ## Unowned

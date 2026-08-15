@@ -280,8 +280,8 @@ func checkChannelTypeCall(call parser.CallExpression, callee lexer.Token, names 
 			Message: "Channel capacity must be a Size",
 		}}
 	}
-	if capacity.source.Kind == ConstantOperand && capacity.source.Constant != nil {
-		if value, exact := constant.Uint64Val(capacity.source.Constant); exact && value == 0 {
+	if capacity.known != nil && capacity.known.Constant != nil {
+		if value, exact := constant.Uint64Val(capacity.known.Constant); exact && value == 0 {
 			return checkedExpression{token: capacity.token, diagnostic: &compilerTypes.Diagnostic{
 				Category: compilerTypes.TypeError, Stage: "checker",
 				Line: capacity.token.Line, Column: capacity.token.Column,

@@ -102,23 +102,25 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 
 // checkArrayIndex checks one index operand of an array access: it must be an
 // integer scalar, and a known constant must be non-negative. Constant bounds
-// against a known array length are checked by the caller.
-func checkArrayIndex(expression parser.Expression, fallback lexer.Token, environment *scope, typeEnvironment *compilerTypes.Environment) (Operand, *compilerTypes.Diagnostic) {
+// against a known array length are checked by the caller. The known-value
+// metadata is returned alongside the operand so the caller's constant-required
+// bounds check sees through reads of named immutable bindings.
+func checkArrayIndex(expression parser.Expression, fallback lexer.Token, environment *scope, typeEnvironment *compilerTypes.Environment) (Operand, *Operand, *compilerTypes.Diagnostic) {
 	checked := checkExpression(expression, expressionContext{}, environment, typeEnvironment)
 	if nested := initializerDiagnostics(checked); len(nested) > 0 {
-		return Operand{}, &nested[0]
+		return Operand{}, nil, &nested[0]
 	}
 	if !compilerTypes.IsInteger(checked.typ) {
 		diagnostic := typeErrorAt(checked.token, "an array index must be an integer; got "+checked.typ.Name)
-		return Operand{}, &diagnostic
+		return Operand{}, nil, &diagnostic
 	}
 	if checked.known != nil && checked.known.Kind == ConstantOperand && checked.known.Constant != nil && checked.known.Constant.Kind() == constant.Int {
 		if value, exact := constant.Int64Val(checked.known.Constant); exact && value < 0 {
 			diagnostic := typeErrorAt(checked.token, "an array index must be non-negative")
-			return Operand{}, &diagnostic
+			return Operand{}, nil, &diagnostic
 		}
 	}
-	return checked.source, nil
+	return checked.source, checked.known, nil
 }
 
 // checkIndexPlace resolves array[index] or view[index] as a place: readable
@@ -154,12 +156,12 @@ func checkIndexPlace(expression parser.IndexExpression, environment *scope, type
 		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, View<T>, List<T>, String, or Strand")
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
-	index, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, environment, typeEnvironment)
+	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, environment, typeEnvironment)
 	if diagnostic != nil {
 		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnostic}
 	}
-	if index.Constant != nil && index.Constant.Kind() == constant.Int && receiver.typ.Array != nil {
-		if value, exact := constant.Uint64Val(index.Constant); exact && value >= receiver.typ.Array.Length {
+	if indexKnown != nil && indexKnown.Constant != nil && indexKnown.Constant.Kind() == constant.Int && receiver.typ.Array != nil {
+		if value, exact := constant.Uint64Val(indexKnown.Constant); exact && value >= receiver.typ.Array.Length {
 			indexToken := tokenOf(expression.Index)
 			diagnostic := typeErrorAt(indexToken, fmt.Sprintf("array index %d is out of bounds for %s", value, receiver.typ.Name))
 			return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}

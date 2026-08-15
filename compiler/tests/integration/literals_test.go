@@ -29,8 +29,8 @@ func TestCoreScalars(t *testing.T) {
 		"const int16_t hex_v_i16 = INT16_MIN;",
 		"const int32_t hex_v_i32 = INT32_MIN;",
 		"const int64_t hex_v_i64 = INT64_MIN;",
-		"const float hex_v_f32 = -0x0p+0f;",
-		"const double hex_v_f64 = 0x1.fde9f10a8d361p+78;",
+		"const float hex_v_f32 = -0.0f;",
+		"const double hex_v_f64 = 6.02e+23;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -152,8 +152,8 @@ func TestNegativeZeroUnaryFolding(t *testing.T) {
 		t.Fatalf("Compile negative-zero unary folding = %#v, want success", result)
 	}
 	for _, want := range []string{
-		"const float hex_v_f32 = -0x0p+0f;",
-		"const double hex_v_f64 = -0x0p+0;",
+		"const float hex_v_f32 = -0.0f;",
+		"const double hex_v_f64 = -0.0;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want negative-zero fragment %q", rootC(t, result), want)
@@ -167,9 +167,9 @@ func TestFloatRoundingAndUnderflow(t *testing.T) {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
 	for _, want := range []string{
-		"const float hex_v_tie = 0x1p+0f;",
-		"const float hex_v_underflow = 0x0p+0f;",
-		"const float hex_v_negative = -0x0p+0f;",
+		"const float hex_v_tie = 1.0f;",
+		"const float hex_v_underflow = 0.0f;",
+		"const float hex_v_negative = -0.0f;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -289,8 +289,8 @@ func TestAdditionalNumericTypes(t *testing.T) {
 	}
 	for _, want := range []string{
 		"int64_t hex_v_count = INT64_C(9000000000);",
-		"float hex_v_single = 0x1.48f5c3p+1f;",
-		"double hex_v_precise = 0x1.fde9f10a8d361p+78;",
+		"float hex_v_single = 3.14f;",
+		"double hex_v_precise = 6.02e+23;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -336,7 +336,7 @@ func TestDefaultsUncontextualizedNumericFamilies(t *testing.T) {
 	// The assignment forms are rejected before a checked operand can expose a
 	// default type. Declarations provide the current contextual entry point.
 	result = compileSource("whole: Int32 = 13 fraction: Float64 = 3.14")
-	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(rootC(t, result), "const int32_t hex_v_whole = 13;") || !strings.Contains(rootC(t, result), "const double hex_v_fraction = 0x1.91eb851eb851fp+1;") {
+	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(rootC(t, result), "const int32_t hex_v_whole = 13;") || !strings.Contains(rootC(t, result), "const double hex_v_fraction = 3.14;") {
 		t.Fatalf("Compile returned %#v, want Int32 and Float64 declarations", result)
 	}
 }

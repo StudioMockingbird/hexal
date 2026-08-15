@@ -161,7 +161,7 @@ func (scanner *starvationScanner) diagnoseStatements(statements []Statement) {
 	for _, statement := range statements {
 		switch statement := statement.(type) {
 		case WhileStatement:
-			if isLiteralTrue(statement.Condition) && loopMayRepeatWithoutYield(statement.Body) {
+			if isLiteralTrue(statement.Condition, statement.ConditionKnown) && loopMayRepeatWithoutYield(statement.Body) {
 				scanner.diagnostics = append(scanner.diagnostics, compilerTypes.Diagnostic{
 					Category: compilerTypes.SemanticError,
 					Stage:    "checker",
@@ -197,14 +197,19 @@ func directCallName(call Operand) string {
 	return call.Node.Operand.Name
 }
 
-// isLiteralTrue reports whether a checked condition is the literal `true`
-// boolean constant. Any other spelling, even one that always evaluates true,
-// is not the narrowed literal form the rule rejects.
-func isLiteralTrue(condition Operand) bool {
-	if condition.Kind != ConstantOperand || condition.Constant == nil || condition.Constant.Kind() != constant.Bool {
-		return false
+// isLiteralTrue reports whether a checked while condition is the constant
+// `true`: either the literal spelling or the known-value metadata of a named
+// immutable Bool binding (the read itself stays in the condition, so the
+// metadata must be consulted separately). Any other spelling, even one that
+// always evaluates true, is not the narrowed literal form the rule rejects.
+func isLiteralTrue(condition Operand, conditionKnown *Operand) bool {
+	if condition.Kind == ConstantOperand && condition.Constant != nil && condition.Constant.Kind() == constant.Bool {
+		return constant.BoolVal(condition.Constant)
 	}
-	return constant.BoolVal(condition.Constant)
+	if conditionKnown != nil && conditionKnown.Kind == ConstantOperand && conditionKnown.Constant != nil && conditionKnown.Constant.Kind() == constant.Bool {
+		return constant.BoolVal(conditionKnown.Constant)
+	}
+	return false
 }
 
 // loopMayRepeatWithoutYield reports whether some execution path through the
@@ -295,7 +300,7 @@ func branchMayRepeatWithoutYield(body []Statement, incoming bool) bool {
 // condition-controlled loop or for loop always can, while a literal while-true
 // loop can only fall through when its body contains a break targeting it.
 func loopFallsThrough(statement WhileStatement) bool {
-	if !isLiteralTrue(statement.Condition) {
+	if !isLiteralTrue(statement.Condition, statement.ConditionKnown) {
 		return true
 	}
 	return loopContainsDirectBreak(statement.Body)

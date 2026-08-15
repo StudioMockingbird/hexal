@@ -358,9 +358,12 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			}
 		}
 		if len(module.conversionSpecs) > 0 {
-			// Conversions use the exact-width limit macros from <stdint.h>
-			// and the shared numeric trap; float sources and targets
-			// additionally classify through <math.h>.
+			// Checked conversion helpers use the exact-width limit macros
+			// from <stdint.h> and call the one program-wide
+			// hex_runtime_trap; float-source helpers additionally use
+			// isnan/isinf/trunc/truncf from <math.h>. The set holds only
+			// checked pairs (RFC 0068): a program with only direct or
+			// identity conversions selects no conversion trap or headers.
 			requirements.add("stdint.h")
 			requirements.trap = true
 			if conversionUsesMath(module.conversionSpecs) {
@@ -462,9 +465,11 @@ func unionEqualityUsed(state *generatedEqualityState) bool {
 	return false
 }
 
-// conversionUsesMath reports whether any emitted conversion classifies a
-// float through <math.h>: float-to-integer and float-to-float conversions
-// call isnan/isinf/isfinite; integer sources never do.
+// conversionUsesMath reports whether any checked conversion classifies a
+// float through <math.h>: float-to-integer helpers call isnan/isinf/trunc/
+// truncf and Float64-to-Float32 calls isfinite. Integer-source helpers never
+// do. The set holds only checked pairs, so a float source is the exact
+// condition.
 func conversionUsesMath(specs []conversionSpec) bool {
 	for _, spec := range specs {
 		if compilerTypes.IsFloat(spec.source) {
@@ -1050,6 +1055,22 @@ func collectTypeRequirements(program checker.Program, requirements *cHeaderRequi
 				// EoS spells hex_eos, one compiler-owned byte typedef.
 				requirements.eos = true
 				requirements.add("stdint.h")
+			}
+			return nil
+		},
+		Operand: func(source checker.Operand) error {
+			// A special float literal renders the NAN/INFINITY macros from
+			// <math.h>; a finite literal needs no header (RFC 0068).
+			if compilerTypes.IsFloat(source.Type) && source.FloatBits != 0 {
+				bitSize := 64
+				bits := source.FloatBits
+				if compilerTypes.Equal(source.Type, compilerTypes.Float32) {
+					bitSize = 32
+					bits = uint64(uint32(bits))
+				}
+				if _, special := floatSignAndSpecial(bits, bitSize); special {
+					requirements.add("math.h")
+				}
 			}
 			return nil
 		},

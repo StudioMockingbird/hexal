@@ -222,8 +222,9 @@ func TestMutexFreePassesHeapIdentity(t *testing.T) {
 	}
 	rootC := rootC(t, result)
 	// The direct call passes the Heap's identity token, never the whole Heap
-	// object (the checked operand inlines to its constant initializer here).
-	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex((((hex_heap){ .identity = HEX_HEAP_DEFAULT })).identity, hex_v_m)") {
+	// object; the Heap binding read stays a generated binding read (RFC
+	// 0068), so the identity comes from the binding.
+	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex((hex_v_h).identity, hex_v_m)") {
 		t.Fatalf("direct mutex free does not pass the heap identity:\n%s", rootC)
 	}
 	if strings.Contains(rootC, "hex_mutex_free_hex_mutex(hex_v_m)") {

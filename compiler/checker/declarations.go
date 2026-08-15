@@ -395,8 +395,13 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		declaredBinding.viewRoots = initializer.source.Node.ViewRoots
 		declaredBinding.viewRootKind = initializer.source.Node.RootKind
 	}
-	if len(diagnostics) == 0 && !declaration.Mutable && initializer.source.Kind == ConstantOperand {
-		known := initializer.source
+	if len(diagnostics) == 0 && !declaration.Mutable && initializer.known != nil {
+		// The initializer's known value becomes this binding's known-value
+		// metadata, whether the initializer is a literal constant or a read
+		// of another named immutable binding (reads keep their variable
+		// operand in the checked program, so the metadata must be copied
+		// explicitly).
+		known := *initializer.known
 		declaredBinding.known = &known
 	}
 	return Declaration{

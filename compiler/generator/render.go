@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"go/constant"
 	gotoken "go/token"
+	"math"
 	"strconv"
 	"strings"
 
@@ -1994,9 +1995,9 @@ func renderFloatLiteral(source checker.Operand) (string, error) {
 		return literal, nil
 	}
 	if bitSize == 32 {
-		return formatHexFloat(bits, 32) + "f", nil
+		return formatDecimalFloat(bits, 32) + "f", nil
 	}
-	return formatHexFloat(bits, 64), nil
+	return formatDecimalFloat(bits, 64), nil
 }
 
 func integerLiteral(source checker.Operand) (string, error) {
@@ -2086,50 +2087,22 @@ func formatInteger(value uint64, radix checker.LiteralRadix) string {
 	}
 }
 
-// formatHexFloat renders an already rounded IEEE value as an exact C23
-// hexadecimal floating constant. It handles normals, subnormals, zero, and
-// the explicit sign bit without passing through a decimal approximation;
-// IEC specials use the standard C macros instead of overflowing exponents.
-func formatHexFloat(bits uint64, bitSize int) string {
-	var sign uint64
-	var exponent uint64
-	var fraction uint64
-	var bias, fractionDigits int
+// formatDecimalFloat renders an already rounded IEEE value as the shortest
+// readable decimal C literal that round-trips to the same bits (RFC 0068).
+// Formatting starts from the checked rounded bits, never from the original
+// source spelling; the standard formatter produces the shortest decimal that
+// reparses to those exact bits. An integral-looking mantissa receives a
+// fractional point so the token stays a C floating constant.
+func formatDecimalFloat(bits uint64, bitSize int) string {
+	var value float64
 	if bitSize == 32 {
-		bits = uint64(uint32(bits))
-		sign = bits >> 31
-		exponent = (bits >> 23) & 0xff
-		fraction = bits & ((uint64(1) << 23) - 1)
-		bias, fractionDigits = 127, 6
+		value = float64(math.Float32frombits(uint32(bits)))
 	} else {
-		sign = bits >> 63
-		exponent = (bits >> 52) & 0x7ff
-		fraction = bits & ((uint64(1) << 52) - 1)
-		bias, fractionDigits = 1023, 13
+		value = math.Float64frombits(bits)
 	}
-	prefix := ""
-	if sign != 0 {
-		prefix = "-"
+	text := strconv.FormatFloat(value, 'g', -1, bitSize)
+	if !strings.ContainsAny(text, ".eE") {
+		text += ".0"
 	}
-	if bitSize == 64 && exponent == (uint64(1)<<11)-1 || bitSize == 32 && exponent == (uint64(1)<<8)-1 {
-		if fraction == 0 {
-			return prefix + "INFINITY"
-		}
-		return prefix + "NAN"
-	}
-	if exponent == 0 {
-		if fraction == 0 {
-			return prefix + "0x0p+0"
-		}
-		fractionText := fmt.Sprintf("%0*x", fractionDigits, fraction)
-		fractionText = strings.TrimRight(fractionText, "0")
-		return fmt.Sprintf("%s0x0.%sp-%d", prefix, fractionText, bias-1)
-	}
-	fractionText := fmt.Sprintf("%0*x", fractionDigits, fraction)
-	fractionText = strings.TrimRight(fractionText, "0")
-	unbiased := int(exponent) - bias
-	if fractionText == "" {
-		return fmt.Sprintf("%s0x1p%+d", prefix, unbiased)
-	}
-	return fmt.Sprintf("%s0x1.%sp%+d", prefix, fractionText, unbiased)
+	return text
 }

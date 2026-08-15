@@ -1318,6 +1318,47 @@ func TestRenderSupportsValidFoldedFloatSpecialValues(t *testing.T) {
 	}
 }
 
+// RFC 0068: every finite float literal renders as the shortest readable
+// decimal C literal that reparses to the exact checked IEEE bits, with the f
+// suffix for Float32, a fractional point on integral mantissas, and the
+// retained negative-zero sign.
+func TestRenderFiniteFloatLiteralsRoundTripDecimal(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		typ      compilerTypes.Type
+		bits     uint64
+		negative bool
+		value    constant.Value
+		want     string
+	}{
+		{name: "float32 three quarters", typ: compilerTypes.Float32, bits: uint64(math.Float32bits(0.75)), value: constant.MakeFloat64(0.75), want: "0.75f"},
+		{name: "float64 three quarters", typ: compilerTypes.Float64, bits: math.Float64bits(0.75), value: constant.MakeFloat64(0.75), want: "0.75"},
+		{name: "float32 whole", typ: compilerTypes.Float32, bits: uint64(math.Float32bits(3)), value: constant.MakeFloat64(3), want: "3.0f"},
+		{name: "float64 whole", typ: compilerTypes.Float64, bits: math.Float64bits(3), value: constant.MakeFloat64(3), want: "3.0"},
+		{name: "float64 negative zero", typ: compilerTypes.Float64, bits: math.Float64bits(math.Copysign(0, -1)), negative: true, value: constant.MakeFloat64(0), want: "-0.0"},
+		{name: "float32 positive zero", typ: compilerTypes.Float32, bits: 0, value: constant.MakeFloat64(0), want: "0.0f"},
+		{name: "float64 min subnormal", typ: compilerTypes.Float64, bits: 1, value: constant.MakeFloat64(math.Float64frombits(1)), want: "5e-324"},
+		{name: "float64 max finite", typ: compilerTypes.Float64, bits: math.Float64bits(math.MaxFloat64), value: constant.MakeFloat64(math.MaxFloat64), want: "1.7976931348623157e+308"},
+		{name: "float32 max finite", typ: compilerTypes.Float32, bits: uint64(math.Float32bits(math.MaxFloat32)), value: constant.MakeFloat64(float64(math.MaxFloat32)), want: "3.4028235e+38f"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := renderOperand(checker.Operand{
+				Kind:      checker.ConstantOperand,
+				Type:      testCase.typ,
+				Constant:  testCase.value,
+				FloatBits: testCase.bits,
+				Negative:  testCase.negative,
+			})
+			if err != nil {
+				t.Fatalf("renderOperand() error = %v", err)
+			}
+			if got != testCase.want {
+				t.Fatalf("rendered finite value = %q, want %q", got, testCase.want)
+			}
+		})
+	}
+}
+
 func TestRenderRejectsInvalidAddressDereferenceChildren(t *testing.T) {
 	constantSource := intSource(compilerTypes.Int32, 1, "1")
 	constantChild := checker.Expression{Kind: checker.ConstantExpression, Constant: &constantSource, ResultType: compilerTypes.Int32}

@@ -89,6 +89,12 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 			forbidden: []string{"static_assert", "FLT_MANT_DIG", "DBL_MANT_DIG", "#include <float.h>", "#include <math.h>"},
 		},
 		{
+			name:      "special-float-selects-math",
+			source:    "x: Float64 = 0.0 / 0.0 y: Float64 = 1.0 / 0.0",
+			includes:  []string{"#include <math.h>"},
+			forbidden: []string{"#include <float.h>"},
+		},
+		{
 			name:      "size-small",
 			source:    "count: Size = 3",
 			includes:  []string{"#include <stddef.h>"},

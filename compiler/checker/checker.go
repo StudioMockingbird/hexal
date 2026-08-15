@@ -96,7 +96,12 @@ type IfBranch struct {
 // WhileStatement is a checked pre-test loop. Its body was checked with one
 // additional loop context and one child lexical scope.
 type WhileStatement struct {
-	Condition       Operand
+	Condition Operand
+	// ConditionKnown retains the known-value metadata of a named immutable
+	// binding read used as the condition, so the constant-required
+	// while-true starvation diagnostic keeps working while the read itself
+	// stays in Condition. Nil for every other condition shape.
+	ConditionKnown  *Operand
 	ConditionLine   int
 	ConditionColumn int
 	Body            []Statement

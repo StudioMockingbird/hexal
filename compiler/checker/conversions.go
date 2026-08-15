@@ -11,6 +11,20 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+// truncateTowardZero applies the exact integer part of an arbitrary
+// rational value toward zero, without any fixed-width intermediate.
+// go/constant.ToInt only converts whole values (a fraction returns
+// Unknown), so truncation divides the exact numerator by the exact
+// denominator with big.Int truncated division, which is defined for every
+// magnitude and sign.
+func truncateTowardZero(value constant.Value) constant.Value {
+	numerator := constant.Num(value)
+	if numerator.Kind() == constant.Unknown {
+		return numerator
+	}
+	return constant.BinaryOp(numerator, gotoken.QUO_ASSIGN, constant.Denom(value))
+}
+
 // RFC 0038: the one explicit scalar conversion spelling `source.to<Dest>()`.
 // It supersedes RFC 0016's former destination-encoded method names and the
 // wrapping and saturating modes; every conversion is checked, a known-invalid
@@ -59,11 +73,25 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 	// A known-invalid constant conversion is a compile-time error; valid
 	// constants fold to their destination value. A negative float literal
 	// keeps its positive Constant with the sign in FloatBits/Negative, so
-	// the fold must apply the sign itself.
+	// the fold must apply the sign itself. The fold reasons from the
+	// source type's already-rounded checked IEEE value, never the exact
+	// lexical constant: a Float32 literal may round before conversion, and
+	// only the checked bits carry that rounding. The bits store the full
+	// signed value, and Negative mirrors the sign bit, so rebuild the
+	// magnitude from the bits and apply the operand's sign.
 	if receiver.source.Kind == ConstantOperand && receiver.source.Constant != nil {
 		value := receiver.source.Constant
-		if receiver.source.Negative && compilerTypes.IsFloat(source) {
-			value = constant.UnaryOp(gotoken.SUB, value, 0)
+		if compilerTypes.IsFloat(source) {
+			if compilerTypes.Equal(source, compilerTypes.Float32) {
+				bits := uint32(receiver.source.FloatBits) &^ (uint32(1) << 31)
+				value = constant.MakeFloat64(float64(math.Float32frombits(bits)))
+			} else {
+				bits := receiver.source.FloatBits &^ (uint64(1) << 63)
+				value = constant.MakeFloat64(math.Float64frombits(bits))
+			}
+			if receiver.source.Negative {
+				value = constant.UnaryOp(gotoken.SUB, value, 0)
+			}
 		}
 		if folded, diagnostic := foldNumericConversion(value, source, target, callee.Property); diagnostic != nil || folded != nil {
 			if diagnostic != nil {
@@ -72,6 +100,18 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 			// A folded conversion is no longer the original literal, so it
 			// carries no literal text for the generator to re-validate.
 			foldedSource := constantOperand(target, folded, "")
+			if compilerTypes.IsFloat(target) {
+				// Record the folded float's rounded IEEE bits so a chained
+				// conversion reasons from the rounded value rather than the
+				// exact rational the fold keeps.
+				if compilerTypes.Equal(target, compilerTypes.Float32) {
+					converted, _ := constant.Float32Val(folded)
+					foldedSource.FloatBits = uint64(math.Float32bits(converted))
+				} else {
+					converted, _ := constant.Float64Val(folded)
+					foldedSource.FloatBits = math.Float64bits(converted)
+				}
+			}
 			foldedSource.Node = constantNode(foldedSource)
 			return checkedExpression{source: foldedSource, typ: target, token: callee.Property, known: &foldedSource}
 		}
@@ -132,15 +172,17 @@ func foldNumericConversion(value constant.Value, source, target compilerTypes.Ty
 	}
 	if compilerTypes.IsFloat(source) {
 		if compilerTypes.IsInteger(target) {
-			// Truncate toward zero, then check the destination range.
-			// go/constant.ToInt only accepts whole values, so truncate the
-			// exact float64 and reject values outside the int64 range.
-			floatValue, ok := constant.Float64Val(value)
-			if !ok || floatValue >= 9223372036854775808.0 || floatValue < -9223372036854775808.0 {
+			// Truncate the already-rounded source value toward zero without
+			// an Int64 intermediate, then range-check the arbitrary-precision
+			// result against the destination's exact bounds. go/constant.ToInt
+			// only accepts whole values, so truncation uses exact rational
+			// arithmetic; a value in (-1, 0) truncates to signed zero and is
+			// valid for an unsigned destination.
+			if value.Kind() == constant.Unknown {
 				diagnostic := typeErrorAt(token, "floating value cannot be converted to "+target.Name)
 				return nil, &diagnostic
 			}
-			truncated := constant.MakeInt64(int64(math.Trunc(floatValue)))
+			truncated := truncateTowardZero(value)
 			return foldIntegerConversion(truncated, compilerTypes.Int64, target, token)
 		}
 		// Float to float: nearest representable value.

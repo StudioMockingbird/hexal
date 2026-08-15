@@ -97,20 +97,24 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 	}
 }
 
-func TestFoldsImmutableArithmeticAndWrapsOverflow(t *testing.T) {
+// RFC 0068: named immutable arithmetic stays binding reads — the operation
+// runs on the generated bindings and the wrapping contract survives at
+// runtime. Literal-only expressions still fold, including RFC 0017's
+// overflow-wrapping and minimum/-1 edge cases.
+func TestImmutableArithmeticStaysRuntimeAndLiteralFoldingSurvives(t *testing.T) {
 	result := compileSource("count: UInt8 = 200 next: UInt8 = count + 1")
-	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_next = 201;") {
-		t.Fatalf("Compile returned %#v, want folded UInt8 value 201", result)
+	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_next = (uint8_t)((uint32_t)hex_v_count + (uint32_t)1);") {
+		t.Fatalf("Compile returned %#v, want runtime UInt8 wrapping on the binding read", result)
 	}
 
 	// RFC 0017: integer overflow wraps at the result type during folding.
-	result = compileSource("count: UInt8 = 200 over: UInt8 = count + 100")
+	result = compileSource("over: UInt8 = 200 + 100")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_over = 44;") {
 		t.Fatalf("Compile returned %#v, want folded wrapped value 44", result)
 	}
 
 	// RFC 0017: signed minimum divided by -1 folds to the signed minimum.
-	result = compileSource("minimum: Int8 = -128 quotient: Int8 = minimum / -1 remainder: Int8 = minimum % -1")
+	result = compileSource("quotient: Int8 = -128 / -1 remainder: Int8 = -128 % -1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 ||
 		!strings.Contains(rootC(t, result), "const int8_t hex_v_quotient = INT8_MIN;") ||
 		!strings.Contains(rootC(t, result), "const int8_t hex_v_remainder = 0;") {

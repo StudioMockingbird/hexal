@@ -1,7 +1,14 @@
 # RFC 0068: Direct Scalar Lowering and Source-Faithful Generated C
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; conformance verified 2026-08-16. Classification,
+  direct rendering, checked-helper retention, shared-trap selection, exact
+  Float-to-integer guards and constant folding, Size conservatism, exact
+  readable float rendering, and named-binding preservation are implemented.
+  `docs/reference.md` was reviewed and required no edit: its explicit
+  conversion and constant contracts are semantic-only and already match this
+  RFC's lowering; no reference rule promised helper-based conversion lowering
+  or substitution of named immutable reads.
 - Created: 2026-08-15
 - Updated: 2026-08-16
 - Scope: explicit scalar conversion lowering and constant folding, generated C
