@@ -23,25 +23,21 @@ func TestGenerateInt32Declaration(t *testing.T) {
 		}},
 	}
 
-	wantRoot := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
+	wantRoot := "#include \"modules/app.h\"\n\nint main(void) {\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	if err != nil {
 		t.Fatal(err)
 	}
-	rootC, mainC := files["modules/app.c"], files["main.c"]
-	if rootC != wantRoot {
-		t.Fatalf("modules/app.c = %q, want %q", rootC, wantRoot)
+	if files["modules/app.c"] != wantRoot {
+		t.Fatalf("modules/app.c = %q, want %q", files["modules/app.c"], wantRoot)
 	}
-	if mainC != "#include \"main.h\"\n#include \"modules/app.h\"\n\nint main(void) {\n    return hex_module_root_run();\n}\n" {
-		t.Fatalf("main.c = %q, want thin entry wrapper", mainC)
+	if files["hexal.h"] == "" {
+		t.Fatalf("hexal.h is missing from the generated artifacts: %v", files)
 	}
-}
-
-func TestGenerateFailure(t *testing.T) {
-	gotC, _ := GenerateFailure()
-	wantC := "#include \"main.h\"\n\nint main(void) {\n    return EXIT_FAILURE;\n}\n"
-	if gotC != wantC {
-		t.Fatalf("failure output = %q, want %q", gotC, wantC)
+	for key := range files {
+		if key != "hexal.h" && key != "modules/app.c" && key != "modules/app.h" {
+			t.Fatalf("unexpected generated artifact %q", key)
+		}
 	}
 }
 
@@ -187,7 +183,7 @@ func TestGenerateBoolDeclaration(t *testing.T) {
 		}},
 	}
 
-	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    const bool hex_v_enabled = true;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n    const bool hex_v_enabled = true;\n    return EXIT_SUCCESS;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -207,7 +203,7 @@ func TestGenerateHexadecimalInt32Declaration(t *testing.T) {
 		}},
 	}
 
-	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -226,7 +222,7 @@ func TestGenerateStatementsInOrder(t *testing.T) {
 		},
 	}
 
-	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    int32_t hex_v_x = 13;\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n    int32_t hex_v_x = 13;\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -258,8 +254,8 @@ func TestGeneratePointerDeclarationAndAssignments(t *testing.T) {
 		},
 	}
 
-	wantC := "#include \"main.h\"\n#include \"modules/app.h\"\n\n" +
-		"int hex_module_root_run(void) {\n" +
+	wantC := "#include \"modules/app.h\"\n\n" +
+		"int main(void) {\n" +
 		"    int32_t hex_v_x = 13;\n" +
 		"    int32_t *hex_v_p = &hex_v_x;\n" +
 		"    *hex_v_p = 14;\n" +
@@ -984,7 +980,7 @@ func TestRenderUnsignedNarrowMultiplicationUsesUInt32Intermediate(t *testing.T) 
 // actually rejects a target with the macros undefined needs a C toolchain; see
 // spec 0013 for the deferred c23 build-tag suite.
 func TestFloatTargetAssertionsFailClosed(t *testing.T) {
-	rootH := header(true, true, false, nil)
+	rootH := hexalHeader(hexalHeaderInput{float32Used: true, float64Used: true})
 	for _, want := range []string{
 		"static_assert(sizeof(float) == 4 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, \"Hexal Float32 requires the binary32 value set\");",
 		"#if !defined(FLT_IS_IEC_60559) || FLT_IS_IEC_60559 != 1\n#error \"Hexal Float32 requires IEC 60559\"\n#endif",
@@ -992,7 +988,7 @@ func TestFloatTargetAssertionsFailClosed(t *testing.T) {
 		"#if !defined(DBL_IS_IEC_60559) || DBL_IS_IEC_60559 != 1\n#error \"Hexal Float64 requires IEC 60559\"\n#endif",
 	} {
 		if !strings.Contains(rootH, want) {
-			t.Fatalf("main.h = %q, want %q", rootH, want)
+			t.Fatalf("hexal.h = %q, want %q", rootH, want)
 		}
 	}
 
@@ -1003,15 +999,15 @@ func TestFloatTargetAssertionsFailClosed(t *testing.T) {
 		want    string
 		notWant string
 	}{
-		{name: "Float32", rootH: header(true, false, false, nil), want: "FLT_IS_IEC_60559", notWant: "DBL_IS_IEC_60559"},
-		{name: "Float64", rootH: header(false, true, false, nil), want: "DBL_IS_IEC_60559", notWant: "FLT_IS_IEC_60559"},
+		{name: "Float32", rootH: hexalHeader(hexalHeaderInput{float32Used: true}), want: "FLT_IS_IEC_60559", notWant: "DBL_IS_IEC_60559"},
+		{name: "Float64", rootH: hexalHeader(hexalHeaderInput{float64Used: true}), want: "DBL_IS_IEC_60559", notWant: "FLT_IS_IEC_60559"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			if !strings.Contains(testCase.rootH, testCase.want) {
-				t.Fatalf("main.h = %q, want %s guard", testCase.rootH, testCase.want)
+				t.Fatalf("hexal.h = %q, want %s guard", testCase.rootH, testCase.want)
 			}
 			if strings.Contains(testCase.rootH, testCase.notWant) {
-				t.Fatalf("main.h = %q, want no %s guard", testCase.rootH, testCase.notWant)
+				t.Fatalf("hexal.h = %q, want no %s guard", testCase.rootH, testCase.notWant)
 			}
 		})
 	}
@@ -1059,7 +1055,7 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 	}
 	wantWrapped := "((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))"
 	if !strings.Contains(rootC, wantWrapped) {
-		t.Fatalf("main.c = %q, want conditional signed wrap for Int8 127 + 1", rootC)
+		t.Fatalf("modules/app.c = %q, want conditional signed wrap for Int8 127 + 1", rootC)
 	}
 	// The wrap operands must never reach C as a plain narrowing conversion of a
 	// signed value, which is implementation-defined before C23.
@@ -1068,7 +1064,7 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 		"const int8_t hex_v_negated = (int8_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum);",
 	} {
 		if strings.Contains(rootC, forbidden) {
-			t.Fatalf("main.c contains implementation-defined signed conversion %q", forbidden)
+			t.Fatalf("modules/app.c contains implementation-defined signed conversion %q", forbidden)
 		}
 	}
 	if rootH == "" {
@@ -1456,7 +1452,7 @@ func TestGenerateCheckedValidatesPlaceMetadata(t *testing.T) {
 				t.Fatalf("GenerateChecked() error = %v", err)
 			}
 			if !strings.Contains(rootC, testCase.wantC) {
-				t.Fatalf("main.c = %q, want fragment %q", rootC, testCase.wantC)
+				t.Fatalf("modules/app.c = %q, want fragment %q", rootC, testCase.wantC)
 			}
 		})
 	}
@@ -1507,7 +1503,7 @@ func TestGenerateCheckedValidatesNestedPlaceMetadataAndIgnoresOperandFlags(t *te
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	if !strings.Contains(rootC, "(*(*hex_v_pp)).hex_m_x = 2;") {
-		t.Fatalf("main.c = %q, want nested dereference/member assignment", rootC)
+		t.Fatalf("modules/app.c = %q, want nested dereference/member assignment", rootC)
 	}
 }
 
@@ -1907,11 +1903,11 @@ func TestGenerateFunctionDefinition(t *testing.T) {
 	fun := environment.FunType([]compilerTypes.Type{compilerTypes.Int32}, &result)
 	program := checker.Program{Statements: []checker.Statement{identityDeclaration(fun, &result)}}
 
-	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\n" +
+	want := "#include \"modules/app.h\"\n\n" +
 		"static int32_t hex_f_m3_app_identity(const int32_t hex_v_x) {\n" +
 		"    return hex_v_x;\n" +
 		"}\n\n" +
-		"int hex_module_root_run(void) {\n    return EXIT_SUCCESS;\n}\n"
+		"int main(void) {\n    return EXIT_SUCCESS;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	gotC := files["modules/app.c"]
 	if err != nil {
@@ -1939,7 +1935,7 @@ func TestGenerateNoReturnFunctionLowersToVoid(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	if !strings.Contains(gotC, want) {
-		t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
+		t.Fatalf("modules/app.c = %q, want it to contain %q", gotC, want)
 	}
 }
 
@@ -1965,7 +1961,7 @@ func TestGenerateZeroParameterFunction(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	if !strings.Contains(gotC, want) {
-		t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
+		t.Fatalf("modules/app.c = %q, want it to contain %q", gotC, want)
 	}
 }
 
@@ -1992,11 +1988,11 @@ func TestGenerateFunctionPointerObjects(t *testing.T) {
 		"    int32_t (*hex_v_selected)(int32_t) = hex_f_m3_app_identity;\n",
 	} {
 		if !strings.Contains(gotC, want) {
-			t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
+			t.Fatalf("modules/app.c = %q, want it to contain %q", gotC, want)
 		}
 	}
 	if strings.Contains(gotC, ")(const int32_t)") {
-		t.Fatalf("main.c = %q, function-pointer parameters must stay unqualified", gotC)
+		t.Fatalf("modules/app.c = %q, function-pointer parameters must stay unqualified", gotC)
 	}
 }
 
@@ -2026,7 +2022,7 @@ func TestGenerateFunctionPointerParameter(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	if !strings.Contains(gotC, want) {
-		t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
+		t.Fatalf("modules/app.c = %q, want it to contain %q", gotC, want)
 	}
 }
 
@@ -2049,7 +2045,7 @@ func TestGenerateCallExpression(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	if !strings.Contains(gotC, want) {
-		t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
+		t.Fatalf("modules/app.c = %q, want it to contain %q", gotC, want)
 	}
 }
 
@@ -2073,7 +2069,7 @@ func TestGenerateCallStatement(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	if !strings.Contains(gotC, want) {
-		t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
+		t.Fatalf("modules/app.c = %q, want it to contain %q", gotC, want)
 	}
 }
 
@@ -2099,12 +2095,12 @@ func TestGenerateSelfRecursiveFunction(t *testing.T) {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
 	if !strings.Contains(gotC, want) {
-		t.Fatalf("main.c = %q, want it to contain %q", gotC, want)
+		t.Fatalf("modules/app.c = %q, want it to contain %q", gotC, want)
 	}
 }
 
-// Definitions follow the object typedefs, which live in main.h, and precede
-// main, in source order.
+// Definitions follow the object typedefs, which live in the module header,
+// and precede main, in source order.
 func TestGenerateFunctionDefinitionsPrecedeMainInSourceOrder(t *testing.T) {
 	environment := compilerTypes.NewEnvironment()
 	result := compilerTypes.Int32
@@ -2129,9 +2125,9 @@ func TestGenerateFunctionDefinitionsPrecedeMainInSourceOrder(t *testing.T) {
 	gotC, gotH := files["modules/app.c"], files["modules/app.h"]
 	first := strings.Index(gotC, "hex_f_m3_app_identity")
 	next := strings.Index(gotC, "hex_f_m3_app_second")
-	run := strings.Index(gotC, "int hex_module_root_run(void)")
+	run := strings.Index(gotC, "int main(void)")
 	if first < 0 || next < first || run < next {
-		t.Fatalf("modules/app.c = %q, want hex_f_m3_app_identity then hex_f_m3_app_second then root run", gotC)
+		t.Fatalf("modules/app.c = %q, want hex_f_m3_app_identity then hex_f_m3_app_second then main", gotC)
 	}
 	if !strings.Contains(gotH, "struct hex_t_Point {") {
 		t.Fatalf("modules/app.h = %q, want the object definition region", gotH)

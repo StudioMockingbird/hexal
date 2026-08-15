@@ -257,7 +257,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Invalid or unsupported source fails closed under the diagnostic contract below.
 - Values follow C-style shallow copying. Allocation and cleanup are explicit; there are no moves,
   borrow states, retain counts, implicit destructors, or compiler-enforced exactly-once cleanup.
-- Native modules exist in grammar and resolve: every `.hex` source is a module; `module <alias> = import "<path>"` binds an alias; qualified names `Alias.Type` refer into an imported module; `export` prefixes a module-level type, function, or implementation declaration and is the only visibility marker. Imports resolve into a dependency graph with cycle and duplicate detection; imported modules are declarations-only; imports must precede all other items; import aliases occupy their own namespace and cannot shadow or be shadowed. Declarations are private by default; only `export` makes them visible to importers, and only through the import alias (no wildcards). An exported declaration's full interface must close over builtin or exported types only. Nominal types carry their defining module's identity, so same-named types in different modules are distinct; methods may be declared only in the type's defining module; cross-module method calls route through the defining module's exported methods. Each reachable module compiles to `modules/<canonical-path>.c/.h` (module-owned symbols encoded as `hex_<kind>_<owner>_<name>` with the length-delimited owner; exported declarations keep external linkage and appear in their own header, and importer headers declare every foreign symbol they reference); `main.c`/`main.h` host the one-per-process runtime, the program-wide builtin specializations, and the C entry point, and are the only artifacts of a failed build.
+- Native modules exist in grammar and resolve: every `.hex` source is a module; `module <alias> = import "<path>"` binds an alias; qualified names `Alias.Type` refer into an imported module; `export` prefixes a module-level type, function, or implementation declaration and is the only visibility marker. Imports resolve into a dependency graph with cycle and duplicate detection; imported modules are declarations-only; imports must precede all other items; import aliases occupy their own namespace and cannot shadow or be shadowed. Declarations are private by default; only `export` makes them visible to importers, and only through the import alias (no wildcards). An exported declaration's full interface must close over builtin or exported types only. Nominal types carry their defining module's identity, so same-named types in different modules are distinct; methods may be declared only in the type's defining module; cross-module method calls route through the defining module's exported methods. Each reachable module compiles to `modules/<canonical-path>.c/.h` (module-owned symbols encoded as `hex_<kind>_<owner>_<name>` with the length-delimited owner; exported declarations keep external linkage and appear in their own header, and importer headers declare every foreign symbol they reference); the one shared program-support header is `hexal.h`, the selected root module's C file owns the process-wide runtime and the C entry point, and a failed build produces no generated artifacts.
 - C interop, Arena, and Pool remain draft features and are not part of this language.
 - When no source name is supplied, the compilation unit uses the synthetic filename `main.hex` in
   diagnostics, generated `#line` directives, and `Error.file`. `.hex` is the intended source
@@ -1025,32 +1025,36 @@ MutPtr<T>.write_volatile(value: T) -> no value
 - The in-memory compiler entrypoint is `Compile(sources map[string]string, entrypoint string)
   CompilationResult`: `sources` maps logical `.hex` filenames to complete source strings and
   `entrypoint` names the selected root module. The compiler performs no filesystem operations.
-- A successful compilation produces `main.c`, `main.h`, and one C/header pair per reachable module
-  under `modules/<canonical-path>.c/.h`, all keyed in the result's authoritative `Files` map
-  (for the entrypoint source `app.hex`: `main.c`, `main.h`, `modules/app.c`, `modules/app.h`).
-  `MainC`/`MainH` mirror `Files["main.c"]`/`Files["main.h"]` and are never generated independently.
-  A failed compilation produces only `main.c` and `main.h`, whose `main()` returns `EXIT_FAILURE`.
-- `main.c` is the thin entry: it includes both headers, defines `main()`, initializes the
-  cooperative scheduler and runtime gates when any reachable module uses them, and calls
-  `hex_module_root_run()`; without concurrency it returns `hex_module_root_run()` directly.
-- `main.h` holds the runtime machinery shared by every module, generated from the program-wide
-  aggregate of all reachable modules: fixed-width/float `static_assert` guards, `hex_eos`, heaps,
-  views, strings (including the one canonical literal table), error, lists, dicts, arrays, the
+- The result's `Files` map is the sole generated-artifact surface: `CompilationResult` has no
+  `MainC`/`MainH` or other mirrored root-file fields, and `Files` is non-nil on every result.
+- A successful compilation produces exactly `hexal.h` plus one C/header pair per reachable module
+  under `modules/<canonical-path>.c/.h` (for the entrypoint source `app.hex`: `hexal.h`,
+  `modules/app.c`, `modules/app.h`). A failed compilation produces no artifacts: `Files` is empty,
+  `ExitCode` is `ExitFailure`, and `Stderr` carries the structured diagnostics. No failure C
+  program is emitted.
+- `hexal.h` is the single shared program-support header, generated from the program-wide aggregate
+  of all reachable modules: fixed-width/float `static_assert` guards, `hex_eos`, heaps, views,
+  strings (including the one canonical literal table), error, lists, dicts, arrays, the
   concurrency prelude (task control block, handle typedefs, spawn entry prototypes) and I/O
   preludes, and the external declarations for the stateful runtime (scheduler, channel, mutex, and
-  I/O gate functions) that lives once in `main.c`.
-- `modules/<canonical>.h` is one module's header: it includes `main.h`, holds the module's types
+  I/O gate functions). Its guard is `HEXAL_H`. Every module header includes `hexal.h`; no other
+  compiler-support header exists.
+- `modules/<canonical>.h` is one module's header: it includes `hexal.h`, holds the module's types
   (ADTs, unions, objects) and stateless inline helpers (streams, print, equality, conversions,
   shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, I/O inline helpers), the
-  entry-adapter argument frames of the spawn sites it owns, its exported and foreign prototypes,
-  and ends with its own `HEX_MODULE_<encoded-owner>_H` guard. The entrypoint module's header
-  additionally declares `hex_module_root_run()`.
-- `modules/<canonical>.c` is one module's translation unit: it includes both headers, defines the
-  module's functions and methods (internal linkage `static`, except spawned functions, which gain
-  external linkage), the monomorphized specializations, and the spawn entry adapters of the
-  functions it owns (external linkage, declared in `main.h`). The entrypoint module's C file
-  additionally defines `hex_module_root_run()`, which executes the module's root statements and
-  returns `EXIT_SUCCESS`; no non-root module defines or declares it.
+  entry-adapter argument frames of the spawn sites it owns, and its exported and foreign
+  prototypes, and ends with its own `HEX_MODULE_<encoded-owner>_H` guard. No module header
+  includes another module header, and no module header declares `main()`.
+- `modules/<canonical>.c` is one module's translation unit: it includes only its own module
+  header, and defines the module's functions and methods (internal linkage `static`, except
+  spawned functions, which gain external linkage), the monomorphized specializations, and the
+  spawn entry adapters of the functions it owns (external linkage, declared in `hexal.h`). The
+  selected root module's C file additionally owns the process-wide runtime definitions
+  (scheduler, channel, mutex, and I/O gate, in that order, when required by the program-wide
+  aggregate) and `int main(void)`, which executes the root module's executable statements and
+  returns `EXIT_SUCCESS`; with concurrency it initializes the scheduler first and completes the
+  root task before returning. No non-root module declares or defines `main()` or process-wide
+  runtime state.
 - Module artifacts map to the source file with `#line` directives naming the module's logical
   filename (for the entrypoint, `app.hex`); the synthetic `main.hex` name is reserved for runtime
   machinery diagnostics and never maps user statements.
@@ -1059,6 +1063,10 @@ MutPtr<T>.write_volatile(value: T) -> no value
   `hex_f_m8_graphics6_shapes_draw` and its header guard is `HEX_MODULE_m8_graphics6_shapes_H`
   (case-preserving, never case-folded). Unions use the same length-delimited scheme over their
   canonical member C names, so identical unions in any module spell one C type.
+- A driver writes every entry in `Files` and compiles every emitted `.c` translation unit; the
+  entrypoint's canonical module C file supplies `main()`, and the driver does not synthesize or
+  search for a `main.c`. C code consumes a module's exported API through that module's generated
+  header, which includes `hexal.h`; there is no `main.h` compatibility header.
 - Invalid or unsupported source produces a structured diagnostic and is never silently omitted or
   partially generated. Syntax failures, static-semantic failures (Name and Type Errors), Module
   Errors, dynamic traps, and Unknown Error are distinct externally visible classes. Unknown Error

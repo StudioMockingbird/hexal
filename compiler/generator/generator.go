@@ -5,31 +5,22 @@ import (
 	"hexal/compiler/checker"
 )
 
-// Generate is the compatibility wrapper used by package-level callers. The
-// compiler itself uses GenerateChecked so an internal generation failure stays
-// a structured diagnostic instead of being silently turned into source.
-func Generate(program checker.Program) (mainC string, mainH string) {
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
-	if err != nil {
-		return GenerateFailure()
-	}
-	return files["main.c"], files["main.h"]
-}
-
 // GenerateChecked emits direct C23 scalar and pointer operations. Checked
 // literal metadata, not raw source text, is the authority for every
 // initializer. RFC 0034: every reachable module emits its own C/header pair
-// under modules/<canonical>.c/.h; main.c and main.h host the one-per-process
-// runtime and the C entry point. Generation is two-phase: every module is
-// discovered and validated first, the built-in machinery is aggregated
-// program-wide, and only then is any file text written (RFC 0034: the
-// compiler collects every reachable built-in specialization request across
-// all modules, sorts it, and emits each exactly once where external identity
-// or state is required). Deterministic: the order slice is the canonical
-// dependency-first order from the resolver, and every merged collection is
-// deduplicated by canonical identity in that order.
+// under modules/<canonical>.c/.h; RFC 0060: the shared program-support
+// header is hexal.h and the selected root module's C file owns the
+// once-per-process runtime and the process entry point. Generation is
+// two-phase: every module is discovered and validated first, the built-in
+// machinery is aggregated program-wide, and only then is any file text
+// written (RFC 0034: the compiler collects every reachable built-in
+// specialization request across all modules, sorts it, and emits each exactly
+// once where external identity or state is required). Deterministic: the
+// order slice is the canonical dependency-first order from the resolver, and
+// every merged collection is deduplicated by canonical identity in that
+// order.
 func GenerateChecked(programs map[string]checker.Program, order []string, entrypointCanonical string) (map[string]string, error) {
-	files := make(map[string]string, 2+2*len(order))
+	files := make(map[string]string, 1+2*len(order))
 	modules := make([]*moduleEmission, 0, len(order))
 	for _, canonical := range order {
 		key := canonical + ".hex"
@@ -62,18 +53,22 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 		}
 	}
 	if root != nil {
-		mainC, mainH, mainErr := emitMainPair(merged, root)
-		if mainErr != nil {
-			return nil, mainErr
-		}
-		files["main.c"] = mainC
-		files["main.h"] = mainH
+		files["hexal.h"] = hexalHeader(hexalHeaderInput{
+			float32Used:  merged.float32Used,
+			float64Used:  merged.float64Used,
+			nilUsed:      merged.nilUsed,
+			errorUsed:    merged.errorUsed,
+			stdioNeeded:  merged.stdioNeeded,
+			heaps:        merged.heapState,
+			views:        merged.viewState,
+			stringState:  merged.stringState,
+			lists:        merged.listState,
+			dicts:        merged.dictState,
+			arrays:       merged.arrayState,
+			concurrency:  merged.concurrencyState,
+			io:           merged.ioState,
+			sizeLiterals: merged.sizeLiterals,
+		})
 	}
 	return files, nil
-}
-
-// GenerateFailure emits a complete C program that reports compilation
-// failure, while retaining the target-profile header shape.
-func GenerateFailure() (mainC string, mainH string) {
-	return "#include \"main.h\"\n\nint main(void) {\n    return EXIT_FAILURE;\n}\n", header(false, false, false, nil)
 }

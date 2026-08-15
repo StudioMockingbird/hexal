@@ -33,7 +33,7 @@ func TestStreamEmptyFreeIsNoOp(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootH(t, result), "if (stream == NULL || stream == &hex_stream_empty_Int32) {") {
-		t.Fatalf("main.h = %q, want empty-free no-op guard", rootH(t, result))
+		t.Fatalf("modules/app.h = %q, want empty-free no-op guard", rootH(t, result))
 	}
 }
 
@@ -105,7 +105,7 @@ func TestStreamForIteration(t *testing.T) {
 		"const size_t hex_v_i = hex_for_2_ordinal;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -141,7 +141,7 @@ func TestEosSingletonSemantics(t *testing.T) {
 		"const bool hex_v_same = true;",
 		"const bool hex_v_different = false;",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}

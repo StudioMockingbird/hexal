@@ -24,7 +24,7 @@ func TestConditionalAndLoopLowering(t *testing.T) {
 		"hex_v_local",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -73,7 +73,7 @@ func TestControlFlowEmptyBranchesAndZeroIterationLoops(t *testing.T) {
 		"while (false) {",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -93,7 +93,7 @@ func TestControlFlowNestedLoopsAndLineMappings(t *testing.T) {
 		"#line 12 \"app.hex\"",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -109,7 +109,7 @@ func TestControlFlowConditionLineMappings(t *testing.T) {
 		"#line 8 \"app.hex\"",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want condition mapping %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want condition mapping %q", rootC(t, result), want)
 		}
 	}
 }
@@ -169,7 +169,7 @@ func TestMethodControlFlowLowering(t *testing.T) {
 		"hex_f_m3_app_Counter_step(&hex_v_counter, 2)",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

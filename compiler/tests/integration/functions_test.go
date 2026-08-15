@@ -187,7 +187,7 @@ func requireGeneratedC(t *testing.T, source, want string) {
 		t.Fatalf("Compile rejected %q: %#v", source, result.Stderr)
 	}
 	if got := withoutLineDirectives(rootC(t, result)); !strings.Contains(got, want) {
-		t.Fatalf("main.c = %q, want it to contain %q", got, want)
+		t.Fatalf("modules/app.c = %q, want it to contain %q", got, want)
 	}
 }
 
@@ -216,7 +216,7 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 		"hex_f_m3_app_Point_is_origin(&hex_v_here)",
 	} {
 		if !strings.Contains(generated, want) {
-			t.Fatalf("main.c = %q, want %q", generated, want)
+			t.Fatalf("modules/app.c = %q, want %q", generated, want)
 		}
 	}
 }
@@ -224,7 +224,7 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {
 	requireGeneratedC(t,
 		"fun identity(value: Int32): Int32\n    return value\nend\n",
-		"#include \"main.h\"\n#include \"modules/app.h\"\n\nstatic int32_t hex_f_m3_app_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint hex_module_root_run(void) {\n")
+		"#include \"modules/app.h\"\n\nstatic int32_t hex_f_m3_app_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint main(void) {\n")
 }
 
 func TestGeneratedNoReturnFunctionIsVoid(t *testing.T) {
@@ -248,7 +248,7 @@ func TestGeneratedFunctionPointerObjectsKeepUnqualifiedParameters(t *testing.T) 
 	requireGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_m3_app_identity;\n")
 	requireGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_m3_app_identity;\n")
 	if got := rootC(t, compileSource(source)); strings.Contains(got, ")(const int32_t)") {
-		t.Fatalf("main.c = %q, function-pointer parameters must stay unqualified", got)
+		t.Fatalf("modules/app.c = %q, function-pointer parameters must stay unqualified", got)
 	}
 }
 
@@ -275,12 +275,13 @@ func TestGeneratedSelfRecursionNeedsNoPrototype(t *testing.T) {
 	requireGeneratedC(t, source,
 		"static int32_t hex_f_m3_app_countdown(const int32_t hex_v_value) {\n    return hex_f_m3_app_countdown(hex_v_value);\n}\n")
 	if got := rootC(t, compileSource(source)); strings.Contains(got, "hex_f_m3_app_countdown(const int32_t hex_v_value);") {
-		t.Fatalf("main.c = %q, want no forward prototype region", got)
+		t.Fatalf("modules/app.c = %q, want no forward prototype region", got)
 	}
 }
 
-// Object typedefs live in main.h, so main.c holds the definitions in source
-// order and then main. Module storage stays inside main.
+// Object typedefs live in the module header, so the module C holds the
+// definitions in source order and then main. Module storage stays inside
+// main.
 func TestGeneratedDefinitionsAreOrderedBeforeMain(t *testing.T) {
 	result := compileSource(pointType +
 		"fun first(value: Int32): Int32\n    return value\nend\n" +
@@ -291,13 +292,13 @@ func TestGeneratedDefinitionsAreOrderedBeforeMain(t *testing.T) {
 	}
 	first := strings.Index(rootC(t, result), "hex_f_m3_app_first")
 	second := strings.Index(rootC(t, result), "hex_f_m3_app_second")
-	main := strings.Index(rootC(t, result), "int hex_module_root_run(void)")
+	main := strings.Index(rootC(t, result), "int main(void)")
 	origin := strings.Index(rootC(t, result), "hex_v_origin")
 	if first < 0 || second < first || main < second || origin < main {
-		t.Fatalf("main.c = %q, want first, second, root run, then module storage", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want first, second, main, then module storage", rootC(t, result))
 	}
 	if !strings.Contains(rootH(t, result), "struct hex_t_m3_app_Point {") {
-		t.Fatalf("main.h = %q, want the object definition region", rootH(t, result))
+		t.Fatalf("modules/app.h = %q, want the object definition region", rootH(t, result))
 	}
 }
 
@@ -307,7 +308,7 @@ func TestGeneratedFunctionBodiesKeepLineDirectives(t *testing.T) {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
 	if !strings.Contains(rootC(t, result), "#line 2 \"app.hex\"\n    return hex_v_value;") {
-		t.Fatalf("main.c = %q, want a line directive inside the function body", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want a line directive inside the function body", rootC(t, result))
 	}
 }
 

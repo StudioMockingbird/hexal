@@ -22,8 +22,6 @@ type compileRequest struct {
 }
 
 type compileResponse struct {
-	MainC    string            `json:"mainC"`
-	MainH    string            `json:"mainH"`
 	Files    map[string]string `json:"files"`
 	Stderr   []string          `json:"stderr"`
 	ExitCode int               `json:"exitCode"`
@@ -118,8 +116,6 @@ func compileHandler(response http.ResponseWriter, request *http.Request) {
 
 func toResponse(result compiler.CompilationResult) compileResponse {
 	return compileResponse{
-		MainC:    result.MainC,
-		MainH:    result.MainH,
 		Files:    result.Files,
 		Stderr:   result.Stderr,
 		ExitCode: result.ExitCode,

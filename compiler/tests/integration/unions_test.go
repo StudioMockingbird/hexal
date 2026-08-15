@@ -53,7 +53,7 @@ func TestUnionNullTestsAndTruthiness(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected Nil/truthiness source: %v", result.Stderr)
 	}
-	if !strings.Contains(result.MainH, "#include <stddef.h>") || !strings.Contains(rootH(t, result), "_truthy") || !strings.Contains(rootC(t, result), ".tag !=") {
+	if !strings.Contains(hexalH(t, result), "#include <stddef.h>") || !strings.Contains(rootH(t, result), "_truthy") || !strings.Contains(rootC(t, result), ".tag !=") {
 		t.Fatalf("null/truthiness output = H:%q C:%q", rootH(t, result), rootC(t, result))
 	}
 }

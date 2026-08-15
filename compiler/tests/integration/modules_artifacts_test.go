@@ -1,10 +1,11 @@
 package integration
 
-// RFC 0034 Task 2: the entrypoint module's generated C/header (modules/app.c,
-// modules/app.h) hold every user-facing declaration, statement, and #line
-// mapping, while main.c/main.h hold only the runtime machinery and the thin
-// entry. This split is the ground contract Tasks 3-8 extend to per-module
-// artifacts.
+// RFC 0060: the selected root module's C/header pair (modules/app.c,
+// modules/app.h) holds every user-facing declaration, statement, #line
+// mapping, the process-wide runtime definitions, and the process entry point.
+// hexal.h holds only the shared program-support machinery. This split is the
+// ground contract for per-module artifacts; the thin-entry pair no longer
+// exists.
 
 import (
 	"hexal/compiler"
@@ -18,58 +19,49 @@ func TestRootModuleArtifactsSplit(t *testing.T) {
 
 	rootC := rootC(t, result)
 	rootH := rootH(t, result)
+	hexalH := hexalH(t, result)
 
-	if !strings.Contains(rootC, "typedef struct hex_t_m3_app_Point") && !strings.Contains(rootH, "typedef struct hex_t_m3_app_Point") {
-		t.Fatalf("user type must live in the entrypoint module artifacts, got C=%q H=%q", rootC, rootH)
+	if !strings.Contains(rootH, "typedef struct hex_t_m3_app_Point") {
+		t.Fatalf("user type must live in the entrypoint module header, got C=%q H=%q", rootC, rootH)
 	}
 	if !strings.Contains(rootC, "static int32_t hex_f_m3_app_area(") {
 		t.Fatalf("user function must live in modules/app.c, got %q", rootC)
 	}
-	if !strings.Contains(rootC, "int hex_module_root_run(void)") {
-		t.Fatalf("modules/app.c must define hex_module_root_run, got %q", rootC)
+	if !strings.Contains(rootC, "int main(void)") {
+		t.Fatalf("modules/app.c must define the process entry point, got %q", rootC)
 	}
 	if !strings.Contains(rootC, "#line 5 \"app.hex\"") {
 		t.Fatalf("module statements must carry app.hex line mappings, got %q", rootC)
 	}
-	if strings.Contains(result.MainC, "hex_f_m3_app_area") || strings.Contains(result.MainC, "hex_t_m3_app_Point") {
-		t.Fatalf("user code leaked into main.c: %q", result.MainC)
+	if strings.Contains(hexalH, "hex_f_m3_app_area") || strings.Contains(hexalH, "hex_t_m3_app_Point") {
+		t.Fatalf("user code leaked into hexal.h: %q", hexalH)
 	}
-	if strings.Contains(result.MainH, "hex_t_m3_app_Point") {
-		t.Fatalf("user type leaked into main.h: %q", result.MainH)
+	if strings.Contains(rootH, "int main(void)") {
+		t.Fatalf("the module header must not declare the process entry point, got %q", rootH)
 	}
-
-	if !strings.Contains(result.MainC, "int main(void)") {
-		t.Fatalf("main.c must hold the thin entry, got %q", result.MainC)
+	generated := hexalH + "\n" + rootC + "\n" + rootH
+	for _, forbidden := range []string{"#include \"main.h\"", "HEXAL_MAIN_H", "hex_module_root_run"} {
+		if strings.Contains(generated, forbidden) {
+			t.Fatalf("generated content must not contain %q:\n%s", forbidden, generated)
+		}
 	}
-	if !strings.Contains(result.MainC, "hex_module_root_run()") {
-		t.Fatalf("main.c must call the entrypoint module's root run, got %q", result.MainC)
+	if !strings.Contains(hexalH, "#ifndef HEXAL_H") {
+		t.Fatalf("hexal.h must carry the HEXAL_H guard, got %q", hexalH)
 	}
-	if !strings.Contains(rootH, "int hex_module_root_run(void);") {
-		t.Fatalf("modules/app.h must declare hex_module_root_run, got %q", rootH)
-	}
-	if result.MainC != result.Files["main.c"] || result.MainH != result.Files["main.h"] {
-		t.Fatalf("MainC/MainH must mirror Files[\"main.c\"]/Files[\"main.h\"]")
-	}
-	if len(result.Files) != 4 {
-		t.Fatalf("successful compilation must produce exactly 4 artifacts, got %v", sortedKeys(result.Files))
+	if len(result.Files) != 3 {
+		t.Fatalf("successful compilation must produce exactly 3 artifacts, got %v", sortedKeys(result.Files))
 	}
 }
 
-func TestFailureReturnsOnlyEntrypointFiles(t *testing.T) {
+func TestFailureReturnsNoArtifacts(t *testing.T) {
 	result := compileSource("x: Int32 = true")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want failure, got %#v", result)
 	}
-	if len(result.Files) != 2 {
-		t.Fatalf("failure must produce only main.c and main.h, got %v", sortedKeys(result.Files))
+	if result.Files == nil {
+		t.Fatalf("Files must be non-nil on failure")
 	}
-	if _, ok := result.Files["main.c"]; !ok {
-		t.Fatalf("failure output lacks main.c: %v", sortedKeys(result.Files))
-	}
-	if _, ok := result.Files["main.h"]; !ok {
-		t.Fatalf("failure output lacks main.h: %v", sortedKeys(result.Files))
-	}
-	if _, ok := result.Files["modules/app.c"]; ok {
-		t.Fatalf("failure output must not contain entrypoint module artifacts: %v", sortedKeys(result.Files))
+	if len(result.Files) != 0 {
+		t.Fatalf("failure must produce no artifacts, got %v", sortedKeys(result.Files))
 	}
 }

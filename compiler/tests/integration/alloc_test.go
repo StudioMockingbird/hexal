@@ -21,8 +21,8 @@ func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "hex_heap_allocate_Int32") || !strings.Contains(rootC(t, result), "*hex_v_p = 42") {
-		t.Fatalf("generated output = H:%q C:%q, want checked allocation and write", result.MainH, rootC(t, result))
+	if !strings.Contains(hexalH(t, result), "hex_heap_allocate_Int32") || !strings.Contains(rootC(t, result), "*hex_v_p = 42") {
+		t.Fatalf("generated output = H:%q C:%q, want checked allocation and write", hexalH(t, result), rootC(t, result))
 	}
 }
 

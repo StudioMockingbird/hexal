@@ -49,7 +49,7 @@ func TestCompileEndpointAcceptsSourceMapAndReturnsGeneratedFiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("exit code = %d, stderr = %v", result.ExitCode, result.Stderr)
 	}
-	for _, name := range []string{"main.c", "main.h", "modules/app.c", "modules/app.h"} {
+	for _, name := range []string{"hexal.h", "modules/app.c", "modules/app.h"} {
 		if result.Files[name] == "" {
 			t.Errorf("generated file %q is missing or empty", name)
 		}

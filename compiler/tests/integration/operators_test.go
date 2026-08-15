@@ -71,15 +71,15 @@ func TestCompleteOperatorProgram(t *testing.T) {
 		"hex_rem_uint32_t(hex_v_unsignedLeft, hex_v_unsignedRight)",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want fragment %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want fragment %q", rootC(t, result), want)
 		}
 	}
 	for _, want := range []string{
 		"static_assert(sizeof(float) == 4",
 		"static_assert(sizeof(double) == 8",
 	} {
-		if !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("main.h = %q, want fragment %q", rootH(t, result), want)
+		if !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+			t.Fatalf("modules/app.h = %q, want fragment %q", rootH(t, result), want)
 		}
 	}
 }
@@ -94,7 +94,7 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 		"((uint64_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want runtime wrapping fragment %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want runtime wrapping fragment %q", rootC(t, result), want)
 		}
 	}
 }
@@ -127,7 +127,7 @@ func TestPrecedenceChain(t *testing.T) {
 	}
 	want := "(!(((((hex_v_first + (hex_v_second * hex_v_third)) < hex_v_limit) == hex_v_expected) && hex_v_all) || hex_v_either))"
 	if !strings.Contains(rootC(t, result), want) {
-		t.Fatalf("main.c = %q, want precedence-chain fragment %q", rootC(t, result), want)
+		t.Fatalf("modules/app.c = %q, want precedence-chain fragment %q", rootC(t, result), want)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestAllIntegerWidths(t *testing.T) {
 				t.Fatalf("Compile returned %#v, want successful %s program", result, testCase.typ)
 			}
 			if !strings.Contains(rootC(t, result), testCase.want) {
-				t.Fatalf("main.c = %q, want %q", rootC(t, result), testCase.want)
+				t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), testCase.want)
 			}
 		})
 	}
@@ -218,7 +218,7 @@ func TestSignedWrappingBoundaries(t *testing.T) {
 		"const int64_t hex_v_negative64 = (int64_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum64);",
 	} {
 		if strings.Contains(rootC(t, result), old) {
-			t.Fatalf("main.c contains implementation-defined signed conversion %q: %q", old, rootC(t, result))
+			t.Fatalf("modules/app.c contains implementation-defined signed conversion %q: %q", old, rootC(t, result))
 		}
 	}
 }
@@ -233,7 +233,7 @@ func TestShortCircuitRuntime(t *testing.T) {
 		"(hex_v_guardAnd && (hex_div_int32_t(hex_v_zero, hex_v_zero) > 0))",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want short-circuit fragment %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want short-circuit fragment %q", rootC(t, result), want)
 		}
 	}
 }
@@ -251,7 +251,7 @@ func TestNaNComparisons(t *testing.T) {
 		"((hex_v_zero / hex_v_zero) != (hex_v_zero / hex_v_zero))",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want NaN comparison fragment %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want NaN comparison fragment %q", rootC(t, result), want)
 		}
 	}
 }

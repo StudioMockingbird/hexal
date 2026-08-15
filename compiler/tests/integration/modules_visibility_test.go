@@ -13,14 +13,14 @@ import (
 )
 
 // wantMultiSuccess asserts a clean multi-module program compiles: no
-// diagnostics, and exactly main.c, main.h, plus one C/header pair per
-// reachable module.
+// diagnostics, and exactly hexal.h plus one C/header pair per reachable
+// module.
 func wantMultiSuccess(t *testing.T, result compiler.CompilationResult, modules ...string) {
 	t.Helper()
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("stderr = %#v, want success with no diagnostics", result.Stderr)
 	}
-	wantKeys := map[string]bool{"main.c": true, "main.h": true}
+	wantKeys := map[string]bool{"hexal.h": true}
 	for _, module := range modules {
 		wantKeys["modules/"+module+".c"] = true
 		wantKeys["modules/"+module+".h"] = true

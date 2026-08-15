@@ -281,7 +281,7 @@ func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder
 // forward declarations every later definition may reference: the Task,
 // Channel, Mutex, and Atomic handle typedefs that union, object, and ADT
 // payloads may contain, and the spawn entry prototypes that function bodies
-// call before their definitions appear in main.c.
+// call before their definitions appear in the root module's C file.
 func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcurrencyState) {
 	if state == nil || !state.used {
 		return
@@ -289,7 +289,7 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 	// RFC 0037: the task control block is a compiler-owned type definition
 	// every translation unit needs: the spawn entry adapters and the join
 	// helpers dereference hex_task in the module pairs, so the complete
-	// struct lives in main.h, never in the main.c runtime alone.
+	// struct lives in hexal.h, never in the root C runtime alone.
 	result.WriteString("\n/* RFC 0037 handle typedefs */\n")
 	result.WriteString("typedef struct hex_task hex_task;\n")
 	result.WriteString("typedef struct hex_chan hex_chan;\n")
@@ -327,18 +327,18 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 		}
 	}
 	// RFC 0037: the spawn entry adapters are emitted in the module that owns
-	// the spawned function, so main.h declares them with external linkage for
-	// every translation unit that contains a spawn prologue.
+	// the spawned function, so hexal.h declares them with external linkage
+	// for every translation unit that contains a spawn prologue.
 	for _, site := range state.spawns {
 		fmt.Fprintf(result, "void hex_task_entry_%s(hex_task *task);\n", site.function)
 	}
 }
 
-// writeConcurrencyRuntime emits the RFC 0037 runtime into main.c: the fiber
-// platform layer, the M:N scheduler, the task/join/yield machinery, the
-// Channel and Mutex cores. Everything here holds process-wide state or is a
-// non-inline static function, so it exists exactly once per process, never in
-// a header both translation units include.
+// writeConcurrencyRuntime emits the RFC 0037 runtime into the root module's
+// C file: the fiber platform layer, the M:N scheduler, the task/join/yield
+// machinery, the Channel and Mutex cores. Everything here holds process-wide
+// state or is a non-inline static function, so it exists exactly once per
+// process, never in a header every translation unit includes.
 func writeConcurrencyRuntime(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if state == nil || !state.used {
 		return
@@ -348,15 +348,15 @@ func writeConcurrencyRuntime(result *strings.Builder, state *generatedConcurrenc
 	writeMutexCore(result, state)
 }
 
-// writeConcurrencyExterns emits, into main.h, the declarations of the runtime
-// core entry points the module header's inline helpers call. The core lives
-// in main.c with external linkage; declaring it here lets every translation
-// unit agree on the interface.
+// writeConcurrencyExterns emits, into hexal.h, the declarations of the
+// runtime core entry points the module headers' inline helpers call. The core
+// lives in the root module's C file with external linkage; declaring it here
+// lets every translation unit agree on the interface.
 func writeConcurrencyExterns(result *strings.Builder, state *generatedConcurrencyState) {
 	if state == nil || !state.used {
 		return
 	}
-	result.WriteString("\n/* RFC 0037 runtime entry points, defined in main.c */\n")
+	result.WriteString("\n/* RFC 0037 runtime entry points, defined in the root module's C file */\n")
 	result.WriteString("hex_task *hex_task_spawn(void (*entry)(hex_task *), size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align);\n")
 	result.WriteString("void *hex_task_join(hex_task *task);\n")
 	result.WriteString("void hex_task_yield(void);\n")
@@ -381,7 +381,7 @@ func writeConcurrencyExterns(result *strings.Builder, state *generatedConcurrenc
 // wrappers into the module header: the spawn argument frames (which name user
 // parameter types), the Task join helpers, the Channel and Mutex operation
 // families, and the Atomic family. They are state-free and only call the
-// runtime core through its main.h declarations.
+// runtime core through its hexal.h declarations.
 func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if state == nil || !state.used {
 		return
@@ -796,7 +796,7 @@ func writeTaskTypeHelpers(result *strings.Builder, state *generatedConcurrencySt
 // arguments from the task frame, calls the named function directly, stores R
 // in the result frame, and completes the task. It is emitted after the
 // function definitions it calls, so the call never crosses a translation
-// unit; the external linkage satisfies the main.h prototypes and the spawn
+// unit; the external linkage satisfies the hexal.h prototypes and the spawn
 // prologues in other modules. The argument frame structs themselves are
 // declared in the module header (writeSpawnArgFrames) so the spawn prologues
 // inside function bodies can fill them.
@@ -850,11 +850,11 @@ func writeSpawnArgFrames(result *strings.Builder, sites []spawnSite) {
 }
 
 // writeChannelCore emits the shared bounded ring-buffer Channel control block
-// and the core operations into main.c. send and receive park the current task
-// while full or empty and open; parking never blocks the worker thread. The
-// core is non-inline and holds no file-scope state beyond what the caller
-// passes, but it must exist once per process because its wait lists carry
-// task pointers.
+// and the core operations into the root module's C file. send and receive
+// park the current task while full or empty and open; parking never blocks
+// the worker thread. The core is non-inline and holds no file-scope state
+// beyond what the caller passes, but it must exist once per process because
+// its wait lists carry task pointers.
 func writeChannelCore(result *strings.Builder, state *generatedConcurrencyState) {
 	if len(state.channels) == 0 {
 		return
@@ -1085,9 +1085,9 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 }
 
 // writeMutexCore emits the scheduler-aware Mutex control block and core into
-// main.c: a heap-backed control block whose wait list parks tasks instead of
-// blocking workers. Ownership follows Task identity, so a Task that migrates
-// between workers keeps every Mutex it has not unlocked.
+// the root module's C file: a heap-backed control block whose wait list parks
+// tasks instead of blocking workers. Ownership follows Task identity, so a
+// Task that migrates between workers keeps every Mutex it has not unlocked.
 func writeMutexCore(result *strings.Builder, state *generatedConcurrencyState) {
 	if !state.mutexNew && !state.mutexLock && !state.mutexUnlock && !state.mutexFree {
 		return

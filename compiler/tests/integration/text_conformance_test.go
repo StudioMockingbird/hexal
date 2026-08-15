@@ -68,7 +68,7 @@ func TestStringSurfaceCompiles(t *testing.T) {
 		"hex_rune_cursor_has_next(",
 		"hex_rune_cursor_next(",
 	} {
-		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) && !strings.Contains(result.MainH, fragment) {
+		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) && !strings.Contains(hexalH(t, result), fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
 	}

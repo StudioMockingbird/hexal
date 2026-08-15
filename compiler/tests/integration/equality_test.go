@@ -21,7 +21,7 @@ func TestLosslessNumericComparisonWidening(t *testing.T) {
 		"hex_v_narrow = (1 == (int16_t)((2)));",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -48,7 +48,7 @@ func TestPointerIdentityEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootC(t, result), "(hex_v_left == hex_v_right)") {
-		t.Fatalf("main.c = %q, want pointer identity comparison", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want pointer identity comparison", rootC(t, result))
 	}
 }
 
@@ -161,7 +161,7 @@ func TestAdtEquality(t *testing.T) {
 		"if (!((*left).payload.Circle.hex_m_r == (*right).payload.Circle.hex_m_r)) return false;",
 	} {
 		if !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
+			t.Fatalf("modules/app.h = %q, want %q", rootH(t, result), want)
 		}
 	}
 }
@@ -172,7 +172,7 @@ func TestUnionEqualityWithObjectMember(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootH(t, result), "static bool hex_union_4_bool18_hex_t_m3_app_Point_equal(hex_union_4_bool18_hex_t_m3_app_Point left, hex_union_4_bool18_hex_t_m3_app_Point right) {") {
-		t.Fatalf("main.h = %q, want recursive union equality helper", rootH(t, result))
+		t.Fatalf("modules/app.h = %q, want recursive union equality helper", rootH(t, result))
 	}
 }
 
@@ -198,7 +198,7 @@ func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootH(t, result), "hex_equal_hex_string") {
-		t.Fatalf("main.h = %q, want specialized String equality helper", rootH(t, result))
+		t.Fatalf("modules/app.h = %q, want specialized String equality helper", rootH(t, result))
 	}
 }
 
@@ -219,7 +219,7 @@ func TestListEqualityAccepted(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootH(t, result), "static bool hex_equal_hex_list_Int32(const hex_list_Int32 *left, const hex_list_Int32 *right) {") {
-		t.Fatalf("main.h = %q, want List equality helper", rootH(t, result))
+		t.Fatalf("modules/app.h = %q, want List equality helper", rootH(t, result))
 	}
 }
 

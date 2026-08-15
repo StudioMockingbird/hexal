@@ -20,7 +20,7 @@ func TestRefIsTypedByPlaceWritability(t *testing.T) {
 		"const int32_t *const hex_v_look = &hex_v_answer;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -47,7 +47,7 @@ func TestFixedMutPtrBindingWritesPointeeButRejectsRepointing(t *testing.T) {
 		"*hex_v_fixed = 2;",
 	} {
 		if !strings.Contains(rootC(t, valid), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, valid), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, valid), want)
 		}
 	}
 
@@ -63,7 +63,7 @@ func TestFixedMutPtrMemberWritesPointeeButRejectsMutableReference(t *testing.T) 
 		t.Fatalf("fixed MutPtr member pointee write failed: %#v", valid)
 	}
 	if !strings.Contains(rootC(t, valid), "*hex_v_holder.hex_m_pointer = 2;") {
-		t.Fatalf("main.c = %q, want fixed member pointee write", rootC(t, valid))
+		t.Fatalf("modules/app.c = %q, want fixed member pointee write", rootC(t, valid))
 	}
 
 	invalid := compileSource("type Holder = { fixedMember: Int32, pointer: MutPtr<Int32>, } mut value: Int32 = 0 holder: Holder = Holder { fixedMember = 1, pointer = ref value, } bad: MutPtr<Int32> = ref holder.fixedMember")
@@ -78,7 +78,7 @@ func TestObjectCopyRetainsMemberMutabilityContract(t *testing.T) {
 		t.Fatalf("mutable object copy failed: %#v", valid)
 	}
 	if !strings.Contains(rootC(t, valid), "hex_v_copy.hex_m_health = 50;") {
-		t.Fatalf("main.c = %q, want mutable member assignment in copy", rootC(t, valid))
+		t.Fatalf("modules/app.c = %q, want mutable member assignment in copy", rootC(t, valid))
 	}
 
 	invalid := compileSource("type Player = { id: Int32, mut health: Int32, } mut source: Player = Player { id = 1, health = 100, } mut copy: Player = source copy.id = 2")
@@ -116,7 +116,7 @@ func TestFixedObjectAndReferenceLowerToConst(t *testing.T) {
 		"const hex_t_m3_app_Point *const hex_v_view = &hex_v_point;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -132,7 +132,7 @@ func TestWeakeningDeclarationAndAssignment(t *testing.T) {
 		"hex_v_reader = hex_v_writer;",
 	} {
 		if !strings.Contains(rootC(t, valid), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, valid), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, valid), want)
 		}
 	}
 
@@ -148,7 +148,7 @@ func TestWeakeningIsOutermostLayerOnly(t *testing.T) {
 		t.Fatalf("outermost weakening compilation failed: %#v", valid.Stderr)
 	}
 	if !strings.Contains(rootC(t, valid), "int32_t *const *const hex_v_ok = hex_v_outer;") {
-		t.Fatalf("main.c = %q, want weakened outermost pointer copy", rootC(t, valid))
+		t.Fatalf("modules/app.c = %q, want weakened outermost pointer copy", rootC(t, valid))
 	}
 
 	invalid := compileSource("mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value mut outer: MutPtr<MutPtr<Int32>> = ref inner no: Ptr<Ptr<Int32>> = outer")
@@ -163,7 +163,7 @@ func TestWeakeningThroughObjectMemberInitializer(t *testing.T) {
 		t.Fatalf("member weakening compilation failed: %#v", valid.Stderr)
 	}
 	if !strings.Contains(rootC(t, valid), ".hex_m_name = &hex_v_buffer,") {
-		t.Fatalf("main.c = %q, want weakened member pointer initializer", rootC(t, valid))
+		t.Fatalf("modules/app.c = %q, want weakened member pointer initializer", rootC(t, valid))
 	}
 
 	invalid := compileSource("type Config = { name: MutPtr<UInt8>, } buffer: UInt8 = 65 config: Config = Config { name = ref buffer, }")
@@ -198,7 +198,7 @@ func TestSelfRecursiveObjectLowersSplitStruct(t *testing.T) {
 		"hex_t_m3_app_Node *hex_m_next;",
 	} {
 		if !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
+			t.Fatalf("modules/app.h = %q, want %q", rootH(t, result), want)
 		}
 	}
 }
@@ -213,7 +213,7 @@ func TestSelfRecursiveReadOnlyPointerMemberLowers(t *testing.T) {
 		"const hex_t_m3_app_Node *hex_m_next;",
 	} {
 		if !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
+			t.Fatalf("modules/app.h = %q, want %q", rootH(t, result), want)
 		}
 	}
 }
@@ -253,7 +253,7 @@ func TestPointersAndAliasing(t *testing.T) {
 		"const int32_t hex_v_y = *hex_v_writer;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 	if strings.Contains(rootC(t, result), "hexal_alloc") || strings.Contains(rootC(t, result), "free(") || strings.Contains(rootC(t, result), "Hexal_Ref") || strings.Contains(rootH(t, result), "Hexal_Ref") {
@@ -268,7 +268,7 @@ func TestNestedPointers(t *testing.T) {
 	}
 	for _, want := range []string{"int32_t *const *const hex_v_writer_pointer = &hex_v_writer;", "const int32_t hex_v_z = *(*hex_v_writer_pointer);"} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -280,7 +280,7 @@ func TestAddressOfDereferencePlace(t *testing.T) {
 	}
 	for _, want := range []string{"int32_t *const *const hex_v_q = &(*hex_v_pp);", "*hex_v_pp = hex_v_p;"} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -292,7 +292,7 @@ func TestPointerAccessAndRebindingModes(t *testing.T) {
 	}
 	for _, want := range []string{"const int32_t *hex_v_reader = &hex_v_y;", "hex_v_reader = &hex_v_z;"} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -304,7 +304,7 @@ func TestPointerValuedStorePreservesWritability(t *testing.T) {
 	}
 	for _, want := range []string{"int32_t **hex_v_slot_pointer = &hex_v_slot;", "*hex_v_slot_pointer = hex_v_other_writer;"} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -360,7 +360,7 @@ func TestPointerNestingCombinations(t *testing.T) {
 				t.Fatalf("Compile returned %#v, want successful pointer program", result)
 			}
 			if !strings.Contains(rootC(t, result), testCase.want) {
-				t.Fatalf("main.c = %q, want %q", rootC(t, result), testCase.want)
+				t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), testCase.want)
 			}
 			root := rootC(t, result)
 			root = strings.Replace(root, "    return EXIT_SUCCESS;\n", "    return ("+testCase.runtimeCheck+") ? EXIT_SUCCESS : EXIT_FAILURE;\n", 1)
@@ -378,7 +378,7 @@ func TestRecursivePtrAndMutPtrObjects(t *testing.T) {
 		"hex_t_m3_app_Node *hex_m_child;",
 	} {
 		if !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
+			t.Fatalf("modules/app.h = %q, want %q", rootH(t, result), want)
 		}
 	}
 }
@@ -393,7 +393,7 @@ func TestPointerMemberAutoDereferences(t *testing.T) {
 		"(*hex_v_p).hex_m_y = 5;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -421,7 +421,7 @@ func TestAutoDereferenceAppliesOneLayerOnly(t *testing.T) {
 		t.Fatalf("explicit two-layer dereference failed: %#v", explicit.Stderr)
 	}
 	if !strings.Contains(rootC(t, explicit), "const int32_t hex_v_a = (*(*hex_v_outer)).hex_m_x;") {
-		t.Fatalf("main.c = %q, want explicit two-layer member read", rootC(t, explicit))
+		t.Fatalf("modules/app.c = %q, want explicit two-layer member read", rootC(t, explicit))
 	}
 }
 
@@ -435,7 +435,7 @@ func TestPointerValuePropertyWinsOverMember(t *testing.T) {
 		"const int32_t hex_v_inner = (*hex_v_p).hex_m_value;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -446,7 +446,7 @@ func TestRefThroughAutoDereferencedMember(t *testing.T) {
 		t.Fatalf("ref through auto-dereference failed: %#v", writable.Stderr)
 	}
 	if !strings.Contains(rootC(t, writable), "int32_t *const hex_v_q = &(*hex_v_p).hex_m_y;") {
-		t.Fatalf("main.c = %q, want reference to auto-dereferenced member", rootC(t, writable))
+		t.Fatalf("modules/app.c = %q, want reference to auto-dereferenced member", rootC(t, writable))
 	}
 
 	readOnly := compileSource("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } p: Ptr<Point> = ref pt q: MutPtr<Int32> = ref p.y")

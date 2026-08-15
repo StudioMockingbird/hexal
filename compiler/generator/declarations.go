@@ -154,9 +154,8 @@ func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
 
 // writeFunctionDefinition emits one C function. Parameters are fixed
 // bindings, so their declarators carry top-level const. RFC 0034: external is
-// true for functions the generated main.c machinery must call (spawn
-// adapters); those keep external linkage, everything else is static to its
-// module C file.
+// true for functions the generated spawn adapters must call; those keep
+// external linkage, everything else is static to its module C file.
 func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *generatedStringState, owner, filename string, external bool) error {
 	signature := declared.Type.Signature
 	if signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
@@ -307,7 +306,7 @@ func parameterList(parameters []string) string {
 // writeExportedPrototypes emits one external prototype per exported function
 // and method of the module. Importers render calls against these encoded
 // symbols, so every exporting module's own header declares them (the module
-// .c file includes only its own header plus main.h).
+// .c file includes only its own header, which includes hexal.h).
 func writeExportedPrototypes(result *strings.Builder, program checker.Program, owner string) {
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {

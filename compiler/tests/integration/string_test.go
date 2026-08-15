@@ -22,7 +22,7 @@ func TestStringLiteralBinding(t *testing.T) {
 		"static const hex_string hex_lit_0 = { hex_lit_0_bytes, 5 };",
 		"const hex_string *const hex_v_greeting = &hex_lit_0;",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
@@ -33,8 +33,8 @@ func TestStringLiteralEscapes(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(result.MainH, "static const uint8_t hex_lit_0_bytes[12] = { 97, 34, 98, 92, 99, 10, 100, 9, 101, 13, 102, 0 };") {
-		t.Fatalf("main.h = %q, want escaped payload bytes", result.MainH)
+	if !strings.Contains(hexalH(t, result), "static const uint8_t hex_lit_0_bytes[12] = { 97, 34, 98, 92, 99, 10, 100, 9, 101, 13, 102, 0 };") {
+		t.Fatalf("hexal.h = %q, want escaped payload bytes", hexalH(t, result))
 	}
 }
 
@@ -50,7 +50,7 @@ func TestStringBytesAndSlice(t *testing.T) {
 		"*hex_view_at_UInt8(hex_v_part, (size_t)(0))",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -68,7 +68,7 @@ func TestStringOwningLifecycle(t *testing.T) {
 		"hex_string_free(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -79,7 +79,7 @@ func TestStringFromBytes(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootC(t, result), "hex_v_copy = hex_string_from_bytes(hex_v_h, (hex_v_raw).data, (hex_v_raw).length);") {
-		t.Fatalf("main.c = %q, want from_bytes call", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want from_bytes call", rootC(t, result))
 	}
 }
 
@@ -143,7 +143,7 @@ func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
 		"const hex_array_String_2 hex_v_copy = hex_v_texts;",
 		"const hex_string *const hex_v_first = *hex_array_at_String_2",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}

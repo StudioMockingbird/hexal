@@ -22,7 +22,7 @@ func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
 		"#include <stddef.h>",
 		"const int32_t *const hex_v_maybe = nullptr;",
 	} {
-		if !strings.Contains(rootH(t, result), want) && !strings.Contains(rootC(t, result), want) && !strings.Contains(result.MainH, want) {
+		if !strings.Contains(rootH(t, result), want) && !strings.Contains(rootC(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootH(t, result), rootC(t, result), want)
 		}
 	}
@@ -38,7 +38,7 @@ func TestNullablePointerUsesTheNullNiche(t *testing.T) {
 		"const int32_t *const hex_v_present = &hex_v_value;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -56,7 +56,7 @@ func TestNullableHandleUnionDoesNotUseTheNullNiche(t *testing.T) {
 		".tag = hex_union_10_hex_string9_nullptr_t_tag_member_1",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 	if strings.Contains(rootC(t, result), " == nullptr") || strings.Contains(rootC(t, result), " != nullptr") || strings.Contains(rootC(t, result), "(nullptr)") {
@@ -75,7 +75,7 @@ func TestNullTestsLowerToNullPointerComparison(t *testing.T) {
 		"const bool hex_v_commuted = hex_v_maybe == nullptr;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -90,7 +90,7 @@ func TestNullTestAsConditionNarrowsReads(t *testing.T) {
 		"const int32_t hex_v_result = *hex_v_maybe;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -107,7 +107,7 @@ func TestNullableAssignmentStoresNullAndPointer(t *testing.T) {
 		"hex_v_maybe = &hex_v_other;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -138,7 +138,7 @@ func TestNullableFunctionResultReturnsNullptr(t *testing.T) {
 		"int32_t *const hex_v_nothing = hex_f_m3_app_absent();",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -154,14 +154,14 @@ func TestErasedUnknownPointersLowerToVoidPointers(t *testing.T) {
 		"void *const hex_v_maybe_erased = nullptr;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
 
 func TestStddefIncludedOnlyWhenNullUsed(t *testing.T) {
 	withNull := compileSource("mut maybe: Ptr<Int32> | Nil = nil if maybe != nil noop: Int32 = 0 end")
-	if withNull.ExitCode != compiler.ExitSuccess || !strings.Contains(withNull.MainH, "#include <stddef.h>") {
+	if withNull.ExitCode != compiler.ExitSuccess || !strings.Contains(hexalH(t, withNull), "#include <stddef.h>") {
 		t.Fatalf("null-using program = %#v, want <stddef.h>", withNull)
 	}
 

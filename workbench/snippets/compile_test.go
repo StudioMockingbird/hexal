@@ -57,10 +57,8 @@ func TestCatalogProgramsCompile(t *testing.T) {
 				if result.ExitCode != compiler.ExitSuccess {
 					t.Fatalf("snippet did not compile:\n%s", result.Stderr)
 				}
-				for _, name := range []string{"main.c", "main.h"} {
-					if result.Files[name] == "" {
-						t.Errorf("generated file %q is missing or empty", name)
-					}
+				if result.Files["hexal.h"] == "" {
+					t.Errorf("generated file \"hexal.h\" is missing or empty")
 				}
 				verifyManifestEntry(t, manifest, category.ID, snippet.ID, result.Files)
 			})

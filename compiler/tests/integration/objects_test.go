@@ -57,7 +57,7 @@ func TestNestedObjectsAndPointers(t *testing.T) {
 		"const int32_t hex_v_read = (*hex_v_reader).hex_m_point.hex_m_x;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -72,7 +72,7 @@ func TestObjectMemberReferencesAndPointerWrites(t *testing.T) {
 		"int32_t *const hex_v_x_pointer = &hex_v_point.hex_m_x;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -83,7 +83,7 @@ func TestCompleteObjectReplacement(t *testing.T) {
 		t.Fatalf("complete object replacement failed: %#v", result)
 	}
 	if !strings.Contains(rootC(t, result), "hex_v_first = hex_v_second;") {
-		t.Fatalf("main.c = %q, want complete object assignment", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want complete object assignment", rootC(t, result))
 	}
 
 	invalid := compileSource("type Player = { maximum_health: Int32, mut health: Int32, } mut player: Player = Player { maximum_health = 100, health = 80, } player.maximum_health = 200")
@@ -102,8 +102,8 @@ func TestObjectFloatDependency(t *testing.T) {
 		"FLT_MANT_DIG == 24",
 		"float hex_m_ratio;",
 	} {
-		if !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
-			t.Fatalf("main.h = %q, want %q", rootH(t, result), want)
+		if !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+			t.Fatalf("modules/app.h = %q, want %q", rootH(t, result), want)
 		}
 	}
 }
@@ -135,7 +135,7 @@ func TestAddrMemberAndTemporaryRead(t *testing.T) {
 		t.Fatalf("object member named addr failed: %#v", result)
 	}
 	if !strings.Contains(rootC(t, result), "hex_m_addr") {
-		t.Fatalf("main.c = %q, want ordinary addr member access", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want ordinary addr member access", rootC(t, result))
 	}
 
 	legacy := compileSource("x: Int32 = 1 y: Int32 = x.addr")

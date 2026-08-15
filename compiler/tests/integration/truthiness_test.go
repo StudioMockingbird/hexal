@@ -26,7 +26,7 @@ func TestTruthinessConditions(t *testing.T) {
 			t.Fatalf("Compile(%q) = %#v, want successful truthiness condition", testCase.source, result)
 		}
 		if !strings.Contains(rootC(t, result), testCase.want) {
-			t.Fatalf("Compile(%q) main.c = %q, want %q", testCase.source, rootC(t, result), testCase.want)
+			t.Fatalf("Compile(%q) modules/app.c = %q, want %q", testCase.source, rootC(t, result), testCase.want)
 		}
 	}
 }
@@ -39,7 +39,7 @@ func TestTruthinessConditionLoweringPreservesBranches(t *testing.T) {
 		t.Fatalf("Compile = %#v, want successful nil-condition program", result)
 	}
 	if !strings.Contains(rootC(t, result), "if ((hex_v_p != NULL)) {") || !strings.Contains(rootC(t, result), "const int32_t hex_v_missing = 1;") {
-		t.Fatalf("main.c = %q, want the nil branch emitted verbatim", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want the nil branch emitted verbatim", rootC(t, result))
 	}
 }
 
@@ -57,7 +57,7 @@ func TestNullableTruthinessCondition(t *testing.T) {
 		"} else if ((hex_v_maybe != NULL)) {",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -77,7 +77,7 @@ func TestTruthinessLogicalOperators(t *testing.T) {
 			t.Fatalf("Compile(%q) = %#v, want a successful truthiness operation", testCase.source, result)
 		}
 		if !strings.Contains(rootC(t, result), testCase.want) {
-			t.Fatalf("Compile(%q) main.c = %q, want %q", testCase.source, rootC(t, result), testCase.want)
+			t.Fatalf("Compile(%q) modules/app.c = %q, want %q", testCase.source, rootC(t, result), testCase.want)
 		}
 	}
 }
@@ -88,7 +88,7 @@ func TestTruthinessConstantFolding(t *testing.T) {
 		t.Fatalf("Compile = %#v, want a folded truthiness constant", result)
 	}
 	if !strings.Contains(rootC(t, result), "const bool hex_v_flag = true;") {
-		t.Fatalf("main.c = %q, want 1 and 2 folded to true", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want 1 and 2 folded to true", rootC(t, result))
 	}
 
 	for _, testCase := range []struct {
@@ -105,7 +105,7 @@ func TestTruthinessConstantFolding(t *testing.T) {
 			t.Fatalf("Compile(%q) = %#v, want a folded truthiness constant", testCase.source, result)
 		}
 		if !strings.Contains(rootC(t, result), testCase.want) {
-			t.Fatalf("Compile(%q) main.c = %q, want %q", testCase.source, rootC(t, result), testCase.want)
+			t.Fatalf("Compile(%q) modules/app.c = %q, want %q", testCase.source, rootC(t, result), testCase.want)
 		}
 	}
 }

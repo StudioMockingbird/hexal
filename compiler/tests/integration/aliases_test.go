@@ -19,7 +19,7 @@ func TestAliasesLowerCanonically(t *testing.T) {
 		"const int32_t hex_v_read = *hex_v_pointer;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 	if strings.Contains(rootC(t, result), "typedef") || strings.Contains(rootC(t, result), "Coordinate") {
@@ -38,7 +38,7 @@ func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
 		"const int32_t hex_v_read = *(*hex_v_pointerPointer);",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -48,9 +48,9 @@ func TestTypeOnlyProgram(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful type-only program", result)
 	}
-	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n    return EXIT_SUCCESS;\n}\n"
 	if rootC(t, result) != want {
-		t.Fatalf("main.c = %q, want empty executable program", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want empty executable program", rootC(t, result))
 	}
 }
 
@@ -107,8 +107,8 @@ func TestRejectsUnknownType(t *testing.T) {
 	if len(result.Stderr) != len(wantErrors) || result.Stderr[0] != wantErrors[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, wantErrors)
 	}
-	if result.MainC != "#include \"main.h\"\n\nint main(void) {\n    return EXIT_FAILURE;\n}\n" {
-		t.Fatalf("failure main.c = %q", result.MainC)
+	if len(result.Files) != 0 {
+		t.Fatalf("failure must produce no generated artifacts, got %v", sortedKeys(result.Files))
 	}
 }
 

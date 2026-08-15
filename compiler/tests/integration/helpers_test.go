@@ -45,16 +45,22 @@ func assertRejects(t *testing.T, source, want string) {
 
 // assertEmits requires the source to compile and the generated files to
 // contain every want string. The want strings may live in any artifact: the
-// entrypoint module's C/header or the generated main.c/main.h.
+// shared hexal.h or the entrypoint module's C/header pair.
 func assertEmits(t *testing.T, source string, wants ...string) {
 	t.Helper()
 	result := assertCompiles(t, source)
-	generated := result.MainC + "\n" + result.MainH + "\n" + rootC(t, result) + "\n" + rootH(t, result)
+	generated := hexalH(t, result) + "\n" + rootC(t, result) + "\n" + rootH(t, result)
 	for _, want := range wants {
 		if !strings.Contains(generated, want) {
 			t.Fatalf("generated output does not contain %q:\n%s\n--- source ---\n%s", want, generated, source)
 		}
 	}
+}
+
+// hexalH returns the generated shared program-support header.
+func hexalH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal.h")
 }
 
 // rootC returns the entrypoint module's generated C file.

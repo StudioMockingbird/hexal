@@ -29,7 +29,7 @@ func TestListLifecycle(t *testing.T) {
 		"hex_list_clear_Int32(hex_v_values);",
 		"hex_list_free_Int32(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
@@ -41,7 +41,7 @@ func TestListViewDerivationAndInvalidation(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootC(t, result), "const hex_view_Int32 hex_v_view = hex_list_slice_Int32(hex_v_values, (size_t)(0), (size_t)(2));") {
-		t.Fatalf("main.c = %q, want list slice", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want list slice", rootC(t, result))
 	}
 }
 
@@ -107,7 +107,7 @@ func TestListOfStrings(t *testing.T) {
 		"hex_string_free(hex_v_h, hex_v_popped);",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

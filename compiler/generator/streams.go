@@ -267,8 +267,9 @@ func writeStreamProduceFamily(result *strings.Builder, spec streamProduceSpec) {
 	if stepUnion == (compilerTypes.Type{}) || elementIndex < 0 || eosIndex < 0 {
 		return
 	}
-	// The callback is a static function in main.c; the header prototype
-	// makes the node's next helper call it before its definition appears.
+	// The callback is a static function in the module's own C file; the
+	// header prototype makes the node's next helper call it before its
+	// definition appears.
 	fmt.Fprintf(result, "\nstatic %s %s(%s *);\n", stepUnion.CName, spec.callbackName, stateType.CName)
 	fmt.Fprintf(result, "typedef struct %s {\n    const hex_stream_ops_%s *ops;\n    uintptr_t allocator;\n    bool exhausted;\n    %s state;\n} %s;\n\n", nodeName, suffix, stateSpelling, nodeName)
 	fmt.Fprintf(result, "static bool %s_next(void *object, %s *out) {\n    %s *node = (%s *)object;\n    %s step = %s(&(node->state));\n    if (step.tag == %s) {\n        return false;\n    }\n    *out = step.payload.member_%d;\n    return true;\n}\n", nodeName, typeSpelling(element), nodeName, nodeName, stepUnion.CName, spec.callbackName, unionTagName(stepUnion, eosIndex), elementIndex)

@@ -22,13 +22,10 @@ const (
 
 // CompilationResult contains the generated files and process-style result.
 type CompilationResult struct {
-	MainC string
-	MainH string
 	// Files is the authoritative generated-artifact map: every emitted
-	// C/header file under its normalized logical key, including main.c,
-	// main.h, and all modules/<canonical-path>.c/.h pairs. MainC and MainH
-	// mirror Files["main.c"] and Files["main.h"]; they are never generated
-	// or mutated independently.
+	// C/header file under its normalized logical key. Success returns
+	// "hexal.h" plus one modules/<canonical-path>.c/.h pair per reachable
+	// module; failure returns a non-nil empty map (RFC 0060).
 	Files    map[string]string
 	Stderr   []string
 	ExitCode int
@@ -47,8 +44,9 @@ type CompilationStats struct {
 	TotalDuration    time.Duration
 }
 
-// Compile runs Hexal source through every stage and returns main.c, main.h,
-// std.err entries, and an EXIT_SUCCESS or EXIT_FAILURE-compatible status.
+// Compile runs Hexal source through every stage and returns the generated
+// artifact map, std.err entries, and an EXIT_SUCCESS or EXIT_FAILURE-compatible
+// status.
 //
 // sources maps logical .hex filenames to complete Hexal source strings.
 // entrypoint is the logical .hex filename of the selected root module and
@@ -101,8 +99,6 @@ func Compile(sources map[string]string, entrypoint string) CompilationResult {
 	}
 	finalizeStats(&stats, compileStarted)
 	return CompilationResult{
-		MainC:    files["main.c"],
-		MainH:    files["main.h"],
 		Files:    files,
 		ExitCode: ExitSuccess,
 		Stats:    stats,
@@ -381,17 +377,12 @@ func mergeDiagnostics(errors ...error) error {
 }
 
 func failureResult(err error, stats CompilationStats, compileStarted time.Time) CompilationResult {
-	started := time.Now()
-	mainC, mainH := generator.GenerateFailure()
-	stats.GenerateDuration = time.Since(started)
 	finalizeStats(&stats, compileStarted)
-	// Failure output is deliberate fail-closed output: only the complete
-	// generated failure entrypoint files, never partial module artifacts.
-	files := map[string]string{"main.c": mainC, "main.h": mainH}
+	// RFC 0060: a failed source program has no valid generated project. The
+	// result carries the failure status itself, so no failure C program or
+	// partial module artifact is emitted; Files stays non-nil and empty.
 	return CompilationResult{
-		MainC:    mainC,
-		MainH:    mainH,
-		Files:    files,
+		Files:    map[string]string{},
 		Stderr:   compilerTypes.ErrorMessages(err),
 		ExitCode: ExitFailure,
 		Stats:    stats,

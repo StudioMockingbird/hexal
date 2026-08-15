@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -38,20 +39,33 @@ func c23Compiler(t *testing.T) string {
 	return command
 }
 
-// buildGeneratedC writes main.c/main.h and compiles main.c to an executable
-// with the harness warning policy, returning the executable path.
+// buildGeneratedC materializes every artifact in Files (hexal.h plus each
+// module C/header pair) under dir and compiles every .c translation unit with
+// the harness warning policy, returning the executable path.
 func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string) string {
 	t.Helper()
-	mainC := filepath.Join(dir, "main.c")
-	mainH := filepath.Join(dir, "main.h")
-	if err := os.WriteFile(mainC, []byte(result.MainC), 0644); err != nil {
-		t.Fatal(err)
+	for name, content := range result.Files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.WriteFile(mainH, []byte(result.MainH), 0644); err != nil {
-		t.Fatal(err)
+	exe := filepath.Join(dir, "hexal.exe")
+	command := exec.Command(c23Compiler(t), "-std=c23", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-parameter", "-I", dir)
+	names := make([]string, 0, len(result.Files))
+	for name := range result.Files {
+		names = append(names, name)
 	}
-	exe := filepath.Join(dir, "main.exe")
-	command := exec.Command(c23Compiler(t), "-std=c23", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-parameter", mainC, "-o", exe)
+	sort.Strings(names)
+	for _, name := range names {
+		if strings.HasSuffix(name, ".c") {
+			command.Args = append(command.Args, filepath.Join(dir, name))
+		}
+	}
+	command.Args = append(command.Args, "-o", exe)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("gcc rejected generated C: %v\n%s", err, output)
@@ -59,8 +73,9 @@ func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string
 	return exe
 }
 
-// compileGeneratedC writes main.c/main.h and compiles main.c with
-// -std=c23 -Wall -Wextra -Werror: any warning or error fails the test.
+// compileGeneratedC writes every generated artifact and compiles every .c
+// translation unit with -std=c23 -Wall -Wextra -Werror: any warning or error
+// fails the test.
 // ponytail: -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter
 // tolerate generator helper-family emission and legally-unused bindings;
 // const-discards and other warnings still fail. Family-emission debt in

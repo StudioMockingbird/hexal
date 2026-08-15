@@ -157,7 +157,7 @@ func TestUnreachableSourcesAreIgnored(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("unreachable junk.hex leaked diagnostics: %#v", result)
 	}
-	wantKeys := map[string]bool{"main.c": true, "main.h": true, "modules/app.c": true, "modules/app.h": true}
+	wantKeys := map[string]bool{"hexal.h": true, "modules/app.c": true, "modules/app.h": true}
 	if len(result.Files) != len(wantKeys) {
 		t.Fatalf("Files = %#v, want exactly %d keys", result.Files, len(wantKeys))
 	}

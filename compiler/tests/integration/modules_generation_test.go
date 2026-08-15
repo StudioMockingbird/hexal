@@ -20,7 +20,7 @@ func TestModuleGenerationEmitsOnePairPerModule(t *testing.T) {
 		t.Fatalf("multi-module generation failed: %#v", result.Stderr)
 	}
 	wantKeys := map[string]bool{
-		"main.c": true, "main.h": true,
+		"hexal.h":       true,
 		"modules/app.c": true, "modules/app.h": true,
 		"modules/math.c": true, "modules/math.h": true,
 		"modules/graphics/shapes.c": true, "modules/graphics/shapes.h": true,
@@ -32,9 +32,6 @@ func TestModuleGenerationEmitsOnePairPerModule(t *testing.T) {
 		if !wantKeys[key] {
 			t.Fatalf("Files contains unexpected key %q", key)
 		}
-	}
-	if result.MainC != result.Files["main.c"] || result.MainH != result.Files["main.h"] {
-		t.Fatalf("MainC/MainH do not mirror the entrypoint entries")
 	}
 }
 
@@ -101,10 +98,11 @@ func TestModuleGenerationDiamondEmittedOnce(t *testing.T) {
 	if count := strings.Count(keys["modules/constants.c"], "hex_f_m9_constants_value"); count != 1 {
 		t.Fatalf("constants.c defines its function %d times, want 1", count)
 	}
-	// No init functions for non-root modules: main.c calls only the root run.
-	mainC := keys["main.c"]
-	if strings.Contains(mainC, "hex_module_init") || strings.Count(mainC, "hex_module_root_run") != 1 {
-		t.Fatalf("main.c root-run wiring wrong:\n%s", mainC)
+	// No init functions for non-root modules: the root module C calls only
+	// its own statements from main().
+	appC := keys["modules/app.c"]
+	if strings.Contains(appC, "hex_module_init") || strings.Count(appC, "int main(void)") != 1 {
+		t.Fatalf("root module C entry-point wiring wrong:\n%s", appC)
 	}
 }
 
@@ -161,11 +159,10 @@ func TestModuleGenerationUnreachableModulesProduceNoArtifacts(t *testing.T) {
 	}
 }
 
-// The root run exists exactly once, in the entrypoint module's pair: the
-// entrypoint C file defines it, the entrypoint header declares it, main.c
-// calls it, and no non-root pair mentions it (RFC 0034 §Generated C
-// artifacts).
-func TestModuleGenerationRootRunOnlyInRootPair(t *testing.T) {
+// The process entry point and process-wide runtime state exist exactly once,
+// in the entrypoint module's C file: main() lives in the root C file, and no
+// non-root pair mentions it (RFC 0060).
+func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
 		"math.hex": "export fun add(a: Int32, b: Int32): Int32\n    return a + b\nend\n",
@@ -175,31 +172,42 @@ func TestModuleGenerationRootRunOnlyInRootPair(t *testing.T) {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
 	appC := result.Files["modules/app.c"]
-	appH := result.Files["modules/app.h"]
-	if !strings.Contains(appC, "int hex_module_root_run(void) {") {
-		t.Fatalf("app.c lacks the root run definition:\n%s", appC)
-	}
-	if !strings.Contains(appH, "int hex_module_root_run(void);") {
-		t.Fatalf("app.h lacks the root run declaration:\n%s", appH)
-	}
-	if !strings.Contains(result.Files["main.c"], "return hex_module_root_run();") {
-		t.Fatalf("main.c does not call the root run:\n%s", result.Files["main.c"])
+	if !strings.Contains(appC, "int main(void) {") {
+		t.Fatalf("app.c lacks the process entry point:\n%s", appC)
 	}
 	mathC := result.Files["modules/math.c"]
 	mathH := result.Files["modules/math.h"]
-	if strings.Contains(mathC, "hex_module_root_run") {
-		t.Fatalf("math.c contains a root run definition:\n%s", mathC)
+	if strings.Contains(mathC, "int main(void)") {
+		t.Fatalf("math.c contains the process entry point:\n%s", mathC)
 	}
-	if strings.Contains(mathH, "hex_module_root_run") {
-		t.Fatalf("math.h contains a root run declaration:\n%s", mathH)
+	if strings.Contains(mathH, "int main(void)") {
+		t.Fatalf("math.h declares the process entry point:\n%s", mathH)
+	}
+	// Every module header includes hexal.h and no module header includes
+	// another module header.
+	for _, header := range []string{result.Files["modules/app.h"], mathH} {
+		if !strings.Contains(header, "#include \"hexal.h\"") {
+			t.Fatalf("module header lacks the shared program-support include:\n%s", header)
+		}
+	}
+	for _, header := range []string{result.Files["modules/app.h"], mathH} {
+		if strings.Contains(header, "#include \"modules/") {
+			t.Fatalf("module header includes another module header:\n%s", header)
+		}
+	}
+	if !strings.Contains(result.Files["modules/math.c"], "#include \"modules/math.h\"") {
+		t.Fatalf("module C file must include only its own header:\n%s", mathC)
+	}
+	if strings.Contains(mathC, "#include \"modules/app.h\"") {
+		t.Fatalf("module C file includes another module's header:\n%s", mathC)
 	}
 }
 
 // Built-in machinery used only in a non-root module is aggregated into the
-// program-wide pair: main.h carries the shared definitions and the one
-// canonical literal table, main.c stays thin, and the module's pair holds
-// only its own user content plus inline helpers (RFC 0034 built-in generic
-// ownership).
+// program-wide pair: hexal.h carries the shared definitions and the one
+// canonical literal table, the root module C stays thin, and the module's
+// pair holds only its own user content plus inline helpers (RFC 0034
+// built-in generic ownership).
 func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.compute()\n",
@@ -209,23 +217,23 @@ func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
-	mainH := result.Files["main.h"]
+	hexalH := result.Files["hexal.h"]
 	mathC := result.Files["modules/math.c"]
-	// The list machinery and the literal table live in main.h, driven by the
+	// The list machinery and the literal table live in hexal.h, driven by the
 	// program-wide aggregate even though only math uses them.
-	if !strings.Contains(mainH, "typedef struct hex_list_Int32") {
-		t.Fatalf("main.h lacks the list definition from math:\n%s", mainH)
+	if !strings.Contains(hexalH, "typedef struct hex_list_Int32") {
+		t.Fatalf("hexal.h lacks the list definition from math:\n%s", hexalH)
 	}
-	if !strings.Contains(mainH, "static const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };") {
-		t.Fatalf("main.h lacks the canonical \"hello\" literal (index 0):\n%s", mainH)
+	if !strings.Contains(hexalH, "static const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };") {
+		t.Fatalf("hexal.h lacks the canonical \"hello\" literal (index 0):\n%s", hexalH)
 	}
 	// The module's own references use the program-wide indices.
 	if !strings.Contains(mathC, "&hex_lit_0") {
 		t.Fatalf("math.c does not reference the program-wide literal:\n%s", mathC)
 	}
 	// The stdio gate covers modules too: print helpers in math.h need fputs.
-	if !strings.Contains(mainH, "#include <stdio.h>") {
-		t.Fatalf("main.h lacks the stdio include for math's print helpers:\n%s", mainH)
+	if !strings.Contains(hexalH, "#include <stdio.h>") {
+		t.Fatalf("hexal.h lacks the stdio include for math's print helpers:\n%s", hexalH)
 	}
 	if strings.Contains(mathC, "int main(void)") {
 		t.Fatalf("math.c contains the process entry point:\n%s", mathC)
@@ -234,9 +242,9 @@ func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 
 // Concurrency machinery used only in a non-root module is emitted once per
 // process: the scheduler runtime and the spawn entry prototypes live in the
-// main pair, while the entry adapter and its argument frame live beside the
-// spawned function's own definition (RFC 0034 per-module generation, RFC
-// 0037 spawn linkage).
+// root module's C file and hexal.h, while the entry adapter and its argument
+// frame live beside the spawned function's own definition (RFC 0034
+// per-module generation, RFC 0037 spawn linkage).
 func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nx: Int32 | Error = Math.compute()\n",
@@ -246,25 +254,25 @@ func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
-	mainC := result.Files["main.c"]
-	mainH := result.Files["main.h"]
+	appC := result.Files["modules/app.c"]
+	hexalH := result.Files["hexal.h"]
 	mathC := result.Files["modules/math.c"]
 	mathH := result.Files["modules/math.h"]
 	// The scheduler runtime and its externs are program-wide.
-	if !strings.Contains(mainC, "hex_scheduler_init") {
-		t.Fatalf("main.c lacks the scheduler runtime for math's spawn:\n%s", mainC)
+	if !strings.Contains(appC, "hex_scheduler_init") {
+		t.Fatalf("app.c lacks the scheduler runtime for math's spawn:\n%s", appC)
 	}
-	if !strings.Contains(mainC, "hex_scheduler_init();") {
-		t.Fatalf("main.c does not initialize the scheduler:\n%s", mainC)
+	if !strings.Contains(appC, "hex_scheduler_init();") {
+		t.Fatalf("app.c does not initialize the scheduler:\n%s", appC)
 	}
-	if !strings.Contains(mainH, "void hex_task_complete(hex_task *task);") {
-		t.Fatalf("main.h lacks the task-complete extern the adapters call:\n%s", mainH)
+	if !strings.Contains(hexalH, "void hex_task_complete(hex_task *task);") {
+		t.Fatalf("hexal.h lacks the task-complete extern the adapters call:\n%s", hexalH)
 	}
 	// The entry adapter lives in the spawned function's own module pair with
-	// external linkage and its argument frame beside it; main.c carries no
-	// adapters.
-	if !strings.Contains(mainH, "void hex_task_entry_hex_f_m4_math_double(hex_task *task);") {
-		t.Fatalf("main.h lacks the spawn entry prototype:\n%s", mainH)
+	// external linkage and its argument frame beside it; the root module C
+	// carries no adapters.
+	if !strings.Contains(hexalH, "void hex_task_entry_hex_f_m4_math_double(hex_task *task);") {
+		t.Fatalf("hexal.h lacks the spawn entry prototype:\n%s", hexalH)
 	}
 	if !strings.Contains(mathC, "void hex_task_entry_hex_f_m4_math_double(hex_task *task) {") {
 		t.Fatalf("math.c lacks the adapter definition:\n%s", mathC)
@@ -275,16 +283,14 @@ func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 	if !strings.Contains(mathH, "typedef struct hex_task_args_hex_f_m4_math_double") {
 		t.Fatalf("math.h lacks the adapter argument frame:\n%s", mathH)
 	}
-	if strings.Contains(mainC, "hex_task_entry_") {
-		t.Fatalf("main.c carries spawn adapters:\n%s", mainC)
-	}
-	if strings.Contains(mathC, "hex_module_root_run") {
-		t.Fatalf("math.c carries the root run:\n%s", mathC)
+	if strings.Contains(appC, "hex_task_entry_") {
+		t.Fatalf("app.c carries spawn adapters:\n%s", appC)
 	}
 }
 
-// The I/O gate used only in a non-root module is emitted once in main.c, and
-// the module's inline helpers call it through the main.h externs.
+// The I/O gate used only in a non-root module is emitted once in the root
+// module's C file, and the module's inline helpers call it through the
+// hexal.h externs.
 func TestModuleGenerationIOGateProgramWide(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":   "module Files = import \"./files\"\nx: Nil | Error = Files.write_line()\n",
@@ -294,12 +300,12 @@ func TestModuleGenerationIOGateProgramWide(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
-	mainC := result.Files["main.c"]
-	mainH := result.Files["main.h"]
-	if !strings.Contains(mainC, "hex_io_gate_lock") {
-		t.Fatalf("main.c lacks the IO gate for files.hex:\n%s", mainC)
+	appC := result.Files["modules/app.c"]
+	hexalH := result.Files["hexal.h"]
+	if !strings.Contains(appC, "hex_io_gate_lock") {
+		t.Fatalf("app.c lacks the IO gate for files.hex:\n%s", appC)
 	}
-	if !strings.Contains(mainH, "extern bool hex_io_gate_closed;") {
-		t.Fatalf("main.h lacks the IO gate externs:\n%s", mainH)
+	if !strings.Contains(hexalH, "extern bool hex_io_gate_closed;") {
+		t.Fatalf("hexal.h lacks the IO gate externs:\n%s", hexalH)
 	}
 }

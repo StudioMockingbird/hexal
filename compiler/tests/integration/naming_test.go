@@ -24,7 +24,7 @@ func TestPrivateValueNames(t *testing.T) {
 		"const int32_t hex_v_" + longName + " = 6;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -41,7 +41,7 @@ func TestReferencesUsePrivateValueNames(t *testing.T) {
 		"const int32_t hex_v_value = *hex_v_pointer;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

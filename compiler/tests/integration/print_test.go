@@ -121,7 +121,7 @@ func TestPrintDeferred(t *testing.T) {
 		"hex_print_text(hex_defer_capture_1->data, hex_defer_capture_1->byte_length);",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

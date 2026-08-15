@@ -12,7 +12,7 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-const mainHeaderPrefix = "#ifndef HEXAL_MAIN_H\n#define HEXAL_MAIN_H\n\n#include <stdint.h>\n#include <stdbool.h>\n#include <limits.h>\n#include <stdlib.h>\n"
+const hexalHeaderPrefix = "#ifndef HEXAL_H\n#define HEXAL_H\n\n#include <stdint.h>\n#include <stdbool.h>\n#include <limits.h>\n#include <stdlib.h>\n"
 const sourceFilename = "main.hex"
 
 // RFC 0034: each module's generated C and header are modules/<canonical>.c and
@@ -190,11 +190,11 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 }
 
 // programEmission is the program-wide aggregate of every reachable module's
-// built-in machinery. main.c and main.h are generated from it, so the
-// once-per-process runtime cores and the shared type and literal definitions
-// cover every module, not just the entrypoint's discovery (RFC 0034:
-// built-in specialization identity depends only on the constructor and its
-// canonical arguments, never on the requesting module).
+// built-in machinery. hexal.h is generated from it, so the once-per-process
+// runtime cores and the shared type and literal definitions cover every
+// module, not just the entrypoint's discovery (RFC 0034: built-in
+// specialization identity depends only on the constructor and its canonical
+// arguments, never on the requesting module).
 type programEmission struct {
 	float32Used      bool
 	float64Used      bool
@@ -291,7 +291,7 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 	merged.adapterSites = routeSpawnSites(merged.concurrencyState)
 	// The per-module runtime error literals were registered against each
 	// module's own table during discovery; after aggregation the emitted
-	// indices must match the program-wide table main.h defines.
+	// indices must match the program-wide table hexal.h defines.
 	rebaseLiteralNames(modules, merged.stringState)
 	return merged
 }
@@ -463,7 +463,7 @@ func routeSpawnSites(merged *generatedConcurrencyState) map[string][]spawnSite {
 // rebaseLiteralNames rewrites each module's precomputed runtime failure
 // literal names against the program-wide literal table: discovery registered
 // the payloads into each module's own table, but every emitted reference must
-// name the aggregated index main.h defines (RFC 0034: one canonical literal
+// name the aggregated index hexal.h defines (RFC 0034: one canonical literal
 // set program-wide).
 func rebaseLiteralNames(modules []*moduleEmission, stringState *generatedStringState) {
 	for _, module := range modules {
@@ -490,9 +490,9 @@ func literalObjectName(stringState *generatedStringState, payload string) string
 
 // emitModulePair writes one module's C/header pair from its own discovery
 // states plus the program-wide aggregate. The entrypoint module (isRoot)
-// additionally carries the root run function and its header declaration; the
-// entry adapters of every spawn site routed to this module are emitted after
-// the function definitions they call; all literal references use the
+// additionally carries the process-wide runtime cores and the C entry point;
+// the entry adapters of every spawn site routed to this module are emitted
+// after the function definitions they call; all literal references use the
 // program-wide table.
 func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bool) (moduleC string, moduleH string, err error) {
 	canonicalID := emission.canonicalID
@@ -504,13 +504,11 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	typeState := emission.typeState
 	stringState := merged.stringState
 
-	// RFC 0034: the module's own C file carries every user definition, the
-	// spawn entry adapters of the functions it owns, and, for the entrypoint
-	// module only, the root run. The generated main.c owns the compiler
-	// machinery that must exist once per process: the concurrency runtime
-	// and the I/O gate, both built from the program-wide aggregate.
+	// RFC 0060: every module C file includes only its own module header; the
+	// header includes hexal.h, so the translation unit sees the shared
+	// program-support contract exactly once.
 	var moduleBody strings.Builder
-	moduleBody.WriteString("#include \"main.h\"\n#include \"modules/" + canonicalID + ".h\"\n\n")
+	moduleBody.WriteString("#include \"modules/" + canonicalID + ".h\"\n\n")
 
 	// Function definitions sit at file scope in source order, after the
 	// object definitions the header already carries. Only self-recursion and
@@ -568,24 +566,46 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		moduleID:       canonicalID,
 	}
 	if isRoot {
+		// RFC 0060: the selected root module's C file owns the process-wide
+		// runtime definitions and the C entry point. The runtime cores are
+		// emitted after the module's own definitions and before main(), in
+		// their unchanged order: the concurrency runtime first, then the I/O
+		// gate. Every module header includes hexal.h, which declares the
+		// runtime entry points with external linkage.
+		writeConcurrencyRuntime(&moduleBody, merged.concurrencyState, merged.stringState)
+		writeIOGate(&moduleBody, merged.ioState, merged.concurrencyState != nil && merged.concurrencyState.used)
+
 		renderState.pushScope()
-		// RFC 0034: the module statements execute as hex_module_root_run,
-		// called by the generated main after scheduler initialization.
-		// Module-level storage stays inside the run; a function body cannot
-		// reach it, so nothing is promoted to static storage duration. The
-		// root run exists only in the entrypoint module's pair.
-		moduleBody.WriteString("int hex_module_root_run(void) {\n")
+		// RFC 0060: the module statements execute directly inside main().
+		// Module-level storage stays inside main; a function body cannot
+		// reach it, so nothing is promoted to static storage duration. With
+		// concurrency the statements run as the root task between scheduler
+		// initialization and hex_task_complete; without it they run before
+		// main returns EXIT_SUCCESS. No non-root module ever declares or
+		// defines main() or process-wide runtime state.
+		moduleBody.WriteString("int main(void) {\n")
+		if merged.concurrencyState != nil && merged.concurrencyState.used {
+			moduleBody.WriteString("    hex_scheduler_init();\n")
+		}
 		if statementErr := writeStatements(&moduleBody, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
 			return "", "", statementErr
+		}
+		if merged.concurrencyState != nil && merged.concurrencyState.used {
+			// RFC 0037: completing the root Task wakes the scheduler, stops
+			// the workers, and switches back to main so it returns normally.
+			// Tasks still active are abandoned to process termination, as the
+			// spec requires.
+			moduleBody.WriteString("    hex_task_complete(hex_root_task);\n")
 		}
 		moduleBody.WriteString("    return EXIT_SUCCESS;\n}\n")
 	}
 
 	// RFC 0034: the module's own header declares its exported declarations
 	// and every foreign symbol it calls; importers never include another
-	// module's header. The entry adapters routed to this module read their
-	// argument frames, so those frames are declared here too, self-contained
-	// in the owning module's translation unit.
+	// module's header. Every module header includes hexal.h for the shared
+	// program-support contract. The entry adapters routed to this module
+	// read their argument frames, so those frames are declared here too,
+	// self-contained in the owning module's translation unit.
 	var headerPrototypes strings.Builder
 	writeExportedPrototypes(&headerPrototypes, program, owner)
 	writeForeignPrototypes(&headerPrototypes, program, renderState)
@@ -610,7 +630,6 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		canonicalID:   canonicalID,
 		prototypes:    headerPrototypes.String(),
 		extraFrames:   extraFrames.String(),
-		rootRun:       isRoot,
 		filename:      logicalKey,
 	})
 	return moduleBody.String(), moduleHeader, nil
@@ -635,65 +654,10 @@ func routedFrames(emission *moduleEmission, sites []spawnSite) []spawnSite {
 	return frames
 }
 
-// emitMainPair writes main.c and main.h from the program-wide aggregate plus
-// the entrypoint module's identity. main.c owns the once-per-process runtime
-// cores and the C entry point; main.h owns the shared declarations every
-// translation unit needs before any module content (RFC 0034).
-func emitMainPair(merged *programEmission, root *moduleEmission) (mainC string, mainH string, err error) {
-	var mainBody strings.Builder
-	// The entrypoint module's TU is the one main.c builds on: it includes
-	// main.h and this module's own header.
-	mainBody.WriteString("#include \"main.h\"\n#include \"modules/" + root.canonicalID + ".h\"\n\n")
-	writeConcurrencyRuntime(&mainBody, merged.concurrencyState, merged.stringState)
-	writeIOGate(&mainBody, merged.ioState, merged.concurrencyState != nil && merged.concurrencyState.used)
-
-	mainBody.WriteString("int main(void) {\n")
-	if merged.concurrencyState != nil && merged.concurrencyState.used {
-		// RFC 0037: the scheduler initializes before any Hexal source runs;
-		// the module statements execute as the root Task on worker zero, and
-		// hex_task_complete below hands the process back to main.
-		mainBody.WriteString("    hex_scheduler_init();\n")
-		mainBody.WriteString("    hex_module_root_run();\n")
-		// RFC 0037: completing the root Task wakes the scheduler, stops the
-		// workers, and switches back to main so it returns normally. Tasks
-		// still active are abandoned to process termination, as the spec
-		// requires.
-		mainBody.WriteString("    hex_task_complete(hex_root_task);\n")
-	} else {
-		mainBody.WriteString("    return hex_module_root_run();\n")
-	}
-	mainBody.WriteString("}\n")
-
-	mainHeader := mainHeader(mainHeaderInput{
-		float32Used:  merged.float32Used,
-		float64Used:  merged.float64Used,
-		nilUsed:      merged.nilUsed,
-		errorUsed:    merged.errorUsed,
-		stdioNeeded:  merged.stdioNeeded,
-		heaps:        merged.heapState,
-		views:        merged.viewState,
-		stringState:  merged.stringState,
-		lists:        merged.listState,
-		dicts:        merged.dictState,
-		arrays:       merged.arrayState,
-		concurrency:  merged.concurrencyState,
-		io:           merged.ioState,
-		sizeLiterals: merged.sizeLiterals,
-		filename:     root.logicalKey,
-	})
-	return mainBody.String(), mainHeader, nil
-}
-
-func header(float32Used, float64Used, nilUsed bool, objects []*compilerTypes.ObjectType) string {
-	// header is the pre-RFC-0034 test compatibility surface: one module, no
-	// machinery state. The program-wide aggregate for such a program is
-	// exactly these flags plus empty specialization sets.
-	return mainHeader(mainHeaderInput{float32Used: float32Used, float64Used: float64Used, nilUsed: nilUsed, filename: "app.hex"})
-}
-
-// mainHeaderInput carries every value the main-header builder consumes. One
-// field per argument, no derived or cached state (RFC 0057 Item 6).
-type mainHeaderInput struct {
+// hexalHeaderInput carries every value the shared program-support header
+// builder consumes. One field per argument, no derived or cached state
+// (RFC 0057 Item 6).
+type hexalHeaderInput struct {
 	float32Used  bool
 	float64Used  bool
 	nilUsed      bool
@@ -708,7 +672,6 @@ type mainHeaderInput struct {
 	concurrency  *generatedConcurrencyState
 	io           *generatedIOState
 	sizeLiterals []string
-	filename     string
 }
 
 // moduleHeaderInput carries every value the module-header builder consumes.
@@ -731,20 +694,20 @@ type moduleHeaderInput struct {
 	canonicalID   string
 	prototypes    string
 	extraFrames   string
-	rootRun       bool
 	filename      string
 }
 
-// mainHeader emits main.h: the fixed C23 target-profile preamble, the shared
-// value machinery that carries no process-wide state, and the extern
-// declarations for the runtime functions the module header's inline helpers
-// call. Everything here is included by both translation units, so no
-// definition in main.h may hold static storage. The states are the
-// program-wide aggregate: every module's built-in machinery must be declared
-// here before any module content (RFC 0034 built-in generic ownership).
-func mainHeader(input mainHeaderInput) string {
+// hexalHeader emits hexal.h: the fixed C23 target-profile preamble, the
+// shared value machinery that carries no process-wide state, and the extern
+// declarations for the runtime functions the module headers' inline helpers
+// call. Everything here is included by every translation unit through each
+// module header, so no definition in hexal.h may hold static storage. The
+// states are the program-wide aggregate: every module's built-in machinery
+// must be declared here before any module content (RFC 0034 built-in generic
+// ownership).
+func hexalHeader(input hexalHeaderInput) string {
 	var result strings.Builder
-	result.WriteString(mainHeaderPrefix)
+	result.WriteString(hexalHeaderPrefix)
 	result.WriteString("\nstatic_assert(CHAR_BIT == 8, \"Hexal requires 8-bit bytes\");\n")
 	result.WriteString("static_assert(sizeof(uint8_t) * CHAR_BIT == 8 && UINT8_MAX == 255, \"Hexal requires UInt8\");\n")
 	result.WriteString("static_assert(sizeof(uint16_t) * CHAR_BIT == 16 && UINT16_MAX == 65535, \"Hexal requires UInt16\");\n")
@@ -788,8 +751,8 @@ func mainHeader(input mainHeaderInput) string {
 	writeConcurrencyTypePrelude(&result, input.concurrency)
 	writeIOPrelude(&result, input.io)
 	// RFC 0034: the module header's inline helpers call the runtime core,
-	// which lives in main.c with external linkage. main.h declares those
-	// entry points before any module content.
+	// which lives in the root module's C file with external linkage. hexal.h
+	// declares those entry points before any module content.
 	writeConcurrencyExterns(&result, input.concurrency)
 	writeIOExterns(&result, input.io)
 	writeHeapDefinitions(&result, input.heaps)
@@ -810,13 +773,12 @@ func mainHeader(input mainHeaderInput) string {
 
 // moduleHeader emits one module's header: everything that references the
 // module's own types, plus the state-free inline helper families whose
-// non-inline cores live in main.c. The guard is the RFC 0034 module header
-// guard shape. input.extraFrames holds the entry-adapter argument frames of
-// the spawn sites routed to this module; input.rootRun admits the root run
-// declaration in the entrypoint module's header only.
+// non-inline cores live in the root module's C file. The guard is the RFC
+// 0034 module header guard shape. input.extraFrames holds the
+// entry-adapter argument frames of the spawn sites routed to this module.
 func moduleHeader(input moduleHeaderInput) string {
 	var result strings.Builder
-	result.WriteString("#ifndef " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n#define " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n\n#include \"main.h\"\n")
+	result.WriteString("#ifndef " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n#define " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n\n#include \"hexal.h\"\n")
 	writeAdtDefinitions(&result, input.adts)
 	writeUnionDefinitions(&result, input.unions)
 	writeObjectDefinitions(&result, input.objects, input.filename)
@@ -840,9 +802,6 @@ func moduleHeader(input moduleHeaderInput) string {
 		result.WriteString("\n/* RFC 0037: spawn entry adapter argument frames */\n")
 		result.WriteString(input.extraFrames)
 	}
-	if input.rootRun {
-		result.WriteString("\nint hex_module_root_run(void);\n")
-	}
 	result.WriteString("\n#endif\n")
 	return result.String()
 }
@@ -856,7 +815,7 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 	// exported objects referenced through the import alias. They are
 	// reachable through the checked statements' types, so the walk collects
 	// local and foreign definitions together; each module file includes
-	// only its own header plus main.h, so no translation unit ever sees two
+	// only its own header plus hexal.h, so no translation unit ever sees two
 	// definitions of one struct.
 	visitor := &programVisitor{
 		Type: func(typ compilerTypes.Type) error {

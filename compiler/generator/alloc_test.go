@@ -10,12 +10,12 @@ import (
 func TestGenerateHeapAllocationAndFree(t *testing.T) {
 	program := checkedGeneratorSource(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p)")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
-	rootC, rootH, mainH := files["modules/app.c"], files["modules/app.h"], files["main.h"]
+	rootC, rootH, hexalH := files["modules/app.c"], files["modules/app.h"], files["hexal.h"]
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"hex_heap_raw_allocate", "hex_heap_free", "hex_heap_allocate_Int32", "hex_heap_header"} {
-		if !strings.Contains(rootC, want) && !strings.Contains(rootH, want) && !strings.Contains(mainH, want) {
+		if !strings.Contains(rootC, want) && !strings.Contains(rootH, want) && !strings.Contains(hexalH, want) {
 			t.Fatalf("generated output does not contain %q: C=%q H=%q", want, rootC, rootH)
 		}
 	}

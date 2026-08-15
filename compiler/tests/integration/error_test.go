@@ -25,7 +25,7 @@ func TestErrorNewConstruction(t *testing.T) {
 		".hex_m_line = 2,",
 		".hex_m_column = 18,",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
@@ -43,7 +43,7 @@ func TestTryExpression(t *testing.T) {
 		"hex_v_count = hex_try_1.payload.member_0;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -61,7 +61,7 @@ func TestTryStatement(t *testing.T) {
 		"if (hex_try_1.tag == ",
 	} {
 		if !strings.Contains(rootC(t, nilSuccess), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, nilSuccess), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, nilSuccess), want)
 		}
 	}
 	if strings.Contains(rootC(t, nilSuccess), "hex_try_result_") {
@@ -109,7 +109,7 @@ func TestTryMultipleSuccessMembers(t *testing.T) {
 		"switch (hex_try_1.tag) {",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -129,7 +129,7 @@ func TestErrdeferRunsOnErrorReturn(t *testing.T) {
 	// The try error path unwinds with errorExit=true: both the errdefer and
 	// the defer run.
 	if !strings.Contains(rootC(t, result), "hex_f_m3_app_cleanup(hex_defer_capture_1);") || !strings.Contains(rootC(t, result), "hex_f_m3_app_cleanup(hex_defer_capture_2);") {
-		t.Fatalf("main.c = %q, want errdefer and defer on the error path", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want errdefer and defer on the error path", rootC(t, result))
 	}
 }
 
@@ -141,13 +141,13 @@ func TestErrdeferSkippedOnSuccessReturn(t *testing.T) {
 	// The success return classifies the exit: the defer runs unconditionally
 	// and the errdefer is guarded by the runtime Error test.
 	if !strings.Contains(rootC(t, result), "const bool hex_err_2 = (hex_return_1.tag == hex_union_7_int32_t11_hex_t_Error_tag_member_1);") {
-		t.Fatalf("main.c = %q, want success exit classification", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want success exit classification", rootC(t, result))
 	}
 	if !strings.Contains(rootC(t, result), "if (hex_err_2) {") {
-		t.Fatalf("main.c = %q, want guarded errdefer", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want guarded errdefer", rootC(t, result))
 	}
 	if !strings.Contains(rootC(t, result), "hex_f_m3_app_cleanup(hex_defer_capture_2);") {
-		t.Fatalf("main.c = %q, defer must run on success", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, defer must run on success", rootC(t, result))
 	}
 }
 
@@ -157,7 +157,7 @@ func TestErrdeferRuntimeUnionReturn(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootC(t, result), "const bool hex_err_") {
-		t.Fatalf("main.c = %q, want runtime exit classification", rootC(t, result))
+		t.Fatalf("modules/app.c = %q, want runtime exit classification", rootC(t, result))
 	}
 }
 

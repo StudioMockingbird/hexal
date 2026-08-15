@@ -127,9 +127,6 @@
         <select id="snippet-category" aria-label="Snippet category">
           <option value="">Choose a category...</option>
         </select>
-        <select id="snippet-tag" aria-label="Feature tag filter" disabled>
-          <option value="">All features</option>
-        </select>
         <select id="snippet" aria-label="Language snippet" disabled>
           <option value="">Choose a snippet...</option>
         </select>
@@ -146,7 +143,7 @@
       <div class="section-heading">
         <h2>Generated files</h2>
         <label class="mapping-toggle">
-          <input id="show-line-mappings" type="checkbox" checked>
+          <input id="show-line-mappings" type="checkbox">
           Show #line mappings
         </label>
       </div>
@@ -166,7 +163,6 @@
 
   <script>
     const categorySelect = document.querySelector('#snippet-category');
-    const tagSelect = document.querySelector('#snippet-tag');
     const snippetSelect = document.querySelector('#snippet');
     const snippetDescription = document.querySelector('#snippet-description');
     const sourceList = document.querySelector('#sources');
@@ -293,15 +289,11 @@
 
     function populateSnippets() {
       const category = selectedCategory();
-      const tag = tagSelect.value;
       snippetSelect.replaceChildren(new Option('Choose a snippet...', ''));
       snippetSelect.disabled = !category;
       snippetDescription.textContent = '';
       if (!category) return;
-      for (const snippet of category.snippets) {
-        if (tag && !snippet.features.includes(tag)) continue;
-        snippetSelect.append(new Option(snippet.name, snippet.id));
-      }
+      for (const snippet of category.snippets) snippetSelect.append(new Option(snippet.name, snippet.id));
     }
 
     function selectedSnippet() {
@@ -315,14 +307,6 @@
         if (!response.ok) throw new Error(`snippet request failed (${response.status})`);
         catalog = await response.json();
         for (const category of catalog) categorySelect.append(new Option(category.name, category.id));
-        const tags = new Set();
-        for (const category of catalog) {
-          for (const snippet of category.snippets) {
-            for (const feature of snippet.features) tags.add(feature);
-          }
-        }
-        for (const tag of [...tags].sort()) tagSelect.append(new Option(tag, tag));
-        tagSelect.disabled = false;
         status.textContent = 'Ready';
       } catch (error) {
         status.className = 'status bad';
@@ -355,15 +339,15 @@
           method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(program)
         });
         const result = await response.json();
-        render(result);
+        render(result, program.entrypoint);
       } catch (error) {
-        render({exitCode: 1, stderr: ['workbench: ' + error.message], stats: {tokenCount: 0, sourceLines: 0, phases: []}});
+        render({exitCode: 1, stderr: ['workbench: ' + error.message], stats: {tokenCount: 0, sourceLines: 0, phases: []}}, '');
       } finally {
         compileButton.disabled = false;
       }
     }
 
-    function render(result) {
+    function render(result, entrypoint) {
       const failed = result.stderr && result.stderr.length > 0;
       filesPanel.hidden = failed;
       errorsPanel.hidden = !failed;
@@ -375,7 +359,10 @@
         status.textContent = 'Compilation failed';
       } else {
         generatedFiles = result.files || {};
-        openGeneratedFiles = new Set(Object.hasOwn(generatedFiles, 'main.c') ? ['main.c'] : []);
+        // The selected root module's C file owns the process entry point
+        // (RFC 0060); open it by default.
+        const rootC = entrypoint ? `modules/${entrypoint.replace(/\.hex$/, '')}.c` : '';
+        openGeneratedFiles = new Set(rootC && Object.hasOwn(generatedFiles, rootC) ? [rootC] : []);
         renderGeneratedFiles();
         status.className = 'status good';
         status.textContent = `Compilation succeeded - ${Object.keys(generatedFiles).length} files`;
@@ -425,7 +412,6 @@
     }
 
     categorySelect.addEventListener('change', populateSnippets);
-    tagSelect.addEventListener('change', populateSnippets);
     snippetSelect.addEventListener('change', () => {
       const snippet = selectedSnippet();
       if (!snippet) return;

@@ -22,7 +22,7 @@ func TestBitwiseOperators(t *testing.T) {
 		"const uint16_t hex_v_widened = 0;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -37,7 +37,7 @@ func TestBitwiseSignedReconstruction(t *testing.T) {
 		"const int8_t hex_v_signed = 15;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }
@@ -177,7 +177,7 @@ func TestBitwisePrecedence(t *testing.T) {
 		"const uint32_t hex_v_packed = 66051;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

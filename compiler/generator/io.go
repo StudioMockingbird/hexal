@@ -127,11 +127,11 @@ func writeIOPrelude(result *strings.Builder, state *generatedIOState) {
 	}
 }
 
-// writeIOGate emits the RFC 0040 process-wide output gate into main.c: the
-// gate mutex and its closed flag, plus the lock/unlock/shutdown functions.
-// The gate exists once per process, so it cannot live in a header both
-// translation units include; the module header's inline helpers call it
-// through the main.h extern declarations.
+// writeIOGate emits the RFC 0040 process-wide output gate into the root
+// module's C file: the gate mutex and its closed flag, plus the
+// lock/unlock/shutdown functions. The gate exists once per process, so it
+// cannot live in a header every translation unit includes; the module
+// headers' inline helpers call it through the hexal.h extern declarations.
 func writeIOGate(result *strings.Builder, state *generatedIOState, schedulerLinked bool) {
 	if state == nil || !state.used {
 		return
@@ -156,13 +156,13 @@ func writeIOGate(result *strings.Builder, state *generatedIOState, schedulerLink
 	}
 }
 
-// writeIOExterns emits, into main.h, the output gate entry points the module
-// header's inline write and flush helpers call.
+// writeIOExterns emits, into hexal.h, the output gate entry points the
+// module headers' inline write and flush helpers call.
 func writeIOExterns(result *strings.Builder, state *generatedIOState) {
 	if state == nil || !state.used {
 		return
 	}
-	result.WriteString("\n/* RFC 0040 output gate, defined in main.c */\n")
+	result.WriteString("\n/* RFC 0040 output gate, defined in the root module's C file */\n")
 	result.WriteString("extern bool hex_io_gate_closed;\n")
 	result.WriteString("void hex_io_gate_lock(void);\n")
 	result.WriteString("void hex_io_gate_unlock(void);\n")

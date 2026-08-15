@@ -259,7 +259,7 @@ func EncodeModuleOwner(canonicalID string) string {
 }
 
 // ModuleHeaderGuard returns the include guard for a module header:
-// "HEX_MODULE_" + encoded owner + "_H". Case-preserving; main.h keeps its
+// "HEX_MODULE_" + encoded owner + "_H". Case-preserving; hexal.h keeps its
 // own fixed guard.
 func ModuleHeaderGuard(canonicalID string) string {
 	return "HEX_MODULE_" + EncodeModuleOwner(canonicalID) + "_H"

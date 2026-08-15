@@ -26,7 +26,7 @@ func TestDictInt32Lifecycle(t *testing.T) {
 		"hex_v_removed = hex_dict_remove_Int32_Int32(hex_v_scores, 2);",
 		"hex_dict_free_Int32_Int32(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
@@ -46,7 +46,7 @@ func TestDictStrandKeys(t *testing.T) {
 		"hex_dict_insert_Strand_Int32(hex_v_labels, hex_v_key, 3);",
 		"hex_hash_Strand",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(result.MainH, want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
@@ -67,7 +67,7 @@ func TestDictStringValues(t *testing.T) {
 		"hex_string_free(hex_v_h, hex_v_removed);",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
-			t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

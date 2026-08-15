@@ -48,9 +48,9 @@ func TestMultipleStatements(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n#line 1 \"app.hex\"\n    int32_t hex_v_x = 13;\n#line 1 \"app.hex\"\n    hex_v_x = 14;\n#line 2 \"app.hex\"\n    bool hex_v_flag = true;\n#line 2 \"app.hex\"\n    hex_v_flag = false;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n#line 1 \"app.hex\"\n    int32_t hex_v_x = 13;\n#line 1 \"app.hex\"\n    hex_v_x = 14;\n#line 2 \"app.hex\"\n    bool hex_v_flag = true;\n#line 2 \"app.hex\"\n    hex_v_flag = false;\n    return EXIT_SUCCESS;\n}\n"
 	if rootC(t, result) != want {
-		t.Fatalf("main.c = %q, want %q", rootC(t, result), want)
+		t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 	}
 }
 
@@ -74,9 +74,9 @@ func TestComments(t *testing.T) {
 		t.Fatalf("Compile comments stderr = %#v, want empty", result.Stderr)
 	}
 
-	want := "#include \"main.h\"\n#include \"modules/app.h\"\n\nint hex_module_root_run(void) {\n#line 2 \"app.hex\"\n    int32_t hex_v_x = 13;\n#line 4 \"app.hex\"\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n#line 2 \"app.hex\"\n    int32_t hex_v_x = 13;\n#line 4 \"app.hex\"\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
 	if rootC(t, result) != want {
-		t.Fatalf("commented main.c = %q, want %q", rootC(t, result), want)
+		t.Fatalf("commented modules/app.c = %q, want %q", rootC(t, result), want)
 	}
 }
 

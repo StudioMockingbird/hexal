@@ -23,14 +23,14 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 	if !strings.Contains(rootC(t, result), "hex_task_join_Int32(") {
 		t.Fatalf("generated C lacks the typed join call:\n%s", rootC(t, result))
 	}
-	if !strings.Contains(result.MainC, "hex_scheduler_init") {
-		t.Fatalf("generated main lacks the scheduler runtime:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_scheduler_init") {
+		t.Fatalf("generated root C lacks the scheduler runtime:\n%s", rootC(t, result))
 	}
-	if !strings.Contains(result.MainC, "hex_scheduler_init();") {
-		t.Fatalf("generated main does not initialize the scheduler:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_scheduler_init();") {
+		t.Fatalf("generated main does not initialize the scheduler:\n%s", rootC(t, result))
 	}
-	if !strings.Contains(result.MainC, "hex_task_complete(hex_root_task);") {
-		t.Fatalf("generated main does not complete the root task:\n%s", result.MainC)
+	if !strings.Contains(rootC(t, result), "hex_task_complete(hex_root_task);") {
+		t.Fatalf("generated main does not complete the root task:\n%s", rootC(t, result))
 	}
 }
 
