@@ -189,12 +189,12 @@ func discoverGeneratedBitCasts(program checker.Program) []bitCastSpec {
 
 // writeBitCastDefinitions emits one memcpy-based helper per pair. A signed
 // source is first mapped to its unsigned bit pattern; a signed destination
-// is reconstructed afterward. Float bits pass through unchanged.
+// is reconstructed afterward. Float bits pass through unchanged. The memcpy
+// prerequisite arrives through hexal.h (<string.h>, RFC 0062).
 func writeBitCastDefinitions(result *strings.Builder, specs []bitCastSpec) {
 	if len(specs) == 0 {
 		return
 	}
-	result.WriteString("#include <string.h>\n")
 	for _, spec := range specs {
 		sourceC := spec.source.CName
 		targetC := spec.target.CName

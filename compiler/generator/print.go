@@ -97,7 +97,6 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) 
 	if state == nil || !state.used {
 		return
 	}
-	result.WriteString("\n#include <inttypes.h>\n#include <math.h>\n")
 	result.WriteString("static void hex_print_failure(void) {\n")
 	result.WriteString("    fputs(\"[Runtime Error] standard output write failed\\n\", stderr);\n    abort();\n}\n")
 	result.WriteString("static void hex_print_bytes(const uint8_t *data, size_t length) {\n")
@@ -325,7 +324,15 @@ func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, ind
 	case compilerTypes.IsString(typ):
 		fmt.Fprintf(body, "%shex_print_text(%s->data, %s->byte_length);\n", indent, name, name)
 	case compilerTypes.IsStrand(typ):
-		fmt.Fprintf(body, "%shex_print_text(%s.data, %s.length);\n", indent, name, name)
+		// A Strand's logical payload ends at the first NUL byte of its
+		// 32-byte inline storage (RFC 0044).
+		fmt.Fprintf(body, "%s{\n", indent)
+		fmt.Fprintf(body, "%s    size_t length = 0;\n", indent)
+		fmt.Fprintf(body, "%s    while (length < 32 && %s.data[length] != 0) {\n", indent, name)
+		fmt.Fprintf(body, "%s        length++;\n", indent)
+		fmt.Fprintf(body, "%s    }\n", indent)
+		fmt.Fprintf(body, "%s    hex_print_text(%s.data, length);\n", indent, name)
+		fmt.Fprintf(body, "%s}\n", indent)
 	case compilerTypes.IsError(typ):
 		fmt.Fprintf(body, "%shex_print_error_direct(%s);\n", indent, name)
 	default:

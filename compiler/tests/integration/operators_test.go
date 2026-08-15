@@ -74,12 +74,10 @@ func TestCompleteOperatorProgram(t *testing.T) {
 			t.Fatalf("modules/app.c = %q, want fragment %q", rootC(t, result), want)
 		}
 	}
-	for _, want := range []string{
-		"static_assert(sizeof(float) == 4",
-		"static_assert(sizeof(double) == 8",
-	} {
-		if !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
-			t.Fatalf("modules/app.h = %q, want fragment %q", rootH(t, result), want)
+	// RFC 0062: float use emits no representation probe.
+	for _, forbidden := range []string{"static_assert(sizeof(float)", "static_assert(sizeof(double)"} {
+		if strings.Contains(rootH(t, result), forbidden) || strings.Contains(hexalH(t, result), forbidden) {
+			t.Fatalf("modules/app.h = %q, removed target probe %q emitted", rootH(t, result), forbidden)
 		}
 	}
 }

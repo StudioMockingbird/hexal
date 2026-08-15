@@ -48,7 +48,7 @@ func TestTypeOnlyProgram(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful type-only program", result)
 	}
-	want := "#include \"modules/app.h\"\n\nint main(void) {\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n    return 0;\n}\n"
 	if rootC(t, result) != want {
 		t.Fatalf("modules/app.c = %q, want empty executable program", rootC(t, result))
 	}

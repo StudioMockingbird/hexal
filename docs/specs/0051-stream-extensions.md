@@ -1,7 +1,7 @@
 # RFC 0051: Stream Extensions
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; design not started
+- Status: Draft; cancellation approved by RFC 0064
 - Features: fallible stream steps, additional sources, terminal operations,
   producer cleanup callbacks, and allocator-backed nodes
 - Created: 2026-08-13

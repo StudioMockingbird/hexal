@@ -23,7 +23,7 @@ func TestGenerateInt32Declaration(t *testing.T) {
 		}},
 	}
 
-	wantRoot := "#include \"modules/app.h\"\n\nint main(void) {\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
+	wantRoot := "#include \"modules/app.h\"\n\nint main(void) {\n    const int32_t hex_v_x = 13;\n    return 0;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +183,7 @@ func TestGenerateBoolDeclaration(t *testing.T) {
 		}},
 	}
 
-	want := "#include \"modules/app.h\"\n\nint main(void) {\n    const bool hex_v_enabled = true;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n    const bool hex_v_enabled = true;\n    return 0;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -203,7 +203,7 @@ func TestGenerateHexadecimalInt32Declaration(t *testing.T) {
 		}},
 	}
 
-	want := "#include \"modules/app.h\"\n\nint main(void) {\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n    const int32_t hex_v_mask = 0xFF;\n    return 0;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -222,7 +222,7 @@ func TestGenerateStatementsInOrder(t *testing.T) {
 		},
 	}
 
-	want := "#include \"modules/app.h\"\n\nint main(void) {\n    int32_t hex_v_x = 13;\n    hex_v_x = 14;\n    return EXIT_SUCCESS;\n}\n"
+	want := "#include \"modules/app.h\"\n\nint main(void) {\n    int32_t hex_v_x = 13;\n    hex_v_x = 14;\n    return 0;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -260,7 +260,7 @@ func TestGeneratePointerDeclarationAndAssignments(t *testing.T) {
 		"    int32_t *hex_v_p = &hex_v_x;\n" +
 		"    *hex_v_p = 14;\n" +
 		"    hex_v_p = &hex_v_x;\n" +
-		"    return EXIT_SUCCESS;\n" +
+		"    return 0;\n" +
 		"}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	rootC := files["modules/app.c"]
@@ -976,40 +976,31 @@ func TestRenderUnsignedNarrowMultiplicationUsesUInt32Intermediate(t *testing.T) 
 	}
 }
 
-// The emitted #error guards are asserted textually. Proving the preprocessor
-// actually rejects a target with the macros undefined needs a C toolchain; see
-// spec 0013 for the deferred c23 build-tag suite.
-func TestFloatTargetAssertionsFailClosed(t *testing.T) {
-	rootH := hexalHeader(hexalHeaderInput{float32Used: true, float64Used: true})
-	for _, want := range []string{
-		"static_assert(sizeof(float) == 4 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, \"Hexal Float32 requires the binary32 value set\");",
-		"#if !defined(FLT_IS_IEC_60559) || FLT_IS_IEC_60559 != 1\n#error \"Hexal Float32 requires IEC 60559\"\n#endif",
-		"static_assert(sizeof(double) == 8 && DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024, \"Hexal Float64 requires the binary64 value set\");",
-		"#if !defined(DBL_IS_IEC_60559) || DBL_IS_IEC_60559 != 1\n#error \"Hexal Float64 requires IEC 60559\"\n#endif",
+// RFC 0062: generated C contains no generic target-profile probes. Toolchain
+// qualification (8-bit bytes, exact-width integers, IEC float representations)
+// is a supported-toolchain contract owned outside generated source.
+func TestNoTargetProfileProbesEmitted(t *testing.T) {
+	header := hexalHeader(hexalHeaderInput{})
+	for _, forbidden := range []string{
+		"CHAR_BIT",
+		"static_assert(sizeof(uint8_t)",
+		"static_assert(sizeof(int32_t)",
+		"FLT_RADIX",
+		"FLT_MANT_DIG",
+		"DBL_MANT_DIG",
+		"FLT_IS_IEC_60559",
+		"DBL_IS_IEC_60559",
+		"#include <stdbool.h>",
+		"#include <limits.h>",
+		"#include <float.h>",
+		"hex_eos",
 	} {
-		if !strings.Contains(rootH, want) {
-			t.Fatalf("hexal.h = %q, want %q", rootH, want)
+		if strings.Contains(header, forbidden) {
+			t.Fatalf("hexal.h = %q, target profile probe %q must not be emitted", header, forbidden)
 		}
 	}
-
-	// A header emits only the guards for the float kinds the program uses.
-	for _, testCase := range []struct {
-		name    string
-		rootH   string
-		want    string
-		notWant string
-	}{
-		{name: "Float32", rootH: hexalHeader(hexalHeaderInput{float32Used: true}), want: "FLT_IS_IEC_60559", notWant: "DBL_IS_IEC_60559"},
-		{name: "Float64", rootH: hexalHeader(hexalHeaderInput{float64Used: true}), want: "DBL_IS_IEC_60559", notWant: "FLT_IS_IEC_60559"},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			if !strings.Contains(testCase.rootH, testCase.want) {
-				t.Fatalf("hexal.h = %q, want %s guard", testCase.rootH, testCase.want)
-			}
-			if strings.Contains(testCase.rootH, testCase.notWant) {
-				t.Fatalf("hexal.h = %q, want no %s guard", testCase.rootH, testCase.notWant)
-			}
-		})
+	if strings.Contains(header, "static_assert") {
+		t.Fatalf("hexal.h = %q, no source-dependent Size assertion is present", header)
 	}
 }
 
@@ -1579,16 +1570,19 @@ func TestRenderRejectsNestedMalformedOperation(t *testing.T) {
 	assertGeneratorUnknownError(t, err)
 }
 
-func TestUsedFloatTypesTraversesOperationNodes(t *testing.T) {
+func TestTypeRequirementsTraverseOperationNodes(t *testing.T) {
 	float32Comparison := binaryExpression(checker.EqualOperator, compilerTypes.Float32, compilerTypes.Bool, variableNode("a"), variableNode("b"))
 	float64Comparison := binaryExpression(checker.EqualOperator, compilerTypes.Float64, compilerTypes.Bool, variableNode("c"), variableNode("d"))
 	program := checker.Program{Statements: []checker.Statement{
 		checker.Declaration{Name: "one", Type: compilerTypes.Bool, Source: checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Bool, Node: float32Comparison}},
 		checker.Declaration{Name: "two", Type: compilerTypes.Bool, Source: checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Bool, Node: float64Comparison}},
 	}}
-	float32Used, float64Used, nilUsed := usedFloatTypes(program)
-	if !float32Used || !float64Used || nilUsed {
-		t.Fatalf("usedFloatTypes() = (%v, %v, %v), want (true, true, false)", float32Used, float64Used, nilUsed)
+	requirements := &cHeaderRequirements{}
+	collectTypeRequirements(program, requirements)
+	// Float comparisons emit no headers: the representation facts are a
+	// toolchain contract, not program facts (RFC 0062).
+	if len(requirements.headers) != 0 {
+		t.Fatalf("collectTypeRequirements() = %v, want no headers for float-only operations", requirements.headers)
 	}
 }
 
@@ -1711,7 +1705,7 @@ func TestRenderTruthinessConditions(t *testing.T) {
 				Literal:  "0",
 				Node:     checker.Expression{Kind: checker.ConstantExpression, ResultType: compilerTypes.Int32},
 			},
-			want: "if ((0, true)) {",
+			want: "if (((void)(0), true)) {",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1766,7 +1760,7 @@ func TestRenderLogicalOperationWithMixedOperands(t *testing.T) {
 			name: "int and bool",
 			node: binaryExpression(checker.LogicalAndOperator, compilerTypes.Int32, compilerTypes.Bool,
 				constantExpression(intSource(compilerTypes.Int32, 1, "1")), boolConstant(true)),
-			want: "((1, true) && true)",
+			want: "(((void)(1), true) && true)",
 		},
 		{
 			name: "nil or bool",
@@ -1778,7 +1772,7 @@ func TestRenderLogicalOperationWithMixedOperands(t *testing.T) {
 			name: "not int",
 			node: unaryExpression(checker.LogicalNotOperator, compilerTypes.Int32, compilerTypes.Bool,
 				constantExpression(intSource(compilerTypes.Int32, 0, "0"))),
-			want: "(!(0, true))",
+			want: "(!((void)(0), true))",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1907,7 +1901,7 @@ func TestGenerateFunctionDefinition(t *testing.T) {
 		"static int32_t hex_f_m3_app_identity(const int32_t hex_v_x) {\n" +
 		"    return hex_v_x;\n" +
 		"}\n\n" +
-		"int main(void) {\n    return EXIT_SUCCESS;\n}\n"
+		"int main(void) {\n    return 0;\n}\n"
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
 	gotC := files["modules/app.c"]
 	if err != nil {

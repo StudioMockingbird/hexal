@@ -84,6 +84,16 @@ func writeHeapDefinitions(result *strings.Builder, state *heapHelpers) {
 	result.WriteString("    header->live = false;\n")
 	result.WriteString("    free(header);\n")
 	result.WriteString("}\n")
+}
+
+// writeHeapAllocateHelpers emits the typed allocation helpers into the module
+// header. They are per-module because the element types are module-owned
+// (objects, ADTs, unions) and must be defined before the helper; the shared
+// raw machinery lives in hexal.h (RFC 0062).
+func writeHeapAllocateHelpers(result *strings.Builder, state *heapHelpers) {
+	if state == nil {
+		return
+	}
 	for _, element := range state.elements {
 		helper := "hex_heap_allocate_" + compilerTypes.SanitizeIdentifier(element.Name)
 		fmt.Fprintf(result, "\nstatic %s %s(hex_heap h, %s initial) {\n", typeSpelling(compilerTypes.MutPtrType(element)), helper, typeSpelling(element))

@@ -54,11 +54,7 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 	}
 	if root != nil {
 		files["hexal.h"] = hexalHeader(hexalHeaderInput{
-			float32Used:  merged.float32Used,
-			float64Used:  merged.float64Used,
-			nilUsed:      merged.nilUsed,
 			errorUsed:    merged.errorUsed,
-			stdioNeeded:  merged.stdioNeeded,
 			heaps:        merged.heapState,
 			views:        merged.viewState,
 			stringState:  merged.stringState,
@@ -68,6 +64,7 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 			concurrency:  merged.concurrencyState,
 			io:           merged.ioState,
 			sizeLiterals: merged.sizeLiterals,
+			requirements: merged.requirements,
 		})
 	}
 	return files, nil

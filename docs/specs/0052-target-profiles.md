@@ -5,8 +5,10 @@
 - Features: a named target profile, representation evidence beyond C constant
   expressions, and the trusted-metadata boundary for cross-compilation
 - Created: 2026-08-13
+- Updated: 2026-08-15
 - Depends on: RFC 0003 (scalar layouts), RFC 0036 (`Size`), RFC 0037 (task
-  runtime targets), and RFC 0042 (layout queries)
+  runtime targets), RFC 0042 (layout queries), and RFC 0062 (supported
+  toolchain contract; generated probes removed)
 - Coordinates with: RFC 0039 (C interop, draft) and RFC 0049 item 6, which
   implements the `size_t` width this RFC generalizes
 
@@ -20,8 +22,10 @@ but nothing names or carries one.
 - RFC 0037 supports Windows x64 and POSIX x86-64 and must reject others.
 - RFC 0042 makes `size_of`/`align_of` C constant expressions whose values come
   from the selected target.
-- `reference.md` requires generated headers to verify fixed-width integer,
-  IEC float, and `size_t` assumptions.
+- RFC 0062 replaced the generated-header verification of fixed-width integer,
+  IEC float, and byte-width assumptions with a supported
+  GCC-or-Clang-plus-C-library toolchain contract; only source-dependent
+  target assertions (target-sized `Size` literals) remain in generated C.
 
 Today each is a separate hardcoded assumption. RFC 0049 item 6 removed one of
 them — the `size_t` width — by making Size fully target-driven instead of
@@ -49,7 +53,7 @@ At minimum, from existing decisions:
 | `size_t` width | RFC 0036, RFC 0049 item 6 | none — Size lowers to the target `size_t`; generated C asserts literal fits against `SIZE_MAX` |
 | pointer width and alignment | RFC 0042 layout queries | inferred from host C |
 | scalar alignments | RFC 0042 | inferred from host C |
-| IEC 60559 binary32/64 availability | `reference.md` | asserted in generated C |
+| IEC 60559 binary32/64 availability | RFC 0062 | supported-toolchain contract; no generated probe |
 | endianness | RFC 0032 byte conversion | not needed — byte order is by significance, not host |
 | OS and ABI family | RFC 0037 context backends | hardcoded probe |
 
@@ -101,6 +105,21 @@ other side.
 
 Neither RFC should answer it alone. Whichever is designed first should settle
 the evidence model and the other should cite it.
+
+## 5. Resolution so far (RFC 0062)
+
+RFC 0062 settled the generated-assertion side of sections 1 and 2:
+
+- Supported targets are a GCC-or-Clang plus compatible-C-library contract,
+  qualified once outside generated source. Generic toolchain facts — 8-bit
+  bytes, exact-width integer meanings, IEC 60559 binary32/binary64 — are not
+  generated probes; `hexal.h` emits no target-profile assertions for them.
+- The only retained generated assertion is source-dependent: a target-sized
+  `Size` literal is guarded against the target's actual `SIZE_MAX`.
+- This RFC therefore treats those representation facts as qualified target
+  metadata (a build-driver/target-profile concern) and must not reintroduce
+  them as generated C assertions. RFC 0055's future driver and this RFC's
+  profile mechanism own toolchain selection and qualification.
 
 ## Non-goals
 

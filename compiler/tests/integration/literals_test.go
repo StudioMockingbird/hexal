@@ -232,14 +232,25 @@ func TestInt32Declaration(t *testing.T) {
 		t.Fatalf("Compile stderr = %#v, want empty", result.Stderr)
 	}
 
-	wantC := "#include \"modules/app.h\"\n\nint main(void) {\n#line 1 \"app.hex\"\n    const int32_t hex_v_x = 13;\n    return EXIT_SUCCESS;\n}\n"
+	wantC := "#include \"modules/app.h\"\n\nint main(void) {\n#line 1 \"app.hex\"\n    const int32_t hex_v_x = 13;\n    return 0;\n}\n"
 	if rootC(t, result) != wantC {
 		t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), wantC)
 	}
 
-	for _, want := range []string{"#include <limits.h>", "static_assert(CHAR_BIT == 8", "static_assert(sizeof(uint64_t)"} {
-		if !strings.Contains(hexalH(t, result), want) {
-			t.Fatalf("hexal.h = %q, want %q", hexalH(t, result), want)
+	// RFC 0062 minimal output: an Int32-only program gets the guard, the
+	// exact-width <stdint.h>, and nothing else — no probe, no hex_eos, no
+	// bool/limits/float headers.
+	hexalH := hexalH(t, result)
+	if !strings.Contains(hexalH, "#ifndef HEXAL_H") || !strings.Contains(hexalH, "#include <stdint.h>") {
+		t.Fatalf("hexal.h = %q, want guard and <stdint.h>", hexalH)
+	}
+	for _, forbidden := range []string{
+		"#include <stdbool.h>", "#include <limits.h>", "#include <float.h>",
+		"#include <stdio.h>", "#include <stddef.h>", "#include <stdlib.h>",
+		"static_assert", "hex_eos",
+	} {
+		if strings.Contains(hexalH, forbidden) {
+			t.Fatalf("hexal.h = %q, want no %q", hexalH, forbidden)
 		}
 	}
 }
@@ -250,7 +261,7 @@ func TestBoolDeclaration(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 
-	wantC := "#include \"modules/app.h\"\n\nint main(void) {\n#line 1 \"app.hex\"\n    const bool hex_v_flag = true;\n    return EXIT_SUCCESS;\n}\n"
+	wantC := "#include \"modules/app.h\"\n\nint main(void) {\n#line 1 \"app.hex\"\n    const bool hex_v_flag = true;\n    return 0;\n}\n"
 	if rootC(t, result) != wantC {
 		t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), wantC)
 	}
@@ -286,14 +297,11 @@ func TestAdditionalNumericTypes(t *testing.T) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
-	for _, want := range []string{
-		"static_assert(sizeof(float) == 4",
-		"FLT_MANT_DIG == 24",
-		"static_assert(sizeof(double) == 8",
-		"DBL_MANT_DIG == 53",
-	} {
-		if !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
-			t.Fatalf("modules/app.h = %q, want %q", rootH(t, result), want)
+	// RFC 0062: float representation facts are a toolchain contract; no
+	// generated probe or <float.h> dependency appears for float use.
+	for _, forbidden := range []string{"static_assert(sizeof(float)", "static_assert(sizeof(double)", "#include <float.h>"} {
+		if strings.Contains(rootH(t, result), forbidden) || strings.Contains(hexalH(t, result), forbidden) {
+			t.Fatalf("generated output contains the removed target probe %q", forbidden)
 		}
 	}
 }
@@ -342,7 +350,7 @@ func TestHexLiteralPreservesSpelling(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 
-	wantC := "#include \"modules/app.h\"\n\nint main(void) {\n#line 1 \"app.hex\"\n    const int32_t hex_v_mask = 0xFF;\n    return EXIT_SUCCESS;\n}\n"
+	wantC := "#include \"modules/app.h\"\n\nint main(void) {\n#line 1 \"app.hex\"\n    const int32_t hex_v_mask = 0xFF;\n    return 0;\n}\n"
 	if rootC(t, result) != wantC {
 		t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), wantC)
 	}

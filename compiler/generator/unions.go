@@ -73,27 +73,7 @@ func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState) 
 		return
 	}
 	for _, union := range state.order {
-		name := union.CName
-		fmt.Fprintf(result, "\ntypedef enum %s_tag {\n", name)
-		for index := range union.Union.Members {
-			fmt.Fprintf(result, "    %s_tag_member_%d,\n", name, index)
-		}
-		fmt.Fprintf(result, "} %s_tag;\n", name)
-		fmt.Fprintf(result, "typedef union %s_payload {\n", name)
-		for index, member := range union.Union.Members {
-			if compilerTypes.IsNil(member) || compilerTypes.IsEoS(member) {
-				// Nil and EoS are tag-only alternatives: Nil is a nullable
-				// niche and EoS (RFC 0031) has no payload of its own.
-				continue
-			}
-			if member.Signature != nil {
-				fmt.Fprintf(result, "    %s;\n", funDeclaration(member, fmt.Sprintf("member_%d", index), true))
-				continue
-			}
-			fmt.Fprintf(result, "    %s member_%d;\n", typeSpelling(member), index)
-		}
-		fmt.Fprintf(result, "} %s_payload;\n", name)
-		fmt.Fprintf(result, "typedef struct %s {\n    %s_tag tag;\n    %s_payload payload;\n} %s;\n", name, name, name, name)
+		writeUnionDefinition(result, union)
 	}
 	for _, widening := range state.widenings {
 		writeUnionWidening(result, widening)
@@ -103,6 +83,34 @@ func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState) 
 		// Equality helpers are emitted by writeEqualityDefinitions after
 		// every struct definition, so recursive member compares resolve.
 	}
+}
+
+// writeUnionDefinition emits one union's tag enum, payload union, and struct
+// typedef. Shared by the union family and the Stream step unions, which are
+// internal T | EoS unions the base next helper references even when no
+// source call names the union type directly.
+func writeUnionDefinition(result *strings.Builder, union compilerTypes.Type) {
+	name := union.CName
+	fmt.Fprintf(result, "\ntypedef enum %s_tag {\n", name)
+	for index := range union.Union.Members {
+		fmt.Fprintf(result, "    %s_tag_member_%d,\n", name, index)
+	}
+	fmt.Fprintf(result, "} %s_tag;\n", name)
+	fmt.Fprintf(result, "typedef union %s_payload {\n", name)
+	for index, member := range union.Union.Members {
+		if compilerTypes.IsNil(member) || compilerTypes.IsEoS(member) {
+			// Nil and EoS are tag-only alternatives: Nil is a nullable
+			// niche and EoS (RFC 0031) has no payload of its own.
+			continue
+		}
+		if member.Signature != nil {
+			fmt.Fprintf(result, "    %s;\n", funDeclaration(member, fmt.Sprintf("member_%d", index), true))
+			continue
+		}
+		fmt.Fprintf(result, "    %s member_%d;\n", typeSpelling(member), index)
+	}
+	fmt.Fprintf(result, "} %s_payload;\n", name)
+	fmt.Fprintf(result, "typedef struct %s {\n    %s_tag tag;\n    %s_payload payload;\n} %s;\n", name, name, name, name)
 }
 
 func unionTagName(union compilerTypes.Type, memberIndex int) string {
@@ -351,7 +359,11 @@ func renderUnionTest(node checker.Expression, state *expressionValidation) (stri
 	if !atomic {
 		child = "(" + child + ")"
 	}
-	return child + ".tag == " + unionTagName(node.OperandType, node.MemberIndex), nil
+	representation, index, ok := remapUnionMember(node.Operand, node.OperandType, node.MemberIndex, state)
+	if !ok {
+		representation, index = node.OperandType, node.MemberIndex
+	}
+	return child + ".tag == " + unionTagName(representation, index), nil
 }
 
 func renderUnionPayload(node checker.Expression, state *expressionValidation) (string, error) {
@@ -365,7 +377,42 @@ func renderUnionPayload(node checker.Expression, state *expressionValidation) (s
 	if !atomic {
 		child = "(" + child + ")"
 	}
-	return child + ".payload.member_" + fmt.Sprint(node.MemberIndex), nil
+	_, index, ok := remapUnionMember(node.Operand, node.OperandType, node.MemberIndex, state)
+	if !ok {
+		index = node.MemberIndex
+	}
+	return child + ".payload.member_" + fmt.Sprint(index), nil
+}
+
+// remapUnionMember maps a member index in the operand's (possibly narrowed)
+// union type to the index of the same member in the binding's declared union
+// representation. The checker narrows a union-typed binding to a reduced
+// union after an `is` or Nil test, but the generated C value keeps the
+// declared union's struct, so tags and payloads must address the declared
+// union. Returns false when the operand is not a union binding or the member
+// does not exist in the declared union; the caller then falls back to the
+// operand's own type.
+func remapUnionMember(operand *checker.Expression, operandType compilerTypes.Type, memberIndex int, state *expressionValidation) (compilerTypes.Type, int, bool) {
+	if operand == nil || operand.Kind != checker.VariableExpression || operand.Binding == 0 {
+		return compilerTypes.Type{}, 0, false
+	}
+	binding, ok := state.bindings[operand.Binding]
+	if !ok || binding.typ.Union == nil {
+		return compilerTypes.Type{}, 0, false
+	}
+	if compilerTypes.Equal(binding.typ, operandType) {
+		return binding.typ, memberIndex, true
+	}
+	members := compilerTypes.UnionMembers(operandType)
+	if memberIndex < 0 || memberIndex >= len(members) {
+		return compilerTypes.Type{}, 0, false
+	}
+	for index, member := range compilerTypes.UnionMembers(binding.typ) {
+		if compilerTypes.Equal(member, members[memberIndex]) {
+			return binding.typ, index, true
+		}
+	}
+	return compilerTypes.Type{}, 0, false
 }
 
 func renderUnionEquality(node checker.Expression, state *expressionValidation) (string, error) {

@@ -16,10 +16,10 @@ func TestTruthinessConditions(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"if 0 then end", "if ((0, true)) {"},
+		{"if 0 then end", "if (((void)(0), true)) {"},
 		{"p: Ptr<Int32> | Nil = nil if p then end", "if ((hex_v_p != NULL)) {"},
 		{"if true then end", "if (true) {"},
-		{"mut count: Int32 = 1 if count then count = count - 1 end", "if ((hex_v_count, true)) {"},
+		{"mut count: Int32 = 1 if count then count = count - 1 end", "if (((void)(hex_v_count), true)) {"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
@@ -67,10 +67,10 @@ func TestTruthinessLogicalOperators(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"mut count: Int32 = 1 mut ready: Bool = true flag: Bool = count and ready", "((hex_v_count, true) && hex_v_ready)"},
-		{"mut count: Int32 = 1 flag: Bool = count or false", "((hex_v_count, true) || false)"},
-		{"mut count: Int32 = 1 flag: Bool = !count", "(!(hex_v_count, true))"},
-		{"mut value: Float64 = 0.0 flag: Bool = !value", "(!(hex_v_value, true))"},
+		{"mut count: Int32 = 1 mut ready: Bool = true flag: Bool = count and ready", "((void)(hex_v_count), true) && hex_v_ready"},
+		{"mut count: Int32 = 1 flag: Bool = count or false", "((void)(hex_v_count), true) || false"},
+		{"mut count: Int32 = 1 flag: Bool = !count", "(!((void)(hex_v_count), true))"},
+		{"mut value: Float64 = 0.0 flag: Bool = !value", "(!((void)(hex_v_value), true))"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {

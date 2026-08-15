@@ -119,9 +119,26 @@ func discoverGeneratedStreams(program checker.Program, moduleOwner string) (*gen
 	}
 	return state, nil
 }
-func writeStreamDefinitions(result *strings.Builder, streams *generatedStreamState) {
+func writeStreamDefinitions(result *strings.Builder, streams *generatedStreamState, unions *generatedUnionState) {
 	if streams == nil || len(streams.order) == 0 {
 		return
+	}
+	// Every stream's base next helper returns the stream's T | EoS step
+	// union, and the family writers reference it even when no source call
+	// names the union type directly. Emit the step-union typedefs first,
+	// skipping any the union family already defines (RFC 0062: the shared
+	// EoS representation is one program-wide typedef).
+	defined := make(map[string]bool)
+	if unions != nil {
+		for _, union := range unions.order {
+			defined[union.CName] = true
+		}
+	}
+	for _, union := range streamStepUnions(streams) {
+		if !defined[union.CName] {
+			defined[union.CName] = true
+			writeUnionDefinition(result, union)
+		}
 	}
 	for _, stream := range streams.order {
 		writeStreamBase(result, stream, streams)
@@ -141,6 +158,31 @@ func writeStreamDefinitions(result *strings.Builder, streams *generatedStreamSta
 	for _, spec := range streams.produceNodes {
 		writeStreamProduceFamily(result, spec)
 	}
+}
+
+// streamStepUnions returns the distinct step unions every stream family
+// references: the recorded next-result unions, the produce step unions, and
+// the canonical T | EoS union of every base stream without a record.
+func streamStepUnions(streams *generatedStreamState) []compilerTypes.Type {
+	seen := make(map[string]bool)
+	unions := make([]compilerTypes.Type, 0)
+	add := func(union compilerTypes.Type) {
+		if union == (compilerTypes.Type{}) || union.Union == nil || seen[union.CName] {
+			return
+		}
+		seen[union.CName] = true
+		unions = append(unions, union)
+	}
+	for _, record := range streams.stepUnions {
+		add(record.unionType)
+	}
+	for _, spec := range streams.produceNodes {
+		add(spec.stepUnion)
+	}
+	for _, stream := range streams.order {
+		add(stepUnionFor(stream))
+	}
+	return unions
 }
 
 // writeStreamBase emits the ops table, canonical empty handle, and the

@@ -395,7 +395,10 @@ func truthinessExpression(typ compilerTypes.Type, rendered string, state *expres
 		}
 		return unionTruthinessCall(typ, rendered), nil
 	case compilerTypes.TruthinessAlwaysTrue:
-		return "(" + rendered + ", true)", nil
+		// RFC 0023: a non-Bool, non-Nil, non-union value is always truthy.
+		// The (void) cast marks the discarded operand intentional so the
+		// generated C is warning-free under -Wunused-value.
+		return "((void)(" + rendered + "), true)", nil
 	default:
 		return "", unknownExpressionDiagnostic("unsupported operand in a truthiness context")
 	}
@@ -1346,7 +1349,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if compilerTypes.IsNullable(node.OperandType) {
 			return operand + " " + operator + " nullptr", nil
 		}
-		return operand + ".tag " + operator + " " + unionTagName(node.OperandType, unionMemberIndex(node.OperandType, compilerTypes.Nil)), nil
+		representation, index, ok := remapUnionMember(node.Operand, node.OperandType, unionMemberIndex(node.OperandType, compilerTypes.Nil), state)
+		if !ok {
+			representation, index = node.OperandType, unionMemberIndex(node.OperandType, compilerTypes.Nil)
+		}
+		return operand + ".tag " + operator + " " + unionTagName(representation, index), nil
 	case checker.UnionInjectionExpression:
 		return renderUnionInjection(node, state)
 	case checker.UnionWidenExpression:

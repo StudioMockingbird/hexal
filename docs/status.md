@@ -14,16 +14,27 @@ gets deleted.
 | Work | Spec |
 |---|---|
 | Arena and Pool allocators | [0027](specs/0027-arena-and-pool-allocators.md) |
-| C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
-| Stream extensions — fallible steps, sources, terminal ops, producer cleanup | [0051](specs/0051-stream-extensions.md) |
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem and build driver | [0055](specs/0055-filesystem-and-build-driver.md) |
+
+### Design decisions required
+
+| Work | Spec |
+|---|---|
+| C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
+| Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
+
+### Implementation planning required
+
+| Work | Spec |
+|---|---|
+| Stream removal, File builtin removal, and RFC 0051 closure | [0064](specs/0064-compiler-surface-and-runtime-simplification.md) |
 
 ### Implementation-ready
 
 | Work | Spec |
 |---|---|
-| Demand-driven `hexal.h` | [0062](specs/0062-demand-driven-hexal-header.md) |
+| Language surface reduction | [0063](specs/0063-language-surface-reduction.md) |
 
 ## Unowned
 

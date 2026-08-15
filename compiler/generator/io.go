@@ -177,7 +177,6 @@ func writeIOInlineHelpers(result *strings.Builder, state *generatedIOState, stri
 	if state == nil || !state.used {
 		return
 	}
-	result.WriteString("\n#include <stdio.h>\n")
 	state.writeIOErrorHelper(result)
 	result.WriteString("\nstatic inline bool hex_utf8_valid(const uint8_t *data, size_t length) {\n    size_t index = 0;\n    while (index < length) {\n        uint8_t lead = data[index];\n        size_t width;\n        if (lead < 0x80) {\n            width = 1;\n        } else if (lead < 0xE0) {\n            width = 2;\n        } else if (lead < 0xF0) {\n            width = 3;\n        } else if (lead < 0xF8) {\n            width = 4;\n        } else {\n            return false;\n        }\n        if (index + width > length) {\n            return false;\n        }\n        for (size_t continuation = 1; continuation < width; continuation++) {\n            if ((data[index + continuation] & 0xC0) != 0x80) {\n                return false;\n            }\n        }\n        index += width;\n    }\n    return true;\n}\n")
 	result.WriteString("\nstatic inline bool hex_file_path_valid(const uint8_t *data, size_t length) {\n    if (length == 0) {\n        return false;\n    }\n    for (size_t index = 0; index < length; index++) {\n        if (data[index] == 0) {\n            return false;\n        }\n        if (data[index] > 0x7F) {\n            return false;\n        }\n    }\n    return true;\n}\n")

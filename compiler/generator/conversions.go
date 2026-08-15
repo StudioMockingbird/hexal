@@ -110,8 +110,14 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 	case compilerTypes.IsRune(target):
 		// RFC 0038: Integer-to-Rune checks Unicode scalar validity, not just
 		// the 32-bit range: the value must be in U+0000..U+10FFFF and
-		// outside the surrogate range.
-		body = "    if (value < 0 || value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {\n        hex_numeric_trap();\n    }\n"
+		// outside the surrogate range. The negative check applies only to
+		// signed sources; an unsigned C type makes `value < 0` a
+		// always-false comparison.
+		negative := ""
+		if compilerTypes.IsSignedInteger(source) {
+			negative = "value < 0 || "
+		}
+		body = "    if (" + negative + "value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {\n        hex_numeric_trap();\n    }\n"
 		body += "    return (" + targetC + ")value;\n"
 	case compilerTypes.IsInteger(source) && compilerTypes.IsInteger(target):
 		if integerRangeFits(source, target) {

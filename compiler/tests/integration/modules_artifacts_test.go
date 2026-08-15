@@ -65,3 +65,150 @@ func TestFailureReturnsNoArtifacts(t *testing.T) {
 		t.Fatalf("failure must produce no artifacts, got %v", sortedKeys(result.Files))
 	}
 }
+
+// RFC 0062: hexal.h is demand-driven. Standard headers appear once, after
+// the guard and before any declaration; no generic target probe or hex_eos
+// is emitted without a source-dependent reason.
+func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		source    string
+		includes  []string // required include spellings
+		forbidden []string // must not appear anywhere in hexal.h
+	}{
+		{
+			name:      "bool-only",
+			source:    "flag: Bool = true",
+			includes:  nil,
+			forbidden: []string{"#include", "static_assert", "hex_eos"},
+		},
+		{
+			name:      "float-only",
+			source:    "ratio: Float64 = 1.5",
+			includes:  nil,
+			forbidden: []string{"static_assert", "FLT_MANT_DIG", "DBL_MANT_DIG", "#include <float.h>", "#include <math.h>"},
+		},
+		{
+			name:      "size-small",
+			source:    "count: Size = 3",
+			includes:  []string{"#include <stddef.h>"},
+			forbidden: []string{"static_assert", "hex_eos", "#include <stdint.h>"},
+		},
+		{
+			name:      "size-dependent",
+			source:    "count: Size = 5000000000",
+			includes:  []string{"#include <stddef.h>", "#include <stdint.h>", "static_assert(5000000000 <= SIZE_MAX"},
+			forbidden: nil,
+		},
+		{
+			name:      "eos-literal",
+			source:    "end_marker: EoS = eos",
+			includes:  []string{"#include <stdint.h>", "typedef uint8_t hex_eos;"},
+			forbidden: nil,
+		},
+		{
+			name:      "atomic-only",
+			source:    "counter: Atomic<Int32> = Atomic<Int32>.new(5) value: Int32 = counter.load()",
+			includes:  []string{"#include <stdint.h>", "#include <stdatomic.h>", "typedef _Atomic(int32_t) hex_atomic_Int32;"},
+			forbidden: []string{"#include <stdio.h>", "#include <stdlib.h>", "hex_scheduler_init"},
+		},
+		{
+			name:      "heap",
+			source:    "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p)",
+			includes:  []string{"#include <stddef.h>", "#include <stdint.h>", "#include <stdio.h>", "#include <stdlib.h>"},
+			forbidden: nil,
+		},
+		{
+			name:      "view-size-triggers-stddef",
+			source:    "values: Array<Int32, 3> = [1, 2, 3] view: View<Int32> = values.slice(0, 2)",
+			includes:  []string{"#include <stddef.h>", "#include <stdint.h>", "#include <stdio.h>", "#include <stdlib.h>"},
+			forbidden: nil,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := assertCompiles(t, testCase.source)
+			header := hexalH(t, result)
+			for _, include := range testCase.includes {
+				if strings.Count(header, include) != 1 {
+					t.Fatalf("hexal.h = %q, want exactly one %q", header, include)
+				}
+			}
+			for _, forbidden := range testCase.forbidden {
+				if strings.Contains(header, forbidden) {
+					t.Fatalf("hexal.h = %q, want no %q", header, forbidden)
+				}
+			}
+		})
+	}
+}
+
+// RFC 0062: an Int32-only program emits the guard and <stdint.h> and nothing
+// else, and the root C returns the C-defined successful status directly
+// without needing <stdlib.h>.
+func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
+	result := assertCompiles(t, "x: Int32 = 13")
+	header := hexalH(t, result)
+	want := "#ifndef HEXAL_H\n#define HEXAL_H\n\n#include <stdint.h>\n\n\n\n#endif\n"
+	if header != want {
+		t.Fatalf("hexal.h = %q, want %q", header, want)
+	}
+	if strings.Contains(rootC(t, result), "EXIT_") {
+		t.Fatalf("root C must not reference EXIT_ macros: %q", rootC(t, result))
+	}
+}
+
+// RFC 0062: every #include in hexal.h precedes its first declaration, and no
+// helper writer inserts a later include.
+func TestHexalHeaderIncludesPrecedeDeclarations(t *testing.T) {
+	result := assertCompiles(t, "fun count(): Int32 do\n    items: List<Int32> = List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\ncount()\n")
+	header := hexalH(t, result)
+	lines := strings.Split(header, "\n")
+	seenDeclaration := false
+	for _, line := range lines {
+		if line == "" || strings.HasPrefix(line, "#ifndef") || strings.HasPrefix(line, "#define") || strings.HasPrefix(line, "#include") {
+			continue
+		}
+		seenDeclaration = true
+		if strings.HasPrefix(line, "#include") {
+			t.Fatalf("hexal.h = %q, include %q appears after declarations", header, line)
+		}
+	}
+	if !seenDeclaration {
+		t.Fatalf("hexal.h = %q, want at least one declaration", header)
+	}
+}
+
+// RFC 0062: EoS is one shared typedef across modules, emitted exactly when
+// the generated program represents completion (Stream step unions, Channel
+// receive unions, or a written EoS).
+func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
+	sources := map[string]string{
+		"app.hex":   "module Files = import \"./files\"\nfun run(): Int32 do\n    stream: Stream<Int32> = Stream<Int32>.new()\n    return 1\nend\n",
+		"files.hex": "export fun helper(): Bool do\n    end_marker: EoS = eos\n    return true\nend\n",
+	}
+	result := compileMulti(sources, "app.hex")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("multi-module EoS generation failed: %#v", result.Stderr)
+	}
+	if count := strings.Count(result.Files["hexal.h"], "typedef uint8_t hex_eos;"); count != 1 {
+		t.Fatalf("hexal.h must define hex_eos exactly once, got %d:\n%s", count, result.Files["hexal.h"])
+	}
+	// A program with no EoS anywhere spells no hex_eos at all.
+	without := assertCompiles(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p)")
+	if strings.Contains(hexalH(t, without), "hex_eos") {
+		t.Fatalf("hexal.h = %q, want no hex_eos spelling", hexalH(t, without))
+	}
+}
+
+// RFC 0062: unselected helper families contribute no standard headers.
+func TestHexalHeaderUnselectedFamiliesContributeNothing(t *testing.T) {
+	result := assertCompiles(t, "x: Int32 = 13")
+	header := hexalH(t, result)
+	for _, forbidden := range []string{
+		"<string.h>", "<inttypes.h>", "<math.h>", "<stdatomic.h>", "<stdio.h>", "<stdlib.h>", "<stddef.h>",
+	} {
+		if strings.Contains(header, forbidden) {
+			t.Fatalf("hexal.h = %q, unselected family header %q emitted", header, forbidden)
+		}
+	}
+}

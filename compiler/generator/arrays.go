@@ -45,7 +45,12 @@ func writeArrayDefinitions(result *strings.Builder, arrays *generatedArrayState,
 	if arrays == nil {
 		return
 	}
-	for _, array := range arrays.order {
+	// An array's element may itself be an array (Array<Array<Int32, 3>, 2>),
+	// and the nested struct is embedded by value, so the inner definition
+	// must precede the outer one. The discovery order is sorted by C name,
+	// which does not encode nesting; emit dependency-first instead.
+	order := arrayDependencyOrder(arrays.order)
+	for _, array := range order {
 		element := array.Array.Element
 		length := array.Array.Length
 		fmt.Fprintf(result, "\ntypedef struct %s {\n    %s data[%d];\n} %s;\n", array.CName, pointerSpelling(element), length, array.CName)
@@ -59,6 +64,34 @@ func writeArrayDefinitions(result *strings.Builder, arrays *generatedArrayState,
 			writeArraySliceHelper(result, array, view)
 		}
 	}
+}
+
+// arrayDependencyOrder orders array types so every element-array appears
+// before the array embedding it, preserving the discovery order otherwise.
+func arrayDependencyOrder(order []compilerTypes.Type) []compilerTypes.Type {
+	byName := make(map[string]compilerTypes.Type, len(order))
+	for _, array := range order {
+		byName[array.CName] = array
+	}
+	visited := make(map[string]bool)
+	result := make([]compilerTypes.Type, 0, len(order))
+	var visit func(array compilerTypes.Type)
+	visit = func(array compilerTypes.Type) {
+		if visited[array.CName] {
+			return
+		}
+		visited[array.CName] = true
+		if element := array.Array.Element; element.Array != nil {
+			if inner, ok := byName[element.CName]; ok {
+				visit(inner)
+			}
+		}
+		result = append(result, array)
+	}
+	for _, array := range order {
+		visit(array)
+	}
+	return result
 }
 
 // matchingView returns the discovered view type over one element, or the zero

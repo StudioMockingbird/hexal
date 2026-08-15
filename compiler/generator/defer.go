@@ -240,7 +240,10 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		if len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred heap free without captured arguments")
 		}
-		return "hex_heap_free(" + arguments[0] + ", " + arguments[1] + ")", nil
+		// The captures hold the receiver (the Heap) first and the freed
+		// pointer second; the helper takes them in the opposite order, with
+		// the heap's identity token.
+		return "hex_heap_free(" + arguments[1] + ", " + arguments[0] + ".identity)", nil
 	case checker.StringMethodCallExpression:
 		if node.Name != "free" || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred string free without captured arguments")

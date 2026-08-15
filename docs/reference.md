@@ -1034,8 +1034,10 @@ MutPtr<T>.write_volatile(value: T) -> no value
 - `HEX_` is reserved for generated macros. Names are never conditionally escaped, hashed, or
   truncated; an existing prefix is prefixed again. Foreign C names are outside this rule.
 - Generated C preserves Hexal semantics instead of inheriting C undefined behavior for overflow,
-  shifts, division edges, bounds, union payloads, or conversions. Headers verify fixed-width integer,
-  IEC float, and selected size_t assumptions.
+  shifts, division edges, bounds, union payloads, or conversions. Target qualification (8-bit bytes,
+  exact-width integers, IEC 60559 binary32/binary64 floats) is a supported GCC/Clang plus
+  compatible-C-library contract, not a generated probe; only source-dependent target assertions
+  (target-sized `Size` literals) are emitted (RFC 0062).
 - Objects/ADTs lower to source-ordered structs; unions to checked tagged values except pointer-null
   niches; generics are monomorphized. Object forward typedefs precede source-ordered definitions.
 - Pointer qualification follows type layers only: Ptr adds pointee `const`, MutPtr does not, and a
@@ -1072,18 +1074,22 @@ MutPtr<T>.write_volatile(value: T) -> no value
   compilation produces no artifacts: `Files` is empty, `ExitCode` is `ExitFailure`, and `Stderr`
   carries the structured diagnostics. No failure C program is emitted.
 - `hexal.h` is the single compiler-owned program-support header, generated from the program-wide
-  aggregate of all reachable modules. It contains fixed-width/float guards; EoS, Heap, View,
-  String/literal, Error, List, Dict, Array, concurrency, and I/O support; runtime externs; and
-  compiler-generated cross-unit adapters. It contains no user-declared module-type definition or
-  exported/cross-module user prototype. A program-wide builtin specialization remains in `hexal.h`
-  when its type arguments originate in one module. Its guard is `HEXAL_H`; every module header
-  includes it, and no other compiler-support header exists.
+  aggregate of all reachable modules. It opens with the demand-driven umbrella of portable standard
+  headers (deterministic lexical order, only for families the reachable generated program selects;
+  `<stdbool.h>`, `<limits.h>`, and `<float.h>` are never emitted), followed by the retained
+  source-dependent `Size`-literal `SIZE_MAX` assertions, the shared `hex_eos` typedef exactly when
+  generated C represents EoS, and then EoS, Heap, View, String/literal, Error, List, Dict, Array,
+  concurrency, and I/O support, runtime externs, and compiler-generated cross-unit adapters. It
+  contains no generic integer, byte-width, or float target probe, and no user-declared module-type
+  definition or exported/cross-module user prototype. A program-wide builtin specialization remains
+  in `hexal.h` when its type arguments originate in one module. Its guard is `HEXAL_H`; every
+  module header includes it, and no other compiler-support header exists.
 - `modules/<canonical>.h` is one module's header: it includes `hexal.h`, holds the module's types
   (ADTs, unions, objects) and stateless inline helpers (streams, print, equality, conversions,
-  shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, I/O inline helpers), the
-  entry-adapter argument frames of its spawn sites, referenced complete type definitions, and its
-  exported and referenced cross-module prototypes. Program-wide builtin specializations remain in
-  `hexal.h`. Root selection adds nothing to this header. Its guard is
+  shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, I/O inline helpers, typed heap
+  allocation helpers), the entry-adapter argument frames of its spawn sites, referenced complete
+  type definitions, and its exported and referenced cross-module prototypes. Program-wide builtin
+  specializations remain in `hexal.h`. Root selection adds nothing to this header. Its guard is
   `HEX_MODULE_<encoded-owner>_H`; it includes no module header and declares no `main()`. C consumers
   include the desired module header, not `hexal.h` directly.
 - `modules/<canonical>.c` is one module's translation unit: it includes only its own module
@@ -1093,7 +1099,8 @@ MutPtr<T>.write_volatile(value: T) -> no value
   selected root module's C file additionally owns the process-wide runtime definitions
   (scheduler, channel, mutex, and I/O gate, in that order, when required by the program-wide
   aggregate) and `int main(void)`, which executes the root module's executable statements and
-  returns `EXIT_SUCCESS`; with concurrency it initializes the scheduler first and completes the
+  returns `0`, C's successful termination status (RFC 0062); with concurrency it initializes the
+  scheduler first and completes the
   root task before returning. No non-root module declares or defines `main()` or process-wide
   runtime state.
 - Module artifacts map to the source file with `#line` directives naming the module's logical

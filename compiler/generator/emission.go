@@ -12,8 +12,26 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-const hexalHeaderPrefix = "#ifndef HEXAL_H\n#define HEXAL_H\n\n#include <stdint.h>\n#include <stdbool.h>\n#include <limits.h>\n#include <stdlib.h>\n"
+const hexalHeaderPrefix = "#ifndef HEXAL_H\n#define HEXAL_H\n\n"
 const sourceFilename = "main.hex"
+
+// cHeaderRequirements is the program-wide demand-driven standard-header set
+// and EoS representation requirement (RFC 0062). Standard headers are
+// rendered once, in lexical order, immediately after the HEXAL_H guard; the
+// hex_eos typedef is rendered before any type that references it.
+type cHeaderRequirements struct {
+	headers map[string]bool
+	eos     bool
+}
+
+func (requirements *cHeaderRequirements) add(headers ...string) {
+	if requirements.headers == nil {
+		requirements.headers = make(map[string]bool)
+	}
+	for _, header := range headers {
+		requirements.headers[header] = true
+	}
+}
 
 // RFC 0034: each module's generated C and header are modules/<canonical>.c and
 // modules/<canonical>.h; the entrypoint module's sources map key is the only
@@ -35,9 +53,6 @@ type moduleEmission struct {
 	methods     map[string]checker.MethodDeclaration
 	typeState   *generatedTypeValidation
 
-	float32Used      bool
-	float64Used      bool
-	nilUsed          bool
 	errorUsed        bool
 	unionState       *generatedUnionState
 	heapState        *heapHelpers
@@ -96,13 +111,12 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	if validationErr := validateCheckedProgram(program, functions, methods, stringState); validationErr != nil {
 		return nil, validationErr
 	}
-	emission.float32Used, emission.float64Used, emission.nilUsed = usedFloatTypes(program)
+	emission.errorUsed = discoverErrorUsed(program)
 	objects, objectErr := objectDefinitions(program)
 	if objectErr != nil {
 		return nil, objectErr
 	}
 	emission.objects = objects
-	emission.errorUsed = discoverErrorUsed(program)
 	unionState, unionErr := discoverGeneratedUnions(program)
 	if unionErr != nil {
 		return nil, unionErr
@@ -196,11 +210,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 // specialization identity depends only on the constructor and its canonical
 // arguments, never on the requesting module).
 type programEmission struct {
-	float32Used      bool
-	float64Used      bool
-	nilUsed          bool
 	errorUsed        bool
-	stdioNeeded      bool
 	heapState        *heapHelpers
 	viewState        *generatedViewState
 	stringState      *generatedStringState
@@ -210,6 +220,10 @@ type programEmission struct {
 	concurrencyState *generatedConcurrencyState
 	ioState          *generatedIOState
 	sizeLiterals     []string
+	// requirements is the demand-driven standard-header and hex_eos set built
+	// from every reachable module's checked types and selected helper
+	// families (RFC 0062).
+	requirements *cHeaderRequirements
 	// adapterSites routes every spawn site to the canonical id of the module
 	// that owns the spawned function, so the entry adapter is emitted beside
 	// the function definition it calls (the adapter never leaves its
@@ -248,19 +262,7 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 	sizeSeen := make(map[string]bool)
 	spawnedSites := make(map[string]bool)
 	for _, module := range modules {
-		merged.float32Used = merged.float32Used || module.float32Used
-		merged.float64Used = merged.float64Used || module.float64Used
-		merged.nilUsed = merged.nilUsed || module.nilUsed
 		merged.errorUsed = merged.errorUsed || module.errorUsed
-		if containsSizeConversion(module.conversionSpecs) ||
-			module.printState != nil && module.printState.used ||
-			module.arrayState != nil && len(module.arrayState.order) > 0 ||
-			module.viewState != nil && len(module.viewState.views) > 0 ||
-			module.stringState != nil && module.stringState.used ||
-			module.listState != nil && len(module.listState.order) > 0 ||
-			module.dictState != nil && len(module.dictState.order) > 0 {
-			merged.stdioNeeded = true
-		}
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeStringsInto(merged.stringState, module.stringState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
@@ -293,7 +295,187 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 	// module's own table during discovery; after aggregation the emitted
 	// indices must match the program-wide table hexal.h defines.
 	rebaseLiteralNames(modules, merged.stringState)
+	// RFC 0062: the standard-header and hex_eos requirements aggregate after
+	// every family state is merged, so the umbrella set covers the complete
+	// reachable generated program.
+	merged.requirements = computeHeaderRequirements(merged, modules)
 	return merged
+}
+
+// computeHeaderRequirements builds the program-wide standard-header and
+// hex_eos requirement set (RFC 0062) from every reachable module's written
+// types and selected helper families. hexal.h is included by every module
+// header, so the set is the union over all modules; each family contributes
+// the standard headers that own the declarations and macros its generated
+// helpers actually call. Requirements are discovered from checked types and
+// selection state, never by searching rendered C text.
+func computeHeaderRequirements(merged *programEmission, modules []*moduleEmission) *cHeaderRequirements {
+	requirements := &cHeaderRequirements{}
+	for _, module := range modules {
+		collectTypeRequirements(module.program, requirements)
+		heapState := module.heapState
+		if heapState != nil && (heapState.required || len(heapState.elements) > 0) {
+			// hex_heap_raw_allocate/free: malloc/free and NULL from
+			// <stdlib.h>/<stddef.h>, uintptr_t from <stdint.h>, and the
+			// fputs/stderr/abort trap reporting from <stdio.h>/<stdlib.h>.
+			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+		}
+		if module.viewState != nil && len(module.viewState.views) > 0 {
+			// View structs carry size_t; bounds and slice guards report
+			// through fputs/stderr and use uint64_t bounds.
+			requirements.add("stddef.h", "stdint.h", "stdio.h")
+		}
+		if module.arrayState != nil && len(module.arrayState.order) > 0 {
+			// Array accessors use UINT64_C bounds and trap through
+			// fputs/stderr/abort.
+			requirements.add("stdint.h", "stdio.h", "stdlib.h")
+		}
+		if module.stringState != nil && module.stringState.used {
+			// hex_string/hex_strand storage, UTF-8 helpers, and the free
+			// path use uint8_t, size_t, free, and fputs/stderr/abort.
+			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+		}
+		if module.listState != nil && len(module.listState.order) > 0 {
+			// List headers carry size_t/uintptr_t, grow against SIZE_MAX,
+			// allocate through the heap machinery, and trap via
+			// fputs/stderr/abort; NULL appears in initializers.
+			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+		}
+		if module.dictState != nil && len(module.dictState.order) > 0 {
+			// Dict headers carry size_t/uintptr_t, grow against SIZE_MAX,
+			// and trap via fputs/stderr/abort; NULL appears in initializers.
+			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+		}
+		if streamStateUsed(module.streamState) {
+			// Stream handles carry uintptr_t, free through the heap
+			// machinery with fputs/stderr/abort traps, and every step union
+			// represents completion as hex_eos.
+			requirements.add("stdint.h", "stdio.h", "stdlib.h")
+			requirements.eos = true
+		}
+		if equalityStateUsed(module.equalityState) {
+			// Byte-compare helpers iterate size_t lengths; union equality
+			// helpers abort on an impossible tag.
+			requirements.add("stddef.h")
+			if unionEqualityUsed(module.equalityState) {
+				requirements.add("stdlib.h")
+			}
+		}
+		if len(module.conversionSpecs) > 0 {
+			// Conversions use the exact-width limit macros from <stdint.h>
+			// and hex_numeric_trap (fputs/stderr/abort); float sources and
+			// targets additionally classify through <math.h>.
+			requirements.add("stdint.h", "stdio.h", "stdlib.h")
+			if conversionUsesMath(module.conversionSpecs) {
+				requirements.add("math.h")
+			}
+		}
+		if len(module.divisionTypes) > 0 {
+			// Division guards trap through hex_numeric_trap.
+			requirements.add("stdio.h", "stdlib.h")
+		}
+		if len(module.shiftSpecs) > 0 {
+			// Shift guards trap through hex_numeric_trap.
+			requirements.add("stdio.h", "stdlib.h")
+		}
+		if len(module.bitCastSpecs) > 0 {
+			// bit_cast helpers reinterpret through memcpy.
+			requirements.add("string.h")
+		}
+		if module.printState != nil && module.printState.used {
+			// The print family formats with PRI* macros (<inttypes.h>) and
+			// snprintf/fwrite on stdout, classifies floats through
+			// <math.h>, and uses uint8_t/size_t/bool.
+			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h", "inttypes.h", "math.h")
+		}
+		if module.ioState != nil && module.ioState.used {
+			// The File family owns FILE and the stdio operations, grows
+			// buffers with malloc/realloc/free, and uses uint8_t/size_t.
+			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+		}
+		concurrency := module.concurrencyState
+		if concurrency != nil && (concurrency.used || len(concurrency.atomics) > 0) {
+			if concurrency.used {
+				// The scheduler runtime (root C) and the
+				// spawn/channel/mutex inline helpers use size_t, NULL,
+				// SIZE_MAX, int64_t/uint8_t, malloc/calloc/free, and
+				// fputs/stderr/abort. The receive machinery represents
+				// completion as hex_eos for every channel.
+				requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+				if len(concurrency.channels) > 0 {
+					requirements.eos = true
+				}
+			}
+			if len(concurrency.atomics) > 0 {
+				// Atomic handle typedefs and the scheduler's shutdown flag
+				// use _Atomic from <stdatomic.h>. An atomic-only program
+				// links no scheduler runtime, so the portable headers above
+				// are not required by this family alone.
+				requirements.add("stdatomic.h")
+			}
+		}
+		if module.unionState != nil {
+			for _, union := range module.unionState.order {
+				// Union truthiness, equality, and widening helpers abort on
+				// an impossible tag; Nil members spell nullptr_t payloads;
+				// EoS members spell hex_eos payloads.
+				requirements.add("stdlib.h")
+				for _, member := range compilerTypes.UnionMembers(union) {
+					if compilerTypes.IsNil(member) {
+						requirements.add("stddef.h")
+					}
+					if compilerTypes.IsEoS(member) {
+						requirements.eos = true
+						requirements.add("stdint.h")
+					}
+				}
+			}
+		}
+	}
+	if len(merged.sizeLiterals) > 0 {
+		// The retained SIZE_MAX static_assert is the one source-dependent
+		// target probe; it needs size_t and SIZE_MAX themselves.
+		requirements.add("stddef.h", "stdint.h")
+	}
+	return requirements
+}
+
+// streamStateUsed reports whether any stream machinery is emitted.
+func streamStateUsed(state *generatedStreamState) bool {
+	return state != nil && (len(state.order) > 0 || len(state.produceNodes) > 0 ||
+		len(state.listNodes) > 0 || len(state.filterTypes) > 0 ||
+		len(state.takeTypes) > 0 || len(state.mapNodes) > 0)
+}
+
+// equalityStateUsed reports whether any equality helper is emitted.
+func equalityStateUsed(state *generatedEqualityState) bool {
+	return state != nil && len(state.order) > 0
+}
+
+// unionEqualityUsed reports whether any emitted equality helper is a union
+// equality (the only equality shape that aborts).
+func unionEqualityUsed(state *generatedEqualityState) bool {
+	if state == nil {
+		return false
+	}
+	for _, typ := range state.order {
+		if typ.Union != nil && unionSupportsEquality(typ) {
+			return true
+		}
+	}
+	return false
+}
+
+// conversionUsesMath reports whether any emitted conversion classifies a
+// float through <math.h>: float-to-integer and float-to-float conversions
+// call isnan/isinf/isfinite; integer sources never do.
+func conversionUsesMath(specs []conversionSpec) bool {
+	for _, spec := range specs {
+		if compilerTypes.IsFloat(spec.source) {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeTypeOrders unions per-module specialization lists of one built-in
@@ -581,7 +763,8 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		// reach it, so nothing is promoted to static storage duration. With
 		// concurrency the statements run as the root task between scheduler
 		// initialization and hex_task_complete; without it they run before
-		// main returns EXIT_SUCCESS. No non-root module ever declares or
+		// main returns 0 (RFC 0062: the entrypoint reports C's successful
+		// integer status directly). No non-root module ever declares or
 		// defines main() or process-wide runtime state.
 		moduleBody.WriteString("int main(void) {\n")
 		if merged.concurrencyState != nil && merged.concurrencyState.used {
@@ -597,7 +780,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 			// spec requires.
 			moduleBody.WriteString("    hex_task_complete(hex_root_task);\n")
 		}
-		moduleBody.WriteString("    return EXIT_SUCCESS;\n}\n")
+		moduleBody.WriteString("    return 0;\n}\n")
 	}
 
 	// RFC 0034: the module's own header declares its exported declarations
@@ -623,6 +806,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		bitCastSpecs:  emission.bitCastSpecs,
 		endianSpecs:   emission.endianSpecs,
 		objects:       emission.objects,
+		heaps:         emission.heapState,
 		printState:    emission.printState,
 		concurrency:   emission.concurrencyState,
 		io:            emission.ioState,
@@ -658,11 +842,7 @@ func routedFrames(emission *moduleEmission, sites []spawnSite) []spawnSite {
 // builder consumes. One field per argument, no derived or cached state
 // (RFC 0057 Item 6).
 type hexalHeaderInput struct {
-	float32Used  bool
-	float64Used  bool
-	nilUsed      bool
 	errorUsed    bool
-	stdioNeeded  bool
 	heaps        *heapHelpers
 	views        *generatedViewState
 	stringState  *generatedStringState
@@ -672,6 +852,9 @@ type hexalHeaderInput struct {
 	concurrency  *generatedConcurrencyState
 	io           *generatedIOState
 	sizeLiterals []string
+	// requirements is the demand-driven standard-header and hex_eos set
+	// (RFC 0062).
+	requirements *cHeaderRequirements
 }
 
 // moduleHeaderInput carries every value the module-header builder consumes.
@@ -687,6 +870,7 @@ type moduleHeaderInput struct {
 	bitCastSpecs  []bitCastSpec
 	endianSpecs   []endianSpec
 	objects       []*compilerTypes.ObjectType
+	heaps         *heapHelpers
 	printState    *generatedPrintState
 	concurrency   *generatedConcurrencyState
 	io            *generatedIOState
@@ -697,57 +881,51 @@ type moduleHeaderInput struct {
 	filename      string
 }
 
-// hexalHeader emits hexal.h: the fixed C23 target-profile preamble, the
-// shared value machinery that carries no process-wide state, and the extern
-// declarations for the runtime functions the module headers' inline helpers
-// call. Everything here is included by every translation unit through each
-// module header, so no definition in hexal.h may hold static storage. The
-// states are the program-wide aggregate: every module's built-in machinery
-// must be declared here before any module content (RFC 0034 built-in generic
-// ownership).
+// hexalHeader emits hexal.h: the guard, the demand-driven program-wide
+// standard-header umbrella, the retained source-dependent Size-literal
+// assertions, the hex_eos typedef when required, the shared value machinery
+// that carries no process-wide state, and the extern declarations for the
+// runtime functions the module headers' inline helpers call. Everything here
+// is included by every translation unit through each module header, so no
+// definition in hexal.h may hold static storage. The states are the
+// program-wide aggregate: every module's built-in machinery must be declared
+// here before any module content (RFC 0034 built-in generic ownership).
+// RFC 0062: generic toolchain qualification is a supported-toolchain
+// contract, not a generated probe; only source-dependent target assertions
+// are emitted.
 func hexalHeader(input hexalHeaderInput) string {
 	var result strings.Builder
 	result.WriteString(hexalHeaderPrefix)
-	result.WriteString("\nstatic_assert(CHAR_BIT == 8, \"Hexal requires 8-bit bytes\");\n")
-	result.WriteString("static_assert(sizeof(uint8_t) * CHAR_BIT == 8 && UINT8_MAX == 255, \"Hexal requires UInt8\");\n")
-	result.WriteString("static_assert(sizeof(uint16_t) * CHAR_BIT == 16 && UINT16_MAX == 65535, \"Hexal requires UInt16\");\n")
-	result.WriteString("static_assert(sizeof(uint32_t) * CHAR_BIT == 32 && UINT32_MAX == 4294967295u, \"Hexal requires UInt32\");\n")
-	result.WriteString("static_assert(sizeof(uint64_t) * CHAR_BIT == 64 && UINT64_MAX == UINT64_C(18446744073709551615), \"Hexal requires UInt64\");\n")
-	result.WriteString("static_assert(sizeof(int8_t) * CHAR_BIT == 8 && INT8_MIN == -128 && INT8_MAX == 127, \"Hexal requires Int8\");\n")
-	result.WriteString("static_assert(sizeof(int16_t) * CHAR_BIT == 16 && INT16_MIN == -32768 && INT16_MAX == 32767, \"Hexal requires Int16\");\n")
-	result.WriteString("static_assert(sizeof(int32_t) * CHAR_BIT == 32 && INT32_MIN == (-2147483647 - 1) && INT32_MAX == 2147483647, \"Hexal requires Int32\");\n")
-	result.WriteString("static_assert(sizeof(int64_t) * CHAR_BIT == 64 && INT64_MIN == (-INT64_C(9223372036854775807) - 1) && INT64_MAX == INT64_C(9223372036854775807), \"Hexal requires Int64\");\n")
+	// The umbrella standard headers render once, immediately after the
+	// guard, in deterministic lexical order. Every module header includes
+	// hexal.h, so the set satisfies the complete reachable generated
+	// program.
+	if input.requirements != nil {
+		headers := make([]string, 0, len(input.requirements.headers))
+		for header := range input.requirements.headers {
+			headers = append(headers, header)
+		}
+		sort.Strings(headers)
+		for _, header := range headers {
+			fmt.Fprintf(&result, "#include <%s>\n", header)
+		}
+		if len(headers) > 0 {
+			result.WriteString("\n")
+		}
+	}
 	// RFC 0049 item 6: a Size literal above the smallest possible SIZE_MAX
 	// (65535) fits only targets whose size_t is wide enough, so each one is
-	// guarded against the selected target's actual SIZE_MAX.
+	// guarded against the selected target's actual SIZE_MAX. This is the one
+	// retained source-dependent target assertion (RFC 0062).
 	for _, digits := range input.sizeLiterals {
 		fmt.Fprintf(&result, "static_assert(%s <= SIZE_MAX, \"Size literal %s requires a size_t target wide enough\");\n", digits, digits)
 	}
-	// RFC 0010: nullptr_t and the nullptr predefined constant live in
-	// <stddef.h>, included only when a written name needs them.
-	if input.nilUsed {
-		result.WriteString("#include <stddef.h>\n\n")
+	if input.requirements != nil && input.requirements.eos {
+		// RFC 0031: the EoS singleton lowers to one compiler-owned byte,
+		// emitted exactly once, before any type that references it.
+		result.WriteString("\ntypedef uint8_t hex_eos;\n")
 	}
-	if input.arrays != nil && len(input.arrays.order) > 0 || input.views != nil && len(input.views.views) > 0 || input.stringState != nil && input.stringState.used || input.lists != nil && len(input.lists.order) > 0 || input.dicts != nil && len(input.dicts.order) > 0 || input.stdioNeeded {
-		// The bounds guards in the array, view, string, and list helpers
-		// and the print helpers report through fputs/fwrite on stdout and
-		// stderr.
-		result.WriteString("#include <stdio.h>\n\n")
-	}
-	if input.float32Used || input.float64Used {
-		result.WriteString("#include <float.h>\n#include <math.h>\n\n")
-		result.WriteString("static_assert(FLT_RADIX == 2, \"Hexal requires binary floating point\");\n")
-	}
-	if input.float32Used {
-		result.WriteString("static_assert(sizeof(float) == 4 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128, \"Hexal Float32 requires the binary32 value set\");\n")
-		result.WriteString("#if !defined(FLT_IS_IEC_60559) || FLT_IS_IEC_60559 != 1\n#error \"Hexal Float32 requires IEC 60559\"\n#endif\n")
-	}
-	if input.float64Used {
-		result.WriteString("static_assert(sizeof(double) == 8 && DBL_MANT_DIG == 53 && DBL_MAX_EXP == 1024, \"Hexal Float64 requires the binary64 value set\");\n")
-		result.WriteString("#if !defined(DBL_IS_IEC_60559) || DBL_IS_IEC_60559 != 1\n#error \"Hexal Float64 requires IEC 60559\"\n#endif\n")
-	}
-	// RFC 0031: the EoS singleton lowers to one compiler-owned byte.
-	result.WriteString("typedef uint8_t hex_eos;\n\n")
+	result.WriteString("\n")
 	writeConcurrencyTypePrelude(&result, input.concurrency)
 	writeIOPrelude(&result, input.io)
 	// RFC 0034: the module header's inline helpers call the runtime core,
@@ -782,9 +960,12 @@ func moduleHeader(input moduleHeaderInput) string {
 	writeAdtDefinitions(&result, input.adts)
 	writeUnionDefinitions(&result, input.unions)
 	writeObjectDefinitions(&result, input.objects, input.filename)
+	// The typed heap allocation helpers reference module-owned element
+	// types, so they follow the object definitions (RFC 0062).
+	writeHeapAllocateHelpers(&result, input.heaps)
 	// The Stream families embed user object State types by value, so they
 	// are emitted after every object definition (RFC 0031).
-	writeStreamDefinitions(&result, input.streams)
+	writeStreamDefinitions(&result, input.streams, input.unions)
 	writeShiftDefinitions(&result, input.shiftSpecs)
 	writeBitCastDefinitions(&result, input.bitCastSpecs)
 	writeEndianDefinitions(&result, input.endianSpecs)
@@ -885,26 +1066,42 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 	}
 }
 
-func usedFloatTypes(program checker.Program) (bool, bool, bool) {
-	float32Used, float64Used, nilUsed := false, false, false
+// collectTypeRequirements folds one module's written checked types into the
+// program-wide standard-header and hex_eos requirement set (RFC 0062).
+// Exact-width integers and their aliases (Rune, Byte) require <stdint.h>;
+// Size and Nil require <stddef.h>; a written EoS type requires <stdint.h>
+// and the hex_eos typedef. The walk descends into ADT payloads, union
+// members, pointer pointees, signatures, and collection element types, so a
+// nested EoS or Nil member is discovered wherever it is spelled.
+func collectTypeRequirements(program checker.Program, requirements *cHeaderRequirements) {
 	visitor := &programVisitor{
 		Type: func(typ compilerTypes.Type) error {
 			switch {
-			case compilerTypes.Equal(typ, compilerTypes.Float32):
-				float32Used = true
-			case compilerTypes.Equal(typ, compilerTypes.Float64):
-				float64Used = true
+			case compilerTypes.IsSize(typ):
+				// Size spells size_t, owned by <stddef.h> independently of
+				// any allocation or Nil usage. Checked before IsInteger:
+				// Size is also an unsigned integer scalar.
+				requirements.add("stddef.h")
+			case compilerTypes.IsInteger(typ) || compilerTypes.IsRune(typ):
+				// Int8..Int64, UInt8..UInt64, Rune, and the Byte alias all
+				// spell exact-width C types from <stdint.h>.
+				requirements.add("stdint.h")
 			case compilerTypes.IsNil(typ):
-				// A written Nil type needs the nullptr_t name from <stddef.h>.
-				nilUsed = true
+				// Nil spells nullptr_t and renders nullptr, both owned by
+				// <stddef.h>.
+				requirements.add("stddef.h")
+			case compilerTypes.IsEoS(typ):
+				// EoS spells hex_eos, one compiler-owned byte typedef.
+				requirements.eos = true
+				requirements.add("stdint.h")
 			}
 			return nil
 		},
 		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.NullTestExpression {
-				// The test writes the nullptr constant even when no written type
-				// needs the nullptr_t name.
-				nilUsed = true
+				// The test writes the nullptr constant even when no written
+				// type needs the nullptr_t name.
+				requirements.add("stddef.h")
 			}
 			return nil
 		},
@@ -912,5 +1109,4 @@ func usedFloatTypes(program checker.Program) (bool, bool, bool) {
 	if err := walkProgram(program, visitor); err != nil {
 		panic(err)
 	}
-	return float32Used, float64Used, nilUsed
 }

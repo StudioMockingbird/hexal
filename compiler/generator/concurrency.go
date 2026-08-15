@@ -281,41 +281,48 @@ func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder
 // forward declarations every later definition may reference: the Task,
 // Channel, Mutex, and Atomic handle typedefs that union, object, and ADT
 // payloads may contain, and the spawn entry prototypes that function bodies
-// call before their definitions appear in the root module's C file.
+// call before their definitions appear in the root module's C file. An
+// atomic-only program uses the Atomic typedefs without linking the scheduler
+// runtime, so the prelude runs when either the scheduler or the Atomic
+// family is selected.
 func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcurrencyState) {
-	if state == nil || !state.used {
+	if state == nil || !state.used && len(state.atomics) == 0 {
 		return
 	}
-	// RFC 0037: the task control block is a compiler-owned type definition
-	// every translation unit needs: the spawn entry adapters and the join
-	// helpers dereference hex_task in the module pairs, so the complete
-	// struct lives in hexal.h, never in the root C runtime alone.
-	result.WriteString("\n/* RFC 0037 handle typedefs */\n")
-	result.WriteString("typedef struct hex_task hex_task;\n")
-	result.WriteString("typedef struct hex_chan hex_chan;\n")
-	result.WriteString("typedef struct hex_mutex_control hex_mutex;\n")
-	result.WriteString("typedef void (*hex_task_entry)(hex_task *task);\n")
-	result.WriteString("struct hex_task {\n    hex_task *ready_next;\n    hex_task *wait_next;\n    int64_t id;\n    uint8_t state;\n    uint8_t wake_error;\n    uint8_t flags;\n    hex_task *joiner;\n    void *fiber;\n    void *scheduler_fiber;\n    hex_task_entry entry;\n    void *args;\n    void *result;\n};\n")
-	taskNames := make([]string, 0, len(state.taskTypes))
-	for name := range state.taskTypes {
-		taskNames = append(taskNames, name)
-	}
-	sort.Strings(taskNames)
-	for _, name := range taskNames {
-		task := state.taskTypes[name]
-		fmt.Fprintf(result, "typedef hex_task *hex_task_%s;\n", taskSuffix(task))
-	}
-	channelNames := make([]string, 0, len(state.channels))
-	for name := range state.channels {
-		channelNames = append(channelNames, name)
-	}
-	sort.Strings(channelNames)
-	for _, name := range channelNames {
-		channel := state.channels[name]
-		fmt.Fprintf(result, "typedef hex_chan *hex_channel_%s;\n", channelSuffix(channel))
+	if state.used {
+		// RFC 0037: the task control block is a compiler-owned type
+		// definition every translation unit needs: the spawn entry adapters
+		// and the join helpers dereference hex_task in the module pairs, so
+		// the complete struct lives in hexal.h, never in the root C runtime
+		// alone.
+		result.WriteString("\n/* RFC 0037 handle typedefs */\n")
+		result.WriteString("typedef struct hex_task hex_task;\n")
+		result.WriteString("typedef struct hex_chan hex_chan;\n")
+		result.WriteString("typedef struct hex_mutex_control hex_mutex;\n")
+		result.WriteString("typedef void (*hex_task_entry)(hex_task *task);\n")
+		result.WriteString("struct hex_task {\n    hex_task *ready_next;\n    hex_task *wait_next;\n    int64_t id;\n    uint8_t state;\n    uint8_t wake_error;\n    uint8_t flags;\n    hex_task *joiner;\n    void *fiber;\n    void *scheduler_fiber;\n    hex_task_entry entry;\n    void *args;\n    void *result;\n};\n")
+		taskNames := make([]string, 0, len(state.taskTypes))
+		for name := range state.taskTypes {
+			taskNames = append(taskNames, name)
+		}
+		sort.Strings(taskNames)
+		for _, name := range taskNames {
+			task := state.taskTypes[name]
+			fmt.Fprintf(result, "typedef hex_task *hex_task_%s;\n", taskSuffix(task))
+		}
+		channelNames := make([]string, 0, len(state.channels))
+		for name := range state.channels {
+			channelNames = append(channelNames, name)
+		}
+		sort.Strings(channelNames)
+		for _, name := range channelNames {
+			channel := state.channels[name]
+			fmt.Fprintf(result, "typedef hex_chan *hex_channel_%s;\n", channelSuffix(channel))
+		}
 	}
 	if len(state.atomics) > 0 {
-		result.WriteString("#include <stdatomic.h>\n")
+		// The _Atomic typedefs depend on <stdatomic.h>, contributed to the
+		// hexal.h umbrella by requirement discovery (RFC 0062).
 		atomicNames := make([]string, 0, len(state.atomics))
 		for name := range state.atomics {
 			atomicNames = append(atomicNames, name)
@@ -325,6 +332,9 @@ func writeConcurrencyTypePrelude(result *strings.Builder, state *generatedConcur
 			atomic := state.atomics[name]
 			fmt.Fprintf(result, "typedef _Atomic(%s) hex_atomic_%s;\n", typeSpelling(atomic.Atomic.Element), atomicSuffix(atomic))
 		}
+	}
+	if !state.used {
+		return
 	}
 	// RFC 0037: the spawn entry adapters are emitted in the module that owns
 	// the spawned function, so hexal.h declares them with external linkage
@@ -383,20 +393,22 @@ func writeConcurrencyExterns(result *strings.Builder, state *generatedConcurrenc
 // families, and the Atomic family. They are state-free and only call the
 // runtime core through its hexal.h declarations.
 func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
-	if state == nil || !state.used {
+	if state == nil || !state.used && len(state.atomics) == 0 {
 		return
 	}
-	if state.spawnFail || state.channelNew || state.channelSend || state.mutexNew {
-		// RFC 0037: every recoverable operation constructs its failure Error
-		// through hex_sched_error, spawn prologues included. One helper
-		// precedes every family that references it; the per-family writers
-		// must not re-emit it.
-		state.writeErrorHelper(result)
+	if state.used {
+		if state.spawnFail || state.channelNew || state.channelSend || state.mutexNew {
+			// RFC 0037: every recoverable operation constructs its failure
+			// Error through hex_sched_error, spawn prologues included. One
+			// helper precedes every family that references it; the
+			// per-family writers must not re-emit it.
+			state.writeErrorHelper(result)
+		}
+		writeSpawnArgFrames(result, state.spawns)
+		writeTaskTypeHelpers(result, state)
+		writeChannelInlineHelpers(result, state, stringState)
+		writeMutexInlineHelpers(result, state, stringState)
 	}
-	writeSpawnArgFrames(result, state.spawns)
-	writeTaskTypeHelpers(result, state)
-	writeChannelInlineHelpers(result, state, stringState)
-	writeMutexInlineHelpers(result, state, stringState)
 	writeAtomicHelpers(result, state)
 }
 
@@ -1189,12 +1201,13 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 // writeAtomicHelpers emits the inline Atomic<T> wrapper: a typedef over C23
 // _Atomic(T) plus one sequentially consistent operation family per used
 // element. Bool excludes fetch_add and fetch_sub. The receiver methods take
-// the Atomic's address; the helper never copies an Atomic value.
+// the Atomic's address; the helper never copies an Atomic value. The
+// <stdatomic.h> prerequisite arrives through the hexal.h umbrella (RFC
+// 0062).
 func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyState) {
 	if len(state.atomics) == 0 {
 		return
 	}
-	result.WriteString("\n#include <stdatomic.h>\n\n")
 	atomicNames := make([]string, 0, len(state.atomics))
 	for name := range state.atomics {
 		atomicNames = append(atomicNames, name)
@@ -1207,7 +1220,10 @@ func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyStat
 		elementSpelling := typeSpelling(element)
 		atomicSpelling := "hex_atomic_" + suffix
 		fmt.Fprintf(result, "typedef _Atomic(%s) %s;\n", elementSpelling, atomicSpelling)
-		fmt.Fprintf(result, "static inline %s %s_new(%s value) {\n    return (%s)value;\n}\n", atomicSpelling, atomicSpelling, elementSpelling, atomicSpelling)
+		// The constructor returns the element value, not the _Atomic type:
+		// C ignores qualifiers on function return types, so an _Atomic
+		// return would warn under -Werror.
+		fmt.Fprintf(result, "static inline %s %s_new(%s value) {\n    return (%s)value;\n}\n", elementSpelling, atomicSpelling, elementSpelling, atomicSpelling)
 		fmt.Fprintf(result, "static inline %s %s_load(%s *atomic) {\n    return atomic_load_explicit(atomic, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling)
 		fmt.Fprintf(result, "static inline void %s_store(%s *atomic, %s value) {\n    atomic_store_explicit(atomic, value, memory_order_seq_cst);\n}\n", atomicSpelling, atomicSpelling, elementSpelling)
 		fmt.Fprintf(result, "static inline %s %s_exchange(%s *atomic, %s value) {\n    return atomic_exchange_explicit(atomic, value, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling, elementSpelling)

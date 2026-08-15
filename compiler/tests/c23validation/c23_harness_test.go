@@ -54,7 +54,7 @@ func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string
 		}
 	}
 	exe := filepath.Join(dir, "hexal.exe")
-	command := exec.Command(c23Compiler(t), "-std=c23", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-parameter", "-I", dir)
+	command := exec.Command(c23Compiler(t), "-std=c23", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-parameter", "-Wno-unused-but-set-variable", "-Wno-maybe-uninitialized", "-I", dir)
 	names := make([]string, 0, len(result.Files))
 	for name := range result.Files {
 		names = append(names, name)

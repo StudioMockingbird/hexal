@@ -1,7 +1,7 @@
 # RFC 0062: Demand-Driven `hexal.h`
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; conformance verified 2026-08-15
 - Features: remove redundant target assertions, emit standard headers and EoS
   support on demand, and make generated-header dependencies explicit
 - Created: 2026-08-15
