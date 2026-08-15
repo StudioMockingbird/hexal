@@ -459,7 +459,7 @@ static hex_context hex_context_current(void) {
     return GetCurrentFiber();
 }
 static hex_context hex_context_thread(void) {
-    return ConvertThreadToFiberEx(NULL, FIBER_FLAG_FLOAT_SWITCH);
+    return ConvertThreadToFiberEx(nullptr, FIBER_FLAG_FLOAT_SWITCH);
 }
 static void hex_context_switch(hex_context from, hex_context to) {
     (void)from;
@@ -485,32 +485,32 @@ static int hex_logical_processors(void) {
 static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) {
     const size_t stack_size = 1u << 20;
     hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
-    if (context == NULL) {
-        return NULL;
+    if (context == nullptr) {
+        return nullptr;
     }
     context->stack = malloc(stack_size);
-    if (context->stack == NULL) {
+    if (context->stack == nullptr) {
         free(context);
-        return NULL;
+        return nullptr;
     }
     if (getcontext(&context->context) != 0) {
         free(context->stack);
         free(context);
-        return NULL;
+        return nullptr;
     }
     context->context.uc_stack.ss_sp = context->stack;
     context->context.uc_stack.ss_size = stack_size;
-    context->context.uc_link = NULL;
+    context->context.uc_link = nullptr;
     makecontext(&context->context, (void (*)(void))entry, 1, param);
     return context;
 }
 static hex_context_impl *hex_context_current(void) {
     hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
-    if (context != NULL) {
-        context->stack = NULL;
+    if (context != nullptr) {
+        context->stack = nullptr;
         if (getcontext(&context->context) != 0) {
             free(context);
-            return NULL;
+            return nullptr;
         }
     }
     return context;
@@ -520,7 +520,7 @@ static hex_context_impl *hex_context_thread(void) {
     return hex_context_current();
 }
 static void hex_context_switch(hex_context_impl *from, hex_context_impl *to) {
-    if (from == NULL || to == NULL) {
+    if (from == nullptr || to == nullptr) {
         abort();
     }
     if (swapcontext(&from->context, &to->context) != 0) {
@@ -528,7 +528,7 @@ static void hex_context_switch(hex_context_impl *from, hex_context_impl *to) {
     }
 }
 static void hex_context_destroy(hex_context_impl *context) {
-    if (context != NULL) {
+    if (context != nullptr) {
         free(context->stack);
         free(context);
     }
@@ -545,17 +545,10 @@ static _Atomic int hex_shutdown;
 static _Atomic int64_t hex_next_task_id;
 static hex_task *hex_root_task;
 
-static void hex_sched_fatal(const char *message) {
-    fputs("[Runtime Error] ", stderr);
-    fputs(message, stderr);
-    fputs("\n", stderr);
-    abort();
-}
-
 static void hex_ready_push(hex_task *task) {
     mtx_lock(&hex_ready_mutex);
-    task->ready_next = NULL;
-    if (hex_ready_tail != NULL) {
+    task->ready_next = nullptr;
+    if (hex_ready_tail != nullptr) {
         hex_ready_tail->ready_next = task;
     } else {
         hex_ready_head = task;
@@ -567,10 +560,10 @@ static void hex_ready_push(hex_task *task) {
 
 static hex_task *hex_ready_pop(void) {
     hex_task *task = hex_ready_head;
-    if (task != NULL) {
+    if (task != nullptr) {
         hex_ready_head = task->ready_next;
-        if (hex_ready_head == NULL) {
-            hex_ready_tail = NULL;
+        if (hex_ready_head == nullptr) {
+            hex_ready_tail = nullptr;
         }
     }
     return task;
@@ -580,7 +573,7 @@ void hex_task_release(hex_task *task) {
     if (task->flags & HEX_TASK_ROOT) {
         return;
     }
-    if (task->fiber != NULL) {
+    if (task->fiber != nullptr) {
         hex_context_destroy((hex_context)task->fiber);
     }
     free(task->args);
@@ -594,9 +587,9 @@ void hex_task_release(hex_task *task) {
 // task's fiber never returns through an invalid stack.
 void hex_task_complete(hex_task *task) {
     task->state = HEX_TASK_DONE;
-    if (task->joiner != NULL) {
+    if (task->joiner != nullptr) {
         hex_task *joiner = task->joiner;
-        task->joiner = NULL;
+        task->joiner = nullptr;
         joiner->state = HEX_TASK_READY;
         hex_ready_push(joiner);
     }
@@ -604,7 +597,7 @@ void hex_task_complete(hex_task *task) {
         atomic_store(&hex_shutdown, 1);
         cnd_broadcast(&hex_ready_cond);
     }
-    hex_current_task = NULL;
+    hex_current_task = nullptr;
     hex_context_switch((hex_context)task->fiber, (hex_context)task->scheduler_fiber);
 }
 
@@ -622,11 +615,11 @@ static void hex_task_trampoline(void *param) {
 // so generated main returns normally; other workers return from their thread
 // function.
 static void hex_worker_loop(void *param) {
-    const int is_worker_zero = (param != NULL);
+    const int is_worker_zero = (param != nullptr);
     hex_context loop_context = hex_context_current();
     for (;;) {
         mtx_lock(&hex_ready_mutex);
-        while (hex_ready_head == NULL && !atomic_load(&hex_shutdown)) {
+        while (hex_ready_head == nullptr && !atomic_load(&hex_shutdown)) {
             cnd_wait(&hex_ready_cond, &hex_ready_mutex);
         }
         if (atomic_load(&hex_shutdown)) {
@@ -650,9 +643,9 @@ static void hex_worker_loop(void *param) {
 
 static int hex_worker_thread(void *unused) {
     (void)unused;
-    hex_current_task = NULL;
+    hex_current_task = nullptr;
     (void)hex_context_thread();
-    hex_worker_loop(NULL);
+    hex_worker_loop(nullptr);
     return 0;
 }
 
@@ -662,25 +655,25 @@ static int hex_worker_thread(void *unused) {
 // Hexal entry point.
 static void hex_scheduler_init(void) {
     if (mtx_init(&hex_ready_mutex, mtx_plain) != thrd_success) {
-        hex_sched_fatal("scheduler mutex initialization failed");
+        hex_runtime_trap("[Runtime Error] scheduler mutex initialization failed\n");
     }
     if (cnd_init(&hex_ready_cond) != thrd_success) {
-        hex_sched_fatal("scheduler condition variable initialization failed");
+        hex_runtime_trap("[Runtime Error] scheduler condition variable initialization failed\n");
     }
     hex_root_task = (hex_task *)calloc(1, sizeof(hex_task));
-    if (hex_root_task == NULL) {
-        hex_sched_fatal("scheduler allocation failed");
+    if (hex_root_task == nullptr) {
+        hex_runtime_trap("[Runtime Error] scheduler allocation failed\n");
     }
     hex_root_task->fiber = (void *)hex_context_thread();
-    if (hex_root_task->fiber == NULL) {
-        hex_sched_fatal("scheduler fiber initialization failed");
+    if (hex_root_task->fiber == nullptr) {
+        hex_runtime_trap("[Runtime Error] scheduler fiber initialization failed\n");
     }
     hex_root_task->id = atomic_fetch_add(&hex_next_task_id, 1);
     hex_root_task->state = HEX_TASK_READY;
     hex_root_task->flags = HEX_TASK_ROOT;
     hex_root_task->scheduler_fiber = (void *)hex_context_create(hex_worker_loop, (void *)1);
-    if (hex_root_task->scheduler_fiber == NULL) {
-        hex_sched_fatal("scheduler worker-zero context creation failed");
+    if (hex_root_task->scheduler_fiber == nullptr) {
+        hex_runtime_trap("[Runtime Error] scheduler worker-zero context creation failed\n");
     }
     hex_current_task = hex_root_task;
     int logical = hex_logical_processors();
@@ -689,8 +682,8 @@ static void hex_scheduler_init(void) {
     }
     for (int index = 1; index < logical; index++) {
         thrd_t thread;
-        if (thrd_create(&thread, hex_worker_thread, NULL) != thrd_success) {
-            hex_sched_fatal("scheduler worker creation failed");
+        if (thrd_create(&thread, hex_worker_thread, nullptr) != thrd_success) {
+            hex_runtime_trap("[Runtime Error] scheduler worker creation failed\n");
         }
         thrd_detach(thread);
     }
@@ -707,38 +700,38 @@ void hex_task_yield(void) {
 // hex_task_spawn allocates the argument frame and task control block,
 // shallow-copies the arguments, creates the Task fiber, and publishes the
 // task to the ready queue. Any partial allocation failure releases every
-// resource and returns NULL, which the spawn site turns into Error.
+// resource and returns nullptr, which the spawn site turns into Error.
 hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align) {
     (void)args_align;
     (void)result_align;
-    void *args_frame = NULL;
+    void *args_frame = nullptr;
     if (args_size > 0) {
         args_frame = malloc(args_size);
-        if (args_frame == NULL) {
-            return NULL;
+        if (args_frame == nullptr) {
+            return nullptr;
         }
         memcpy(args_frame, args, args_size);
     }
     hex_task *task = (hex_task *)calloc(1, sizeof(hex_task));
-    if (task == NULL) {
+    if (task == nullptr) {
         free(args_frame);
-        return NULL;
+        return nullptr;
     }
-    void *result_frame = NULL;
+    void *result_frame = nullptr;
     if (result_size > 0) {
         result_frame = malloc(result_size);
-        if (result_frame == NULL) {
+        if (result_frame == nullptr) {
             free(task);
             free(args_frame);
-            return NULL;
+            return nullptr;
         }
     }
     task->fiber = (void *)hex_context_create(hex_task_trampoline, task);
-    if (task->fiber == NULL) {
+    if (task->fiber == nullptr) {
         free(result_frame);
         free(task);
         free(args_frame);
-        return NULL;
+        return nullptr;
     }
     task->id = atomic_fetch_add(&hex_next_task_id, 1);
     task->state = HEX_TASK_READY;
@@ -760,8 +753,7 @@ void *hex_task_join(hex_task *task) {
         }
         hex_task *self = hex_current_task;
         if (task == self) {
-            fputs("[Runtime Error] cannot join the current task\n", stderr);
-            abort();
+            hex_runtime_trap("[Runtime Error] cannot join the current task\n");
         }
         self->state = HEX_TASK_PARKED;
         task->joiner = self;
@@ -885,22 +877,26 @@ typedef struct hex_chan {
 } hex_chan;
 
 hex_chan *hex_chan_new(size_t capacity, size_t element_size) {
-    if (capacity == 0 || element_size > SIZE_MAX / capacity) {
-        return NULL;
+    if (capacity == 0) {
+        return nullptr;
+    }
+    size_t slots_bytes;
+    if (ckd_mul(&slots_bytes, element_size, capacity)) {
+        return nullptr;
     }
     hex_chan *channel = (hex_chan *)calloc(1, sizeof(hex_chan));
-    if (channel == NULL) {
-        return NULL;
+    if (channel == nullptr) {
+        return nullptr;
     }
-    channel->slots = (uint8_t *)malloc(element_size * capacity);
-    if (channel->slots == NULL) {
+    channel->slots = (uint8_t *)malloc(slots_bytes);
+    if (channel->slots == nullptr) {
         free(channel);
-        return NULL;
+        return nullptr;
     }
     if (mtx_init(&channel->mutex, mtx_plain) != thrd_success) {
         free(channel->slots);
         free(channel);
-        return NULL;
+        return nullptr;
     }
     channel->capacity = capacity;
     channel->element_size = element_size;
@@ -934,7 +930,7 @@ bool hex_chan_send(hex_chan *channel, const void *value) {
     memcpy(channel->slots + tail * channel->element_size, value, channel->element_size);
     channel->length++;
     hex_task *waiter = channel->wait_recv;
-    if (waiter != NULL) {
+    if (waiter != nullptr) {
         channel->wait_recv = waiter->wait_next;
         waiter->state = HEX_TASK_READY;
         hex_ready_push(waiter);
@@ -967,7 +963,7 @@ bool hex_chan_receive(hex_chan *channel, void *out) {
     channel->head = (channel->head + 1) % channel->capacity;
     channel->length--;
     hex_task *waiter = channel->wait_send;
-    if (waiter != NULL) {
+    if (waiter != nullptr) {
         channel->wait_send = waiter->wait_next;
         waiter->wake_error = 0;
         waiter->state = HEX_TASK_READY;
@@ -983,22 +979,22 @@ void hex_chan_close(hex_chan *channel) {
     mtx_lock(&channel->mutex);
     channel->closed = true;
     hex_task *waiter = channel->wait_send;
-    while (waiter != NULL) {
+    while (waiter != nullptr) {
         hex_task *next = waiter->wait_next;
         waiter->wake_error = 1;
         waiter->state = HEX_TASK_READY;
         hex_ready_push(waiter);
         waiter = next;
     }
-    channel->wait_send = NULL;
+    channel->wait_send = nullptr;
     waiter = channel->wait_recv;
-    while (waiter != NULL) {
+    while (waiter != nullptr) {
         hex_task *next = waiter->wait_next;
         waiter->state = HEX_TASK_READY;
         hex_ready_push(waiter);
         waiter = next;
     }
-    channel->wait_recv = NULL;
+    channel->wait_recv = nullptr;
     mtx_unlock(&channel->mutex);
 }
 
@@ -1023,13 +1019,11 @@ bool hex_chan_is_closed(hex_chan *channel) {
 // free requires a closed, empty channel with no blocked tasks; any other
 // state is a cheaply detectable programmer error and traps.
 void hex_chan_free(hex_chan *channel) {
-    if (channel->wait_send != NULL || channel->wait_recv != NULL) {
-        fputs("[Runtime Error] channel free while tasks are blocked on it\n", stderr);
-        abort();
+    if (channel->wait_send != nullptr || channel->wait_recv != nullptr) {
+        hex_runtime_trap("[Runtime Error] channel free while tasks are blocked on it\n");
     }
     if (!channel->closed || channel->length > 0) {
-        fputs("[Runtime Error] channel free requires a closed, empty channel\n", stderr);
-        abort();
+        hex_runtime_trap("[Runtime Error] channel free requires a closed, empty channel\n");
     }
     mtx_destroy(&channel->mutex);
     free(channel->slots);
@@ -1039,10 +1033,12 @@ void hex_chan_free(hex_chan *channel) {
 
 }
 
-// writeChannelInlineHelpers emits the per-element Channel operation family
-// into the module header. The helpers build the checked result unions
-// (Channel | Error, Nil | Error, and T | EoS) around the shared core and the
-// Error-construction helper.
+// writeChannelInlineHelpers emits the per-element Channel adapters into the
+// module header: new, send, and receive build the checked result unions
+// (Channel | Error, Nil | Error, and T | EoS) around the shared core, and
+// free adapts the checked Heap identity argument. close, length, capacity,
+// and is_closed lower directly to the core (RFC 0069 Amendment 2 Item B) and
+// need no inline wrapper.
 func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if len(state.channels) == 0 {
 		return
@@ -1063,7 +1059,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 				channelIndex := unionMemberIndex(union, channel)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 				message := state.messageLiteral(stringState, channelCreationFailed)
-				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = channel };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
+				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.member_%d = channel };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, channelIndex), channelIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
 			}
 		}
@@ -1077,10 +1073,11 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, nilIndex), union.CName, unionTagName(union, errorIndex), errorIndex, message)
 			}
 		}
-		// The receive union and the remaining simple helpers are emitted for
-		// every used Channel<T>: receive needs the T | EoS union, and close,
-		// length, capacity, is_closed, and free are one-liners that stay
-		// unused-inline with no warnings.
+		// The receive union is emitted for every used Channel<T>: receive
+		// needs the T | EoS union. close, length, capacity, is_closed, and
+		// free lower directly to the core (RFC 0069 Amendment 2 Item B); the
+		// free adapter is emitted here because it adapts the checked Heap
+		// identity argument.
 		receiveUnion := state.channelReceiveUnions[channel.CName]
 		if receiveUnion != (compilerTypes.Type{}) {
 			elementIndex := unionMemberIndex(receiveUnion, element)
@@ -1088,11 +1085,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 			fmt.Fprintf(result, "\nstatic inline %s hex_chan_recv_%s(hex_chan *channel) {\n    %s value;\n    if (hex_chan_receive(channel, &value)) {\n        return (%s){ .tag = %s, .payload.member_%d = value };\n    }\n    return (%s){ .tag = %s };\n}\n",
 				receiveUnion.CName, suffix, elementSpelling, receiveUnion.CName, unionTagName(receiveUnion, elementIndex), elementIndex, receiveUnion.CName, unionTagName(receiveUnion, eosIndex))
 		}
-		fmt.Fprintf(result, "\nstatic inline void hex_chan_close_%s(hex_chan *channel) {\n    hex_chan_close(channel);\n}\n", suffix)
-		fmt.Fprintf(result, "static inline size_t hex_chan_length_%s(hex_chan *channel) {\n    return hex_chan_length(channel);\n}\n", suffix)
-		fmt.Fprintf(result, "static inline size_t hex_chan_capacity_%s(hex_chan *channel) {\n    return hex_chan_capacity(channel);\n}\n", suffix)
-		fmt.Fprintf(result, "static inline bool hex_chan_is_closed_%s(hex_chan *channel) {\n    return hex_chan_is_closed(channel);\n}\n", suffix)
-		fmt.Fprintf(result, "static inline void hex_chan_free_%s(uintptr_t heap_identity, hex_chan *channel) {\n    (void)heap_identity;\n    hex_chan_free(channel);\n}\n", suffix)
+		fmt.Fprintf(result, "\nstatic inline void hex_chan_free_%s(uintptr_t heap_identity, hex_chan *channel) {\n    (void)heap_identity;\n    hex_chan_free(channel);\n}\n", suffix)
 	}
 }
 
@@ -1113,12 +1106,12 @@ struct hex_mutex_control {
 
 hex_mutex *hex_mutex_new(void) {
     hex_mutex *mutex = (hex_mutex *)calloc(1, sizeof(hex_mutex));
-    if (mutex == NULL) {
-        return NULL;
+    if (mutex == nullptr) {
+        return nullptr;
     }
     if (mtx_init(&mutex->mutex, mtx_plain) != thrd_success) {
         free(mutex);
-        return NULL;
+        return nullptr;
     }
     return mutex;
 }
@@ -1127,15 +1120,14 @@ void hex_mutex_lock(hex_mutex *mutex) {
     hex_task *self = hex_current_task;
     for (;;) {
         mtx_lock(&mutex->mutex);
-        if (mutex->owner == NULL) {
+        if (mutex->owner == nullptr) {
             mutex->owner = self;
             mtx_unlock(&mutex->mutex);
             return;
         }
         if (mutex->owner == self) {
             mtx_unlock(&mutex->mutex);
-            fputs("[Runtime Error] recursive mutex lock\n", stderr);
-            abort();
+            hex_runtime_trap("[Runtime Error] recursive mutex lock\n");
         }
         self->state = HEX_TASK_PARKED;
         self->wait_next = mutex->wait_list;
@@ -1149,25 +1141,23 @@ void hex_mutex_unlock(hex_mutex *mutex) {
     mtx_lock(&mutex->mutex);
     if (mutex->owner != hex_current_task) {
         mtx_unlock(&mutex->mutex);
-        fputs("[Runtime Error] mutex unlock by a non-owner\n", stderr);
-        abort();
+        hex_runtime_trap("[Runtime Error] mutex unlock by a non-owner\n");
     }
     hex_task *waiter = mutex->wait_list;
-    if (waiter != NULL) {
+    if (waiter != nullptr) {
         mutex->wait_list = waiter->wait_next;
         mutex->owner = waiter;
         waiter->state = HEX_TASK_READY;
         hex_ready_push(waiter);
     } else {
-        mutex->owner = NULL;
+        mutex->owner = nullptr;
     }
     mtx_unlock(&mutex->mutex);
 }
 
 void hex_mutex_free(hex_mutex *mutex) {
-    if (mutex->owner != NULL || mutex->wait_list != NULL) {
-        fputs("[Runtime Error] mutex free while locked or awaited\n", stderr);
-        abort();
+    if (mutex->owner != nullptr || mutex->wait_list != nullptr) {
+        hex_runtime_trap("[Runtime Error] mutex free while locked or awaited\n");
     }
     mtx_destroy(&mutex->mutex);
     free(mutex);
@@ -1176,9 +1166,11 @@ void hex_mutex_free(hex_mutex *mutex) {
 
 }
 
-// writeMutexInlineHelpers emits the per-operation Mutex wrapper family into
-// the module header. The wrappers call the core and the Error-construction
-// helper; they hold no state of their own.
+// writeMutexInlineHelpers emits the Mutex adapters into the module header:
+// the constructor/Error union adapter and the free adapter, which evaluates
+// and accepts the checked Heap identity even though the current runtime
+// ignores it. lock and unlock lower directly to the core (RFC 0069 Amendment
+// 2 Item B) and need no inline wrapper.
 func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) {
 	if !state.mutexNew && !state.mutexLock && !state.mutexUnlock && !state.mutexFree {
 		return
@@ -1189,13 +1181,11 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 			mutexIndex := unionMemberIndex(union, compilerTypes.MutexType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 			message := state.messageLiteral(stringState, mutexCreationFailed)
-			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != NULL) {\n        return (%s){ .tag = %s, .payload.member_%d = mutex };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
+			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.member_%d = mutex };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 				union.CName, union.CName, unionTagName(union, mutexIndex), mutexIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
 		}
 	}
-	fmt.Fprintf(result, "\nstatic inline void hex_mutex_lock_hex_mutex(hex_mutex *mutex) {\n    hex_mutex_lock(mutex);\n}\n")
-	fmt.Fprintf(result, "static inline void hex_mutex_unlock_hex_mutex(hex_mutex *mutex) {\n    hex_mutex_unlock(mutex);\n}\n")
-	fmt.Fprintf(result, "static inline void hex_mutex_free_hex_mutex(hex_mutex *mutex) {\n    hex_mutex_free(mutex);\n}\n")
+	fmt.Fprintf(result, "\nstatic inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex) {\n    (void)heap_identity;\n    hex_mutex_free(mutex);\n}\n")
 }
 
 // writeAtomicHelpers emits the inline Atomic<T> wrapper: a typedef over C23
@@ -1329,7 +1319,7 @@ func hoistSpawn(node *checker.Expression, body *strings.Builder, state *expressi
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			resultArgs = fmt.Sprintf("sizeof(%s), _Alignof(%s)", typeSpelling(site.result), typeSpelling(site.result))
 		}
-		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, 0, 0, NULL, %s);\n", indent, taskTemp, site.function, resultArgs)
+		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, 0, 0, nullptr, %s);\n", indent, taskTemp, site.function, resultArgs)
 	}
 	state.hoistedSpawns[node.Operand] = taskTemp
 	return nil
@@ -1444,13 +1434,13 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 	case "receive":
 		return "hex_chan_recv_" + suffix + "(" + receiver + ")", nil
 	case "close":
-		return "hex_chan_close_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_close(" + receiver + ")", nil
 	case "length":
-		return "hex_chan_length_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_length(" + receiver + ")", nil
 	case "capacity":
-		return "hex_chan_capacity_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_capacity(" + receiver + ")", nil
 	case "is_closed":
-		return "hex_chan_is_closed_" + suffix + "(" + receiver + ")", nil
+		return "hex_chan_is_closed(" + receiver + ")", nil
 	case "free":
 		if len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("channel free without a checked heap")
@@ -1491,11 +1481,18 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 	}
 	switch node.Name {
 	case "lock":
-		return "hex_mutex_lock_hex_mutex(" + receiver + ")", nil
+		return "hex_mutex_lock(" + receiver + ")", nil
 	case "unlock":
-		return "hex_mutex_unlock_hex_mutex(" + receiver + ")", nil
+		return "hex_mutex_unlock(" + receiver + ")", nil
 	case "free":
-		return "hex_mutex_free_hex_mutex(" + receiver + ")", nil
+		if len(node.Arguments) != 1 {
+			return "", unknownExpressionDiagnostic("mutex free without a checked heap")
+		}
+		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
+		if heapErr != nil {
+			return "", heapErr
+		}
+		return fmt.Sprintf("hex_mutex_free_hex_mutex((%s).identity, %s)", heap, receiver), nil
 	}
 	return "", unknownExpressionDiagnostic("unknown mutex method " + node.Name)
 }

@@ -32,6 +32,12 @@ responsibilities do not leak into compiler language specifications.
 - Link generated objects with configured foreign objects and libraries.
 - Report filesystem, toolchain, build-system, and linker failures separately
   from compiler diagnostics.
+- Compile generated C in C23 mode (RFC 0069): the pinned GCC/Clang toolchain
+  plus compatible C library must provide the generated program's selected
+  standard headers (`<stdckdint.h>`, `<stdatomic.h>`, `<threads.h>`,
+  `<string.h>`, and the RFC 0062 umbrella set). A missing or unusable standard
+  header is reported as a toolchain/target failure, never as a Hexal source
+  diagnostic, and never repaired by a compiler-side fallback definition.
 - Later own dependency tracking, caching, file watching, and incremental
   compilation.
 

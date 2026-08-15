@@ -1134,6 +1134,15 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			left = "&(" + left + ")"
 			right = "&(" + right + ")"
 		}
+		if compilerTypes.IsStrand(node.OperandType) {
+			// RFC 0069 Amendment 2 Item A: Strand equality is a direct
+			// memcmp of the canonical 32-byte zero-filled representation.
+			result := "(memcmp(" + left + ".data, " + right + ".data, 32) == 0)"
+			if node.Operator == checker.NotEqualOperator {
+				result = "(memcmp(" + left + ".data, " + right + ".data, 32) != 0)"
+			}
+			return result, nil
+		}
 		result := equalityHelperName(node.OperandType) + "(" + left + ", " + right + ")"
 		if node.Operator == checker.NotEqualOperator {
 			result = "(!" + result + ")"
@@ -1151,10 +1160,22 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if rightErr != nil {
 			return "", rightErr
 		}
-		helper := "hex_compare_hex_string"
 		if compilerTypes.IsStrand(node.OperandType) {
-			helper = "hex_compare_hex_strand"
+			// RFC 0069 Amendment 2 Item A: Strand ordering is a direct
+			// memcmp of the canonical 32-byte zero-filled representation;
+			// its sign is the ordering result.
+			comparison := " < 0"
+			switch node.Operator {
+			case checker.LessEqualOperator:
+				comparison = " <= 0"
+			case checker.GreaterOperator:
+				comparison = " > 0"
+			case checker.GreaterEqualOperator:
+				comparison = " >= 0"
+			}
+			return "(memcmp(" + left + ".data, " + right + ".data, 32)" + comparison + ")", nil
 		}
+		helper := "hex_compare_hex_string"
 		comparison := " < 0"
 		switch node.Operator {
 		case checker.LessEqualOperator:
@@ -1618,32 +1639,19 @@ func unsignedCName(typ compilerTypes.Type) (string, bool) {
 }
 
 func renderSignedWrap(operator checker.Operator, typ compilerTypes.Type, left, right string) (string, error) {
-	// Use uint64_t for every signed width so the operands cannot promote into a
-	// signed type before the modular arithmetic is evaluated.
 	if !compilerTypes.IsSignedInteger(typ) {
 		return "", unknownExpressionDiagnostic("signed wrapping requires a signed integer type")
 	}
-	unsigned, ok := unsignedCName(typ)
-	if !ok {
-		return "", unknownExpressionDiagnostic("signed wrapping has an unsupported integer width")
-	}
-	intermediate := compilerTypes.UInt64.CName
-	var unsignedResult string
+	var name string
 	switch operator {
 	case checker.NegateOperator:
-		if right == "" {
-			return "", unknownExpressionDiagnostic("signed negation without an operand")
-		}
-		unsignedResult = fmt.Sprintf("(%s)((%s)0 - (%s)%s)", unsigned, intermediate, intermediate, right)
-	case checker.AddOperator, checker.SubtractOperator, checker.MultiplyOperator:
-		if left == "" || right == "" {
-			return "", unknownExpressionDiagnostic("signed operation without both operands")
-		}
-		operatorText, ok := binaryCOperator(operator)
-		if !ok {
-			return "", unknownExpressionDiagnostic("unknown signed wrapping operator")
-		}
-		unsignedResult = fmt.Sprintf("(%s)((%s)%s %s (%s)%s)", unsigned, intermediate, left, operatorText, intermediate, right)
+		name = "neg"
+	case checker.AddOperator:
+		name = "add"
+	case checker.SubtractOperator:
+		name = "sub"
+	case checker.MultiplyOperator:
+		name = "mul"
 	case checker.InvalidOperator, checker.LogicalNotOperator, checker.DivideOperator,
 		checker.RemainderOperator, checker.EqualOperator, checker.NotEqualOperator,
 		checker.LessOperator, checker.LessEqualOperator, checker.GreaterOperator,
@@ -1652,13 +1660,17 @@ func renderSignedWrap(operator checker.Operator, typ compilerTypes.Type, left, r
 	default:
 		return "", unknownExpressionDiagnostic("unknown signed wrapping operator")
 	}
-	// C23 makes an out-of-range unsigned-to-signed conversion implementation-defined.
-	// Both branches convert only values representable by the signed target.
-	maximum := signedMaximumMacro(typ)
-	return fmt.Sprintf("((%s)%s <= (%s)%s ? (%s)%s : %s + (%s)((%s)%s - (%s)%s - (%s)1))",
-		intermediate, unsignedResult, intermediate, maximum,
-		typ.CName, unsignedResult,
-		signedMinimumMacro(typ), typ.CName, intermediate, unsignedResult, intermediate, maximum, intermediate), nil
+	helper := wrapHelperName(wrapOperation{name: name, typ: typ})
+	if name == "neg" {
+		if right == "" {
+			return "", unknownExpressionDiagnostic("signed negation without an operand")
+		}
+		return helper + "(" + right + ")", nil
+	}
+	if left == "" || right == "" {
+		return "", unknownExpressionDiagnostic("signed operation without both operands")
+	}
+	return helper + "(" + left + ", " + right + ")", nil
 }
 
 func renderUnsignedArithmetic(operator checker.Operator, typ compilerTypes.Type, left, right string) (string, error) {

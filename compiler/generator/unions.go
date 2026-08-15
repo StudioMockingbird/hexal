@@ -135,7 +135,7 @@ func writeUnionWidening(result *strings.Builder, widening unionWidening) {
 		}
 		fmt.Fprintf(result, "        return (%s){ .tag = %s, .payload.member_%d = value.payload.member_%d };\n", widening.destination.CName, unionTagName(widening.destination, destinationIndex), destinationIndex, sourceIndex)
 	}
-	fmt.Fprintf(result, "    default:\n        abort();\n    }\n    abort();\n}\n")
+	fmt.Fprintf(result, "    default:\n        abort();\n    }\n}\n")
 }
 
 func unionSupportsEquality(union compilerTypes.Type) bool {
@@ -208,7 +208,6 @@ func writeUnionEquality(result *strings.Builder, union compilerTypes.Type) {
 	fmt.Fprintln(result, "    default:")
 	fmt.Fprintln(result, "        abort();")
 	fmt.Fprintln(result, "    }")
-	fmt.Fprintln(result, "    abort();")
 	fmt.Fprintln(result, "}")
 }
 
@@ -227,7 +226,6 @@ func writeUnionTruthiness(result *strings.Builder, union compilerTypes.Type) {
 	fmt.Fprintln(result, "    default:")
 	fmt.Fprintln(result, "        abort();")
 	fmt.Fprintln(result, "    }")
-	fmt.Fprintln(result, "    abort();")
 	fmt.Fprintln(result, "}")
 }
 

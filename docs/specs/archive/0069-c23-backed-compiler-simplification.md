@@ -1,8 +1,10 @@
 # RFC 0069: C23-Backed Compiler Simplification
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; base RFC and Amendments 1 and 2 implementation-ready.
-  The deferred Heap finding requires its named follow-up decision.
+- Status: Implemented; conformance verified 2026-08-16. The base RFC and
+  Amendments 1 and 2 are implemented, with GCC and Clang C23 execution
+  validation recorded in acceptance criterion 15. The deferred Heap finding
+  remains open as a named follow-up ADR (tracked in `docs/status.md`).
 - Created: 2026-08-15
 - Updated: 2026-08-15
 - Scope: generated runtime checked integer arithmetic (base RFC); signed

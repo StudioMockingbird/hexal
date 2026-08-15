@@ -33,6 +33,32 @@ func TestListLifecycle(t *testing.T) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
+	// RFC 0069: growth doubling and element-region byte sizing stay in
+	// size_t and use checked multiply; the manual SIZE_MAX guard and the
+	// uint64_t temporary are gone.
+	// RFC 0069 Amendment 2: growth relocates the initialized prefix with one
+	// guarded memcpy (an empty list may hold a null data pointer), every
+	// diagnostic reports through hex_runtime_trap, and the List helpers carry
+	// no raw fputs or compiler-owned NULL.
+	header := hexalH(t, result)
+	for _, want := range []string{
+		"size_t next = 1;",
+		"ckd_mul(&next, list->capacity, 2)",
+		"ckd_mul(&bytes, next, sizeof(int32_t))",
+		"if (list->length != 0) {",
+		"memcpy(region, list->data, list->length * sizeof(int32_t));",
+		"hex_runtime_trap(\"[Runtime Error] list index out of bounds\\n\")",
+		"hex_runtime_trap(\"[Runtime Error] list capacity is not representable\\n\")",
+	} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("hexal.h does not contain %q:\n%s", want, header)
+		}
+	}
+	for _, forbid := range []string{"uint64_t next", "SIZE_MAX /", "fputs(", "NULL"} {
+		if strings.Contains(header, forbid) {
+			t.Fatalf("hexal.h retains %q:\n%s", forbid, header)
+		}
+	}
 }
 
 func TestListViewDerivationAndInvalidation(t *testing.T) {

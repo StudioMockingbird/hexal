@@ -26,6 +26,37 @@ func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
 	}
 }
 
+func TestHeapRawAllocateUsesCheckedArithmetic(t *testing.T) {
+	result := compileSource("h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0)")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	hexalH := hexalH(t, result)
+	start := strings.Index(hexalH, "hex_heap_raw_allocate")
+	end := strings.Index(hexalH, "static void hex_heap_free")
+	if start < 0 || end < 0 || end <= start {
+		t.Fatalf("hexal.h = %q, want hex_heap_raw_allocate before hex_heap_free", hexalH)
+	}
+	raw := hexalH[start:end]
+	if got := strings.Count(raw, "ckd_add"); got != 2 {
+		t.Fatalf("hex_heap_raw_allocate uses ckd_add %d times, want 2: %q", got, raw)
+	}
+	for _, want := range []string{
+		"align == 0",
+		"ckd_add(&padded, sizeof(hex_heap_header), align - 1)",
+		"ckd_add(&total, offset, size)",
+	} {
+		if !strings.Contains(raw, want) {
+			t.Fatalf("hex_heap_raw_allocate does not contain %q: %q", want, raw)
+		}
+	}
+	for _, bad := range []string{"total < size", "(align & (align - 1))"} {
+		if strings.Contains(raw, bad) {
+			t.Fatalf("hex_heap_raw_allocate retains obsolete pattern %q: %q", bad, raw)
+		}
+	}
+}
+
 func TestHeapFreeAcceptsReadOnlyAndWritablePointers(t *testing.T) {
 	result := compileSource("h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p)")
 	if result.ExitCode != compiler.ExitSuccess {

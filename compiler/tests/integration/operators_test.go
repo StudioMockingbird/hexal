@@ -46,10 +46,10 @@ func TestCompleteOperatorProgram(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"((uint64_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT32_MAX - (uint64_t)1))",
+		"hex_wrap_add_int32_t(hex_v_left, hex_v_right)",
 		"hex_div_int32_t(hex_v_left, hex_v_right)",
 		"hex_rem_int32_t(hex_v_left, hex_v_right)",
-		"((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) - (uint64_t)INT32_MAX - (uint64_t)1))",
+		"hex_wrap_neg_int32_t(hex_v_left)",
 		"(hex_v_left == hex_v_right)",
 		"(hex_v_left != hex_v_right)",
 		"(hex_v_left < hex_v_right)",
@@ -89,7 +89,7 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 	}
 	for _, want := range []string{
 		"(uint8_t)((uint32_t)hex_v_unsigned + (uint32_t)100)",
-		"((uint64_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_signed + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))",
+		"hex_wrap_add_int8_t(hex_v_signed, 1)",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want runtime wrapping fragment %q", rootC(t, result), want)
@@ -187,10 +187,10 @@ func TestAllIntegerWidths(t *testing.T) {
 		{"UInt16", "(uint16_t)((uint32_t)hex_v_left + (uint32_t)hex_v_right)"},
 		{"UInt32", "(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right)"},
 		{"UInt64", "(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right)"},
-		{"Int8", "((uint64_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT8_MAX - (uint64_t)1))"},
-		{"Int16", "((uint64_t)(uint16_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT16_MAX ? (int16_t)(uint16_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT16_MIN + (int16_t)((uint64_t)(uint16_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT16_MAX - (uint64_t)1))"},
-		{"Int32", "((uint64_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT32_MAX - (uint64_t)1))"},
-		{"Int64", "((uint64_t)(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT64_MAX ? (int64_t)(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT64_MIN + (int64_t)((uint64_t)(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT64_MAX - (uint64_t)1))"},
+		{"Int8", "hex_wrap_add_int8_t(hex_v_left, hex_v_right)"},
+		{"Int16", "hex_wrap_add_int16_t(hex_v_left, hex_v_right)"},
+		{"Int32", "hex_wrap_add_int32_t(hex_v_left, hex_v_right)"},
+		{"Int64", "hex_wrap_add_int64_t(hex_v_left, hex_v_right)"},
 	} {
 		t.Run(testCase.typ, func(t *testing.T) {
 			source := fmt.Sprintf("mut left: %s = 1 mut right: %s = 2 result: %s = left + right", testCase.typ, testCase.typ, testCase.typ)
@@ -211,12 +211,21 @@ func TestSignedWrappingBoundaries(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful signed boundary program", result)
 	}
 	for _, old := range []string{
-		"const int8_t hex_v_wrapped8 = (int8_t)(uint8_t)((uint64_t)hex_v_signed8 + (uint64_t)1);",
-		"const int64_t hex_v_wrapped64 = (int64_t)(uint64_t)((uint64_t)hex_v_minimum64 - (uint64_t)INT64_C(1));",
-		"const int64_t hex_v_negative64 = (int64_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum64);",
+		"(int8_t)(uint8_t)((uint64_t)hex_v_signed8 + (uint64_t)1)",
+		"(int64_t)(uint64_t)((uint64_t)hex_v_minimum64 - (uint64_t)INT64_C(1))",
+		"(int64_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum64)",
 	} {
 		if strings.Contains(rootC(t, result), old) {
 			t.Fatalf("modules/app.c contains implementation-defined signed conversion %q: %q", old, rootC(t, result))
+		}
+	}
+	for _, want := range []string{
+		"hex_wrap_add_int8_t(hex_v_signed8, 1)",
+		"hex_wrap_sub_int64_t(hex_v_minimum64, INT64_C(1))",
+		"hex_wrap_neg_int64_t(hex_v_minimum64)",
+	} {
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("modules/app.c = %q, want wrap helper %q", rootC(t, result), want)
 		}
 	}
 }

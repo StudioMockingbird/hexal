@@ -9,11 +9,12 @@ import (
 )
 
 // RFC 0024 equality and ordering lowering: one equality helper per concrete
-// compared type, recursive member-wise bodies, bytewise String and Strand
-// comparison, and no storage memcmp anywhere.
+// compared type, recursive member-wise bodies, and String comparison through
+// memcmp; no storage memcmp is used for values with padding, NaNs, pointers,
+// inactive union bytes, or capacity state.
 
-// generatedEqualityState records the types needing equality helpers and the
-// String/Strand compare helpers, in dependency order.
+// generatedEqualityState records the types needing equality helpers, in
+// dependency order.
 type generatedEqualityState struct {
 	order       []compilerTypes.Type
 	seenObjects map[*compilerTypes.ObjectType]bool
@@ -23,7 +24,6 @@ type generatedEqualityState struct {
 	seenLists   map[*compilerTypes.ListInfo]bool
 	seenUnions  map[*compilerTypes.UnionInfo]bool
 	needString  bool
-	needStrand  bool
 	compareNeed bool
 }
 
@@ -80,8 +80,6 @@ func discoverEqualityTypes(program checker.Program) (*generatedEqualityState, er
 				state.order = append(state.order, typ)
 			case compilerTypes.IsString(typ):
 				state.needString = true
-			case compilerTypes.IsStrand(typ):
-				state.needStrand = true
 			}
 			return nil
 		},
@@ -101,25 +99,17 @@ func equalityHelperName(typ compilerTypes.Type) string {
 	return "hex_equal_" + typ.CName
 }
 
-// writeEqualityDefinitions emits one equality helper per collected type plus
-// the String and Strand byte-compare helpers. It must run after every struct
-// definition because the helper bodies reference the concrete C types.
+// writeEqualityDefinitions emits one equality helper per collected type. It
+// must run after every struct definition because the helper bodies reference
+// the concrete C types.
 func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityState) {
 	if state == nil {
 		return
 	}
-	// The byte-compare helpers come first: per-type helpers reference them
-	// for String and Strand members.
+	// The String equality helper comes first: per-type helpers reference it
+	// for String members. Strand members compare directly with memcmp.
 	if state.needString {
-		writeByteCompareHelpers(result, "hex_string", "left->byte_length", "left->data")
-	}
-	if state.needStrand {
-		// RFC 0044: a Strand is 32 zero-padded inline bytes with no NUL in
-		// its payload, so full-width comparison is exact.
-		result.WriteString("\nstatic bool hex_equal_hex_strand(hex_strand left, hex_strand right) {\n")
-		result.WriteString("    for (size_t index = 0; index < 32; index++) {\n")
-		result.WriteString("        if (left.data[index] != right.data[index]) {\n            return false;\n        }\n    }\n")
-		result.WriteString("    return true;\n}\n")
+		writeStringEqualityHelper(result)
 	}
 	for _, typ := range state.order {
 		if typ.Union != nil {
@@ -135,21 +125,15 @@ func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityS
 	}
 }
 
-func writeByteCompareHelpers(result *strings.Builder, handle, lengthSpelling, dataSpelling string) {
-	parameter := handle + " left, " + handle + " right"
-	rightLength := strings.Replace(lengthSpelling, "left.", "right.", 1)
-	if handle == "hex_string" {
-		parameter = "const hex_string *left, const hex_string *right"
-		rightLength = "right->byte_length"
-	}
-	rightData := strings.Replace(dataSpelling, "left.", "right.", 1)
-	if handle == "hex_string" {
-		rightData = "right->data"
-	}
-	fmt.Fprintf(result, "\nstatic bool hex_equal_%s(%s) {\n", handle, parameter)
-	fmt.Fprintf(result, "    if (%s != %s) {\n        return false;\n    }\n", lengthSpelling, rightLength)
-	fmt.Fprintf(result, "    for (size_t index = 0; index < %s; index++) {\n", lengthSpelling)
-	fmt.Fprintf(result, "        if (%s[index] != %s[index]) {\n            return false;\n        }\n    }\n", dataSpelling, rightData)
+// writeStringEqualityHelper emits the String equality helper: equal byte
+// lengths first, then one memcmp over the shared length. A zero-length
+// String returns equal without calling memcmp on a possibly invalid pointer.
+func writeStringEqualityHelper(result *strings.Builder) {
+	result.WriteString("\nstatic bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {\n")
+	result.WriteString("    if (left->byte_length != right->byte_length) {\n        return false;\n    }\n")
+	result.WriteString("    if (left->byte_length != 0) {\n")
+	result.WriteString("        if (memcmp(left->data, right->data, left->byte_length) != 0) {\n            return false;\n        }\n")
+	result.WriteString("    }\n")
 	result.WriteString("    return true;\n}\n")
 }
 
@@ -157,42 +141,21 @@ func writeOrderingHelpers(result *strings.Builder, state *generatedEqualityState
 	if state.needString {
 		writeStringCompare(result)
 	}
-	if state.needStrand {
-		writeStrandCompare(result)
-	}
 }
 
 // writeStringCompare emits the lexicographic unsigned-byte compare for
-// String handles.
+// String handles: memcmp over the shorter nonzero byte length, then the
+// length comparison when the byte sequences are equal. The sign of the
+// memcmp result is the ordering result.
 func writeStringCompare(result *strings.Builder) {
 	result.WriteString("\nstatic int hex_compare_hex_string(const hex_string *left, const hex_string *right) {\n")
 	result.WriteString("    size_t limit = left->byte_length < right->byte_length ? left->byte_length : right->byte_length;\n")
-	result.WriteString("    for (size_t index = 0; index < limit; index++) {\n")
-	result.WriteString("        if (left->data[index] != right->data[index]) {\n")
-	result.WriteString("            return left->data[index] < right->data[index] ? -1 : 1;\n")
-	result.WriteString("        }\n")
+	result.WriteString("    if (limit != 0) {\n")
+	result.WriteString("        int result = memcmp(left->data, right->data, limit);\n")
+	result.WriteString("        if (result != 0) {\n            return result;\n        }\n")
 	result.WriteString("    }\n")
 	result.WriteString("    if (left->byte_length < right->byte_length) return -1;\n")
 	result.WriteString("    if (left->byte_length > right->byte_length) return 1;\n")
-	result.WriteString("    return 0;\n}\n")
-}
-
-// writeStrandCompare emits the lexicographic unsigned-byte compare for Strand
-// values. Payloads are NUL-free and zero-padded, so the first zero byte in
-// either side bounds the meaningful region.
-func writeStrandCompare(result *strings.Builder) {
-	result.WriteString("\nstatic int hex_compare_hex_strand(hex_strand left, hex_strand right) {\n")
-	result.WriteString("    for (size_t index = 0; index < 32; index++) {\n")
-	result.WriteString("        if (left.data[index] == 0 || right.data[index] == 0) {\n")
-	result.WriteString("            if (left.data[index] != right.data[index]) {\n")
-	result.WriteString("                return left.data[index] == 0 ? -1 : 1;\n")
-	result.WriteString("            }\n")
-	result.WriteString("            return 0;\n")
-	result.WriteString("        }\n")
-	result.WriteString("        if (left.data[index] != right.data[index]) {\n")
-	result.WriteString("            return left.data[index] < right.data[index] ? -1 : 1;\n")
-	result.WriteString("        }\n")
-	result.WriteString("    }\n")
 	result.WriteString("    return 0;\n}\n")
 }
 
@@ -267,7 +230,10 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 	case compilerTypes.IsString(typ):
 		fmt.Fprintf(body, "%sif (!hex_equal_hex_string(%s, %s)) return false;\n", indent, left, right)
 	case compilerTypes.IsStrand(typ):
-		fmt.Fprintf(body, "%sif (!hex_equal_hex_strand(%s, %s)) return false;\n", indent, left, right)
+		// RFC 0069 Amendment 2: a Strand's NUL-free payload and mandatory
+		// zero-filled tail make the complete 32-byte representation
+		// canonical, so the whole value compares with one direct memcmp.
+		fmt.Fprintf(body, "%sif (memcmp(%s.data, %s.data, 32) != 0) return false;\n", indent, left, right)
 	case typ.Element != nil:
 		fmt.Fprintf(body, "%sif (!(%s == %s)) return false;\n", indent, left, right)
 	default:

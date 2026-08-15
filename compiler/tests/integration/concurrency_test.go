@@ -54,13 +54,28 @@ func TestChannelPipelineCompiles(t *testing.T) {
 		"hex_chan_new_Int32(",
 		"hex_chan_send_Int32(",
 		"hex_chan_recv_Int32(",
-		"hex_chan_close_Int32(",
+		"hex_chan_close(",
 		"hex_chan_free_Int32(",
-		"hex_chan_length",
 	} {
 		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) {
 			t.Fatalf("generated output lacks %s:\n%s", fragment, rootC(t, result))
 		}
+	}
+	// RFC 0069 Channel: the slot region is sized with a checked multiply and
+	// the constructor's manual overflow guard is gone.
+	if !strings.Contains(rootC(t, result), "ckd_mul(&slots_bytes, element_size, capacity)") {
+		t.Fatalf("channel core does not use checked slot sizing:\n%s", rootC(t, result))
+	}
+	if strings.Contains(rootC(t, result), "SIZE_MAX / capacity") {
+		t.Fatalf("channel core retains the manual overflow guard:\n%s", rootC(t, result))
+	}
+	// RFC 0069 Amendment 2 Item B: close/length/capacity/is_closed lower
+	// directly to the core; no per-element forwarding wrappers remain.
+	if strings.Contains(rootC(t, result), "hex_chan_close_Int32(") || strings.Contains(rootH(t, result), "hex_chan_close_Int32(") {
+		t.Fatalf("channel close retains its delegating wrapper:\n%s", rootH(t, result))
+	}
+	if strings.Contains(rootC(t, result), "hex_chan_length_Int32(") || strings.Contains(rootH(t, result), "hex_chan_length_Int32(") {
+		t.Fatalf("channel length retains its delegating wrapper:\n%s", rootH(t, result))
 	}
 }
 
@@ -70,8 +85,19 @@ func TestMutexCompiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(rootH(t, result), "hex_mutex_lock_hex_mutex(") {
-		t.Fatalf("generated header lacks the mutex helpers:\n%s", rootH(t, result))
+	// RFC 0069 Amendment 2 Item B: lock and unlock call the core directly;
+	// only the constructor and free adapters remain in the module header.
+	if !strings.Contains(rootC(t, result), "hex_mutex_lock(hex_v_m)") {
+		t.Fatalf("generated code lacks the direct mutex lock call:\n%s", rootC(t, result))
+	}
+	if !strings.Contains(rootC(t, result), "hex_mutex_unlock(hex_v_m)") {
+		t.Fatalf("generated code lacks the direct mutex unlock call:\n%s", rootC(t, result))
+	}
+	if !strings.Contains(rootH(t, result), "hex_mutex_new_mutex(") || !strings.Contains(rootH(t, result), "hex_mutex_free_hex_mutex(") {
+		t.Fatalf("generated header lacks the mutex adapters:\n%s", rootH(t, result))
+	}
+	if strings.Contains(rootH(t, result), "hex_mutex_lock_hex_mutex(") || strings.Contains(rootH(t, result), "hex_mutex_unlock_hex_mutex(") {
+		t.Fatalf("generated header retains the mutex lock/unlock wrappers:\n%s", rootH(t, result))
 	}
 }
 
@@ -94,6 +120,201 @@ func TestAtomicOperationsCompile(t *testing.T) {
 		if !strings.Contains(rootH(t, result), fragment) && !strings.Contains(rootC(t, result), fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
+	}
+	// RFC 0069 Amendment 2 Item B: load/store/exchange/fetch bodies call the
+	// C23 <stdatomic.h> functions directly at sequential consistency; no
+	// delegating generic forwarder exists.
+	generated := rootH(t, result)
+	for _, fragment := range []string{
+		"return atomic_load_explicit(atomic, memory_order_seq_cst);",
+		"atomic_store_explicit(atomic, value, memory_order_seq_cst);",
+		"return atomic_exchange_explicit(atomic, value, memory_order_seq_cst);",
+		"return atomic_fetch_add_explicit(atomic, value, memory_order_seq_cst);",
+		"return atomic_fetch_sub_explicit(atomic, value, memory_order_seq_cst);",
+	} {
+		if !strings.Contains(generated, fragment) {
+			t.Fatalf("generated atomic helpers lack the direct standard call %q:\n%s", fragment, generated)
+		}
+	}
+	for _, generic := range []string{
+		"hex_atomic_store(",
+		"hex_atomic_load(",
+		"hex_atomic_exchange(",
+		"hex_atomic_fetch_add(",
+		"hex_atomic_fetch_sub(",
+	} {
+		if strings.Contains(generated, generic) {
+			t.Fatalf("generated output retains the generic atomic forwarder %q:\n%s", generic, generated)
+		}
+	}
+}
+
+// RFC 0069 Amendment 2 Item B: close, length, capacity, and is_closed call
+// the non-generic hex_chan_* core directly; no per-element forwarding wrapper
+// is emitted for them.
+func TestChannelDirectCoreCalls(t *testing.T) {
+	source := "fun run(): Size | Error do\n" +
+		"    h: Heap = Heap.new()\n" +
+		"    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n" +
+		"    ch.close()\n" +
+		"    mut length: Size = ch.length()\n" +
+		"    capacity: Size = ch.capacity()\n" +
+		"    closed: Bool = ch.is_closed()\n" +
+		"    length = length + capacity\n" +
+		"    if closed then\n" +
+		"        length = length + 1\n" +
+		"    end\n" +
+		"    return length\n" +
+		"end\n"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	rootC := rootC(t, result)
+	rootH := rootH(t, result)
+	for _, direct := range []string{
+		"hex_chan_close(hex_v_ch)",
+		"hex_chan_length(hex_v_ch)",
+		"hex_chan_capacity(hex_v_ch)",
+		"hex_chan_is_closed(hex_v_ch)",
+	} {
+		if !strings.Contains(rootC, direct) {
+			t.Fatalf("generated code lacks the direct core call %q:\n%s", direct, rootC)
+		}
+	}
+	for _, wrapper := range []string{
+		"hex_chan_close_Int32(",
+		"hex_chan_length_Int32(",
+		"hex_chan_capacity_Int32(",
+		"hex_chan_is_closed_Int32(",
+	} {
+		if strings.Contains(rootC, wrapper) || strings.Contains(rootH, wrapper) {
+			t.Fatalf("generated output retains the channel forwarding wrapper %q:\n%s", wrapper, rootH)
+		}
+	}
+	// The typed storage/union adapters survive for new and free even when a
+	// program never sends or receives (RFC 0069 Amendment 2 Item B); send and
+	// receive adapters are demand-emitted with their unions.
+	for _, adapter := range []string{
+		"hex_chan_new_Int32(",
+		"hex_chan_free_Int32(",
+	} {
+		if !strings.Contains(rootH, adapter) {
+			t.Fatalf("generated header lacks the retained channel adapter %q:\n%s", adapter, rootH)
+		}
+	}
+}
+
+// RFC 0069 Amendment 2 Item B: both the direct and the deferred Mutex free
+// evaluate the Heap argument once and pass its identity token to the same
+// retained adapter; neither path drops the argument.
+func TestMutexFreePassesHeapIdentity(t *testing.T) {
+	source := "fun run(): Int32 | Error do\n" +
+		"    h: Heap = Heap.new()\n" +
+		"    m: Mutex = try Mutex.new(h)\n" +
+		"    defer m.free(h)\n" +
+		"    m.free(h)\n" +
+		"    return 0\n" +
+		"end\n"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	rootC := rootC(t, result)
+	// The direct call passes the Heap's identity token, never the whole Heap
+	// object (the checked operand inlines to its constant initializer here).
+	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex((((hex_heap){ .identity = HEX_HEAP_DEFAULT })).identity, hex_v_m)") {
+		t.Fatalf("direct mutex free does not pass the heap identity:\n%s", rootC)
+	}
+	if strings.Contains(rootC, "hex_mutex_free_hex_mutex(hex_v_m)") {
+		t.Fatalf("direct mutex free drops the checked Heap argument:\n%s", rootC)
+	}
+	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex(hex_defer_capture_2.identity, hex_defer_capture_1)") {
+		t.Fatalf("deferred mutex free does not pass the captured heap identity:\n%s", rootC)
+	}
+	rootH := rootH(t, result)
+	if !strings.Contains(rootH, "static inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex)") {
+		t.Fatalf("mutex free adapter lacks the heap identity parameter:\n%s", rootH)
+	}
+	if !strings.Contains(rootH, "hex_mutex_free(mutex);") {
+		t.Fatalf("mutex free adapter does not reach the core free:\n%s", rootH)
+	}
+}
+
+// RFC 0069 Amendment 2 Items C and D: the scheduler and Channel/Mutex cores
+// report every failure through the one hex_runtime_trap with the complete
+// "[Runtime Error] ...\n" literal, never through hex_sched_fatal or a
+// per-site fputs/abort pair, and the emitted scheduler text uses nullptr.
+func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
+	source := "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n" +
+		"    m.lock()\n" +
+		"    ch.send(1)\n" +
+		"    m.unlock()\n" +
+		"    Task.yield()\n" +
+		"    return true\n" +
+		"end\n" +
+		"fun run(): Int32 | Error do\n" +
+		"    h: Heap = Heap.new()\n" +
+		"    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n" +
+		"    m: Mutex = try Mutex.new(h)\n" +
+		"    defer m.free(h)\n" +
+		"    defer ch.free(h)\n" +
+		"    task: Task<Bool> = try spawn worker(ch, m)\n" +
+		"    task.join()\n" +
+		"    return 0\n" +
+		"end\n"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	rootC := rootC(t, result)
+	for _, trap := range []string{
+		"hex_runtime_trap(\"[Runtime Error] scheduler mutex initialization failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] scheduler condition variable initialization failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] scheduler allocation failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] scheduler fiber initialization failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] scheduler worker-zero context creation failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] scheduler worker creation failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] cannot join the current task\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] recursive mutex lock\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] mutex unlock by a non-owner\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] mutex free while locked or awaited\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] channel free while tasks are blocked on it\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] channel free requires a closed, empty channel\\n\");",
+	} {
+		if !strings.Contains(rootC, trap) {
+			t.Fatalf("generated code lacks the trap %q:\n%s", trap, rootC)
+		}
+	}
+	for _, gone := range []string{"hex_sched_fatal", "fputs(\"[Runtime Error]"} {
+		if strings.Contains(rootC, gone) {
+			t.Fatalf("generated code retains %q:\n%s", gone, rootC)
+		}
+	}
+	// Item D: the scheduler text spells its null pointer constants nullptr.
+	if !strings.Contains(rootC, "task->ready_next = nullptr;") || !strings.Contains(rootC, "if (hex_root_task == nullptr) {") {
+		t.Fatalf("scheduler text does not use the nullptr spelling:\n%s", rootC)
+	}
+	if strings.Contains(rootC, "NULL") || strings.Contains(rootH(t, result), "NULL") {
+		t.Fatalf("generated concurrency output retains NULL:\n%s", rootC)
+	}
+}
+
+// RFC 0069 Item D: an atomic-only program emits the Atomic typedefs and
+// helpers with the C23 nullptr spelling and no raw fputs.
+func TestAtomicOnlyOutputUsesNullptr(t *testing.T) {
+	source := "fun run(): Bool do\n" +
+		"    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n" +
+		"    counter.store(1)\n" +
+		"    return counter.load() == 1\n" +
+		"end\n"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	generated := rootH(t, result)
+	if strings.Contains(generated, "NULL") || strings.Contains(generated, "fputs(") {
+		t.Fatalf("atomic-only header retains NULL or fputs:\n%s", generated)
 	}
 }
 

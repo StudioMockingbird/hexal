@@ -30,6 +30,34 @@ func TestDictInt32Lifecycle(t *testing.T) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
+	// RFC 0069: capacity doubling and bucket-region byte sizing stay in
+	// size_t with checked multiply, and the load-factor growth decision
+	// checks every operand before comparison; the manual SIZE_MAX guard and
+	// the uint64_t temporary are gone.
+	// RFC 0069 Amendment 2: a fresh inactive bucket region zeroes with one
+	// memset, every diagnostic reports through hex_runtime_trap, and the
+	// Dict helpers carry no raw fputs or compiler-owned NULL.
+	header := hexalH(t, result)
+	for _, want := range []string{
+		"size_t next = 8;",
+		"ckd_mul(&next, dict->capacity, 2)",
+		"ckd_mul(&bytes, next, sizeof(hex_dict_entry_Int32_Int32))",
+		"memset(region, 0, bytes);",
+		"ckd_add(&length_plus_one, dict->length, 1)",
+		"ckd_mul(&load_times_10, length_plus_one, 10)",
+		"ckd_mul(&capacity_times_7, dict->capacity, 7)",
+		"hex_runtime_trap(\"[Runtime Error] dictionary key not found\\n\")",
+		"hex_runtime_trap(\"[Runtime Error] dictionary capacity is not representable\\n\")",
+	} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("hexal.h does not contain %q:\n%s", want, header)
+		}
+	}
+	for _, forbid := range []string{"uint64_t next", "SIZE_MAX /", "(dict->length + 1) * 10 >= dict->capacity * 7", "fputs(", "NULL", "region[index].active = false"} {
+		if strings.Contains(header, forbid) {
+			t.Fatalf("hexal.h retains %q:\n%s", forbid, header)
+		}
+	}
 }
 
 func TestDictStrandKeys(t *testing.T) {
@@ -48,6 +76,25 @@ func TestDictStrandKeys(t *testing.T) {
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		}
+	}
+	// RFC 0069 Amendment 2: Strand Dict probing compares the canonical
+	// zero-filled 32-byte key representation with one direct memcmp and
+	// emits no per-Dict key-equality wrapper; diagnostics report through
+	// hex_runtime_trap and no compiler-owned NULL or raw fputs remains.
+	header := hexalH(t, result)
+	for _, want := range []string{
+		"memcmp(region[index].key.data, key.data, 32) != 0",
+		"memcmp(dict->buckets[index].key.data, key.data, 32) != 0",
+		"hex_runtime_trap(\"[Runtime Error] dictionary key not found\\n\")",
+	} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("hexal.h does not contain %q:\n%s", want, header)
+		}
+	}
+	for _, forbid := range []string{"hex_dict_key_equal_", "fputs(", "NULL"} {
+		if strings.Contains(header, forbid) {
+			t.Fatalf("hexal.h retains %q:\n%s", forbid, header)
 		}
 	}
 }

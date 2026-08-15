@@ -96,20 +96,101 @@ func TestStringEqualityAndOrdering(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
+	output := rootC(t, result) + rootH(t, result) + hexalH(t, result)
 	for _, want := range []string{
 		"static bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {",
 		"static int hex_compare_hex_string(const hex_string *left, const hex_string *right) {",
-		"static int hex_compare_hex_strand(hex_strand left, hex_strand right) {",
 		"hex_v_same = hex_equal_hex_string(hex_v_left, hex_v_right);",
 		"(hex_compare_hex_string(hex_v_left, hex_v_right) < 0)",
 		"(hex_compare_hex_string(hex_v_left, hex_v_right) <= 0)",
 		"(hex_compare_hex_string(hex_v_left, hex_v_right) > 0)",
 		"(hex_compare_hex_string(hex_v_left, hex_v_right) >= 0)",
-		"(hex_compare_hex_strand(hex_v_a, hex_v_b) < 0)",
+		"memcmp(hex_v_a.data, hex_v_b.data, 32) < 0",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(output, want) {
+			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), hexalH(t, result), want)
 		}
+	}
+	// RFC 0069 Amendment 2 Item A: String equality is length-first plus one
+	// memcmp over the shared nonzero length; String ordering memcmp's the
+	// shorter nonzero length and falls back to the length comparison. The
+	// global Strand equality/ordering helpers are deleted.
+	for _, want := range []string{
+		"memcmp(left->data, right->data, left->byte_length)",
+		"memcmp(left->data, right->data, limit)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("generated output lacks %q: %q %q %q", want, rootC(t, result), rootH(t, result), hexalH(t, result))
+		}
+	}
+	for _, forbidden := range []string{"static bool hex_equal_hex_strand(", "static int hex_compare_hex_strand("} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("generated output retains deleted helper %q", forbidden)
+		}
+	}
+}
+
+// RFC 0069 Amendment 2 Item A: String and Strand equality/ordering produce
+// identical results through memcmp. Empty values skip the standard memory
+// call safely, prefix and differing-length payloads compare against the
+// canonical zero-filled tail, non-ASCII UTF-8 compares bytewise, and the
+// maximum 31-byte Strand payload still lower to one direct 32-byte memcmp.
+func TestTextEqualityOrderingThroughMemcmp(t *testing.T) {
+	maxPayload := strings.Repeat("a", 31)
+	source := "fun demo() do\n" +
+		"    emptyA: String = \"\"\n" +
+		"    emptyB: String = \"\"\n" +
+		"    sameEmpty: Bool = emptyA == emptyB\n" +
+		"    prefix: String = \"caf\u00E9\"\n" +
+		"    longer: Bool = prefix < \"caf\u00E9!\"\n" +
+		"    full: Strand = \"" + maxPayload + "\"\n" +
+		"    fullSame: Bool = full == full\n" +
+		"    tail: Strand = \"aa\"\n" +
+		"    tailLess: Bool = tail < full\n" +
+		"    emptyStrandA: Strand = \"\"\n" +
+		"    emptyStrandB: Strand = \"\"\n" +
+		"    sameEmptyStrand: Bool = emptyStrandA == emptyStrandB\n" +
+		"end"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	output := rootC(t, result) + rootH(t, result) + hexalH(t, result)
+	for _, want := range []string{
+		"hex_equal_hex_string(hex_v_emptyA, hex_v_emptyB)",
+		"memcmp(hex_v_full.data, hex_v_full.data, 32)",
+		"memcmp(hex_v_tail.data, hex_v_full.data, 32) < 0",
+		"memcmp(hex_v_emptyStrandA.data, hex_v_emptyStrandB.data, 32)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("generated output lacks %q:\n%q\n%q\n%q", want, rootC(t, result), rootH(t, result), hexalH(t, result))
+		}
+	}
+	if strings.Contains(output, "static bool hex_equal_hex_strand(") || strings.Contains(output, "static int hex_compare_hex_strand(") {
+		t.Fatalf("generated output retains a global Strand equality/ordering helper")
+	}
+}
+
+// RFC 0069 Amendment 2 Item A: recursive semantic equality bodies compare a
+// Strand member with the direct 32-byte memcmp; no per-type Strand wrapper
+// is emitted inside object equality helpers.
+func TestStrandMemberEqualityUsesMemcmp(t *testing.T) {
+	source := "type Label = { tag: Strand, }\nfun demo() do\n    left: Label = Label { tag = \"a\" }\n    right: Label = Label { tag = \"a\" }\n    same: Bool = left == right\nend"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	output := rootC(t, result) + rootH(t, result) + hexalH(t, result)
+	for _, want := range []string{
+		"if (memcmp((*left).hex_m_tag.data, (*right).hex_m_tag.data, 32) != 0) return false;",
+		"hex_equal_hex_t_m3_app_Label(&(hex_v_left), &(hex_v_right))",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("generated output lacks %q:\n%q\n%q\n%q", want, rootC(t, result), rootH(t, result), hexalH(t, result))
+		}
+	}
+	if strings.Contains(output, "static bool hex_equal_hex_strand(") {
+		t.Fatalf("generated output retains the global Strand equality helper")
 	}
 }
 

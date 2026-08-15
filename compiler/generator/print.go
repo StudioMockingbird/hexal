@@ -97,10 +97,8 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) 
 	if state == nil || !state.used {
 		return
 	}
-	result.WriteString("static void hex_print_failure(void) {\n")
-	result.WriteString("    fputs(\"[Runtime Error] standard output write failed\\n\", stderr);\n    abort();\n}\n")
 	result.WriteString("static void hex_print_bytes(const uint8_t *data, size_t length) {\n")
-	result.WriteString("    if (fwrite(data, 1, length, stdout) != length) {\n        hex_print_failure();\n    }\n}\n")
+	result.WriteString("    if (fwrite(data, 1, length, stdout) != length) {\n        hex_runtime_trap(\"[Runtime Error] standard output write failed\\n\");\n    }\n}\n")
 	result.WriteString("static void hex_print_text(const uint8_t *data, size_t length) {\n    hex_print_bytes(data, length);\n}\n")
 	result.WriteString("static void hex_print_bool(bool value) {\n")
 	result.WriteString("    if (value) { hex_print_bytes((const uint8_t *)\"true\", 4); } else { hex_print_bytes((const uint8_t *)\"false\", 5); }\n}\n")

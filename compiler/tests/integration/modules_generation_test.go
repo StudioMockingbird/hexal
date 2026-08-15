@@ -231,7 +231,8 @@ func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 	if !strings.Contains(mathC, "&hex_lit_0") {
 		t.Fatalf("math.c does not reference the program-wide literal:\n%s", mathC)
 	}
-	// The stdio gate covers modules too: print helpers in math.h need fputs.
+	// The stdio gate covers modules too: the shared runtime trap that the
+	// print helpers report through is declared in hexal.h.
 	if !strings.Contains(hexalH, "#include <stdio.h>") {
 		t.Fatalf("hexal.h lacks the stdio include for math's print helpers:\n%s", hexalH)
 	}

@@ -15,13 +15,15 @@ import (
 const hexalHeaderPrefix = "#ifndef HEXAL_H\n#define HEXAL_H\n\n"
 const sourceFilename = "main.hex"
 
-// cHeaderRequirements is the program-wide demand-driven standard-header set
-// and EoS representation requirement (RFC 0062). Standard headers are
-// rendered once, in lexical order, immediately after the HEXAL_H guard; the
-// hex_eos typedef is rendered before any type that references it.
+// cHeaderRequirements is the program-wide demand-driven standard-header set,
+// EoS representation requirement, and runtime-trap requirement (RFC 0062,
+// RFC 0069 Amendment 2 Item C). Standard headers are rendered once, in
+// lexical order, immediately after the HEXAL_H guard; the hex_eos typedef is
+// rendered before any type that references it.
 type cHeaderRequirements struct {
 	headers map[string]bool
 	eos     bool
+	trap    bool
 }
 
 func (requirements *cHeaderRequirements) add(headers ...string) {
@@ -71,6 +73,7 @@ type moduleEmission struct {
 	endianSpecs      []endianSpec
 	printState       *generatedPrintState
 	concurrencyState *generatedConcurrencyState
+	wrapState        *generatedWrapState
 	objects          []*compilerTypes.ObjectType
 }
 
@@ -166,6 +169,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.bitCastSpecs = discoverGeneratedBitCasts(program)
 	emission.endianSpecs = discoverGeneratedEndian(program)
 	emission.printState = discoverGeneratedPrint(program)
+	emission.wrapState = discoverGeneratedWraps(program)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, stringState, canonicalID, owner)
 	if concurrencyErr != nil {
 		return nil, concurrencyErr
@@ -188,7 +192,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	}
 	if len(listState.order) > 0 || len(dictState.order) > 0 {
 		// The List and Dict helpers allocate and trap through the heap
-		// machinery and fputs.
+		// machinery and the shared runtime trap.
 		heapState.required = true
 	}
 	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
@@ -210,6 +214,7 @@ type programEmission struct {
 	dictState        *generatedDictState
 	arrayState       *generatedArrayState
 	concurrencyState *generatedConcurrencyState
+	wrapState        *generatedWrapState
 	sizeLiterals     []string
 	// requirements is the demand-driven standard-header and hex_eos set built
 	// from every reachable module's checked types and selected helper
@@ -243,6 +248,7 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 			channelSendUnions:    make(map[string]compilerTypes.Type),
 			channelReceiveUnions: make(map[string]compilerTypes.Type),
 		},
+		wrapState:    &generatedWrapState{seen: make(map[string]bool)},
 		adapterSites: make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -256,6 +262,7 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeStringsInto(merged.stringState, module.stringState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
+		mergeWrapState(merged.wrapState, module.wrapState)
 		if module.arrayState != nil {
 			arrayOrders = append(arrayOrders, module.arrayState.order)
 		}
@@ -304,61 +311,69 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		collectTypeRequirements(module.program, requirements)
 		heapState := module.heapState
 		if heapState != nil && (heapState.required || len(heapState.elements) > 0) {
-			// hex_heap_raw_allocate/free: malloc/free and NULL from
-			// <stdlib.h>/<stddef.h>, uintptr_t from <stdint.h>, and the
-			// fputs/stderr/abort trap reporting from <stdio.h>/<stdlib.h>.
-			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+			// hex_heap_raw_allocate/free: malloc/free from <stdlib.h>,
+			// uintptr_t from <stdint.h>, size_t from <stddef.h>, and the
+			// ckd_add checked arithmetic from <stdckdint.h>. Diagnostic
+			// traps report through the one program-wide hex_runtime_trap.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h")
+			requirements.trap = true
 		}
 		if module.viewState != nil && len(module.viewState.views) > 0 {
-			// View structs carry size_t; bounds and slice guards report
-			// through fputs/stderr and use uint64_t bounds.
-			requirements.add("stddef.h", "stdint.h", "stdio.h")
+			// View structs carry size_t; bounds guards trap.
+			requirements.add("stddef.h", "stdint.h")
+			requirements.trap = true
 		}
 		if module.arrayState != nil && len(module.arrayState.order) > 0 {
-			// Array accessors use UINT64_C bounds and trap through
-			// fputs/stderr/abort.
-			requirements.add("stdint.h", "stdio.h", "stdlib.h")
+			// Array accessors use UINT64_C bounds and trap.
+			requirements.add("stdint.h")
+			requirements.trap = true
 		}
 		if module.stringState != nil && module.stringState.used {
-			// hex_string/hex_strand storage, UTF-8 helpers, and the free
-			// path use uint8_t, size_t, free, and fputs/stderr/abort.
-			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+			// hex_string/hex_strand storage and the UTF-8 helpers use
+			// uint8_t, size_t, free, and ckd_add; byte copies use memcpy
+			// (<string.h>) once Amendment 2 lands; diagnostic traps report
+			// through hex_runtime_trap.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h", "string.h")
+			requirements.trap = true
 		}
 		if module.listState != nil && len(module.listState.order) > 0 {
-			// List headers carry size_t/uintptr_t, grow against SIZE_MAX,
-			// allocate through the heap machinery, and trap via
-			// fputs/stderr/abort; NULL appears in initializers.
-			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+			// List headers carry size_t/uintptr_t, grow with ckd_mul, copy
+			// the initialized prefix with memcpy, and trap.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "string.h")
+			requirements.trap = true
 		}
 		if module.dictState != nil && len(module.dictState.order) > 0 {
-			// Dict headers carry size_t/uintptr_t, grow against SIZE_MAX,
-			// and trap via fputs/stderr/abort; NULL appears in initializers.
-			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+			// Dict headers carry size_t/uintptr_t, grow with ckd_mul,
+			// zero fresh regions with memset and probe Strand keys with
+			// memcmp (<string.h>), and trap.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "string.h")
+			requirements.trap = true
 		}
 		if equalityStateUsed(module.equalityState) {
-			// Byte-compare helpers iterate size_t lengths; union equality
-			// helpers abort on an impossible tag.
-			requirements.add("stddef.h")
+			// Byte-compare helpers use memcmp over size_t lengths; union
+			// equality helpers abort directly on an impossible tag.
+			requirements.add("stddef.h", "string.h")
 			if unionEqualityUsed(module.equalityState) {
 				requirements.add("stdlib.h")
 			}
 		}
 		if len(module.conversionSpecs) > 0 {
 			// Conversions use the exact-width limit macros from <stdint.h>
-			// and hex_numeric_trap (fputs/stderr/abort); float sources and
-			// targets additionally classify through <math.h>.
-			requirements.add("stdint.h", "stdio.h", "stdlib.h")
+			// and the shared numeric trap; float sources and targets
+			// additionally classify through <math.h>.
+			requirements.add("stdint.h")
+			requirements.trap = true
 			if conversionUsesMath(module.conversionSpecs) {
 				requirements.add("math.h")
 			}
 		}
 		if len(module.divisionTypes) > 0 {
-			// Division guards trap through hex_numeric_trap.
-			requirements.add("stdio.h", "stdlib.h")
+			// Division guards trap.
+			requirements.trap = true
 		}
 		if len(module.shiftSpecs) > 0 {
-			// Shift guards trap through hex_numeric_trap.
-			requirements.add("stdio.h", "stdlib.h")
+			// Shift guards trap.
+			requirements.trap = true
 		}
 		if len(module.bitCastSpecs) > 0 {
 			// bit_cast helpers reinterpret through memcpy.
@@ -367,18 +382,21 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		if module.printState != nil && module.printState.used {
 			// The print family formats with PRI* macros (<inttypes.h>) and
 			// snprintf/fwrite on stdout, classifies floats through
-			// <math.h>, and uses uint8_t/size_t/bool.
-			requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h", "inttypes.h", "math.h")
+			// <math.h>, and uses uint8_t/size_t/bool; its write-failure trap
+			// reports through hex_runtime_trap.
+			requirements.add("stddef.h", "stdint.h", "stdio.h", "inttypes.h", "math.h")
+			requirements.trap = true
 		}
 		concurrency := module.concurrencyState
 		if concurrency != nil && (concurrency.used || len(concurrency.atomics) > 0) {
 			if concurrency.used {
 				// The scheduler runtime (root C) and the
-				// spawn/channel/mutex inline helpers use size_t, NULL,
-				// SIZE_MAX, int64_t/uint8_t, malloc/calloc/free, and
-				// fputs/stderr/abort. The receive machinery represents
-				// completion as hex_eos for every channel.
-				requirements.add("stddef.h", "stdint.h", "stdio.h", "stdlib.h")
+				// spawn/channel/mutex inline helpers use size_t, SIZE_MAX,
+				// int64_t/uint8_t, malloc/calloc/free, and the shared trap;
+				// Channel slot sizing uses ckd_mul. The receive machinery
+				// represents completion as hex_eos for every channel.
+				requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h")
+				requirements.trap = true
 				if len(concurrency.channels) > 0 {
 					requirements.eos = true
 				}
@@ -393,14 +411,11 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		}
 		if module.unionState != nil {
 			for _, union := range module.unionState.order {
-				// Union truthiness, equality, and widening helpers abort on
-				// an impossible tag; Nil members spell nullptr_t payloads;
-				// EoS members spell hex_eos payloads.
+				// Union truthiness, equality, and widening helpers abort
+				// directly on an impossible tag; EoS members spell hex_eos
+				// payloads. Nil members are tag-only and spell no C type.
 				requirements.add("stdlib.h")
 				for _, member := range compilerTypes.UnionMembers(union) {
-					if compilerTypes.IsNil(member) {
-						requirements.add("stddef.h")
-					}
 					if compilerTypes.IsEoS(member) {
 						requirements.eos = true
 						requirements.add("stdint.h")
@@ -408,6 +423,17 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 				}
 			}
 		}
+	}
+	if merged.wrapState != nil && len(merged.wrapState.order) > 0 {
+		// The signed wrapping helpers adapt ckd_* result-pointer macros
+		// (RFC 0069 Amendment 1 Item A).
+		requirements.add("stdckdint.h")
+	}
+	if requirements.trap {
+		// The one program-wide trap declaration and root definition own
+		// <stdio.h>/<stdlib.h> (RFC 0069 Amendment 2 Item C); families that
+		// only call it do not claim those headers independently.
+		requirements.add("stdio.h", "stdlib.h")
 	}
 	if len(merged.sizeLiterals) > 0 {
 		// The retained SIZE_MAX static_assert is the one source-dependent
@@ -685,6 +711,13 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		// Every module header includes hexal.h, which declares the runtime
 		// entry points with external linkage.
 		writeConcurrencyRuntime(&moduleBody, merged.concurrencyState, merged.stringState)
+		if merged.requirements != nil && merged.requirements.trap {
+			// RFC 0069 Amendment 2 Item C: the one program-wide diagnostic
+			// trap is defined exactly once, in the root module's C file,
+			// matching its hexal.h declaration.
+			moduleBody.WriteString("\n[[noreturn]] void hex_runtime_trap(const char *message) {\n")
+			moduleBody.WriteString("    fputs(message, stderr);\n    abort();\n}\n")
+		}
 
 		renderState.pushScope()
 		// RFC 0060: the module statements execute directly inside main().
@@ -777,6 +810,7 @@ type hexalHeaderInput struct {
 	dicts        *generatedDictState
 	arrays       *generatedArrayState
 	concurrency  *generatedConcurrencyState
+	wrap         *generatedWrapState
 	sizeLiterals []string
 	// requirements is the demand-driven standard-header and hex_eos set
 	// (RFC 0062).
@@ -849,7 +883,15 @@ func hexalHeader(input hexalHeaderInput) string {
 		// emitted exactly once, before any type that references it.
 		result.WriteString("\ntypedef uint8_t hex_eos;\n")
 	}
+	if input.requirements != nil && input.requirements.trap {
+		// RFC 0069 Amendment 2 Item C: one program-wide diagnostic trap,
+		// declared once here and defined once in the root module's C file.
+		result.WriteString("\n[[noreturn]] void hex_runtime_trap(const char *message);\n")
+	}
 	result.WriteString("\n")
+	// RFC 0069 Amendment 1 Item A: the program-wide signed wrapping helpers
+	// follow the includes so <stdckdint.h> precedes their ckd_* calls.
+	writeWrapHelpers(&result, input.wrap)
 	writeConcurrencyTypePrelude(&result, input.concurrency)
 	// RFC 0034: the module header's inline helpers call the runtime core,
 	// which lives in the root module's C file with external linkage. hexal.h
@@ -1004,22 +1046,10 @@ func collectTypeRequirements(program checker.Program, requirements *cHeaderRequi
 				// Int8..Int64, UInt8..UInt64, Rune, and the Byte alias all
 				// spell exact-width C types from <stdint.h>.
 				requirements.add("stdint.h")
-			case compilerTypes.IsNil(typ):
-				// Nil spells nullptr_t and renders nullptr, both owned by
-				// <stddef.h>.
-				requirements.add("stddef.h")
 			case compilerTypes.IsEoS(typ):
 				// EoS spells hex_eos, one compiler-owned byte typedef.
 				requirements.eos = true
 				requirements.add("stdint.h")
-			}
-			return nil
-		},
-		Expression: func(node checker.Expression) error {
-			if node.Kind == checker.NullTestExpression {
-				// The test writes the nullptr constant even when no written
-				// type needs the nullptr_t name.
-				requirements.add("stddef.h")
 			}
 			return nil
 		},

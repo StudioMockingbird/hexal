@@ -116,10 +116,9 @@ func TestGeneralNegativeSyntax(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile general unary negation = %#v, want success", result)
 	}
-	negative := "((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_name) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_name) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_name) - (uint64_t)INT32_MAX - (uint64_t)1))"
 	for _, want := range []string{
-		"const int32_t hex_v_negative = " + negative + ";",
-		"const int32_t hex_v_repeated = ((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)(",
+		"const int32_t hex_v_negative = hex_wrap_neg_int32_t(hex_v_name);",
+		"const int32_t hex_v_repeated = hex_wrap_neg_int32_t(hex_wrap_neg_int32_t(hex_v_name));",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want unary-negation fragment %q", rootC(t, result), want)

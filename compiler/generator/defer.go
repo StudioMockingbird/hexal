@@ -258,11 +258,16 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 	case checker.MutexMethodCallExpression:
 		switch node.Name {
 		case "lock":
-			return "hex_mutex_lock_hex_mutex(" + arguments[0] + ")", nil
+			// RFC 0069 Amendment 2 Item B: lock/unlock call the direct core
+			// operation on the captured handle.
+			return "hex_mutex_lock(" + arguments[0] + ")", nil
 		case "unlock":
-			return "hex_mutex_unlock_hex_mutex(" + arguments[0] + ")", nil
+			return "hex_mutex_unlock(" + arguments[0] + ")", nil
 		case "free":
-			return "hex_mutex_free_hex_mutex(" + arguments[0] + ")", nil
+			// The captures hold the receiver (the Mutex handle) first and
+			// the heap second; the retained adapter takes the heap's
+			// identity token (RFC 0069 Amendment 2 Item B).
+			return "hex_mutex_free_hex_mutex(" + arguments[1] + ".identity, " + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred mutex method without a captured receiver")
 	case checker.TaskMethodCallExpression:

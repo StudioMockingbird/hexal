@@ -896,48 +896,47 @@ func TestRenderSignedInt8Addition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderOperand() error = %v", err)
 	}
-	want := "((uint64_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right) - (uint64_t)INT8_MAX - (uint64_t)1))"
+	want := "hex_wrap_add_int8_t(hex_v_left, hex_v_right)"
 	if got != want {
 		t.Fatalf("signed Int8 addition = %q, want %q", got, want)
 	}
 }
 
-func TestRenderSignedArithmeticUsesPromotionSafeUnsignedIntermediate(t *testing.T) {
+// RFC 0069 Amendment 1 Item A: signed wrapping +, -, *, and unary - lower
+// through ckd_* helpers; no unsigned intermediate or reconstruction ternary
+// remains.
+func TestRenderSignedArithmeticUsesWrapHelpers(t *testing.T) {
 	testCases := []struct {
 		typ      compilerTypes.Type
-		unsigned string
-		minimum  string
-		maximum  string
+		helper   string
+		operator checker.Operator
 	}{
-		{compilerTypes.Int8, "uint8_t", "INT8_MIN", "INT8_MAX"},
-		{compilerTypes.Int16, "uint16_t", "INT16_MIN", "INT16_MAX"},
-		{compilerTypes.Int32, "uint32_t", "INT32_MIN", "INT32_MAX"},
-		{compilerTypes.Int64, "uint64_t", "INT64_MIN", "INT64_MAX"},
+		{compilerTypes.Int8, "hex_wrap_add_int8_t", checker.AddOperator},
+		{compilerTypes.Int16, "hex_wrap_sub_int16_t", checker.SubtractOperator},
+		{compilerTypes.Int32, "hex_wrap_mul_int32_t", checker.MultiplyOperator},
+		{compilerTypes.Int64, "hex_wrap_add_int64_t", checker.AddOperator},
 	}
 	for _, testCase := range testCases {
-		for _, operator := range []checker.Operator{checker.AddOperator, checker.SubtractOperator, checker.MultiplyOperator} {
-			node := binaryExpression(operator, testCase.typ, testCase.typ, variableNode("left"), variableNode("right"))
-			got, err := renderExpression(node)
-			if err != nil {
-				t.Fatalf("renderExpression(%s, %s) error = %v", testCase.typ.Name, operator, err)
-			}
-			operatorText, _ := binaryCOperator(operator)
-			unsignedResult := fmt.Sprintf("(%s)((uint64_t)hex_v_left %s (uint64_t)hex_v_right)", testCase.unsigned, operatorText)
-			want := fmt.Sprintf("((uint64_t)%s <= (uint64_t)%s ? (%s)%s : %s + (%s)((uint64_t)%s - (uint64_t)%s - (uint64_t)1))", unsignedResult, testCase.maximum, testCase.typ.CName, unsignedResult, testCase.minimum, testCase.typ.CName, unsignedResult, testCase.maximum)
-			if got != want {
-				t.Errorf("signed %s %s = %q, want %q", testCase.typ.Name, operator, got, want)
-			}
-		}
-
-		node := unaryExpression(checker.NegateOperator, testCase.typ, testCase.typ, variableNode("value"))
+		node := binaryExpression(testCase.operator, testCase.typ, testCase.typ, variableNode("left"), variableNode("right"))
 		got, err := renderExpression(node)
 		if err != nil {
-			t.Fatalf("renderExpression(%s unary -) error = %v", testCase.typ.Name, err)
+			t.Fatalf("renderExpression(%s, %s) error = %v", testCase.typ.Name, testCase.operator, err)
 		}
-		unsignedResult := fmt.Sprintf("(%s)((uint64_t)0 - (uint64_t)hex_v_value)", testCase.unsigned)
-		want := fmt.Sprintf("((uint64_t)%s <= (uint64_t)%s ? (%s)%s : %s + (%s)((uint64_t)%s - (uint64_t)%s - (uint64_t)1))", unsignedResult, testCase.maximum, testCase.typ.CName, unsignedResult, testCase.minimum, testCase.typ.CName, unsignedResult, testCase.maximum)
+		want := testCase.helper + "(hex_v_left, hex_v_right)"
 		if got != want {
-			t.Errorf("signed %s negation = %q, want %q", testCase.typ.Name, got, want)
+			t.Errorf("signed %s = %q, want %q", testCase.typ.Name, got, want)
+		}
+	}
+
+	for _, typ := range []compilerTypes.Type{compilerTypes.Int8, compilerTypes.Int16, compilerTypes.Int32, compilerTypes.Int64} {
+		node := unaryExpression(checker.NegateOperator, typ, typ, variableNode("value"))
+		got, err := renderExpression(node)
+		if err != nil {
+			t.Fatalf("renderExpression(%s unary -) error = %v", typ.Name, err)
+		}
+		want := "hex_wrap_neg_" + typ.CName + "(hex_v_value)"
+		if got != want {
+			t.Errorf("signed %s negation = %q, want %q", typ.Name, got, want)
 		}
 	}
 }
@@ -1044,19 +1043,29 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	wantWrapped := "((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) <= (uint64_t)INT8_MAX ? (int8_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) : INT8_MIN + (int8_t)((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) - (uint64_t)INT8_MAX - (uint64_t)1))"
+	wantWrapped := "hex_wrap_add_int8_t(hex_v_value, 1)"
 	if !strings.Contains(rootC, wantWrapped) {
-		t.Fatalf("modules/app.c = %q, want conditional signed wrap for Int8 127 + 1", rootC)
+		t.Fatalf("modules/app.c = %q, want the ckd_* wrap helper for Int8 127 + 1", rootC)
 	}
-	// The wrap operands must never reach C as a plain narrowing conversion of a
-	// signed value, which is implementation-defined before C23.
+	// RFC 0069 Amendment 1 Item A: no unsigned intermediate or reconstruction
+	// ternary remains for wrapping arithmetic.
 	for _, forbidden := range []string{
-		"const int8_t hex_v_wrapped = (int8_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1);",
-		"const int8_t hex_v_negated = (int8_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum);",
+		"((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) <= (uint64_t)INT8_MAX",
+		"hex_v_negated = (int8_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum);",
 	} {
 		if strings.Contains(rootC, forbidden) {
-			t.Fatalf("modules/app.c contains implementation-defined signed conversion %q", forbidden)
+			t.Fatalf("modules/app.c contains the removed unsigned-intermediate wrap form %q", forbidden)
 		}
+	}
+	// The program-wide wrap helpers are selected in hexal.h with <stdckdint.h>.
+	hexalH := files["hexal.h"]
+	if !strings.Contains(hexalH, "static inline int8_t hex_wrap_add_int8_t(int8_t a, int8_t b)") ||
+		!strings.Contains(hexalH, "ckd_add(&r, a, b)") ||
+		!strings.Contains(hexalH, "static inline int8_t hex_wrap_neg_int8_t(int8_t a)") {
+		t.Fatalf("hexal.h = %q, want the selected wrap helpers", hexalH)
+	}
+	if !strings.Contains(hexalH, "#include <stdckdint.h>") {
+		t.Fatalf("hexal.h = %q, want <stdckdint.h> for the wrap helpers", hexalH)
 	}
 	if rootH == "" {
 		t.Fatal("GenerateChecked() returned an empty header")
@@ -1071,7 +1080,7 @@ func TestRenderEveryOperationOperator(t *testing.T) {
 		node checker.Expression
 		want string
 	}{
-		{"negate", unaryExpression(checker.NegateOperator, compilerTypes.Int32, compilerTypes.Int32, left), "((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) <= (uint64_t)INT32_MAX ? (int32_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) : INT32_MIN + (int32_t)((uint64_t)(uint32_t)((uint64_t)0 - (uint64_t)hex_v_left) - (uint64_t)INT32_MAX - (uint64_t)1))"},
+		{"negate", unaryExpression(checker.NegateOperator, compilerTypes.Int32, compilerTypes.Int32, left), "hex_wrap_neg_int32_t(hex_v_left)"},
 		{"logical not", unaryExpression(checker.LogicalNotOperator, compilerTypes.Bool, compilerTypes.Bool, left), "(!hex_v_left)"},
 		{"add", binaryExpression(checker.AddOperator, compilerTypes.Float64, compilerTypes.Float64, left, right), "(hex_v_left + hex_v_right)"},
 		{"subtract", binaryExpression(checker.SubtractOperator, compilerTypes.Float64, compilerTypes.Float64, left, right), "(hex_v_left - hex_v_right)"},

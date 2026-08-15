@@ -60,12 +60,12 @@ func writeViewDefinitions(result *strings.Builder, views *generatedViewState) {
 
 func writeViewBoundsGuard(result *strings.Builder) {
 	result.WriteString("    if (index >= view.length) {\n")
-	result.WriteString("        fputs(\"[Runtime Error] view index out of bounds\\n\", stderr);\n        abort();\n    }\n")
+	result.WriteString("        hex_runtime_trap(\"[Runtime Error] view index out of bounds\\n\");\n    }\n")
 }
 
 func writeViewSliceGuard(result *strings.Builder) {
 	result.WriteString("    if (!(start <= end && end <= view.length)) {\n")
-	result.WriteString("        fputs(\"[Runtime Error] view slice bounds out of range\\n\", stderr);\n        abort();\n    }\n")
+	result.WriteString("        hex_runtime_trap(\"[Runtime Error] view slice bounds out of range\\n\");\n    }\n")
 }
 
 // writeArraySliceHelper emits the slice helper for one array type, which
@@ -76,7 +76,7 @@ func writeArraySliceHelper(result *strings.Builder, array compilerTypes.Type, vi
 	suffix := arrayAccessorSuffix(array)
 	fmt.Fprintf(result, "\nstatic inline %s hex_array_slice_%s(const %s *array, uint64_t start, uint64_t end) {\n", view.CName, suffix, array.CName)
 	fmt.Fprintf(result, "    if (!(start <= end && end <= UINT64_C(%d))) {\n", length)
-	result.WriteString("        fputs(\"[Runtime Error] array slice bounds out of range\\n\", stderr);\n        abort();\n    }\n")
+	result.WriteString("        hex_runtime_trap(\"[Runtime Error] array slice bounds out of range\\n\");\n    }\n")
 	fmt.Fprintf(result, "    return (%s){&array->data[start], end - start};\n}\n", view.CName)
 }
 

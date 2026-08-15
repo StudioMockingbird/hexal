@@ -19,12 +19,16 @@ func TestNilValueAndBindingLowerToNullptr(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"#include <stddef.h>",
 		"const int32_t *const hex_v_maybe = nullptr;",
 	} {
 		if !strings.Contains(rootH(t, result), want) && !strings.Contains(rootC(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootH(t, result), rootC(t, result), want)
 		}
+	}
+	// RFC 0069 Amendment 2 Item D: the C23 nullptr keyword needs no header,
+	// so Nil alone does not select <stddef.h>.
+	if strings.Contains(hexalH(t, result), "#include <stddef.h>") {
+		t.Fatalf("hexal.h = %q, Nil must not select <stddef.h>", hexalH(t, result))
 	}
 }
 
@@ -159,18 +163,28 @@ func TestErasedUnknownPointersLowerToVoidPointers(t *testing.T) {
 	}
 }
 
-func TestStddefIncludedOnlyWhenNullUsed(t *testing.T) {
+// RFC 0069 Amendment 2 Item D: <stddef.h> is selected only by an actual
+// declaration consumer (size_t), never by Nil, nullptr, or NULL.
+func TestStddefSelectedOnlyByDeclarationConsumer(t *testing.T) {
 	withNull := compileSource("mut maybe: Ptr<Int32> | Nil = nil if maybe != nil then noop: Int32 = 0 end")
-	if withNull.ExitCode != compiler.ExitSuccess || !strings.Contains(hexalH(t, withNull), "#include <stddef.h>") {
-		t.Fatalf("null-using program = %#v, want <stddef.h>", withNull)
+	if withNull.ExitCode != compiler.ExitSuccess || strings.Contains(hexalH(t, withNull), "#include <stddef.h>") {
+		t.Fatalf("null-using program = %#v, want no <stddef.h> from nullptr alone", withNull)
+	}
+	if !strings.Contains(rootC(t, withNull), "nullptr") {
+		t.Fatalf("modules/app.c = %q, want the nullptr spelling", rootC(t, withNull))
+	}
+
+	withSize := compileSource("count: Size = 3 maybe: Ptr<Int32> | Nil = nil")
+	if withSize.ExitCode != compiler.ExitSuccess || !strings.Contains(hexalH(t, withSize), "#include <stddef.h>") {
+		t.Fatalf("size_t-using program = %#v, want <stddef.h>", withSize)
 	}
 
 	withoutNull := compileSource("mut value: Int32 = 1 reader: Ptr<Int32> = ref value")
 	if withoutNull.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", withoutNull.ExitCode, withoutNull.Stderr, compiler.ExitSuccess)
 	}
-	if strings.Contains(rootC(t, withoutNull), "#include <stddef.h>") || strings.Contains(rootH(t, withoutNull), "#include <stddef.h>") {
-		t.Fatalf("null-free program must not include <stddef.h>: C=%q H=%q", rootC(t, withoutNull), rootH(t, withoutNull))
+	if strings.Contains(hexalH(t, withoutNull), "#include <stddef.h>") {
+		t.Fatalf("null/size-free program must not include <stddef.h>: %q", hexalH(t, withoutNull))
 	}
 }
 

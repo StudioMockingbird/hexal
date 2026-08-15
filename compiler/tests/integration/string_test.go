@@ -83,6 +83,60 @@ func TestStringFromBytes(t *testing.T) {
 	}
 }
 
+// RFC 0069: String construction and concatenation check the complete
+// storage-header + payload + terminator chain with ckd_add before the raw
+// allocator sees any sum, and each overflow stage selects its exact message.
+func TestStringAllocationSizeArithmetic(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    text: String = \"abc\"\n    raw: View<UInt8> = text.bytes()\n    copy: String = String.from_bytes(h, raw)\n    copy.free(h)\n    runes: Array<Rune, 1> = ['a']\n    rune_view: View<Rune> = runes.slice(0, 1)\n    encoded: String = String.from_runes(h, rune_view)\n    encoded.free(h)\n    loud: String = text.concat(h, \"!\")\n    loud.free(h)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	output := hexalH(t, result)
+	for _, want := range []string{
+		"ckd_add(&total, sizeof(hex_string_storage), length)",
+		"ckd_add(&total, total, 1)",
+		"ckd_add(&bytes, bytes, width)",
+		"ckd_add(&total, sizeof(hex_string_storage), bytes)",
+		"ckd_add(&length, left->byte_length, right->byte_length)",
+		"[Runtime Error] string allocation size overflow\\n",
+		"[Runtime Error] string concatenation length overflow\\n",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("hexal.h = %q, want %q", output, want)
+		}
+	}
+	// RFC 0069 Amendment 2: the validated payload and each concatenation
+	// input copy with guarded memcpy calls (a zero-length input never passes
+	// a possibly invalid pointer to a standard memory function), diagnostics
+	// report through hex_runtime_trap, and no raw fputs or compiler-owned
+	// NULL remains in the String machinery.
+	for _, want := range []string{
+		"if (length != 0) {",
+		"memcpy(storage->bytes, data, length);",
+		"if (left->byte_length != 0) {",
+		"memcpy(storage->bytes, left->data, left->byte_length);",
+		"if (right->byte_length != 0) {",
+		"memcpy(storage->bytes + left->byte_length, right->data, right->byte_length);",
+		"hex_runtime_trap(\"[Runtime Error] string allocation size overflow\\n\")",
+		"hex_runtime_trap(\"[Runtime Error] string concatenation length overflow\\n\")",
+		"hex_runtime_trap(\"[Runtime Error] invalid UTF-8 in String\\n\")",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("hexal.h = %q, want %q", output, want)
+		}
+	}
+	for _, banned := range []string{
+		"SIZE_MAX - ",
+		"sizeof(hex_string_storage) + ",
+		"fputs(",
+		"NULL",
+	} {
+		if strings.Contains(output, banned) {
+			t.Fatalf("hexal.h = %q, contains banned %q", output, banned)
+		}
+	}
+}
+
 // RFC 0035: String handles copy by value and cleanup is manual; every
 // formerly-ownership program below is now valid C-style code.
 

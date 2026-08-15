@@ -60,3 +60,61 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 		t.Fatalf("multi-success try must normalize through a temporary, got %q", multiC)
 	}
 }
+
+// RFC 0069 Amendment 2 Item B: the Atomic helpers emit the C23
+// <stdatomic.h> operations directly at sequential consistency; no delegating
+// generic forwarder over the handle typedef exists.
+func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
+	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootH := files["modules/app.h"]
+	for _, want := range []string{
+		"typedef _Atomic(int32_t) hex_atomic_Int32;",
+		"atomic_store_explicit(atomic, value, memory_order_seq_cst);",
+		"return atomic_load_explicit(atomic, memory_order_seq_cst);",
+	} {
+		if !strings.Contains(rootH, want) {
+			t.Fatalf("generated header = %q, want %q", rootH, want)
+		}
+	}
+	for _, generic := range []string{"hex_atomic_store(", "hex_atomic_load("} {
+		if strings.Contains(rootH, generic) {
+			t.Fatalf("generated header retains generic atomic forwarder %q: %q", generic, rootH)
+		}
+	}
+}
+
+// RFC 0069 Amendment 2 Items B, C, and D: lock/unlock lower directly to the
+// core, the scheduler reports failures through hex_runtime_trap with the
+// complete literal, and its null constants spell nullptr.
+func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun worker(m: Mutex): Bool do\n    m.lock()\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(m)\n    task.join()\n    return 0\nend\n")
+	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
+	for _, want := range []string{
+		"hex_mutex_lock(hex_v_m)",
+		"hex_mutex_unlock(hex_v_m)",
+		"hex_runtime_trap(\"[Runtime Error] scheduler worker creation failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] cannot join the current task\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] recursive mutex lock\\n\");",
+		"task->ready_next = nullptr;",
+	} {
+		if !strings.Contains(rootC, want) {
+			t.Fatalf("generated C = %q, want %q", rootC, want)
+		}
+	}
+	for _, gone := range []string{"hex_sched_fatal", "hex_mutex_lock_hex_mutex(", "fputs(\"[Runtime Error]", "NULL"} {
+		if strings.Contains(rootC, gone) || strings.Contains(rootH, gone) {
+			t.Fatalf("generated output retains %q: C=%q H=%q", gone, rootC, rootH)
+		}
+	}
+	if !strings.Contains(rootH, "static inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex)") {
+		t.Fatalf("generated header lacks the identity-adapting free: %q", rootH)
+	}
+}

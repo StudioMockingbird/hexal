@@ -121,6 +121,36 @@ RFC 0062 settled the generated-assertion side of sections 1 and 2:
   them as generated C assertions. RFC 0055's future driver and this RFC's
   profile mechanism own toolchain selection and qualification.
 
+## 6. RFC 0069 evidence
+
+RFC 0069 (C23-backed compiler simplification) assigned additional qualified
+target facts that this RFC must record before that RFC closes:
+
+- `<stdckdint.h>` availability: the pinned GCC and Clang distributions plus
+  their selected compatible C library must provide conforming
+  `ckd_add`/`ckd_sub`/`ckd_mul` behavior; Clang's resource header maps the
+  macros to its checked-overflow builtins when the hosted library lacks the
+  header. The core compiler emits no fallback definitions.
+- Overflow-builtin stored result: `ckd_*` on an out-of-range signed result
+  stores the unique value congruent modulo two to the destination width. This
+  is the pinned GCC/Clang stored-result behavior (Clang documents it; GCC
+  documents infinite-precision arithmetic followed by conversion), and it
+  backs Hexal's signed wrapping lowering. C23 §7.20.1 paragraph 5 alone is
+  defect-affected (WG14 C23 issue 1063) and is not presented as unqualified
+  ISO portability.
+- Same-width unsigned-to-signed conversion: the pinned GCC and Clang targets
+  perform an out-of-range same-width conversion modulo the destination width,
+  used by signed shift, bitwise, complement, and endian lowering. This is a
+  narrower rule than RFC 0062's general contract and is not attributed to that
+  closed RFC.
+- Signed representation: Hexal's generated two's-complement reconstruction
+  relies on the pinned compilers' modular same-width behavior; no generated
+  probe asserts it.
+
+The toolchain boundary stays: the core compiler performs no host probe, and
+this RFC's profile mechanism plus RFC 0055's driver own qualifying and
+reporting these facts.
+
 ## Non-goals
 
 - General target-feature introspection exposed to Hexal source. `size_of` and

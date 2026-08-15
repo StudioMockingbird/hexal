@@ -110,7 +110,7 @@ func matchingView(views *generatedViewState, element compilerTypes.Type) compile
 
 func writeArrayBoundsGuard(result *strings.Builder, length uint64) {
 	fmt.Fprintf(result, "    if (index >= UINT64_C(%d)) {\n", length)
-	result.WriteString("        fputs(\"[Runtime Error] array index out of bounds\\n\", stderr);\n        abort();\n    }\n")
+	result.WriteString("        hex_runtime_trap(\"[Runtime Error] array index out of bounds\\n\");\n    }\n")
 }
 
 func arrayAccessorSuffix(array compilerTypes.Type) string {

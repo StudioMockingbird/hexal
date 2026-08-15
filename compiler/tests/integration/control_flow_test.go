@@ -20,7 +20,7 @@ func TestConditionalAndLoopLowering(t *testing.T) {
 		"while ((hex_v_count < 3)) {",
 		"continue;",
 		"break;",
-		"hex_v_count = ((uint64_t)",
+		"hex_v_count = hex_wrap_add_int32_t(",
 		"hex_v_local",
 	} {
 		if !strings.Contains(rootC(t, result), want) {

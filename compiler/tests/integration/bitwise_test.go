@@ -27,7 +27,9 @@ func TestBitwiseOperators(t *testing.T) {
 	}
 }
 
-func TestBitwiseSignedReconstruction(t *testing.T) {
+// RFC 0069 Amendment 1 Item B: signed bitwise results are direct modular
+// casts; constant results still fold to their literal spellings.
+func TestBitwiseSignedDirectCast(t *testing.T) {
 	result := compileSource("fun demo() do\n    mask: Int8 = ~0\n    low: Int8 = 0x0F\n    signed: Int8 = mask & low\n    negative: Int32 = -1\n    bits: UInt32 = 0x80000000\n    cross: Int32 = negative & 0x7FFFFFFF\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
@@ -38,6 +40,33 @@ func TestBitwiseSignedReconstruction(t *testing.T) {
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
+		}
+	}
+}
+
+// RFC 0069 Amendment 1 Item B: the Int64 sign-fill mask uses the exact-width
+// unsigned type so no 32-bit 1u is shifted by 32 or more, and no negative
+// value is shifted; the subtraction stays inside the shift's parentheses.
+func TestShiftInt64SignFillMaskUsesExactWidth(t *testing.T) {
+	result := compileSource("fun demo() do\n    mut negative64: Int64 = -8\n    halved64: Int64 = negative64 >> 1\n    sign64: Int64 = negative64 >> 63\n    mut negative32: Int32 = -8\n    halved32: Int32 = negative32 >> 1\n    mut negative8: Int8 = -8\n    halved8: Int8 = negative8 >> 7\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	for _, want := range []string{
+		"(uint64_t)(0 - ((uint64_t)1 << (uint64_t)(64 - (uint64_t)count)))",
+		"hex_v_halved64 = hex_shr_int64_t(hex_v_negative64, (uint64_t)(INT64_C(1)));",
+	} {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
+			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		}
+	}
+	for _, forbidden := range []string{
+		"1u << (uint32_t)",
+		"(uint32_t)(0u - (1u <<",
+		"0 - (uint64_t)1 << (uint64_t)(64",
+	} {
+		if strings.Contains(rootC(t, result), forbidden) || strings.Contains(rootH(t, result), forbidden) {
+			t.Fatalf("generated output contains the removed 32-bit sign-fill mask %q", forbidden)
 		}
 	}
 }
@@ -103,13 +132,24 @@ func TestBitCast(t *testing.T) {
 	}
 	for _, want := range []string{
 		"static inline uint64_t hex_bitcast_double_uint64_t(double value) {",
-		"memcpy(&result, &(value), sizeof(result));",
+		"memcpy(&result, &value, sizeof(result));",
 		"hex_v_bits = hex_bitcast_double_uint64_t(hex_v_floating);",
 		"hex_v_unsigned = hex_bitcast_int32_t_uint32_t(hex_v_signed);",
 		"static inline uint32_t hex_bitcast_float_uint32_t(float value) {",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		}
+	}
+	// RFC 0069 Amendment 1 Item B: no unsigned source cast or signed
+	// reconstruction remains in bit-cast helpers.
+	for _, forbidden := range []string{
+		"&(value)",
+		"(uint32_t)value",
+		"INT32_MIN + (int32_t)",
+	} {
+		if strings.Contains(rootC(t, result), forbidden) || strings.Contains(rootH(t, result), forbidden) {
+			t.Fatalf("generated output contains the removed bit-cast form %q", forbidden)
 		}
 	}
 }

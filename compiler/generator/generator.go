@@ -62,6 +62,7 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 			dicts:        merged.dictState,
 			arrays:       merged.arrayState,
 			concurrency:  merged.concurrencyState,
+			wrap:         merged.wrapState,
 			sizeLiterals: merged.sizeLiterals,
 			requirements: merged.requirements,
 		})

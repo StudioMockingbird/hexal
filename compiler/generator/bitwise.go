@@ -48,10 +48,6 @@ func writeShiftDefinitions(result *strings.Builder, specs []shiftSpec) {
 	if len(specs) == 0 {
 		return
 	}
-	result.WriteString("\n#ifndef HEX_NUMERIC_TRAP_DEFINED\n#define HEX_NUMERIC_TRAP_DEFINED\n")
-	result.WriteString("static void hex_numeric_trap(void) {\n")
-	result.WriteString("    fputs(\"[Runtime Error] numeric operation failed\\n\", stderr);\n    abort();\n}\n")
-	result.WriteString("#endif\n")
 	for _, spec := range specs {
 		writeShiftHelper(result, spec)
 	}
@@ -83,41 +79,32 @@ func writeShiftHelper(result *strings.Builder, spec shiftSpec) {
 		// Signed right shift is arithmetic: zero-fill the magnitude, then
 		// explicitly fill the high bits with the sign bit. The count == 0
 		// case is separate so the sign-fill shift never uses the full width.
-		// The mask is computed in uint32 so no negative value is shifted.
-		mask := fmt.Sprintf("(left < 0 ? (uint32_t)(0u - (1u << (uint32_t)(%d - (uint64_t)count))) : 0u)", width)
+		// The mask uses the exact-width unsigned type so an Int64 operand
+		// never shifts a 32-bit 1u by 32 or more; the inner parens keep the
+		// shift inside the subtraction (RFC 0069 Amendment 1 Item B).
+		mask := fmt.Sprintf("(left < 0 ? (%s)(0 - ((%s)1 << (%s)(%d - (uint64_t)count))) : 0)", unsigned, unsigned, unsigned, width)
 		shifted = fmt.Sprintf("((uint64_t)count == 0 ? (%s)left : (%s)(((%s)left >> (uint64_t)count) | %s))", unsigned, unsigned, unsigned, mask)
 	}
 	if compilerTypes.IsSignedInteger(typ) {
-		reconstructed, err := renderSignedReconstruct(typ, shifted)
-		if err != nil {
-			return
-		}
-		shifted = reconstructed
+		// RFC 0069 Amendment 1 Item B: the qualified GCC/Clang target
+		// converts an out-of-range same-width unsigned value modulo the
+		// destination width, so the signed result is a plain cast.
+		shifted = fmt.Sprintf("(%s)(%s)", typ.CName, shifted)
 	}
 	fmt.Fprintf(result, "\nstatic inline %s %s(%s left, uint64_t count) {\n", typ.CName, shiftHelperName(spec), typ.CName)
-	fmt.Fprintf(result, "    if (!(count < %dULL)) {\n        hex_numeric_trap();\n    }\n", width)
+	fmt.Fprintf(result, "    if (!(count < %dULL)) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n", width)
 	fmt.Fprintf(result, "    return %s;\n}\n", shifted)
 }
 
-// renderSignedReconstruct reinterprets an unsigned expression of the exact
-// target width as the signed value using the defined two's-complement rule.
-// Both branches of the ternary convert only values representable by the
-// signed target, so no implementation-defined conversion occurs.
-func renderSignedReconstruct(typ compilerTypes.Type, unsignedExpr string) (string, error) {
-	if !compilerTypes.IsSignedInteger(typ) {
-		return unsignedExpr, nil
-	}
-	if _, ok := unsignedCName(typ); !ok {
-		return "", unknownExpressionDiagnostic("signed reconstruction has an unsupported width")
-	}
-	maximum := integerMaximumMacro(typ)
-	return fmt.Sprintf("((%s) <= (%s) ? (%s)(%s) : %s + (%s)((%s) - (%s) - 1))",
-		unsignedExpr, maximum, typ.CName, unsignedExpr, signedMinimumMacro(typ), typ.CName, unsignedExpr, maximum), nil
-}
+// renderSignedReconstruct no longer exists: RFC 0069 Amendment 1 Item B
+// qualifies same-width unsigned-to-signed conversion as modular on the pinned
+// GCC/Clang targets, so every former call site emits a direct cast.
 
+// bitCastSpec is one concrete same-width scalar bit cast pair.
 // renderBitwiseOperation lowers &, ^, and | at the selected exact width:
 // operands convert to the unsigned representation, the operation runs in a
-// promotion-safe unsigned type, and a signed result is reconstructed.
+// promotion-safe unsigned type, and a signed result is a direct cast under
+// the qualified modular-conversion contract (RFC 0069 Amendment 1).
 func renderBitwiseOperation(operator checker.Operator, typ compilerTypes.Type, left, right string) (string, error) {
 	unsigned, ok := unsignedCName(typ)
 	if !ok {
@@ -136,7 +123,7 @@ func renderBitwiseOperation(operator checker.Operator, typ compilerTypes.Type, l
 	}
 	unsignedExpr := fmt.Sprintf("(%s)((%s)%s %s (%s)%s)", unsigned, unsigned, left, operatorText, unsigned, right)
 	if compilerTypes.IsSignedInteger(typ) {
-		return renderSignedReconstruct(typ, unsignedExpr)
+		return fmt.Sprintf("(%s)(%s)", typ.CName, unsignedExpr), nil
 	}
 	return unsignedExpr, nil
 }
@@ -149,7 +136,7 @@ func renderBitwiseComplement(typ compilerTypes.Type, operand string) (string, er
 	}
 	unsignedExpr := fmt.Sprintf("(%s)~((uint64_t)%s)", unsigned, operand)
 	if compilerTypes.IsSignedInteger(typ) {
-		return renderSignedReconstruct(typ, unsignedExpr)
+		return fmt.Sprintf("(%s)(%s)", typ.CName, unsignedExpr), nil
 	}
 	return unsignedExpr, nil
 }
@@ -187,37 +174,18 @@ func discoverGeneratedBitCasts(program checker.Program) []bitCastSpec {
 	return specs
 }
 
-// writeBitCastDefinitions emits one memcpy-based helper per pair. A signed
-// source is first mapped to its unsigned bit pattern; a signed destination
-// is reconstructed afterward. Float bits pass through unchanged. The memcpy
-// prerequisite arrives through hexal.h (<string.h>, RFC 0062).
+// writeBitCastDefinitions emits one memcpy-based helper per pair. The bits
+// copy directly from the checked source object into the exact destination
+// object with no signed-source cast, unsigned intermediate, or post-copy
+// conversion (RFC 0069 Amendment 1 Item B). The memcpy prerequisite arrives
+// through hexal.h (<string.h>, RFC 0062).
 func writeBitCastDefinitions(result *strings.Builder, specs []bitCastSpec) {
 	if len(specs) == 0 {
 		return
 	}
 	for _, spec := range specs {
-		sourceC := spec.source.CName
 		targetC := spec.target.CName
-		sourceValue := "value"
-		if compilerTypes.IsSignedInteger(spec.source) {
-			// Reinterpret the signed value as its exact unsigned bit pattern.
-			unsigned, ok := unsignedCName(spec.source)
-			if !ok {
-				continue
-			}
-			sourceC = unsigned
-			sourceValue = fmt.Sprintf("(%s)value", unsigned)
-		}
-		fmt.Fprintf(result, "\nstatic inline %s %s(%s value) {\n    %s result;\n    memcpy(&result, &(%s), sizeof(result));\n", targetC, bitCastHelperName(spec), spec.source.CName, sourceC, sourceValue)
-		if compilerTypes.IsSignedInteger(spec.target) {
-			reconstructed, err := renderSignedReconstruct(spec.target, "result")
-			if err != nil {
-				continue
-			}
-			fmt.Fprintf(result, "    return %s;\n}\n", reconstructed)
-		} else {
-			fmt.Fprintf(result, "    return result;\n}\n")
-		}
+		fmt.Fprintf(result, "\nstatic inline %s %s(%s value) {\n    %s result;\n    memcpy(&result, &value, sizeof(result));\n    return result;\n}\n", targetC, bitCastHelperName(spec), spec.source.CName, targetC)
 	}
 }
 
@@ -312,11 +280,8 @@ func writeEndianHelper(result *strings.Builder, spec endianSpec) {
 		fmt.Fprintf(result, "    value |= (%s)(bytes->data[%d]) << %d;\n", unsigned, index, shift)
 	}
 	if compilerTypes.IsSignedInteger(typ) {
-		reconstructed, err := renderSignedReconstruct(typ, "value")
-		if err != nil {
-			return
-		}
-		fmt.Fprintf(result, "    return %s;\n}\n", reconstructed)
+		// RFC 0069 Amendment 1 Item B: direct modular cast.
+		fmt.Fprintf(result, "    return (%s)value;\n}\n", typ.CName)
 	} else {
 		fmt.Fprintf(result, "    return value;\n}\n")
 	}

@@ -59,19 +59,13 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 	return specs, sizeLiterals, nil
 }
 
-// writeConversionDefinitions emits the shared numeric trap plus one helper
-// per conversion spec. Guards run before any C conversion that could be
-// invalid; the trap never executes the invalid operation.
+// writeConversionDefinitions emits one helper per conversion spec. Guards run
+// before any C conversion that could be invalid; the shared runtime trap never
+// executes the invalid operation.
 func writeConversionDefinitions(result *strings.Builder, specs []conversionSpec) {
 	if len(specs) == 0 {
 		return
 	}
-	// The trap is shared with RFC 0017's guarded division helpers; the
-	// include guard keeps the definition single even when both writers run.
-	result.WriteString("\n#ifndef HEX_NUMERIC_TRAP_DEFINED\n#define HEX_NUMERIC_TRAP_DEFINED\n")
-	result.WriteString("static void hex_numeric_trap(void) {\n")
-	result.WriteString("    fputs(\"[Runtime Error] numeric operation failed\\n\", stderr);\n    abort();\n}\n")
-	result.WriteString("#endif\n")
 	for _, spec := range specs {
 		writeConversionHelper(result, spec)
 	}
@@ -117,7 +111,7 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 		if compilerTypes.IsSignedInteger(source) {
 			negative = "value < 0 || "
 		}
-		body = "    if (" + negative + "value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {\n        hex_numeric_trap();\n    }\n"
+		body = "    if (" + negative + "value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n"
 		body += "    return (" + targetC + ")value;\n"
 	case compilerTypes.IsInteger(source) && compilerTypes.IsInteger(target):
 		if integerRangeFits(source, target) {
@@ -138,7 +132,7 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 			body = "    return value;\n"
 		} else {
 			body = "    " + targetC + " result = (" + targetC + ")value;\n"
-			body += "    if (isfinite(value) && isinf(result)) {\n        hex_numeric_trap();\n    }\n"
+			body += "    if (isfinite(value) && isinf(result)) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n"
 			body += "    return result;\n"
 		}
 	}
@@ -188,17 +182,17 @@ func writeCheckedIntegerConversion(source, target compilerTypes.Type) string {
 	} else {
 		condition = high
 	}
-	return "    if (!(" + condition + ")) {\n        hex_numeric_trap();\n    }\n    return (" + target.CName + ")value;\n"
+	return "    if (!(" + condition + ")) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n    return (" + target.CName + ")value;\n"
 }
 
 func writeFloatToIntegerConversion(source, target compilerTypes.Type) string {
 	minimum := integerMinimumMacro(target)
 	maximum := integerMaximumMacro(target)
-	body := "    if (isnan(value) || isinf(value)) {\n        hex_numeric_trap();\n    }\n"
+	body := "    if (isnan(value) || isinf(value)) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n"
 	if compilerTypes.IsSignedInteger(target) {
-		body += "    if (!(value >= " + minimum + " && value <= " + maximum + ")) {\n        hex_numeric_trap();\n    }\n"
+		body += "    if (!(value >= " + minimum + " && value <= " + maximum + ")) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n"
 	} else {
-		body += "    if (!(value >= 0.0 && value <= " + maximum + ")) {\n        hex_numeric_trap();\n    }\n"
+		body += "    if (!(value >= 0.0 && value <= " + maximum + ")) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n"
 	}
 	return body + "    return (" + target.CName + ")value;\n"
 }
