@@ -2,6 +2,7 @@ package checker
 
 import (
 	"fmt"
+	"sort"
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
@@ -579,9 +580,23 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 	}
 	if len(remaining) > 0 {
 		missing := ""
-		for name := range remaining {
-			missing = name
-			break
+		// Report the first missing member in canonical declaration order so
+		// the diagnostic is deterministic; map iteration order is not.
+		for _, member := range compilerTypes.UnionMembers(scrutineeType) {
+			if remaining[member.Name] {
+				missing = member.Name
+				break
+			}
+		}
+		if missing == "" {
+			names := make([]string, 0, len(remaining))
+			for name := range remaining {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+			if len(names) > 0 {
+				missing = names[0]
+			}
 		}
 		if isADT {
 			missing = scrutineeType.Name + "." + missing

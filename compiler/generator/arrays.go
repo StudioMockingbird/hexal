@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
@@ -40,30 +39,6 @@ func discoverGeneratedArrays(program checker.Program) (*generatedArrayState, err
 		return state.order[left].CName < state.order[right].CName
 	})
 	return state, nil
-}
-func writeArrayDefinitions(result *strings.Builder, arrays *generatedArrayState, views *generatedViewState) {
-	if arrays == nil {
-		return
-	}
-	// An array's element may itself be an array (Array<Array<Int32, 3>, 2>),
-	// and the nested struct is embedded by value, so the inner definition
-	// must precede the outer one. The discovery order is sorted by C name,
-	// which does not encode nesting; emit dependency-first instead.
-	order := arrayDependencyOrder(arrays.order)
-	for _, array := range order {
-		element := array.Array.Element
-		length := array.Array.Length
-		fmt.Fprintf(result, "\ntypedef struct %s {\n    %s data[%d];\n} %s;\n", array.CName, pointerSpelling(element), length, array.CName)
-		fmt.Fprintf(result, "static inline const %s *hex_array_at_%s(const %s *array, size_t index) {\n", pointerSpelling(element), arrayAccessorSuffix(array), array.CName)
-		writeArrayBoundsGuard(result, length)
-		result.WriteString("    return &array->data[index];\n}\n")
-		fmt.Fprintf(result, "static inline %s *hex_array_at_mut_%s(%s *array, size_t index) {\n", pointerSpelling(element), arrayAccessorSuffix(array), array.CName)
-		writeArrayBoundsGuard(result, length)
-		result.WriteString("    return &array->data[index];\n}\n")
-		if view := matchingView(views, element); view != (compilerTypes.Type{}) {
-			writeArraySliceHelper(result, array, view)
-		}
-	}
 }
 
 // arrayDependencyOrder orders array types so every element-array appears
@@ -106,11 +81,6 @@ func matchingView(views *generatedViewState, element compilerTypes.Type) compile
 		}
 	}
 	return compilerTypes.Type{}
-}
-
-func writeArrayBoundsGuard(result *strings.Builder, length uint64) {
-	fmt.Fprintf(result, "    if (index >= UINT64_C(%d)) {\n", length)
-	result.WriteString("        hex_runtime_trap(\"[Runtime Error] array index out of bounds\\n\");\n    }\n")
 }
 
 func arrayAccessorSuffix(array compilerTypes.Type) string {

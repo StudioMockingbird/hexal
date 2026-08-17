@@ -23,9 +23,14 @@ func TestDictInt32Lifecycle(t *testing.T) {
 		"hex_v_removed = hex_dict_remove_Int32_Int32(hex_v_scores, 2);",
 		"hex_dict_free_Int32_Int32(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) && !strings.Contains(dictH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
+	}
+	// The dict machinery lives in the dict component; hexal.h
+	// owns none of it.
+	if strings.Contains(hexalH(t, result), "hex_dict_") {
+		t.Fatalf("hexal.h = %q, dict definitions must live in hexal/dict.h", hexalH(t, result))
 	}
 	// Capacity doubling and bucket-region byte sizing stay in size_t with
 	// checked multiply, and the load-factor growth decision checks every
@@ -34,7 +39,7 @@ func TestDictInt32Lifecycle(t *testing.T) {
 	// A fresh inactive bucket region zeroes with one memset, every diagnostic
 	// reports through hex_runtime_trap, and the Dict helpers carry no raw
 	// fputs or compiler-owned NULL.
-	header := hexalH(t, result)
+	header := dictH(t, result)
 	for _, want := range []string{
 		"size_t next = 8;",
 		"ckd_mul(&next, dict->capacity, 2)",
@@ -47,12 +52,12 @@ func TestDictInt32Lifecycle(t *testing.T) {
 		"hex_runtime_trap(\"[Runtime Error] dictionary capacity is not representable\\n\")",
 	} {
 		if !strings.Contains(header, want) {
-			t.Fatalf("hexal.h does not contain %q:\n%s", want, header)
+			t.Fatalf("hexal/dict.h does not contain %q:\n%s", want, header)
 		}
 	}
 	for _, forbid := range []string{"uint64_t next", "SIZE_MAX /", "(dict->length + 1) * 10 >= dict->capacity * 7", "fputs(", "NULL", "region[index].active = false"} {
 		if strings.Contains(header, forbid) {
-			t.Fatalf("hexal.h retains %q:\n%s", forbid, header)
+			t.Fatalf("hexal/dict.h retains %q:\n%s", forbid, header)
 		}
 	}
 }
@@ -71,27 +76,31 @@ func TestDictStrandKeys(t *testing.T) {
 		"hex_dict_insert_Strand_Int32(hex_v_labels, hex_v_key, 3);",
 		"hex_hash_Strand",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		// The strand representation lives in the string component; the
+		// dict call sites stay in the module files and the hashing and
+		// probing live in the dict component.
+		all := rootC(t, result) + rootH(t, result) + hexalH(t, result) + result.Files["hexal/string.h"] + dictH(t, result)
+		if !strings.Contains(all, want) {
+			t.Fatalf("generated output = %q, want %q", all, want)
 		}
 	}
 	// Strand Dict probing compares the canonical zero-filled 32-byte key
 	// representation with one direct memcmp and emits no per-Dict
 	// key-equality wrapper; diagnostics report through hex_runtime_trap and
 	// no compiler-owned NULL or raw fputs remains.
-	header := hexalH(t, result)
+	header := dictH(t, result)
 	for _, want := range []string{
 		"memcmp(region[index].key.data, key.data, 32) != 0",
 		"memcmp(dict->buckets[index].key.data, key.data, 32) != 0",
 		"hex_runtime_trap(\"[Runtime Error] dictionary key not found\\n\")",
 	} {
 		if !strings.Contains(header, want) {
-			t.Fatalf("hexal.h does not contain %q:\n%s", want, header)
+			t.Fatalf("hexal/dict.h does not contain %q:\n%s", want, header)
 		}
 	}
 	for _, forbid := range []string{"hex_dict_key_equal_", "fputs(", "NULL"} {
 		if strings.Contains(header, forbid) {
-			t.Fatalf("hexal.h retains %q:\n%s", forbid, header)
+			t.Fatalf("hexal/dict.h retains %q:\n%s", forbid, header)
 		}
 	}
 }
@@ -168,4 +177,10 @@ func TestDictReturnHandoff(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
+}
+
+// dictH returns the generated hexal/dict.h component artifact.
+func dictH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/dict.h")
 }

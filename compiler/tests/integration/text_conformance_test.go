@@ -57,6 +57,9 @@ func TestStringSurfaceCompiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
+	// The String surface spells as calls in the module C and as declarations
+	// and definitions in the String component pair.
+	output := rootC(t, result) + rootH(t, result) + stringH(t, result) + stringC(t, result)
 	for _, fragment := range []string{
 		"hex_string_rune_length(",
 		"hex_string_is_empty(",
@@ -65,7 +68,7 @@ func TestStringSurfaceCompiles(t *testing.T) {
 		"hex_rune_cursor_has_next(",
 		"hex_rune_cursor_next(",
 	} {
-		if !strings.Contains(rootC(t, result), fragment) && !strings.Contains(rootH(t, result), fragment) && !strings.Contains(hexalH(t, result), fragment) {
+		if !strings.Contains(output, fragment) {
 			t.Fatalf("generated output lacks %s", fragment)
 		}
 	}

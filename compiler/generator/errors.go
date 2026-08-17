@@ -75,18 +75,6 @@ func returnErrorExit(valueType compilerTypes.Type, valueName string) string {
 	return "false"
 }
 
-// writeErrorDefinition emits the built-in Error object's full definition.
-// It runs before the union definitions that may carry Error as a payload
-// member.
-func writeErrorDefinition(result *strings.Builder) {
-	object := compilerTypes.ErrorType.Object
-	fmt.Fprintf(result, "\ntypedef struct %s %s;\nstruct %s {\n", object.CName, object.CName, object.CName)
-	for _, member := range object.Members {
-		fmt.Fprintf(result, "    %s;\n", declaration(member.Type, PrivateCName(MemberName, member.Name, ""), true))
-	}
-	fmt.Fprintf(result, "};\n")
-}
-
 // hoistTryInStatement walks one checked statement's expressions in
 // evaluation order and emits each try prologue (the operand temporary plus
 // the Error-return branch) before the statement renders. Each try node is

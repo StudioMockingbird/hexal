@@ -89,7 +89,8 @@ func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
 
 // lock/unlock lower directly to the core, the scheduler reports failures
 // through hex_runtime_trap with the complete literal, and its null constants
-// spell nullptr.
+// spell nullptr. The scheduler runtime lives in the hexal/concurrency.c
+// component; the module C file keeps only the direct core call sites.
 func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun worker(m: Mutex): Bool do\n    m.lock()\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(m)\n    task.join()\n    return 0\nend\n")
 	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
@@ -97,21 +98,31 @@ func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
 		t.Fatal(err)
 	}
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
+	concurrencyC := files["hexal/concurrency.c"]
 	for _, want := range []string{
 		"hex_mutex_lock(hex_v_m)",
 		"hex_mutex_unlock(hex_v_m)",
-		"hex_runtime_trap(\"[Runtime Error] scheduler worker creation failed\\n\");",
-		"hex_runtime_trap(\"[Runtime Error] cannot join the current task\\n\");",
-		"hex_runtime_trap(\"[Runtime Error] recursive mutex lock\\n\");",
-		"task->ready_next = nullptr;",
 	} {
 		if !strings.Contains(rootC, want) {
 			t.Fatalf("generated C = %q, want %q", rootC, want)
 		}
 	}
+	for _, want := range []string{
+		"hex_runtime_trap(\"[Runtime Error] scheduler worker creation failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] cannot join the current task\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] recursive mutex lock\\n\");",
+		"task->ready_next = nullptr;",
+	} {
+		if !strings.Contains(concurrencyC, want) {
+			t.Fatalf("hexal/concurrency.c = %q, want %q", concurrencyC, want)
+		}
+	}
+	if strings.Contains(rootC, "task->ready_next = nullptr;") || strings.Contains(rootC, "static void hex_scheduler_init(void) {") {
+		t.Fatalf("module C retains scheduler runtime text:\n%s", rootC)
+	}
 	for _, gone := range []string{"hex_sched_fatal", "hex_mutex_lock_hex_mutex(", "fputs(\"[Runtime Error]", "NULL"} {
-		if strings.Contains(rootC, gone) || strings.Contains(rootH, gone) {
-			t.Fatalf("generated output retains %q: C=%q H=%q", gone, rootC, rootH)
+		if strings.Contains(rootC, gone) || strings.Contains(rootH, gone) || strings.Contains(concurrencyC, gone) {
+			t.Fatalf("generated output retains %q: C=%q H=%q conc=%q", gone, rootC, rootH, concurrencyC)
 		}
 	}
 	if !strings.Contains(rootH, "static inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex)") {

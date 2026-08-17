@@ -47,6 +47,16 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   restatement of the next line.
 - **C23 is also the refernce** When in doubt, always try to align to how C does things and keep it simple.
 
+- **Line endings.** Go source is LF, everywhere, without exception — `gofmt`
+  emits LF unconditionally, so a CRLF `.go` file is by definition unformatted
+  and there is no Windows-convention alternative for it. `.gitattributes` pins
+  `*.go text eol=lf` so the working tree matches on every platform and
+  `gofmt -l` stays silent. Everything else stays `text=auto`: the git index is
+  LF, and CRLF in the working tree for Markdown, JSON, and text is correct on
+  Windows and invisible to git. Never "normalize line endings" as a cleanup
+  task — the index is already correct, so it produces a whole-file diff carrying
+  no change.
+
 - **Simplify.** Before adding an implementation, ask:
   1. Does this need to exist? If not, skip it (YAGNI).
   2. Does this already exist in the codebase? Reuse it; do not rewrite it.

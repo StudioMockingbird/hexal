@@ -1033,40 +1033,55 @@ MutPtr<T>.write_volatile(value: T) -> no value
 - `CompilationResult.Stats` is one project-level summary per compilation call. It aggregates only
   the entrypoint and reachable modules, exposes no per-module statistics, and on failure reports
   work completed before failure.
-- A successful compilation produces exactly `hexal.h` plus one C/header pair per reachable module
-  under `modules/<canonical-path>.c/.h`, returns `ExitSuccess`, and has empty `Stderr`. A failed
-  compilation produces no artifacts: `Files` is empty, `ExitCode` is `ExitFailure`, and `Stderr`
-  carries the structured diagnostics. No failure C program is emitted.
-- `hexal.h` is the single compiler-owned program-support header, generated from the program-wide
+- A successful compilation produces exactly `hexal.h`, one C/header pair per reachable module
+  under `modules/<canonical-path>.c/.h`, and the demand-driven component artifacts under
+  `hexal/` that the reachable program selects; it returns `ExitSuccess` and has empty `Stderr`. A
+  failed compilation produces no artifacts: `Files` is empty, `ExitCode` is `ExitFailure`, and
+  `Stderr` carries the structured diagnostics. No failure C program is emitted.
+- `hexal.h` is the mandatory small program-support header, generated from the program-wide
   aggregate of all reachable modules. It opens with the demand-driven umbrella of portable standard
   headers (deterministic lexical order, only for families the reachable generated program selects;
   `<stdbool.h>`, `<limits.h>`, and `<float.h>` are never emitted), followed by the retained
   source-dependent `Size`-literal `SIZE_MAX` assertions, the shared `hex_eos` typedef exactly when
-  generated C represents EoS, and then EoS, Heap, View, String/literal, Error, List, Dict, Array,
-  concurrency, and I/O support, runtime externs, and compiler-generated cross-unit adapters. It
-  contains no generic integer, byte-width, or float target probe, and no user-declared module-type
-  definition or exported/cross-module user prototype. A program-wide builtin specialization remains
-  in `hexal.h` when its type arguments originate in one module. Its guard is `HEXAL_H`; every
-  module header includes it, and no other compiler-support header exists.
-- `modules/<canonical>.h` is one module's header: it includes `hexal.h`, holds the module's types
-  (ADTs, unions, objects) and stateless inline helpers (print, equality, conversions,
-  shifts, bitcasts, endian, atomic and channel/mutex inline wrappers, typed heap
-  allocation helpers), the entry-adapter argument frames of its spawn sites, referenced complete
-  type definitions, and its exported and referenced cross-module prototypes. Program-wide builtin
-  specializations remain in `hexal.h`. Root selection adds nothing to this header. Its guard is
+  generated C represents EoS, and the declaration of the one program-wide `hex_runtime_trap` when a
+  selected path can trap. It contains no Heap, View, String, Strand, Error, List, Dict, Array, Task,
+  Channel, Mutex, or Atomic representation or helper, no String literal storage, no process-wide
+  runtime state, no generic integer, byte-width, or float target probe, and no user-declared
+  module-type definition or exported/cross-module user prototype. Its guard is `HEXAL_H`; every
+  module header includes it, and it includes no other compiler-owned header.
+- The component artifacts under `hexal/` own the generated runtime support, one family per file,
+  emitted only when that family is reachable: `hexal/runtime.c` (the `hex_runtime_trap`
+  definition), `hexal/wrap.h`, `hexal/heap.h`/`hexal/heap.c`, `hexal/view.h`, `hexal/string.h`/
+  `hexal/string.c`, `hexal/error.h`, `hexal/list.h`, `hexal/dict.h`, `hexal/array.h`, and
+  `hexal/concurrency.h`/`hexal/concurrency.c`. Their source of truth is the compiler's embedded C/
+  header templates; a `.c` artifact is emitted only when it contains at least one definition.
+  Component headers have stable `HEXAL_<COMPONENT>_H` guards, include `hexal.h` first and then only
+  their declared dependencies (heap, view, string, error, list, dict, array, concurrency follow the
+  acyclic component graph), and are emitted once per compilation. Component `.c` files include their
+  matching header first and own the externally linked definitions and mutable state of that
+  component; no module header or C file defines them.
+- `modules/<canonical>.h` is one module's header: it includes `hexal.h` first, then exactly the
+  component headers that module's generated content requires (in dependency order), holds the
+  module's types (ADTs, unions, objects) and stateless inline helpers (print, equality,
+  conversions, shifts, bitcasts, endian, typed heap allocation helpers, typed atomic and
+  channel/mutex/task inline helpers), the entry-adapter argument frames of its spawn sites,
+  referenced complete type definitions, and its exported and referenced cross-module prototypes.
+  Root selection adds nothing to this header. Its guard is
   `HEX_MODULE_<encoded-owner>_H`; it includes no module header and declares no `main()`. C consumers
   include the desired module header, not `hexal.h` directly.
 - `modules/<canonical>.c` is one module's translation unit: it includes only its own module
   header, and defines its private functions and methods with internal `static` linkage, its exported
   functions and methods and spawned functions with external linkage, its monomorphized
-  specializations, and its spawn entry adapters (external linkage, declared in `hexal.h`). The
-  selected root module's C file additionally owns the process-wide runtime definitions
-  (scheduler, channel, mutex, and I/O gate, in that order, when required by the program-wide
-  aggregate) and `int main(void)`, which executes the root module's executable statements and
-  returns `0`, C's successful termination status (RFC 0062); with concurrency it initializes the
-  scheduler first and completes the
-  root task before returning. No non-root module declares or defines `main()` or process-wide
-  runtime state.
+  specializations, and its spawn entry adapters (external linkage, declared in the concurrency
+  component). The selected root module's C file owns `int main(void)`, which executes the root
+  module's executable statements and returns `0`, C's successful termination status (RFC 0062);
+  with concurrency it initializes the scheduler first and completes the
+  root task before returning. The root module C file is not the runtime container: process-wide
+  runtime definitions and state live in the component artifacts. No non-root module declares or
+  defines `main()` or process-wide runtime state.
+- Every external runtime symbol has exactly one declaration (in its owning component header or
+  `hexal.h`) and one definition (in its owning component C file). A build driver must compile every
+  `.c` entry returned in `Files`, not only those under `modules/`.
 - Module artifacts map to the source file with `#line` directives naming the module's logical
   source key; compiler-generated runtime machinery has no user-source mapping.
 - A module owner encodes as `m` followed, for each canonical path component, by its decimal UTF-8

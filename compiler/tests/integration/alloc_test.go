@@ -14,6 +14,9 @@ func TestHeapNewPerformsNoAllocation(t *testing.T) {
 	if strings.Contains(rootC(t, result), "malloc") || !strings.Contains(rootC(t, result), "HEX_HEAP_DEFAULT") {
 		t.Fatalf("generated C = %q, want no allocation in Heap.new()", rootC(t, result))
 	}
+	if !strings.Contains(rootH(t, result), "#include \"hexal/heap.h\"") {
+		t.Fatalf("modules/app.h = %q, want the heap component include", rootH(t, result))
+	}
 }
 
 func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
@@ -31,13 +34,13 @@ func TestHeapRawAllocateUsesCheckedArithmetic(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	hexalH := hexalH(t, result)
-	start := strings.Index(hexalH, "hex_heap_raw_allocate")
-	end := strings.Index(hexalH, "static void hex_heap_free")
+	heapC := moduleFile(t, result, "hexal/heap.c")
+	start := strings.Index(heapC, "hex_heap_raw_allocate")
+	end := strings.Index(heapC, "void hex_heap_free")
 	if start < 0 || end < 0 || end <= start {
-		t.Fatalf("hexal.h = %q, want hex_heap_raw_allocate before hex_heap_free", hexalH)
+		t.Fatalf("hexal/heap.c = %q, want hex_heap_raw_allocate before hex_heap_free", heapC)
 	}
-	raw := hexalH[start:end]
+	raw := heapC[start:end]
 	if got := strings.Count(raw, "ckd_add"); got != 2 {
 		t.Fatalf("hex_heap_raw_allocate uses ckd_add %d times, want 2: %q", got, raw)
 	}
@@ -54,6 +57,10 @@ func TestHeapRawAllocateUsesCheckedArithmetic(t *testing.T) {
 		if strings.Contains(raw, bad) {
 			t.Fatalf("hex_heap_raw_allocate retains obsolete pattern %q: %q", bad, raw)
 		}
+	}
+	// hexal.h owns none of the migrated heap machinery.
+	if strings.Contains(hexalH(t, result), "hex_heap") {
+		t.Fatalf("hexal.h = %q, want no heap machinery", hexalH(t, result))
 	}
 }
 

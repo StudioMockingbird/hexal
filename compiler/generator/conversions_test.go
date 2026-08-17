@@ -343,8 +343,11 @@ func TestGenerateCheckedConversionSelectsHelperAndTrap(t *testing.T) {
 	if !strings.Contains(header, "[[noreturn]] void hex_runtime_trap(const char *message);") || !strings.Contains(header, "#include <math.h>") {
 		t.Fatalf("hexal.h = %q, want the trap declaration and <math.h>", header)
 	}
-	if !strings.Contains(rootC, "[[noreturn]] void hex_runtime_trap(const char *message) {") {
-		t.Fatalf("modules/app.c = %q, want the trap definition", rootC)
+	if !strings.Contains(files["hexal/runtime.c"], "[[noreturn]] void hex_runtime_trap(const char *message) {") {
+		t.Fatalf("hexal/runtime.c = %q, want the trap definition", files["hexal/runtime.c"])
+	}
+	if strings.Contains(rootC, "hex_runtime_trap(const char *message) {") {
+		t.Fatalf("modules/app.c = %q, the trap definition moved to hexal/runtime.c", rootC)
 	}
 }
 

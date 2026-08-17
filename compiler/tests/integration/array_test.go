@@ -17,9 +17,31 @@ func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
 		"const hex_array_Int32_3 hex_v_fixed = (hex_array_Int32_3){{10, 20, 30}};",
 		"UINT64_C(3)",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) && !strings.Contains(arrayH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
+	}
+	// The specialization struct, the typed accessors, and their UINT64_C
+	// bounds guards are owned by the array component, not hexal.h.
+	arrayHeader := arrayH(t, result)
+	for _, want := range []string{
+		"#ifndef HEXAL_ARRAY_H",
+		"#include \"hexal.h\"",
+		"#include \"hexal/view.h\"",
+		"typedef struct hex_array_Int32_3 {",
+		"int32_t data[3];",
+		"static inline const int32_t *hex_array_at_Int32_3(const hex_array_Int32_3 *array, size_t index) {",
+		"if (index >= UINT64_C(3))",
+		"hex_runtime_trap(\"[Runtime Error] array index out of bounds\\n\");",
+		"static inline int32_t *hex_array_at_mut_Int32_3(hex_array_Int32_3 *array, size_t index) {",
+		"#endif",
+	} {
+		if !strings.Contains(arrayHeader, want) {
+			t.Fatalf("hexal/array.h = %q, want %q", arrayHeader, want)
+		}
+	}
+	if !strings.Contains(rootH(t, result), "#include \"hexal/array.h\"") {
+		t.Fatalf("modules/app.h = %q, want the hexal/array.h component include", rootH(t, result))
 	}
 	for _, want := range []string{
 		"*hex_array_at_Int32_3(&hex_v_fixed, (size_t)(0))",
@@ -41,7 +63,7 @@ func TestArrayMutableElementWrite(t *testing.T) {
 		"if (index >= UINT64_C(2))",
 		"\"[Runtime Error] array index out of bounds\\n\"",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) && !strings.Contains(arrayH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
@@ -116,7 +138,7 @@ func TestArrayMembersAndFunctions(t *testing.T) {
 		"*hex_array_at_Int32_3(&hex_v_values, (size_t)(0))",
 		"hex_v_head = hex_f_m3_app_first((hex_array_Int32_3){{5, 6, 7}});",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) && !strings.Contains(arrayH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
@@ -134,8 +156,37 @@ func TestNestedArrays(t *testing.T) {
 		"const hex_array_Array_Int32__2__2 hex_v_grid = (hex_array_Array_Int32__2__2){{(hex_array_Int32_2){{1, 2}}, (hex_array_Int32_2){{3, 4}}}};",
 		"*hex_array_at_Int32_2(&*hex_array_at_Array_Int32__2__2(&hex_v_grid, (size_t)(1)), (size_t)(0))",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) && !strings.Contains(arrayH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		}
+	}
+	// The nested specialization must precede the array embedding it: the
+	// inner struct is embedded by value, so its definition must complete
+	// first.
+	arrayHeader := arrayH(t, result)
+	if strings.Index(arrayHeader, "typedef struct hex_array_Int32_2 {") > strings.Index(arrayHeader, "typedef struct hex_array_Array_Int32__2__2 {") {
+		t.Fatalf("hexal/array.h = %q, nested specialization must precede its embeder", arrayHeader)
+	}
+}
+
+// The array slice helper is an Array specialization: it returns the view
+// type spelled by the view component and lives in hexal/array.h with its
+// UINT64_C range guard.
+func TestArraySliceHelperLivesInArrayHeader(t *testing.T) {
+	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> = [10, 20, 30]\n    view: View<Int32> = fixed.slice(0, 2)\n    first: Int32 = view[0]\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	arrayHeader := arrayH(t, result)
+	for _, want := range []string{
+		"#include \"hexal/view.h\"",
+		"static inline hex_view_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *array, uint64_t start, uint64_t end) {",
+		"if (!(start <= end && end <= UINT64_C(3)))",
+		"hex_runtime_trap(\"[Runtime Error] array slice bounds out of range\\n\");",
+		"return (hex_view_Int32){&array->data[start], end - start};",
+	} {
+		if !strings.Contains(arrayHeader, want) {
+			t.Fatalf("hexal/array.h = %q, want %q", arrayHeader, want)
 		}
 	}
 }
@@ -148,4 +199,10 @@ func TestArrayTrailingCommaLiteral(t *testing.T) {
 	if !strings.Contains(rootC(t, result), "(hex_array_Int32_3){{10, 20, 30}}") {
 		t.Fatalf("modules/app.c = %q, want trailing-comma array literal", rootC(t, result))
 	}
+}
+
+// arrayH returns the generated array component header.
+func arrayH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/array.h")
 }

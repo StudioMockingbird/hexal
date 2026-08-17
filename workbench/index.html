@@ -146,6 +146,10 @@
           <input id="show-line-mappings" type="checkbox">
           Show #line mappings
         </label>
+        <label class="mapping-toggle">
+          <input id="show-support-files" type="checkbox">
+          Show generated support files
+        </label>
       </div>
       <div id="generated-files" class="generated-files"></div>
     </section>
@@ -175,6 +179,7 @@
     const status = document.querySelector('#status');
     const statsOutput = document.querySelector('#stats-output');
     const showLineMappings = document.querySelector('#show-line-mappings');
+    const showSupportFiles = document.querySelector('#show-support-files');
 
     let catalog = [];
     let generatedFiles = {};
@@ -371,7 +376,11 @@
     }
 
     function renderGeneratedFiles() {
-      const names = Object.keys(generatedFiles).sort();
+      // The support files (hexal.h and the demand-driven hexal/ components)
+      // are hidden until the user asks for them; module files always show.
+      // Hidden files keep their contents and order (presentation only).
+      const names = Object.keys(generatedFiles).sort().filter(name =>
+        showSupportFiles.checked || (!name.startsWith('hexal/') && name !== 'hexal.h'));
       generatedFilesElement.replaceChildren();
       for (const name of names) {
         const details = document.createElement('details');
@@ -422,6 +431,7 @@
     addSourceButton.addEventListener('click', () => addSource());
     compileButton.addEventListener('click', compile);
     showLineMappings.addEventListener('change', renderGeneratedFiles);
+    showSupportFiles.addEventListener('change', renderGeneratedFiles);
     sourceList.addEventListener('keydown', event => {
       if (event.ctrlKey && event.key === 'Enter') {
         event.preventDefault();

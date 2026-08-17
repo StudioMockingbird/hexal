@@ -19,12 +19,20 @@ func wantMultiSuccess(t *testing.T, result compiler.CompilationResult, modules .
 		wantKeys["modules/"+module+".c"] = true
 		wantKeys["modules/"+module+".h"] = true
 	}
-	if len(result.Files) != len(wantKeys) {
-		t.Fatalf("Files = %v, want exactly %d keys", sortedKeys(result.Files), len(wantKeys))
-	}
 	for key := range result.Files {
 		if !wantKeys[key] {
+			// The demand-driven component artifacts under hexal/
+			// are legitimate additions selected by the reachable families;
+			// every other key must be one of the mandatory artifacts.
+			if strings.HasPrefix(key, "hexal/") {
+				continue
+			}
 			t.Fatalf("Files contains unexpected key %q", key)
+		}
+	}
+	for key := range wantKeys {
+		if _, exists := result.Files[key]; !exists {
+			t.Fatalf("Files lacks mandatory key %q", key)
 		}
 	}
 }

@@ -6,22 +6,47 @@ import (
 	"testing"
 )
 
+// stringH returns the generated hexal/string.h component artifact.
+func stringH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/string.h")
+}
+
+// stringC returns the generated hexal/string.c component artifact.
+func stringC(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/string.c")
+}
+
 func TestStringLiteralBinding(t *testing.T) {
 	result := compileSource("greeting: String = \"hello\"")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
+	// The representation and the literal object pair live in the String
+	// component: hexal/string.h declares each object once with external
+	// const linkage, hexal/string.c defines it once.
 	for _, want := range []string{
 		"typedef struct hex_string {",
 		"const uint8_t *data;",
 		"size_t byte_length;",
-		"static const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };",
-		"static const hex_string hex_lit_0 = { hex_lit_0_bytes, 5 };",
-		"const hex_string *const hex_v_greeting = &hex_lit_0;",
+		"extern const uint8_t hex_lit_0_bytes[6];",
+		"extern const hex_string hex_lit_0;",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(stringH(t, result), want) {
+			t.Fatalf("hexal/string.h = %q, want %q", stringH(t, result), want)
 		}
+	}
+	for _, want := range []string{
+		"const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };",
+		"const hex_string hex_lit_0 = { hex_lit_0_bytes, 5 };",
+	} {
+		if !strings.Contains(stringC(t, result), want) {
+			t.Fatalf("hexal/string.c = %q, want %q", stringC(t, result), want)
+		}
+	}
+	if !strings.Contains(rootC(t, result), "const hex_string *const hex_v_greeting = &hex_lit_0;") {
+		t.Fatalf("modules/app.c = %q, want the literal object reference", rootC(t, result))
 	}
 }
 
@@ -30,8 +55,8 @@ func TestStringLiteralEscapes(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(hexalH(t, result), "static const uint8_t hex_lit_0_bytes[12] = { 97, 34, 98, 92, 99, 10, 100, 9, 101, 13, 102, 0 };") {
-		t.Fatalf("hexal.h = %q, want escaped payload bytes", hexalH(t, result))
+	if !strings.Contains(stringC(t, result), "const uint8_t hex_lit_0_bytes[12] = { 97, 34, 98, 92, 99, 10, 100, 9, 101, 13, 102, 0 };") {
+		t.Fatalf("hexal/string.c = %q, want escaped payload bytes", stringC(t, result))
 	}
 }
 
@@ -88,7 +113,9 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	output := hexalH(t, result)
+	// The checked arithmetic, guarded copies, and diagnostics all move with
+	// the non-specialized bodies into hexal/string.c.
+	output := stringC(t, result)
 	for _, want := range []string{
 		"ckd_add(&total, sizeof(hex_string_storage), length)",
 		"ckd_add(&total, total, 1)",
@@ -99,7 +126,7 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 		"[Runtime Error] string concatenation length overflow\\n",
 	} {
 		if !strings.Contains(output, want) {
-			t.Fatalf("hexal.h = %q, want %q", output, want)
+			t.Fatalf("hexal/string.c = %q, want %q", output, want)
 		}
 	}
 	// The validated payload and each concatenation input copy with guarded
@@ -119,7 +146,7 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 		"hex_runtime_trap(\"[Runtime Error] invalid UTF-8 in String\\n\")",
 	} {
 		if !strings.Contains(output, want) {
-			t.Fatalf("hexal.h = %q, want %q", output, want)
+			t.Fatalf("hexal/string.c = %q, want %q", output, want)
 		}
 	}
 	for _, banned := range []string{
@@ -129,7 +156,7 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 		"NULL",
 	} {
 		if strings.Contains(output, banned) {
-			t.Fatalf("hexal.h = %q, contains banned %q", output, banned)
+			t.Fatalf("hexal/string.c = %q, contains banned %q", output, banned)
 		}
 	}
 }
@@ -194,7 +221,7 @@ func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
 		"const hex_array_String_2 hex_v_copy = hex_v_texts;",
 		"const hex_string *const hex_v_first = *hex_array_at_String_2",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}

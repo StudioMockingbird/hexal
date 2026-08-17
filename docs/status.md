@@ -25,6 +25,15 @@ gets deleted.
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
 | Default-Heap runtime collapse — direct checked `malloc`/`free`, needs a follow-up ADR (RFC 0069 audit finding; coordinates with 0027) | [0069](specs/archive/0069/0069-c23-backed-compiler-simplification.md) |
 
+### Implementation-ready
+
+| Work | Spec |
+|---|---|
+| Compact promotion-safe lowering for unsigned arithmetic trees | [0072](specs/0072-compact-unsigned-arithmetic-lowering.md) |
+| Audit defect batch — 7 live defects, 6 latent, 5 doc contradictions | [0073](specs/0073-audit-defect-batch.md) |
+| Audit refactor batch — execute after RFC 0073 | [0074](specs/0074-audit-refactor-batch.md) |
+| Compiler benchmark suite — land before RFC 0074 Stage 2 | [0075](specs/0075-benchmark-suite.md) |
+
 ## Unowned
 
 One item survived the previous follow-up list without a determinable meaning:
@@ -32,6 +41,18 @@ One item survived the previous follow-up list without a determinable meaning:
 - **Terminating self-recursive object construction.** Pointer-indirect
   self-recursion compiles and is valid per `reference.md`, so what this tracked
   is unclear. Assign it a spec or delete it.
+
+## Open bugs
+
+- **Module-owned object elements in List/Dict/Array/View specializations
+  generate uncompilable C.** A specialization whose element is a module
+  object (e.g. `List<Point>`) spells the module's C typedef name inside the
+  program-wide component header, before the module header defines it. This
+  defect is pre-existing (the pre-split `hexal.h` had the same include-order
+  failure) and predates ADR 0071's component split; no test, c23 canary, or
+  snippet exercises it. Needs a representation RFC (e.g. handle-based
+  collection storage) before module objects can be collection elements. Owned
+  by [0071](specs/0071-generated-runtime-components.md).
 
 ## Known coverage gaps
 

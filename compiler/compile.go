@@ -24,8 +24,11 @@ const (
 type CompilationResult struct {
 	// Files is the authoritative generated-artifact map: every emitted
 	// C/header file under its normalized logical key. Success returns
-	// "hexal.h" plus one modules/<canonical-path>.c/.h pair per reachable
-	// module; failure returns a non-nil empty map.
+	// "hexal.h", one modules/<canonical-path>.c/.h pair per reachable
+	// module, and the demand-driven component artifacts under hexal/
+	// (hexal/runtime.c when a selected path can trap, and each selected
+	// component pair); failure returns a non-nil empty map. A build driver
+	// must compile every ".c" entry, not only those under modules/.
 	Files    map[string]string
 	Stderr   []string
 	ExitCode int

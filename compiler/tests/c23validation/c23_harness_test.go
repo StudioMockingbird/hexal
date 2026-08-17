@@ -39,9 +39,10 @@ func c23Compiler(t *testing.T) string {
 	return command
 }
 
-// buildGeneratedC materializes every artifact in Files (hexal.h plus each
-// module C/header pair) under dir and compiles every .c translation unit with
-// the harness warning policy, returning the executable path.
+// buildGeneratedC materializes every artifact in Files (hexal.h, each module
+// C/header pair, and the demand-driven hexal/ component files) under dir and
+// compiles every .c translation unit with the harness warning policy,
+// returning the executable path.
 func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string) string {
 	t.Helper()
 	for name, content := range result.Files {

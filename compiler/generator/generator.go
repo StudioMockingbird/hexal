@@ -2,6 +2,8 @@
 package generator
 
 import (
+	"fmt"
+
 	"hexal/compiler/checker"
 )
 
@@ -50,7 +52,7 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 		}
 	}
 	if root != nil {
-		files["hexal.h"] = hexalHeader(hexalHeaderInput{
+		header, headerErr := hexalHeader(hexalHeaderInput{
 			errorUsed:    merged.errorUsed,
 			heaps:        merged.heapState,
 			views:        merged.viewState,
@@ -63,6 +65,23 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 			sizeLiterals: merged.sizeLiterals,
 			requirements: merged.requirements,
 		})
+		if headerErr != nil {
+			return nil, headerErr
+		}
+		files["hexal.h"] = header
+	}
+	// The demand-driven runtime components render after every
+	// module pair; a component key colliding with an existing artifact is an
+	// internal error, never a silent overwrite.
+	components, componentErr := renderComponentArtifacts(merged)
+	if componentErr != nil {
+		return nil, componentErr
+	}
+	for key, content := range components {
+		if _, exists := files[key]; exists {
+			return nil, fmt.Errorf("generator: duplicate generated artifact key %s", key)
+		}
+		files[key] = content
 	}
 	return files, nil
 }

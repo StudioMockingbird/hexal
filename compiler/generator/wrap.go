@@ -8,9 +8,6 @@ package generator
 // for out-of-range signed results.
 
 import (
-	"fmt"
-	"strings"
-
 	"hexal/compiler/checker"
 	compilerTypes "hexal/compiler/types"
 )
@@ -83,30 +80,6 @@ func mergeWrapState(merged *generatedWrapState, module *generatedWrapState) {
 		if !merged.seen[key] {
 			merged.seen[key] = true
 			merged.order = append(merged.order, operation)
-		}
-	}
-}
-
-// writeWrapHelpers emits the selected ckd_* wrapping helpers into hexal.h
-// after <stdckdint.h> is included. The return value of each ckd_* call is
-// intentionally ignored: wrapping is the defined result, and this is the only
-// generated call that discards a checked-arithmetic flag.
-func writeWrapHelpers(result *strings.Builder, state *generatedWrapState) {
-	if state == nil {
-		return
-	}
-	for _, operation := range state.order {
-		helper := wrapHelperName(operation)
-		spelling := operation.typ.CName
-		switch operation.name {
-		case "add":
-			fmt.Fprintf(result, "\nstatic inline %s %s(%s a, %s b) {\n    %s r;\n    ckd_add(&r, a, b);\n    return r;\n}\n", spelling, helper, spelling, spelling, spelling)
-		case "sub":
-			fmt.Fprintf(result, "\nstatic inline %s %s(%s a, %s b) {\n    %s r;\n    ckd_sub(&r, a, b);\n    return r;\n}\n", spelling, helper, spelling, spelling, spelling)
-		case "mul":
-			fmt.Fprintf(result, "\nstatic inline %s %s(%s a, %s b) {\n    %s r;\n    ckd_mul(&r, a, b);\n    return r;\n}\n", spelling, helper, spelling, spelling, spelling)
-		case "neg":
-			fmt.Fprintf(result, "\nstatic inline %s %s(%s a) {\n    %s r;\n    ckd_sub(&r, 0, a);\n    return r;\n}\n", spelling, helper, spelling, spelling)
 		}
 	}
 }

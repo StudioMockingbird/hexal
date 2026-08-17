@@ -114,7 +114,7 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 		{
 			name:      "atomic-only",
 			source:    "counter: Atomic<Int32> = Atomic<Int32>.new(5) value: Int32 = counter.load()",
-			includes:  []string{"#include <stdint.h>", "#include <stdatomic.h>", "typedef _Atomic(int32_t) hex_atomic_Int32;"},
+			includes:  []string{"#include <stdint.h>", "#include <stdatomic.h>"},
 			forbidden: []string{"#include <stdio.h>", "#include <stdlib.h>", "hex_scheduler_init"},
 		},
 		{
@@ -163,14 +163,17 @@ func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 	if header != want {
 		t.Fatalf("hexal.h = %q, want %q", header, want)
 	}
+	if _, exists := result.Files["hexal/runtime.c"]; exists {
+		t.Fatalf("scalar-only program must emit no runtime component: %q", header)
+	}
 	if strings.Contains(rootC(t, result), "EXIT_") {
 		t.Fatalf("root C must not reference EXIT_ macros: %q", rootC(t, result))
 	}
 }
 
 // Every generated diagnostic trap reports through one program-wide
-// hex_runtime_trap — declared once in hexal.h, defined once in the root
-// module's C file, [[noreturn]], owning <stdio.h>/<stdlib.h> — and no
+// hex_runtime_trap — declared once in hexal.h, defined once in
+// hexal/runtime.c, [[noreturn]], owning <stdio.h>/<stdlib.h> — and no
 // per-family trap or raw fputs/abort pair remains in generated C.
 func TestSingleRuntimeTrapContract(t *testing.T) {
 	source := "mut h: Heap = Heap.new()\nitems: List<Int32> = List<Int32>.new(h)\nitems.push(7)\nvalues: Array<Int32, 2> = [1, 2]\nview: View<Int32> = values.slice(0, 1)\ntext: String = \"hello\"\nmut count: Int32 = 0\nmut shift: Int32 = 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
@@ -180,21 +183,25 @@ func TestSingleRuntimeTrapContract(t *testing.T) {
 	if strings.Count(header, declaration) != 1 {
 		t.Fatalf("hexal.h = %q, want exactly one trap declaration %q", header, declaration)
 	}
-	root := rootC(t, result)
+	runtime := result.Files["hexal/runtime.c"]
 	definition := "void hex_runtime_trap(const char *message) {"
-	if strings.Count(root, definition) != 1 {
-		t.Fatalf("root C = %q, want exactly one trap definition %q", root, definition)
+	if strings.Count(runtime, definition) != 1 {
+		t.Fatalf("hexal/runtime.c = %q, want exactly one trap definition %q", runtime, definition)
+	}
+	root := rootC(t, result)
+	if strings.Contains(root, "hex_runtime_trap(const char *message) {") {
+		t.Fatalf("root C must not define the trap: %q", root)
 	}
 	// The trap definition is the single legitimate fputs owner: the header
 	// and every other artifact report through hex_runtime_trap only.
 	if strings.Contains(header, "fputs(") {
 		t.Fatalf("hexal.h contains a raw fputs call: %q", header)
 	}
-	if strings.Count(root, "fputs(") != 1 {
-		t.Fatalf("root C = %q, want exactly one fputs inside the trap definition", root)
+	if strings.Count(runtime, "fputs(") != 1 {
+		t.Fatalf("hexal/runtime.c = %q, want exactly one fputs inside the trap definition", runtime)
 	}
 	for name, artifact := range result.Files {
-		if name == "modules/app.c" {
+		if name == "hexal/runtime.c" {
 			continue
 		}
 		if strings.Contains(artifact, "fputs(") {

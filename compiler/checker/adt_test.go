@@ -77,6 +77,14 @@ func TestCheckMatchExhaustiveness(t *testing.T) {
 	requireDiagnostic(t, "type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } shape: Shape = Shape.Circle { r = 10 } label: Int32 = match shape is\n| Shape.Circle then 1\nend", "match is not exhaustive; missing Shape.Square")
 }
 
+// With several uncovered members the diagnostic names the first in
+// declaration order, so repeated checks of one source report one stable
+// message.
+func TestCheckMatchExhaustivenessNamesFirstMissingInDeclarationOrder(t *testing.T) {
+	requireDiagnostic(t, "type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } | Triangle as { b: Int32 } shape: Shape = Shape.Circle { r = 10 } label: Int32 = match shape is\n| Shape.Square then 1\nend", "match is not exhaustive; missing Shape.Circle")
+	requireDiagnostic(t, "value: Int32 | Float64 | Nil = nil label: Int32 = match value is\n| Float64 then 1\nend", "match is not exhaustive; missing Int32")
+}
+
 func TestCheckMatchElseIsFinalAndCovers(t *testing.T) {
 	requireAccepted(t, "value: Int32 | Nil = nil label: Int32 = match value is\n| Nil then 0\n| else then 1\nend")
 	requireDiagnostic(t, "value: Int32 | Nil = nil label: Int32 = match value is\n| else then 1\n| Nil then 0\nend", "else must be the final match arm")

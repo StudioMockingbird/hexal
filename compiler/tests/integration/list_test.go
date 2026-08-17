@@ -25,7 +25,7 @@ func TestListLifecycle(t *testing.T) {
 		"hex_list_clear_Int32(hex_v_values);",
 		"hex_list_free_Int32(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) && !strings.Contains(listH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
@@ -36,7 +36,7 @@ func TestListLifecycle(t *testing.T) {
 	// empty list may hold a null data pointer), every diagnostic reports
 	// through hex_runtime_trap, and the List helpers carry no raw fputs or
 	// compiler-owned NULL.
-	header := hexalH(t, result)
+	header := listH(t, result)
 	for _, want := range []string{
 		"size_t next = 1;",
 		"ckd_mul(&next, list->capacity, 2)",
@@ -47,12 +47,12 @@ func TestListLifecycle(t *testing.T) {
 		"hex_runtime_trap(\"[Runtime Error] list capacity is not representable\\n\")",
 	} {
 		if !strings.Contains(header, want) {
-			t.Fatalf("hexal.h does not contain %q:\n%s", want, header)
+			t.Fatalf("hexal/list.h does not contain %q:\n%s", want, header)
 		}
 	}
 	for _, forbid := range []string{"uint64_t next", "SIZE_MAX /", "fputs(", "NULL"} {
 		if strings.Contains(header, forbid) {
-			t.Fatalf("hexal.h retains %q:\n%s", forbid, header)
+			t.Fatalf("hexal/list.h retains %q:\n%s", forbid, header)
 		}
 	}
 }
@@ -193,4 +193,10 @@ func TestListFreeReleasesOnlyContainerStorage(t *testing.T) {
 	if strings.Contains(rootC(t, result), "hex_string_free") {
 		t.Fatalf("List<String> free must not destroy element Strings:\n%s", rootC(t, result))
 	}
+}
+
+// listH returns the generated List component header.
+func listH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/list.h")
 }

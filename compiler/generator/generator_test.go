@@ -978,7 +978,10 @@ func TestRenderUnsignedNarrowMultiplicationUsesUInt32Intermediate(t *testing.T) 
 // qualification (8-bit bytes, exact-width integers, IEC float representations)
 // is a supported-toolchain contract owned outside generated source.
 func TestNoTargetProfileProbesEmitted(t *testing.T) {
-	header := hexalHeader(hexalHeaderInput{})
+	header, err := hexalHeader(hexalHeaderInput{})
+	if err != nil {
+		t.Fatalf("hexalHeader() error = %v", err)
+	}
 	for _, forbidden := range []string{
 		"CHAR_BIT",
 		"static_assert(sizeof(uint8_t)",
@@ -999,75 +1002,6 @@ func TestNoTargetProfileProbesEmitted(t *testing.T) {
 	}
 	if strings.Contains(header, "static_assert") {
 		t.Fatalf("hexal.h = %q, no source-dependent Size assertion is present", header)
-	}
-}
-
-func TestGenerateSignedWrappingBoundaries(t *testing.T) {
-	minimum := intSource(compilerTypes.Int8, -128, "128")
-	minimum.Negative = true
-	typ := compilerTypes.Int8
-	program := checker.Program{Statements: []checker.Statement{
-		checker.Declaration{Name: "value", Type: typ, Mutable: true, Source: intSource(typ, 127, "127")},
-		checker.Declaration{
-			Name: "wrapped",
-			Type: typ,
-			Source: checker.Operand{
-				Kind: checker.ExpressionOperand,
-				Type: typ,
-				Node: binaryExpression(checker.AddOperator, typ, typ, variableNode("value"), constantExpression(intSource(typ, 1, "1"))),
-			},
-		},
-		checker.Declaration{Name: "minimum", Type: typ, Mutable: true, Source: minimum},
-		checker.Declaration{
-			Name: "underflow",
-			Type: typ,
-			Source: checker.Operand{
-				Kind: checker.ExpressionOperand,
-				Type: typ,
-				Node: binaryExpression(checker.SubtractOperator, typ, typ, variableNode("minimum"), constantExpression(intSource(typ, 1, "1"))),
-			},
-		},
-		checker.Declaration{
-			Name: "negated",
-			Type: typ,
-			Source: checker.Operand{
-				Kind: checker.ExpressionOperand,
-				Type: typ,
-				Node: unaryExpression(checker.NegateOperator, typ, typ, variableNode("minimum")),
-			},
-		},
-	}}
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
-	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	wantWrapped := "hex_wrap_add_int8_t(hex_v_value, 1)"
-	if !strings.Contains(rootC, wantWrapped) {
-		t.Fatalf("modules/app.c = %q, want the ckd_* wrap helper for Int8 127 + 1", rootC)
-	}
-	// No unsigned intermediate or reconstruction ternary remains for
-	// wrapping arithmetic.
-	for _, forbidden := range []string{
-		"((uint64_t)(uint8_t)((uint64_t)hex_v_value + (uint64_t)1) <= (uint64_t)INT8_MAX",
-		"hex_v_negated = (int8_t)(uint64_t)((uint64_t)0 - (uint64_t)hex_v_minimum);",
-	} {
-		if strings.Contains(rootC, forbidden) {
-			t.Fatalf("modules/app.c contains the removed unsigned-intermediate wrap form %q", forbidden)
-		}
-	}
-	// The program-wide wrap helpers are selected in hexal.h with <stdckdint.h>.
-	hexalH := files["hexal.h"]
-	if !strings.Contains(hexalH, "static inline int8_t hex_wrap_add_int8_t(int8_t a, int8_t b)") ||
-		!strings.Contains(hexalH, "ckd_add(&r, a, b)") ||
-		!strings.Contains(hexalH, "static inline int8_t hex_wrap_neg_int8_t(int8_t a)") {
-		t.Fatalf("hexal.h = %q, want the selected wrap helpers", hexalH)
-	}
-	if !strings.Contains(hexalH, "#include <stdckdint.h>") {
-		t.Fatalf("hexal.h = %q, want <stdckdint.h> for the wrap helpers", hexalH)
-	}
-	if rootH == "" {
-		t.Fatal("GenerateChecked() returned an empty header")
 	}
 }
 

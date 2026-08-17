@@ -11,20 +11,36 @@ func TestErrorNewConstruction(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
+	// The Error representation is owned by hexal/error.h; hexal.h must not
+	// define it and the module header must include the component.
+	errorH := moduleFile(t, result, "hexal/error.h")
 	for _, want := range []string{
 		"typedef struct hex_t_Error hex_t_Error;",
 		"struct hex_t_Error {",
 		"const hex_string *hex_m_file;",
 		"size_t hex_m_line;",
+		"size_t hex_m_column;",
 		"hex_strand hex_m_header;",
 		"const hex_string *hex_m_message;",
+	} {
+		if !strings.Contains(errorH, want) {
+			t.Fatalf("hexal/error.h = %q, want %q", errorH, want)
+		}
+	}
+	if strings.Contains(hexalH(t, result), "hex_t_Error") {
+		t.Fatalf("hexal.h must not carry the Error definition: %q", hexalH(t, result))
+	}
+	if !strings.Contains(rootH(t, result), "#include \"hexal/error.h\"") {
+		t.Fatalf("modules/app.h must include hexal/error.h: %q", rootH(t, result))
+	}
+	for _, want := range []string{
 		"hex_v_err = (hex_t_Error){",
 		".hex_m_file = &hex_lit_0,",
 		".hex_m_line = 2,",
 		".hex_m_column = 18,",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
 }

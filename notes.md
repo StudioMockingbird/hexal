@@ -1,3 +1,6 @@
+Do a full audit of the codebase to find opportunities for improvements/refactoring. use parallel subagents where possible.
+These are the areas of focus
+
 | # | Refactoring pass | Focus | Outcome | Risk | RoI |
 |---:|---|---|---|---|---|
 | 1 | Line-ending and `gofmt` hygiene | Normalize formatting and line endings. | Clean, reviewable baseline. | Low | High |

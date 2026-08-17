@@ -177,15 +177,33 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		stringState.needStrand = true
 		heapState.required = true
 	}
+	if emission.errorUsed {
+		// Error's representation names the String and Strand types, so the
+		// string component is a required dependency of error.h.
+		stringState.used = true
+		stringState.needStrand = true
+	}
+	if len(dictState.order) > 0 {
+		// The dict component header declares its String dependency, so the
+		// string component must exist.
+		stringState.used = true
+	}
 	if stringState.used {
 		ensureViewUInt8(viewState)
-		// The String helpers allocate through the heap machinery.
+		// The String helpers allocate through the heap machinery, and the
+		// string component header declares its Heap and View dependencies.
 		heapState.required = true
+		viewState.required = true
 	}
 	if len(listState.order) > 0 || len(dictState.order) > 0 {
 		// The List and Dict helpers allocate and trap through the heap
 		// machinery and the shared runtime trap.
 		heapState.required = true
+	}
+	if len(listState.order) > 0 || len(arrayState.order) > 0 {
+		// The list and array component headers declare their View
+		// dependency, so the view component must exist.
+		viewState.required = true
 	}
 	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
 	return emission, nil
@@ -260,6 +278,7 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 		}
 		if module.viewState != nil {
 			viewOrders = append(viewOrders, module.viewState.views)
+			merged.viewState.required = merged.viewState.required || module.viewState.required
 		}
 		if module.listState != nil {
 			listOrders = append(listOrders, module.listState.order)
@@ -699,18 +718,11 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		moduleID:       canonicalID,
 	}
 	if isRoot {
-		// The selected root module's C file owns the process-wide runtime
-		// definitions and the C entry point. The runtime cores are emitted
-		// after the module's own definitions and before main(). Every module
-		// header includes hexal.h, which declares the runtime entry points
-		// with external linkage.
-		writeConcurrencyRuntime(&moduleBody, merged.concurrencyState, merged.stringState)
-		if merged.requirements != nil && merged.requirements.trap {
-			// The one program-wide diagnostic trap is defined exactly once,
-			// in the root module's C file, matching its hexal.h declaration.
-			moduleBody.WriteString("\n[[noreturn]] void hex_runtime_trap(const char *message) {\n")
-			moduleBody.WriteString("    fputs(message, stderr);\n    abort();\n}\n")
-		}
+		// The selected root module's C file owns the process entry point.
+		// Runtime definitions and state live in the component artifacts
+		// under generated hexal/; the module C file is not the
+		// fallback runtime container.
+		moduleBody.WriteString(concurrencyRuntimeContent(merged.concurrencyState, merged.stringState))
 
 		renderState.pushScope()
 		// The module statements execute directly inside main(). Module-level
@@ -767,6 +779,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		prototypes:    headerPrototypes.String(),
 		extraFrames:   extraFrames.String(),
 		filename:      logicalKey,
+		components:    moduleComponentHeaders(emission),
 	})
 	return moduleBody.String(), moduleHeader, nil
 }
@@ -788,6 +801,25 @@ func routedFrames(emission *moduleEmission, sites []spawnSite) []spawnSite {
 		}
 	}
 	return frames
+}
+
+// moduleComponentHeaders returns the path-qualified component headers this
+// module's header includes, in dependency order: wrap, heap, view,
+// string, error, list, dict, array, concurrency. Each migrated family selects
+// itself here; a family still owned by hexal.h during the component
+// migration contributes nothing.
+func moduleComponentHeaders(emission *moduleEmission) []string {
+	var components []string
+	components = append(components, moduleWrapComponent(emission)...)
+	components = append(components, moduleHeapComponent(emission)...)
+	components = append(components, moduleViewComponent(emission)...)
+	components = append(components, moduleStringComponent(emission)...)
+	components = append(components, moduleErrorComponent(emission)...)
+	components = append(components, moduleListComponent(emission)...)
+	components = append(components, moduleDictComponent(emission)...)
+	components = append(components, moduleArrayComponent(emission)...)
+	components = append(components, moduleConcurrencyComponent(emission)...)
+	return components
 }
 
 // hexalHeaderInput carries every value the shared program-support header
@@ -827,79 +859,60 @@ type moduleHeaderInput struct {
 	prototypes    string
 	extraFrames   string
 	filename      string
+	// components are the path-qualified component headers this module needs,
+	// in dependency order.
+	components []string
 }
 
-// hexalHeader emits hexal.h: the guard, the demand-driven program-wide
-// standard-header umbrella, the retained source-dependent Size-literal
-// assertions, the hex_eos typedef when required, the shared value machinery
-// that carries no process-wide state, and the extern declarations for the
-// runtime functions the module headers' inline helpers call. Everything here
-// is included by every translation unit through each module header, so no
-// definition in hexal.h may hold static storage. The states are the
-// program-wide aggregate: every module's built-in machinery must be declared
-// here before any module content. Generic toolchain qualification is a
-// supported-toolchain contract, not a generated probe; only source-dependent
-// target assertions are emitted.
-func hexalHeader(input hexalHeaderInput) string {
-	var result strings.Builder
-	result.WriteString(hexalHeaderPrefix)
-	// The umbrella standard headers render once, immediately after the
-	// guard, in deterministic lexical order. Every module header includes
-	// hexal.h, so the set satisfies the complete reachable generated
-	// program.
+// hexalHeaderModel is the render model for the hexal.h template:
+// the guard, the demand-driven program-wide standard-header umbrella, the
+// retained source-dependent Size-literal assertions, the hex_eos typedef when
+// required, and the extern declaration of the one program-wide diagnostic
+// trap. FamilyContent is the transition seam for families migrating to their
+// component artifacts; it is empty once every family has moved.
+type hexalHeaderModel struct {
+	Includes      []string
+	SizeAsserts   []string
+	Eos           bool
+	TrapDeclared  bool
+	FamilyContent string
+}
+
+// hexalHeader emits hexal.h. Everything here is included by every translation
+// unit through each module header, so no definition in hexal.h may hold
+// static storage. The standard-header set satisfies the complete reachable
+// generated program. Generic toolchain qualification is a supported-toolchain
+// contract, not a generated probe; only source-dependent target assertions
+// are emitted. The source of truth for the shell is packages/hexal.h; the
+// state data is the program-wide aggregate.
+func hexalHeader(input hexalHeaderInput) (string, error) {
+	var familyContent strings.Builder
+	familyContent.WriteString(wrapFamilyContent(input.wrap))
+	familyContent.WriteString(concurrencyFamilyContent(input.concurrency))
+	familyContent.WriteString(heapFamilyContent(input.heaps))
+	familyContent.WriteString(viewFamilyContent(input.views))
+	familyContent.WriteString(stringFamilyContent(input.stringState))
+	if input.errorUsed {
+		familyContent.WriteString(errorFamilyContent())
+	}
+	familyContent.WriteString(listFamilyContent(input.lists, input.views))
+	familyContent.WriteString(dictFamilyContent(input.dicts))
+	familyContent.WriteString(arrayFamilyContent(input.arrays, input.views))
+	model := hexalHeaderModel{
+		SizeAsserts:   input.sizeLiterals,
+		FamilyContent: familyContent.String(),
+	}
 	if input.requirements != nil {
 		headers := make([]string, 0, len(input.requirements.headers))
 		for header := range input.requirements.headers {
 			headers = append(headers, header)
 		}
 		sort.Strings(headers)
-		for _, header := range headers {
-			fmt.Fprintf(&result, "#include <%s>\n", header)
-		}
-		if len(headers) > 0 {
-			result.WriteString("\n")
-		}
+		model.Includes = headers
+		model.Eos = input.requirements.eos
+		model.TrapDeclared = input.requirements.trap
 	}
-	// A Size literal above the smallest possible SIZE_MAX (65535) fits only
-	// targets whose size_t is wide enough, so each one is guarded against
-	// the selected target's actual SIZE_MAX. This is the one retained
-	// source-dependent target assertion.
-	for _, digits := range input.sizeLiterals {
-		fmt.Fprintf(&result, "static_assert(%s <= SIZE_MAX, \"Size literal %s requires a size_t target wide enough\");\n", digits, digits)
-	}
-	if input.requirements != nil && input.requirements.eos {
-		// The EoS singleton lowers to one compiler-owned byte, emitted
-		// exactly once, before any type that references it.
-		result.WriteString("\ntypedef uint8_t hex_eos;\n")
-	}
-	if input.requirements != nil && input.requirements.trap {
-		// One program-wide diagnostic trap, declared once here and defined
-		// once in the root module's C file.
-		result.WriteString("\n[[noreturn]] void hex_runtime_trap(const char *message);\n")
-	}
-	result.WriteString("\n")
-	// The program-wide signed wrapping helpers follow the includes so
-	// <stdckdint.h> precedes their ckd_* calls.
-	writeWrapHelpers(&result, input.wrap)
-	writeConcurrencyTypePrelude(&result, input.concurrency)
-	// The module header's inline helpers call the runtime core, which lives
-	// in the root module's C file with external linkage. hexal.h declares
-	// those entry points before any module content.
-	writeConcurrencyExterns(&result, input.concurrency)
-	writeHeapDefinitions(&result, input.heaps)
-	writeViewDefinitions(&result, input.views)
-	writeStringDefinitions(&result, input.stringState)
-	if input.errorUsed {
-		// Error's complete definition follows the String and Strand typedefs
-		// it needs and precedes the unions that may carry it as a payload
-		// member.
-		writeErrorDefinition(&result)
-	}
-	writeListDefinitions(&result, input.lists, input.views)
-	writeDictDefinitions(&result, input.dicts)
-	writeArrayDefinitions(&result, input.arrays, input.views)
-	result.WriteString("\n#endif\n")
-	return result.String()
+	return renderComponent(componentArtifact{key: "hexal.h", template: "hexal.h", model: model})
 }
 
 // moduleHeader emits one module's header: everything that references the
@@ -910,6 +923,12 @@ func hexalHeader(input hexalHeaderInput) string {
 func moduleHeader(input moduleHeaderInput) string {
 	var result strings.Builder
 	result.WriteString("#ifndef " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n#define " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n\n#include \"hexal.h\"\n")
+	// The component headers this module needs follow hexal.h in dependency
+	// order; a module never includes a component selected only by another
+	// module.
+	for _, component := range input.components {
+		fmt.Fprintf(&result, "#include \"%s\"\n", component)
+	}
 	writeAdtDefinitions(&result, input.adts)
 	writeUnionDefinitions(&result, input.unions)
 	writeObjectDefinitions(&result, input.objects, input.filename)

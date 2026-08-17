@@ -12,9 +12,6 @@ func TestViewSliceReadOperations(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct hex_view_Int32 {",
-		"const int32_t *data;",
-		"size_t length;",
 		"const hex_view_Int32 hex_v_view = hex_array_slice_Int32_3(&hex_v_fixed, (size_t)(0), (size_t)(2));",
 		"(hex_v_view).length",
 		"(hex_v_view).length == 0",
@@ -22,9 +19,31 @@ func TestViewSliceReadOperations(t *testing.T) {
 		"*hex_view_at_Int32(hex_v_view, (size_t)(1))",
 		"hex_v_tail = hex_view_slice_Int32(hex_v_view, (size_t)(1), (size_t)(2));",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
+	}
+	// The specialization struct and its typed inline helpers are owned by
+	// the view component, not hexal.h.
+	viewH := moduleFile(t, result, "hexal/view.h")
+	for _, want := range []string{
+		"#ifndef HEXAL_VIEW_H",
+		"#include \"hexal.h\"",
+		"typedef struct hex_view_Int32 {",
+		"const int32_t *data;",
+		"size_t length;",
+		"static inline const int32_t *hex_view_at_Int32(hex_view_Int32 view, size_t index) {",
+		"hex_runtime_trap(\"[Runtime Error] view index out of bounds\\n\");",
+		"static inline hex_view_Int32 hex_view_slice_Int32(hex_view_Int32 view, uint64_t start, uint64_t end) {",
+		"hex_runtime_trap(\"[Runtime Error] view slice bounds out of range\\n\");",
+		"#endif",
+	} {
+		if !strings.Contains(viewH, want) {
+			t.Fatalf("hexal/view.h = %q, want %q", viewH, want)
+		}
+	}
+	if !strings.Contains(rootH(t, result), "#include \"hexal/view.h\"") {
+		t.Fatalf("modules/app.h = %q, want the hexal/view.h component include", rootH(t, result))
 	}
 }
 

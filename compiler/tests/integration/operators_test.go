@@ -225,6 +225,24 @@ func TestSignedWrappingBoundaries(t *testing.T) {
 			t.Fatalf("modules/app.c = %q, want wrap helper %q", rootC(t, result), want)
 		}
 	}
+	// The selected helpers are owned by hexal/wrap.h, the using module
+	// includes the component header, and hexal.h spells no helper.
+	wrapH := moduleFile(t, result, "hexal/wrap.h")
+	for _, want := range []string{
+		"static inline int8_t hex_wrap_add_int8_t(int8_t a, int8_t b) {\n    int8_t r;\n    ckd_add(&r, a, b);\n    return r;\n}",
+		"static inline int64_t hex_wrap_sub_int64_t(int64_t a, int64_t b) {\n    int64_t r;\n    ckd_sub(&r, a, b);\n    return r;\n}",
+		"static inline int64_t hex_wrap_neg_int64_t(int64_t a) {\n    int64_t r;\n    ckd_sub(&r, 0, a);\n    return r;\n}",
+	} {
+		if !strings.Contains(wrapH, want) {
+			t.Fatalf("hexal/wrap.h = %q, want helper %q", wrapH, want)
+		}
+	}
+	if strings.Contains(hexalH(t, result), "hex_wrap") {
+		t.Fatalf("hexal.h = %q, wrapping helpers must leave hexal.h", hexalH(t, result))
+	}
+	if !strings.Contains(rootH(t, result), "#include \"hexal/wrap.h\"") {
+		t.Fatalf("modules/app.h = %q, want the wrap component include", rootH(t, result))
+	}
 }
 
 func TestShortCircuitRuntime(t *testing.T) {

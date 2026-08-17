@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Go source is always LF: gofmt emits LF unconditionally, so a CRLF .go
+# file is unformatted by definition. Everything else follows text=auto.
+*.go text eol=lf

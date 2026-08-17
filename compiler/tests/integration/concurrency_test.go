@@ -21,8 +21,14 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 	if !strings.Contains(rootC(t, result), "hex_task_join_Int32(") {
 		t.Fatalf("generated C lacks the typed join call:\n%s", rootC(t, result))
 	}
-	if !strings.Contains(rootC(t, result), "hex_scheduler_init") {
-		t.Fatalf("generated root C lacks the scheduler runtime:\n%s", rootC(t, result))
+	// The scheduler runtime owns the concurrency component; the root module
+	// C keeps the init/complete call sites and no runtime definitions.
+	concurrencyC := moduleFile(t, result, "hexal/concurrency.c")
+	if !strings.Contains(concurrencyC, "static void hex_scheduler_init(void) {") {
+		t.Fatalf("hexal/concurrency.c lacks the scheduler runtime:\n%s", concurrencyC)
+	}
+	if strings.Contains(rootC(t, result), "static void hex_scheduler_init(void) {") {
+		t.Fatalf("root module C retains the scheduler runtime:\n%s", rootC(t, result))
 	}
 	if !strings.Contains(rootC(t, result), "hex_scheduler_init();") {
 		t.Fatalf("generated main does not initialize the scheduler:\n%s", rootC(t, result))
@@ -60,19 +66,21 @@ func TestChannelPipelineCompiles(t *testing.T) {
 		}
 	}
 	// The slot region is sized with a checked multiply; the constructor's
-	// manual overflow guard must not appear.
-	if !strings.Contains(rootC(t, result), "ckd_mul(&slots_bytes, element_size, capacity)") {
-		t.Fatalf("channel core does not use checked slot sizing:\n%s", rootC(t, result))
+	// manual overflow guard must not appear. The channel core owns the
+	// concurrency component.
+	concurrencyC := moduleFile(t, result, "hexal/concurrency.c")
+	if !strings.Contains(concurrencyC, "ckd_mul(&slots_bytes, element_size, capacity)") {
+		t.Fatalf("channel core does not use checked slot sizing:\n%s", concurrencyC)
 	}
-	if strings.Contains(rootC(t, result), "SIZE_MAX / capacity") {
-		t.Fatalf("channel core retains the manual overflow guard:\n%s", rootC(t, result))
+	if strings.Contains(concurrencyC, "SIZE_MAX / capacity") {
+		t.Fatalf("channel core retains the manual overflow guard:\n%s", concurrencyC)
 	}
 	// Close, length, capacity, and is_closed lower directly to the core; no
 	// per-element forwarding wrappers remain.
-	if strings.Contains(rootC(t, result), "hex_chan_close_Int32(") || strings.Contains(rootH(t, result), "hex_chan_close_Int32(") {
+	if strings.Contains(concurrencyC, "hex_chan_close_Int32(") || strings.Contains(rootC(t, result), "hex_chan_close_Int32(") || strings.Contains(rootH(t, result), "hex_chan_close_Int32(") {
 		t.Fatalf("channel close retains its delegating wrapper:\n%s", rootH(t, result))
 	}
-	if strings.Contains(rootC(t, result), "hex_chan_length_Int32(") || strings.Contains(rootH(t, result), "hex_chan_length_Int32(") {
+	if strings.Contains(concurrencyC, "hex_chan_length_Int32(") || strings.Contains(rootC(t, result), "hex_chan_length_Int32(") || strings.Contains(rootH(t, result), "hex_chan_length_Int32(") {
 		t.Fatalf("channel length retains its delegating wrapper:\n%s", rootH(t, result))
 	}
 }
@@ -264,7 +272,7 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	rootC := rootC(t, result)
+	concurrencyC := moduleFile(t, result, "hexal/concurrency.c")
 	for _, trap := range []string{
 		"hex_runtime_trap(\"[Runtime Error] scheduler mutex initialization failed\\n\");",
 		"hex_runtime_trap(\"[Runtime Error] scheduler condition variable initialization failed\\n\");",
@@ -279,21 +287,22 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 		"hex_runtime_trap(\"[Runtime Error] channel free while tasks are blocked on it\\n\");",
 		"hex_runtime_trap(\"[Runtime Error] channel free requires a closed, empty channel\\n\");",
 	} {
-		if !strings.Contains(rootC, trap) {
-			t.Fatalf("generated code lacks the trap %q:\n%s", trap, rootC)
+		if !strings.Contains(concurrencyC, trap) {
+			t.Fatalf("hexal/concurrency.c lacks the trap %q:\n%s", trap, concurrencyC)
 		}
 	}
+	rootC := rootC(t, result)
 	for _, gone := range []string{"hex_sched_fatal", "fputs(\"[Runtime Error]"} {
-		if strings.Contains(rootC, gone) {
-			t.Fatalf("generated code retains %q:\n%s", gone, rootC)
+		if strings.Contains(concurrencyC, gone) || strings.Contains(rootC, gone) {
+			t.Fatalf("generated code retains %q:\n%s", gone, concurrencyC)
 		}
 	}
 	// The scheduler text spells its null pointer constants nullptr.
-	if !strings.Contains(rootC, "task->ready_next = nullptr;") || !strings.Contains(rootC, "if (hex_root_task == nullptr) {") {
-		t.Fatalf("scheduler text does not use the nullptr spelling:\n%s", rootC)
+	if !strings.Contains(concurrencyC, "task->ready_next = nullptr;") || !strings.Contains(concurrencyC, "if (hex_root_task == nullptr) {") {
+		t.Fatalf("scheduler text does not use the nullptr spelling:\n%s", concurrencyC)
 	}
-	if strings.Contains(rootC, "NULL") || strings.Contains(rootH(t, result), "NULL") {
-		t.Fatalf("generated concurrency output retains NULL:\n%s", rootC)
+	if strings.Contains(concurrencyC, "NULL") || strings.Contains(rootC, "NULL") || strings.Contains(rootH(t, result), "NULL") {
+		t.Fatalf("generated concurrency output retains NULL:\n%s", concurrencyC)
 	}
 }
 

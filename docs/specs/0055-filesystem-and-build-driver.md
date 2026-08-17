@@ -40,6 +40,13 @@ responsibilities do not leak into compiler language specifications.
   diagnostic, and never repaired by a compiler-side fallback definition.
 - Later own dependency tracking, caching, file watching, and incremental
   compilation.
+- Compile every `.c` entry returned in `CompilationResult.Files`, not only
+  those under `modules/`: the demand-driven component artifacts under
+  `hexal/` (for example `hexal/runtime.c`, `hexal/heap.c`,
+  `hexal/string.c`, `hexal/concurrency.c`) own external runtime definitions
+  and must be translation units (ADR 0071).
+- Report a generated artifact that fails to compile or link as a
+  compiler/toolchain failure, never as a Hexal source diagnostic.
 
 ## Boundary
 
