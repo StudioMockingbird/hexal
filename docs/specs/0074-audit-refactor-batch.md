@@ -1,10 +1,13 @@
 # RFC 0074: Audit Refactor Batch
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready by stage
+- Status: Draft; implementation-ready. Stages 1–6 are the whole spec; Stage 7 is
+  closed and its items are specified as RFCs 0073 and 0076–0079.
 - Created: 2026-08-16
+- Updated: 2026-08-16
 - Scope: behavior-preserving cleanup found by the six-pass refactor audit —
-  deletion, consolidation, structure, and one measured performance batch
+  deletion, consolidation, structure, and one measured performance item
+- Depends on: nothing. Every item here lands independently of RFCs 0072–0079.
 - Coordinates with: RFC 0073 (defect batch), `AGENTS.md`, `docs/reference.md`,
   `docs/status.md`
 - Companion: RFC 0073 carries every correctness defect from the same audit
@@ -128,99 +131,15 @@ allocs/op**. Memory profile sampled 105.7 MB.
 
 | # | Site | Cost | Action |
 |---|---|---|---|
-| R6 | `compile.go:84` re-lexes every reachable module a second time solely to populate `Stats.TokenCount`; `reachableModules` already lexed it at `:74` | **4.53 MB, 4.3%** — pure waste | Return token counts from `reachableModules` |
-| R7 | `generator.walkStatementExpressions` (`walk.go:144-180`) allocates two mutually-recursive Go closures **per statement**, invoked by 21 independent `walkProgram` discovery passes | **19.04 MB, 18.0%**; `discoverModuleEmission` is 17.2% of CPU | Convert the closures to package-level functions taking `visit` — see below |
 | R8 | `types.unionMembers` (`unions.go:145-153`) does `append([]Type(nil), …)` on every call; read-only callers copy for nothing — `ContainsUnionMember` (`:236`), `RemoveUnionMember` (`:248` and `:250`, twice per call) | **11.00 MB, 10.4%** | Iterate `typ.Union.Members` directly in read-only callers |
 
-R6 disappears together with defect D13 in RFC 0073 — the loop that drops the
-lexer error is the same loop.
+**R6 and R7 moved to RFC 0073** as A6 and A10's companion A7. Each edits the same
+loop or function as a defect there — R6 shares `compile.go:84` with D13, R7
+shares `walkStatementExpressions` with D8 — so keeping them here would force an
+ordering dependency between two specs. Their measurements (4.3% and 18.0% of
+allocations) travel with them.
 
-### R7 in detail
-
-This concerns **Go closures in the compiler's own source**. Hexal has no
-closures; nothing about the language changes.
-
-`walkStatementExpressions` declares two function values as local variables. They
-are mutually recursive — `walkExpression` calls `walkOperand` and vice versa —
-and both capture `visit`, so Go allocates both on the heap on **every call**:
-
-```go
-func walkStatementExpressions(statement checker.Statement, visit func(*checker.Expression) error) error {
-	if visit == nil {
-		return nil
-	}
-	var walkExpression func(*checker.Expression) error   // ← allocated per call
-	var walkOperand func(*checker.Operand) error         // ← allocated per call
-
-	walkExpression = func(node *checker.Expression) error {
-		if err := visit(node); err != nil {              // captures visit
-			return err
-		}
-		...
-		for index := range node.Arguments {
-			if err := walkOperand(&node.Arguments[index]); err != nil {   // captures walkOperand
-				return err
-			}
-		}
-		return nil
-	}
-	walkOperand = func(source *checker.Operand) error {
-		if source.Node.Kind != checker.InvalidExpression {
-			return walkExpression(&source.Node)          // captures walkExpression
-		}
-		return nil
-	}
-
-	switch statement := statement.(type) { /* ... */ }
-}
-```
-
-The function is called once per statement, and 21 independent discovery passes
-each walk the whole program — so the allocation is multiplied by statements ×
-passes. That is the 19.04 MB.
-
-**The fix ("hoisting") is moving them out to package level and passing `visit`
-as an ordinary parameter.** Nothing is captured, so nothing is allocated:
-
-```go
-func walkStatementExpressions(statement checker.Statement, visit func(*checker.Expression) error) error {
-	if visit == nil {
-		return nil
-	}
-	switch statement := statement.(type) { /* ... calls walkExpressionTree(node, visit) ... */ }
-}
-
-func walkExpressionTree(node *checker.Expression, visit func(*checker.Expression) error) error {
-	if err := visit(node); err != nil {
-		return err
-	}
-	if node.Operand != nil {
-		if err := walkExpressionTree(node.Operand, visit); err != nil {
-			return err
-		}
-	}
-	// Left, Right identically
-	for index := range node.Arguments {
-		if err := walkOperandTree(&node.Arguments[index], visit); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func walkOperandTree(source *checker.Operand, visit func(*checker.Expression) error) error {
-	if source.Node.Kind != checker.InvalidExpression {
-		return walkExpressionTree(&source.Node, visit)
-	}
-	return nil
-}
-```
-
-Identical traversal, identical order, zero closures allocated. `visit` is a
-function value that already exists at the call site and is merely passed along.
-
-Sequence this **after** RFC 0073's D8, which adds the missing fail-closed
-`default:` to this same switch. Add the guard first, then simplify around it.
+R8 stands alone: `types/unions.go` is touched by nothing else in either spec.
 
 ### Fusing — deferred, and what it would mean
 
@@ -296,7 +215,17 @@ Routing them through it removes about 1,200 lines. Add the three missing
 siblings — `nameErrorAt`, `moduleErrorAt`, `unknownAt` — for the 9 `NameError`
 and 4 `ModuleError` sites.
 
-### R10. Drop `error` from `walkProgram` and `programVisitor`
+### R10. Drop `error` from `walkProgram` — moved to RFC 0073
+
+**No longer in scope here.** Removing the error return requires RFC 0073's D8
+fail-closed arm to exist first, so keeping it here would force an ordering
+dependency between specs. It moved as A10 and travels with A7, which edits the
+same function.
+
+<details>
+<summary>Original rationale, retained for reference</summary>
+
+### R10 (moved). Drop `error` from `walkProgram` and `programVisitor`
 
 All 21 visitor callbacks return `nil` unconditionally, and `walk.go:516`'s
 default is unreachable because all 14 `statementNode()` types are cased. The
@@ -311,6 +240,8 @@ Removing the error return deletes all ten sites and roughly 180
 Sequence this **after** RFC 0073's D8 (adding the missing `default:` to
 `walkStatementExpressions`), so the fail-closed arm is added before the plumbing
 around it is simplified.
+
+</details>
 
 ### R11. Diagnostic carries no module
 
@@ -349,6 +280,15 @@ compared by string. These were read individually, not sampled.
 ### R13. Split two oversized functions into their existing family files
 
 The RFC 0058/0059 package splits held for 48 of 50 generator files. Two drifted.
+
+**Scoped to files no other open spec touches.** `types.go` and
+`checker/generics.go` are excluded: RFC 0073's identity work rewrites both, and
+splitting a file that is being rewritten guarantees a conflict. Split them under
+that RFC or afterwards, not here.
+
+In scope: `generator/validation.go`, `generator/render.go`,
+`checker/operator_checking.go`, `parser/parser_test.go`,
+`generator/generator_test.go`.
 
 | Function | Now | Extract to |
 |---|---|---|
@@ -428,14 +368,20 @@ review of each.
 
 Listed in priority order. The first is a design decision, not a task.
 
-1. **Nothing verifies that generated C compiles.** By policy no test invokes a
-   toolchain, and `compiler/tests/c23validation/` has no runnable entries.
-   RFC 0073's defect D2 emits C referencing an undeclared type and passes
-   `go test ./...`, `go vet ./...`, and `go vet -tags c23` — all three ran clean
-   against it. This is the single highest-value gap in the project and it now
-   has a concrete escaped defect to justify it. Options: a manual validation
-   pass, a tagged opt-in gate, or ownership by RFC 0055's driver. Decide
-   deliberately.
+1. **Nothing verifies that generated C compiles — accepted, not scheduled.** By
+   policy no test invokes a toolchain, and `compiler/tests/c23validation/` has no
+   runnable entries. RFC 0073's D2 (undeclared `hex_channel`) and D26 (discarded
+   `const`) both emit uncompilable C while `go test ./...`, `go vet ./...`, and
+   `go vet -tags c23` all pass.
+
+   **Decision: no external toolchain, and no compile gate in this RFC or 0073.**
+   The no-external-tool rule stands. When C-compiler validation is eventually
+   introduced — most likely under RFC 0055's driver — it will surface this whole
+   class at once and they get fixed as a batch. Until then each instance is
+   fixed individually as an ordinary defect, exactly as D2 and D26 are.
+
+   Recorded so it is not re-proposed each time an instance is found. The gap is
+   known, priced, and deliberately carried.
 2. **The SHA-256 manifest is a change detector, not an oracle.** It verifies the
    exact artifact set and per-file hash for 98 programs — strong against
    accidental drift. It cannot distinguish a correct refactor from a regression:
@@ -488,72 +434,50 @@ At completion:
 
 ## Stage 7 — Architecture consolidation
 
-Contributed by the external Codex audit. These are larger than the preceding
-stages and several are the structural form of defects RFC 0073 fixes tactically.
-**Each needs its own bounded spec; this stage records the shape, not the plan.**
+**This stage is closed. Every item now has its own spec.** It recorded six
+architecture programs — the structural form of things RFC 0073 fixes tactically
+— on the understanding that each needed a bounded spec before implementation.
+All six now have one.
 
-### R19. One authoritative module graph
+| Item | Now specified as |
+|---|---|
+| R19 — authoritative module graph | **RFC 0076** |
+| R20 — per-compilation type arena | **RFC 0073** (D25 made it a correctness requirement) |
+| R21 — canonical type key | **RFC 0073** (must land with D19) |
+| R22 — literal registry | **RFC 0077** |
+| R23 — package boundary | **RFC 0078** |
+| R24 — ownership and lifetime | **RFC 0079**, scoped to the one decidable case |
 
-Build an immutable `moduleGraph` during reachability holding, per module: the
-canonical ID, the exact logical source key, the parsed program, resolved ordered
-imports, and dependency state. The checker then never re-resolves a path.
+Identifiers are retired rather than reused, so a reference to any R19–R24 still
+resolves. The subsections below are pointers only; nothing in this stage is
+implementable from this document.
 
-This subsumes the duplicate import-path resolution recorded earlier in this RFC
+### R19. One authoritative module graph — specified as RFC 0076
+
+**No longer in scope here.** RFC 0076 owns this work: an immutable `moduleGraph`
+built during reachability, holding per module the canonical id, the exact
+logical source key, the parsed program, and its resolved ordered imports.
+
+It subsumes the duplicate import-path resolution recorded earlier in this RFC
 (`compile.go:132` validating, `checker/modules.go:542` silently mirroring it),
-the three per-module alias tables, and the four-times-duplicated
-canonical-id-to-logical-key lookup. It is also the natural home for the module
-field RFC 0074 R11 adds to `Diagnostic`.
+the dead `scope.imports` table, and the four-times-duplicated
+canonical-id-to-logical-key lookup. Verification while writing that spec also
+found the two mirrors are **both named `canonicalModuleID`, in two packages,
+with different signatures** — a name collision on top of the logic duplication.
 
-### R20. Per-compilation type arena
+R11's `Module` field on `Diagnostic` stays in this RFC; RFC 0076 supplies the
+identity it needs.
 
-`globalUnionTypes` is a process-global, mutex-guarded cache keyed by never-reset
-identity serials (`compiler/types/unions.go:113-126`, `types.go:33`). It grows
-unboundedly across `Compile` calls in a long-running workbench.
+### R22. Literal registry — specified as RFC 0077
 
-Keep immutable builtins process-wide; move constructed types and unions into a
-per-compilation arena shared by module environments. Centralize protected
-builtin names and constructor classification while doing so.
+### R23. Package boundary — specified as RFC 0078
 
-Note the audit verified this is **not** a determinism or correctness problem
-today — 300 compiles produced byte-identical output. It is a retention and
-isolation concern.
+### R24. Ownership and lifetime — specified as RFC 0079
 
-### R21. Canonical type key
-
-The recursive, module-qualified type key that RFC 0073 D19 requires. **The key
-itself must land with D19**, because a same-named-type collision is a live
-miscompile. What belongs here is the follow-through: routing every remaining
-identity consumer through one key, and deleting the display-name-derived paths
-that remain.
-
-### R22. Literal registry
-
-A non-nil `literalRegistry` with `Intern`, `Lookup`, ordered iteration, stable
-IDs, C-name lookup, and deterministic merge. This is the structural fix for RFC
-0073's D9 and D10, whose silent fallbacks exist only because lookup can miss.
-
-Codex also notes parser expression-start classification omits Byte and Rune in
-return recovery — same class of scattered classification, worth folding in.
-
-### R23. Package boundary
-
-Consider moving compiler stages under `compiler/internal/`. External consumers
-use only `compiler.Compile`, so the current exported surface of `lexer`,
-`parser`, `checker`, `generator`, and `types` is broader than anything depends
-on. This makes R16's unexporting decisions enforceable rather than advisory.
-
-### R24. Ownership and lifetime — separate RFC required
-
-`h.free(ref stackLocal)` compiles (verified). So do double-free, use-after-free,
-and freeing a String literal. Per `docs/reference.md` the last three are **by
-design** — there is no compiler-enforced exactly-once cleanup. The first is a
-category error rather than a lifetime error and has no specified enforcement.
-
-`AGENTS.md` goal 18 states "if it compiles, it has no memory issues";
-`docs/reference.md` explicitly disclaims compiler-enforced cleanup. **Those two
-cannot both stand**, and the contradiction has to be resolved before any
-enforcement work is scoped. That resolution is the first deliverable of the
-ownership RFC, not of this one.
+Scoped there to the one decidable case: rejecting `free` of a pointer statically
+known not to be heap-derived. Double-free, use-after-free, and freeing a literal
+are correct by design and out of scope, following the `AGENTS.md` goal 18
+correction recorded below.
 
 ## Additional items from the external audit
 
@@ -562,7 +486,7 @@ Folded into the stages above where they fit; listed here where they are new.
 | Item | Stage | Note |
 |---|---|---|
 | `resolveType` one-caller compatibility wrapper | 1 | verify caller count before removing |
-| `.at()`, collection `.is_empty()`, `.addr` migration branches | 1 | these are RFC 0063's tailored removal diagnostics. Decide once whether exact-diagnostic migration help is still wanted, then remove all three consistently or keep all three |
+| `.at()`, collection `.is_empty()`, `.addr` migration branches | 1 | **Decided: remove all three.** These are RFC 0063's tailored removal diagnostics. The language has no external users and the removals are several specs old, so they help nobody. Remove them together — keeping one and dropping two is the outcome to avoid |
 | Stale tracked `.vscode` templates; `notes.md` | 1 | confirm `notes.md` is unwanted before deleting |
 | `indexIn` → `slices.Index`; map-copy loops → `maps.Clone` | 3 | joins the `slices`/`maps` batch |
 | `PixelSubtotal` → `CompilerSubtotal`, and workbench `pixelSubtotalMs` | 5 | **exported API rename**; a pre-rename name survives in the public surface |
@@ -587,6 +511,41 @@ Folded into the stages above where they fit; listed here where they are new.
 | `lexer.Lex` (401 lines) has near-duplicate Byte and Rune literal scanning (`lexer.go:486`, `:518`) | 5 | one scanner parameterised by the closing quote and escape set |
 | Keep `discoverModuleEmission` and `emitModulePair` as single delegates | 5 | **do not split** — OpenCode flags this explicitly and it agrees with this RFC's decision to leave `emission.go` alone until ADR 0071 settles |
 | `slices.Sorted(maps.Keys(...))` exclusions: `compile.go:319` (filters while collecting) and `workbench/snippets/catalog.go:80` (`ReadDir`, already ordered) | 3 | named so the mechanical sweep does not over-apply |
+
+## Remaining items from the Codex audit
+
+| Item | Stage | Note |
+|---|---|---|
+| **Node-coverage invariant test** — enumerate every parser statement and expression node and prove the checker, generator preflight, walker, and renderer each handle or explicitly reject it | 6 | The single highest-value test in any of the three audits. RFC 0073 contains **four** separate missing-dispatch defects (D1 checker top-level, D27 generator preflight ×2, D8 walker default). One table-driven test makes that whole class impossible to reintroduce, and it is the only proposal here that prevents rather than finds |
+| `reference.md` drift: root-module-C versus `hexal/runtime.c` trap ownership | 4 | ADR 0071 moved trap definition; the reference may still describe the old owner. Verify during 0071 closure |
+| `reference.md` drift: deterministic-timing claims | 4 | counts are deterministic, wall-clock statistics cannot be. Any reference wording implying reproducible durations is wrong |
+| `CompilationStats` determinism contract | 4 | states which fields are reproducible (`SourceLines`, `TokenCount`) and which are not (every duration). Pairs with RFC 0073 D7 |
+| Final conformance gate additions: manual GCC **and** Clang builds of a generated project, sanitizer runs, runtime trap/output checks, and race-enabled compiler calls | 6 | extends R18's compile-gate decision. `-race` on `compiler.Compile` is worth doing regardless: RFC 0074 R20 notes a process-global mutex-guarded type cache, and nothing exercises it concurrently today |
+
+### Where Codex disagrees on file splitting
+
+Recorded because it directly contradicts R13 above.
+
+R13 splits `validateExpressionNode` (876 lines) and
+`renderExpressionUncheckedWithState` (665 lines) into the existing family files.
+**Codex recommends deferring both** until expression-family dispatch is designed,
+and splitting `types.go` (1,184), `checker/operator_checking.go` (1,122),
+`checker/generics.go` (1,186), `parser_test.go` (1,109), and
+`generator_test.go` (2,139) instead.
+
+Both positions have merit and they are not mutually exclusive:
+
+- Codex is right that the two expression giants are the *riskiest* split, since
+  each case carries validation or lowering semantics.
+- R13 is right that the seams already exist — 25 of the render switch's cases
+  are already one-line delegates, so the fat cases are stragglers rather than a
+  new architecture.
+
+**Resolution: do Codex's list first.** `types.go`, `operator_checking.go`,
+`generics.go`, and the two test files are lower-risk, and splitting them
+validates the approach before touching the expression dispatch. Then reassess
+R13 — and note it should not run until RFC 0073's D19/D25 canonical-key work
+settles, since that touches `types.go` and `generics.go` directly.
 
 ### Contradicted — do not act on these
 

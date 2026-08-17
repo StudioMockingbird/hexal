@@ -24,15 +24,19 @@ gets deleted.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
 | Default-Heap runtime collapse — direct checked `malloc`/`free`, needs a follow-up ADR (RFC 0069 audit finding; coordinates with 0027) | [0069](specs/archive/0069/0069-c23-backed-compiler-simplification.md) |
+| Rejecting `free` of a non-heap pointer | [0079](specs/0079-non-heap-free-rejection.md) |
 
 ### Implementation-ready
 
 | Work | Spec |
 |---|---|
 | Compact promotion-safe lowering for unsigned arithmetic trees | [0072](specs/0072-compact-unsigned-arithmetic-lowering.md) |
-| Audit defect batch — 7 live defects, 6 latent, 5 doc contradictions | [0073](specs/0073-audit-defect-batch.md) |
-| Audit refactor batch — execute after RFC 0073 | [0074](specs/0074-audit-refactor-batch.md) |
-| Compiler benchmark suite — land before RFC 0074 Stage 2 | [0075](specs/0075-benchmark-suite.md) |
+| Audit defect batch — 19 defects, 10 latent, 5 doc contradictions | [0073](specs/0073-audit-defect-batch.md) |
+| Audit refactor batch | [0074](specs/0074-audit-refactor-batch.md) |
+| Compiler benchmark suite | [0075](specs/0075-benchmark-suite.md) |
+| Authoritative module graph | [0076](specs/0076-authoritative-module-graph.md) |
+| Literal registry | [0077](specs/0077-literal-registry.md) |
+| Compiler package boundary — `internal/` for stage packages | [0078](specs/0078-compiler-package-boundary.md) |
 
 ## Unowned
 

@@ -87,7 +87,14 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 15. No runtime overhead.
 16. No undefined behavior.
 17. If it compiles, it runs.
-18. If it compiles, it has no memory issues.
+18. If it compiles, the compiler-enforced memory properties hold: bounds are
+    checked, nullability is narrowed before dereference, union tags match their
+    payloads, and every value is initialized before use. Allocation and cleanup
+    remain explicit and are the programmer's responsibility — Hexal has no
+    moves, borrow states, retain counts, implicit destructors, or
+    compiler-enforced exactly-once cleanup, so double-free, use-after-free, and
+    leaks are not diagnosed. Do not state or imply a stronger guarantee than
+    this; `docs/reference.md` is authoritative on which properties are enforced.
 19. Like Crystal, everything here is also an object.
 
 ## Architecture

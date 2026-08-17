@@ -1,10 +1,10 @@
 # RFC 0073: Audit Defect Batch
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft. D1–D18 and D26–D27 are implementation-ready. **D19 and D25
-  require a canonical-type-key design decision before implementation** — see
-  Readiness.
+- Status: Draft; implementation-ready. The type-identity design D19 and D25
+  depend on is resolved below.
 - Created: 2026-08-16
+- Updated: 2026-08-16
 - Scope: correctness defects found by the six-pass refactor audit — compiler
   behavior, generated C, and normative-document contradictions
 - Coordinates with: RFC 0074 (refactor batch), `AGENTS.md`, `docs/reference.md`,
@@ -99,6 +99,98 @@ should be built from the same source of truth.
 
 RFC 0074 records the canonical-key architecture; this RFC owns the defect. The
 key must land here, not be deferred to the refactor batch.
+
+## Resolved design — type identity
+
+D19 and D25 share a subject but **not** a cause, and each can be fixed
+independently. The code makes both mechanisms explicit.
+
+`BeginObject` (`compiler/types/types.go:369-375`) already produces a
+module-qualified C name and a bare everything-else:
+
+```go
+cName := "hex_t_" + SanitizeIdentifier(name)
+if environment.owner != "" {
+    cName = "hex_t_" + environment.owner + "_" + SanitizeIdentifier(name)  // qualified
+}
+identity.signature = "object:" + name                                       // bare
+object := &ObjectType{ Name: name, ... }                                    // bare
+```
+
+**D19 is `Name` used as identity.** Both generic paths key on it:
+
+```go
+// checker/generics.go — user generics
+names[index] = argument.Name                                  // two Points → one key
+
+// types/collections.go:154 — builtin generics
+CName: "hex_list_" + SanitizeIdentifier(element.Name),        // two Points → one hex_list_Point
+```
+
+**D25 is `Environment` being per-module.** `ListType` interns on an
+environment-scoped serial, and `NewEnvironmentWithOwner` gives every module a
+fresh identity root:
+
+```go
+key := "list:" + strconv.FormatUint(element.identity.serial, 10)
+identity := newTypeIdentity(environment.identity)             // scoped to this module
+```
+
+### Decision 1 — identity is a third field, not a reused string
+
+Add `CanonicalKey` to `Type`. Three fields, one job each:
+
+```go
+type Type struct {
+    Name         string  // "Point"              — diagnostics only
+    CName        string  // "hex_t_m1_m5_Point"  — generated C only
+    CanonicalKey string  // "m1_m5:Point"        — identity only, never displayed
+}
+```
+
+`specializeKey`, `specializeTypeName`, and every collection constructor key off
+`CanonicalKey`. It is built recursively: a constructed type's key composes its
+constructor and its arguments' keys, so `List<m.Point>` and `List<s.Point>`
+differ at the top level.
+
+Rejected: reusing `CName` as the key. It is unique and already qualified, so it
+works — but it makes one string serve two purposes, which is the defect being
+fixed, and it forces collection C names to
+`hex_list_hex_t_m1_m5_Point`. Rejected: qualifying `identity.signature` and
+keying off that — smallest diff, but it promotes free-form debug text to a
+load-bearing contract.
+
+`docs/reference.md` already states display names must never identify types. This
+is the change that makes that structurally true rather than aspirational.
+
+### Decision 2 — split `Environment` into a per-compilation arena and a per-module scope
+
+Constructed types — pointer, nullable, fun, array, view, list, dict, task,
+channel, atomic, union — intern once per **compilation**. Names, aliases, and
+generic declarations stay per **module**.
+
+Rejected: one `Environment` for the whole compilation — module-scoped names would
+then collide, so it trades D25 for a name-resolution bug. Rejected: making
+`Equal` structural for constructed types — it replaces an O(1) pointer compare
+with a recursive walk on the checker's hottest path and leaves duplicate type
+objects alive for the whole compilation.
+
+**This work moves here from RFC 0074 R20.** That RFC deferred the arena as a
+retention and isolation improvement; D25 makes it a correctness requirement, and
+the two cannot be done separately. RFC 0074's Stage 7 records the move.
+
+### Decision 3 — generated C symbol names do not change
+
+Keep deriving collection and specialization C names from `Name` where no
+collision exists. Disambiguate **only on collision**, appending the module
+encoding to the second and subsequent claimants in a deterministic order.
+
+Every existing program's generated C stays byte-identical, the snippet manifest
+moves only for genuine collision cases, and the diff is attributable to the
+defect rather than to the fix.
+
+Rejected: deriving all C names from `CanonicalKey`. Correct, but it rewrites
+every artifact and buries the actual fix in noise.
 
 ## D25 — The same builtin generic has a different identity in each module
 
@@ -567,9 +659,14 @@ compile.
 
 ### Fix
 
-Either split the timer in `reachableModules` and assign it, or delete the field
-and the workbench row. Do not leave a field that renders a number that is always
-wrong.
+**Delete the field and the workbench row.** The value has been wrong since it was
+introduced and nobody noticed, which is the measure of what it is worth.
+Splitting the timer additionally requires deciding where import resolution
+counts, since `LexDuration` currently folds lexing, parsing, and resolution
+together — a decision with no demand behind it.
+
+RFC 0074's `CompilationStats` determinism contract states which fields are
+reproducible; removing a permanently-zero duration is the first step of that.
 
 ### Test
 
@@ -593,6 +690,7 @@ forbids: a silent skip or a panic where a structured diagnostic is required.
 | D28 | `compiler/generator/generator.go:31-33`, `:42-53` | `GenerateChecked` silently `continue`s when a module named in `order` is absent from `programs`, and if no module matches `entrypointCanonical` the root pair and `hexal.h` are omitted **while the call still returns success**. Silent partial output is precisely what `AGENTS.md` forbids: "never return an empty result, emit a placeholder comment, or silently omit output." |
 | D29 | `compiler/types/types.go:167-170` | `Diagnostic.Error()` substitutes `"Unknown Error"` when `Category` is empty. Any of the 258 hand-built `Diagnostic{}` literals that omits `Category` therefore reports a user error as a compiler inconsistency. Remove the default and make an empty category a construction error; RFC 0074 R9's single-factory work makes that enforceable. |
 | D30 | `compiler/generator/packages/concurrency.c:12-18` | The `<threads.h>` include precedes the `#if defined(__STDC_NO_THREADS__)` `#error` guard, so a toolchain without `<threads.h>` fails on the include with a raw compiler error instead of the intended message. MinGW-w64 neither ships the header nor defines the macro. **Reported by the OpenCode audit from source inspection; not independently reproduced here** — confirming it needs a toolchain this audit does not run. |
+| D32 | `compiler/generator/validation.go:171` | **`validateStatements` returns instead of continuing on `print`.** Inside the loop over statements, the `PrintExpression` case does `return nil`, exiting the whole function — so **every statement after the first `print` in a block is never validated by generator preflight**. The comment ("print validates its arguments and produces no value") shows `continue` was intended. Not user-visible today because the checker rejects source-level errors first, but it silently disables defence-in-depth for the rest of the block. Reported by the Codex audit; **confirmed here by reading the code**. Fix: `return nil` → `continue`, then scan the same switch for the no-result deferred-call variant Codex also reports. |
 | D31 | `compiler/tests/c23validation/` | 6 of 33 canary sources no longer compile against the current language — they use removed `.at()` and `try` in a non-Error function. Because the package has no runnable entry point, the drift is invisible. **Reported by the OpenCode audit; not independently verified.** Either repair them or delete them, but do not leave sources that assert nothing and no longer parse. |
 
 D8, D9, and D10 are fixed by adding fail-closed defaults. D11 should return a
@@ -611,7 +709,7 @@ has no correct reading.
 | D14 | `docs/reference.md:1002` | The rule forbids generated C from spelling `nullptr_t`. It appears 194 times in generated headers as part of union **identifier** encodings (`hex_union_7_int32_t9_nullptr_t`), which are not type spellings. The rule is unsatisfiable as written; narrow it to "as a type spelling". This is a documentation defect, not a compiler defect. |
 | D15 | `docs/reference.md:689` vs `:705` | `:689` states `at` was removed; `:705` still describes "Indexing/at are checked" as live behavior. The compiler agrees with `:689` (`checker/arrays.go:208-209`, `lists.go:97-98` emit removal diagnostics). Delete the stale clause. |
 | D16 | `docs/status.md:26`, `:52` | Two dead spec links. `specs/0071-…md` does not exist — 0071 was archived into `specs/archive/0071/`, the only spec in a subdirectory rather than flat. The 0069 link points at a `0069/` directory that does not exist. Fix the links and flatten the 0071 archive entry to match the other 60+. |
-| D17 | `docs/specs/0072-…md:4` | Header reads `Status: Draft; implementation-ready`, which is self-contradictory and inconsistent with every other open spec. |
+| ~~D17~~ | — | **Withdrawn — false finding.** Reported by an audit pass as "`0072`'s header `Status: Draft; implementation-ready` is self-contradictory and inconsistent with every other open spec." It is neither: `Draft; implementation-ready` is the established house convention, used by five archived specs and by 0073, 0075, 0076, 0077, and 0078. It means drafted and ready to implement, not drafted *or* ready. No action. |
 | D18 | `docs/status.md:7` vs `:34-38` | `:7` states an item without a spec either gets one or gets deleted; the "Unowned" section at `:34` keeps exactly such an item. Resolve the item or amend the rule. |
 
 ## Required order
@@ -655,39 +753,58 @@ D6, D19, D23, D24, D25, and D26 change generated output; the rest should not.
 - Changing Hexal syntax or semantics. Every fix here makes the compiler match
   the contract `docs/reference.md` already states.
 
+## Absorbed from RFC 0074
+
+Three refactor items moved here because they are inseparable from a defect fix —
+each edits the same function or loop as the defect beside it, so splitting them
+across two specs would create an ordering dependency between the specs.
+
+**A6 — remove the double lex** (was RFC 0074 R6). `compile.go:84` re-lexes every
+reachable module solely to populate `Stats.TokenCount`, costing **4.53 MB, 4.3%
+of compiler allocations**. It is the same loop as D13, which drops the resulting
+lexer error. Return token counts from `reachableModules` and the loop disappears
+with the defect.
+
+**A7 — hoist the traversal closures** (was RFC 0074 R7).
+`walkStatementExpressions` (`walk.go:144-180`) allocates two mutually recursive
+Go closures **per statement**, across 21 discovery passes — **19.04 MB, 18.0%**.
+Move them to package-level functions taking `visit` as a parameter, so nothing is
+captured and nothing is allocated. This edits the same function as D8, which adds
+its missing fail-closed `default:`. Add the guard first, then hoist.
+
+**A10 — drop `error` from `walkProgram` and `programVisitor`** (was RFC 0074
+R10). All 21 visitor callbacks return `nil` unconditionally and `walk.go:516`'s
+default is unreachable, so the return value exists only to drive nine
+`panic(err)` sites and one silent `_ = walkProgram(...)`. Removing it deletes all
+ten and roughly 180 `if err != nil` lines. **Strictly after D8**: the fail-closed
+arm must exist before the plumbing around it is simplified.
+
+Do A6 with D13, and D8 → A7 → A10 in that order. RFC 0074 retains pointers so
+the move is traceable.
+
 ## Readiness
 
-**Implementation-ready now — 16 of 18 defects.** D1, D3, D4, D5, D6, D7, D20,
-D21, D22, D23, D24, D26, D27 each have a reproduced failure, a named fix site,
-and a stated test. D2 needs new discovery logic but no design decision.
-D8–D18 and D28–D31 are small and bounded.
+**Implementation-ready — all defects.** Each has a reproduced failure or a cited
+code site, a named fix, and a stated test. The one design question that blocked
+D19 and D25 is resolved above.
 
-**Blocked on one design decision — D19 and D25.** Both require a canonical,
-module-qualified, per-compilation type key, and this RFC states the requirement
-without specifying the key. Three questions must be answered first:
-
-1. **What is the key?** A recursive structural encoding over the
-   module-qualified name, or a per-compilation interning table with an assigned
-   serial. `EncodeModuleOwner` already produces the length-delimited module
-   encoding used for C symbols and is the obvious source of truth for the module
-   half.
-2. **Where does interning live?** D25 exists because `NewEnvironmentWithOwner`
-   interns per module. Moving to a per-compilation arena is RFC 0074 R20 — so
-   either R20 lands first, or D19/D25 carry the arena with them. Decide which,
-   because the two cannot be done independently.
-3. **Does the key change generated C symbol names?** If specialization C names
-   derive from the new key, every generated artifact changes and the snippet
-   manifest is rewritten wholesale. Preferred: keep existing C spellings and
-   change only checker-side identity, so the fix is invisible in output except
-   where a collision was previously wrong.
-
-Answer those three and D19/D25 become implementation-ready. Until then the rest
-of this RFC can proceed — none of the other sixteen depends on them.
+D19 and D25 remain the largest item and stay last in the required order, because
+they carry the `Environment` split. Nothing else in this RFC depends on them.
 
 **Two defects are reported but unverified here.** D30 (`<threads.h>` guard
-ordering) needs a toolchain this audit does not run; D31 (stale c23 canaries) was
-not independently checked. Both are attributed and labelled in place. Confirm
-before fixing.
+ordering) needs a toolchain this project deliberately does not use; D31 (stale
+c23 canaries) was not independently checked. Both are attributed and labelled in
+place. Confirm before fixing — D30 in particular may only be observable on a
+toolchain nobody here runs, in which case record the reasoning and leave the
+guard ordering corrected anyway, since the fix is free.
+
+**Not fixed here, by decision: generated C that does not compile.** D2 and D26
+both emit uncompilable C while every Go test passes. A toolchain-backed gate
+would catch that class, and the project's standing rule is that no test invokes
+an external compiler. That rule holds. When C-compiler validation is eventually
+introduced, it will surface and fix this class as a batch — until then, each
+instance is fixed individually as an ordinary defect, as D2 and D26 are here.
+Do not propose a compile gate as part of this RFC.
 
 ## Excluded after verification
 

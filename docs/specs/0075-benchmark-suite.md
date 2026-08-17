@@ -5,7 +5,7 @@
 - Created: 2026-08-16
 - Scope: committed Go benchmarks for `compiler.Compile`, and the policy for
   acting on their results
-- Depends on: nothing
+- Depends on: nothing. Independent of RFCs 0072–0079.
 - Coordinates with: RFC 0074 (which optimizes three already-measured sites),
   `AGENTS.md`, `docs/status.md`
 - Does not change: Hexal syntax, semantics, diagnostics, or generated C
