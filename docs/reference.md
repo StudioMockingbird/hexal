@@ -254,6 +254,8 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Invalid or unsupported source fails closed under the diagnostic contract below.
 - Values follow C-style shallow copying. Allocation and cleanup are explicit; there are no moves,
   borrow states, retain counts, implicit destructors, or compiler-enforced exactly-once cleanup.
+  That names the mechanisms the language lacks, not a limit on what it diagnoses: see Allocation
+  and lifetime for which cleanup misuses are rejected.
 - Native modules are implemented; each `.hex` source is one module.
 - C interop, Arena, and Pool remain draft features and are not part of this language.
 
@@ -676,6 +678,11 @@ Heap.free<T>(pointer: MutPtr<T>) -> no value
 - The shallow rule applies at every depth. Replacing/dropping the last handle may leak; freeing one
   alias dangles all others. Runtime metadata may catch live mismatch or double-free, but later
   lifetime misuse is not guaranteed to be detected.
+- Cleanup misuse is rejected at compile time wherever a local analysis decides it. **Today that set
+  is empty**: `h.free(ref local)`, double free, and reading through a freed pointer all compile.
+  Misuse requiring interprocedural, alias, or escape analysis is never rejected — a pointer arriving
+  as a parameter, read from a member or collection, or copied to a second binding is not tracked,
+  and leaks are not diagnosed. An undecided case is always accepted.
 
 ## Collections
 

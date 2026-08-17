@@ -136,25 +136,68 @@ wide(left op right):
     wide-left(left) op wide-right(right)
 
 wide-left(ring subtree):
-    wide(subtree)
+    "(" wide(subtree) ")"
 
 wide-left(boundary):
-    (uintmax_t)(render boundary as T)
+    "(uintmax_t)(" render boundary as T ")"
 
 wide-right(ring subtree):
-    wide(subtree)
+    "(" wide(subtree) ")"
 
 wide-right(boundary):
-    render boundary as T
+    "(" render boundary as T ")"
 ```
 
 This emits one promotion-seeding cast for a left-associated chain. A nested
 right-hand ring subtree receives its own seed because it evaluates before the
-parent operation converts its result.
+parent operation converts its result. A parenthesized subexpression already has
+type `uintmax_t`, so the seed still propagates outward through the parentheses.
+
+**Every operand is parenthesized, and that is a correctness rule rather than
+formatting.** Omitting them violates this spec's own "preserve AST grouping"
+requirement below, in four distinct ways — one for each production above:
+
+```c
+/* wide-right(ring subtree), a * (b - c) */
+(uintmax_t)a * (uintmax_t)b - c     /* parses as (a*b)-c */
+
+/* wide-left(ring subtree), (a + b) * c */
+(uintmax_t)a + b * c                /* parses as a+(b*c) */
+
+/* wide-right(boundary), a * (b / c) */
+(uintmax_t)a * b / c                /* parses as (a*b)/c */
+
+/* wide-right(boundary), a + (b << c) */
+(uintmax_t)a + b << c               /* parses as (a+b)<<c */
+```
+
+The last two matter because a boundary operand is frequently composite: a
+division, remainder, shift, bitwise expression, or comparison is a boundary by
+definition, and each has a precedence that can lose against its ring parent.
+
+Parenthesize unconditionally rather than consulting precedence to decide.
+Correctness then never depends on a precedence table being right — the only way
+to be wrong is to emit too few parentheses, and the construction emits the
+maximum. The required test "mixed `+`, `-`, and `*` trees preserve their AST
+grouping" tests this construction, not the formatter.
+
+### The prettifier is required, not optional
+
+Uniform parenthesization nests one pair per level, so a left-associated chain
+constructs as `(((uintmax_t)(v)) + (low)) + (high)` and does not match the
+Required example below. The example is therefore the **post-prettification**
+output, and a precedence-aware pass that removes redundant parentheses is a
+required component of this RFC rather than a nicety.
+
+That pass cannot introduce a defect: it only removes a pair whose removal
+leaves an identical C parse tree, which is a local decidable check. A bug in it
+produces noisier C, never wrong C. This is the whole reason correctness lives in
+the construction and readability lives in the pass.
 
 ## Required example
 
-The motivating Hexal expression lowers to the equivalent of:
+The motivating Hexal expression lowers, after the redundant-parenthesis pass, to
+the equivalent of:
 
 ```c
 const uint32_t hex_v_total = (uint32_t)(
@@ -232,9 +275,10 @@ this RFC does not impose left-to-right evaluation.
 
 ### Parentheses
 
-Preserve AST grouping. A precedence-aware formatter may omit only parentheses
-whose removal leaves the identical C parse tree. Never reassociate subtraction
-or multiplication/addition mixtures merely to reduce punctuation.
+Preserve AST grouping. The construction emits a pair around every operand; the
+required prettification pass omits only parentheses whose removal leaves the
+identical C parse tree. Never reassociate subtraction or multiplication/addition
+mixtures merely to reduce punctuation.
 
 ## Type coverage
 
@@ -249,16 +293,31 @@ Apply the lowering to:
 Rune remains excluded from arithmetic. Bool and every non-integer type remain
 ineligible. Signed integers continue through their existing wrapping helpers.
 
-`uintmax_t` comes from `<stdint.h>`. Existing requirement discovery must select
-that header whenever an affected unsigned runtime expression is emitted.
+`uintmax_t` comes from `<stdint.h>`. Existing requirement discovery **does not**
+select it for a Size-only program: discovery is type-driven and Size selects
+`<stddef.h>` alone, so nothing registers the header for a type no source type
+spells. This is RFC 0073 D33, a live defect on current `main` — today's per-node
+lowering already emits `uint64_t` under the same conditions. This RFC does not
+introduce it and must not inherit it.
+
+Whichever spec lands first owns the fix: registering `<stdint.h>` when an
+unsigned arithmetic intermediate is *rendered*, not when a type is spelled. If
+0073 lands first, this RFC inherits a working mechanism and only needs the test
+below.
 
 ## Generator design
 
 - Replace per-node `renderUnsignedArithmetic` narrowing with a renderer for a
   maximal unsigned ring tree.
 - Enter tree rendering only after existing node/type validation succeeds.
-- Carry T and whether the current position requires a `uintmax_t` seed as
-  explicit renderer state.
+- Carry three pieces of explicit renderer state: T, whether rendering is
+  currently *inside* a ring tree, and whether the current position requires a
+  `uintmax_t` seed. Descending into a boundary clears the in-tree flag, so a
+  ring subtree under a boundary starts its own maximal tree with its own seed —
+  in `a + ((x + y) / z)` the division terminates the outer tree and `x + y` is a
+  separate tree, not a continuation. Clearing on boundary descent is also what
+  makes the recursion well-founded: boundary rendering re-enters the ordinary
+  per-node renderer exactly once.
 - Reuse the existing expression renderer for every boundary expression.
 - Do not search rendered strings to discover tree membership or required
   headers.
@@ -267,16 +326,20 @@ that header whenever an affected unsigned runtime expression is emitted.
 - Continue failing closed on missing children, mismatched operand/result types,
   unsupported operators, or invalid metadata.
 
-The implementation may use a small precedence-aware rendering helper. It must
-not rewrite checked nodes or mutate shared checker data.
+- Emit a parenthesis pair around every operand during construction, and remove
+  redundant pairs in a separate pass. Never decide during construction whether
+  a pair is needed.
+
+The precedence-aware rendering helper is required, not optional. It must not
+rewrite checked nodes or mutate shared checker data.
 
 ## Generated-support impact
 
 - No new helper declaration or definition is emitted.
 - No new artifact is added to `CompilationResult.Files`.
 - `hexal/wrap.h` remains signed-only under ADR 0071.
-- `<stdint.h>` remains the sole standard prerequisite introduced by this
-  lowering.
+- `<stdint.h>` is the sole standard prerequisite of this lowering, and it is not
+  new — the current per-node lowering already depends on it. See D33.
 - Scalar-only programs do not select `hexal/wrap.h` merely because they use
   unsigned arithmetic.
 
@@ -289,7 +352,13 @@ not rewrite checked nodes or mutate shared checker data.
 - Left-associated chains of each covered type receive one seed and one final
   narrowing.
 - A right-nested ring subtree receives its own seed.
-- Mixed `+`, `-`, and `*` trees preserve their AST grouping.
+- Mixed `+`, `-`, and `*` trees preserve their AST grouping. Cover all four
+  regrouping shapes named under Required lowering: a ring subtree on the right,
+  a ring subtree on the left, a composite boundary of equal precedence
+  (`a * (b / c)`), and a composite boundary of lower precedence
+  (`a + (b << c)`). Each asserts the parsed grouping, not the punctuation.
+- Removing the redundant-parenthesis pass changes only punctuation: the
+  construction's output and the prettified output evaluate identically.
 - Explicit wider-to-narrower conversions remain inside the lifted tree.
 - Calls appear exactly once.
 
@@ -313,6 +382,12 @@ For UInt8, UInt16, UInt32, UInt64, and Size, cover:
 - a nested right-hand subtree.
 
 Expected results must match reduction modulo the type width.
+
+Size additionally asserts textually that `hexal.h` contains
+`#include <stdint.h>`. Size is the only covered type that does not select that
+header through its own spelling, and no test invokes a toolchain, so an
+undeclared `uintmax_t` is invisible to the suite without this assertion. See
+RFC 0073 D33.
 
 ### Regressions
 

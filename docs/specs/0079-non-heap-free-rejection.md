@@ -1,180 +1,297 @@
-# RFC 0079: Rejecting `free` of a Non-Heap Pointer
+# RFC 0079: Statically Decidable Memory Misuse
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; design decision required
+- Status: Draft; implementation-ready
 - Created: 2026-08-16
-- Scope: one static check — `Heap.free` applied to a pointer statically known
-  not to be heap-derived
-- Depends on: nothing. Independent of RFCs 0072–0079.
-- Coordinates with: `docs/reference.md`, `AGENTS.md`, `docs/status.md`
-- Does not change: allocation, cleanup, ownership, aliasing, or copying
-  semantics
+- Scope: the memory misuses a local flow analysis can decide with no new
+  language concept — freeing a non-heap pointer, double free, and
+  use-after-free, each on a local binding the checker can still see
+- Depends on: nothing. Independent of RFCs 0072–0077 (0078 is closed). RFC 0073's D4 widens what
+  check 1 catches; see Sequencing.
+- Coordinates with: `docs/reference.md`, `AGENTS.md`, `docs/status.md`,
+  RFC 0027 (Arena and Pool — allocator matching lands there)
+- Does not change: Hexal syntax, allocation, cleanup, ownership, aliasing, or
+  copying semantics; generated C
 
 ## Summary
 
-`h.free(ref stackLocal)` compiles today. The generated runtime then reads
-allocation metadata from below a stack address.
+Hexal accepts every memory misuse today. Verified by probe against the current
+checker, all accepted:
 
-This is a **category** error, not a lifetime error: the argument is statically
-known not to come from an allocator. That distinction is what makes it decidable
-where double-free and use-after-free are not, and it is the entire scope of this
-RFC.
+| Program | Today |
+|---|---|
+| `h.free(ref x)` on a local | ACCEPTED |
+| `h.free(p) h.free(p)` | ACCEPTED |
+| `h.free(p)` then `p.value` | ACCEPTED |
+| `defer h.free(p)` then `h.free(p)` | ACCEPTED |
+| `p: MutPtr<Int32> = h.allocate<Int32>(0)`, never freed | ACCEPTED |
 
-## What is already settled
+The project position is that the compiler should catch as many memory errors at
+compile time as is feasible **without adding a concept to the language** — no
+moves, no borrow states, no lifetimes, no ownership annotations, nothing the
+programmer writes or reads. That constraint is on the *language surface*, not on
+the compiler's internal analysis.
 
-`AGENTS.md` goal 18 states the compiler-enforced memory properties — bounds,
-nullability narrowing, union tags, initialization — and states plainly that
-allocation and cleanup are the programmer's responsibility, with double-free,
-use-after-free, and leaks undiagnosed. `docs/reference.md` agrees:
+**Four of the five rows above are decidable** under that constraint using
+machinery the checker already has. This RFC specifies those four — the
+`defer`-plus-explicit row is a subcase of check 2, not a separate check. Only
+leak detection is undecidable, and it is a non-goal.
+
+## The ruling that supersedes the previous framing
+
+An earlier draft of this RFC treated the single `free(ref local)` case as
+possibly not worth having, on the grounds that `docs/reference.md` says:
 
 > there are no moves, borrow states, retain counts, implicit destructors, or
 > compiler-enforced exactly-once cleanup
 
-Verified accepted today, and **all correct by that model**:
+That sentence is correct about *mechanism* and was being read as a statement of
+*ambition*. It is not one. Absence of an ownership model does not imply absence
+of diagnosis: the compiler already proves bounds, nullability, union tags, and
+initialization without any of those mechanisms. `docs/reference.md` and
+`AGENTS.md` goal 18 have since been corrected to say so; this RFC applies the
+corrected policy rather than arguing for it.
 
-```hexal
-h.free(p); h.free(p)        -- double free
-s.free(h)                   -- s is a String literal
+## What is decidable, and what is not
+
+### Decidable — check 1: category
+
+`h.free(p)` where `p` is locally traceable to `ref` on a local or parameter
+binding. The argument is statically known not to have come from an allocator.
+
+The analysis already exists and already behaves correctly.
+`View.from_pointer` consumes `binding.fromRef` (`compiler/checker/checker.go:223`,
+set at `declarations.go:392`, read at `views_bridge.go:114`). Probed:
+
+```
+from_pointer(ref local)            rejected: from_pointer does not accept a pointer
+                                             into this function's local storage
+from_pointer(p) where p = ref x    rejected  ← propagates through one binding
+from_pointer(opaque param ptr)     ACCEPTED
+from_pointer(heap ptr)             ACCEPTED
 ```
 
-Those are not defects and this RFC does not address them. An earlier audit
-proposed a broad ownership model; that is out of scope and, given the settled
-design, unwanted.
+That is exactly the policy `free` needs, including the two acceptances that
+must not regress. `Heap.free` consumes the same fact. No new analysis.
 
-## The one open case
+### Decidable — check 2: freed state
 
-```hexal
-h: Heap = Heap.new()
-x: Int32 = 5
-h.free(ref x)               -- ACCEPTED today
-```
+`h.free(p)` twice, or a dereference through `p` after `h.free(p)`, where `p` is
+a local binding whose address the checker has not lost. The `defer`-plus-explicit
+case is a subcase of the first, not a third rule.
 
-`docs/reference.md` says `h.free(ptr)` "accepts Ptr/MutPtr and requires the
-matching allocator", and that "Runtime metadata may catch live mismatch or
-double-free". A stack address has no metadata to read — the runtime consults
-memory that was never an allocation header.
+`flowState` (`compiler/checker/scope.go:92`) is already a per-binding,
+branch-aware lattice keyed by `BindingID`, with `clone`, `mergeBranch`,
+`adopt`, and `escape`. It carries narrowing facts today; its comment records
+that ownership tracking was removed from it. Adding a `freed` fact reuses the
+structure.
 
-Unlike a lifetime error, the compiler already knows the answer: `ref x` on a
-local produces a pointer whose provenance is a stack binding, and no allocator
-returned it.
+One rule differs and must be written deliberately: **narrowing facts die at
+`end`, freed facts survive it.** `mergeBranch` propagates only invalidation
+today because no narrowing may outlive its branch. A freed fact is the
+opposite — freed on every continuing path means freed after the construct, and
+freed on some paths means the state is unknown, which is treated as freed for
+double-free purposes only if every continuing branch freed it. Freeing in one
+branch and not another is accepted.
 
-## The decision
+### Not decidable — leaks
 
-**Option A — reject statically.** `Heap.free` requires an argument whose
-provenance is not a `ref` to a local or parameter binding, using the same
-provenance tracking `View.from_pointer` already performs.
+A local heap pointer never freed is only a leak if it also never escapes: not
+returned, not stored in a member, not put in a collection, not passed to a
+function that keeps it. Deciding that needs interprocedural escape analysis,
+and getting it wrong rejects correct programs. Excluded. `defer h.free(p)` is
+the idiom the language offers instead, and it is a programmer discipline, not a
+checked property.
 
-**Option B — leave it.** Consistent with "cleanup is the programmer's
-responsibility", and avoids a check whose completeness cannot be guaranteed.
+### Not decidable here — allocator mismatch
 
-**Option C — trap at runtime.** Emit a provenance check in the generated free.
-Costs runtime work on every free and cannot distinguish a stack address
-reliably.
+`h.free(p)` where `p` came from a different allocator is a real category error,
+but Heap is the only allocator today, so there is nothing to mismatch. RFC 0027
+owns it when Arena and Pool land. The `fromRef` fact this RFC generalizes is the
+natural place to carry an allocator identity later.
 
-### Recommendation: A
+## The change
 
-The provenance machinery already exists. `from_pointer` rejects pointers locally
-traceable to `ref` (`compiler/checker/views_bridge.go`), and RFC 0073's D4 fixes
-its propagation through copies and assignment. `Heap.free` can consume the same
-fact.
+### Check 1 — free of a non-allocator pointer
 
-Rejecting C: it pays at runtime for something knowable at compile time, and
-cannot be made reliable.
-
-Rejecting B: it conflates two different things. "Cleanup is the programmer's
-responsibility" is about *when* to free, and Hexal deliberately does not track
-that. *What* may be freed is a type-level question the compiler can already
-answer, and the reference already implies an answer by saying free "requires the
-matching allocator."
-
-### Why this is `design decision required`
-
-Option A is only correct if the check is **sound in the direction that matters**:
-it must never reject a valid free. The provenance analysis is deliberately local
-— `docs/reference.md` states interprocedural provenance from a caller argument
-is not checked — so a pointer arriving as a parameter must remain acceptable
-even though its origin is unknown.
-
-Confirm before implementing:
-
-1. Does rejecting only *locally traceable* `ref` provenance catch the motivating
-   case without rejecting heap pointers passed through parameters, object
-   members, or collections? The probe programs in the Validation section decide
-   this.
-2. Should the same rule extend to `String.free`, `List.free`, `Dict.free`, and
-   `Channel.free`, which take a `Heap` and free their own storage? Their
-   receivers are handles, not `ref`-derived pointers, so the case may not arise
-   — verify rather than assume.
-
-## Proposed rule
-
-If Option A is accepted, `docs/reference.md` gains one sentence under Allocation
-and lifetime:
-
-> `h.free(ptr)` rejects a pointer locally traceable to `ref`. Provenance is
-> tracked with the same local analysis `View.from_pointer` uses: a pointer
-> arriving as a parameter, read from a member, or returned by an allocator is
-> accepted, and interprocedural provenance is not checked.
-
-Diagnostic:
+`Heap.free` rejects an argument locally traceable to `ref`. Diagnostic, matching
+the existing `from_pointer` wording so the two read as one rule:
 
 > `free` does not accept a pointer into this function's local storage
 
-matching the existing `from_pointer` wording so the two read as one rule.
+### Check 2 — freed-state tracking
+
+`flowFact` gains one field:
+
+```go
+type flowFact struct {
+    typ     compilerTypes.Type
+    escaped bool
+    variant *compilerTypes.AdtVariant
+    freed   bool // this binding's pointee was released on every path to here
+}
+```
+
+- `h.free(p)` where `p` resolves to a local binding sets `freed`.
+- `h.free(p)` where the fact is already `freed` is rejected:
+  > `free` releases storage already released on every path to this point
+- A **dereference** through `p` where the fact is `freed` is rejected:
+  > this pointer's storage was released on every path to this point
+
+  Dereference means the concrete sites that read or write the pointee: `.value`,
+  auto-dereferencing member access, and indexing. **Passing `p` as an argument is
+  not a dereference and is not rejected.** A callee may only store, forward, or
+  compare the address, none of which is undefined behaviour, so rejecting the
+  pass would invalidate currently-valid programs to catch something the callee
+  may never do — and whether it does is interprocedural, which this RFC does not
+  attempt. The fact is *retained* across a pass rather than dropped: Hexal passes
+  by copy, so a callee cannot rebind the caller's binding. Taking `ref p`
+  escapes and drops the fact through the existing `escape` path.
+- Assigning a new value to `p` clears `freed`. `mut p` reallocated after a free
+  is correct and must keep compiling.
+- `defer h.free(p)` is **validated when it fires**, at scope end, against the
+  state accumulated to that point — not at the point it is registered. An
+  explicit `free` sets `freed` immediately, so by the time the deferred free is
+  checked the binding is already `freed` and it rejects. A `defer` alone never
+  rejects, because nothing set `freed` before it fired.
+
+  The distinction is load-bearing. Marking `freed` at *registration* would reject
+
+  ```hexal
+  defer h.free(p)
+  v: Int32 = p.value      -- legal: the free has not run yet
+  ```
+
+  which is the language's own cleanup idiom and must keep compiling.
+
+### The conservative drops — where the soundness lives
+
+Every one of these abandons tracking rather than reporting. The rule is that an
+unknown state is never an error.
+
+| Situation | Effect |
+|---|---|
+| `q: MutPtr<T> = p` — the pointer is copied | drop the fact on **both** bindings |
+| `ref p` taken, or `p` passed where its address escapes | existing `escape`, drop the fact |
+| `p` is a parameter, member read, or collection element | never tracked |
+| the free target is not a simple binding reference | not tracked |
+| branches disagree on whether `p` was freed | not freed; no diagnostic |
+
+Copy-drops-both is the deliberately lazy choice. Tracking `q` as an alias of
+`p`'s allocation would catch `q = p; free(p); free(q)`, and would cost an alias
+relation the lattice does not have. The common case — one binding, one
+allocation, one free — is caught without it.
+
+## Documentation changes
+
+`AGENTS.md` goal 18 already records the governing policy — catch what a local
+analysis decides, add no language concept, no disproportionate checker
+complexity, never error on an unknown state. It needs no change; this RFC is
+that policy applied.
+
+`docs/reference.md` already carries the placeholder bullet under Allocation and
+lifetime that this RFC replaces. Current text:
+
+> Cleanup misuse is rejected at compile time wherever a local analysis decides
+> it. **Today that set is empty**: `h.free(ref local)`, double free, and reading
+> through a freed pointer all compile.
+
+becomes:
+
+> Cleanup misuse is rejected at compile time wherever a local analysis decides
+> it. Three are rejected: freeing a pointer traceable to `ref`, freeing a local
+> binding already freed on every path to that point, and reading through one.
+
+The remainder of that bullet — the untracked cases, leaks, and "an undecided
+case is always accepted" — is already correct and stays verbatim.
+
+The edit lands **with the implementation**, not before it. `reference.md`
+records what the language means today; changing it first would make it false.
 
 ## Invariants
 
-1. No currently valid program becomes invalid. Every accepted `free` of a
-   heap-derived pointer keeps compiling, including through parameters, members,
-   collection elements, and returns.
-2. Double-free, use-after-free, and freeing a literal remain accepted. This RFC
-   does not add lifetime tracking.
-3. Generated C is unchanged. This is a checker-only rule; no runtime check is
-   emitted.
-4. `docs/reference.md` gains exactly the sentence above.
+1. **The acceptance surface shrinks by exactly the four misuse classes above and
+   nothing else.** Rejecting programs is the point, so "no currently valid
+   program becomes invalid" would contradict the RFC; the real invariant is that
+   every *other* currently-valid program keeps compiling. Specifically, every
+   accepted `free` of a heap-derived pointer still compiles — through
+   parameters, members, collection elements, copies, and returns — as does every
+   dereference the four classes do not name.
+2. Leaks remain undiagnosed. Interprocedural misuse remains undiagnosed.
+3. Generated C is byte-identical. Both checks are checker-only; no runtime
+   check is emitted. The snippet SHA-256 manifest must not move.
+4. No language surface changes: no keyword, annotation, type, or syntax.
+5. An unknown state never produces a diagnostic.
 
 ## Validation
 
 Must reject:
 
 ```hexal
-h.free(ref x)                       -- direct
-p: MutPtr<Int32> = ref x; h.free(p) -- one binding
-p = ref x; q = p; h.free(q)         -- two bindings (needs RFC 0073 D4)
+h.free(ref x)                                        -- check 1, direct
+p: MutPtr<Int32> = ref x  h.free(p)                  -- check 1, one binding
+h.free(p) h.free(p)                                  -- check 2, double
+h.free(p) v: Int32 = p.value                         -- check 2, use after
+defer h.free(p) h.free(p)                            -- check 2, defer + explicit
+if flag then h.free(p) else h.free(p) end h.free(p)  -- check 2, both branches
 ```
 
-Must continue to accept:
+Must continue to accept — one negative test each, because these are what
+invariant 1 protects:
 
 ```hexal
-p: MutPtr<Int32> = h.allocate<Int32>(5); h.free(p)   -- allocator
+p: MutPtr<Int32> = h.allocate<Int32>(5)  h.free(p)        -- allocator
 fun release(h: Heap, p: MutPtr<Int32>) do h.free(p) end   -- parameter
-h.free(obj.pointerMember)                             -- member
-h.free(list[0])                                       -- collection element
+h.free(obj.pointerMember)                                 -- member
+h.free(list[0])                                           -- collection element
+q: MutPtr<Int32> = p  h.free(p)  h.free(q)                -- copy: not tracked
+mut p: ... h.free(p) p = h.allocate<Int32>(1) h.free(p)   -- reallocated
+if flag then h.free(p) end                                -- one branch only
+p: MutPtr<Int32> = h.allocate<Int32>(0)                   -- leak
+defer h.free(p)                                           -- the idiom
+defer h.free(p)  v: Int32 = p.value                       -- defer timing boundary
+h.free(p)  consume(p)                                     -- pass is not a deref
 ```
 
-Plus: `go test ./...`, `go vet ./...`, snippet manifest unchanged, and a
-negative test per rejected form.
+The last two are the boundaries of the amendments to check 2 and must not be
+dropped: the first fails if `freed` is set at `defer` registration instead of
+when the deferred call fires, and the second fails if argument passing is
+treated as a dereference. Both would break invariant 1.
+
+Plus `go test ./...`, `go vet ./...`, and the snippet manifest unchanged.
+
+The probe in this RFC's Summary table should land as a test file recording the
+before/after acceptance of all five rows — four flipping to rejected, the leak row unchanged.
 
 ## Sequencing
 
-Independent of every other open spec, with one note: the two-binding rejection
-case above only works once RFC 0073's D4 fixes `fromRef` propagation through
-copies. If this RFC lands first, that case is expected to be accepted and the
-test should record it as a known gap referencing D4 rather than be omitted.
+Independent of every other open spec. Two notes:
+
+- Check 1 catches `p = ref x; q = p; h.free(q)` only once RFC 0073's D4 fixes
+  `fromRef` propagation through copies. Land either order; if this RFC lands
+  first, record the two-binding case as a known gap referencing D4 rather than
+  omitting the test.
+- Check 1 is a day of work and check 2 is not. They are separable commits and
+  should be separate: check 1 consumes an existing fact, check 2 adds a fact
+  with a new merge rule.
 
 ## Non-goals
 
-- Lifetime tracking, ownership, moves, borrow states, or exactly-once cleanup.
-- Diagnosing double-free, use-after-free, or leaks.
-- Interprocedural provenance.
-- A runtime provenance check.
-- Changing `docs/reference.md`'s allocation model beyond the one sentence above.
-- Revisiting `AGENTS.md` goal 18, which is settled.
+- Leak detection, escape analysis, or reachability of allocations.
+- Ownership, moves, borrow states, lifetimes, exactly-once cleanup, or any
+  annotation the programmer writes.
+- Interprocedural provenance or interprocedural freed state.
+- Alias tracking between pointer bindings.
+- Allocator matching — RFC 0027.
+- Any runtime check.
 
 ## Drawbacks
 
 - A partial check invites the reading that `free` is generally validated. The
-  proposed reference wording states the limit explicitly for that reason.
-- It adds a rule to a language that has deliberately kept its ownership model
-  minimal. The counterargument is that this rule is about argument *category*,
-  which the type system already governs, not about lifetime, which it does not.
+  reference wording states every limit explicitly for that reason, and the
+  "must continue to accept" list is deliberately longer than the reject list.
+- `freed` is the first flow fact that outlives its branch. That asymmetry with
+  narrowing is a real subtlety in `mergeBranch` and needs a comment at the
+  merge site saying why the two directions differ.
+- Copy-drops-both means `q = p; free(p); free(q)` compiles. This is a knowingly
+  accepted false negative, not an oversight.

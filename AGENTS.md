@@ -87,14 +87,8 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 15. No runtime overhead.
 16. No undefined behavior.
 17. If it compiles, it runs.
-18. If it compiles, the compiler-enforced memory properties hold: bounds are
-    checked, nullability is narrowed before dereference, union tags match their
-    payloads, and every value is initialized before use. Allocation and cleanup
-    remain explicit and are the programmer's responsibility — Hexal has no
-    moves, borrow states, retain counts, implicit destructors, or
-    compiler-enforced exactly-once cleanup, so double-free, use-after-free, and
-    leaks are not diagnosed. Do not state or imply a stronger guarantee than
-    this; `docs/reference.md` is authoritative on which properties are enforced.
+18. Compiler should catch every memory error that a local analysis can decide
+    without adding a language concept or disproportionate checker complexity.
 19. Like Crystal, everything here is also an object.
 
 ## Architecture
@@ -206,9 +200,9 @@ authority. Do not copy a rule out of a spec without checking it against
   but execute no tests and no external processes.
 - Ordinary tests never invoke an external tool — gcc, clang, or anything else.
   All ordinary tests are pure Go.
-- `go test ./compiler` does not run the full-pipeline suite (that package now
-  has no test files); use `go test ./...` or target
-  `./compiler/tests/integration`.
+- `go test ./compiler` does not run the full-pipeline suite (that package
+  declares only the benchmark-source smoke test in `bench_test.go`); use
+  `go test ./...` or target `./compiler/tests/integration`.
 - `go test ./...` must pass with no external toolchain installed.
 - Future test packages require a genuinely distinct execution lifecycle,
   dependency boundary, or toolchain requirement; a Go directory is a package

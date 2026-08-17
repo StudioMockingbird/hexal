@@ -2,7 +2,8 @@
 
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Draft; implementation-ready. Stages 1–6 are the whole spec; Stage 7 is
-  closed and its items are specified as RFCs 0073 and 0076–0079.
+  closed and its items are specified as RFCs 0073 and 0076–0079, of which 0078
+  was itself rejected.
 - Created: 2026-08-16
 - Updated: 2026-08-16
 - Scope: behavior-preserving cleanup found by the six-pass refactor audit —
@@ -17,8 +18,14 @@
 Roughly **1,900 deletable lines** and three measured allocation hot spots worth
 **33% of compiler allocations**, none of which changes observable behavior.
 
-Every item is behavior-preserving. Anything that changes what the compiler
-accepts, rejects, or emits belongs to RFC 0073 and is out of scope here.
+Every item is behavior-preserving **with one carve-out, stated here rather than
+buried in a table**: removing the `.at()`, `.is_empty()`, and `.addr` migration
+branches changes the *diagnostic text* for programs that stay rejected either
+way. Acceptance is unchanged — every program rejected before is rejected after —
+but the message differs, and message text is emitted output. See invariant 6.
+
+Anything else that changes what the compiler accepts, rejects, or emits belongs
+to RFC 0073 and is out of scope here.
 
 Stages are independent unless stated. Do not land them as one change.
 
@@ -32,12 +39,24 @@ Stages are independent unless stated. Do not land them as one change.
 4. The compiler remains string-in/string-out with no filesystem access.
 5. Regenerate the RFC 0057 snippet manifest once per stage that legitimately
    changes output, never as a way to make a failure go away.
+6. **The migration-branch removal is the one carve-out from invariant 1.**
+   Removing the `.at()`, `.is_empty()`, and `.addr` branches changes the
+   diagnostic text those programs receive; it must not change whether any
+   program is accepted. Two test sites assert the current text verbatim and must
+   be updated in the same commit as the removal, not adapted afterwards:
+   `compiler/checker/objects_test.go:143` (`.addr`, from
+   `compiler/checker/places.go:172`) and
+   `compiler/parser/syntax_test.go:230-232` (`.is_empty()`). Updating them is
+   not a violation of invariant 2 — the assertion moves to the replacement
+   diagnostic, it is not deleted. Generated C is unaffected: these programs
+   never reach the generator.
 
 ## Stage 1 — Deletion (~1,900 lines, zero behavior change)
 
 ### R1. Drained transition seams from the component migration — ~89 lines, 12 files
 
-Eight `*FamilyContent` functions all `return ""`:
+Ten drained functions — nine `*FamilyContent` plus `concurrencyRuntimeContent` —
+all `return ""`:
 `array_component.go:58`, `concurrency_component.go:115`, `:122`,
 `dict_component.go:69`, `error_component.go:16`, `heap_component.go:30`,
 `list_component.go:65`, `string_component.go:23`, `view_component.go:47`,
@@ -300,7 +319,9 @@ This is not a new convention: 25 of the render switch's cases
 stragglers. Zero new files.
 
 Do **not** re-split the packages. Median file size is 190 (checker) and 130
-(generator) lines; only these two files exceed 1,500.
+(generator) lines. Three files exceed 1,500 and all three are in scope here:
+`generator/validation.go` (2,144), `generator/generator_test.go` (2,139), and
+`generator/render.go` (2,107).
 
 ### R14. Parameter bundling
 
@@ -336,6 +357,12 @@ diagnostic ever emits).
 
 Do **not** unexport `checker.ExpressionKind`, `OperandKind`, or `ViewRootKind` —
 they are field types on exported structs.
+
+**Include exported struct fields in the sweep.** RFC 0078's census found they are
+the larger half of the surface — 164 in `parser` and 161 in `checker`, more than
+either package's declarations — so a pass over functions and types alone covers
+under half of what is exported. `generator` needs no sweep at all: it exports 7
+symbols total and is already encapsulated.
 
 Add package docs for `compiler`, `compiler/types`, and `workbench` — verified
 missing; the other five packages have them. The OpenCode audit reported 8 of 8
@@ -404,14 +431,19 @@ Listed in priority order. The first is a design decision, not a task.
 | 3 — stdlib | — | unchanged |
 | 5 — structure | — | unchanged |
 | 6 — tests | — | unchanged |
-| 2 — performance | RFC 0073 D13 (R6 shares its loop) | unchanged |
-| 4 — diagnostics | RFC 0073 D8 (R10 needs the fail-closed arm first) | unchanged |
+| 2 — performance | — | unchanged |
+| 4 — diagnostics | — | unchanged |
 
-Stages 1, 3, 5, and 6 are independent and may run in parallel or any order.
-Stages 2 and 4 each have one ordering dependency on RFC 0073.
+**Every stage is independent.** Stages 2 and 4 previously depended on RFC 0073
+D13 and D8, but the items that carried those dependencies moved into 0073
+itself: R6 became A6 and R10 became A10. Stage 2 now holds only R8, which stands
+alone, and Stage 4's remaining items (R9, R11, R12, and the recover boundary)
+never had a D8 dependency. This matches the header's "Stages 1–6 are the whole
+spec."
 
-Land RFC 0073 first regardless. Fixing defects on a moving codebase is harder
-than refactoring a correct one, and two of its items gate stages here.
+Landing RFC 0073 first is still the recommendation — fixing defects on a moving
+codebase is harder than refactoring a correct one — but it is now a preference,
+not a constraint.
 
 ## Validation
 
@@ -445,8 +477,8 @@ All six now have one.
 | R20 — per-compilation type arena | **RFC 0073** (D25 made it a correctness requirement) |
 | R21 — canonical type key | **RFC 0073** (must land with D19) |
 | R22 — literal registry | **RFC 0077** |
-| R23 — package boundary | **RFC 0078** |
-| R24 — ownership and lifetime | **RFC 0079**, scoped to the one decidable case |
+| R23 — package boundary | **RFC 0078 — rejected there, see R23 below** |
+| R24 — ownership and lifetime | **RFC 0079**, scoped to the three decidable cases |
 
 Identifiers are retired rather than reused, so a reference to any R19–R24 still
 resolves. The subsections below are pointers only; nothing in this stage is
@@ -470,14 +502,28 @@ identity it needs.
 
 ### R22. Literal registry — specified as RFC 0077
 
-### R23. Package boundary — specified as RFC 0078
+### R23. Package boundary — **closed, rejected**
+
+Specified as RFC 0078 and rejected there. `internal/` restricts importing from
+outside the module subtree, and `hexal` is an unpublished, unqualified module
+path that nothing outside this repository can import in the first place. The move
+would have rewritten 101 files' import blocks to enforce a restriction that
+already holds.
+
+R16 below is unaffected — it never depended on this. See RFC 0078 for the full
+rationale and the trigger that would reopen it.
 
 ### R24. Ownership and lifetime — specified as RFC 0079
 
-Scoped there to the one decidable case: rejecting `free` of a pointer statically
-known not to be heap-derived. Double-free, use-after-free, and freeing a literal
-are correct by design and out of scope, following the `AGENTS.md` goal 18
-correction recorded below.
+**This scope has since widened; RFC 0079 is authoritative.** This section
+described one case — rejecting `free` of a pointer statically known not to be
+heap-derived — and recorded double-free and use-after-free as correct by design.
+That reading has been rejected. `AGENTS.md` goal 18 now reads "catch every
+memory error a local analysis can decide without adding a language concept or
+disproportionate checker complexity", and 0079 covers three cases under it:
+non-heap free, double free, and use-after-free. Freeing a literal and leaks stay
+undiagnosed — no local analysis decides them. Do not implement from this
+paragraph.
 
 ## Additional items from the external audit
 
@@ -528,8 +574,11 @@ Recorded because it directly contradicts R13 above.
 
 R13 splits `validateExpressionNode` (876 lines) and
 `renderExpressionUncheckedWithState` (665 lines) into the existing family files.
-**Codex recommends deferring both** until expression-family dispatch is designed,
-and splitting `types.go` (1,184), `checker/operator_checking.go` (1,122),
+**Codex recommends deferring both** — its stated rationale was "until expression
+family dispatch is designed", a concept no spec defines; read it as "until the
+lower-risk splits have validated the approach", which is what the resolution
+below actually schedules. Codex splits `types.go` (1,184),
+`checker/operator_checking.go` (1,122),
 `checker/generics.go` (1,186), `parser_test.go` (1,109), and
 `generator_test.go` (2,139) instead.
 
@@ -541,11 +590,17 @@ Both positions have merit and they are not mutually exclusive:
   are already one-line delegates, so the fat cases are stragglers rather than a
   new architecture.
 
-**Resolution: do Codex's list first.** `types.go`, `operator_checking.go`,
-`generics.go`, and the two test files are lower-risk, and splitting them
-validates the approach before touching the expression dispatch. Then reassess
-R13 — and note it should not run until RFC 0073's D19/D25 canonical-key work
-settles, since that touches `types.go` and `generics.go` directly.
+**Resolution, in three ordered steps** — R13's exclusion of `types.go` and
+`generics.go` is a *sequencing* constraint, not a permanent one, and stating the
+order removes the apparent contradiction:
+
+1. **Now:** split `operator_checking.go`, `parser_test.go`, and
+   `generator_test.go`. No open spec touches them.
+2. **After RFC 0073's D19/D25 lands:** split `types.go` and `generics.go`. The
+   canonical-key work rewrites both, so splitting first guarantees a merge
+   conflict.
+3. **After both:** reassess R13's two expression giants with the approach
+   already validated on five lower-risk files.
 
 ### Contradicted — do not act on these
 

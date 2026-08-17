@@ -24,19 +24,18 @@ gets deleted.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
 | Default-Heap runtime collapse — direct checked `malloc`/`free`, needs a follow-up ADR (RFC 0069 audit finding; coordinates with 0027) | [0069](specs/archive/0069/0069-c23-backed-compiler-simplification.md) |
-| Rejecting `free` of a non-heap pointer | [0079](specs/0079-non-heap-free-rejection.md) |
 
 ### Implementation-ready
 
 | Work | Spec |
 |---|---|
 | Compact promotion-safe lowering for unsigned arithmetic trees | [0072](specs/0072-compact-unsigned-arithmetic-lowering.md) |
-| Audit defect batch — 19 defects, 10 latent, 5 doc contradictions | [0073](specs/0073-audit-defect-batch.md) |
+| Audit defect batch — 17 defects, 11 latent, 4 doc contradictions | [0073](specs/0073-audit-defect-batch.md) |
 | Audit refactor batch | [0074](specs/0074-audit-refactor-batch.md) |
 | Compiler benchmark suite | [0075](specs/0075-benchmark-suite.md) |
 | Authoritative module graph | [0076](specs/0076-authoritative-module-graph.md) |
 | Literal registry | [0077](specs/0077-literal-registry.md) |
-| Compiler package boundary — `internal/` for stage packages | [0078](specs/0078-compiler-package-boundary.md) |
+| Statically decidable memory misuse — non-heap free, double free, use-after-free | [0079](specs/0079-non-heap-free-rejection.md) |
 
 ## Unowned
 
@@ -45,6 +44,11 @@ One item survived the previous follow-up list without a determinable meaning:
 - **Terminating self-recursive object construction.** Pointer-indirect
   self-recursion compiles and is valid per `reference.md`, so what this tracked
   is unclear. Assign it a spec or delete it.
+- **Parser expression-start classification is scattered.** Raised during the
+  refactor audit alongside RFC 0077's literal table as the same class of
+  scattered classification. It shares no code with the literal table and is not
+  covered by RFC 0074. Recorded here rather than left implied-homed. Assign it a
+  spec or delete it.
 
 ## Open bugs
 
@@ -70,6 +74,14 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   `compiler/tests/c23validation/c23_*_test.go`
   files are pure Go and have no runnable entry points, so trap firing and
   exact runtime output stay unverified.
+- **Undeclared identifiers in generated C are invisible to the whole suite.** No
+  test invokes a toolchain and the c23 canaries are dormant, so generated C that
+  references a type no header declares passes `go test ./...`, `go vet ./...`,
+  and `go vet -tags c23` alike. Two instances are known — 0073 D2 (handle types
+  reachable only through a declaration) and D33 (`uint64_t` in a Size-only
+  program) — each found by a different external review rather than by the suite.
+  Both are fixed narrowly with textual include/reference assertions; the class
+  stays open until generated C is compiled.
 - The generator emits helper families wholesale — equality, print, union,
   heap, io — so a small program's C contains many unused `static` helpers.
   Demand-driven helper emission would remove the dead code. (The old C23

@@ -146,6 +146,19 @@ declarations. The four `+ ".hex"` sites become `graph.Modules[id].LogicalKey`.
 ### Deletions
 
 - `compiler/checker/modules.go:542` `canonicalModuleID` — the mirror.
+- `compiler/checker/modules_test.go:77-95` `TestCanonicalModuleID` — a direct
+  unit test of the mirror. It calls the deleted function, so it stops compiling
+  the moment the mirror goes; it is deleted **with** its subject, not left to
+  fail. This is the one exception to the "tests pass unmodified" clause under
+  Validation.
+
+  Its six cases are not lost. They assert exactly the path arithmetic the
+  surviving `resolveImportPath` performs — `.hex` stripping, `../` popping,
+  bare and nested extensionless forms — so they move to the step-1 agreement
+  test, which drives the same cases through `moduleEdge.Target`. That test
+  covers them through the resolver that survives rather than the mirror that
+  does not, which is strictly better coverage than deleting them and strictly
+  more honest than claiming nothing changed.
 - `compiler/checker/scope.go:31` `scope.imports` — the dead table.
 - The four `moduleID + ".hex"` reconstructions and their fallbacks.
 
@@ -165,8 +178,14 @@ if !ok {
 ```
 
 With one structure, `Order` and `Modules` cannot disagree — the lookup that can
-miss no longer exists. D28's guard should still be added under RFC 0073, because
-this RFC lands later; this removes the class rather than the instance.
+miss no longer exists.
+
+Precisely: `CheckModules` emits one checked entry per graph node, keyed by
+`LogicalKey`, so `GenerateChecked`'s lookup is total by construction. The class
+closes only while that holds — a future caller assembling `checked`
+independently of the graph would reopen it. D28's guard should still be added
+under RFC 0073, both because this RFC lands later and because it stays honest
+defense-in-depth against exactly that.
 
 **RFC 0074 R11 gets its source.** `Diagnostic` needs a `Module` field, and the
 graph is where module identity lives. R11 stays in 0074; this makes it cheap.
@@ -210,7 +229,9 @@ Within this RFC:
 
 Step 1 is worth keeping as its own commit: an agreement test between the graph
 and the existing derivation is the cheapest possible proof that the change is
-behavior-preserving.
+behavior-preserving. It also inherits `TestCanonicalModuleID`'s six path cases,
+so write it before step 3 deletes the mirror — the coverage must exist on the
+surviving resolver before the tested one is removed, not after.
 
 ## Validation
 
@@ -223,9 +244,15 @@ behavior-preserving.
 - A test asserts `LogicalKey` round-trips: for every node, the supplied `sources`
   map contains that exact key.
 - Existing module tests — resolution, visibility, identity, generation,
-  artifacts — pass unmodified. If any needs changing, the change is not
-  behavior-preserving and must be justified.
-- `grep -rn 'canonicalModuleID' compiler/` returns one definition.
+  artifacts — pass unmodified, **with one named exception**:
+  `TestCanonicalModuleID` is deleted along with the function it tests, and its
+  cases move to the agreement test as described under Deletions. Any *other*
+  test that needs changing means the change is not behavior-preserving and must
+  be justified.
+- `grep -rn '^func canonicalModuleID' compiler/` returns one definition. The
+  anchor matters: an unanchored grep also matches call sites and
+  `TestCanonicalModuleID`, which is precisely the leftover reference this check
+  exists to catch.
 - `grep -rn '+ "\.hex"' compiler/ --include='*.go'` returns no non-test hits.
 
 ## Non-goals
@@ -255,7 +282,11 @@ behavior-preserving.
 ## Expected result
 
 - One implementation of import-path resolution.
-- One place that knows a canonical id's logical source key.
+- One place *every consumer* reads a canonical id's logical source key:
+  `graph.Modules[id].LogicalKey`. `sourceKeyFor` survives as the
+  reachability-internal ambiguity scan — it answers "how many source keys
+  canonicalize to this id", which is a different question and stays inside
+  `reachState`. No consumer calls it.
 - One alias table.
 - No function name shared by two packages with different meanings.
 - `Order` and `Modules` cannot disagree, so a module named in the order cannot be

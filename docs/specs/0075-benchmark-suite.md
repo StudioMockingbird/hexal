@@ -3,6 +3,7 @@
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Draft; implementation-ready
 - Created: 2026-08-16
+- Updated: 2026-08-17
 - Scope: committed Go benchmarks for `compiler.Compile`, and the policy for
   acting on their results
 - Depends on: nothing. Independent of RFCs 0072–0079.
@@ -59,9 +60,14 @@ answer reproducible instead of a claim.
 
 ## Benchmark set
 
-One file, `compiler/bench_test.go`, package `compiler`. Each benchmark compiles
-a fixed in-memory source map through `compiler.Compile` and reports
-`-benchmem`.
+Two files, split by which package legitimately owns the dependency. Each
+benchmark compiles an in-memory source map through `compiler.Compile` and
+reports `-benchmem`.
+
+- `compiler/bench_test.go`, package `compiler` — the eight inline-source
+  benchmarks.
+- `workbench/snippets/bench_test.go`, package `snippets_test` —
+  `BenchmarkCorpus` only.
 
 | Benchmark | Shape | Phase it stresses |
 |---|---|---|
@@ -82,6 +88,25 @@ Sources are Hexal literals in the benchmark file, not loaded from
 `workbench/snippets/`, except `BenchmarkCorpus` which reads the catalog through
 its existing loader. Inline sources keep a benchmark stable when the catalog
 changes for unrelated reasons.
+
+### Why `BenchmarkCorpus` does not live in `compiler/`
+
+Putting it there would make the compiler's test binary import
+`hexal/workbench/snippets`, inverting the layering — the workbench consumes the
+compiler, not the reverse. It would compile today, since `snippets` imports only
+stdlib, but `go test ./compiler` would then build the workbench catalog and
+every dependency the workbench later acquires, and the compiler could no longer
+be tested in isolation from the tool built on top of it.
+
+The correct placement already has a precedent to copy:
+`workbench/snippets/compile_test.go` is `package snippets_test` and imports both
+`hexal/compiler` and `hexal/workbench/snippets`, iterating the catalog through
+the compiler. `BenchmarkCorpus` is the same shape and belongs beside it in the
+same external test package — not `package snippets`, which would couple it to
+the catalog's internals for no gain.
+
+The cost is that the suite spans two directories, so `-bench` must target both.
+The Validation commands below reflect that.
 
 ## Requirements
 
@@ -149,13 +174,23 @@ that decision needs.
 ## Validation
 
 - `go test ./...` passes and runs no benchmark.
-- `go test -bench . -benchmem ./compiler` completes under ten seconds and
-  reports all nine.
+- `go test -bench . -benchmem -benchtime 1x ./compiler ./workbench/snippets`
+  completes under ten seconds and reports all nine. `-benchtime 1x` is required,
+  not optional: Go's default is one second *per benchmark*, so nine benchmarks
+  cannot fit a ten-second budget without it. The ten-second requirement above
+  and this command must always name the same flags.
 - `go vet ./...` passes.
 - Each benchmark's source compiles successfully, except `BenchmarkFailure`,
   which must fail with diagnostics — assert that in an ordinary test so a
   silently-succeeding failure benchmark is caught.
 - `docs/benchmarks.md` exists with an initial entry.
+- `AGENTS.md`'s testing note is corrected. It currently reads "`go test
+  ./compiler` does not run the full-pipeline suite (that package now has no test
+  files)". Adding `compiler/bench_test.go` makes the parenthetical false, and
+  the before/after-source test this validation requires means the package
+  declares exactly one ordinary test. Reword to "declares only the
+  benchmark-source smoke test"; the surrounding guidance to use `go test ./...`
+  or `./compiler/tests/integration` stays correct.
 
 ## Drawbacks
 

@@ -1,150 +1,90 @@
 # RFC 0078: Compiler Package Boundary
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Draft; implementation-ready
+- Status: Closed — rejected, not needed
 - Created: 2026-08-16
+- Closed: 2026-08-17
 - Scope: Go package visibility for the compiler's stage packages
-- Depends on: nothing. Independent of RFCs 0072–0079.
-- Coordinates with: RFC 0074 (its R16 unexports individual symbols),
-  `AGENTS.md`, `docs/status.md`
-- Does not change: Hexal syntax, semantics, diagnostics, generated C, or the
-  `compiler.Compile` contract
 
 ## Decision
 
-Move `lexer`, `parser`, `checker`, `generator`, and `types` under
-`compiler/internal/`. `compiler` remains the only importable package.
+**Rejected.** `lexer`, `parser`, `checker`, `generator`, and `types` stay where
+they are. They are not moved under `compiler/internal/`.
 
-## Motivation
+This record exists so the proposal is not made again without the trigger below.
 
-The five stage packages export **774 symbols** between them:
+## What was proposed
 
-| Package | Exported |
-|---|---|
-| `checker` | 277 |
-| `parser` | 176 |
-| `generator` | 159 |
-| `types` | 122 |
-| `lexer` | 40 |
+Move the five stage packages under `compiler/internal/` so that Go, rather than
+convention, enforces `compiler` as the only importable package. 858 exported
+symbols across those packages would stop being public API without any of them
+being renamed.
 
-Nothing outside the module imports any of them. `workbench` uses
-`compiler.Compile` and `compiler.CompilationResult`; the compiler's own tests
-use the stage packages, and Go test files inside `internal/` keep that access.
+## Why it was rejected
 
-The current arrangement means every stage symbol is, formally, public API. That
-has two costs:
+**`internal/` enforces one rule: code outside the module subtree cannot import
+this package. The module is `hexal` — an unqualified, unpublished path.** Nothing
+outside this repository can import any of it already, `internal/` or not. The
+restriction is total today, provided by the module not being published, and the
+move would add a fence inside a building with no doors.
 
-- **Unexporting decisions are advisory.** RFC 0074's R16 identifies exported
-  symbols with no consumer and proposes unexporting them. Nothing prevents the
-  next one from being added.
-- **Refactoring is over-constrained.** A rename inside `checker` looks like a
-  breaking change even though no consumer exists, so it gets treated with more
-  caution than it warrants.
+The two stated motivations did not survive inspection:
 
-`internal/` makes the boundary a compiler-enforced fact. Go rejects an import of
-`hexal/compiler/internal/checker` from outside `hexal/compiler`, so the intended
-surface becomes the actual surface.
+- *"Unexporting decisions are advisory."* The proposal explicitly unexported
+  nothing — RFC 0074's R16 does that work. `internal/` restricts **importing**,
+  not **exporting**: a new exported symbol is just as easy to add inside
+  `internal/` as outside it. It would not make R16's result stick.
+- *"A rename inside `checker` looks like a breaking change."* Breaking for whom?
+  One repository, one consumer (`workbench`, which imports `hexal/compiler`
+  only), and `go build ./...` locates every call site immediately. The
+  constraint was imagined.
 
-## Scope
+Against that: 101 files' import blocks rewritten, `git blame` polluted across all
+of them, longer import paths throughout, and the reversal of a deliberate earlier
+simplification that flattened the tree out of `internal/`.
 
-```text
-compiler/lexer/      → compiler/internal/lexer/
-compiler/parser/     → compiler/internal/parser/
-compiler/checker/    → compiler/internal/checker/
-compiler/generator/  → compiler/internal/generator/
-compiler/types/      → compiler/internal/types/
-```
+`AGENTS.md`'s first simplification question — does this need to exist? — answers
+itself.
 
-`compiler/compile.go` and `compiler/tests/` stay where they are.
+## What delivers the actual value
 
-Import paths update mechanically:
+RFC 0074's **R16** deletes exported symbols that have no consumer. That is a
+real reduction in surface area and needs no file moves. R16 never depended on
+this ADR: "unexporting is a breaking change" was never true for an unpublished
+module, so nothing was blocking it.
 
-```go
-import compilerTypes "hexal/compiler/types"
-// becomes
-import compilerTypes "hexal/compiler/internal/types"
-```
+## The trigger that would reopen this
 
-Package names, file names, symbol names, and visibility are unchanged. This is a
-directory move plus an import rewrite, nothing more.
+If `hexal`'s module path becomes a fetchable one — `github.com/<owner>/hexal` or
+similar — and the module is published for others to import, then `internal/`
+stops being decorative and this ADR should be reconsidered on its original
+argument. Until the module is externally importable, it has nothing to enforce.
 
-## What this does not do
+## Record of the symbol census
 
-**It does not unexport anything.** All 774 symbols keep their current case. RFC
-0074 R16 remains the spec that decides which should become unexported; this ADR
-only removes the argument that unexporting is a breaking change.
+The census taken while evaluating this proposal is worth keeping, since it
+answers "how large is the stage surface" and two separate audits got it wrong.
 
-Doing both at once would make an unreviewable diff — a directory move touching
-every import, plus visibility changes touching every call site.
+Method: `go/ast` over every `.go` file excluding `*_test.go`, counting exported
+`FuncDecl` (functions and methods), `TypeSpec`, and `ValueSpec` names as
+declarations, and exported struct fields separately.
 
-## Test access
+| Package | Declarations | Struct fields | Exported |
+|---|---|---|---|
+| `checker` | 127 | 161 | 288 |
+| `types` | 174 | 68 | 242 |
+| `parser` | 70 | 164 | 234 |
+| `lexer` | 83 | 4 | 87 |
+| `generator` | 7 | 0 | 7 |
+| **Total** | **461** | **397** | **858** |
 
-`compiler/tests/integration` imports `hexal/compiler` only, so it is unaffected.
+Two results worth carrying into R16:
 
-`compiler/tests/c23validation` likewise imports `hexal/compiler`.
+- **Struct fields are the larger half of the surface** for `parser` (164) and
+  `checker` (161). A census counting only functions and types understates
+  exposure by roughly half.
+- **`generator` exports 7 symbols.** It is already effectively encapsulated.
 
-In-package tests (`compiler/internal/checker/*_test.go`) move with their
-packages and keep full access.
-
-Cross-package tests inside the compiler — `generator_test.go` importing
-`checker`, for example — continue to work: `internal/` restricts imports from
-outside `hexal/compiler`, and both are inside it.
-
-Verify this before starting. If any test outside `compiler/` imports a stage
-package, it must move under `compiler/tests/` or switch to the public API first;
-that is a prerequisite, not part of this change.
-
-## Invariants
-
-1. No symbol is renamed, unexported, added, or removed.
-2. Generated C is byte-identical; the snippet manifest does not move.
-3. `compiler.Compile` and `CompilationResult` are untouched.
-4. `go build ./...`, `go test ./...`, and `go vet ./...` pass with no test
-   modified except for its own import block.
-5. `git diff --find-renames` shows file moves and import-line edits only.
-
-## Validation
-
-- `go test ./...`, `go vet ./...`,
-  `go vet -tags c23 ./compiler/tests/c23validation`.
-- The snippet manifest is unchanged.
-- `grep -rn '"hexal/compiler/\(lexer\|parser\|checker\|generator\|types\)"'`
-  returns nothing.
-- No file outside `compiler/` imports an internal package — enforced by the Go
-  toolchain after the move, so a successful build is the proof.
-- The workbench builds and runs.
-
-## Sequencing
-
-Independent of every other open spec, but **land it when the tree is quiet**. It
-rewrites the import block of ~150 files, so it conflicts textually with anything
-in flight even though it conflicts logically with nothing.
-
-Best executed as a single mechanical commit, immediately after another spec
-closes rather than alongside one.
-
-## Non-goals
-
-- Unexporting symbols. RFC 0074 R16 owns that.
-- Splitting or merging stage packages.
-- Introducing a plugin, driver, or alternative front end that would need stage
-  access. If one is ever wanted, the correct move is to widen `compiler`'s API
-  deliberately, which this ADR makes a conscious act rather than an accident.
-- Moving `compiler/tests/`.
-
-## Drawbacks
-
-- A large mechanical diff across ~150 files with no behavior change, which
-  pollutes `git blame` on every import block. Land it as one commit and record
-  it in `.git-blame-ignore-revs`.
-- Import paths get longer.
-- If a future consumer genuinely needs a stage package, this must be partly
-  reversed. That is the intended cost: the reversal is a design decision made in
-  the open, which is exactly what the current arrangement lets people skip.
-
-## Expected result
-
-- `compiler` is the compiler's only importable package, enforced by the
-  toolchain.
-- 774 stage symbols stop being public API without a single one being renamed.
-- RFC 0074 R16's unexporting work becomes cleanup rather than an API change.
+Beware `go doc -all` here — it under-enumerates in this tree — and a naive
+`grep '^func [A-Z]'`, which counts `Test*` functions unless `*_test.go` is
+excluded. The two fail in opposite directions.
