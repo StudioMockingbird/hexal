@@ -54,18 +54,31 @@ func checkBody(statements []parser.Statement, names *scope, typeEnvironment *com
 func checkStatements(statements []parser.Statement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) ([]Statement, compilerTypes.Diagnostics) {
 	checked := make([]Statement, 0, len(statements))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
+	reachable := true
 	for _, statement := range statements {
+		returnFlowCount := len(names.returnFlows)
 		checkedStatement, declaredBinding, define, statementDiagnostics := checkStatement(statement, names, typeEnvironment, loopDepth)
 		diagnostics = append(diagnostics, statementDiagnostics...)
-		if len(statementDiagnostics) == 0 {
-			if define {
-				declaration := statement.(parser.Declaration)
-				names.define(declaration.Name.Lexeme, declaredBinding)
-			}
-			checked = append(checked, checkedStatement)
+		if len(statementDiagnostics) != 0 {
+			names.returnFlows = names.returnFlows[:returnFlowCount]
+			continue
+		}
+		if define {
+			declaration := statement.(parser.Declaration)
+			names.define(declaration.Name.Lexeme, declaredBinding)
+		}
+		checked = append(checked, checkedStatement)
+		if reachable {
 			if _, returns := checkedStatement.(ReturnStatement); returns {
 				names.recordReturnFlow()
 			}
+		} else {
+			// The statement was checked for its own diagnostics, but it cannot
+			// add a return path after an earlier terminator.
+			names.returnFlows = names.returnFlows[:returnFlowCount]
+		}
+		if reachable && statementTerminates(checkedStatement) {
+			reachable = false
 		}
 	}
 	diagnostics = append(diagnostics, validateDeferredActions(names, !sequenceTerminates(checked))...)
@@ -237,7 +250,7 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 	checked.Then = thenBody
 	checked.ThenDefers = append(checked.ThenDefers, thenScope.defers...)
 	if len(thenDiagnostics) == 0 {
-		names.returnFlows = append(names.returnFlows, thenScope.returnFlows...)
+		names.recordChildReturnFlows(thenScope.returnFlows)
 	}
 
 	continuing := make([]*flowState, 0, len(statement.ElseIf)+2)
@@ -275,7 +288,7 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		diagnostics = append(diagnostics, branchDiagnostics...)
 		checked.ElseIfDefers = append(checked.ElseIfDefers, append([]DeferredAction(nil), branchScope.defers...))
 		if len(branchDiagnostics) == 0 {
-			names.returnFlows = append(names.returnFlows, branchScope.returnFlows...)
+			names.recordChildReturnFlows(branchScope.returnFlows)
 		}
 		checked.ElseIf = append(checked.ElseIf, IfBranch{
 			Condition:       branchCondition,
@@ -297,7 +310,7 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		checked.Else = elseBody
 		checked.ElseDefers = append(checked.ElseDefers, elseScope.defers...)
 		if len(elseDiagnostics) == 0 {
-			names.returnFlows = append(names.returnFlows, elseScope.returnFlows...)
+			names.recordChildReturnFlows(elseScope.returnFlows)
 		}
 		if len(elseDiagnostics) == 0 && !sequenceTerminates(elseBody) && elseState != nil {
 			continuing = append(continuing, elseState)
@@ -431,7 +444,7 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 	checked.Body = body
 	checked.BodyDefers = append(checked.BodyDefers, bodyScope.defers...)
 	if len(bodyDiagnostics) == 0 {
-		names.returnFlows = append(names.returnFlows, bodyScope.returnFlows...)
+		names.recordChildReturnFlows(bodyScope.returnFlows)
 	}
 	checked.Source = source.source
 	if len(bodyDiagnostics) == 0 && parentState != nil && bodyState != nil {
@@ -524,7 +537,7 @@ func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvi
 	checked.Body = body
 	checked.BodyDefers = append(checked.BodyDefers, bodyScope.defers...)
 	if len(bodyDiagnostics) == 0 {
-		names.returnFlows = append(names.returnFlows, bodyScope.returnFlows...)
+		names.recordChildReturnFlows(bodyScope.returnFlows)
 	}
 	if len(bodyDiagnostics) == 0 && parentState != nil && bodyState != nil {
 		parentState.mergeBranches(parentState.clone(), bodyState)

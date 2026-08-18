@@ -234,14 +234,28 @@ func validateDeferredActions(names *scope, normal bool) compilerTypes.Diagnostic
 	if names == nil || names.flow == nil {
 		return nil
 	}
-	states := make([]*flowState, 0, 1+len(names.returnFlows))
-	if normal {
-		states = append(states, names.flow)
+	type diagnosticKey struct {
+		line    int
+		column  int
+		message string
 	}
-	states = append(states, names.returnFlows...)
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	for _, state := range states {
-		diagnostics = append(diagnostics, validateDeferredActionsInState(names.defers, state)...)
+	seen := make(map[diagnosticKey]bool)
+	appendUnique := func(actions []DeferredAction, state *flowState) {
+		for _, diagnostic := range validateDeferredActionsInState(actions, state) {
+			key := diagnosticKey{line: diagnostic.Line, column: diagnostic.Column, message: diagnostic.Message}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			diagnostics = append(diagnostics, diagnostic)
+		}
+	}
+	if normal {
+		appendUnique(names.defers, names.flow)
+	}
+	for _, flow := range names.returnFlows {
+		appendUnique(flow.actions, flow.state)
 	}
 	return diagnostics
 }
@@ -283,8 +297,9 @@ func checkDeferredExpression(expression *Expression, token lexer.Token, state *f
 	if expression == nil {
 		return nil
 	}
-	if expression.Kind == DereferenceExpression && expression.Operand != nil &&
-		expression.Operand.Kind == VariableExpression && state.freed(expression.Operand.Binding) {
+	if state != nil && expression.Operand != nil && expression.Operand.Kind == VariableExpression &&
+		(expression.Kind == DereferenceExpression || expression.Kind == VolatileReadExpression || expression.Kind == VolatileWriteExpression) &&
+		state.freed(expression.Operand.Binding) {
 		diagnostic := useAfterFreeDiagnostic(token)
 		return &diagnostic
 	}

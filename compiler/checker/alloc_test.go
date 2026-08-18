@@ -8,6 +8,21 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+func requireExactlyOneDiagnostic(t *testing.T, source, want string) {
+	t.Helper()
+	_, err := checkSource(t, source)
+	if err == nil {
+		t.Fatalf("Check accepted %q, want one diagnostic %q", source, want)
+	}
+	diagnostics, ok := err.(compilerTypes.Diagnostics)
+	if !ok {
+		t.Fatalf("Check error type = %T, want Diagnostics", err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Message != want {
+		t.Fatalf("Check diagnostics = %v, want exactly one %q", diagnostics, want)
+	}
+}
+
 func TestCheckHeapNewProducesHeapValue(t *testing.T) {
 	checked, err := Check(parseProgram(t, "h: Heap = Heap.new()"))
 	if err != nil {
@@ -111,6 +126,22 @@ func TestCheckHeapFreeDefersValidationUntilScopeExit(t *testing.T) {
 func TestCheckDeferredExpressionChecksStateAtScopeExit(t *testing.T) {
 	requireAccepted(t, "h: Heap = Heap.new() mut p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p) defer p.value p = h.allocate<Int32>(1)")
 	requireDiagnostic(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p) defer p.value", "this pointer's storage was released on every path to this point")
+	requireDiagnostic(t, "h: Heap = Heap.new() p: MutPtr<UInt32> = h.allocate<UInt32>(0) h.free(p) defer p.read_volatile() + 1", "this pointer's storage was released on every path to this point")
+}
+
+func TestCheckDeferredExpressionChecksVolatilePointeeKinds(t *testing.T) {
+	state := newFlowState()
+	const binding = BindingID(1)
+	state.trackFreed(binding)
+	state.markFreed(binding)
+	receiver := Expression{Kind: VariableExpression, Binding: binding}
+	for _, kind := range []ExpressionKind{VolatileReadExpression, VolatileWriteExpression} {
+		expression := Expression{Kind: kind, Operand: &receiver}
+		diagnostic := checkDeferredExpression(&expression, lexer.Token{Line: 1, Column: 1}, state)
+		if diagnostic == nil || diagnostic.Message != "this pointer's storage was released on every path to this point" {
+			t.Fatalf("kind %v diagnostic = %#v, want use-after-free", kind, diagnostic)
+		}
+	}
 }
 
 func TestCheckHeapFreeRejectsDeferredFreeAfterExplicitFree(t *testing.T) {
@@ -119,6 +150,46 @@ func TestCheckHeapFreeRejectsDeferredFreeAfterExplicitFree(t *testing.T) {
 
 func TestCheckHeapFreeRejectsDeferredCaptureAfterReallocation(t *testing.T) {
 	requireDiagnostic(t, "h: Heap = Heap.new() mut p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p) h.free(p) p = h.allocate<Int32>(1)", "free releases storage already released on every path to this point")
+}
+
+func TestCheckHeapFreePreservesDeferredReleaseAcrossBranches(t *testing.T) {
+	requireDiagnostic(t, `h: Heap = Heap.new()
+mut p: MutPtr<Int32> = h.allocate<Int32>(0)
+defer h.free(p)
+h.free(p)
+flag: Bool = true
+if flag then
+	p = h.allocate<Int32>(1)
+else
+	p = h.allocate<Int32>(2)
+end
+`, "free releases storage already released on every path to this point")
+}
+
+func TestCheckHeapFreeReportsOneDiagnosticForTerminatingReturnPaths(t *testing.T) {
+	requireExactlyOneDiagnostic(t, `fun finish(flag: Bool, h: Heap): Int32 do
+	p: MutPtr<Int32> = h.allocate<Int32>(0)
+	defer h.free(p)
+	if flag then
+		h.free(p)
+		return 1
+	else
+		h.free(p)
+		return 2
+	end
+end
+`, "free releases storage already released on every path to this point")
+}
+
+func TestCheckHeapFreeIgnoresDeferredActionAfterUnreachableReturn(t *testing.T) {
+	requireAccepted(t, `fun finish(h: Heap): Int32 do
+	p: MutPtr<Int32> = h.allocate<Int32>(0)
+	h.free(p)
+	return 1
+	defer h.free(p)
+	return 2
+end
+`)
 }
 
 func TestCheckHeapFreeRejectsFreedPointerMethodReceiver(t *testing.T) {

@@ -39,7 +39,7 @@ type scope struct {
 	flow         *flowState // branch-local narrowing facts
 	generics     *genericTable
 	defers       []DeferredAction
-	returnFlows  []*flowState // states reaching a return from this lexical sequence
+	returnFlows  []returnFlow // states and active actions reaching a return
 	cleanupDepth int          // checking a defer or errdefer action
 	// registry is the compilation's module graph: it resolves import aliases
 	// against the target modules' exported records.
@@ -70,6 +70,13 @@ type flowFact struct {
 	variant *compilerTypes.AdtVariant // active ADT variant when variant-narrowed
 	freed   bool                      // the tracked pointer's pointee was released on every path here
 	version uint64                    // identity of the pointer value currently in the binding
+}
+
+// returnFlow carries one reachable return state and the actions registered
+// before that return in the scope being validated.
+type returnFlow struct {
+	state   *flowState
+	actions []DeferredAction
 }
 
 // flowState is the branch-local fact table for one function body or module
@@ -232,7 +239,7 @@ func (state *flowState) trackFreed(id BindingID) {
 	state.tracked[id] = true
 	fact := state.facts[id]
 	if fact.version == 0 {
-		fact.version = 1
+		fact.version = state.nextFreedVersion(id, 0)
 	}
 	fact.freed = false
 	state.facts[id] = fact
@@ -285,8 +292,15 @@ func (state *flowState) markFreed(id BindingID) {
 	if state == nil || !state.tracked[id] {
 		return
 	}
-	fact := state.facts[id]
-	state.markFreedVersion(id, fact.version)
+	fact, ok := state.facts[id]
+	if !ok {
+		return
+	}
+	fact.freed = true
+	state.facts[id] = fact
+	if fact.version != 0 {
+		state.markFreedVersion(id, fact.version)
+	}
 }
 
 func (state *flowState) markFreedVersion(id BindingID, version uint64) {
@@ -313,12 +327,26 @@ func (state *flowState) clearFreed(id BindingID) {
 		return
 	}
 	fact := state.facts[id]
-	fact.version++
-	if fact.version == 0 {
-		fact.version = 1
-	}
+	fact.version = state.nextFreedVersion(id, fact.version)
 	fact.freed = false
 	state.facts[id] = fact
+}
+
+func (state *flowState) nextFreedVersion(id BindingID, current uint64) uint64 {
+	next := current + 1
+	if next == 0 {
+		next = 1
+	}
+	for version := range state.released[id] {
+		if version < next {
+			continue
+		}
+		next = version + 1
+		if next == 0 {
+			next = 1
+		}
+	}
+	return next
 }
 
 // escape records that a writable address of the binding escaped. It clears
@@ -345,7 +373,6 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 		return
 	}
 	parent := state.clone()
-	versionMismatch := make(map[BindingID]bool)
 	for _, branch := range branches {
 		if branch == nil {
 			continue
@@ -359,9 +386,6 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 			if !exists {
 				continue
 			}
-			if parent.tracked[id] && parentFact.version != fact.version {
-				versionMismatch[id] = true
-			}
 			if !compilerTypes.Equal(parentFact.typ, fact.typ) {
 				current := state.facts[id]
 				current.typ = compilerTypes.Type{}
@@ -370,22 +394,45 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 		}
 	}
 	for id := range parent.tracked {
-		if versionMismatch[id] {
+		allTracked := true
+		allFreed := true
+		commonVersion := uint64(0)
+		sameVersion := true
+		firstBranch := true
+		for _, branch := range branches {
+			if branch == nil || !branch.tracked[id] {
+				allTracked = false
+				break
+			}
+			fact, ok := branch.facts[id]
+			if !ok || fact.escaped {
+				allTracked = false
+				break
+			}
+			if firstBranch {
+				commonVersion = fact.version
+				firstBranch = false
+			} else if fact.version != commonVersion {
+				sameVersion = false
+			}
+			if !branch.freed(id) {
+				allFreed = false
+			}
+		}
+		if !allTracked {
 			state.dropFreed(id)
 			continue
 		}
-		allFreed := true
-		for _, branch := range branches {
-			if branch == nil || !branch.tracked[id] || !branch.freed(id) {
-				allFreed = false
-				break
-			}
-		}
-		if allFreed {
-			state.markFreed(id)
+		fact := state.facts[id]
+		if sameVersion && commonVersion != 0 {
+			fact.version = commonVersion
 		} else {
-			state.dropFreed(id)
+			// A divergent current version cannot be assigned a historical
+			// identity, but it may still be definitely freed on every path.
+			fact.version = 0
 		}
+		fact.freed = allFreed
+		state.facts[id] = fact
 	}
 
 	// Deferred actions may retain an older binding version after every branch
@@ -609,11 +656,34 @@ func (names *scope) child() *scope {
 	}
 }
 
+func (names *scope) activeDeferredActions() []DeferredAction {
+	if names == nil || len(names.defers) == 0 {
+		return nil
+	}
+	return append([]DeferredAction(nil), names.defers...)
+}
+
 func (names *scope) recordReturnFlow() {
 	if names == nil || names.flow == nil {
 		return
 	}
-	names.returnFlows = append(names.returnFlows, names.flow.clone())
+	names.returnFlows = append(names.returnFlows, returnFlow{
+		state:   names.flow.clone(),
+		actions: names.activeDeferredActions(),
+	})
+}
+
+func (names *scope) recordChildReturnFlows(flows []returnFlow) {
+	if names == nil || len(flows) == 0 {
+		return
+	}
+	active := names.activeDeferredActions()
+	for _, flow := range flows {
+		names.returnFlows = append(names.returnFlows, returnFlow{
+			state:   flow.state,
+			actions: append([]DeferredAction(nil), active...),
+		})
+	}
 }
 
 func typeErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {

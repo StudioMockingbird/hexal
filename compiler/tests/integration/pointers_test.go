@@ -6,6 +6,17 @@ import (
 	"testing"
 )
 
+func assertRejectsExactlyOne(t *testing.T, source, want string) {
+	t.Helper()
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitFailure {
+		t.Fatalf("expected rejection, but the source compiled:\n%s", source)
+	}
+	if len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], want) {
+		t.Fatalf("diagnostics = %v, want exactly one containing %q:\n%s", result.Stderr, want, source)
+	}
+}
+
 func TestRefIsTypedByPlaceWritability(t *testing.T) {
 	result := compileSource("mut score: Int32 = 0 answer: Int32 = 42 writer: MutPtr<Int32> = ref score look: Ptr<Int32> = ref answer")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -573,6 +584,21 @@ p = h.allocate<Int32>(1)
 			want: "free releases storage already released on every path to this point",
 		},
 		{
+			name: "deferred capture after branch reallocation",
+			source: `h: Heap = Heap.new()
+mut p: MutPtr<Int32> = h.allocate<Int32>(0)
+defer h.free(p)
+h.free(p)
+flag: Bool = true
+if flag then
+    p = h.allocate<Int32>(1)
+else
+    p = h.allocate<Int32>(2)
+end
+`,
+			want: "free releases storage already released on every path to this point",
+		},
+		{
 			name: "method receiver after free",
 			source: `type Point = { value: Int32, }
 impl Point.read(): Int32 do
@@ -612,12 +638,36 @@ defer p.value
 `,
 			want: "this pointer's storage was released on every path to this point",
 		},
+		{
+			name: "deferred compound volatile read after free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<UInt32> = h.allocate<UInt32>(0)
+h.free(p)
+defer p.read_volatile() + 1
+`,
+			want: "this pointer's storage was released on every path to this point",
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertRejects(t, testCase.source, testCase.want)
 		})
 	}
+}
+
+func TestHeapFreeReportsOneDiagnosticForTerminatingReturnPaths(t *testing.T) {
+	assertRejectsExactlyOne(t, `fun finish(flag: Bool, h: Heap): Int32 do
+    p: MutPtr<Int32> = h.allocate<Int32>(0)
+    defer h.free(p)
+    if flag then
+        h.free(p)
+        return 1
+    else
+        h.free(p)
+        return 2
+    end
+end
+`, "free releases storage already released on every path to this point")
 }
 
 func TestHeapFreeAcceptsUntrackedAndSafeCases(t *testing.T) {
@@ -724,6 +774,16 @@ else
     p = h.allocate<Int32>(2)
 end
 h.free(p)
+`,
+		},
+		{
+			name: "deferred action after unreachable return",
+			source: `fun finish(h: Heap): Int32 do
+    p: MutPtr<Int32> = h.allocate<Int32>(0)
+    h.free(p)
+    return 1
+    defer h.free(p)
+end
 `,
 		},
 		{
