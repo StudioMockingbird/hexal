@@ -321,19 +321,33 @@ func TestModuleGenerationLiteralOrder(t *testing.T) {
 		}
 		previous = position
 	}
-	if !strings.Contains(result.Files["modules/math.c"], "&hex_lit_0") || !strings.Contains(result.Files["modules/math.c"], "&hex_lit_1") {
-		t.Fatalf("math.c does not use the program-wide literal indices:\n%s", result.Files["modules/math.c"])
+	mathC := result.Files["modules/math.c"]
+	appC := result.Files["modules/app.c"]
+	for _, want := range []string{
+		"const hex_string *const hex_v_imported = &hex_lit_0;",
+		"const hex_string *const hex_v_shared = &hex_lit_1;",
+	} {
+		if !strings.Contains(mathC, want) {
+			t.Fatalf("math.c lacks literal use %q:\n%s", want, mathC)
+		}
 	}
-	if !strings.Contains(result.Files["modules/app.c"], "&hex_lit_2") {
-		t.Fatalf("app.c does not use the program-wide root literal index:\n%s", result.Files["modules/app.c"])
+	for _, want := range []string{
+		"const hex_string *const hex_v_root = &hex_lit_2;",
+		"const hex_string *const hex_v_shared = &hex_lit_1;",
+	} {
+		if !strings.Contains(appC, want) {
+			t.Fatalf("app.c lacks literal use %q:\n%s", want, appC)
+		}
 	}
 }
 
 func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
-	// The root literal follows the import in source, but the non-root module is
-	// discovered first, so its runtime handles must keep the shared indices.
+	// root.hex is visited before math.hex and contributes the root payload;
+	// app.hex repeats it. That earlier global entry shifts every generated
+	// concurrency literal in the non-root math module.
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\nroot: String = \"root\"\nx: Int32 | Error = Math.compute()\n",
+		"app.hex":  "module Root = import \"./root\"\nmodule Math = import \"./math\"\nroot: String = \"root\"\nx: Int32 | Error = Math.compute()\n",
+		"root.hex": "export fun text(): String do\n    root: String = \"root\"\n    return root\nend\n",
 		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nexport fun compute(): Int32 | Error do\n    task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
@@ -342,10 +356,10 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 	}
 	stringOutput := result.Files["hexal/string.c"]
 	definitions := []string{
-		"const uint8_t hex_lit_0_bytes[9] = { 109, 97, 105, 110, 46, 104, 101, 120, 0 };\nconst hex_string hex_lit_0 = { hex_lit_0_bytes, 8 };",
-		"const uint8_t hex_lit_1_bytes[10] = { 83, 99, 104, 101, 100, 117, 108, 101, 114, 0 };\nconst hex_string hex_lit_1 = { hex_lit_1_bytes, 9 };",
-		"const uint8_t hex_lit_2_bytes[21] = { 116, 97, 115, 107, 32, 99, 114, 101, 97, 116, 105, 111, 110, 32, 102, 97, 105, 108, 101, 100, 0 };\nconst hex_string hex_lit_2 = { hex_lit_2_bytes, 20 };",
-		"const uint8_t hex_lit_3_bytes[5] = { 114, 111, 111, 116, 0 };\nconst hex_string hex_lit_3 = { hex_lit_3_bytes, 4 };",
+		"const uint8_t hex_lit_0_bytes[5] = { 114, 111, 111, 116, 0 };\nconst hex_string hex_lit_0 = { hex_lit_0_bytes, 4 };",
+		"const uint8_t hex_lit_1_bytes[9] = { 109, 97, 105, 110, 46, 104, 101, 120, 0 };\nconst hex_string hex_lit_1 = { hex_lit_1_bytes, 8 };",
+		"const uint8_t hex_lit_2_bytes[10] = { 83, 99, 104, 101, 100, 117, 108, 101, 114, 0 };\nconst hex_string hex_lit_2 = { hex_lit_2_bytes, 9 };",
+		"const uint8_t hex_lit_3_bytes[21] = { 116, 97, 115, 107, 32, 99, 114, 101, 97, 116, 105, 111, 110, 32, 102, 97, 105, 108, 101, 100, 0 };\nconst hex_string hex_lit_3 = { hex_lit_3_bytes, 20 };",
 	}
 	for _, definition := range definitions {
 		if count := strings.Count(stringOutput, definition); count != 1 {
@@ -354,13 +368,24 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 	}
 	mathC := result.Files["modules/math.c"]
 	mathH := result.Files["modules/math.h"]
-	if !strings.Contains(mathH, ".hex_m_file = &hex_lit_0") {
-		t.Fatalf("math.h does not use the program-wide source filename literal:\n%s", mathH)
+	if !strings.Contains(mathH, ".hex_m_file = &hex_lit_1") {
+		t.Fatalf("math.h does not use the shifted program-wide source filename literal:\n%s", mathH)
 	}
-	if !strings.Contains(mathC, "hex_sched_error(5, 29, &hex_lit_2)") {
-		t.Fatalf("math.c does not use the program-wide spawn failure literal:\n%s", mathC)
+	if !strings.Contains(mathH, ".hex_m_header = (hex_strand){{ 83, 99, 104, 101, 100, 117, 108, 101, 114, 0 }}") {
+		t.Fatalf("math.h does not use the exact Scheduler header literal:\n%s", mathH)
 	}
-	if !strings.Contains(stringOutput, "hex_lit_1") {
-		t.Fatalf("hexal/string.c lacks the program-wide Scheduler header literal:\n%s", stringOutput)
+	if !strings.Contains(mathC, "hex_sched_error(5, 29, &hex_lit_3)") {
+		t.Fatalf("math.c does not use the shifted program-wide spawn failure literal:\n%s", mathC)
+	}
+	for _, file := range []struct {
+		name string
+		text string
+	}{
+		{name: "root.c", text: result.Files["modules/root.c"]},
+		{name: "app.c", text: result.Files["modules/app.c"]},
+	} {
+		if !strings.Contains(file.text, "const hex_string *const hex_v_root = &hex_lit_0;") {
+			t.Fatalf("modules/%s does not use the shared root literal:\n%s", file.name, file.text)
+		}
 	}
 }
