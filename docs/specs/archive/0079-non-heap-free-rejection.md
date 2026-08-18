@@ -1,8 +1,28 @@
 # RFC 0079: Statically Decidable Memory Misuse
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; verified 2026-08-18. Both checks are live in
+  `compiler/checker/`: check 1 consumes the existing `fromRef` fact in
+  `alloc.go`, and check 2 adds `flowFact.freed` in `scope.go` with the
+  survives-the-branch merge rule. All six Validation rejections reject with the
+  three diagnostic wordings this RFC dictates, and all eleven acceptances still
+  compile — including the two load-bearing boundaries, `defer h.free(p)`
+  followed by `p.value` (so `freed` is set when the deferred call fires, not at
+  registration) and `h.free(p); consume(p)` (so passing is not a dereference).
+  Verified by an independent probe through `compiler.Compile`, not only by the
+  committed tests. Generated C is untouched and the snippet SHA-256 manifest
+  never moved. Coverage: `TestHeapFreeRejectsRFCBoundaries` and
+  `TestHeapFreeAcceptsUntrackedAndSafeCases` in
+  `compiler/tests/integration/pointers_test.go`, plus thirteen unit tests in
+  `compiler/checker/alloc_test.go` covering deref sites this RFC named only in
+  passing — method receivers, volatile access, terminating-return paths, and
+  deferred capture after reallocation.
+
+  The Sequencing note's known gap did not materialize: RFC 0073's D4 landed
+  first, so `p = ref x; q = p; h.free(q)` is rejected by check 1 rather than
+  recorded as a gap.
 - Created: 2026-08-16
+- Updated: 2026-08-18
 - Scope: the memory misuses a local flow analysis can decide with no new
   language concept — freeing a non-heap pointer, double free, and
   use-after-free, each on a local binding the checker can still see
@@ -295,3 +315,10 @@ Independent of every other open spec. Two notes:
   merge site saying why the two directions differ.
 - Copy-drops-both means `q = p; free(p); free(q)` compiles. This is a knowingly
   accepted false negative, not an oversight.
+- Loops are not specified here, and the implementation does not carry a `freed`
+  fact across a back edge: `while true do h.free(p) end` compiles. Observed
+  during closing verification. It is consistent with "an unknown state never
+  errors", but unlike the copy case it is decidable — a body that frees on
+  every path and does not reallocate frees twice on the second iteration.
+  Recorded as a gap rather than fixed, because the merge rule for back edges is
+  a second analysis question, not a detail of this one.
