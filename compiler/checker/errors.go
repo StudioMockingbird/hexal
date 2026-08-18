@@ -16,6 +16,18 @@ import (
 // #line output; Error.file records the same name.
 const sourceFilename = "main.hex"
 
+func freeLocalStorageDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return typeErrorAt(token, "free does not accept a pointer into this function's local storage")
+}
+
+func doubleFreeDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return typeErrorAt(token, "free releases storage already released on every path to this point")
+}
+
+func useAfterFreeDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return typeErrorAt(token, "this pointer's storage was released on every path to this point")
+}
+
 // resultAcceptsError reports whether a function result type can carry an
 // Error value: exactly Error, or a union containing an Error member.
 func resultAcceptsError(result compilerTypes.Type) bool {
@@ -192,7 +204,7 @@ func checkErrdeferStatement(statement parser.ErrdeferStatement, names *scope, ty
 	}
 	names.cleanupDepth++
 	defer func() { names.cleanupDepth-- }()
-	action := DeferredAction{Err: true}
+	action := DeferredAction{Err: true, SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
 	var source Operand
 	if call, isCall := statement.Expression.(parser.CallExpression); isCall {
 		checked := checkCall(call, names, typeEnvironment)

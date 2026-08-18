@@ -128,7 +128,10 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 		// pointer.value.m. One layer only, and the built-in .value property
 		// wins, so an object member named value is reached as p.value.value.
 		if receiver.typ.Element != nil && receiver.typ.Element.Object != nil && expression.Property.Lexeme != "value" {
-			receiver = dereferencePlace(receiver, expression.Property)
+			receiver = dereferencePlace(receiver, expression.Property, environment.flow)
+			if receiver.diagnostic != nil {
+				return receiver
+			}
 		}
 		if receiver.typ.Object != nil {
 			member, ok := receiver.typ.Object.Member(expression.Property.Lexeme)
@@ -182,7 +185,7 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 				},
 			}
 		}
-		return dereferencePlace(receiver, expression.Property)
+		return dereferencePlace(receiver, expression.Property, environment.flow)
 	case parser.IndexExpression:
 		return checkIndexPlace(expression, environment, typeEnvironment)
 	case parser.IntegerLiteral:
@@ -236,10 +239,15 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 }
 
 // dereferencePlace walks one pointer layer, for both the explicit .value
-// spelling and the inserted auto-dereference. The
-// pointee is writable exactly when the receiver's pointer type has a writable
-// pointee. Read the type, never a place mode carried by the pointer value.
-func dereferencePlace(receiver checkedExpression, token lexer.Token) checkedExpression {
+// spelling and the inserted auto-dereference. The optional flow state lets
+// place construction reject a known released local without affecting value
+// arguments, which are not dereferences.
+func dereferencePlace(receiver checkedExpression, token lexer.Token, states ...*flowState) checkedExpression {
+	if len(states) > 0 && states[0] != nil && receiver.source.Node.Kind == VariableExpression &&
+		receiver.source.Node.Binding != 0 && states[0].freed(receiver.source.Node.Binding) {
+		diagnostic := useAfterFreeDiagnostic(token)
+		return checkedExpression{token: token, diagnostic: &diagnostic}
+	}
 	if receiver.typ.Element != nil && compilerTypes.IsUnknown(*receiver.typ.Element) {
 		diagnostic := typeErrorAt(token, receiver.typ.Name+" cannot be dereferenced; recover a concrete pointer type first")
 		return checkedExpression{token: token, diagnostic: &diagnostic}

@@ -65,6 +65,7 @@ func checkStatements(statements []parser.Statement, names *scope, typeEnvironmen
 			checked = append(checked, checkedStatement)
 		}
 	}
+	diagnostics = append(diagnostics, validateDeferredActions(names)...)
 	return checked, diagnostics
 }
 
@@ -233,6 +234,11 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 	checked.Then = thenBody
 	checked.ThenDefers = append(checked.ThenDefers, thenScope.defers...)
 
+	continuing := make([]*flowState, 0, len(statement.ElseIf)+2)
+	if len(thenDiagnostics) == 0 && !sequenceTerminates(thenBody) && thenState != nil {
+		continuing = append(continuing, thenState)
+	}
+
 	for _, branch := range statement.ElseIf {
 		// An elseif condition is checked where every previous condition was
 		// false, so its state is the else-side chain; each body narrows a
@@ -270,8 +276,8 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 			SourceLine:      branch.Keyword.Line,
 			SourceColumn:    branch.Keyword.Column,
 		})
-		if len(branchDiagnostics) == 0 && elseState != nil && parentState != nil {
-			parentState.mergeBranch(branchState)
+		if len(branchDiagnostics) == 0 && !sequenceTerminates(branchBody) && branchState != nil {
+			continuing = append(continuing, branchState)
 		}
 	}
 	if statement.Else != nil {
@@ -281,21 +287,26 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		diagnostics = append(diagnostics, elseDiagnostics...)
 		checked.Else = elseBody
 		checked.ElseDefers = append(checked.ElseDefers, elseScope.defers...)
-		if len(elseDiagnostics) == 0 && elseState != parentState && parentState != nil {
-			parentState.mergeBranch(elseState)
+		if len(elseDiagnostics) == 0 && !sequenceTerminates(elseBody) && elseState != nil {
+			continuing = append(continuing, elseState)
 		}
+	} else if elseState != nil {
+		// A missing else is the implicit false path. Its narrowing survives
+		// only when it is the sole continuation; cleanup facts use it in the
+		// same conjunction as every explicit continuing path.
+		continuing = append(continuing, elseState)
 	}
-	if len(thenDiagnostics) == 0 && thenState != parentState && parentState != nil {
-		parentState.mergeBranch(thenState)
-	}
-	// Early-exit narrowing: when the then chain terminates the current path
-	// (break, continue, or return), the else-side chain is the only
-	// continuation, so its narrowings become the continuing state. This is
-	// the pattern behind `if step is EoS break end` followed by an element
-	// use.
-	if len(thenDiagnostics) == 0 && thenState != parentState && parentState != nil &&
-		sequenceTerminates(checked.Then) && elseState != nil {
-		parentState.adopt(elseState)
+	if parentState != nil {
+		switch len(continuing) {
+		case 1:
+			parentState.adopt(continuing[0])
+		case 2:
+			parentState.mergeBranches(continuing...)
+		default:
+			if len(continuing) > 2 {
+				parentState.mergeBranches(continuing...)
+			}
+		}
 	}
 	return checked, diagnostics
 }
@@ -383,7 +394,13 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 		return checked, append(diagnostics, typeErrorAt(statement.Keyword, "for-in binder count does not match the source type"))
 	}
 
+	parentState := names.flow
+	bodyState := parentState
+	if parentState != nil {
+		bodyState = parentState.clone()
+	}
 	bodyScope := names.child()
+	bodyScope.flow = bodyState
 	for index, binder := range statement.Binders {
 		binderType := binderTypes[index]
 		bound := binding{typ: binderType, use: compilerTypes.NewTypeUse(binderType), loopBinder: true, id: names.newBindingID()}
@@ -402,6 +419,9 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 	checked.Body = body
 	checked.BodyDefers = append(checked.BodyDefers, bodyScope.defers...)
 	checked.Source = source.source
+	if len(bodyDiagnostics) == 0 && parentState != nil && bodyState != nil {
+		parentState.mergeBranches(parentState.clone(), bodyState)
+	}
 	return checked, diagnostics
 }
 
@@ -469,16 +489,15 @@ func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvi
 	checked.ConditionLine = conditionToken.Line
 	checked.ConditionColumn = conditionToken.Column
 
-	// The condition's narrowing holds for the body; nothing survives the
-	// loop, so a cloned body state merges only its invalidations back.
-	// Cloning is unconditional so owning-state transitions inside the body
-	// cannot leak onto the continuing path and the back-edge invariant can
-	// be checked exactly.
-	bodyState := names.flow
-	if names.flow != nil {
-		bodyState = names.flow.clone()
+	// The condition's narrowing holds for the body. The parent state is also
+	// a zero-iteration path, so a body free cannot become definite after the
+	// loop merely because one iteration can execute it.
+	parentState := names.flow
+	bodyState := parentState
+	if parentState != nil {
+		bodyState = parentState.clone()
 		if len(conditionDiagnostics) == 0 {
-			if fact := conditionNarrowing(condition, names.flow, typeEnvironment); fact != nil {
+			if fact := conditionNarrowing(condition, parentState, typeEnvironment); fact != nil {
 				bodyState.narrow(fact.binding, fact.typ)
 			}
 		}
@@ -489,8 +508,8 @@ func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvi
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = body
 	checked.BodyDefers = append(checked.BodyDefers, bodyScope.defers...)
-	if len(bodyDiagnostics) == 0 && bodyState != names.flow && names.flow != nil {
-		names.flow.mergeBranch(bodyState)
+	if len(bodyDiagnostics) == 0 && parentState != nil && bodyState != nil {
+		parentState.mergeBranches(parentState.clone(), bodyState)
 	}
 	return checked, diagnostics
 }

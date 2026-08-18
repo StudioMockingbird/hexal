@@ -60,36 +60,35 @@ func moduleScope(moduleID string, registry *ModuleRegistry) *scope {
 	return &scope{module: make(map[string]binding), moduleID: moduleID, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
 }
 
-// flowFact records the branch-local treatment of one binding. A binding is
-// either narrowed to a proven effective read type, or marked escaped because
-// a writable address of its storage left the checker's sight. The two never
-// coexist: escape clears any narrowing, and an escaped binding cannot be
-// re-narrowed.
+// flowFact records the branch-local treatment of one binding. Narrowing and
+// freed facts survive only while the binding remains trackable; escape clears
+// both because a write through the escaped address can change the slot.
 type flowFact struct {
 	typ     compilerTypes.Type // effective read type; zero Type when not narrowed
 	escaped bool
 	variant *compilerTypes.AdtVariant // active ADT variant when variant-narrowed
+	freed   bool                      // the tracked pointer's pointee was released on every path here
 }
 
-// The flow table records narrowing facts only: collection ownership tracking
-// is gone, so cleanup is entirely the programmer's responsibility.
-
-// flowState is the narrowing table for one function body (or module scope),
-// keyed by binding identity. Branch checking clones the state, narrows the
-// clone, and merges only invalidation effects back; the narrowings themselves
-// never survive the closing end.
+// flowState is the branch-local fact table for one function body or module
+// scope. tracked distinguishes a known cleanup state from an intentionally
+// unknown state after a copy or escape.
 type flowState struct {
-	facts map[BindingID]flowFact
+	facts   map[BindingID]flowFact
+	tracked map[BindingID]bool
 }
 
 func newFlowState() *flowState {
-	return &flowState{facts: make(map[BindingID]flowFact)}
+	return &flowState{facts: make(map[BindingID]flowFact), tracked: make(map[BindingID]bool)}
 }
 
 func (state *flowState) clone() *flowState {
 	cloned := newFlowState()
 	for id, fact := range state.facts {
 		cloned.facts[id] = fact
+	}
+	for id := range state.tracked {
+		cloned.tracked[id] = true
 	}
 	return cloned
 }
@@ -150,21 +149,28 @@ func (state *flowState) narrowedType(id BindingID) (compilerTypes.Type, bool) {
 
 // narrow records that a null test proved the binding holds typ. An escaped
 // binding is never narrowable: a write through the escaped address could
-// replace the slot at any time.
+// replace the slot at any time. Cleanup state is independent of the
+// narrowing, so narrowing never revives or loses a freed fact.
 func (state *flowState) narrow(id BindingID, typ compilerTypes.Type) {
-	if fact, ok := state.facts[id]; ok && fact.escaped {
+	fact, ok := state.facts[id]
+	if ok && fact.escaped {
 		return
 	}
-	state.facts[id] = flowFact{typ: typ}
+	fact.typ = typ
+	fact.variant = nil
+	state.facts[id] = fact
 }
 
 // narrowVariant records that a match arm proved the binding holds one ADT
 // variant. An escaped binding is never narrowable.
 func (state *flowState) narrowVariant(id BindingID, variant *compilerTypes.AdtVariant) {
-	if fact, ok := state.facts[id]; ok && fact.escaped {
+	fact, ok := state.facts[id]
+	if ok && fact.escaped {
 		return
 	}
-	state.facts[id] = flowFact{variant: variant}
+	fact.typ = compilerTypes.Type{}
+	fact.variant = variant
+	state.facts[id] = fact
 }
 
 // narrowedVariant returns the binding's active ADT variant, if any.
@@ -188,42 +194,135 @@ func (state *flowState) invalidateNarrowing(id BindingID) {
 	}
 }
 
+// trackFreed starts cleanup tracking for a binding in the known-live state.
+func (state *flowState) trackFreed(id BindingID) {
+	if state == nil || id == 0 {
+		return
+	}
+	if state.tracked == nil {
+		state.tracked = make(map[BindingID]bool)
+	}
+	state.tracked[id] = true
+	fact := state.facts[id]
+	fact.freed = false
+	state.facts[id] = fact
+}
+
+// dropFreed abandons cleanup tracking without treating the binding's address
+// as escaped. Narrowing facts remain available to their existing consumers.
+func (state *flowState) dropFreed(id BindingID) {
+	if state == nil {
+		return
+	}
+	delete(state.tracked, id)
+	if fact, ok := state.facts[id]; ok {
+		fact.freed = false
+		state.facts[id] = fact
+	}
+}
+
+// freed reports only a known released state. Missing tracking is deliberately
+// indistinguishable from a live value to diagnostics.
+func (state *flowState) freed(id BindingID) bool {
+	if state == nil || !state.tracked[id] {
+		return false
+	}
+	fact, ok := state.facts[id]
+	return ok && fact.freed
+}
+
+func (state *flowState) markFreed(id BindingID) {
+	if state == nil || !state.tracked[id] {
+		return
+	}
+	fact := state.facts[id]
+	fact.freed = true
+	state.facts[id] = fact
+}
+
+func (state *flowState) clearFreed(id BindingID) {
+	if state == nil || !state.tracked[id] {
+		return
+	}
+	fact := state.facts[id]
+	fact.freed = false
+	state.facts[id] = fact
+}
+
 // escape records that a writable address of the binding escaped. It clears
-// any narrowing and marks the binding permanently non-narrowable.
+// narrowing and cleanup tracking because the slot can now change unseen.
 func (state *flowState) escape(id BindingID) {
+	if state == nil {
+		return
+	}
+	state.dropFreed(id)
 	state.facts[id] = flowFact{escaped: true}
 }
 
-// mergeBranch propagates a branch's invalidation effects into the continuing
-// state: any binding the branch assigned to or escaped keeps no narrowing
-// after the construct, and escape marks persist. Narrowings the branch added
-// are deliberately not propagated -- no narrowing survives the closing end.
+// mergeBranch merges one branch's invalidation effects. New control-flow code
+// uses mergeBranches so freed facts include every continuing path.
 func (state *flowState) mergeBranch(branch *flowState) {
-	for id, fact := range branch.facts {
-		if fact.escaped {
-			state.facts[id] = flowFact{escaped: true}
+	state.mergeBranches(branch)
+}
+
+// mergeBranches merges invalidation effects from all continuing branches.
+// Narrowing remains invalidated conservatively; unlike narrowing, freed is
+// retained only when every branch still tracks the binding and has freed it.
+func (state *flowState) mergeBranches(branches ...*flowState) {
+	if state == nil || len(branches) == 0 {
+		return
+	}
+	parent := state.clone()
+	for _, branch := range branches {
+		if branch == nil {
 			continue
 		}
-		parent, exists := state.facts[id]
-		if !exists {
-			continue
+		for id, fact := range branch.facts {
+			if fact.escaped {
+				state.escape(id)
+				continue
+			}
+			parentFact, exists := parent.facts[id]
+			if !exists {
+				continue
+			}
+			if !compilerTypes.Equal(parentFact.typ, fact.typ) {
+				current := state.facts[id]
+				current.typ = compilerTypes.Type{}
+				state.facts[id] = current
+			}
 		}
-		if !compilerTypes.Equal(parent.typ, fact.typ) {
-			parent.typ = compilerTypes.Type{}
-			state.facts[id] = parent
+	}
+	for id := range parent.tracked {
+		allFreed := true
+		for _, branch := range branches {
+			if branch == nil || !branch.tracked[id] || !branch.freed(id) {
+				allFreed = false
+				break
+			}
+		}
+		if allFreed {
+			state.markFreed(id)
+		} else {
+			state.dropFreed(id)
 		}
 	}
 }
 
 // adopt replaces the continuing state with one continuing branch's facts
 // wholesale. It is used only when every other branch terminates, so the
-// adopted branch's narrowings are provably the only continuation.
+// adopted branch's narrowings and cleanup facts are the only continuation.
 func (state *flowState) adopt(branch *flowState) {
 	if state == nil || branch == nil {
 		return
 	}
+	state.facts = make(map[BindingID]flowFact, len(branch.facts))
 	for id, fact := range branch.facts {
 		state.facts[id] = fact
+	}
+	state.tracked = make(map[BindingID]bool, len(branch.tracked))
+	for id := range branch.tracked {
+		state.tracked[id] = true
 	}
 }
 

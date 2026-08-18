@@ -157,6 +157,10 @@ type DeferredAction struct {
 	IsCall bool
 	Call   *Operand
 	Value  *Operand
+	// SourceLine and SourceColumn locate diagnostics emitted when the action
+	// is validated at scope exit rather than at registration.
+	SourceLine   int
+	SourceColumn int
 	// Err marks an errdefer action: it runs only when the current
 	// function exits by returning Error.
 	Err bool
@@ -457,6 +461,7 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 			})
 		}
 	}
+	diagnostics = append(diagnostics, validateDeferredActions(environment)...)
 
 	checked.TypeDeclarations = append(checked.TypeDeclarations, environment.generics.typeDeclarations...)
 	checked.SpecializedFunctions = specializedFunctionList(environment.generics)

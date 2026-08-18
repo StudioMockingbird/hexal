@@ -3,6 +3,7 @@ package checker
 import (
 	"fmt"
 
+	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
 )
@@ -13,7 +14,7 @@ import (
 func checkDeferStatement(statement parser.DeferStatement, names *scope, typeEnvironment *compilerTypes.Environment) (DeferStatement, compilerTypes.Diagnostics) {
 	names.cleanupDepth++
 	defer func() { names.cleanupDepth-- }()
-	action := DeferredAction{}
+	action := DeferredAction{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
 	var source Operand
 	if call, isCall := statement.Expression.(parser.CallExpression); isCall {
 		checked := checkCall(call, names, typeEnvironment)
@@ -149,6 +150,15 @@ func checkHeapFree(call parser.CallExpression, callee parser.PropertyExpression,
 			Message:  "value is not an allocation produced by this Heap",
 		}}
 	}
+	if nodeTracesToRef(&value.source.Node, names) {
+		diagnostic := freeLocalStorageDiagnostic(callee.Property)
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	if names.cleanupDepth == 0 {
+		if diagnostic := checkTrackedHeapFree(value.source, callee.Property, names); diagnostic != nil {
+			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		}
+	}
 	receiverNode := expressionNode(receiver.source)
 	node := Expression{
 		Kind:        HeapFreeExpression,
@@ -158,4 +168,40 @@ func checkHeapFree(call parser.CallExpression, callee parser.PropertyExpression,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Node: node}
 	return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+}
+
+func checkTrackedHeapFree(value Operand, token lexer.Token, names *scope) *compilerTypes.Diagnostic {
+	if names == nil || names.flow == nil || value.Node.Kind != VariableExpression || value.Node.Binding == 0 {
+		return nil
+	}
+	if names.flow.freed(value.Node.Binding) {
+		diagnostic := doubleFreeDiagnostic(token)
+		return &diagnostic
+	}
+	names.flow.markFreed(value.Node.Binding)
+	return nil
+}
+
+func validateDeferredActions(names *scope) compilerTypes.Diagnostics {
+	if names == nil || names.flow == nil {
+		return nil
+	}
+	diagnostics := make(compilerTypes.Diagnostics, 0)
+	for index := len(names.defers) - 1; index >= 0; index-- {
+		action := names.defers[index]
+		var source *Operand
+		if action.IsCall {
+			source = action.Call
+		} else {
+			source = action.Value
+		}
+		if source == nil || source.Node.Kind != HeapFreeExpression || len(source.Node.Arguments) != 1 {
+			continue
+		}
+		token := lexer.Token{Line: action.SourceLine, Column: action.SourceColumn}
+		if diagnostic := checkTrackedHeapFree(source.Node.Arguments[0], token, names); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
+	}
+	return diagnostics
 }

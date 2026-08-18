@@ -8,6 +8,17 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+func trackablePointerBinding(bound binding) bool {
+	return bound.kind == dataBinding && !bound.parameter && !bound.loopBinder && bound.typ.Element != nil
+}
+
+func directPointerBinding(source Operand, target compilerTypes.Type) BindingID {
+	if target.Element == nil || source.Type.Element == nil || source.Node.Kind != VariableExpression || source.Node.Binding == 0 {
+		return 0
+	}
+	return source.Node.Binding
+}
+
 func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, environment *scope) (TypeDeclaration, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	name := declaration.Name.Lexeme
@@ -404,6 +415,13 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		known := *initializer.known
 		declaredBinding.known = &known
 	}
+	if len(diagnostics) == 0 && environment.flow != nil && trackablePointerBinding(declaredBinding) {
+		environment.flow.trackFreed(declaredBinding.id)
+		if sourceBinding := directPointerBinding(initializer.source, declaredType); sourceBinding != 0 {
+			environment.flow.dropFreed(sourceBinding)
+			environment.flow.dropFreed(declaredBinding.id)
+		}
+	}
 	return Declaration{
 		Name:         declaration.Name.Lexeme,
 		Binding:      declaredBinding.id,
@@ -470,6 +488,12 @@ func checkAssignment(assignment parser.Assignment, environment *scope, typeEnvir
 	}
 	if len(diagnostics) == 0 && environment.flow != nil && targetBinding != 0 {
 		environment.flow.invalidateNarrowing(targetBinding)
+		if sourceBinding := directPointerBinding(initializer.source, targetType); sourceBinding != 0 {
+			environment.flow.dropFreed(sourceBinding)
+			environment.flow.dropFreed(targetBinding)
+		} else {
+			environment.flow.clearFreed(targetBinding)
+		}
 	}
 	if len(diagnostics) == 0 && targetBinding != 0 {
 		// Assignment re-sources the slot: the binding now holds the ref-derived
