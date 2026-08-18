@@ -14,10 +14,25 @@ import (
 // order, and returns the diagnostics.
 func checkModules(t *testing.T, app, math string) (map[string]Program, error) {
 	t.Helper()
-	return CheckModules(map[string]parser.Program{
-		"app.hex":  parseProgram(t, app),
-		"math.hex": parseProgram(t, math),
-	}, []string{"math", "app"}, "app")
+	appProgram := parseProgram(t, app)
+	programs := map[string]parser.Program{"app.hex": appProgram, "math.hex": parseProgram(t, math)}
+	// The helper's only dependency is math, so every import app writes
+	// resolves there; the alias comes from the source as the resolver would
+	// have recorded it.
+	return CheckModules(graphOf("app", []string{"math", "app"}, programs,
+		map[string][]ModuleEdge{"app": edgesToMath(appProgram)}))
+}
+
+// edgesToMath records one resolved edge per import declaration in program,
+// each naming the helper's single dependency.
+func edgesToMath(program parser.Program) []ModuleEdge {
+	edges := make([]ModuleEdge, 0, 1)
+	for _, item := range program.Items {
+		if importDecl, ok := item.(parser.ImportDeclaration); ok {
+			edges = append(edges, ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: "math"})
+		}
+	}
+	return edges
 }
 
 // A qualified call to an exported function resolves against the target
@@ -170,6 +185,6 @@ func TestUnqualifiedUseOfExportedNameFails(t *testing.T) {
 // receiver keeps failing as an unknown variable.
 func TestDanglingAliasQualifiedCallKeepsUnknownVariable(t *testing.T) {
 	app := parseProgram(t, "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n")
-	_, err := CheckModules(map[string]parser.Program{"app.hex": app}, []string{"app"}, "app")
+	_, err := CheckModules(graphOf("app", []string{"app"}, map[string]parser.Program{"app.hex": app}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "math"}}}))
 	requireMessage(t, err, "unknown variable Math")
 }

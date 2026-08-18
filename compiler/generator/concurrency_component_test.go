@@ -16,7 +16,7 @@ import (
 // root module C keeps only its call sites.
 func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -104,7 +104,7 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 // definition, and the module header includes the component.
 func TestConcurrencyComponentAtomicOnly(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -138,7 +138,7 @@ func TestConcurrencyComponentAtomicOnly(t *testing.T) {
 // includes the component.
 func TestConcurrencyComponentAbsentWithoutConcurrency(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -171,11 +171,12 @@ func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 		}
 		parsed[key] = program
 	}
-	programs, err := checker.CheckModules(parsed, []string{"math", "app"}, "app")
+	graph := moduleGraphOf("app", []string{"math", "app"}, parsed, map[string][]checker.ModuleEdge{"app": {{Alias: "Math", Target: "math"}}})
+	programs, err := checker.CheckModules(graph)
 	if err != nil {
 		t.Fatalf("CheckModules() error = %v", err)
 	}
-	files, err := GenerateChecked(programs, []string{"app", "math"}, "app")
+	files, err := GenerateChecked(graph, programs)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -193,11 +194,11 @@ func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 // Equivalent compilations render identical concurrency artifacts.
 func TestConcurrencyComponentDeterministic(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n")
-	first, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	second, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

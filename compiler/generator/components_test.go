@@ -98,7 +98,7 @@ func TestRuntimeComponentSelectedByTrap(t *testing.T) {
 // silently overwriting.
 func TestGenerateCheckedRejectsDuplicateArtifactKey(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

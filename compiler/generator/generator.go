@@ -18,18 +18,19 @@ import (
 // required. Deterministic: the order slice is the canonical dependency-first
 // order from the resolver, and every merged collection is deduplicated by
 // canonical identity in that order.
-func GenerateChecked(programs map[string]checker.Program, order []string, entrypointCanonical string) (map[string]string, error) {
-	files := make(map[string]string, 1+2*len(order))
-	modules := make([]*moduleEmission, 0, len(order))
-	for _, canonical := range order {
-		key := canonical + ".hex"
+func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program) (map[string]string, error) {
+	files := make(map[string]string, 1+2*len(graph.Order))
+	modules := make([]*moduleEmission, 0, len(graph.Order))
+	entrypointCanonical := graph.Root
+	for _, canonical := range graph.Order {
+		key := graph.Modules[canonical].LogicalKey
 		program, ok := programs[key]
 		if !ok {
-			key = canonical
-			program, ok = programs[key]
-		}
-		if !ok {
-			return nil, fmt.Errorf("generator: order names module %s, but no checked program has that key", canonical)
+			// CheckModules emits one entry per graph node, so this lookup is
+			// total by construction; a caller that assembled the checked map
+			// independently of the graph gets a diagnostic, never a silently
+			// omitted module.
+			return nil, fmt.Errorf("generator: the graph names module %s at source key %s, but no checked program has that key", canonical, key)
 		}
 		emission, discoveryErr := discoverModuleEmission(program, canonical, key)
 		if discoveryErr != nil {

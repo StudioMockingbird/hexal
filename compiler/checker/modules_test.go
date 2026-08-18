@@ -63,7 +63,7 @@ func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
 func TestImportedModuleRejectsExecutableStatements(t *testing.T) {
 	app := parseProgram(t, "module Math = import \"./vec3\"\n")
 	dep := parseProgram(t, "x: Int32 = 1\n")
-	_, err := CheckModules(map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, []string{"vec3", "app"}, "app")
+	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	requireMessage(t, err, "imported module vec3 contains executable statements")
 }
 
@@ -71,7 +71,7 @@ func TestImportedModuleRejectsExecutableStatements(t *testing.T) {
 func TestImportedModuleDeclarationsOnly(t *testing.T) {
 	app := parseProgram(t, "module Math = import \"./vec3\"\n")
 	dep := parseProgram(t, "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
-	checked, err := CheckModules(map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, []string{"vec3", "app"}, "app")
+	checked, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	if err != nil {
 		t.Fatalf("CheckModules rejected declarations-only modules: %v", err)
 	}
@@ -85,22 +85,16 @@ func TestParameterCannotShadowImportAlias(t *testing.T) {
 	requireDiagnostic(t, "module Math = import \"./math\"\nfun f(Math: Int32) do\nend\n", "import alias Math conflicts with an existing name")
 }
 
-func TestCanonicalModuleID(t *testing.T) {
-	cases := []struct {
-		fromModule string
-		path       string
-		want       string
-	}{
-		{"app", "./math", "math"},
-		{"app", "./math.hex", "math"},
-		{"app", "./graphics/shapes", "graphics/shapes"},
-		{"graphics/app", "../shared/tools", "shared/tools"},
-		{"graphics/app", "./shared/tools.hex", "graphics/shared/tools"},
-		{"app", "math/vec3", "math/vec3"},
-	}
-	for _, item := range cases {
-		if got := canonicalModuleID(item.fromModule, item.path); got != item.want {
-			t.Fatalf("canonicalModuleID(%q, %q) = %q, want %q", item.fromModule, item.path, got, item.want)
+// graphOf builds the module graph these tests would otherwise receive from
+// reachability. Import edges are stated explicitly: resolution is the
+// resolver's job, and the checker only reads its result.
+func graphOf(root string, order []string, programs map[string]parser.Program, edges map[string][]ModuleEdge) *ModuleGraph {
+	graph := &ModuleGraph{Order: order, Modules: make(map[string]ModuleNode, len(order)), Root: root}
+	for _, canonical := range order {
+		key := canonical + ".hex"
+		graph.Modules[canonical] = ModuleNode{
+			Canonical: canonical, LogicalKey: key, Program: programs[key], Imports: edges[canonical],
 		}
 	}
+	return graph
 }

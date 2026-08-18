@@ -201,8 +201,9 @@ authority. Do not copy a rule out of a spec without checking it against
 - Ordinary tests never invoke an external tool — gcc, clang, or anything else.
   All ordinary tests are pure Go.
 - `go test ./compiler` does not run the full-pipeline suite (that package
-  declares only the benchmark-source smoke test in `bench_test.go`); use
-  `go test ./...` or target `./compiler/tests/integration`.
+  declares only the benchmark-source smoke test in `bench_test.go` and the
+  module-graph tests in `modulegraph_test.go`); use `go test ./...` or target
+  `./compiler/tests/integration`.
 - `go test ./...` must pass with no external toolchain installed.
 - Future test packages require a genuinely distinct execution lifecycle,
   dependency boundary, or toolchain requirement; a Go directory is a package

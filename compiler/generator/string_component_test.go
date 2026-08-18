@@ -15,7 +15,7 @@ import (
 // module header includes only the component it needs.
 func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 	program := checkedGeneratorSource(t, "greeting: String = \"hello\"\nfarewell: String = \"bye\"\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -90,7 +90,7 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 // operations to the pair; a String-only program keeps the strand surface out.
 func TestStringComponentStrandSurface(t *testing.T) {
 	program := checkedGeneratorSource(t, "label: Strand = \"hexal\"\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -107,7 +107,7 @@ func TestStringComponentStrandSurface(t *testing.T) {
 	}
 
 	program = checkedGeneratorSource(t, "text: String = \"x\"\n")
-	files, err = GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err = GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -123,7 +123,7 @@ func TestStringComponentStrandSurface(t *testing.T) {
 // the component.
 func TestStringComponentAbsentWithoutStrings(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -156,11 +156,12 @@ func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 		}
 		parsed[key] = program
 	}
-	programs, err := checker.CheckModules(parsed, []string{"math", "app"}, "app")
+	graph := moduleGraphOf("app", []string{"math", "app"}, parsed, map[string][]checker.ModuleEdge{"app": {{Alias: "Math", Target: "math"}}})
+	programs, err := checker.CheckModules(graph)
 	if err != nil {
 		t.Fatalf("CheckModules() error = %v", err)
 	}
-	files, err := GenerateChecked(programs, []string{"app", "math"}, "app")
+	files, err := GenerateChecked(graph, programs)
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -178,11 +179,11 @@ func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 // Equivalent compilations render identical string artifacts.
 func TestStringComponentDeterministic(t *testing.T) {
 	program := checkedGeneratorSource(t, "greeting: String = \"hello\"\n")
-	first, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	second, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

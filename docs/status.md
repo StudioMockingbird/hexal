@@ -31,7 +31,6 @@ other.
 | Work | Spec |
 |---|---|
 | Audit refactor batch | [0074](specs/0074-audit-refactor-batch.md) |
-| Authoritative module graph | [0076](specs/0076-authoritative-module-graph.md) |
 | Literal registry | [0077](specs/0077-literal-registry.md) |
 | Statically decidable memory misuse — non-heap free, double free, use-after-free | [0079](specs/0079-non-heap-free-rejection.md) |
 

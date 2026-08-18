@@ -2,8 +2,6 @@
 package checker
 
 import (
-	"strings"
-
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -230,7 +228,7 @@ type binding struct {
 // capabilities, and assignment places. A failed statement never enters the
 // environment, so later diagnostics cannot observe invalid declarations.
 func Check(program parser.Program) (Program, error) {
-	checked, err := CheckModules(map[string]parser.Program{entrypointLogicalKey: program}, []string{canonicalEntrypoint}, canonicalEntrypoint)
+	checked, err := CheckModules(SingleModuleGraph(program))
 	// The partially checked program is returned alongside diagnostics: clean
 	// statements survive failed ones, and later diagnostics cannot observe
 	// invalid declarations.
@@ -244,29 +242,23 @@ const (
 	canonicalEntrypoint  = "app"
 )
 
-// CheckModules checks every reachable module in dependency-first order (the
-// order slice, canonical module ids, dependencies first). Each module is
-// checked in its own scope; the returned map is keyed by logical source key
-// and holds only modules that checked clean. Diagnostics are merged sorted by
-// module order, then line, then column.
-func CheckModules(programs map[string]parser.Program, order []string, entrypointCanonical string) (map[string]Program, error) {
-	checked := make(map[string]Program, len(programs))
+// CheckModules checks every module of the graph in its dependency-first
+// order. Each module is checked in its own scope; the returned map is keyed by
+// the graph's logical source keys and holds one entry per node, so a later
+// consumer's lookup is total. Diagnostics are merged sorted by module order,
+// then line, then column.
+func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
+	checked := make(map[string]Program, len(graph.Order))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	registry := buildModuleRegistry(programs, order, entrypointCanonical)
+	registry := buildModuleRegistry(graph)
+	entrypointCanonical := graph.Root
 	// One arena per compilation: every module shares it so constructed
 	// types intern once across module boundaries.
 	arena := compilerTypes.NewArena()
-	for _, moduleID := range order {
-		key := moduleID + ".hex"
-		program, ok := programs[key]
-		if !ok {
-			key = moduleID
-			program, ok = programs[key]
-		}
-		if !ok {
-			continue
-		}
-		moduleChecked, moduleDiagnostics := checkModule(program, moduleID, entrypointCanonical, registry, arena)
+	for _, moduleID := range graph.Order {
+		node := graph.Modules[moduleID]
+		key := node.LogicalKey
+		moduleChecked, moduleDiagnostics := checkModule(node.Program, moduleID, entrypointCanonical, registry, arena)
 		diagnostics = append(diagnostics, moduleDiagnostics...)
 		checked[key] = moduleChecked
 		if len(moduleDiagnostics) == 0 {
@@ -282,16 +274,9 @@ func CheckModules(programs map[string]parser.Program, order []string, entrypoint
 	// program, deduplicated by key and deterministically ordered. Requests
 	// recorded while a later module failed are harmless: the compilation
 	// already reports diagnostics.
-	for _, moduleID := range order {
-		key := moduleID + ".hex"
-		program, ok := checked[key]
-		if !ok {
-			key = moduleID
-			program, ok = checked[key]
-		}
-		if !ok {
-			continue
-		}
+	for _, moduleID := range graph.Order {
+		key := graph.Modules[moduleID].LogicalKey
+		program := checked[key]
 		registry.assembleSpecializations(moduleID, &program)
 		checked[key] = program
 	}
@@ -452,7 +437,9 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 			// checker runs. The alias is a fixed module identity, not a
 			// value; name lookup skips it and qualified resolution reaches
 			// the target module's names instead.
-			target := canonicalModuleID(moduleID, strings.Trim(statement.Path.Lexeme, "\""))
+			// The target is the graph's resolved edge, recorded in the
+			// registry: the checker reads resolution, it never repeats it.
+			target, _ := registry.importTarget(moduleID, statement.Alias.Lexeme)
 			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
 				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
 					Category: compilerTypes.NameError,

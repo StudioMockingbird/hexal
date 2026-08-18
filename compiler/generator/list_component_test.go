@@ -13,7 +13,7 @@ import (
 // owning module header includes the component.
 func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    numbers: List<Int32> = List<Int32>.new(h)\n    defer numbers.free(h)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -48,7 +48,7 @@ func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // and trap messages).
 func TestListComponentHexalHeaderOwnsNoListText(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> = values.slice(0, 1)\n    first: Int32 = values[0]\n    values.set(0, 9)\n    last: Int32 = values.pop()\n    values.clear()\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -162,7 +162,7 @@ static inline hex_view_Int32 hex_list_slice_Int32(const hex_list_Int32 *list, ui
 // module includes it.
 func TestListComponentAbsentWithoutReachableLists(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 = 1\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -177,11 +177,11 @@ func TestListComponentAbsentWithoutReachableLists(t *testing.T) {
 // Equivalent compilations render identical list.h bytes.
 func TestListComponentDeterministic(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\nend")
-	first, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	second, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -197,7 +197,7 @@ func TestListComponentDeterministic(t *testing.T) {
 // module includes it.
 func TestListComponentMigratesForModuleOwnedObjectElements(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo(h: Heap) do\n    points: List<Point> = List<Point>.new(h)\n    defer points.free(h)\n    points.push(Point { x = 1, })\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

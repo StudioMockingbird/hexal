@@ -9,7 +9,7 @@ import (
 
 func TestGenerateHeapAllocationAndFree(t *testing.T) {
 	program := checkedGeneratorSource(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p)")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func assertRawAllocateCheckedArithmetic(t *testing.T, heapC string) {
 // the module header still needs the representation for its initializer.
 func TestGenerateHeapHandleSelectsComponentPair(t *testing.T) {
 	program := checkedGeneratorSource(t, "h: Heap = Heap.new()\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestGenerateHeapHandleSelectsComponentPair(t *testing.T) {
 // A program that never touches Heap emits no heap component artifact.
 func TestGenerateScalarOnlyEmitsNoHeapArtifacts(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestGenerateScalarOnlyEmitsNoHeapArtifacts(t *testing.T) {
 
 func TestGenerateDeferReverseOrderAndCapture(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun record(value: Int32) do end mut first: Int32 = 1 mut second: Int32 = 2 defer record(first) defer record(second)")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestGenerateDeferReverseOrderAndCapture(t *testing.T) {
 
 func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun record(value: Int32) do end fun run(): Int32 do\nmut flag: Bool = true\nwhile flag do\n    defer record(1)\n    break\nend\nreturn 0\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +159,7 @@ func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
 // raw fputs remains.
 func TestGenerateListAndDictCheckedGrowth(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatal(err)
 	}

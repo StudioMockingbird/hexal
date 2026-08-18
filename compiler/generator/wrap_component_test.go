@@ -64,7 +64,7 @@ func TestWrapHeaderRendersSelectedHelpersInDiscoveryOrder(t *testing.T) {
 // includes the component header after hexal.h.
 func TestWrapHelpersLeaveHexalHeader(t *testing.T) {
 	program := checkedGeneratorSource(t, "mut value: Int8 = 127 wrapped: Int8 = value + 1\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -87,7 +87,7 @@ func TestWrapHelpersLeaveHexalHeader(t *testing.T) {
 // emitted, and no module requires the component.
 func TestWrapComponentAbsentWithoutSelection(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 13\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -170,7 +170,7 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 			},
 		},
 	}}
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)

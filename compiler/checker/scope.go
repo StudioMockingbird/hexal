@@ -27,9 +27,8 @@ type scope struct {
 	module       map[string]binding
 	local        map[string]binding // nil only at module level
 	parent       *scope
-	moduleID     string            // the enclosing module's canonical identity
-	imports      map[string]string // import alias -> canonical module id
-	owner        string            // enclosing function or method name, for diagnostics
+	moduleID     string // the enclosing module's canonical identity
+	owner        string // enclosing function or method name, for diagnostics
 	result       *compilerTypes.Type
 	resultUse    *compilerTypes.TypeUse
 	methods      *methodTable
@@ -47,20 +46,10 @@ type scope struct {
 	registry *ModuleRegistry
 }
 
-// moduleScope builds the root frame of one module. The scope copies its
-// import table from the registry so the table is never shared mutable state;
-// a module with no registry entry (the single-module path) carries an empty
-// table.
+// moduleScope builds the root frame of one module. Import aliases are read
+// from the registry through importTarget; the scope keeps no copy of its own.
 func moduleScope(moduleID string, registry *ModuleRegistry) *scope {
 	next := BindingID(0)
-	imports := make(map[string]string)
-	if registry != nil {
-		if entry, ok := registry.modules[moduleID]; ok {
-			for alias, target := range entry.imports {
-				imports[alias] = target
-			}
-		}
-	}
 	generics := newGenericTable()
 	if registry != nil {
 		// Qualified type references resolve through the module's import
@@ -68,7 +57,7 @@ func moduleScope(moduleID string, registry *ModuleRegistry) *scope {
 		generics.registry = registry
 		generics.moduleID = moduleID
 	}
-	return &scope{module: make(map[string]binding), moduleID: moduleID, imports: imports, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
+	return &scope{module: make(map[string]binding), moduleID: moduleID, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
 }
 
 // flowFact records the branch-local treatment of one binding. A binding is

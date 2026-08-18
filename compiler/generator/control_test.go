@@ -14,7 +14,7 @@ import (
 
 func TestGenerateTryStatementLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun fail(): Nil | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    try fail()\n    return 1\nend\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestGenerateTryStatementLowering(t *testing.T) {
 
 func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun read_count(): Int32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    count: Int32 = try read_count()\n    return count\nend\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	}
 	// A union with several success members needs a normalization temporary.
 	multiple := checkedGeneratorSource(t, "fun read_number(): Int32 | Float32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    value: Int32 | Float32 = try read_number()\n    return 1\nend\n")
-	files, err = GenerateChecked(map[string]checker.Program{"app.hex": multiple}, []string{"app"}, "app")
+	files, err = GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": multiple})
 	multiC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 // typedef exists.
 func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
 // component; the module C file keeps only the direct core call sites.
 func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun worker(m: Mutex): Bool do\n    m.lock()\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(m)\n    task.join()\n    return 0\nend\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -100,7 +100,7 @@ func TestUTF8BoundaryTable(t *testing.T) {
 // stale mirror.
 func TestGeneratedUTF8ValidationGuards(t *testing.T) {
 	program := checkedGeneratorSource(t, "greeting: String = \"hi\"\n")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

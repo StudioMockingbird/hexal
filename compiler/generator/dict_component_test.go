@@ -13,7 +13,7 @@ import (
 // owning module header includes the component.
 func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -49,7 +49,7 @@ func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // checked operands, the direct Strand memcmp probes, and trap messages).
 func TestDictComponentHexalHeaderOwnsNoDictText(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -344,7 +344,7 @@ static inline void hex_dict_free_Strand_Int32(hex_heap h, hex_dict_Strand_Int32 
 // header); migration neither repairs nor worsens it.
 func TestDictComponentModuleObjectValueRendersAsSpelled(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo(h: Heap) do\n    points: Dict<Int32, Point> = Dict<Int32, Point>.new(h)\n    defer points.free(h)\n    points.insert(1, Point { x = 1 })\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -358,7 +358,7 @@ func TestDictComponentModuleObjectValueRendersAsSpelled(t *testing.T) {
 // module includes it.
 func TestDictComponentAbsentWithoutReachableDicts(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 = 1\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -373,11 +373,11 @@ func TestDictComponentAbsentWithoutReachableDicts(t *testing.T) {
 // Equivalent compilations render identical dict.h bytes.
 func TestDictComponentDeterministic(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend")
-	first, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	second, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

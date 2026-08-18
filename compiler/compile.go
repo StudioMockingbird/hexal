@@ -71,7 +71,7 @@ func Compile(sources map[string]string, entrypoint string) CompilationResult {
 	// Reachability lexes and parses every reachable module and returns the
 	// token counts it observed; the lex, parse, and resolution phases fold
 	// into one duration and one lex pass.
-	order, programs, tokenCounts, resolveErr := reachableModules(sources, entrypoint)
+	graph, resolveErr := reachableModules(sources, entrypoint)
 	stats.LexDuration = time.Since(started)
 	if resolveErr != nil {
 		return failureResult(resolveErr, stats, compileStarted)
@@ -79,20 +79,20 @@ func Compile(sources map[string]string, entrypoint string) CompilationResult {
 
 	// Stats sum over the reachable module set: lines and tokens from the
 	// parse pass result, with no second lex.
-	for key := range programs {
-		stats.SourceLines += sourceLineCount(sources[key])
-		stats.TokenCount += tokenCounts[key]
+	for _, node := range graph.Modules {
+		stats.SourceLines += sourceLineCount(sources[node.LogicalKey])
+		stats.TokenCount += node.TokenCount
 	}
 
 	started = time.Now()
-	checked, checkErr := checker.CheckModules(programs, order, canonicalModuleID(entrypoint))
+	checked, checkErr := checker.CheckModules(graph)
 	stats.CheckDuration = time.Since(started)
 	if checkErr != nil {
 		return failureResult(checkErr, stats, compileStarted)
 	}
 
 	started = time.Now()
-	files, generateErr := generator.GenerateChecked(checked, order, canonicalModuleID(entrypoint))
+	files, generateErr := generator.GenerateChecked(graph, checked)
 	stats.GenerateDuration = time.Since(started)
 	if generateErr != nil {
 		return failureResult(generateErr, stats, compileStarted)
@@ -105,8 +105,10 @@ func Compile(sources map[string]string, entrypoint string) CompilationResult {
 	}
 }
 
-// canonicalModuleID strips a trailing ".hex".
-func canonicalModuleID(logicalKey string) string {
+// canonicalFromLogicalKey strips a trailing ".hex" from a logical source key,
+// the one place an id is derived from a key. Every other consumer reads a
+// node's LogicalKey instead of rebuilding it.
+func canonicalFromLogicalKey(logicalKey string) string {
 	return strings.TrimSuffix(logicalKey, ".hex")
 }
 
@@ -122,7 +124,7 @@ func canonicalModuleID(logicalKey string) string {
 //     source-map root".
 //   - each remaining component must be a valid identifier, else "invalid
 //     component <c> in import path <rawPath>".
-//   - join remaining components with "/", then canonicalModuleID: a trailing
+//   - join remaining components with "/", then canonicalFromLogicalKey: a trailing
 //     ".hex" on the path is stripped and the result is the canonical id.
 //
 // The caller attaches the offending Path token's line/column to the error.
@@ -176,34 +178,37 @@ func resolveImportPath(fromModule, rawPath string) (string, error) {
 	if dir != "" {
 		rest = dir + "/" + rest
 	}
-	return canonicalModuleID(rest), nil
+	return canonicalFromLogicalKey(rest), nil
 }
 
 // reachableModules lexes and parses every module reachable from the entrypoint
-// (its logical key) once, resolving imports, and returns the reachable modules'
-// canonical ids in post-order (dependencies before dependents) plus the parsed
-// programs keyed by logical key. A lex or parse failure in any reachable
-// module aborts the scan, returning that module's merged diagnostics; every
-// resolvable import error is collected and returned sorted by module
-// post-order position, then line, then column.
-func reachableModules(sources map[string]string, entrypoint string) ([]string, map[string]parser.Program, map[string]int, error) {
+// (its logical key) once, resolving imports, and returns the authoritative
+// module graph: canonical ids in post-order (dependencies before dependents),
+// each with the exact source key it was read from, its parsed program, and its
+// resolved imports. A lex or parse failure in any reachable module aborts the
+// scan, returning that module's merged diagnostics; every resolvable import
+// error is collected and returned sorted by module post-order position, then
+// line, then column.
+func reachableModules(sources map[string]string, entrypoint string) (*checker.ModuleGraph, error) {
+	root := canonicalFromLogicalKey(entrypoint)
 	state := &reachState{
-		sources:     sources,
-		parsed:      make(map[string]*parser.Program),
-		visited:     make(map[string]bool),
-		byModule:    make(map[string]compilerTypes.Diagnostics),
-		tokenCounts: make(map[string]int),
+		sources:  sources,
+		nodes:    make(map[string]*checker.ModuleNode),
+		visited:  make(map[string]bool),
+		byModule: make(map[string]compilerTypes.Diagnostics),
 	}
-	if err := state.visit(canonicalModuleID(entrypoint)); err != nil {
-		return nil, nil, nil, err
+	if err := state.visit(root); err != nil {
+		return nil, err
 	}
-	programs := make(map[string]parser.Program, len(state.parsed))
-	for key, program := range state.parsed {
-		programs[key] = *program
+	graph := &checker.ModuleGraph{
+		Order:   state.order,
+		Modules: make(map[string]checker.ModuleNode, len(state.order)),
+		Root:    root,
 	}
-	tokenCounts := make(map[string]int, len(state.tokenCounts))
-	for key, count := range state.tokenCounts {
-		tokenCounts[key] = count
+	// Order is the membership authority: a node is published only for a
+	// module that completed its visit, so the two can never disagree.
+	for _, moduleID := range state.order {
+		graph.Modules[moduleID] = *state.nodes[moduleID]
 	}
 	merged := make(compilerTypes.Diagnostics, 0)
 	for _, moduleID := range state.order {
@@ -217,23 +222,23 @@ func reachableModules(sources map[string]string, entrypoint string) ([]string, m
 		merged = append(merged, diagnostics...)
 	}
 	if len(merged) > 0 {
-		return state.order, programs, tokenCounts, merged
+		return graph, merged
 	}
-	return state.order, programs, tokenCounts, nil
+	return graph, nil
 }
 
-// reachState carries one import-resolution DFS: the parsed-program cache, the
-// post-order canonical id list, the DFS stack for cycle detection, every
-// resolution diagnostic bucketed by its module, and the per-source-key token
-// counts observed while lexing (so the caller never re-lexes for stats).
+// reachState carries one import-resolution DFS: the node under construction
+// per canonical id, the post-order canonical id list, the DFS stack for cycle
+// detection, and every resolution diagnostic bucketed by its module. Each
+// node records the token count observed while lexing it, so the caller never
+// re-lexes for stats.
 type reachState struct {
-	sources     map[string]string
-	parsed      map[string]*parser.Program // logical source key -> program
-	visited     map[string]bool            // canonical ids with a visit begun
-	stack       []string                   // canonical ids on the current DFS path
-	order       []string                   // post-order: dependencies first
-	byModule    map[string]compilerTypes.Diagnostics
-	tokenCounts map[string]int // logical source key -> token count
+	sources  map[string]string
+	nodes    map[string]*checker.ModuleNode // canonical id -> node under construction
+	visited  map[string]bool                // canonical ids with a visit begun
+	stack    []string                       // canonical ids on the current DFS path
+	order    []string                       // post-order: dependencies first
+	byModule map[string]compilerTypes.Diagnostics
 }
 
 // visit parses canonical and its transitive imports, then appends canonical
@@ -259,12 +264,16 @@ func (s *reachState) visit(canonical string) error {
 	if lexErr != nil {
 		return mergeDiagnostics(lexErr, nil)
 	}
-	s.tokenCounts[key] = len(tokens)
 	program, parseErr := parser.Parse(tokens)
 	if parseErr != nil {
 		return mergeDiagnostics(nil, parseErr)
 	}
-	s.parsed[key] = &program
+	s.nodes[canonical] = &checker.ModuleNode{
+		Canonical:  canonical,
+		LogicalKey: key,
+		Program:    program,
+		TokenCount: len(tokens),
+	}
 
 	s.stack = append(s.stack, canonical)
 	imported := make(map[string]bool)
@@ -295,6 +304,11 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportDe
 		s.record(fromModule, line, column, err.Error())
 		return nil
 	}
+	// The edge is the resolution result, recorded in source order for every
+	// import whose path resolves. A path that does not resolve has no target
+	// to name, and its diagnostic already fails the compilation.
+	node := s.nodes[fromModule]
+	node.Imports = append(node.Imports, checker.ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: target})
 	if len(s.sourceKeyFor(target)) == 0 {
 		s.record(fromModule, line, column, "imported module "+rawPath+" was not found")
 		return nil
@@ -317,7 +331,7 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportDe
 func (s *reachState) sourceKeyFor(id string) []string {
 	keys := make([]string, 0)
 	for key := range s.sources {
-		if canonicalModuleID(key) == id {
+		if canonicalFromLogicalKey(key) == id {
 			keys = append(keys, key)
 		}
 	}

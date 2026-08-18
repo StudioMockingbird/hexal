@@ -13,7 +13,7 @@ import (
 // module header includes the component.
 func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    bytes: Array<UInt8, 2> = [4, 5]\n    first: Int32 = fixed[0]\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -48,7 +48,7 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // and trap messages).
 func TestArrayComponentHexalHeaderOwnsNoArrayText(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    view: View<Int32> = fixed.slice(0, 2)\n    first: Int32 = fixed[0]\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -98,7 +98,7 @@ static inline hex_view_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *ar
 // module includes it.
 func TestArrayComponentAbsentWithoutReachableArrays(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 = 1\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -113,11 +113,11 @@ func TestArrayComponentAbsentWithoutReachableArrays(t *testing.T) {
 // Equivalent compilations render identical array.h bytes.
 func TestArrayComponentDeterministic(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    first: Int32 = fixed[0]\nend")
-	first, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
-	second, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -133,7 +133,7 @@ func TestArrayComponentDeterministic(t *testing.T) {
 // module includes it.
 func TestArrayComponentMigratesForModuleOwnedObjectElements(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo() do\n    fixed: Array<Point, 2> = [Point { x = 1, }, Point { x = 2, }]\n    first: Int32 = fixed[0].x\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

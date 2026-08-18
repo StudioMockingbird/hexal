@@ -12,7 +12,7 @@ import (
 // carries the definition.
 func TestErrorComponentSelectedByUse(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(): Int32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestErrorComponentSelectedByUse(t *testing.T) {
 // A program that never names Error emits no hexal/error.h artifact.
 func TestErrorComponentAbsentWithoutError(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1")
-	files, err := GenerateChecked(map[string]checker.Program{"app.hex": program}, []string{"app"}, "app")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

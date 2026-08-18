@@ -1,8 +1,38 @@
 # RFC 0076: Authoritative Module Graph
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; verified 2026-08-18. Reachability builds one
+  `ModuleGraph` (canonical id, exact logical key, parsed program, token count,
+  resolved edges) and `CheckModules(graph)` / `GenerateChecked(graph, checked)`
+  consume it. The checker's mirror `canonicalModuleID`, `TestCanonicalModuleID`,
+  the dead `scope.imports` table, and every `moduleID + ".hex"` reconstruction
+  are gone; `grep -rn '^func canonicalModuleID' compiler/` returns nothing and
+  `grep -rn '+ "\.hex"' compiler/ --include='*.go'` returns only two test
+  helpers. The snippet SHA-256 manifest did not move. Coverage is
+  `compiler/modulegraph_test.go`.
+
+  **Two deviations, recorded.**
+
+  *The graph is `checker.ModuleGraph`, exported, not an unexported type in
+  package `compiler`.* Both consumers live below `compiler` in the import
+  graph, so an unexported type there cannot appear in their signatures. The
+  checker is the lowest package both already depend on. Invariant 6's intent
+  holds: the graph never crosses the `compiler.Compile` boundary, and
+  `CompilationResult` is unchanged.
+
+  *Test call sites changed.* `GenerateChecked` has 166 call sites in generator
+  unit tests and `CheckModules` has 8 in checker tests; changing the signatures
+  changed all of them. The edits are mechanical — `appModuleGraph()` for the
+  single-module shape, `moduleGraphOf`/`graphOf` for the multi-module ones —
+  and no assertion moved. The checker's multi-module tests now state their
+  import edges explicitly, which is the point of the change: the checker reads
+  resolution rather than re-deriving it.
+
+  One site the RFC did not list also re-derived resolution:
+  `checker.go`'s `ImportDeclaration` arm built its alias target with the mirror.
+  It now reads `registry.importTarget`.
 - Created: 2026-08-16
+- Updated: 2026-08-18
 - Scope: module resolution ownership — one immutable graph built during
   reachability and consumed by the checker and generator
 - Depends on: nothing. Independent of RFCs 0072–0079; see Sequencing for the one

@@ -56,37 +56,29 @@ type moduleEntry struct {
 	methodSpecializations   map[string]MethodDeclaration
 }
 
-// buildModuleRegistry collects every reachable module's import aliases and
-// export flags in dependency order. A module whose source key is absent is
-// skipped exactly like CheckModules skips it. Paths are not resolved here: a
-// payload that cannot canonicalize simply is kept as written, and resolution
-// errors are reported outside the checker.
-func buildModuleRegistry(programs map[string]parser.Program, order []string, entrypointCanonical string) *ModuleRegistry {
+// buildModuleRegistry collects every module's import aliases and export flags
+// in the graph's dependency order. Import targets are read from the graph's
+// resolved edges: resolution happened once, during reachability, and the
+// checker never re-derives it.
+func buildModuleRegistry(graph *ModuleGraph) *ModuleRegistry {
 	registry := &ModuleRegistry{
-		modules:    make(map[string]*moduleEntry, len(order)),
-		order:      append([]string(nil), order...),
-		entrypoint: entrypointCanonical,
+		modules:    make(map[string]*moduleEntry, len(graph.Order)),
+		order:      append([]string(nil), graph.Order...),
+		entrypoint: graph.Root,
 	}
-	for _, moduleID := range order {
-		key := moduleID + ".hex"
-		program, ok := programs[key]
-		if !ok {
-			key = moduleID
-			program, ok = programs[key]
-		}
-		if !ok {
-			continue
-		}
+	for _, moduleID := range graph.Order {
+		node := graph.Modules[moduleID]
 		entry := &moduleEntry{
-			imports: make(map[string]string),
+			imports: make(map[string]string, len(node.Imports)),
 			exports: make(map[string]bool),
 		}
-		// Imports are top-level items only and never statements, so a program
+		for _, edge := range node.Imports {
+			entry.imports[edge.Alias] = edge.Target
+		}
+		// Exports are top-level items only and never statements, so a program
 		// assembled from Statements alone has nothing to register.
-		for _, item := range program.Items {
+		for _, item := range node.Program.Items {
 			switch item := item.(type) {
-			case parser.ImportDeclaration:
-				entry.imports[item.Alias.Lexeme] = canonicalModuleID(moduleID, strings.Trim(item.Path.Lexeme, "\""))
 			case parser.TypeDeclaration:
 				if item.Exported {
 					entry.exports[item.Name.Lexeme] = true
@@ -535,47 +527,4 @@ func (registry *ModuleRegistry) nominalExported(typ compilerTypes.Type) bool {
 		}
 	}
 	return false
-}
-
-// canonicalModuleID resolves one module-path payload (the raw string between
-// the quotes) relative to the importing module and returns the target's
-// canonical identity. It mirrors the lexical resolution in
-// compiler/compile.go's resolveImportPath: "." components drop, ".." pops the
-// importing module's directory (never above the logical root), and a trailing
-// ".hex" is spelling, not identity. compile.go is the authority for validity
-// -- it runs before checking and rejects non-relative paths, escapes above
-// the logical root, invalid components, and missing modules -- so the checker
-// only re-derives the identity for registry keys; a payload that reached
-// checking always yields the same canonical id as the resolver. A payload
-// that never resolved (direct checker callers) falls back to the spelling
-// with ".hex" stripped.
-func canonicalModuleID(fromModule, payload string) string {
-	path := payload
-	if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
-		path = path[1 : len(path)-1]
-	}
-	if !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "../") {
-		return strings.TrimSuffix(path, ".hex")
-	}
-	dir := ""
-	if slash := strings.LastIndex(fromModule, "/"); slash >= 0 {
-		dir = fromModule[:slash]
-	}
-	rest := path
-	for strings.HasPrefix(rest, "../") {
-		if slash := strings.LastIndex(dir, "/"); slash >= 0 {
-			dir = dir[:slash]
-		} else {
-			dir = ""
-		}
-		rest = rest[3:]
-	}
-	if strings.HasPrefix(rest, "./") {
-		rest = rest[2:]
-	}
-	rest = strings.TrimSuffix(rest, ".hex")
-	if dir != "" {
-		rest = dir + "/" + rest
-	}
-	return rest
 }
