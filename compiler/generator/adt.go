@@ -14,24 +14,21 @@ type generatedAdtState struct {
 	seen  map[*compilerTypes.AdtType]bool
 }
 
-func discoverGeneratedADTs(program checker.Program) (*generatedAdtState, error) {
+func discoverGeneratedADTs(program checker.Program) *generatedAdtState {
 	state := &generatedAdtState{seen: make(map[*compilerTypes.AdtType]bool)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			if typ.Adt != nil {
 				if !state.seen[typ.Adt] {
 					state.seen[typ.Adt] = true
 					state.order = append(state.order, typ)
 				}
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, err
-	}
+	walkProgram(program, visitor)
 
-	return state, nil
+	return state
 }
 func adtTagName(adt *compilerTypes.AdtType, index int) string {
 	return "hex_" + compilerTypes.SanitizeIdentifier(adt.Name) + "_" + compilerTypes.SanitizeIdentifier(adt.Variants[index].Name)

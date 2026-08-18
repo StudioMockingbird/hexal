@@ -72,7 +72,7 @@ static inline hex_view_Int32 hex_view_slice_Int32(hex_view_Int32 view, uint64_t 
     if (!(start <= end && end <= view.length)) {
         hex_runtime_trap("[Runtime Error] view slice bounds out of range\n");
     }
-    return (hex_view_Int32){&view.data[start], end - start};
+    return (hex_view_Int32){view.data == nullptr ? nullptr : &view.data[start], end - start};
 }
 
 #endif

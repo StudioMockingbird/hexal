@@ -44,6 +44,11 @@ type Type struct {
 	Name string
 	// CName is the C name of the type, used in code generation.
 	CName string
+	// CanonicalKey is the recursive, module-qualified identity of the type:
+	// "m1_m5:Point" for an object, "List:m1_m5:Point" for one constructed
+	// type over it. Display names never participate in identity; this key
+	// does. It is never displayed.
+	CanonicalKey string
 	// ScalarKind, when non-zero, identifies this as a scalar type.
 	ScalarKind ScalarKind
 	// Bits is the bit width of integer and float scalars.
@@ -165,15 +170,14 @@ type Diagnostic struct {
 type Diagnostics []Diagnostic
 
 func (diagnostic Diagnostic) Error() string {
-	category := diagnostic.Category
-	if category == "" {
-		category = "Unknown Error"
-	}
+	// An empty category is a construction defect in the compiler: every site
+	// must name a category, so an empty one renders as "[]" instead of being
+	// masked as a compiler Unknown Error that a user error never merits.
 	location := ""
 	if diagnostic.Line > 0 {
 		location = fmt.Sprintf(" at %d:%d", diagnostic.Line, diagnostic.Column)
 	}
-	return "[" + string(category) + "] " + diagnostic.Message + location
+	return "[" + string(diagnostic.Category) + "] " + diagnostic.Message + location
 }
 
 func (diagnostics Diagnostics) Error() string {
@@ -211,25 +215,23 @@ func ErrorMessages(err error) []string {
 	}
 }
 
-// Environment is the store of all types known to one compilation. Every
-// constructed type is interned: equal types share one identity.
+// Environment is the store of all module-scoped types known to one
+// compilation: builtins, objects, ADTs, names, aliases, and generic
+// declarations. Constructed types are interned in the shared arena, once per
+// compilation.
 type Environment struct {
 	names               map[string]Type // builtins, objects, and ADTs by name
 	aliases             map[string]Type
 	aliasUses           map[string]TypeUse
-	pointerTypes        map[string]Type
-	nullableTypes       map[string]Type
-	funTypes            map[string]Type
-	arrayTypes          map[string]Type
-	viewTypes           map[string]Type
-	listTypes           map[string]Type
-	dictTypes           map[string]Type
-	taskTypes           map[string]Type
-	channelTypes        map[string]Type
-	atomicTypes         map[string]Type
 	genericDeclarations map[string]*GenericDeclaration
 	specializations     map[string]Type
 	identity            *typeIdentity
+	// arena holds the compilation-wide constructed-type intern maps.
+	arena *Arena
+	// moduleID is the canonical id of the module this environment belongs
+	// to ("" for the compiler-owned builtin environment); it is the source
+	// of CanonicalKey module qualification.
+	moduleID string
 	// owner is the encoded module owner ("" for the compiler-owned builtin
 	// environment). User object types interned here carry it in their C
 	// name: hex_t_m3_app_Point names module "app".
@@ -261,31 +263,34 @@ func ModuleHeaderGuard(canonicalID string) string {
 	return "HEX_MODULE_" + EncodeModuleOwner(canonicalID) + "_H"
 }
 
-// NewEnvironment returns an empty environment seeded with the builtin types.
+// NewEnvironment returns an empty environment seeded with the builtin types
+// and its own fresh arena.
 func NewEnvironment() *Environment {
 	return NewEnvironmentWithOwner("")
 }
 
 // NewEnvironmentWithOwner returns an environment whose user object types
-// carry the module owner (canonical id) in their C names.
+// carry the module owner (canonical id) in their C names and whose canonical
+// keys carry the module's id. The environment owns a fresh arena, so it is
+// the isolated form used by unit tests and generator metadata construction.
 func NewEnvironmentWithOwner(moduleID string) *Environment {
+	return NewCompilationEnvironment(NewArena(), moduleID)
+}
+
+// NewCompilationEnvironment returns one module scope over a shared
+// compilation arena. Every module of one compilation must share one arena so
+// constructed types intern once per compilation; the checker creates the
+// arena in CheckModules and passes it to each module.
+func NewCompilationEnvironment(arena *Arena, moduleID string) *Environment {
 	environment := &Environment{
 		names:               make(map[string]Type),
 		aliases:             make(map[string]Type),
 		aliasUses:           make(map[string]TypeUse),
-		pointerTypes:        make(map[string]Type),
-		nullableTypes:       make(map[string]Type),
-		funTypes:            make(map[string]Type),
-		arrayTypes:          make(map[string]Type),
-		viewTypes:           make(map[string]Type),
-		listTypes:           make(map[string]Type),
-		dictTypes:           make(map[string]Type),
-		taskTypes:           make(map[string]Type),
-		channelTypes:        make(map[string]Type),
-		atomicTypes:         make(map[string]Type),
 		genericDeclarations: make(map[string]*GenericDeclaration),
 		specializations:     make(map[string]Type),
 		identity:            newTypeIdentity(nil),
+		arena:               arena,
+		moduleID:            moduleID,
 		owner:               EncodeModuleOwner(moduleID),
 	}
 	for name, typ := range builtinTypes {
@@ -379,15 +384,34 @@ func (environment *Environment) BeginObject(name string, sourceLine, sourceColum
 	}
 	identity.object = object
 	typ := Type{
-		Name:       name,
-		CName:      object.CName,
-		Object:     object,
-		Incomplete: true,
-		identity:   identity,
+		Name:         name,
+		CName:        object.CName,
+		CanonicalKey: canonicalNominalKey(name, environment.moduleID),
+		Object:       object,
+		Incomplete:   true,
+		identity:     identity,
 	}
 	object.Incomplete = true
 	environment.names[name] = typ
 	return typ
+}
+
+// canonicalNominalKey builds the recursive identity key of a nominal type:
+// the encoded defining-module id plus the bare name. Compiler-owned types
+// with no module keep the bare name.
+func canonicalNominalKey(name, moduleID string) string {
+	if moduleID == "" {
+		return name
+	}
+	return EncodeModuleOwner(moduleID) + ":" + name
+}
+
+// CanonicalNominalKey is the exported form of canonicalNominalKey. The
+// checker re-keys a generic specialization's provisional object or ADT after
+// stamping its defining module, which may differ from the requesting
+// module's environment.
+func CanonicalNominalKey(name, moduleID string) string {
+	return canonicalNominalKey(name, moduleID)
 }
 
 // CompleteObject finalizes a provisional object with its resolved members.
@@ -441,8 +465,8 @@ func (environment *Environment) pointerType(element Type, writable bool) Type {
 	if writable {
 		constructor = "MutPtr"
 	}
-	key := constructor + ":" + strconv.FormatUint(element.identity.serial, 10)
-	if cached, ok := environment.pointerTypes[key]; ok {
+	canonicalKey := constructor + ":" + element.CanonicalKey
+	if cached, ok := environment.arena.pointerTypes[canonicalKey]; ok {
 		return cached
 	}
 	cName := element.CName + "*"
@@ -450,15 +474,16 @@ func (environment *Environment) pointerType(element Type, writable bool) Type {
 		cName = "void*"
 	}
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
+	identity.signature = canonicalKey
 	typ := Type{
 		Name:            constructor + "<" + element.Name + ">",
 		CName:           cName,
+		CanonicalKey:    canonicalKey,
 		Element:         &element,
 		PointeeWritable: writable,
 		identity:        identity,
 	}
-	environment.pointerTypes[key] = typ
+	environment.arena.pointerTypes[canonicalKey] = typ
 	return typ
 }
 
@@ -487,22 +512,23 @@ func (environment *Environment) NullableType(base Type) Type {
 	if base.NullableBase != nil {
 		return base
 	}
-	key := "nullable:" + strconv.FormatUint(base.identity.serial, 10)
-	if cached, ok := environment.nullableTypes[key]; ok {
+	canonicalKey := "nullable:" + base.CanonicalKey
+	if cached, ok := environment.arena.nullableTypes[canonicalKey]; ok {
 		return cached
 	}
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
+	identity.signature = canonicalKey
 	nullable := Type{
 		Name:            base.Name + " | Nil",
 		CName:           base.CName,
+		CanonicalKey:    canonicalKey,
 		Element:         base.Element,
 		PointeeWritable: base.PointeeWritable,
 		Signature:       base.Signature,
 		NullableBase:    &base,
 		identity:        identity,
 	}
-	environment.nullableTypes[key] = nullable
+	environment.arena.nullableTypes[canonicalKey] = nullable
 	return nullable
 }
 
@@ -534,13 +560,13 @@ func (environment *Environment) FunType(parameters []Type, result *Type) Type {
 			return Type{}
 		}
 	}
-	key := funKey(parameters, result)
-	if cached, ok := environment.funTypes[key]; ok {
+	canonicalKey := funKey(parameters, result)
+	if cached, ok := environment.arena.funTypes[canonicalKey]; ok {
 		return cached
 	}
 	name := funName(parameters, result)
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
+	identity.signature = canonicalKey
 	typ := Type{
 		Name: name,
 		Signature: &FunSignature{
@@ -548,21 +574,23 @@ func (environment *Environment) FunType(parameters []Type, result *Type) Type {
 			Parameters: append([]Type(nil), parameters...),
 			Result:     result,
 		},
-		identity: identity,
+		CanonicalKey: canonicalKey,
+		identity:     identity,
 	}
-	environment.funTypes[key] = typ
+	environment.arena.funTypes[canonicalKey] = typ
 	return typ
 }
 
 func funKey(parameters []Type, result *Type) string {
 	var builder strings.Builder
+	builder.WriteString("fun:")
 	for _, parameter := range parameters {
-		builder.WriteString(strconv.FormatUint(parameter.identity.serial, 10))
+		builder.WriteString(parameter.CanonicalKey)
 		builder.WriteString(",")
 	}
 	if result != nil {
 		builder.WriteString(":")
-		builder.WriteString(strconv.FormatUint(result.identity.serial, 10))
+		builder.WriteString(result.CanonicalKey)
 	}
 	return builder.String()
 }
@@ -811,13 +839,13 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		return isCanonicalDict(environment, typ, state)
 	}
 	if typ.Task != nil {
-		if typ.identity.signature != "task:"+strconv.FormatUint(typ.Task.Result.identity.serial, 10) {
+		if typ.identity.signature != "task:"+typ.Task.Result.CanonicalKey {
 			return false
 		}
 		return isCanonicalForEnvironment(environment, typ.Task.Result, state, false)
 	}
 	if typ.Channel != nil {
-		if typ.identity.signature != "channel:"+strconv.FormatUint(typ.Channel.Element.identity.serial, 10) {
+		if typ.identity.signature != "channel:"+typ.Channel.Element.CanonicalKey {
 			return false
 		}
 		return isCanonicalForEnvironment(environment, typ.Channel.Element, state, false)
@@ -826,7 +854,7 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		return typ.identity != nil && typ.identity == MutexType.identity
 	}
 	if typ.Atomic != nil {
-		if typ.identity.signature != "atomic:"+strconv.FormatUint(typ.Atomic.Element.identity.serial, 10) {
+		if typ.identity.signature != "atomic:"+typ.Atomic.Element.CanonicalKey {
 			return false
 		}
 		return isCanonicalForEnvironment(environment, typ.Atomic.Element, state, false)
@@ -908,7 +936,7 @@ func isCanonicalPointer(environment *Environment, typ Type, state *canonicalType
 	if typ.PointeeWritable {
 		constructor = "MutPtr"
 	}
-	if typ.identity.signature != constructor+":"+strconv.FormatUint(typ.Element.identity.serial, 10) {
+	if typ.identity.signature != constructor+":"+typ.Element.CanonicalKey {
 		return false
 	}
 	return isCanonicalForEnvironment(environment, *typ.Element, state, true)
@@ -964,7 +992,7 @@ func isCanonicalView(environment *Environment, typ Type, state *canonicalTypeSta
 	if typ.View == nil || typ.View.Element == (Type{}) || !Eligible(typ.View.Element, PositionViewElement) {
 		return false
 	}
-	key := "view:" + strconv.FormatUint(typ.View.Element.identity.serial, 10)
+	key := "view:" + typ.View.Element.CanonicalKey
 	if typ.identity.signature != key {
 		return false
 	}
@@ -975,7 +1003,7 @@ func isCanonicalList(environment *Environment, typ Type, state *canonicalTypeSta
 	if typ.List == nil || typ.List.Element == (Type{}) || !Eligible(typ.List.Element, PositionListElement) {
 		return false
 	}
-	key := "list:" + strconv.FormatUint(typ.List.Element.identity.serial, 10)
+	key := "list:" + typ.List.Element.CanonicalKey
 	if typ.identity.signature != key {
 		return false
 	}
@@ -986,7 +1014,7 @@ func isCanonicalDict(environment *Environment, typ Type, state *canonicalTypeSta
 	if typ.Dict == nil || typ.Dict.Key == (Type{}) || typ.Dict.Value == (Type{}) || !IsDictKey(typ.Dict.Key) || !Eligible(typ.Dict.Value, PositionDictValue) {
 		return false
 	}
-	key := "dict:" + strconv.FormatUint(typ.Dict.Key.identity.serial, 10) + "," + strconv.FormatUint(typ.Dict.Value.identity.serial, 10)
+	key := "dict:" + typ.Dict.Key.CanonicalKey + "," + typ.Dict.Value.CanonicalKey
 	if typ.identity.signature != key {
 		return false
 	}
@@ -1027,11 +1055,12 @@ func scalarType(name, cName string, kind ScalarKind, bits int) Type {
 	identity := newTypeIdentity(nil)
 	identity.signature = "scalar:" + name
 	return Type{
-		Name:       name,
-		CName:      cName,
-		ScalarKind: kind,
-		Bits:       bits,
-		identity:   identity,
+		Name:         name,
+		CName:        cName,
+		CanonicalKey: name,
+		ScalarKind:   kind,
+		Bits:         bits,
+		identity:     identity,
 	}
 }
 
@@ -1061,48 +1090,55 @@ var (
 	UInt  = UInt32
 
 	Nil = Type{
-		Name:     "Nil",
-		CName:    "nullptr_t",
-		identity: newTypeIdentity(nil),
+		Name:         "Nil",
+		CName:        "nullptr_t",
+		CanonicalKey: "Nil",
+		identity:     newTypeIdentity(nil),
 	}
 	// EoS is the end-of-stream singleton. Its one-byte C value is never
 	// allocated; the `T | EoS` result union carries it as a tag-only
 	// alternative.
 	EoS = Type{
-		Name:     "EoS",
-		CName:    "hex_eos",
-		identity: newTypeIdentity(nil),
+		Name:         "EoS",
+		CName:        "hex_eos",
+		CanonicalKey: "EoS",
+		identity:     newTypeIdentity(nil),
 	}
 	Unknown = Type{
-		Name:       "Unknown",
-		CName:      "void",
-		Incomplete: true,
-		identity:   newTypeIdentity(nil),
+		Name:         "Unknown",
+		CName:        "void",
+		CanonicalKey: "Unknown",
+		Incomplete:   true,
+		identity:     newTypeIdentity(nil),
 	}
 	Heap = Type{
-		Name:     "Heap",
-		CName:    "hex_heap",
-		identity: newTypeIdentity(nil),
+		Name:         "Heap",
+		CName:        "hex_heap",
+		CanonicalKey: "Heap",
+		identity:     newTypeIdentity(nil),
 	}
 	StringType = Type{
-		Name:     "String",
-		CName:    "hex_string",
-		identity: newTypeIdentity(nil),
+		Name:         "String",
+		CName:        "hex_string",
+		CanonicalKey: "String",
+		identity:     newTypeIdentity(nil),
 	}
 	StrandType = Type{
-		Name:     "Strand",
-		CName:    "hex_strand",
-		identity: newTypeIdentity(nil),
+		Name:         "Strand",
+		CName:        "hex_strand",
+		CanonicalKey: "Strand",
+		identity:     newTypeIdentity(nil),
 	}
 	// SizeType is the target-sized unsigned integer corresponding to C's
 	// size_t. It is a distinct canonical type even where its width matches
 	// a fixed-width integer.
 	SizeType = Type{
-		Name:       "Size",
-		CName:      "size_t",
-		ScalarKind: ScalarUnsignedInteger,
-		Bits:       64,
-		identity:   newTypeIdentity(nil),
+		Name:         "Size",
+		CName:        "size_t",
+		CanonicalKey: "Size",
+		ScalarKind:   ScalarUnsignedInteger,
+		Bits:         64,
+		identity:     newTypeIdentity(nil),
 	}
 	// ErrorType is the built-in nominal error value: five fixed fields
 	// recording the construction site and the program's category and
@@ -1113,17 +1149,19 @@ var (
 	// identity, like String; its control block lives on the Heap passed to
 	// Mutex.new.
 	MutexType = Type{
-		Name:     "Mutex",
-		CName:    "hex_mutex",
-		identity: newTypeIdentity(nil),
+		Name:         "Mutex",
+		CName:        "hex_mutex",
+		CanonicalKey: "Mutex",
+		identity:     newTypeIdentity(nil),
 	}
 	// RuneCursorType is the non-owning UTF-8 cursor: one descriptor holding
 	// the source byte pointer, byte length, and current byte offset. It is
 	// an inline value with one canonical identity.
 	RuneCursorType = Type{
-		Name:     "RuneCursor",
-		CName:    "hex_rune_cursor",
-		identity: newTypeIdentity(nil),
+		Name:         "RuneCursor",
+		CName:        "hex_rune_cursor",
+		CanonicalKey: "RuneCursor",
+		identity:     newTypeIdentity(nil),
 	}
 )
 
@@ -1144,7 +1182,7 @@ func errorType() Type {
 	identity := newTypeIdentity(nil)
 	identity.object = object
 	object.identity = identity
-	return Type{Name: "Error", CName: "hex_t_Error", Object: object, identity: identity}
+	return Type{Name: "Error", CName: "hex_t_Error", CanonicalKey: "Error", Object: object, identity: identity}
 }
 
 // builtinTypes is the canonical registry of every builtin type name: scalars,

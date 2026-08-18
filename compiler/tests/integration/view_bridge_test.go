@@ -31,7 +31,7 @@ func TestViewEmptyCompiles(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if !strings.Contains(rootC(t, result), "NULL, 0") {
+	if !strings.Contains(rootC(t, result), "nullptr, 0") {
 		t.Fatalf("generated C lacks the empty descriptor:\n%s", rootC(t, result))
 	}
 }
@@ -74,6 +74,10 @@ func TestFromPointerRejectsStackRoots(t *testing.T) {
 	rejected := []string{
 		"fun f() do\n    mut value: Int32 = 1\n    view: View<Int32> = View<Int32>.from_pointer(ref value, 1)\nend\n",
 		"fun f() do\n    value: Int32 = 1\n    p: Ptr<Int32> = ref value\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
+		"fun f() do\n    mut value: Int32 = 1\n    mut p: Ptr<Int32> = ref value\n    mut q: Ptr<Int32> = p\n    view: View<Int32> = View<Int32>.from_pointer(q, 1)\nend\n",
+		"fun f() do\n    value: Int32 = 1\n    mut p: Ptr<Int32> = ref value\n    mut q: Ptr<Int32> = p\n    mut r: Ptr<Int32> = q\n    view: View<Int32> = View<Int32>.from_pointer(r, 1)\nend\n",
+		"fun f() do\n    mut value: Int32 = 1\n    mut p: Ptr<Int32> = ref value\n    mut q: Ptr<Int32> = p\n    view: View<Int32> = View<Int32>.from_pointer(q, 1)\n    p = ref value\n    view2: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
+		"fun f(h: Heap) do\n    mut value: Int32 = 1\n    mut p: Ptr<Int32> = h.allocate<Int32>(0)\n    p = ref value\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
@@ -83,6 +87,9 @@ func TestFromPointerRejectsStackRoots(t *testing.T) {
 	accepted := []string{
 		"fun f(h: Heap) do\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
 		"fun wrap(p: Ptr<Int32>, n: Size): View<Int32> do\n    return View<Int32>.from_pointer(p, n)\nend\n",
+		"fun f(h: Heap) do\n    p: MutPtr<Int32> = h.allocate<Int32>(0)\n    q: MutPtr<Int32> = p\n    view: View<Int32> = View<Int32>.from_pointer(q, 1)\nend\n",
+		"fun wrap(p: Ptr<Int32>, n: Size): View<Int32> do\n    q: Ptr<Int32> = p\n    return View<Int32>.from_pointer(q, n)\nend\n",
+		"fun f(h: Heap) do\n    mut value: Int32 = 1\n    mut p: Ptr<Int32> = ref value\n    p = h.allocate<Int32>(0)\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {

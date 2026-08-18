@@ -313,3 +313,17 @@ func TestManagedHandleEqualityRejected(t *testing.T) {
 		})
 	}
 }
+
+// EoS compares by value like other value types: eos == eos folds to the
+// singleton-identity truth and neither rendered binding cascades a spurious
+// diagnostic about itself.
+func TestEosComparesByValue(t *testing.T) {
+	source := "same: Bool = eos == eos\ndifferent: Bool = eos != eos\n"
+	result := assertCompiles(t, source)
+	app := rootC(t, result)
+	for _, want := range []string{"hex_v_same", "= true;", "hex_v_different", "= false;"} {
+		if !strings.Contains(app, want) {
+			t.Fatalf("modules/app.c = %q, want %q", app, want)
+		}
+	}
+}

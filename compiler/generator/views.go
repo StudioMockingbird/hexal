@@ -20,27 +20,24 @@ type generatedViewState struct {
 // discoverGeneratedViews walks every type reachable from the program and
 // collects the distinct view types. Discovery order is then sorted by C name
 // so the generated header is deterministic.
-func discoverGeneratedViews(program checker.Program) (*generatedViewState, error) {
+func discoverGeneratedViews(program checker.Program) *generatedViewState {
 	state := &generatedViewState{seen: make(map[*compilerTypes.ViewInfo]bool)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			if typ.View != nil {
 				if !state.seen[typ.View] {
 					state.seen[typ.View] = true
 					state.views = append(state.views, typ)
 				}
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, err
-	}
+	walkProgram(program, visitor)
 
 	sort.SliceStable(state.views, func(left, right int) bool {
 		return state.views[left].CName < state.views[right].CName
 	})
-	return state, nil
+	return state
 }
 
 // ensureViewUInt8 adds the byte view type to the view state if missing; the

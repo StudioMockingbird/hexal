@@ -88,7 +88,7 @@ static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
     if (!(start <= end && end <= list->length)) {
         hex_runtime_trap("[Runtime Error] list slice bounds out of range\n");
     }
-    return ({{.ViewCName}}){&list->data[start], end - start};
+    return ({{.ViewCName}}){list->data == nullptr ? nullptr : &list->data[start], end - start};
 }
 {{end}}{{end}}
 #endif

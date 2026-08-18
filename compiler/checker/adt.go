@@ -29,7 +29,10 @@ func checkADTDeclaration(declaration parser.TypeDeclaration, target parser.AdtDe
 		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, diagnostics
 	}
 
-	typeEnvironment.BeginADT(name, declaration.Name.Line, declaration.Name.Column)
+	// Like object declarations, an ADT is stamped with the declaring
+	// module's canonical id: that id owns its canonical key.
+	provisional := typeEnvironment.BeginADT(name, declaration.Name.Line, declaration.Name.Column)
+	provisional.Adt.ModuleID = environment.moduleID
 	variants := make([]compilerTypes.AdtVariant, 0, len(target.Variants))
 	for _, variant := range target.Variants {
 		resolved := compilerTypes.AdtVariant{Name: variant.Name.Lexeme}

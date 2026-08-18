@@ -120,3 +120,14 @@ func TestGenericArityAndInferenceDiagnostics(t *testing.T) {
 		t.Fatalf("diagnostics = %#v, want inference conflict", result.Stderr)
 	}
 }
+
+// Generic bodies containing for, errdefer, defer, while, break, and continue
+// pass generator preflight for every specialization: the validation walk must
+// not fail closed on statement shapes the checker accepts.
+func TestGenericBodiesWithControlFlowSpecialize(t *testing.T) {
+	source := "fun cleanup(v: Int32) do\nend\nfun sweep<T>(values: List<T>): Int32 | Error do\n    errdefer cleanup(9)\n    defer cleanup(8)\n    mut total: Int32 = 0\n    for value in values do\n        while total < 10 do\n            total = total + 1\n            if total > 100 then\n                break\n            end\n            continue\n        end\n    end\n    return total\nend\nfun demo(h: Heap): Int32 | Error do\n    ints: List<Int32> = List<Int32>.new(h)\n    defer ints.free(h)\n    ints.push(1)\n    a: Int32 = try sweep<Int32>(ints)\n    strands: List<Strand> = List<Strand>.new(h)\n    defer strands.free(h)\n    strands.push(\"s\")\n    b: Int32 = try sweep<Strand>(strands)\n    return a + b\nend\n"
+	result := assertCompiles(t, source)
+	if strings.Count(rootC(t, result), "hex_f_m3_app_sweep_Int32") < 1 || strings.Count(rootC(t, result), "hex_f_m3_app_sweep_Strand") < 1 {
+		t.Fatalf("modules/app.c = %q, want both specializations", rootC(t, result))
+	}
+}

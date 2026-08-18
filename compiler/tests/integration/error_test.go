@@ -172,6 +172,33 @@ func TestErrdeferRuntimeUnionReturn(t *testing.T) {
 	}
 }
 
+// A deferred call through a Fun<> value captures the callee at registration
+// and reuses ordinary call lowering at the scope exit: binding, parameter,
+// and errdefer forms all compile instead of failing closed.
+func TestDeferredFunValueCalls(t *testing.T) {
+	compileCases := []string{
+		"fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run() do\n    callback: Fun<(Int32) : Int32> = square\n    defer callback(3)\nend\n",
+		"fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(callback: Fun<(Int32) : Int32>) do\n    defer callback(3)\nend\n",
+		"fun cleanup(value: Int32): Nil | Error do\n    return nil\nend\nfun read_count(): Int32 | Error do\n    return Error.new(\"x\", \"y\")\nend\nfun run(): Int32 | Error do\n    callback: Fun<(Int32) : Nil | Error> = cleanup\n    errdefer callback(1)\n    count: Int32 = try read_count()\n    return count\nend\n",
+		"fun cleanup(value: Int32): Nil | Error do\n    return nil\nend\nfun read_count(): Int32 | Error do\n    return Error.new(\"x\", \"y\")\nend\nfun run(callback: Fun<(Int32) : Nil | Error>): Int32 | Error do\n    errdefer callback(1)\n    count: Int32 = try read_count()\n    return count\nend\n",
+	}
+	for _, source := range compileCases {
+		result := compileSource(source)
+		if result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("deferred Fun<> call rejected (%v):\n%s", result.Stderr, source)
+		}
+	}
+	// The scope-exit call goes through the captured function value.
+	result := compileSource("fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run() do\n    callback: Fun<(Int32) : Int32> = square\n    defer callback(3)\nend\n")
+	root := rootC(t, result)
+	if !strings.Contains(root, "= hex_v_callback;") {
+		t.Fatalf("modules/app.c = %q, want the callee captured at registration", root)
+	}
+	if !strings.Contains(root, "hex_defer_capture_1(hex_defer_capture_2);") {
+		t.Fatalf("modules/app.c = %q, want captured callee applied to the captured argument", root)
+	}
+}
+
 func TestErrorDiagnostics(t *testing.T) {
 	for _, testCase := range []struct {
 		source string
@@ -188,6 +215,30 @@ func TestErrorDiagnostics(t *testing.T) {
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
 		}
+	}
+}
+
+// try and spawn inside errdefer are rejected exactly like their defer forms:
+// the errdefer action is a cleanup context, so its direct expression and
+// nested call arguments must not contain either construct.
+func TestTryAndSpawnInsideErrdeferRejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{"try direct", "fun read_count(): Int32 | Error do\n    return Error.new(\"x\", \"y\")\nend\nfun demo(): Int32 | Error do\n    errdefer try read_count()\n    return 1\nend", "try is not permitted inside defer or errdefer"},
+		{"try nested argument", "fun read_count(): Int32 | Error do\n    return Error.new(\"x\", \"y\")\nend\nfun consume(v: Int32) do\nend\nfun demo(): Int32 | Error do\n    errdefer consume(try read_count())\n    return 1\nend", "try is not permitted inside defer or errdefer"},
+		{"spawn direct", "fun worker(v: Int32): Int32 do\n    return v\nend\nfun demo(): Int32 | Error do\n    errdefer spawn worker(1)\n    return 1\nend", "spawn is not permitted inside defer or errdefer"},
+		{"spawn nested argument", "fun worker(v: Int32): Int32 do\n    return v\nend\nfun consume(t: Task<Int32>) do\nend\nfun demo(): Int32 | Error do\n    errdefer consume(spawn worker(1))\n    return 1\nend", "spawn is not permitted inside defer or errdefer"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := compileSource(testCase.source)
+			if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
+				t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
+			}
+		})
 	}
 }
 

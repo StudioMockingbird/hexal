@@ -17,7 +17,7 @@ import (
 // checker package (checker.Statement's marker method is unexported), so the
 // fail-closed behavior is enforced by the branch itself, not a test.
 
-func walkTestProgram(t *testing.T, source string) (string, error) {
+func walkTestProgram(t *testing.T, source string) string {
 	t.Helper()
 	tokens, err := lexer.Lex(source)
 	if err != nil {
@@ -33,25 +33,22 @@ func walkTestProgram(t *testing.T, source string) (string, error) {
 	}
 	var visited []string
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			visited = append(visited, "T:"+typ.Name)
-			return nil
 		},
-		Operand: func(operand checker.Operand) error {
+		Operand: func(operand checker.Operand) {
 			visited = append(visited, "O:"+operand.Type.Name)
-			return nil
 		},
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			visited = append(visited, fmt.Sprintf("E:%d", node.Kind))
-			return nil
 		},
 	}
-	err = walkProgram(checked, visitor)
-	return strings.Join(visited, " "), err
+	walkProgram(checked, visitor)
+	return strings.Join(visited, " ")
 }
 
 func TestWalkProgramCoversEveryStatementShape(t *testing.T) {
-	visited, err := walkTestProgram(t, `
+	visited := walkTestProgram(t, `
 type Pair = { mut values: Array<Int32, 2>, }
 type Box<T> = { value: T }
 impl Box<T>.get(): T do
@@ -92,9 +89,6 @@ fun demo(h: Heap): Int32 | Error do
     return count
 end
 `)
-	if err != nil {
-		t.Fatalf("walk: %v", err)
-	}
 	for _, expected := range []int{int(checker.ConstantExpression), int(checker.CallExpression),
 		int(checker.MethodCallExpression), int(checker.ConversionExpression), int(checker.TryExpression)} {
 		if !strings.Contains(visited, fmt.Sprintf("E:%d", expected)) {
@@ -105,15 +99,9 @@ end
 
 func TestWalkProgramIsDeterministicPreOrder(t *testing.T) {
 	source := "fun demo(count: Int32): Int32 do\n    total: Int32 = count + 2\n    return total\nend\n"
-	first, err := walkTestProgram(t, source)
-	if err != nil {
-		t.Fatalf("walk: %v", err)
-	}
+	first := walkTestProgram(t, source)
 	for range 3 {
-		again, err := walkTestProgram(t, source)
-		if err != nil {
-			t.Fatalf("walk: %v", err)
-		}
+		again := walkTestProgram(t, source)
 		if again != first {
 			t.Fatalf("walk is not deterministic:\nfirst: %s\nagain: %s", first, again)
 		}
@@ -141,7 +129,5 @@ func TestWalkProgramAcceptsNilVisitor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("check: %v", err)
 	}
-	if err := walkProgram(checked, nil); err != nil {
-		t.Fatalf("nil visitor must be a no-op walk, got %v", err)
-	}
+	walkProgram(checked, nil)
 }

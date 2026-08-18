@@ -94,12 +94,8 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	// The literal registry is discovered before the preflight pass: the
 	// preflight renders call statements to prove them renderable, and a
 	// string-literal argument must resolve against the same registry the
-	// emission pass uses. discoverGeneratedStrings never fails, so hoisting
-	// it changes no diagnostic ordering.
-	stringState, stringErr := discoverGeneratedStrings(program)
-	if stringErr != nil {
-		return nil, stringErr
-	}
+	// emission pass uses.
+	stringState := discoverGeneratedStrings(program)
 	emission.stringState = stringState
 	if validationErr := validateCheckedProgram(program, functions, methods, stringState); validationErr != nil {
 		return nil, validationErr
@@ -110,50 +106,20 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		return nil, objectErr
 	}
 	emission.objects = objects
-	unionState, unionErr := discoverGeneratedUnions(program)
-	if unionErr != nil {
-		return nil, unionErr
-	}
-	emission.unionState = unionState
-	heapState, heapErr := discoverHeapHelpers(program)
-	if heapErr != nil {
-		return nil, heapErr
-	}
+	emission.unionState = discoverGeneratedUnions(program)
+	heapState := discoverHeapHelpers(program)
 	emission.heapState = heapState
-	adtState, adtErr := discoverGeneratedADTs(program)
-	if adtErr != nil {
-		return nil, adtErr
-	}
-	emission.adtState = adtState
-	arrayState, arrayErr := discoverGeneratedArrays(program)
-	if arrayErr != nil {
-		return nil, arrayErr
-	}
+	emission.adtState = discoverGeneratedADTs(program)
+	arrayState := discoverGeneratedArrays(program)
 	emission.arrayState = arrayState
-	viewState, viewErr := discoverGeneratedViews(program)
-	if viewErr != nil {
-		return nil, viewErr
-	}
+	viewState := discoverGeneratedViews(program)
 	emission.viewState = viewState
-	listState, listErr := discoverGeneratedLists(program)
-	if listErr != nil {
-		return nil, listErr
-	}
+	listState := discoverGeneratedLists(program)
 	emission.listState = listState
-	dictState, dictErr := discoverGeneratedDicts(program)
-	if dictErr != nil {
-		return nil, dictErr
-	}
+	dictState := discoverGeneratedDicts(program)
 	emission.dictState = dictState
-	equalityState, equalityErr := discoverEqualityTypes(program)
-	if equalityErr != nil {
-		return nil, equalityErr
-	}
-	emission.equalityState = equalityState
-	conversionSpecs, sizeLiterals, conversionErr := discoverGeneratedConversions(program)
-	if conversionErr != nil {
-		return nil, conversionErr
-	}
+	emission.equalityState = discoverEqualityTypes(program)
+	conversionSpecs, sizeLiterals := discoverGeneratedConversions(program)
 	emission.conversionSpecs = conversionSpecs
 	emission.sizeLiterals = sizeLiterals
 	emission.divisionTypes = discoverGeneratedDivisions(program)
@@ -162,10 +128,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.endianSpecs = discoverGeneratedEndian(program)
 	emission.printState = discoverGeneratedPrint(program)
 	emission.wrapState = discoverGeneratedWraps(program)
-	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, stringState, canonicalID, owner)
-	if concurrencyErr != nil {
-		return nil, concurrencyErr
-	}
+	concurrencyState := discoverGeneratedConcurrency(program, functions, stringState, canonicalID, owner)
 	emission.concurrencyState = concurrencyState
 	if concurrencyState.used {
 		// The task runtime needs the String and Strand typedefs and the
@@ -241,7 +204,7 @@ type programEmission struct {
 // program-wide aggregate. Every merge is deterministic: modules contribute
 // in the dependency-first order slice, deduplicated collections are keyed by
 // canonical identity, and slice order is preserved or re-sorted explicitly.
-func mergeProgramEmission(modules []*moduleEmission) *programEmission {
+func mergeProgramEmission(modules []*moduleEmission) (*programEmission, error) {
 	merged := &programEmission{
 		heapState:   &heapHelpers{seen: make(map[string]bool)},
 		viewState:   &generatedViewState{seen: make(map[*compilerTypes.ViewInfo]bool)},
@@ -301,12 +264,14 @@ func mergeProgramEmission(modules []*moduleEmission) *programEmission {
 	// The per-module runtime error literals were registered against each
 	// module's own table during discovery; after aggregation the emitted
 	// indices must match the program-wide table hexal.h defines.
-	rebaseLiteralNames(modules, merged.stringState)
+	if err := rebaseLiteralNames(modules, merged.stringState); err != nil {
+		return nil, err
+	}
 	// The standard-header and hex_eos requirements aggregate after every
 	// family state is merged, so the umbrella set covers the complete
 	// reachable generated program.
 	merged.requirements = computeHeaderRequirements(merged, modules)
-	return merged
+	return merged, nil
 }
 
 // computeHeaderRequirements builds the program-wide standard-header and
@@ -622,23 +587,32 @@ func routeSpawnSites(merged *generatedConcurrencyState) map[string][]spawnSite {
 // the payloads into each module's own table, but every emitted reference must
 // name the aggregated index hexal.h defines, the one canonical literal set
 // program-wide.
-func rebaseLiteralNames(modules []*moduleEmission, stringState *generatedStringState) {
+func rebaseLiteralNames(modules []*moduleEmission, stringState *generatedStringState) error {
 	for _, module := range modules {
 		if module.concurrencyState != nil && module.concurrencyState.used {
-			module.concurrencyState.fileLiteral = literalObjectName(stringState, sourceFilename)
-			module.concurrencyState.headerLiteral = literalObjectName(stringState, "Scheduler")
+			fileLiteral, err := literalObjectName(stringState, sourceFilename)
+			if err != nil {
+				return err
+			}
+			headerLiteral, err := literalObjectName(stringState, "Scheduler")
+			if err != nil {
+				return err
+			}
+			module.concurrencyState.fileLiteral = fileLiteral
+			module.concurrencyState.headerLiteral = headerLiteral
 		}
 	}
+	return nil
 }
 
 // literalObjectName returns the program-wide object name of one literal
-// payload, or "" when the payload was never registered (unreachable for
-// payloads the module registered during discovery).
-func literalObjectName(stringState *generatedStringState, payload string) string {
+// payload. Fail-closed form of the old ""-on-a-miss: a miss is a generator
+// defect, and emitting an empty name would render invalid C.
+func literalObjectName(stringState *generatedStringState, payload string) (string, error) {
 	if index, ok := stringState.seen[payload]; ok {
-		return stringLiteralCName(index - 1)
+		return stringLiteralCName(index - 1), nil
 	}
-	return ""
+	return "", unknownExpressionDiagnostic("runtime literal payload " + payload + " was never registered")
 }
 
 // emitModulePair writes one module's C/header pair from its own discovery
@@ -761,7 +735,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	var extraFrames strings.Builder
 	writeSpawnArgFrames(&extraFrames, routedFrames(emission, merged.adapterSites[canonicalID]))
 
-	moduleHeader := moduleHeader(moduleHeaderInput{
+	moduleHeader, headerErr := moduleHeader(moduleHeaderInput{
 		unions:        emission.unionState,
 		adts:          emission.adtState,
 		equality:      emission.equalityState,
@@ -781,6 +755,9 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		filename:      logicalKey,
 		components:    moduleComponentHeaders(emission),
 	})
+	if headerErr != nil {
+		return "", "", headerErr
+	}
 	return moduleBody.String(), moduleHeader, nil
 }
 
@@ -920,7 +897,7 @@ func hexalHeader(input hexalHeaderInput) (string, error) {
 // non-inline cores live in the root module's C file. input.extraFrames
 // holds the entry-adapter argument frames of the spawn sites routed to this
 // module.
-func moduleHeader(input moduleHeaderInput) string {
+func moduleHeader(input moduleHeaderInput) (string, error) {
 	var result strings.Builder
 	result.WriteString("#ifndef " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n#define " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n\n#include \"hexal.h\"\n")
 	// The component headers this module needs follow hexal.h in dependency
@@ -940,9 +917,15 @@ func moduleHeader(input moduleHeaderInput) string {
 	writeEndianDefinitions(&result, input.endianSpecs)
 	writePrintDefinitions(&result, input.printState)
 	writeEqualityDefinitions(&result, input.equality)
-	writeDivisionDefinitions(&result, input.divisionTypes)
-	writeConversionDefinitions(&result, input.conversions)
-	writeConcurrencyInlineHelpers(&result, input.concurrency, input.stringState)
+	if err := writeDivisionDefinitions(&result, input.divisionTypes); err != nil {
+		return "", err
+	}
+	if err := writeConversionDefinitions(&result, input.conversions); err != nil {
+		return "", err
+	}
+	if err := writeConcurrencyInlineHelpers(&result, input.concurrency, input.stringState); err != nil {
+		return "", err
+	}
 	if input.prototypes != "" {
 		result.WriteString("\n/* Exported and foreign function prototypes. */\n")
 		result.WriteString(input.prototypes)
@@ -952,13 +935,14 @@ func moduleHeader(input moduleHeaderInput) string {
 		result.WriteString(input.extraFrames)
 	}
 	result.WriteString("\n#endif\n")
-	return result.String()
+	return result.String(), nil
 }
 
 func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, error) {
 	objects := make([]*compilerTypes.ObjectType, 0)
 	seen := make(map[*compilerTypes.ObjectType]bool)
 	seenCNames := make(map[string]*compilerTypes.ObjectType)
+	var conflict error
 	// A module's header must carry every object type its translation unit
 	// can name by value, including imported modules' exported objects
 	// referenced through the import alias. They are reachable through the
@@ -967,33 +951,31 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 	// plus hexal.h, so no translation unit ever sees two definitions of one
 	// struct.
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			object := typ.Object
 			if object == nil || typ.Incomplete {
-				return nil
+				return
 			}
 			if previous, exists := seenCNames[object.CName]; exists && previous != object {
-				return unknownExpressionDiagnostic("conflicting generated object C name")
+				conflict = unknownExpressionDiagnostic("conflicting generated object C name")
+				return
 			}
 			seenCNames[object.CName] = object
 			if seen[object] {
-				return nil
+				return
 			}
 			seen[object] = true
 			objects = append(objects, object)
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, err
+	walkProgram(program, visitor)
+	if conflict != nil {
+		return nil, conflict
 	}
 	for _, declaration := range program.TypeDeclarations {
 		object := declaration.Type.Object
 		if object == nil {
 			continue
-		}
-		if previous, exists := seenCNames[object.CName]; exists && previous != object {
-			return nil, unknownExpressionDiagnostic("conflicting generated object C name")
 		}
 		seenCNames[object.CName] = object
 		if seen[object] {
@@ -1043,7 +1025,7 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 // nested EoS or Nil member is discovered wherever it is spelled.
 func collectTypeRequirements(program checker.Program, requirements *cHeaderRequirements) {
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			switch {
 			case compilerTypes.IsSize(typ):
 				// Size spells size_t, owned by <stddef.h> independently of
@@ -1059,9 +1041,8 @@ func collectTypeRequirements(program checker.Program, requirements *cHeaderRequi
 				requirements.eos = true
 				requirements.add("stdint.h")
 			}
-			return nil
 		},
-		Operand: func(source checker.Operand) error {
+		Operand: func(source checker.Operand) {
 			// A special float literal renders the NAN/INFINITY macros from
 			// <math.h>; a finite literal needs no header.
 			if compilerTypes.IsFloat(source.Type) && source.FloatBits != 0 {
@@ -1075,10 +1056,18 @@ func collectTypeRequirements(program checker.Program, requirements *cHeaderRequi
 					requirements.add("math.h")
 				}
 			}
-			return nil
+		},
+		Expression: func(node checker.Expression) {
+			// Unsigned add/subtract/multiply renders through a width-picked
+			// uint64_t or uint32_t intermediate, so the operation selects
+			// <stdint.h> even when no written type spells an exact-width
+			// integer (the Size-only case).
+			if node.Kind == checker.BinaryOperationExpression &&
+				(node.Operator == checker.AddOperator || node.Operator == checker.SubtractOperator || node.Operator == checker.MultiplyOperator) &&
+				compilerTypes.IsUnsignedInteger(node.OperandType) {
+				requirements.add("stdint.h")
+			}
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		panic(err)
-	}
+	walkProgram(program, visitor)
 }

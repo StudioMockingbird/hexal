@@ -190,6 +190,8 @@ func checkErrdeferStatement(statement parser.ErrdeferStatement, names *scope, ty
 	if !names.inFunction() || names.result == nil || !resultAcceptsError(*names.result) {
 		return ErrdeferStatement{}, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "errdefer requires an enclosing function whose result accepts Error")}
 	}
+	names.cleanupDepth++
+	defer func() { names.cleanupDepth-- }()
 	action := DeferredAction{Err: true}
 	var source Operand
 	if call, isCall := statement.Expression.(parser.CallExpression); isCall {

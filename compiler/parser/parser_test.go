@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"hexal/compiler/lexer"
+	compilerTypes "hexal/compiler/types"
 )
 
 func TestParseDeclaration(t *testing.T) {
@@ -375,6 +376,53 @@ func TestParseReturnsDiagnosticsForRepeatedStatementKeywords(t *testing.T) {
 				t.Fatalf("Parse(%q) did not return promptly", source)
 			}
 		})
+	}
+}
+
+// The import prefix closes at the first non-import top-level item; an import
+// after a type, function, or impl declaration, or after an executable
+// statement, is a positioned Syntax Error, while imports-only-first programs
+// keep parsing.
+func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		source     string
+		importLine int
+	}{
+		{"type declaration", "type T = { n: Int32 }\nmodule a = import \"./a\"\n", 2},
+		{"function declaration", "fun f(): Int32 do\n    return 1\nend\nmodule a = import \"./a\"\n", 4},
+		{"impl declaration", "type T = { n: Int32 }\nimpl T.act() do\nend\nmodule a = import \"./a\"\n", 4},
+		{"executable statement", "x: Int32 = 1\nmodule a = import \"./a\"\n", 2},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			tokens, err := lexer.Lex(testCase.source)
+			if err != nil {
+				t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
+			}
+			_, err = Parse(tokens)
+			if err == nil {
+				t.Fatalf("Parse(%q) accepted a misplaced import", testCase.source)
+			}
+			diagnostics, ok := err.(compilerTypes.Diagnostics)
+			if !ok {
+				t.Fatalf("Parse error = %T, want Diagnostics", err)
+			}
+			var positioned *compilerTypes.Diagnostic
+			for index := range diagnostics {
+				if diagnostics[index].Message == "imports must precede all other top-level items" {
+					positioned = &diagnostics[index]
+				}
+			}
+			if positioned == nil {
+				t.Fatalf("diagnostics = %v, want the misplaced-import error", diagnostics)
+			}
+			if positioned.Category != compilerTypes.SyntaxError || positioned.Line != testCase.importLine || positioned.Column == 0 {
+				t.Fatalf("misplaced-import diagnostic = %#v, want Syntax Error at line %d", positioned, testCase.importLine)
+			}
+		})
+	}
+	if _, err := Parse(mustLex(t, "module a = import \"./a\"\nmodule b = import \"./b\"\nx: Int32 = 1\n")); err != nil {
+		t.Fatalf("Parse rejected an imports-first program: %v", err)
 	}
 }
 

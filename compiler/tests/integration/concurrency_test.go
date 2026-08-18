@@ -155,6 +155,47 @@ func TestAtomicOperationsCompile(t *testing.T) {
 	}
 }
 
+// An immutable Atomic<T> binding is mutable-through, like a RuneCursor: it
+// carries no top-level const, because its accessors take a non-const receiver
+// and a const-qualified load would be a qualifier-discarding cast.
+func TestAtomicBindingCarriesNoConstThatAccessorsReject(t *testing.T) {
+	source := "fun run(): Int32 do\n" +
+		"    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n" +
+		"    counter.fetch_add(1)\n" +
+		"    counter.fetch_sub(1)\n" +
+		"    counter.store(5)\n" +
+		"    loaded: Int32 = counter.load()\n" +
+		"    swapped: Int32 = counter.exchange(6)\n" +
+		"    counter.compare_exchange(6, 7)\n" +
+		"    return loaded + swapped\n" +
+		"end\n"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	generated := rootC(t, result)
+	if strings.Contains(generated, "const hex_atomic_Int32 ") {
+		t.Fatalf("generated C const-qualifies the Atomic binding:\n%s", generated)
+	}
+	// Every accessor call still passes the binding directly; no const cast
+	// workaround appears anywhere.
+	if strings.Contains(generated, "((hex_atomic_Int32 *)&") || strings.Contains(generated, "(const hex_atomic_Int32") {
+		t.Fatalf("generated C contains a qualifier workaround cast:\n%s", generated)
+	}
+	for _, call := range []string{
+		"hex_atomic_Int32_fetch_add(&(hex_v_counter), 1);",
+		"hex_atomic_Int32_fetch_sub(&(hex_v_counter), 1);",
+		"hex_atomic_Int32_store(&(hex_v_counter), 5);",
+		"hex_atomic_Int32_load(&(hex_v_counter))",
+		"hex_atomic_Int32_exchange(&(hex_v_counter), 6)",
+		"hex_atomic_Int32_compare_exchange(&(hex_v_counter), 6, 7)",
+	} {
+		if !strings.Contains(generated, call) {
+			t.Fatalf("generated C lacks direct accessor call %q:\n%s", call, generated)
+		}
+	}
+}
+
 // Close, length, capacity, and is_closed call the non-generic hex_chan_*
 // core directly; no per-element forwarding wrapper is emitted for them.
 func TestChannelDirectCoreCalls(t *testing.T) {
@@ -513,6 +554,70 @@ func TestChannelAndTaskRejectFunElement(t *testing.T) {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
 			t.Fatalf("want Fun excluded from Channel/Task, got accept:\n%s", source)
 		}
+	}
+}
+
+// Naming a handle type without performing a handle operation must still link
+// the concurrency runtime: declaration-only reachability selects the
+// components exactly like naming a List or Array does, for a Channel<T>
+// parameter and return, a Task<R> parameter, a Mutex parameter, and an
+// Atomic<T> object member.
+func TestDeclarationOnlyHandleReachabilityLinksConcurrency(t *testing.T) {
+	shapes := []struct {
+		name      string
+		shape     string
+		operation string
+		handle    string
+		withC     bool
+	}{
+		{"channel parameter", "fun consume(c: Channel<Int32>): Int32 do\n    return 1\nend\n", "fun consume(c: Channel<Int32>): Int32 do\n    c.close()\n    return 1\nend\n", "hex_channel_Int32", true},
+		{"task parameter", "fun consume(t: Task<Int32>): Int32 do\n    return 1\nend\n", "fun consume(t: Task<Int32>): Int32 do\n    t.join()\n    return 1\nend\n", "hex_task_Int32", true},
+		{"channel return", "fun source(h: Heap): Channel<Int32> | Error do\n    return Error.new(\"x\", \"y\")\nend\n", "fun source(h: Heap): Channel<Int32> | Error do\n    return Channel<Int32>.new(h, 2)\nend\n", "hex_channel_Int32", true},
+		{"mutex parameter", "fun protect(m: Mutex) do\nend\n", "fun protect(m: Mutex) do\n    m.lock()\n    m.unlock()\nend\n", "hex_mutex", true},
+		{"atomic object member", "type Counter = { value: Atomic<Int32>, }\n", "type Counter = { value: Atomic<Int32>, }\nfun run() do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\nend\n", "hex_atomic_Int32", false},
+	}
+	for _, shape := range shapes {
+		t.Run(shape.name, func(t *testing.T) {
+			result := compileSource(shape.shape)
+			if result.ExitCode != compiler.ExitSuccess {
+				t.Fatalf("declaration-only handle rejected (%v):\n%s", result.Stderr, shape.shape)
+			}
+			if _, ok := result.Files["hexal/concurrency.h"]; !ok {
+				t.Fatalf("no concurrency component emitted for a declared handle:\n%s", shape.shape)
+			}
+			_, hasC := result.Files["hexal/concurrency.c"]
+			if hasC != shape.withC {
+				t.Fatalf("concurrency.c presence = %v, want %v", hasC, shape.withC)
+			}
+			// The declared handle's C type is spelled by the component.
+			handle := moduleFile(t, result, "hexal/concurrency.h")
+			if !strings.Contains(handle, shape.handle) {
+				t.Fatalf("hexal/concurrency.h lacks the declared handle %q:\n%s", shape.handle, handle)
+			}
+			// The artifact set must match the same program performing a
+			// handle operation: declaration-only reachability is not a
+			// different emission mode.
+			withOperation := compileSource(shape.operation)
+			if withOperation.ExitCode != compiler.ExitSuccess {
+				t.Fatalf("operation companion rejected (%v):\n%s", withOperation.Stderr, shape.operation)
+			}
+			shapeKeys := make(map[string]bool, len(result.Files))
+			for key := range result.Files {
+				shapeKeys[key] = true
+			}
+			operationKeys := make(map[string]bool, len(withOperation.Files))
+			for key := range withOperation.Files {
+				operationKeys[key] = true
+			}
+			if len(shapeKeys) != len(operationKeys) {
+				t.Fatalf("shape files %v differ from operation files %v", shapeKeys, operationKeys)
+			}
+			for key := range shapeKeys {
+				if !operationKeys[key] {
+					t.Fatalf("shape files %v differ from operation files %v", shapeKeys, operationKeys)
+				}
+			}
+		})
 	}
 }
 

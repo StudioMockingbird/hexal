@@ -30,7 +30,7 @@ type generatedEqualityState struct {
 // discoverEqualityTypes walks the program collecting the compared types and,
 // recursively, every nested type their helpers must compare. Types are
 // collected dependency-first so emission order is valid.
-func discoverEqualityTypes(program checker.Program) (*generatedEqualityState, error) {
+func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 	state := &generatedEqualityState{
 		seenObjects: make(map[*compilerTypes.ObjectType]bool),
 		seenADTs:    make(map[*compilerTypes.AdtType]bool),
@@ -40,60 +40,56 @@ func discoverEqualityTypes(program checker.Program) (*generatedEqualityState, er
 		seenUnions:  make(map[*compilerTypes.UnionInfo]bool),
 	}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			switch {
 			case typ.Object != nil:
 				if state.seenObjects[typ.Object] {
-					return nil
+					return
 				}
 				state.seenObjects[typ.Object] = true
 				state.order = append(state.order, typ)
 			case typ.Adt != nil:
 				if state.seenADTs[typ.Adt] {
-					return nil
+					return
 				}
 				state.seenADTs[typ.Adt] = true
 				state.order = append(state.order, typ)
 			case typ.Array != nil:
 				if state.seenArrays[typ.Array] {
-					return nil
+					return
 				}
 				state.seenArrays[typ.Array] = true
 				state.order = append(state.order, typ)
 			case typ.View != nil:
 				if state.seenViews[typ.View] {
-					return nil
+					return
 				}
 				state.seenViews[typ.View] = true
 				state.order = append(state.order, typ)
 			case typ.List != nil:
 				if state.seenLists[typ.List] {
-					return nil
+					return
 				}
 				state.seenLists[typ.List] = true
 				state.order = append(state.order, typ)
 			case typ.Union != nil:
 				if state.seenUnions[typ.Union] {
-					return nil
+					return
 				}
 				state.seenUnions[typ.Union] = true
 				state.order = append(state.order, typ)
 			case compilerTypes.IsString(typ):
 				state.needString = true
 			}
-			return nil
 		},
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			if node.Kind == checker.StringCompareExpression {
 				state.compareNeed = true
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, err
-	}
-	return state, nil
+	walkProgram(program, visitor)
+	return state
 }
 func equalityHelperName(typ compilerTypes.Type) string {
 	return "hex_equal_" + typ.CName

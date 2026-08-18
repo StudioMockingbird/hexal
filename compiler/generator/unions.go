@@ -40,33 +40,29 @@ func unionHelperName(ordinal int) string {
 	return fmt.Sprintf("hex_internal_union_%d", ordinal)
 }
 
-func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, error) {
+func discoverGeneratedUnions(program checker.Program) *generatedUnionState {
 	state := &generatedUnionState{names: make(map[*compilerTypes.UnionInfo]string)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			if typ.Union != nil {
 				if _, seen := state.names[typ.Union]; seen {
-					return nil
+					return
 				}
 				if typ.CName == "" {
-					return unknownExpressionDiagnostic("union has no generated C name")
+					panic(unknownExpressionDiagnostic("union has no generated C name"))
 				}
 				state.names[typ.Union] = typ.CName
 				state.order = append(state.order, typ)
 			}
-			return nil
 		},
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			if node.Kind == checker.UnionWidenExpression {
 				state.addWidening(node)
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, err
-	}
-	return state, nil
+	walkProgram(program, visitor)
+	return state
 }
 func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState) {
 	if state == nil {

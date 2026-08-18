@@ -134,7 +134,39 @@ func TestImportsMustPrecedeOtherItems(t *testing.T) {
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "imports must precede all other items")
+	wantStderr(t, result, "imports must precede all other top-level items")
+}
+
+// The import prefix ends at the first non-import item of any kind: a type,
+// function, impl, or executable statement that precedes an import is a
+// grammar violation with a positioned diagnostic, not a silent acceptance.
+func TestImportAfterAnyDeclarationRejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		prefix string
+	}{
+		{"type declaration", "type T = { n: Int32 }\n"},
+		{"function declaration", "fun helper(): Int32 do\n    return 1\nend\n"},
+		{"impl declaration", "type P = { x: Int32 }\nimpl P.get(): Int32 do\n    return self.x\nend\n"},
+		{"executable statement", "count: Int32 = 1\n"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			sources := map[string]string{
+				"app.hex":  testCase.prefix + "module Math = import \"./math\"\n",
+				"math.hex": "export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
+			}
+			result := compileMulti(sources, "app.hex")
+			wantStderr(t, result, "imports must precede all other top-level items")
+		})
+	}
+	// Imports-only-first programs remain accepted.
+	sources := map[string]string{
+		"app.hex":  "module Math = import \"./math\"\ntype T = { n: Int32 }\nexport fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
+		"math.hex": "export fun helper(): Int32 do\n    return 1\nend\n",
+	}
+	compileMulti(sources, "app.hex")
+	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
 }
 
 func TestImportedModuleIsDeclarationsOnly(t *testing.T) {
@@ -185,6 +217,22 @@ func TestStatsSumOverReachableModules(t *testing.T) {
 	}
 	if result.Stats.TokenCount == 0 {
 		t.Fatalf("TokenCount = 0, want the summed reachable token count")
+	}
+}
+
+// Every CompilationStats field is asserted, so a permanently-unwritten or
+// double-folded field cannot survive unnoticed (ParseDuration did).
+func TestStatsFields(t *testing.T) {
+	result := assertCompiles(t, "value: Int32 = 1\n")
+	if result.Stats.TokenCount == 0 || result.Stats.SourceLines == 0 {
+		t.Fatalf("TokenCount=%d SourceLines=%d, want both nonzero", result.Stats.TokenCount, result.Stats.SourceLines)
+	}
+	subtotal := result.Stats.LexDuration + result.Stats.CheckDuration + result.Stats.GenerateDuration
+	if result.Stats.PixelSubtotal != subtotal {
+		t.Fatalf("PixelSubtotal = %v, want Lex+Check+Generate = %v", result.Stats.PixelSubtotal, subtotal)
+	}
+	if result.Stats.TotalDuration < result.Stats.PixelSubtotal {
+		t.Fatalf("TotalDuration = %v, want >= PixelSubtotal = %v", result.Stats.TotalDuration, result.Stats.PixelSubtotal)
 	}
 }
 

@@ -77,10 +77,7 @@ func TestDiscoverGeneratedUnionHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := discoverGeneratedUnions(program)
-	if err != nil {
-		t.Fatal(err)
-	}
+	state := discoverGeneratedUnions(program)
 	if len(state.order) != 1 || state.order[0].CName != "hex_union_7_int32_t6_double" {
 		t.Fatalf("union state = %#v, want one deterministic helper", state)
 	}
@@ -940,38 +937,128 @@ func TestRenderSignedArithmeticUsesWrapHelpers(t *testing.T) {
 	}
 }
 
-func TestRenderUnsignedArithmeticCastsOperandsAndResult(t *testing.T) {
-	for _, typ := range []compilerTypes.Type{compilerTypes.UInt8, compilerTypes.UInt16, compilerTypes.UInt32, compilerTypes.UInt64} {
-		node := binaryExpression(checker.AddOperator, typ, typ, variableNode("left"), variableNode("right"))
-		got, err := renderExpression(node)
-		if err != nil {
-			t.Fatalf("renderExpression(%s) error = %v", typ.Name, err)
-		}
-		intermediate := typ.CName
-		if compilerTypes.Equal(typ, compilerTypes.UInt8) || compilerTypes.Equal(typ, compilerTypes.UInt16) {
-			intermediate = compilerTypes.UInt32.CName
-		} else {
-			intermediate = compilerTypes.UInt64.CName
-		}
-		want := fmt.Sprintf("(%s)((%s)hex_v_left + (%s)hex_v_right)", typ.CName, intermediate, intermediate)
-		if got != want {
-			t.Errorf("unsigned %s addition = %q, want %q", typ.Name, got, want)
+// Every covered unsigned type lowers one binary operation to one uintmax_t
+// seed on the left operand and one narrowing cast at the result boundary
+// (RFC 0072) — no per-node widening/narrowing pair, and no width-picked
+// intermediate.
+func TestRenderUnsignedRingOperationSeedsOnceAndNarrowsOnce(t *testing.T) {
+	for _, typ := range unsignedRingTypes() {
+		for operator, text := range map[checker.Operator]string{
+			checker.AddOperator: "+", checker.SubtractOperator: "-", checker.MultiplyOperator: "*",
+		} {
+			node := binaryExpression(operator, typ, typ, variableNode("left"), variableNode("right"))
+			got, err := renderExpression(node)
+			if err != nil {
+				t.Fatalf("renderExpression(%s %s) error = %v", typ.Name, text, err)
+			}
+			want := fmt.Sprintf("(%s)((uintmax_t)hex_v_left %s hex_v_right)", unsignedRingCName(typ), text)
+			if got != want {
+				t.Errorf("unsigned %s %s = %q, want %q", typ.Name, text, got, want)
+			}
 		}
 	}
 }
 
-func TestRenderUnsignedNarrowMultiplicationUsesUInt32Intermediate(t *testing.T) {
-	for _, typ := range []compilerTypes.Type{compilerTypes.UInt8, compilerTypes.UInt16} {
-		node := binaryExpression(checker.MultiplyOperator, typ, typ, variableNode("left"), variableNode("right"))
+// A left-associated chain is one maximal ring tree: one seed at its leftmost
+// operand, one narrowing at its root, and nothing in between.
+func TestRenderUnsignedRingChainSeedsOnlyItsLeftmostOperand(t *testing.T) {
+	for _, typ := range unsignedRingTypes() {
+		inner := binaryExpression(checker.AddOperator, typ, typ, variableNode("a"), variableNode("b"))
+		outer := binaryExpression(checker.AddOperator, typ, typ, inner, variableNode("c"))
+		node := binaryExpression(checker.AddOperator, typ, typ, outer, variableNode("d"))
 		got, err := renderExpression(node)
 		if err != nil {
-			t.Fatalf("renderExpression(%s) error = %v", typ.Name, err)
+			t.Fatalf("renderExpression(%s chain) error = %v", typ.Name, err)
 		}
-		want := fmt.Sprintf("(%s)((uint32_t)hex_v_left * (uint32_t)hex_v_right)", typ.CName)
+		want := fmt.Sprintf("(%s)((uintmax_t)hex_v_a + hex_v_b + hex_v_c + hex_v_d)", unsignedRingCName(typ))
 		if got != want {
-			t.Errorf("unsigned %s multiplication = %q, want %q", typ.Name, got, want)
+			t.Errorf("unsigned %s chain = %q, want %q", typ.Name, got, want)
+		}
+		if strings.Count(got, "uintmax_t") != 1 {
+			t.Errorf("unsigned %s chain = %q, want exactly one uintmax_t seed", typ.Name, got)
 		}
 	}
+}
+
+// A right-nested ring subtree evaluates before its parent converts anything,
+// so it carries its own seed.
+func TestRenderUnsignedRingRightSubtreeCarriesItsOwnSeed(t *testing.T) {
+	typ := compilerTypes.UInt32
+	inner := binaryExpression(checker.MultiplyOperator, typ, typ, variableNode("b"), variableNode("c"))
+	node := binaryExpression(checker.AddOperator, typ, typ, variableNode("a"), inner)
+	got, err := renderExpression(node)
+	if err != nil {
+		t.Fatalf("renderExpression(right subtree) error = %v", err)
+	}
+	want := "(uint32_t)((uintmax_t)hex_v_a + (uintmax_t)hex_v_b * hex_v_c)"
+	if got != want {
+		t.Errorf("right-nested ring subtree = %q, want %q", got, want)
+	}
+}
+
+// Mixed +, -, and * trees keep their AST grouping. Each case states the C
+// text that must parse the same way the checked tree is shaped; the
+// regrouping the construction must not permit is named beside it.
+func TestRenderUnsignedRingTreesPreserveGrouping(t *testing.T) {
+	typ := compilerTypes.UInt32
+	ring := func(operator checker.Operator, left, right checker.Expression) checker.Expression {
+		return binaryExpression(operator, typ, typ, left, right)
+	}
+	a, b, c := variableNode("a"), variableNode("b"), variableNode("c")
+	for _, testCase := range []struct {
+		name     string
+		node     checker.Expression
+		want     string
+		regroups string
+	}{
+		{
+			name: "ring subtree on the right",
+			node: ring(checker.MultiplyOperator, a, ring(checker.SubtractOperator, b, c)),
+			want: "(uint32_t)((uintmax_t)hex_v_a * ((uintmax_t)hex_v_b - hex_v_c))", regroups: "(a*b)-c",
+		},
+		{
+			name: "ring subtree on the left",
+			node: ring(checker.MultiplyOperator, ring(checker.AddOperator, a, b), c),
+			want: "(uint32_t)(((uintmax_t)hex_v_a + hex_v_b) * hex_v_c)", regroups: "a+(b*c)",
+		},
+		{
+			name: "higher-precedence ring subtree on the right needs no grouping",
+			node: ring(checker.AddOperator, a, ring(checker.MultiplyOperator, b, c)),
+			want: "(uint32_t)((uintmax_t)hex_v_a + (uintmax_t)hex_v_b * hex_v_c)", regroups: "",
+		},
+		{
+			name: "equal-precedence ring subtree on the right keeps grouping",
+			node: ring(checker.SubtractOperator, a, ring(checker.SubtractOperator, b, c)),
+			want: "(uint32_t)((uintmax_t)hex_v_a - ((uintmax_t)hex_v_b - hex_v_c))", regroups: "(a-b)-c",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := renderExpression(testCase.node)
+			if err != nil {
+				t.Fatalf("renderExpression error = %v", err)
+			}
+			if got != testCase.want {
+				t.Errorf("got %q, want %q (regrouping to avoid: %s)", got, testCase.want, testCase.regroups)
+			}
+		})
+	}
+}
+
+// unsignedRingTypes lists every type RFC 0072 covers. Byte is UInt8's alias
+// and Size is the only one whose C name is not exact-width.
+func unsignedRingTypes() []compilerTypes.Type {
+	return []compilerTypes.Type{
+		compilerTypes.UInt8, compilerTypes.UInt16, compilerTypes.UInt32,
+		compilerTypes.UInt64, compilerTypes.SizeType,
+	}
+}
+
+func unsignedRingCName(typ compilerTypes.Type) string {
+	name, ok := unsignedCName(typ)
+	if !ok {
+		return typ.CName
+	}
+	return name
 }
 
 // Generated C contains no generic target-profile probes. Toolchain
@@ -1719,7 +1806,7 @@ func TestRenderTruthinessConditions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writeStatementsAt() error = %v", err)
 	}
-	if !strings.Contains(body.String(), "if ((hex_v_maybe != NULL)) {") {
+	if !strings.Contains(body.String(), "if ((hex_v_maybe != nullptr)) {") {
 		t.Fatalf("body = %q, want a nullable null-test condition", body.String())
 	}
 }

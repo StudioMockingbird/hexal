@@ -74,7 +74,7 @@ func classifyConversion(source, target compilerTypes.Type) conversionKind {
 // on the C target. SIZE_MAX is at least 65535 on every conforming target, so
 // only literals above that are target-dependent. Identity and direct
 // conversions remain in the checked program but never enter the helper set.
-func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []string, error) {
+func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []string) {
 	var specs []conversionSpec
 	seen := make(map[string]bool)
 	var sizeLiterals []string
@@ -82,7 +82,7 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 	visitor := &programVisitor{
 		// Literal constants carry no checked node (the value lives in the
 		// operand), so the Size target guard runs on every operand.
-		Operand: func(source checker.Operand) error {
+		Operand: func(source checker.Operand) {
 			if compilerTypes.Equal(source.Type, compilerTypes.SizeType) && source.Constant != nil {
 				if unsigned, ok := constant.Uint64Val(source.Constant); ok && unsigned > 65535 {
 					digits := formatInteger(unsigned, checker.DecimalRadix)
@@ -92,9 +92,8 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 					}
 				}
 			}
-			return nil
 		},
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			if node.Kind == checker.ConversionExpression && node.Operand != nil && classifyConversion(node.OperandType, node.ResultType) == conversionChecked {
 				key := node.OperandType.Name + ">" + node.ResultType.Name
 				if !seen[key] {
@@ -102,25 +101,25 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 					specs = append(specs, conversionSpec{source: node.OperandType, target: node.ResultType})
 				}
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, nil, err
-	}
-	return specs, sizeLiterals, nil
+	walkProgram(program, visitor)
+	return specs, sizeLiterals
 }
 
 // writeConversionDefinitions emits one helper per checked conversion spec.
 // Guards run before any C conversion that could be invalid; the shared
 // runtime trap never executes the invalid operation.
-func writeConversionDefinitions(result *strings.Builder, specs []conversionSpec) {
+func writeConversionDefinitions(result *strings.Builder, specs []conversionSpec) error {
 	if len(specs) == 0 {
-		return
+		return nil
 	}
 	for _, spec := range specs {
-		writeConversionHelper(result, spec)
+		if err := writeConversionHelper(result, spec); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // containsSizeConversion reports whether any generated conversion targets
@@ -146,7 +145,7 @@ func conversionHelperName(spec conversionSpec) string {
 	return "hex_convert_" + sourceSuffix + "_" + targetSuffix
 }
 
-func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
+func writeConversionHelper(result *strings.Builder, spec conversionSpec) error {
 	source := spec.source
 	target := spec.target
 	sourceC := source.CName
@@ -168,7 +167,11 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 		if integerRangeFits(source, target) {
 			body = "    return (" + targetC + ")value;\n"
 		} else {
-			body = writeCheckedIntegerConversion(source, target)
+			var helperErr error
+			body, helperErr = writeCheckedIntegerConversion(source, target)
+			if helperErr != nil {
+				return helperErr
+			}
 		}
 	case compilerTypes.IsInteger(source):
 		// Integer to float: nearest representable value; all core integer
@@ -190,6 +193,7 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) {
 	fmt.Fprintf(result, "\nstatic inline %s %s(%s value) {\n", targetC, conversionHelperName(spec), sourceC)
 	result.WriteString(body)
 	result.WriteString("}\n")
+	return nil
 }
 
 // integerRangeFits reports whether every source value fits the destination
@@ -213,10 +217,13 @@ func integerRangeFits(source, target compilerTypes.Type) bool {
 	return source.Bits < target.Bits
 }
 
-func writeCheckedIntegerConversion(source, target compilerTypes.Type) string {
+func writeCheckedIntegerConversion(source, target compilerTypes.Type) (string, error) {
+	minimum, minimumErr := integerMinimumMacro(target)
+	if minimumErr != nil {
+		return "", minimumErr
+	}
 	low := ""
 	high := ""
-	minimum := integerMinimumMacro(target)
 	maximum := integerMaximumMacro(target)
 	switch {
 	case compilerTypes.IsSignedInteger(source) && compilerTypes.IsSignedInteger(target):
@@ -238,7 +245,7 @@ func writeCheckedIntegerConversion(source, target compilerTypes.Type) string {
 	} else {
 		condition = high
 	}
-	return "    if (!(" + condition + ")) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n    return (" + target.CName + ")value;\n"
+	return "    if (!(" + condition + ")) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n    return (" + target.CName + ")value;\n", nil
 }
 
 // writeFloatToIntegerConversion emits a checked Float-to-integer helper: the
@@ -281,9 +288,9 @@ func writeFloatToIntegerConversion(source, target compilerTypes.Type) string {
 
 // integerMinimumMacro returns the C limit macro for the minimum of an
 // integer type, or a literal for types without a macro.
-func integerMinimumMacro(typ compilerTypes.Type) string {
+func integerMinimumMacro(typ compilerTypes.Type) (string, error) {
 	if !compilerTypes.IsSignedInteger(typ) {
-		return "0"
+		return "0", nil
 	}
 	return signedMinimumMacro(typ)
 }

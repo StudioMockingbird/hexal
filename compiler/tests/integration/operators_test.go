@@ -65,7 +65,7 @@ func TestCompleteOperatorProgram(t *testing.T) {
 		"(hex_v_first == hex_v_second)",
 		"(hex_v_first + (hex_v_second * hex_v_third))",
 		"((hex_v_first + hex_v_second) * hex_v_third)",
-		"(uint32_t)((uint64_t)hex_v_unsignedLeft + (uint64_t)hex_v_unsignedRight)",
+		"(uint32_t)((uintmax_t)hex_v_unsignedLeft + hex_v_unsignedRight)",
 		"hex_rem_uint32_t(hex_v_unsignedLeft, hex_v_unsignedRight)",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
@@ -85,7 +85,7 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 		t.Fatalf("Compile returned %#v, want successful mutable wrapping program", result)
 	}
 	for _, want := range []string{
-		"(uint8_t)((uint32_t)hex_v_unsigned + (uint32_t)100)",
+		"(uint8_t)((uintmax_t)hex_v_unsigned + 100)",
 		"hex_wrap_add_int8_t(hex_v_signed, 1)",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
@@ -96,7 +96,7 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 
 func TestImmutableArithmeticStaysRuntimeAndLiteralFoldingSurvives(t *testing.T) {
 	result := compileSource("count: UInt8 = 200 next: UInt8 = count + 1")
-	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_next = (uint8_t)((uint32_t)hex_v_count + (uint32_t)1);") {
+	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_next = (uint8_t)((uintmax_t)hex_v_count + 1);") {
 		t.Fatalf("Compile returned %#v, want runtime UInt8 wrapping on the binding read", result)
 	}
 
@@ -180,10 +180,10 @@ func TestAllIntegerWidths(t *testing.T) {
 		typ  string
 		want string
 	}{
-		{"UInt8", "(uint8_t)((uint32_t)hex_v_left + (uint32_t)hex_v_right)"},
-		{"UInt16", "(uint16_t)((uint32_t)hex_v_left + (uint32_t)hex_v_right)"},
-		{"UInt32", "(uint32_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right)"},
-		{"UInt64", "(uint64_t)((uint64_t)hex_v_left + (uint64_t)hex_v_right)"},
+		{"UInt8", "(uint8_t)((uintmax_t)hex_v_left + hex_v_right)"},
+		{"UInt16", "(uint16_t)((uintmax_t)hex_v_left + hex_v_right)"},
+		{"UInt32", "(uint32_t)((uintmax_t)hex_v_left + hex_v_right)"},
+		{"UInt64", "(uint64_t)((uintmax_t)hex_v_left + hex_v_right)"},
 		{"Int8", "hex_wrap_add_int8_t(hex_v_left, hex_v_right)"},
 		{"Int16", "hex_wrap_add_int16_t(hex_v_left, hex_v_right)"},
 		{"Int32", "hex_wrap_add_int32_t(hex_v_left, hex_v_right)"},
@@ -313,5 +313,21 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
 		}
+	}
+}
+
+// Size-only arithmetic renders a uintmax_t intermediate, which requires
+// <stdint.h> even though no written type spells an exact-width integer:
+// Size selects <stddef.h> alone. The assertion is textual because the suite
+// never invokes a toolchain, so an undeclared uintmax_t is otherwise
+// invisible to it (RFC 0073 D33, RFC 0072).
+func TestSizeOnlyArithmeticSelectsStdint(t *testing.T) {
+	source := "a: Size = 1\nb: Size = 2\nc: Size = a + b\nd: Size = c * a\n"
+	result := assertCompiles(t, source)
+	if !strings.Contains(hexalH(t, result), "#include <stdint.h>") {
+		t.Fatalf("hexal.h = %q, want <stdint.h> selected for the unsigned arithmetic intermediate", hexalH(t, result))
+	}
+	if !strings.Contains(rootC(t, result), "(size_t)((uintmax_t)hex_v_a + hex_v_b)") {
+		t.Fatalf("modules/app.c = %q, want a uintmax_t intermediate narrowed to size_t", rootC(t, result))
 	}
 }

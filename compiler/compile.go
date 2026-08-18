@@ -40,7 +40,6 @@ type CompilationStats struct {
 	TokenCount       int
 	SourceLines      int
 	LexDuration      time.Duration
-	ParseDuration    time.Duration
 	CheckDuration    time.Duration
 	GenerateDuration time.Duration
 	PixelSubtotal    time.Duration
@@ -69,22 +68,20 @@ func Compile(sources map[string]string, entrypoint string) CompilationResult {
 	}
 
 	started := time.Now()
-	// Reachability lexes and parses every reachable module; the lex and
-	// parse phases are not split out of this duration.
-	order, programs, resolveErr := reachableModules(sources, entrypoint)
+	// Reachability lexes and parses every reachable module and returns the
+	// token counts it observed; the lex, parse, and resolution phases fold
+	// into one duration and one lex pass.
+	order, programs, tokenCounts, resolveErr := reachableModules(sources, entrypoint)
 	stats.LexDuration = time.Since(started)
 	if resolveErr != nil {
 		return failureResult(resolveErr, stats, compileStarted)
 	}
 
-	// Stats sum over the reachable module set: lines via sourceLineCount,
-	// tokens via a second lex pass.
+	// Stats sum over the reachable module set: lines and tokens from the
+	// parse pass result, with no second lex.
 	for key := range programs {
 		stats.SourceLines += sourceLineCount(sources[key])
-		tokens, lexErr := lexer.Lex(sources[key])
-		if lexErr == nil {
-			stats.TokenCount += len(tokens)
-		}
+		stats.TokenCount += tokenCounts[key]
 	}
 
 	started = time.Now()
@@ -189,19 +186,24 @@ func resolveImportPath(fromModule, rawPath string) (string, error) {
 // module aborts the scan, returning that module's merged diagnostics; every
 // resolvable import error is collected and returned sorted by module
 // post-order position, then line, then column.
-func reachableModules(sources map[string]string, entrypoint string) ([]string, map[string]parser.Program, error) {
+func reachableModules(sources map[string]string, entrypoint string) ([]string, map[string]parser.Program, map[string]int, error) {
 	state := &reachState{
-		sources:  sources,
-		parsed:   make(map[string]*parser.Program),
-		visited:  make(map[string]bool),
-		byModule: make(map[string]compilerTypes.Diagnostics),
+		sources:     sources,
+		parsed:      make(map[string]*parser.Program),
+		visited:     make(map[string]bool),
+		byModule:    make(map[string]compilerTypes.Diagnostics),
+		tokenCounts: make(map[string]int),
 	}
 	if err := state.visit(canonicalModuleID(entrypoint)); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	programs := make(map[string]parser.Program, len(state.parsed))
 	for key, program := range state.parsed {
 		programs[key] = *program
+	}
+	tokenCounts := make(map[string]int, len(state.tokenCounts))
+	for key, count := range state.tokenCounts {
+		tokenCounts[key] = count
 	}
 	merged := make(compilerTypes.Diagnostics, 0)
 	for _, moduleID := range state.order {
@@ -215,21 +217,23 @@ func reachableModules(sources map[string]string, entrypoint string) ([]string, m
 		merged = append(merged, diagnostics...)
 	}
 	if len(merged) > 0 {
-		return state.order, programs, merged
+		return state.order, programs, tokenCounts, merged
 	}
-	return state.order, programs, nil
+	return state.order, programs, tokenCounts, nil
 }
 
 // reachState carries one import-resolution DFS: the parsed-program cache, the
-// post-order canonical id list, the DFS stack for cycle detection, and every
-// resolution diagnostic bucketed by its module.
+// post-order canonical id list, the DFS stack for cycle detection, every
+// resolution diagnostic bucketed by its module, and the per-source-key token
+// counts observed while lexing (so the caller never re-lexes for stats).
 type reachState struct {
-	sources  map[string]string
-	parsed   map[string]*parser.Program // logical source key -> program
-	visited  map[string]bool            // canonical ids with a visit begun
-	stack    []string                   // canonical ids on the current DFS path
-	order    []string                   // post-order: dependencies first
-	byModule map[string]compilerTypes.Diagnostics
+	sources     map[string]string
+	parsed      map[string]*parser.Program // logical source key -> program
+	visited     map[string]bool            // canonical ids with a visit begun
+	stack       []string                   // canonical ids on the current DFS path
+	order       []string                   // post-order: dependencies first
+	byModule    map[string]compilerTypes.Diagnostics
+	tokenCounts map[string]int // logical source key -> token count
 }
 
 // visit parses canonical and its transitive imports, then appends canonical
@@ -255,6 +259,7 @@ func (s *reachState) visit(canonical string) error {
 	if lexErr != nil {
 		return mergeDiagnostics(lexErr, nil)
 	}
+	s.tokenCounts[key] = len(tokens)
 	program, parseErr := parser.Parse(tokens)
 	if parseErr != nil {
 		return mergeDiagnostics(nil, parseErr)
@@ -393,7 +398,6 @@ func failureResult(err error, stats CompilationStats, compileStarted time.Time) 
 
 func finalizeStats(stats *CompilationStats, compileStarted time.Time) {
 	stats.PixelSubtotal = stats.LexDuration +
-		stats.ParseDuration +
 		stats.CheckDuration +
 		stats.GenerateDuration
 	stats.TotalDuration = time.Since(compileStarted)

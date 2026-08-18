@@ -55,7 +55,7 @@ func c23GeneratedTaskJoinRuns(t *testing.T) {
 	if !c23ThreadsAvailable(t) {
 		t.Skip("gcc without C23 <threads.h> cannot build the task runtime")
 	}
-	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    first: Task<Int32> = try spawn square(6)\n    second: Task<Int32> = try spawn square(7)\n    return first.join() + second.join()\nend\nfun demo(): Int32 do\n    value: Int32 = try run()\n    return value\nend\nprint(demo())\n"
+	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    first: Task<Int32> = try spawn square(6)\n    second: Task<Int32> = try spawn square(7)\n    return first.join() + second.join()\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error = run()\n    value: Int32 = match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"
 	normalized := compileConcurrencySmoke(t, source)
 	if normalized != "85" {
 		t.Fatalf("program output = %q, want %q", normalized, "85")
@@ -66,7 +66,7 @@ func c23GeneratedMutexRuns(t *testing.T) {
 	if !c23ThreadsAvailable(t) {
 		t.Skip("gcc without C23 <threads.h> cannot build the task runtime")
 	}
-	source := "fun worker(m: Mutex, counter: MutPtr<Int32>): Int32 do\n    mut index: Int32 = 0\n    while index < 100 do\n        m.lock()\n        counter.value = counter.value + 1\n        m.unlock()\n        Task.yield()\n        index = index + 1\n    end\n    return index\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    defer m.free(h)\n    mut count: Int32 = 0\n    first: Task<Int32> = try spawn worker(m, ref count)\n    second: Task<Int32> = try spawn worker(m, ref count)\n    first.join()\n    second.join()\n    return count\nend\nfun demo(): Int32 do\n    value: Int32 = try run()\n    return value\nend\nprint(demo())\n"
+	source := "fun worker(m: Mutex, counter: MutPtr<Int32>): Int32 do\n    mut index: Int32 = 0\n    while index < 100 do\n        m.lock()\n        counter.value = counter.value + 1\n        m.unlock()\n        Task.yield()\n        index = index + 1\n    end\n    return index\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    defer m.free(h)\n    mut count: Int32 = 0\n    first: Task<Int32> = try spawn worker(m, ref count)\n    second: Task<Int32> = try spawn worker(m, ref count)\n    first.join()\n    second.join()\n    return count\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error = run()\n    value: Int32 = match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"
 	normalized := compileConcurrencySmoke(t, source)
 	if normalized != "200" {
 		t.Fatalf("program output = %q, want %q", normalized, "200")

@@ -167,8 +167,9 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 		case checker.CallStatement:
 			if statement.Call.Node.Kind == checker.PrintExpression {
 				// print validates its arguments and produces no value; the
-				// statement renderer emits its own statements.
-				return nil
+				// statement renderer emits its own statements. Continue so
+				// the statements after print still pass preflight.
+				continue
 			}
 			if _, err := renderCallStatement(statement, state); err != nil {
 				return err
@@ -187,7 +188,10 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				if statement.Action.Call.Type == (compilerTypes.Type{}) {
 					// A no-result call such as Heap.free validates its node
 					// directly; it has no value type to check.
-					return validateExpressionNode(statement.Action.Call.Node, compilerTypes.Type{}, false, state)
+					if err := validateExpressionNode(statement.Action.Call.Node, compilerTypes.Type{}, false, state); err != nil {
+						return err
+					}
+					break
 				}
 				if err := validateCheckedOperandWithState(*statement.Action.Call, state); err != nil {
 					return err
@@ -243,6 +247,43 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			state.popScope()
 			if err != nil {
 				return err
+			}
+		case checker.ForStatement:
+			if err := validateCheckedOperandWithState(statement.Source, state); err != nil {
+				return err
+			}
+			state.pushScope()
+			for _, binder := range statement.Binders {
+				if !validSourceName(binder.Name) || !validateGeneratedType(binder.Type, typeState, false) {
+					return unknownExpressionDiagnostic("unsupported checked for binder")
+				}
+				if _, err := state.allocateBinding(binder.Binding, binder.Name, binder.Type, false); err != nil {
+					return err
+				}
+			}
+			previousLoopDepth := state.loopDepth
+			state.loopDepth++
+			err := validateStatements(statement.Body, state, typeState)
+			state.loopDepth = previousLoopDepth
+			state.popScope()
+			if err != nil {
+				return err
+			}
+		case checker.ErrdeferStatement:
+			if statement.Action.IsCall {
+				if statement.Action.Call == nil {
+					return unknownExpressionDiagnostic("errdeferred call action without a checked call")
+				}
+				if statement.Action.Call.Type == (compilerTypes.Type{}) {
+					return validateExpressionNode(statement.Action.Call.Node, compilerTypes.Type{}, false, state)
+				}
+				if err := validateCheckedOperandWithState(*statement.Action.Call, state); err != nil {
+					return err
+				}
+			} else if statement.Action.Value != nil {
+				if err := validateCheckedOperandWithState(*statement.Action.Value, state); err != nil {
+					return err
+				}
 			}
 		case checker.BreakStatement:
 			if state.loopDepth == 0 {

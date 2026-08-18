@@ -347,16 +347,16 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 func writeForeignPrototypes(result *strings.Builder, program checker.Program, state *expressionValidation) {
 	emitted := make(map[string]bool)
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			switch node.Kind {
 			case checker.CallExpression:
 				callee := node.Operand
 				if callee == nil || callee.Module == "" || callee.ResultType.Signature == nil {
-					return nil
+					return
 				}
 				symbol := PrivateCName(FunctionName, callee.Name, moduleOwner(callee.Module, state.owner))
 				if emitted[symbol] {
-					return nil
+					return
 				}
 				emitted[symbol] = true
 				parameters := make([]string, 0, len(callee.ResultType.Signature.Parameters))
@@ -370,11 +370,11 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
 			case checker.MethodCallExpression:
 				if node.Owner == nil || node.Owner.ModuleID == "" || node.Owner.ModuleID == state.moduleID {
-					return nil
+					return
 				}
 				symbol := methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner))
 				if emitted[symbol] {
-					return nil
+					return
 				}
 				emitted[symbol] = true
 				parameters := []string{typeSpelling(node.OperandType)}
@@ -387,10 +387,9 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				}
 				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
 			}
-			return nil
 		},
 	}
-	_ = walkProgram(program, visitor)
+	walkProgram(program, visitor)
 }
 
 // writeSpecializedPrototypes emits one static prototype per concrete

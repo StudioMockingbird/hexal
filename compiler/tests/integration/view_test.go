@@ -173,3 +173,24 @@ func TestViewReturnRules(t *testing.T) {
 		t.Fatalf("nested View return must compile by design: %v", result.Stderr)
 	}
 }
+
+// Slicing an empty List or View renders the null-address guard, so a
+// zero-length slice never forms &data[0] on a null backing pointer (which is
+// undefined behavior in C even when unused).
+func TestEmptyListViewSliceGuardsNullAddress(t *testing.T) {
+	source := "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    first: View<Int32> = values.slice(0, 0)\n    empty: View<Int32> = View<Int32>.empty()\n    nested: View<Int32> = empty.slice(0, 0)\nend\n"
+	result := assertCompiles(t, source)
+	var generated strings.Builder
+	for _, content := range result.Files {
+		generated.WriteString(content)
+	}
+	all := generated.String()
+	for _, want := range []string{
+		"list->data == nullptr ? nullptr : &list->data[start]",
+		"view.data == nullptr ? nullptr : &view.data[start]",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("generated artifacts lack the zero-length slice guard %q:\n%s", want, all)
+		}
+	}
+}

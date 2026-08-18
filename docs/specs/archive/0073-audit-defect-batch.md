@@ -1,10 +1,20 @@
 # RFC 0073: Audit Defect Batch
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready. The type-identity design D19 and D25
-  depend on is resolved below.
+- Status: Implemented; verified 2026-08-18. All seventeen defects are fixed,
+  the D8–D13/D28–D32 latent fail-open paths are swept, and the D14–D16/D18
+  documentation contradictions are resolved with `docs/reference.md`.
+  D19/D25, the last item, shipped as `Type.CanonicalKey` (recursive,
+  module-qualified identity; display names never participate) plus a
+  per-compilation `types.Arena` shared by every module environment, with
+  collection C-name disambiguation on collision; integration coverage lives
+  in `modules_identity_test.go`. D31, the sole originally-unverified defect,
+  is confirmed not reproducing: `compiler/tests/c23validation/` has no `.at(`
+  and every `try` sits in an Error-returning function. D2 and D26 are fixed
+  individually as ordinary defects; the toolchain-backed validation gate for
+  the uncompilable-C class stays deferred by the decision in Readiness.
 - Created: 2026-08-16
-- Updated: 2026-08-16
+- Updated: 2026-08-18
 - Scope: correctness defects found by the six-pass refactor audit — compiler
   behavior, generated C, and normative-document contradictions
 - Coordinates with: RFC 0074 (refactor batch), `AGENTS.md`, `docs/reference.md`,
@@ -853,7 +863,14 @@ R10). All 21 visitor callbacks return `nil` unconditionally and `walk.go:516`'s
 default is unreachable, so the return value exists only to drive nine
 `panic(err)` sites and one silent `_ = walkProgram(...)`. Removing it deletes all
 ten and roughly 180 `if err != nil` lines. **Strictly after D8**: the fail-closed
-arm must exist before the plumbing around it is simplified.
+arm must exist before the plumbing around it is simplified. The same sweep
+removes the `error` returns from the discovery functions that existed only to
+forward walk failures — `discoverGeneratedADTs`, `discoverHeapHelpers`,
+`discoverGeneratedArrays`, `discoverGeneratedLists`, `discoverGeneratedDicts`,
+`discoverGeneratedViews`, `discoverGeneratedStrings`, `discoverGeneratedUnions`,
+`discoverEqualityTypes`, `discoverGeneratedConversions`,
+`discoverGeneratedConcurrency` — and their call sites in `emission.go` and the
+generator tests.
 
 Do A6 with D13, and D8 → A7 → A10 in that order. RFC 0074 retains pointers so
 the move is traceable.

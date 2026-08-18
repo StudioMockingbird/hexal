@@ -840,6 +840,8 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 		return expressionTypeHint{typ: compilerTypes.Bool, token: expression.Token}
 	case parser.NilLiteral:
 		return expressionTypeHint{typ: compilerTypes.Nil, token: expression.Token}
+	case parser.EosLiteral:
+		return expressionTypeHint{typ: compilerTypes.EoS, token: expression.Token}
 	case parser.StringLiteral:
 		// A literal in an expression position is String unless the
 		// context demands a Strand.

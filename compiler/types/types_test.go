@@ -15,6 +15,17 @@ func TestDiagnosticFormatsCategoryBeforeDescription(t *testing.T) {
 	}
 }
 
+// An empty category renders visibly as "[]" rather than being masked as a
+// compiler Unknown Error; omitting the category at a construction site must
+// surface the defect, never a user error wearing the compiler's label.
+func TestDiagnosticErrorNeverMasksEmptyCategory(t *testing.T) {
+	diagnostic := Diagnostic{Message: "value without a category"}
+	rendered := diagnostic.Error()
+	if got, want := rendered, "[] value without a category"; got != want {
+		t.Fatalf("diagnostic = %q, want %q", got, want)
+	}
+}
+
 func TestPtrTypeIsInterned(t *testing.T) {
 	environment := NewEnvironment()
 	first := environment.PtrType(Int32)

@@ -123,6 +123,29 @@ func (names *scope) lookupBinding(id BindingID) (binding, bool) {
 	return binding{}, false
 }
 
+// setFromRef updates the fromRef flag of a binding by identity, writing the
+// change back into the frame that owns the binding. It reports whether the
+// binding was found.
+func (names *scope) setFromRef(id BindingID, fromRef bool) bool {
+	for frame := names; frame != nil; frame = frame.parent {
+		for name, bound := range frame.local {
+			if bound.id == id {
+				bound.fromRef = fromRef
+				frame.local[name] = bound
+				return true
+			}
+		}
+		for name, bound := range frame.module {
+			if bound.id == id {
+				bound.fromRef = fromRef
+				frame.module[name] = bound
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // narrowedType returns the branch-local effective read type of a binding, if
 // a narrowing covers it. An escaped binding has no narrowing.
 func (state *flowState) narrowedType(id BindingID) (compilerTypes.Type, bool) {

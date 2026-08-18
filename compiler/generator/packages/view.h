@@ -17,7 +17,7 @@ static inline {{.CName}} hex_view_slice_{{.Suffix}}({{.CName}} view, uint64_t st
     if (!(start <= end && end <= view.length)) {
         hex_runtime_trap("[Runtime Error] view slice bounds out of range\n");
     }
-    return ({{.CName}}){&view.data[start], end - start};
+    return ({{.CName}}){view.data == nullptr ? nullptr : &view.data[start], end - start};
 }
 {{end}}
 #endif

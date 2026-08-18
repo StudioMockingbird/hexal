@@ -37,7 +37,7 @@ type generatedWrapState struct {
 func discoverGeneratedWraps(program checker.Program) *generatedWrapState {
 	state := &generatedWrapState{seen: make(map[string]bool)}
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			var name string
 			switch {
 			case node.Kind == checker.UnaryOperationExpression && node.Operator == checker.NegateOperator && compilerTypes.IsSignedInteger(node.OperandType):
@@ -53,19 +53,16 @@ func discoverGeneratedWraps(program checker.Program) *generatedWrapState {
 				}
 			}
 			if name == "" || node.OperandType == (compilerTypes.Type{}) {
-				return nil
+				return
 			}
 			key := name + ":" + node.OperandType.CName
 			if !state.seen[key] {
 				state.seen[key] = true
 				state.order = append(state.order, wrapOperation{name: name, typ: node.OperandType})
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		panic(err)
-	}
+	walkProgram(program, visitor)
 	return state
 }
 

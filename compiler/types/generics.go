@@ -60,6 +60,7 @@ func (environment *Environment) TypeParameter(declaration *GenericDeclaration, i
 	if declaration.placeholders[index].Generic == nil {
 		declaration.placeholders[index] = Type{
 			Name:         declaration.Parameters[index],
+			CanonicalKey: declaration.Parameters[index],
 			Incomplete:   true,
 			Generic:      declaration,
 			GenericIndex: index,

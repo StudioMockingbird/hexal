@@ -1,9 +1,6 @@
 package types
 
-import (
-	"fmt"
-	"strconv"
-)
+import "strconv"
 
 // ArrayInfo is the metadata of one fixed inline array type.
 type ArrayInfo struct {
@@ -87,27 +84,22 @@ func (environment *Environment) ArrayType(element Type, length uint64) Type {
 		!Eligible(element, PositionArrayElement) {
 		return Type{}
 	}
-	key := arrayKey(element, length)
-	if cached, ok := environment.arrayTypes[key]; ok {
+	canonicalKey := "array:" + element.CanonicalKey + "," + strconv.FormatUint(length, 10)
+	if cached, ok := environment.arena.arrayTypes[canonicalKey]; ok {
 		return cached
 	}
 	name := "Array<" + element.Name + ", " + strconv.FormatUint(length, 10) + ">"
-	array := &ArrayInfo{Element: element, Length: length}
+	identity := newTypeIdentity(environment.identity)
+	identity.signature = canonicalKey
 	typ := Type{
-		Name:     name,
-		CName:    "hex_array_" + SanitizeIdentifier(element.Name) + "_" + strconv.FormatUint(length, 10),
-		Array:    array,
-		identity: newTypeIdentity(environment.identity),
+		Name:         name,
+		CName:        uniqueCollectionCName(environment.arena.arrayTypes, "hex_array_"+SanitizeIdentifier(element.Name)+"_"+strconv.FormatUint(length, 10), element),
+		CanonicalKey: canonicalKey,
+		Array:        &ArrayInfo{Element: element, Length: length},
+		identity:     identity,
 	}
-	environment.arrayTypes[key] = typ
+	environment.arena.arrayTypes[canonicalKey] = typ
 	return typ
-}
-
-func arrayKey(element Type, length uint64) string {
-	if element.identity == nil {
-		return ""
-	}
-	return fmt.Sprintf("%d,%d", element.identity.serial, length)
 }
 
 // ViewType constructs or retrieves the canonical View<T> type of one inline
@@ -119,19 +111,20 @@ func (environment *Environment) ViewType(element Type) Type {
 		!Eligible(element, PositionViewElement) {
 		return Type{}
 	}
-	key := "view:" + strconv.FormatUint(element.identity.serial, 10)
-	if cached, ok := environment.viewTypes[key]; ok {
+	canonicalKey := "view:" + element.CanonicalKey
+	if cached, ok := environment.arena.viewTypes[canonicalKey]; ok {
 		return cached
 	}
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
+	identity.signature = canonicalKey
 	typ := Type{
-		Name:     "View<" + element.Name + ">",
-		CName:    "hex_view_" + SanitizeIdentifier(element.Name),
-		View:     &ViewInfo{Element: element},
-		identity: identity,
+		Name:         "View<" + element.Name + ">",
+		CName:        uniqueCollectionCName(environment.arena.viewTypes, "hex_view_"+SanitizeIdentifier(element.Name), element),
+		CanonicalKey: canonicalKey,
+		View:         &ViewInfo{Element: element},
+		identity:     identity,
 	}
-	environment.viewTypes[key] = typ
+	environment.arena.viewTypes[canonicalKey] = typ
 	return typ
 }
 
@@ -143,19 +136,20 @@ func (environment *Environment) ListType(element Type) Type {
 		!Eligible(element, PositionListElement) {
 		return Type{}
 	}
-	key := "list:" + strconv.FormatUint(element.identity.serial, 10)
-	if cached, ok := environment.listTypes[key]; ok {
+	canonicalKey := "list:" + element.CanonicalKey
+	if cached, ok := environment.arena.listTypes[canonicalKey]; ok {
 		return cached
 	}
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
+	identity.signature = canonicalKey
 	typ := Type{
-		Name:     "List<" + element.Name + ">",
-		CName:    "hex_list_" + SanitizeIdentifier(element.Name),
-		List:     &ListInfo{Element: element},
-		identity: identity,
+		Name:         "List<" + element.Name + ">",
+		CName:        uniqueCollectionCName(environment.arena.listTypes, "hex_list_"+SanitizeIdentifier(element.Name), element),
+		CanonicalKey: canonicalKey,
+		List:         &ListInfo{Element: element},
+		identity:     identity,
 	}
-	environment.listTypes[key] = typ
+	environment.arena.listTypes[canonicalKey] = typ
 	return typ
 }
 
@@ -275,19 +269,20 @@ func (environment *Environment) TaskType(result Type) Type {
 		!Eligible(result, PositionTaskResult) {
 		return Type{}
 	}
-	key := "task:" + strconv.FormatUint(result.identity.serial, 10)
-	if cached, ok := environment.taskTypes[key]; ok {
+	canonicalKey := "task:" + result.CanonicalKey
+	if cached, ok := environment.arena.taskTypes[canonicalKey]; ok {
 		return cached
 	}
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
+	identity.signature = canonicalKey
 	typ := Type{
-		Name:     "Task<" + result.Name + ">",
-		CName:    "hex_task_" + SanitizeIdentifier(result.Name),
-		Task:     &TaskInfo{Result: result},
-		identity: identity,
+		Name:         "Task<" + result.Name + ">",
+		CName:        uniqueCollectionCName(environment.arena.taskTypes, "hex_task_"+SanitizeIdentifier(result.Name), result),
+		CanonicalKey: canonicalKey,
+		Task:         &TaskInfo{Result: result},
+		identity:     identity,
 	}
-	environment.taskTypes[key] = typ
+	environment.arena.taskTypes[canonicalKey] = typ
 	return typ
 }
 
@@ -303,19 +298,20 @@ func (environment *Environment) ChannelType(element Type) Type {
 		!Eligible(element, PositionChannelElement) {
 		return Type{}
 	}
-	key := "channel:" + strconv.FormatUint(element.identity.serial, 10)
-	if cached, ok := environment.channelTypes[key]; ok {
+	canonicalKey := "channel:" + element.CanonicalKey
+	if cached, ok := environment.arena.channelTypes[canonicalKey]; ok {
 		return cached
 	}
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
+	identity.signature = canonicalKey
 	typ := Type{
-		Name:     "Channel<" + element.Name + ">",
-		CName:    "hex_channel_" + SanitizeIdentifier(element.Name),
-		Channel:  &ChannelInfo{Element: element},
-		identity: identity,
+		Name:         "Channel<" + element.Name + ">",
+		CName:        uniqueCollectionCName(environment.arena.channelTypes, "hex_channel_"+SanitizeIdentifier(element.Name), element),
+		CanonicalKey: canonicalKey,
+		Channel:      &ChannelInfo{Element: element},
+		identity:     identity,
 	}
-	environment.channelTypes[key] = typ
+	environment.arena.channelTypes[canonicalKey] = typ
 	return typ
 }
 
@@ -334,19 +330,20 @@ func (environment *Environment) AtomicType(element Type) Type {
 		!isAtomicElement(element) {
 		return Type{}
 	}
-	key := "atomic:" + strconv.FormatUint(element.identity.serial, 10)
-	if cached, ok := environment.atomicTypes[key]; ok {
+	canonicalKey := "atomic:" + element.CanonicalKey
+	if cached, ok := environment.arena.atomicTypes[canonicalKey]; ok {
 		return cached
 	}
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = key
+	identity.signature = canonicalKey
 	typ := Type{
-		Name:     "Atomic<" + element.Name + ">",
-		CName:    "hex_atomic_" + SanitizeIdentifier(element.Name),
-		Atomic:   &AtomicInfo{Element: element},
-		identity: identity,
+		Name:         "Atomic<" + element.Name + ">",
+		CName:        uniqueCollectionCName(environment.arena.atomicTypes, "hex_atomic_"+SanitizeIdentifier(element.Name), element),
+		CanonicalKey: canonicalKey,
+		Atomic:       &AtomicInfo{Element: element},
+		identity:     identity,
 	}
-	environment.atomicTypes[key] = typ
+	environment.arena.atomicTypes[canonicalKey] = typ
 	return typ
 }
 
@@ -366,18 +363,19 @@ func (environment *Environment) DictType(key, value Type) Type {
 		!Eligible(value, PositionDictValue) {
 		return Type{}
 	}
-	keyName := "dict:" + strconv.FormatUint(key.identity.serial, 10) + "," + strconv.FormatUint(value.identity.serial, 10)
-	if cached, ok := environment.dictTypes[keyName]; ok {
+	canonicalKey := "dict:" + key.CanonicalKey + "," + value.CanonicalKey
+	if cached, ok := environment.arena.dictTypes[canonicalKey]; ok {
 		return cached
 	}
 	identity := newTypeIdentity(environment.identity)
-	identity.signature = keyName
+	identity.signature = canonicalKey
 	typ := Type{
-		Name:     "Dict<" + key.Name + ", " + value.Name + ">",
-		CName:    "hex_dict_" + SanitizeIdentifier(key.Name) + "_" + SanitizeIdentifier(value.Name),
-		Dict:     &DictInfo{Key: key, Value: value},
-		identity: identity,
+		Name:         "Dict<" + key.Name + ", " + value.Name + ">",
+		CName:        uniqueCollectionCName(environment.arena.dictTypes, "hex_dict_"+SanitizeIdentifier(key.Name)+"_"+SanitizeIdentifier(value.Name), value),
+		CanonicalKey: canonicalKey,
+		Dict:         &DictInfo{Key: key, Value: value},
+		identity:     identity,
 	}
-	environment.dictTypes[keyName] = typ
+	environment.arena.dictTypes[canonicalKey] = typ
 	return typ
 }

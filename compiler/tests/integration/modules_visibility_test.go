@@ -165,3 +165,35 @@ func TestExportOnValueBindingRejected(t *testing.T) {
 	result := compileMulti(map[string]string{"app.hex": "export x: Int32 = 1\n"}, "app.hex")
 	wantStderr(t, result, "export may prefix only a module-level type, function, or implementation declaration")
 }
+
+// A private type must not pass as exported just because an unrelated module
+// happens to export a same-named type: the export-flag name lookup is scoped
+// to the private type's defining module, so an unrelated module's export set
+// says nothing about it.
+func TestPrivateTypeNotMadeExportedByUnrelatedModule(t *testing.T) {
+	aPrivate := "type Secret = { x: Int32 }\nexport fun wrap(): Secret do\n    return Secret { x = 1 }\nend\n"
+	bExportsSameName := "export type Secret = { y: Int32 }\n"
+	cases := []struct {
+		name string
+		a    string
+		b    string
+	}{
+		{"private in a, unrelated public in b", aPrivate, bExportsSameName},
+		{"public in a, unrelated private exposed by b", "export type Secret = { x: Int32 }\n", "type Secret = { y: Int32 }\nexport fun wrap(): Secret do\n    return Secret { y = 2 }\nend\n"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			sources := map[string]string{
+				"app.hex": "module A = import \"./a\"\nmodule B = import \"./b\"\n",
+				"a.hex":   testCase.a,
+				"b.hex":   testCase.b,
+			}
+			result := compileMulti(sources, "app.hex")
+			wantStderr(t, result, "exposes private type Secret")
+		})
+	}
+	// Single-module control: the same private type alone is still rejected, so
+	// the unrelated module is not what changed the outcome.
+	result := compileMulti(map[string]string{"app.hex": "module A = import \"./a\"\nvalue: Int32 = 1\n", "a.hex": aPrivate}, "app.hex")
+	wantStderr(t, result, "exposes private type Secret")
+}

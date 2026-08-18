@@ -253,6 +253,9 @@ func CheckModules(programs map[string]parser.Program, order []string, entrypoint
 	checked := make(map[string]Program, len(programs))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	registry := buildModuleRegistry(programs, order, entrypointCanonical)
+	// One arena per compilation: every module shares it so constructed
+	// types intern once across module boundaries.
+	arena := compilerTypes.NewArena()
 	for _, moduleID := range order {
 		key := moduleID + ".hex"
 		program, ok := programs[key]
@@ -263,7 +266,7 @@ func CheckModules(programs map[string]parser.Program, order []string, entrypoint
 		if !ok {
 			continue
 		}
-		moduleChecked, moduleDiagnostics := checkModule(program, moduleID, entrypointCanonical, registry)
+		moduleChecked, moduleDiagnostics := checkModule(program, moduleID, entrypointCanonical, registry, arena)
 		diagnostics = append(diagnostics, moduleDiagnostics...)
 		checked[key] = moduleChecked
 		if len(moduleDiagnostics) == 0 {
@@ -302,14 +305,14 @@ func CheckModules(programs map[string]parser.Program, order []string, entrypoint
 // canonical identity; entrypointCanonical is the root module's canonical
 // identity, the only module allowed to execute statements. registry carries
 // the import aliases every module scope sees.
-func checkModule(program parser.Program, moduleID string, entrypointCanonical string, registry *ModuleRegistry) (Program, compilerTypes.Diagnostics) {
+func checkModule(program parser.Program, moduleID string, entrypointCanonical string, registry *ModuleRegistry, arena *compilerTypes.Arena) (Program, compilerTypes.Diagnostics) {
 	checked := Program{
 		TypeDeclarations: make([]TypeDeclaration, 0),
 		Statements:       make([]Statement, 0, len(program.Statements)),
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	environment := moduleScope(moduleID, registry)
-	typeEnvironment := compilerTypes.NewEnvironmentWithOwner(moduleID)
+	typeEnvironment := compilerTypes.NewCompilationEnvironment(arena, moduleID)
 
 	items := program.Items
 	if items == nil {
@@ -318,7 +321,6 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 			items = append(items, statement)
 		}
 	}
-	sawNonImportItem := false
 	for _, item := range items {
 		// Only the entrypoint module executes statements; an imported
 		// module's top level is declarations only. The offending statement is
@@ -334,11 +336,6 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 				})
 				continue
 			}
-		}
-		// Imports must form the module's prefix; the first item that is
-		// not a declaration ends it.
-		if !declarationItem(item) {
-			sawNonImportItem = true
 		}
 		switch statement := item.(type) {
 		case parser.TypeDeclaration:
@@ -409,6 +406,12 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
+		case parser.ForStatement:
+			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, environment, typeEnvironment, 0)
+			diagnostics = append(diagnostics, statementDiagnostics...)
+			if len(statementDiagnostics) == 0 {
+				checked.Statements = append(checked.Statements, checkedStatement)
+			}
 		case parser.BreakStatement:
 			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, environment, typeEnvironment, 0)
 			diagnostics = append(diagnostics, statementDiagnostics...)
@@ -444,18 +447,11 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.ImportDeclaration:
-			if sawNonImportItem {
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.ModuleError,
-					Stage:    "checker",
-					Line:     statement.ModuleKeyword.Line,
-					Column:   statement.ModuleKeyword.Column,
-					Message:  "imports must precede all other items",
-				})
-			}
-			// The alias is a fixed module identity, not a value; name lookup
-			// skips it and qualified resolution reaches the target module's
-			// names instead.
+			// The parser ends the import prefix at the first non-import item,
+			// so a misplaced import is a confined Syntax Error before the
+			// checker runs. The alias is a fixed module identity, not a
+			// value; name lookup skips it and qualified resolution reaches
+			// the target module's names instead.
 			target := canonicalModuleID(moduleID, strings.Trim(statement.Path.Lexeme, "\""))
 			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
 				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
@@ -496,17 +492,6 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 		registry.registerGenerics(moduleID, environment.generics)
 	}
 	return checked, nil
-}
-
-// declarationItem reports whether item is one of the four module-level
-// declaration forms. Only these may follow the import prefix without ending
-// it.
-func declarationItem(item parser.TopLevelItem) bool {
-	switch item.(type) {
-	case parser.TypeDeclaration, parser.FunctionDeclaration, parser.ImplDeclaration, parser.ImportDeclaration:
-		return true
-	}
-	return false
 }
 
 // executableItemToken classifies one top-level item as an executable

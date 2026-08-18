@@ -5,16 +5,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
-)
-
-// globalUnionTypes interns every canonical union across all environments of
-// one process. Compilation is deterministic: the key is built from canonical
-// member identity serials, and the C name depends only on the members, so
-// the cache never changes generated text.
-var (
-	globalUnionTypes = make(map[string]Type)
-	globalUnionMu    sync.Mutex
 )
 
 // UnionInfo is immutable metadata for one canonical structural union. Type
@@ -109,21 +99,19 @@ func (environment *Environment) UnionType(members []Type) Type {
 	// A union is a compiler-owned builtin constructor, so its identity is
 	// canonical and compilation-global: the same member set in any module
 	// yields the same Type, one C name, and one generated definition. The
-	// key is built from canonical member identity serials, so it never
-	// depends on which module wrote the union first.
-	globalUnionMu.Lock()
-	defer globalUnionMu.Unlock()
-	if cached, ok := globalUnionTypes[key]; ok {
+	// arena interns unions once per compilation.
+	if cached, ok := environment.arena.unionTypes[key]; ok {
 		return cached
 	}
 	info := &UnionInfo{Members: append([]Type(nil), unique...)}
 	union := Type{
-		Name:     unionName(unique),
-		CName:    unionCName(unique),
-		Union:    info,
-		identity: newTypeIdentity(environment.identity),
+		Name:         unionName(unique),
+		CName:        unionCName(unique),
+		CanonicalKey: key,
+		Union:        info,
+		identity:     newTypeIdentity(environment.identity),
 	}
-	globalUnionTypes[key] = union
+	environment.arena.unionTypes[key] = union
 	return union
 }
 
@@ -155,9 +143,9 @@ func unionMembers(typ Type) []Type {
 func unionKey(members []Type) string {
 	parts := make([]string, len(members))
 	for index, member := range members {
-		parts[index] = strconv.FormatUint(member.identity.serial, 10)
+		parts[index] = member.CanonicalKey
 	}
-	return strings.Join(parts, ",")
+	return "union:" + strings.Join(parts, ",")
 }
 
 func unionName(members []Type) string {

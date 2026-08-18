@@ -29,7 +29,7 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 			program, ok = programs[key]
 		}
 		if !ok {
-			continue
+			return nil, fmt.Errorf("generator: order names module %s, but no checked program has that key", canonical)
 		}
 		emission, discoveryErr := discoverModuleEmission(program, canonical, key)
 		if discoveryErr != nil {
@@ -37,7 +37,10 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 		}
 		modules = append(modules, emission)
 	}
-	merged := mergeProgramEmission(modules)
+	merged, mergeErr := mergeProgramEmission(modules)
+	if mergeErr != nil {
+		return nil, mergeErr
+	}
 	var root *moduleEmission
 	for _, emission := range modules {
 		isRoot := emission.canonicalID == entrypointCanonical
@@ -51,25 +54,29 @@ func GenerateChecked(programs map[string]checker.Program, order []string, entryp
 			root = emission
 		}
 	}
-	if root != nil {
-		header, headerErr := hexalHeader(hexalHeaderInput{
-			errorUsed:    merged.errorUsed,
-			heaps:        merged.heapState,
-			views:        merged.viewState,
-			stringState:  merged.stringState,
-			lists:        merged.listState,
-			dicts:        merged.dictState,
-			arrays:       merged.arrayState,
-			concurrency:  merged.concurrencyState,
-			wrap:         merged.wrapState,
-			sizeLiterals: merged.sizeLiterals,
-			requirements: merged.requirements,
-		})
-		if headerErr != nil {
-			return nil, headerErr
-		}
-		files["hexal.h"] = header
+	if root == nil {
+		// The entrypoint module is always emitted; its absence means the
+		// caller's order or program keys disagree with the root name, a
+		// generation defect, never a quiet hexal.h-less success.
+		return nil, fmt.Errorf("generator: the entrypoint module %s is not among the emitted modules", entrypointCanonical)
 	}
+	header, headerErr := hexalHeader(hexalHeaderInput{
+		errorUsed:    merged.errorUsed,
+		heaps:        merged.heapState,
+		views:        merged.viewState,
+		stringState:  merged.stringState,
+		lists:        merged.listState,
+		dicts:        merged.dictState,
+		arrays:       merged.arrayState,
+		concurrency:  merged.concurrencyState,
+		wrap:         merged.wrapState,
+		sizeLiterals: merged.sizeLiterals,
+		requirements: merged.requirements,
+	})
+	if headerErr != nil {
+		return nil, headerErr
+	}
+	files["hexal.h"] = header
 	// The demand-driven runtime components render after every
 	// module pair; a component key colliding with an existing artifact is an
 	// internal error, never a silent overwrite.

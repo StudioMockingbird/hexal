@@ -510,8 +510,18 @@ func (registry *ModuleRegistry) nominalExported(typ compilerTypes.Type) bool {
 	if angle := strings.Index(base, "<"); angle >= 0 {
 		base = base[:angle]
 	}
-	for _, entry := range registry.modules {
-		if entry.exports[base] {
+	// A name match counts only in the type's defining module: another module
+	// may export an unrelated same-named type, which says nothing about this
+	// one. The pointer-identity check below is the exact rule; the name check
+	// exists only so a specialized generic (whose ObjectType is freshly built
+	// and never appears in an exported record) can match its template's
+	// export flag in the module that owns it.
+	owner := ""
+	if typ.Object != nil {
+		owner = typ.Object.ModuleID
+	}
+	for moduleID, entry := range registry.modules {
+		if owner != "" && owner == moduleID && entry.exports[base] {
 			return true
 		}
 		for name := range entry.types {

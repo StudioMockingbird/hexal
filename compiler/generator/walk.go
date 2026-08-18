@@ -29,10 +29,12 @@ import (
 //     only hook that sees operand-level metadata (Constant, Literal,
 //     Addressable) rather than just a type and a node.
 //   - Expression fires for every non-invalid checked expression node.
+//
+// Callbacks never fail; discovery passes collect from them directly.
 type programVisitor struct {
-	Type       func(compilerTypes.Type) error
-	Operand    func(checker.Operand) error
-	Expression func(checker.Expression) error
+	Type       func(compilerTypes.Type)
+	Operand    func(checker.Operand)
+	Expression func(checker.Expression)
 }
 
 // walkTypeTree visits typ and every type structurally reachable from it
@@ -120,6 +122,21 @@ func walkTypeTreeSeen(typ compilerTypes.Type, visit func(compilerTypes.Type) err
 			return err
 		}
 	}
+	if typ.Task != nil {
+		if err := walkTypeTreeSeen(typ.Task.Result, visit, seenAdt, seenObject); err != nil {
+			return err
+		}
+	}
+	if typ.Channel != nil {
+		if err := walkTypeTreeSeen(typ.Channel.Element, visit, seenAdt, seenObject); err != nil {
+			return err
+		}
+	}
+	if typ.Atomic != nil {
+		if err := walkTypeTreeSeen(typ.Atomic.Element, visit, seenAdt, seenObject); err != nil {
+			return err
+		}
+	}
 	if typ.Object != nil {
 		if seenObject[typ.Object] {
 			return nil
@@ -145,93 +162,102 @@ func walkStatementExpressions(statement checker.Statement, visit func(*checker.E
 	if visit == nil {
 		return nil
 	}
-	var walkExpression func(*checker.Expression) error
-	var walkOperand func(*checker.Operand) error
-
-	walkExpression = func(node *checker.Expression) error {
-		if err := visit(node); err != nil {
-			return err
-		}
-		if node.Operand != nil {
-			if err := walkExpression(node.Operand); err != nil {
-				return err
-			}
-		}
-		if node.Left != nil {
-			if err := walkExpression(node.Left); err != nil {
-				return err
-			}
-		}
-		if node.Right != nil {
-			if err := walkExpression(node.Right); err != nil {
-				return err
-			}
-		}
-		for index := range node.Arguments {
-			if err := walkOperand(&node.Arguments[index]); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	walkOperand = func(source *checker.Operand) error {
-		if source.Node.Kind != checker.InvalidExpression {
-			return walkExpression(&source.Node)
-		}
-		return nil
-	}
-
 	switch statement := statement.(type) {
 	case checker.Declaration:
-		return walkOperand(&statement.Source)
+		return walkStatementOperand(&statement.Source, visit)
 	case checker.Assignment:
-		if err := walkOperand(&statement.Source); err != nil {
+		if err := walkStatementOperand(&statement.Source, visit); err != nil {
 			return err
 		}
-		return walkOperand(&statement.Target)
+		return walkStatementOperand(&statement.Target, visit)
 	case checker.CallStatement:
-		return walkExpression(&statement.Call.Node)
+		return walkStatementExpression(&statement.Call.Node, visit)
 	case checker.TryStatement:
-		return walkOperand(&statement.Expression)
+		return walkStatementOperand(&statement.Expression, visit)
 	case checker.ReturnStatement:
 		if statement.Value != nil {
-			return walkOperand(statement.Value)
+			return walkStatementOperand(statement.Value, visit)
 		}
 	case checker.DeferStatement:
-		return walkOperand(&statement.Expression)
+		return walkStatementOperand(&statement.Expression, visit)
 	case checker.ErrdeferStatement:
-		return walkOperand(&statement.Expression)
+		return walkStatementOperand(&statement.Expression, visit)
 	case checker.IfStatement:
-		if err := walkOperand(&statement.Condition); err != nil {
+		if err := walkStatementOperand(&statement.Condition, visit); err != nil {
 			return err
 		}
 		for _, branch := range statement.ElseIf {
-			if err := walkOperand(&branch.Condition); err != nil {
+			if err := walkStatementOperand(&branch.Condition, visit); err != nil {
 				return err
 			}
 		}
 	case checker.ForStatement:
-		return walkOperand(&statement.Source)
+		return walkStatementOperand(&statement.Source, visit)
 	case checker.WhileStatement:
-		return walkOperand(&statement.Condition)
+		return walkStatementOperand(&statement.Condition, visit)
 	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration, checker.MethodDeclaration:
 		// No expressions reachable directly from these shapes; nested
 		// bodies are the caller's recursion.
+	default:
+		return fmt.Errorf("Unknown Error: generator walker cannot visit statement of type %T", statement)
+	}
+	return nil
+}
+
+// walkStatementExpression visits one expression and its nested sub-expressions
+// in pre-order. It is package-level and takes the callback as a parameter so a
+// per-statement walk allocates no closures.
+func walkStatementExpression(node *checker.Expression, visit func(*checker.Expression) error) error {
+	if err := visit(node); err != nil {
+		return err
+	}
+	if node.Operand != nil {
+		if err := walkStatementExpression(node.Operand, visit); err != nil {
+			return err
+		}
+	}
+	if node.Left != nil {
+		if err := walkStatementExpression(node.Left, visit); err != nil {
+			return err
+		}
+	}
+	if node.Right != nil {
+		if err := walkStatementExpression(node.Right, visit); err != nil {
+			return err
+		}
+	}
+	for index := range node.Arguments {
+		if err := walkStatementOperand(&node.Arguments[index], visit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// walkStatementOperand visits one operand's expression; an invalid operand
+// carries no reachable expression.
+func walkStatementOperand(source *checker.Operand, visit func(*checker.Expression) error) error {
+	if source.Node.Kind != checker.InvalidExpression {
+		return walkStatementExpression(&source.Node, visit)
 	}
 	return nil
 }
 
 // walkProgram visits program.TypeDeclarations, program.Statements, then the
-// bodies of every specialized function and method, in that order.
-func walkProgram(program checker.Program, visitor *programVisitor) error {
+// bodies of every specialized function and method, in that order. Every
+// checked statement shape is dispatched explicitly; a shape this walker does
+// not know panics with an Unknown Error, never a silent skip. Checked
+// expressions need no shape dispatch: the structural descent visits Operand,
+// Left, Right, and Arguments regardless of kind.
+func walkProgram(program checker.Program, visitor *programVisitor) {
 	if visitor == nil {
 		// A nil visitor collects nothing; the walk is a pure traversal.
-		return nil
+		return
 	}
-	var walkType func(compilerTypes.Type) error
-	var walkOperand func(checker.Operand) error
-	var walkExpression func(checker.Expression) error
-	var walkStatements func([]checker.Statement) error
+	var walkType func(compilerTypes.Type)
+	var walkOperand func(checker.Operand)
+	var walkExpression func(checker.Expression)
+	var walkStatements func([]checker.Statement)
 
 	// seenAdt and seenObject keep recursion acyclic and idempotent. ADTs are
 	// interned and their payloads are complete, but a shared ADT must not be
@@ -242,316 +268,200 @@ func walkProgram(program checker.Program, visitor *programVisitor) error {
 	seenAdt := make(map[*compilerTypes.AdtType]bool)
 	seenObject := make(map[*compilerTypes.ObjectType]bool)
 
-	walkType = func(typ compilerTypes.Type) error {
+	walkType = func(typ compilerTypes.Type) {
 		if visitor.Type != nil {
-			if err := visitor.Type(typ); err != nil {
-				return err
-			}
+			visitor.Type(typ)
 		}
 		if typ.Adt != nil {
 			if seenAdt[typ.Adt] {
-				return nil
+				return
 			}
 			seenAdt[typ.Adt] = true
 			for _, variant := range typ.Adt.Variants {
 				for _, member := range variant.Payload {
-					if err := walkType(member.Type); err != nil {
-						return err
-					}
+					walkType(member.Type)
 				}
 			}
-			return nil
+			return
 		}
 		if typ.Union != nil {
 			for _, member := range typ.Union.Members {
-				if err := walkType(member); err != nil {
-					return err
-				}
+				walkType(member)
 			}
 		}
 		if typ.Element != nil {
-			if err := walkType(*typ.Element); err != nil {
-				return err
-			}
+			walkType(*typ.Element)
 		}
 		if typ.NullableBase != nil {
-			if err := walkType(*typ.NullableBase); err != nil {
-				return err
-			}
+			walkType(*typ.NullableBase)
 		}
 		if typ.Array != nil {
-			if err := walkType(typ.Array.Element); err != nil {
-				return err
-			}
+			walkType(typ.Array.Element)
 		}
 		if typ.View != nil {
-			if err := walkType(typ.View.Element); err != nil {
-				return err
-			}
+			walkType(typ.View.Element)
 		}
 		if typ.List != nil {
-			if err := walkType(typ.List.Element); err != nil {
-				return err
-			}
+			walkType(typ.List.Element)
 		}
 		if typ.Dict != nil {
-			if err := walkType(typ.Dict.Key); err != nil {
-				return err
-			}
-			if err := walkType(typ.Dict.Value); err != nil {
-				return err
-			}
+			walkType(typ.Dict.Key)
+			walkType(typ.Dict.Value)
+		}
+		if typ.Task != nil {
+			walkType(typ.Task.Result)
+		}
+		if typ.Channel != nil {
+			walkType(typ.Channel.Element)
+		}
+		if typ.Atomic != nil {
+			walkType(typ.Atomic.Element)
 		}
 		if typ.Signature != nil {
 			for _, parameter := range typ.Signature.Parameters {
-				if err := walkType(parameter); err != nil {
-					return err
-				}
+				walkType(parameter)
 			}
 			if typ.Signature.Result != nil {
-				if err := walkType(*typ.Signature.Result); err != nil {
-					return err
-				}
+				walkType(*typ.Signature.Result)
 			}
 		}
 		if typ.Object != nil {
 			if seenObject[typ.Object] {
-				return nil
+				return
 			}
 			seenObject[typ.Object] = true
 			for _, member := range typ.Object.Members {
-				if err := walkType(member.Type); err != nil {
-					return err
-				}
+				walkType(member.Type)
 			}
 		}
-		return nil
 	}
 
-	walkExpression = func(node checker.Expression) error {
+	walkExpression = func(node checker.Expression) {
 		if visitor.Expression != nil {
-			if err := visitor.Expression(node); err != nil {
-				return err
-			}
+			visitor.Expression(node)
 		}
 		if node.Constant != nil {
-			if err := walkOperand(*node.Constant); err != nil {
-				return err
-			}
+			walkOperand(*node.Constant)
 		}
-		if err := walkType(node.OperandType); err != nil {
-			return err
-		}
-		if err := walkType(node.ResultType); err != nil {
-			return err
-		}
+		walkType(node.OperandType)
+		walkType(node.ResultType)
 		if node.Element != (compilerTypes.Type{}) {
-			if err := walkType(node.Element); err != nil {
-				return err
-			}
+			walkType(node.Element)
 		}
 		if node.TestType != (compilerTypes.Type{}) {
-			if err := walkType(node.TestType); err != nil {
-				return err
-			}
+			walkType(node.TestType)
 		}
 		if node.Operand != nil {
-			if err := walkExpression(*node.Operand); err != nil {
-				return err
-			}
+			walkExpression(*node.Operand)
 		}
 		if node.Left != nil {
-			if err := walkExpression(*node.Left); err != nil {
-				return err
-			}
+			walkExpression(*node.Left)
 		}
 		if node.Right != nil {
-			if err := walkExpression(*node.Right); err != nil {
-				return err
-			}
+			walkExpression(*node.Right)
 		}
 		for _, argument := range node.Arguments {
-			if err := walkOperand(argument); err != nil {
-				return err
-			}
+			walkOperand(argument)
 		}
-		return nil
 	}
 
-	walkOperand = func(source checker.Operand) error {
-		if err := walkType(source.Type); err != nil {
-			return err
-		}
+	walkOperand = func(source checker.Operand) {
+		walkType(source.Type)
 		if visitor.Operand != nil {
-			if err := visitor.Operand(source); err != nil {
-				return err
-			}
+			visitor.Operand(source)
 		}
 		// Object literals carry their field initializers on the operand;
 		// every discovery pass that sees collection element types relies on
 		// walking them.
 		if source.Object != nil {
 			for _, initializer := range source.Object.Initializers {
-				if err := walkOperand(initializer.Source); err != nil {
-					return err
-				}
+				walkOperand(initializer.Source)
 			}
 		}
 		if source.Node.Kind != checker.InvalidExpression {
-			return walkExpression(source.Node)
+			walkExpression(source.Node)
 		}
-		return nil
 	}
 
-	walkStatements = func(statements []checker.Statement) error {
+	walkStatements = func(statements []checker.Statement) {
 		for _, statement := range statements {
 			switch statement := statement.(type) {
 			case checker.Declaration:
-				if err := walkType(statement.Type); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
+				walkType(statement.Type)
+				walkOperand(statement.Source)
 			case checker.Assignment:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkOperand(statement.Target); err != nil {
-					return err
-				}
+				walkOperand(statement.Source)
+				walkOperand(statement.Target)
 			case checker.CallStatement:
-				if err := walkOperand(statement.Call); err != nil {
-					return err
-				}
+				walkOperand(statement.Call)
 			case checker.ReturnStatement:
 				if statement.Value != nil {
-					if err := walkOperand(*statement.Value); err != nil {
-						return err
-					}
+					walkOperand(*statement.Value)
 				}
 			case checker.DeferStatement:
-				if err := walkOperand(statement.Expression); err != nil {
-					return err
-				}
+				walkOperand(statement.Expression)
 			case checker.ErrdeferStatement:
-				if err := walkOperand(statement.Expression); err != nil {
-					return err
-				}
+				walkOperand(statement.Expression)
 			case checker.TryStatement:
-				if err := walkOperand(statement.Expression); err != nil {
-					return err
-				}
+				walkOperand(statement.Expression)
 			case checker.BreakStatement, checker.ContinueStatement:
 				// No children; the case exists so these shapes are known.
 			case checker.IfStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Then); err != nil {
-					return err
-				}
+				walkOperand(statement.Condition)
+				walkStatements(statement.Then)
 				for _, branch := range statement.ElseIf {
-					if err := walkOperand(branch.Condition); err != nil {
-						return err
-					}
-					if err := walkStatements(branch.Body); err != nil {
-						return err
-					}
+					walkOperand(branch.Condition)
+					walkStatements(branch.Body)
 				}
 				if statement.Else != nil {
-					if err := walkStatements(statement.Else); err != nil {
-						return err
-					}
+					walkStatements(statement.Else)
 				}
 			case checker.ForStatement:
-				if err := walkOperand(statement.Source); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
+				walkOperand(statement.Source)
+				walkStatements(statement.Body)
 			case checker.WhileStatement:
-				if err := walkOperand(statement.Condition); err != nil {
-					return err
-				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
+				walkOperand(statement.Condition)
+				walkStatements(statement.Body)
 			case checker.FunctionDeclaration:
-				if err := walkType(statement.Type); err != nil {
-					return err
-				}
+				walkType(statement.Type)
 				for _, parameter := range statement.Parameters {
-					if err := walkType(parameter.Type); err != nil {
-						return err
-					}
+					walkType(parameter.Type)
 				}
 				if statement.Result != nil {
-					if err := walkType(*statement.Result); err != nil {
-						return err
-					}
+					walkType(*statement.Result)
 				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
+				walkStatements(statement.Body)
 			case checker.MethodDeclaration:
-				if err := walkType(statement.SelfType); err != nil {
-					return err
-				}
+				walkType(statement.SelfType)
 				for _, parameter := range statement.Parameters {
-					if err := walkType(parameter.Type); err != nil {
-						return err
-					}
+					walkType(parameter.Type)
 				}
 				if statement.Result != nil {
-					if err := walkType(*statement.Result); err != nil {
-						return err
-					}
+					walkType(*statement.Result)
 				}
-				if err := walkStatements(statement.Body); err != nil {
-					return err
-				}
+				walkStatements(statement.Body)
 			default:
-				return fmt.Errorf("Unknown Error: generator walker cannot visit statement of type %T", statement)
+				panic(fmt.Errorf("Unknown Error: generator walker cannot visit statement of type %T", statement))
 			}
 		}
-		return nil
 	}
 
 	for _, declaration := range program.TypeDeclarations {
-		if err := walkType(declaration.Type); err != nil {
-			return err
-		}
+		walkType(declaration.Type)
 	}
-	if err := walkStatements(program.Statements); err != nil {
-		return err
-	}
+	walkStatements(program.Statements)
 	for _, function := range program.SpecializedFunctions {
-		if err := walkType(function.Type); err != nil {
-			return err
-		}
+		walkType(function.Type)
 		for _, parameter := range function.Parameters {
-			if err := walkType(parameter.Type); err != nil {
-				return err
-			}
+			walkType(parameter.Type)
 		}
-		if err := walkStatements(function.Body); err != nil {
-			return err
-		}
+		walkStatements(function.Body)
 	}
 	for _, method := range program.SpecializedMethods {
-		if err := walkType(method.SelfType); err != nil {
-			return err
-		}
+		walkType(method.SelfType)
 		for _, parameter := range method.Parameters {
-			if err := walkType(parameter.Type); err != nil {
-				return err
-			}
+			walkType(parameter.Type)
 		}
-		if err := walkStatements(method.Body); err != nil {
-			return err
-		}
+		walkStatements(method.Body)
 	}
-	return nil
 }

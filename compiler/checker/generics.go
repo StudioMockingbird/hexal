@@ -91,13 +91,13 @@ type openGenericMethod struct {
 }
 
 // specializeKey builds the deterministic in-compilation key for one
-// specialization from the declaration name and the canonical argument display
-// names. Display names are unique within one compilation, so the key is
-// injective for distinct canonical argument lists.
+// specialization from the declaration name and the recursive module-qualified
+// canonical keys of the arguments. Display names never participate: two
+// same-named types from different modules produce different keys.
 func specializeKey(name string, arguments []compilerTypes.Type) string {
 	names := make([]string, len(arguments))
 	for index, argument := range arguments {
-		names[index] = argument.Name
+		names[index] = argument.CanonicalKey
 	}
 	return name + "|" + strings.Join(names, ",")
 }
@@ -264,8 +264,10 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 	provisional := typeEnvironment.BeginObject(specializedName, token.Line, token.Column)
 	// The specialized object is a nominal type of the module whose table
 	// created it, so it is stamped with that module's identity like any
-	// locally declared object.
+	// locally declared object, and its canonical key follows the stamped
+	// module, not the requesting environment's.
 	provisional.Object.ModuleID = generics.moduleID
+	provisional.CanonicalKey = compilerTypes.CanonicalNominalKey(specializedName, generics.moduleID)
 	generics.objectSpecializations[key] = provisional
 	generics.objectOpen[provisional.Object] = open
 	generics.objectArguments[provisional.Object] = append([]compilerTypes.Type(nil), arguments...)
@@ -595,7 +597,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 func argumentNames(arguments []compilerTypes.Type) string {
 	names := make([]string, len(arguments))
 	for index, argument := range arguments {
-		names[index] = argument.Name
+		names[index] = argument.CanonicalKey
 	}
 	return strings.Join(names, ",")
 }
@@ -1154,7 +1156,9 @@ func specializeADTType(open *openGenericType, arguments []compilerTypes.Type, to
 		}
 	}
 	specializedName := specializeTypeName(open.Name, arguments)
-	typeEnvironment.BeginADT(specializedName, token.Line, token.Column)
+	provisional := typeEnvironment.BeginADT(specializedName, token.Line, token.Column)
+	provisional.Adt.ModuleID = generics.moduleID
+	provisional.CanonicalKey = compilerTypes.CanonicalNominalKey(specializedName, generics.moduleID)
 	variants := make([]compilerTypes.AdtVariant, 0, len(target.Variants))
 	for _, variant := range target.Variants {
 		resolved := compilerTypes.AdtVariant{Name: variant.Name.Lexeme}

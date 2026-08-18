@@ -18,44 +18,50 @@ func discoverGeneratedDivisions(program checker.Program) []compilerTypes.Type {
 	seen := make(map[string]bool)
 	var types []compilerTypes.Type
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			if node.Kind == checker.BinaryOperationExpression &&
 				(node.Operator == checker.DivideOperator || node.Operator == checker.RemainderOperator) &&
 				compilerTypes.IsInteger(node.OperandType) && !seen[node.OperandType.Name] {
 				seen[node.OperandType.Name] = true
 				types = append(types, node.OperandType)
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		panic(err)
-	}
+	walkProgram(program, visitor)
 	return types
 }
 
 // writeDivisionDefinitions emits the guarded division and remainder helpers
 // for every collected integer type.
-func writeDivisionDefinitions(result *strings.Builder, types []compilerTypes.Type) {
+func writeDivisionDefinitions(result *strings.Builder, types []compilerTypes.Type) error {
 	if len(types) == 0 {
-		return
+		return nil
 	}
 	for _, typ := range types {
-		writeDivisionHelper(result, typ, checker.DivideOperator, "div")
-		writeDivisionHelper(result, typ, checker.RemainderOperator, "rem")
+		if err := writeDivisionHelper(result, typ, checker.DivideOperator, "div"); err != nil {
+			return err
+		}
+		if err := writeDivisionHelper(result, typ, checker.RemainderOperator, "rem"); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func writeDivisionHelper(result *strings.Builder, typ compilerTypes.Type, operator checker.Operator, suffix string) {
+func writeDivisionHelper(result *strings.Builder, typ compilerTypes.Type, operator checker.Operator, suffix string) error {
 	cName := typ.CName
 	fmt.Fprintf(result, "\nstatic inline %s hex_%s_%s(%s left, %s right) {\n", cName, suffix, cName, cName, cName)
 	result.WriteString("    if (right == 0) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n")
 	if compilerTypes.IsSignedInteger(typ) {
-		fmt.Fprintf(result, "    if (left == %s && right == -1) {\n", signedMinimumMacro(typ))
+		minimum, minimumErr := signedMinimumMacro(typ)
+		if minimumErr != nil {
+			return minimumErr
+		}
+		fmt.Fprintf(result, "    if (left == %s && right == -1) {\n", minimum)
 		if operator == checker.RemainderOperator {
 			result.WriteString("        return 0;\n    }\n")
 		} else {
-			fmt.Fprintf(result, "        return %s;\n    }\n", signedMinimumMacro(typ))
+			fmt.Fprintf(result, "        return %s;\n    }\n", minimum)
 		}
 	}
 	operation := "/"
@@ -63,6 +69,7 @@ func writeDivisionHelper(result *strings.Builder, typ compilerTypes.Type, operat
 		operation = "%"
 	}
 	result.WriteString("    return left " + operation + " right;\n}\n")
+	return nil
 }
 
 // renderDivisionOperation routes integer division and remainder through the

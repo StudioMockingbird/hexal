@@ -18,27 +18,24 @@ type generatedArrayState struct {
 // discoverGeneratedArrays walks every type reachable from the program and
 // collects the distinct array types. Discovery order is then sorted by C name
 // so the generated header is deterministic.
-func discoverGeneratedArrays(program checker.Program) (*generatedArrayState, error) {
+func discoverGeneratedArrays(program checker.Program) *generatedArrayState {
 	state := &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			if typ.Array != nil {
 				if !state.seen[typ.Array] {
 					state.seen[typ.Array] = true
 					state.order = append(state.order, typ)
 				}
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, err
-	}
+	walkProgram(program, visitor)
 
 	sort.SliceStable(state.order, func(left, right int) bool {
 		return state.order[left].CName < state.order[right].CName
 	})
-	return state, nil
+	return state
 }
 
 // arrayDependencyOrder orders array types so every element-array appears

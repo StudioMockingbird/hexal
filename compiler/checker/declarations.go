@@ -388,7 +388,7 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		mutable: declaration.Mutable,
 		id:      environment.newBindingID(),
 	}
-	if initializer.source.Node.Kind == AddressOfExpression {
+	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, environment) {
 		declaredBinding.fromRef = true
 	}
 	if declaredType.View != nil {
@@ -470,6 +470,12 @@ func checkAssignment(assignment parser.Assignment, environment *scope, typeEnvir
 	}
 	if len(diagnostics) == 0 && environment.flow != nil && targetBinding != 0 {
 		environment.flow.invalidateNarrowing(targetBinding)
+	}
+	if len(diagnostics) == 0 && targetBinding != 0 {
+		// Assignment re-sources the slot: the binding now holds the ref-derived
+		// value exactly when the assigned initializer traces to a ref, so the
+		// flag is both set and cleared by the same check.
+		environment.setFromRef(targetBinding, nodeTracesToRef(&initializer.source.Node, environment))
 	}
 
 	return Assignment{

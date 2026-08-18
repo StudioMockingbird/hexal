@@ -9,13 +9,12 @@
 #else
 #include <ucontext.h>
 #endif
-#include <threads.h>
-#include <stdatomic.h>
-#include <string.h>
-
 #if defined(__STDC_NO_THREADS__)
 #error "Hexal Task runtime requires C23 threads (<threads.h>); this toolchain defines __STDC_NO_THREADS__"
 #endif
+#include <threads.h>
+#include <stdatomic.h>
+#include <string.h>
 
 #define HEX_TASK_READY 1
 #define HEX_TASK_RUNNING 2

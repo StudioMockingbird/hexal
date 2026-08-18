@@ -68,6 +68,9 @@ func Parse(tokens []lexer.Token) (Program, error) {
 	parser := Parser{tokens: tokens}
 	items := make([]TopLevelItem, 0)
 	statements := make([]Statement, 0)
+	// hasNonImport marks the first top-level item the import prefix cannot
+	// span; any import parsed after it is misplaced.
+	hasNonImport := false
 	for !parser.check(lexer.EOF) {
 		start := parser.current
 		item, err := parser.topLevelItem()
@@ -84,9 +87,20 @@ func Parse(tokens []lexer.Token) (Program, error) {
 			}
 			continue
 		}
+		// The import prefix closes at the first non-import item: an import
+		// after any other top-level item is a Syntax Error at its own
+		// keyword, and the misplaced item is dropped so no alias reaches the
+		// checker.
+		if importDecl, isImport := item.(ImportDeclaration); isImport && hasNonImport {
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(importDecl.ImportKeyword, "imports must precede all other top-level items"))...)
+			continue
+		}
 		items = append(items, item)
 		if statement, ok := item.(Statement); ok {
 			statements = append(statements, statement)
+		}
+		if _, isImport := item.(ImportDeclaration); !isImport {
+			hasNonImport = true
 		}
 	}
 	program := Program{Items: items, Statements: statements}

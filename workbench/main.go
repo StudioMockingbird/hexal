@@ -126,7 +126,6 @@ func toResponse(result compiler.CompilationResult) compileResponse {
 			TotalMs:         milliseconds(result.Stats.TotalDuration),
 			Phases: []phaseStatus{
 				phase("Lexer", result.Stats.LexDuration, formatRate(result.Stats.TokenCount, result.Stats.LexDuration, "tokens/sec")),
-				phase("Parser", result.Stats.ParseDuration, formatRate(result.Stats.SourceLines, result.Stats.ParseDuration, "LOC/sec")),
 				phase("Checker", result.Stats.CheckDuration, ""),
 				phase("Generator", result.Stats.GenerateDuration, ""),
 			},

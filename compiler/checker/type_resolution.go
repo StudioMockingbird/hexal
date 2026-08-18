@@ -149,7 +149,10 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		if len(canonical) < 2 {
 			names := make([]string, 0, len(expression.Members))
 			for _, memberExpression := range expression.Members {
-				use, _ := resolveUnionMemberUse(memberExpression, fallback, typeEnvironment, generics)
+				use, memberDiagnostic := resolveUnionMemberUse(memberExpression, fallback, typeEnvironment, generics)
+				if memberDiagnostic != nil {
+					return compilerTypes.TypeUse{}, memberDiagnostic
+				}
 				names = append(names, use.Type.Name)
 			}
 			diagnostic := typeErrorAt(typeExpressionToken(expression, fallback), fmt.Sprintf("a union requires at least two distinct members; %s has one", strings.Join(names, " | ")))

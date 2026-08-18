@@ -1,7 +1,12 @@
 # RFC 0075: Compiler Benchmark Suite
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; verified 2026-08-18. All nine benchmarks exist across
+  `compiler/bench_test.go` and `workbench/snippets/bench_test.go`, run only
+  under `-bench`, complete in 9.8s at `-benchtime 1x`, and record their
+  baseline in `docs/benchmarks.md`. `TestBenchmarkProgramsCompile` asserts
+  the eight success programs compile and that `BenchmarkFailure` fails with
+  diagnostics. The `AGENTS.md` testing note is corrected.
 - Created: 2026-08-16
 - Updated: 2026-08-17
 - Scope: committed Go benchmarks for `compiler.Compile`, and the policy for

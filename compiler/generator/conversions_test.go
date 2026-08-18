@@ -75,10 +75,7 @@ func TestClassifyConversionMatrix(t *testing.T) {
 // concrete pair.
 func TestDiscoverGeneratedConversionsCollectsOnlyChecked(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\n    big: Int64 = 9000000000\n    narrow: Int8 = big.to<Int8>()\n    again: Int8 = big.to<Int8>()\n    same: Int64 = big.to<Int64>()\nend")
-	specs, _, err := discoverGeneratedConversions(program)
-	if err != nil {
-		t.Fatal(err)
-	}
+	specs, _ := discoverGeneratedConversions(program)
 	if len(specs) != 1 {
 		t.Fatalf("specs = %#v, want exactly the checked Int64-to-Int8 pair", specs)
 	}
@@ -89,10 +86,7 @@ func TestDiscoverGeneratedConversionsCollectsOnlyChecked(t *testing.T) {
 
 func TestDiscoverGeneratedConversionsIdentityNotCollected(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 = 12\n    same: Int32 = value.to<Int32>()\nend")
-	specs, _, err := discoverGeneratedConversions(program)
-	if err != nil {
-		t.Fatal(err)
-	}
+	specs, _ := discoverGeneratedConversions(program)
 	if len(specs) != 0 {
 		t.Fatalf("specs = %#v, want no helpers for an identity conversion", specs)
 	}

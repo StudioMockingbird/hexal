@@ -14,7 +14,11 @@ type AdtType struct {
 	Variants     []AdtVariant
 	SourceLine   int
 	SourceColumn int
-	identity     *typeIdentity
+	// ModuleID is the canonical identity of the module that declared the
+	// ADT; it is empty for compiler-owned builtins. The checker stamps it
+	// on every ADT it creates in a module scope.
+	ModuleID string
+	identity *typeIdentity
 }
 
 // IsADT reports whether typ is a nominal ADT type.
@@ -37,10 +41,11 @@ func (environment *Environment) BeginADT(name string, sourceLine, sourceColumn i
 	}
 	identity.object = nil
 	typ := Type{
-		Name:     name,
-		CName:    adt.CName,
-		Adt:      adt,
-		identity: identity,
+		Name:         name,
+		CName:        adt.CName,
+		CanonicalKey: canonicalNominalKey(name, environment.moduleID),
+		Adt:          adt,
+		identity:     identity,
 	}
 	environment.names[name] = typ
 	return typ

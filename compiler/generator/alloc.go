@@ -16,13 +16,13 @@ type heapHelpers struct {
 	required bool // base helpers needed even without typed allocations (Strings)
 }
 
-func discoverHeapHelpers(program checker.Program) (*heapHelpers, error) {
+func discoverHeapHelpers(program checker.Program) *heapHelpers {
 	state := &heapHelpers{seen: make(map[string]bool)}
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			if node.Kind == checker.HeapAllocateExpression {
 				if node.Element == (compilerTypes.Type{}) || !compilerTypes.IsCompleteValue(node.Element) {
-					return unknownExpressionDiagnostic("heap allocation without a complete checked element type")
+					panic(unknownExpressionDiagnostic("heap allocation without a complete checked element type"))
 				}
 				if !state.seen[node.Element.Name] {
 					state.seen[node.Element.Name] = true
@@ -35,13 +35,10 @@ func discoverHeapHelpers(program checker.Program) (*heapHelpers, error) {
 			if compilerTypes.Equal(node.ResultType, compilerTypes.Heap) || compilerTypes.Equal(node.OperandType, compilerTypes.Heap) {
 				state.required = true
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, err
-	}
-	return state, nil
+	walkProgram(program, visitor)
+	return state
 }
 
 // writeHeapAllocateHelpers emits the typed allocation helpers into the module

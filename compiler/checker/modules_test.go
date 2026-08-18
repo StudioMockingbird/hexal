@@ -4,8 +4,10 @@ package checker
 // declaration-only rule for imported modules.
 
 import (
+	"strings"
 	"testing"
 
+	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
 )
@@ -41,10 +43,19 @@ func TestImportAliasConflictsWithExistingName(t *testing.T) {
 	requireDiagnostic(t, "module Math = import \"./math\"\nmodule Math = import \"./math2\"\n", "import alias Math conflicts with an existing name")
 }
 
-// Imports must form the module's prefix; the first non-declaration item ends
-// it, and any later import is a Module Error at the module keyword.
+// Imports must form the module's prefix; the parser ends the prefix at the
+// first non-import top-level item and rejects any later import as a Syntax
+// Error, so the checker never sees a misplaced import.
 func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
-	requireDiagnostic(t, "x: Int32 = 1\nmodule Math = import \"./math\"\n", "imports must precede all other items")
+	tokens, lexErr := lexer.Lex("x: Int32 = 1\nmodule Math = import \"./math\"\n")
+	if lexErr != nil {
+		t.Fatalf("Lex returned an error: %v", lexErr)
+	}
+	if _, parseErr := parser.Parse(tokens); parseErr == nil {
+		t.Fatal("Parse accepted an import after a declaration")
+	} else if message := parseErr.Error(); !strings.Contains(message, "imports must precede all other top-level items") {
+		t.Fatalf("Parse error = %v, want the misplaced-import Syntax Error", message)
+	}
 }
 
 // An imported module's top level is declarations only; every executable

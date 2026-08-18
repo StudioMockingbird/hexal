@@ -41,7 +41,7 @@ func c23GeneratedBoundsAndConversionTraps(t *testing.T) {
 		"conversion overflow":      "fun demo() do\n    big: Int64 = 300\n    small: Int8 = big.to<Int8>()\n    print(small)\nend\ndemo()\n",
 		"empty list pop":           "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    last: Int32 = values.pop()\n    print(last)\nend\ndemo(Heap.new())\n",
 		"missing dict get":         "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    missing: Int32 = scores.get(2)\n    print(missing)\nend\ndemo(Heap.new())\n",
-		"list index out of bounds": "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    first: Int32 = values.at(4)\n    print(first)\nend\ndemo(Heap.new())\n",
+		"list index out of bounds": "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    first: Int32 = values[4]\n    print(first)\nend\ndemo(Heap.new())\n",
 		// Static bounds are compile errors and constant propagation sees
 		// through local bindings, so a parameter supplies the runtime
 		// bounds-check path.

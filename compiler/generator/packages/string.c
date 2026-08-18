@@ -7,14 +7,33 @@ uint64_t hex_utf8_next(const uint8_t *data, size_t length, size_t *index) {
     uint64_t width;
     if (lead < 0x80) {
         width = 1;
-    } else if (lead < 0xE0) {
-        width = 2;
-    } else if (lead < 0xF0) {
-        width = 3;
-    } else if (lead < 0xF8) {
-        width = 4;
     } else {
-        hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+        // The lead range beyond continuation shape carries the scalar
+        // limits: 0x80-0xC1 are bare continuation bytes or overlong 2-byte
+        // leads, and 0xF5-0xFF cannot encode any scalar.
+        if (lead < 0xC2 || lead >= 0xF5) {
+            hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+        }
+        if (*index + 2 > length) {
+            hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+        }
+        uint8_t first = data[*index + 1];
+        // The boundary leads restrict their first continuation to the valid
+        // scalar span: E0 (scalar >= U+0800), ED (surrogates rejected),
+        // F0 (scalar >= U+10000), F4 (scalar <= U+10FFFF).
+        if ((lead == 0xE0 && first < 0xA0) ||
+            (lead == 0xED && first >= 0xA0) ||
+            (lead == 0xF0 && first < 0x90) ||
+            (lead == 0xF4 && first >= 0x90)) {
+            hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+        }
+        if (lead < 0xE0) {
+            width = 2;
+        } else if (lead < 0xF0) {
+            width = 3;
+        } else {
+            width = 4;
+        }
     }
     if (*index + width > length) {
         hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");

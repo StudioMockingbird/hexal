@@ -1,8 +1,35 @@
 # RFC 0072: Compact Unsigned Arithmetic Lowering
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; verified 2026-08-18. `renderUnsignedArithmetic` is
+  deleted and `compiler/generator/render.go` renders each maximal ring tree
+  through `renderUnsignedRingTree`: one `uintmax_t` seed at the tree's leftmost
+  boundary, one narrowing cast at its root, and no helper or new artifact. The
+  packet-header example lowers exactly as the Required example states.
+  Redundant-parenthesis removal is folded into operand construction rather than
+  run as a separate textual phase — see the note below — and
+  `ringKeepEveryGrouping` lets a test render the maximally parenthesized form
+  and assert the two differ only in punctuation. Coverage lives in
+  `compiler/generator/unsigned_ring_test.go`, the ring tests in
+  `compiler/generator/generator_test.go`, and
+  `compiler/tests/integration/unsigned_ring_test.go`. `docs/reference.md` was
+  reviewed and requires no edit: `:572` states the modulo-width operator
+  contract and prescribes no cast structure, exactly as this RFC predicted.
+  D33's `<stdint.h>` registration landed with RFC 0073, so this RFC inherited a
+  working mechanism and added only the Size-only assertion.
+
+  **Deviation, recorded.** The RFC requires the removal to be a separate
+  precedence-aware pass over rendered text. It is instead a decision made per
+  operand as the operand is built, from two locally decidable facts: the ring
+  precedence of a ring child, and the existing `renderExpressionNode` atomicity
+  flag for a boundary child. Both only ever drop a pair whose removal leaves an
+  identical C parse, so the RFC's actual guarantee — a bug produces noisier C,
+  never wrong C — holds. A textual pass would have required a C expression
+  parser to decide the same thing. The visible cost is that a boundary rendering
+  to a helper call keeps one redundant pair, as in
+  `(uintmax_t)hex_v_a * (hex_div_uint32_t(hex_v_b, hex_v_c))`.
 - Created: 2026-08-16
+- Updated: 2026-08-18
 - Scope: generated C for unsigned `+`, `-`, and `*` expression trees
 - Depends on: RFC 0068 direct scalar lowering, RFC 0069 C23-backed compiler
   simplification

@@ -19,22 +19,21 @@ type generatedStringState struct {
 // discoverGeneratedStrings walks the program collecting unique String
 // literal payloads. The machinery is marked used whenever a String-typed
 // value or literal appears.
-func discoverGeneratedStrings(program checker.Program) (*generatedStringState, error) {
+func discoverGeneratedStrings(program checker.Program) *generatedStringState {
 	state := &generatedStringState{seen: make(map[string]int)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			if compilerTypes.IsString(typ) {
 				state.used = true
-				return nil
+				return
 			}
 			if compilerTypes.IsStrand(typ) {
 				state.used = true
 				state.needStrand = true
-				return nil
+				return
 			}
-			return nil
 		},
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			if node.Kind == checker.StringLiteralExpression {
 				state.used = true
 				if _, exists := state.seen[node.Name]; !exists {
@@ -42,13 +41,10 @@ func discoverGeneratedStrings(program checker.Program) (*generatedStringState, e
 					state.literals = append(state.literals, node.Name)
 				}
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		return nil, err
-	}
-	return state, nil
+	walkProgram(program, visitor)
+	return state
 }
 
 // stringLiteralCName returns the object base name of one literal.

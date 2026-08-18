@@ -73,21 +73,18 @@ func discoverGeneratedPrint(program checker.Program) *generatedPrintState {
 	visitor := &programVisitor{
 		// The structural descent from a print argument's type reuses the
 		// walker's type walk, keeping print's argument-scoped criteria.
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			if node.Kind == checker.PrintExpression {
 				state.used = true
 				for _, argument := range node.Arguments {
 					if err := walkTypeTree(argument.Type, addType); err != nil {
-						return err
+						panic(err)
 					}
 				}
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		panic(err)
-	}
+	walkProgram(program, visitor)
 	return state
 }
 

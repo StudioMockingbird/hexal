@@ -14,28 +14,23 @@ import (
 func discoverErrorUsed(program checker.Program) bool {
 	used := false
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
+		Type: func(typ compilerTypes.Type) {
 			if compilerTypes.IsError(typ) || compilerTypes.IsUnion(typ) && unionMemberIndex(typ, compilerTypes.ErrorType) >= 0 {
 				used = true
 			}
-			return nil
 		},
-		Operand: func(source checker.Operand) error {
+		Operand: func(source checker.Operand) {
 			if compilerTypes.IsError(source.Type) || compilerTypes.IsUnion(source.Type) && unionMemberIndex(source.Type, compilerTypes.ErrorType) >= 0 {
 				used = true
 			}
-			return nil
 		},
-		Expression: func(node checker.Expression) error {
+		Expression: func(node checker.Expression) {
 			if compilerTypes.IsError(node.OperandType) || compilerTypes.IsError(node.ResultType) || compilerTypes.IsUnion(node.OperandType) && unionMemberIndex(node.OperandType, compilerTypes.ErrorType) >= 0 || compilerTypes.IsUnion(node.ResultType) && unionMemberIndex(node.ResultType, compilerTypes.ErrorType) >= 0 {
 				used = true
 			}
-			return nil
 		},
 	}
-	if err := walkProgram(program, visitor); err != nil {
-		panic(err)
-	}
+	walkProgram(program, visitor)
 	return used
 }
 func hasPendingErrDefers(state *expressionValidation) bool {
@@ -124,6 +119,14 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 				return err
 			}
 		}
+	case checker.Declaration, checker.Assignment, checker.CallStatement, checker.TryStatement,
+		checker.ReturnStatement, checker.BreakStatement, checker.ContinueStatement,
+		checker.DeferStatement, checker.ErrdeferStatement, checker.FunctionDeclaration,
+		checker.MethodDeclaration:
+		// Leaf statements carry no nested body to recurse into; the expression
+		// walk above already visited their operands.
+	default:
+		return unknownExpressionDiagnostic("unsupported checked statement")
 	}
 	return nil
 }

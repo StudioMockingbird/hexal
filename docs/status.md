@@ -5,7 +5,9 @@ a spec's `Status:` header is the record that something is done, and
 `reference.md` is the record of what the language means.
 
 Every entry names its owning spec. An item without a spec either gets one or
-gets deleted.
+gets deleted; the Unowned section below is the staging area for items whose
+meaning or home is undetermined, and each entry there commits to one or the
+other.
 
 ## Open TODOs
 
@@ -13,7 +15,7 @@ gets deleted.
 
 | Work | Spec |
 |---|---|
-| Arena and Pool allocators | [0027](specs/0027-arena-and-pool-allocators.md) |
+| Arena and Pool allocators; Default-Heap runtime collapse — direct checked `malloc`/`free` decision (RFC 0069 audit finding) | [0027](specs/0027-arena-and-pool-allocators.md) |
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem and build driver | [0055](specs/0055-filesystem-and-build-driver.md) |
 
@@ -23,23 +25,20 @@ gets deleted.
 |---|---|
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
-| Default-Heap runtime collapse — direct checked `malloc`/`free`, needs a follow-up ADR (RFC 0069 audit finding; coordinates with 0027) | [0069](specs/archive/0069/0069-c23-backed-compiler-simplification.md) |
 
 ### Implementation-ready
 
 | Work | Spec |
 |---|---|
-| Compact promotion-safe lowering for unsigned arithmetic trees | [0072](specs/0072-compact-unsigned-arithmetic-lowering.md) |
-| Audit defect batch — 17 defects, 11 latent, 4 doc contradictions | [0073](specs/0073-audit-defect-batch.md) |
 | Audit refactor batch | [0074](specs/0074-audit-refactor-batch.md) |
-| Compiler benchmark suite | [0075](specs/0075-benchmark-suite.md) |
 | Authoritative module graph | [0076](specs/0076-authoritative-module-graph.md) |
 | Literal registry | [0077](specs/0077-literal-registry.md) |
 | Statically decidable memory misuse — non-heap free, double free, use-after-free | [0079](specs/0079-non-heap-free-rejection.md) |
 
 ## Unowned
 
-One item survived the previous follow-up list without a determinable meaning:
+Items without a determinable meaning, staged here until each gets a spec or is
+deleted:
 
 - **Terminating self-recursive object construction.** Pointer-indirect
   self-recursion compiles and is valid per `reference.md`, so what this tracked
@@ -59,8 +58,8 @@ One item survived the previous follow-up list without a determinable meaning:
   defect is pre-existing (the pre-split `hexal.h` had the same include-order
   failure) and predates ADR 0071's component split; no test, c23 canary, or
   snippet exercises it. Needs a representation RFC (e.g. handle-based
-  collection storage) before module objects can be collection elements. Owned
-  by [0071](specs/0071-generated-runtime-components.md).
+  collection storage) before module objects can be collection elements. Formerly
+  owned by 0071, which was archived and removed; it needs a new owner RFC.
 
 ## Known coverage gaps
 

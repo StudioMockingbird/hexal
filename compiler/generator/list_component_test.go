@@ -145,7 +145,7 @@ static inline hex_view_Int32 hex_list_slice_Int32(const hex_list_Int32 *list, ui
     if (!(start <= end && end <= list->length)) {
         hex_runtime_trap("[Runtime Error] list slice bounds out of range\n");
     }
-    return (hex_view_Int32){&list->data[start], end - start};
+    return (hex_view_Int32){list->data == nullptr ? nullptr : &list->data[start], end - start};
 }
 
 #endif

@@ -84,6 +84,23 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 			return err
 		}
 		captured = append(captured, name)
+	case checker.CallExpression:
+		// A Fun<>-valued callee is captured at registration so the scope
+		// exit calls the exact function value the defer saw; a named-function
+		// callee keeps its direct C name so generated output stays
+		// byte-identical.
+		if node.Operand == nil || node.Operand.Kind == checker.FunctionReferenceExpression {
+			break
+		}
+		if node.OperandType.Signature == nil {
+			return unknownExpressionDiagnostic("deferred call without a checked callee")
+		}
+		calleeOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: node.OperandType, Node: *node.Operand}
+		name, err := state.captureOperand(body, calleeOperand, indent)
+		if err != nil {
+			return err
+		}
+		captured = append(captured, name)
 	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression:
 		// defer ch.free(h), mutex.unlock(), or task.join() captures the
 		// handle at registration so the cleanup always targets the exact
@@ -217,10 +234,21 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		}
 		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
 	case checker.CallExpression:
-		if node.Operand == nil || node.Operand.Kind != checker.FunctionReferenceExpression {
-			return "", unknownExpressionDiagnostic("deferred call without a checked function callee")
+		if node.Operand == nil {
+			return "", unknownExpressionDiagnostic("deferred call without a checked callee")
 		}
-		return PrivateCName(FunctionName, node.Operand.Name, moduleOwner(node.Operand.Module, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
+		if node.Operand.Kind == checker.FunctionReferenceExpression {
+			if node.Operand.Name == "" {
+				return "", unknownExpressionDiagnostic("deferred call without a checked function callee")
+			}
+			return PrivateCName(FunctionName, node.Operand.Name, moduleOwner(node.Operand.Module, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
+		}
+		// A Fun<>-valued callee was captured at registration; the call is the
+		// captured function value applied to the captured arguments.
+		if len(arguments) < 1 {
+			return "", unknownExpressionDiagnostic("deferred call without a captured callee")
+		}
+		return arguments[0] + "(" + strings.Join(arguments[1:], ", ") + ")", nil
 	case checker.HeapFreeExpression:
 		if len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred heap free without captured arguments")

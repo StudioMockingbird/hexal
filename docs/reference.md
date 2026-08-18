@@ -414,6 +414,11 @@ HeapAllocation
 - Objects are nominal, ordered inline values with at least one member. Identical layouts remain
   distinct. Object literals name every member exactly once in any order; trailing comma is allowed.
   Initializer evaluation order is unspecified.
+- Identity is canonical and recursive, never derived from display names: same-named nominal types
+  in distinct modules are distinct, identical layouts included, and constructed builtin generic
+  types (pointer, nullable, function, Array, View, List, Dict, Task, Channel, Atomic, union) intern
+  once per compilation and are shared by every module. `List<Int32>` written in two modules is one
+  type, while `List<m.Point>` and `List<s.Point>` over same-named `Point` types are two.
 - Direct and mutual by-value recursive layouts are invalid; pointer-indirect recursion is valid.
 - Pointer member access auto-dereferences. `.value` explicitly accesses the whole pointee and is
   required for non-object pointees.
@@ -709,7 +714,7 @@ Array<T,N>.slice(start: Integer, end: Integer) -> View<T>
 - Fixed inline sequence; N is a positive integer literal. A contextual `[a, ...]` must contain
   exactly N elements, evaluated left-to-right.
 - Assignment, arguments, and returns copy the inline region. Element writes require a writable Array
-  place. Indexing/at are checked; slice returns View.
+  place. Indexing is checked; slice returns View.
 - T follows general storability, including nested Arrays. Arrays free nothing; external-state
   elements copy only their references.
 
@@ -1006,7 +1011,9 @@ MutPtr<T>.write_volatile(value: T) -> no value
   `hexal.h`, defined once in the root module's C file, `[[noreturn]]`, owning `<stdio.h>`/`<stdlib.h>`
   selection). No per-family trap function exists. An impossible compiler-internal union tag guard may
   retain a direct `abort()` (RFC 0069 Amendment 2).
-- Nil renders the C23 `nullptr` keyword and no generated C spells `NULL` or `nullptr_t`. Nil alone
+- Nil renders the C23 `nullptr` keyword, no generated C spells `NULL`, and `nullptr_t` never appears
+  as a type spelling (it may appear inside union identifier encodings such as
+  `hex_union_7_int32_t9_nullptr_t`, which are names, not spellings). Nil alone
   selects no standard header; `<stddef.h>` is selected only by a real declaration consumer such as
   `size_t` (RFC 0069 Amendment 2).
 - Objects/ADTs lower to source-ordered structs; unions to checked tagged values except pointer-null
@@ -1096,6 +1103,12 @@ MutPtr<T>.write_volatile(value: T) -> no value
   `hex_<kind>_<encoded-owner>_<name>`; guards are `HEX_MODULE_<encoded-owner>_H`. Unions apply the
   same length-delimited encoding to canonical member C names, so identical unions in every module
   spell one C type.
+- Collection C names derive from the element's display name (`hex_list_`, `hex_dict_`, `hex_view_`,
+  `hex_array_`, `hex_task_`, `hex_channel_`, `hex_atomic_`). When same-named elements from distinct
+  modules would derive one C name, the later interned specialization appends `_` plus the encoded
+  owner of its element's defining module; resolution happens once at interning, so a typedef and
+  every helper suffix derived from its name stay paired. Unions encode their members directly and
+  never need this rule.
 - The artifact set contains no top-level `main.c`, `main.h`, or compatibility header; the
   entrypoint's canonical module C file supplies `main()`.
 - Invalid or unsupported source produces a structured diagnostic and is never silently omitted or
