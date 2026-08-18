@@ -31,8 +31,70 @@ func TestCheckHeapAllocateReturnsMutPtr(t *testing.T) {
 }
 
 func TestCheckHeapFreeAcceptsPtrAndMutPtr(t *testing.T) {
+	requireAccepted(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p)")
 	requireAccepted(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p)")
 	requireAccepted(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) reader: Ptr<Int32> = p defer h.free(reader)")
+}
+
+func TestCheckHeapFreeRejectsLocalStoragePointers(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		source string
+	}{
+		{
+			name:   "direct reference",
+			source: "h: Heap = Heap.new() mut x: Int32 = 1 h.free(ref x)",
+		},
+		{
+			name:   "reference binding",
+			source: "h: Heap = Heap.new() mut x: Int32 = 1 p: MutPtr<Int32> = ref x h.free(p)",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			requireDiagnostic(t, testCase.source, "free does not accept a pointer into this function's local storage")
+		})
+	}
+}
+
+func TestCheckHeapFreeRejectsFreedStorage(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name:   "double free",
+			source: "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p) h.free(p)",
+			want:   "free releases storage already released on every path to this point",
+		},
+		{
+			name:   "use after free",
+			source: "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p) value: Int32 = p.value",
+			want:   "this pointer's storage was released on every path to this point",
+		},
+		{
+			name:   "both branches free",
+			source: "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) flag: Bool = true if flag then h.free(p) else h.free(p) end h.free(p)",
+			want:   "free releases storage already released on every path to this point",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			requireDiagnostic(t, testCase.source, testCase.want)
+		})
+	}
+}
+
+func TestCheckHeapFreeClearsFreedStateAfterReallocation(t *testing.T) {
+	requireAccepted(t, "h: Heap = Heap.new() mut p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p) p = h.allocate<Int32>(1) h.free(p)")
+}
+
+func TestCheckHeapFreeDefersValidationUntilScopeExit(t *testing.T) {
+	requireAccepted(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p)")
+	requireAccepted(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p) value: Int32 = p.value")
+}
+
+func TestCheckHeapFreeRejectsDeferredFreeAfterExplicitFree(t *testing.T) {
+	requireDiagnostic(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) defer h.free(p) h.free(p)", "free releases storage already released on every path to this point")
 }
 
 func TestCheckHeapFreeRequiresHeapReceiver(t *testing.T) {

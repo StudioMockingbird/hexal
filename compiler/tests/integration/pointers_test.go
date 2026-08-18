@@ -482,6 +482,179 @@ func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 	}
 }
 
+func TestHeapFreeRejectsRFCBoundaries(t *testing.T) {
+	testCases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "direct reference",
+			source: `h: Heap = Heap.new()
+mut x: Int32 = 1
+h.free(ref x)
+`,
+			want: "free does not accept a pointer into this function's local storage",
+		},
+		{
+			name: "reference binding",
+			source: `h: Heap = Heap.new()
+mut x: Int32 = 1
+p: MutPtr<Int32> = ref x
+h.free(p)
+`,
+			want: "free does not accept a pointer into this function's local storage",
+		},
+		{
+			name: "double free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+h.free(p)
+h.free(p)
+`,
+			want: "free releases storage already released on every path to this point",
+		},
+		{
+			name: "use after free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+h.free(p)
+value: Int32 = p.value
+`,
+			want: "this pointer's storage was released on every path to this point",
+		},
+		{
+			name: "deferred free after explicit free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+defer h.free(p)
+h.free(p)
+`,
+			want: "free releases storage already released on every path to this point",
+		},
+		{
+			name: "both branches free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+flag: Bool = true
+if flag then
+    h.free(p)
+else
+    h.free(p)
+end
+h.free(p)
+`,
+			want: "free releases storage already released on every path to this point",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, testCase.source, testCase.want)
+		})
+	}
+}
+
+func TestHeapFreeAcceptsUntrackedAndSafeCases(t *testing.T) {
+	testCases := []struct {
+		name   string
+		source string
+	}{
+		{
+			name: "allocator pointer",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(5)
+h.free(p)
+`,
+		},
+		{
+			name: "parameter",
+			source: `fun release(h: Heap, p: MutPtr<Int32>) do
+    h.free(p)
+end
+`,
+		},
+		{
+			name: "object member",
+			source: `type Holder = { pointer: MutPtr<Int32>, }
+fun release(h: Heap, holder: Holder) do
+    h.free(holder.pointer)
+end
+`,
+		},
+		{
+			name: "collection element",
+			source: `fun release(h: Heap, pointers: Array<MutPtr<Int32>, 1>) do
+    h.free(pointers[0])
+end
+`,
+		},
+		{
+			name: "pointer copy",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+q: MutPtr<Int32> = p
+h.free(p)
+h.free(q)
+`,
+		},
+		{
+			name: "reallocation after free",
+			source: `h: Heap = Heap.new()
+mut p: MutPtr<Int32> = h.allocate<Int32>(0)
+h.free(p)
+p = h.allocate<Int32>(1)
+h.free(p)
+`,
+		},
+		{
+			name: "one branch free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+flag: Bool = true
+if flag then
+    h.free(p)
+end
+`,
+		},
+		{
+			name: "leak",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+`,
+		},
+		{
+			name: "defer-only cleanup",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+defer h.free(p)
+`,
+		},
+		{
+			name: "defer timing before action",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+defer h.free(p)
+value: Int32 = p.value
+`,
+		},
+		{
+			name: "passing freed pointer",
+			source: `fun consume(p: MutPtr<Int32>) do
+end
+h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+h.free(p)
+consume(p)
+`,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertCompiles(t, testCase.source)
+		})
+	}
+}
+
 // The pointee matrix: managed collections, text, views, functions,
 // and Nil cannot be pointed to; Tasks, Channels, Mutexes, and ordinary types
 // can. (Direct Atomic pointees are covered in concurrency_test.go.)
