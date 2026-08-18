@@ -683,11 +683,12 @@ Heap.free<T>(pointer: MutPtr<T>) -> no value
 - The shallow rule applies at every depth. Replacing/dropping the last handle may leak; freeing one
   alias dangles all others. Runtime metadata may catch live mismatch or double-free, but later
   lifetime misuse is not guaranteed to be detected.
-- Cleanup misuse is rejected at compile time wherever a local analysis decides it. **Today that set
-  is empty**: `h.free(ref local)`, double free, and reading through a freed pointer all compile.
-  Misuse requiring interprocedural, alias, or escape analysis is never rejected — a pointer arriving
-  as a parameter, read from a member or collection, or copied to a second binding is not tracked,
-  and leaks are not diagnosed. An undecided case is always accepted.
+- Cleanup misuse is rejected at compile time wherever a local analysis decides it. Three are
+  rejected: freeing a pointer traceable to `ref`, freeing a local binding already freed on every
+  path to that point, and reading through one. Misuse requiring interprocedural, alias, or escape
+  analysis is never rejected — a pointer arriving as a parameter, read from a member or collection,
+  or copied to a second binding is not tracked, and leaks are not diagnosed. An undecided case is
+  always accepted.
 
 ## Collections
 
