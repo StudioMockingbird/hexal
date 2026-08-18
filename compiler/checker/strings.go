@@ -20,23 +20,11 @@ import (
 func decodeStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
 	if len(raw) < 2 || raw[0] != '"' || raw[len(raw)-1] != '"' {
-		return nil, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  "malformed string literal",
-		}
+		return nil, diagnosticAt(typeErrorAt(token, "malformed string literal"))
 	}
 	payload, message := lexer.DecodeLiteralBody(raw[1:len(raw)-1], lexer.StringEscapes)
 	if message != "" {
-		return nil, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  message,
-		}
+		return nil, diagnosticAt(typeErrorAt(token, message))
 	}
 	return payload, nil
 }
@@ -45,23 +33,11 @@ func decodeStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnostic) 
 func decodeByteLiteral(token lexer.Token) (byte, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
 	if len(raw) < 4 || raw[0] != 'b' || raw[1] != '\'' || raw[len(raw)-1] != '\'' {
-		return 0, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  "malformed Byte literal",
-		}
+		return 0, diagnosticAt(typeErrorAt(token, "malformed Byte literal"))
 	}
 	payload, message := lexer.DecodeLiteralBody(raw[2:len(raw)-1], lexer.ByteEscapes)
 	if message != "" || len(payload) != 1 {
-		return 0, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  "Byte literal must contain exactly one byte",
-		}
+		return 0, diagnosticAt(typeErrorAt(token, "Byte literal must contain exactly one byte"))
 	}
 	return payload[0], nil
 }
@@ -70,23 +46,11 @@ func decodeByteLiteral(token lexer.Token) (byte, *compilerTypes.Diagnostic) {
 func decodeRuneLiteral(token lexer.Token) (rune, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
 	if len(raw) < 3 || raw[0] != '\'' || raw[len(raw)-1] != '\'' {
-		return 0, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  "malformed Rune literal",
-		}
+		return 0, diagnosticAt(typeErrorAt(token, "malformed Rune literal"))
 	}
 	payload, message := lexer.DecodeLiteralBody(raw[1:len(raw)-1], lexer.RuneEscapes)
 	if message != "" {
-		return 0, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  message,
-		}
+		return 0, diagnosticAt(typeErrorAt(token, message))
 	}
 	value, _ := utf8.DecodeRune(payload)
 	return value, nil
@@ -130,19 +94,11 @@ func checkStringLiteral(expression parser.StringLiteral, expected compilerTypes.
 	resultType := compilerTypes.StringType
 	if compilerTypes.IsStrand(expected) {
 		if len(payload) > 31 {
-			return checkedExpression{token: expression.Token, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: expression.Token.Line, Column: expression.Token.Column,
-				Message: "Strand literal exceeds 31 UTF-8 bytes",
-			}}
+			return checkedExpression{token: expression.Token, diagnostic: diagnosticAt(typeErrorAt(expression.Token, "Strand literal exceeds 31 UTF-8 bytes"))}
 		}
 		for _, character := range payload {
 			if character == 0 {
-				return checkedExpression{token: expression.Token, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: expression.Token.Line, Column: expression.Token.Column,
-					Message: "Strand literal cannot contain NUL",
-				}}
+				return checkedExpression{token: expression.Token, diagnostic: diagnosticAt(typeErrorAt(expression.Token, "Strand literal cannot contain NUL"))}
 			}
 		}
 		resultType = compilerTypes.StrandType
@@ -166,11 +122,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *
 		viewType = compilerTypes.Rune
 	}
 	if (name != "from_bytes" && name != "from_runes") || len(call.Arguments) != 2 {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: callee.Line, Column: callee.Column,
-			Message: "String has no such operation; use String.from_bytes(heap, view) or String.from_runes(heap, view)",
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "String has no such operation; use String.from_bytes(heap, view) or String.from_runes(heap, view)"))}
 	}
 	heap := checkValue(call.Arguments[0], names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
@@ -211,7 +163,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *
 // length, is_empty, bytes, slice, rune_cursor, to_string, concat, and free,
 // and rejects the removed at name with its replacement. Indexing
 // ([index]) resolves through checkIndexPlace.
-func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
 	case "length":
@@ -231,9 +183,6 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: compilerTypes.Bool, Element: compilerTypes.UInt8}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
-	case "at":
-		diagnostic := typeErrorAt(callee.Property, "`at` was removed; use `receiver[index]`")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	case "bytes":
 		if len(call.Arguments) != 0 {
 			diagnostic := typeErrorAt(callee.Property, "bytes expects no arguments")
@@ -256,14 +205,14 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		return checkedExpression{source: source, typ: view, token: callee.Property}
 	case "slice":
 		if len(call.Arguments) != 2 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments, got %d", len(call.Arguments)))
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
+		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, names, typeEnvironment)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, environment, typeEnvironment)
+		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, names, typeEnvironment)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
@@ -293,10 +242,10 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		return checkedExpression{source: source, typ: compilerTypes.RuneCursorType, token: callee.Property}
 	case "to_string":
 		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("to_string expects 1 argument, got %d", len(call.Arguments)))
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("to_string expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], environment, typeEnvironment)
+		heap := checkValue(call.Arguments[0], names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -316,10 +265,10 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		return checkedExpression{source: source, typ: compilerTypes.StringType, token: callee.Property}
 	case "concat":
 		if len(call.Arguments) != 2 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("concat expects 2 arguments, got %d", len(call.Arguments)))
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("concat expects 2 arguments; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], environment, typeEnvironment)
+		heap := checkValue(call.Arguments[0], names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -327,7 +276,7 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(heap.token, "concat requires a Heap; got "+heap.typ.Name)
 			return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 		}
-		other := checkValue(call.Arguments[1], environment, typeEnvironment)
+		other := checkValue(call.Arguments[1], names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(other); len(diagnostics) > 0 {
 			return other
 		}
@@ -347,10 +296,10 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		return checkedExpression{source: source, typ: compilerTypes.StringType, token: callee.Property}
 	case "free":
 		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument, got %d", len(call.Arguments)))
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], environment, typeEnvironment)
+		heap := checkValue(call.Arguments[0], names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -374,11 +323,10 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 	}
 }
 
-// checkStrandMethodCall dispatches the Strand surface: length,
-// is_empty, and to_string, and rejects the removed at name with its
-// replacement. Strand never exposes bytes, slice, rune_cursor, concat, or
+// checkStrandMethodCall dispatches the Strand surface: length, is_empty,
+// and to_string. Strand never exposes bytes, slice, rune_cursor, concat, or
 // free.
-func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
 	case "length":
@@ -397,15 +345,12 @@ func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: compilerTypes.Bool, Element: compilerTypes.UInt8}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
-	case "at":
-		diagnostic := typeErrorAt(callee.Property, "`at` was removed; use `receiver[index]`")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	case "to_string":
 		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("to_string expects 1 argument, got %d", len(call.Arguments)))
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("to_string expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], environment, typeEnvironment)
+		heap := checkValue(call.Arguments[0], names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -431,7 +376,7 @@ func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExp
 
 // checkRuneCursorMethodCall dispatches the RuneCursor surface:
 // has_next and next.
-func checkRuneCursorMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkRuneCursorMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, _ *scope, _ *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
 	case "has_next":
@@ -457,9 +402,3 @@ func checkRuneCursorMethodCall(call parser.CallExpression, callee parser.Propert
 }
 
 // stringConstantFoldIndex extracts a constant integer from an operand.
-func stringConstantFoldIndex(operand Operand) (uint64, bool) {
-	if operand.Kind == ConstantOperand && operand.Constant != nil && operand.Constant.Kind() == constant.Int {
-		return constant.Uint64Val(operand.Constant)
-	}
-	return 0, false
-}

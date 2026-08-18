@@ -7,17 +7,7 @@ import (
 )
 
 // stringH returns the generated hexal/string.h component artifact.
-func stringH(t *testing.T, result compiler.CompilationResult) string {
-	t.Helper()
-	return moduleFile(t, result, "hexal/string.h")
-}
-
 // stringC returns the generated hexal/string.c component artifact.
-func stringC(t *testing.T, result compiler.CompilationResult) string {
-	t.Helper()
-	return moduleFile(t, result, "hexal/string.c")
-}
-
 func TestStringLiteralBinding(t *testing.T) {
 	result := compileSource("greeting: String = \"hello\"")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -143,7 +133,7 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 		"memcpy(storage->bytes + left->byte_length, right->data, right->byte_length);",
 		"hex_runtime_trap(\"[Runtime Error] string allocation size overflow\\n\")",
 		"hex_runtime_trap(\"[Runtime Error] string concatenation length overflow\\n\")",
-		"hex_runtime_trap(\"[Runtime Error] invalid UTF-8 in String\\n\")",
+		"hex_runtime_trap(\"[Runtime Error] invalid UTF-8 in string\\n\")",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("hexal/string.c = %q, want %q", output, want)

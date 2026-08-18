@@ -131,13 +131,13 @@ func TestOperatorDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"result: Int32 = 1 / 0", "[Type Error] division by zero at 1:19"},
-		{"mut total: Int32 = 10 bad: Int32 = total / 0", "[Type Error] division by zero at 1:42"},
-		{"mut total: Int32 = 10 bad: Int32 = total % 0", "[Type Error] division by zero at 1:42"},
-		{"mut total: Int32 = 10 bad: Int32 = total / (2 - 2)", "[Type Error] division by zero at 1:42"},
-		{"value: Float64 = 1.0 bad: Float64 = value % 2.0", "[Type Error] operator % requires integer operands; got Float64 at 1:43"},
-		{"left: Bool = true right: Bool = false bad: Bool = left < right", "[Type Error] ordering is unavailable for Bool values at 1:56"},
-		{"count: UInt32 = 5 bad: Int32 = -count", "[Type Error] negation requires a signed type; got UInt32 at 1:32"},
+		{"result: Int32 = 1 / 0", "[Type Error] division by zero at app.hex:1:19"},
+		{"mut total: Int32 = 10 bad: Int32 = total / 0", "[Type Error] division by zero at app.hex:1:42"},
+		{"mut total: Int32 = 10 bad: Int32 = total % 0", "[Type Error] division by zero at app.hex:1:42"},
+		{"mut total: Int32 = 10 bad: Int32 = total / (2 - 2)", "[Type Error] division by zero at app.hex:1:42"},
+		{"value: Float64 = 1.0 bad: Float64 = value % 2.0", "[Type Error] operator % requires integer operands; got Float64 at app.hex:1:43"},
+		{"left: Bool = true right: Bool = false bad: Bool = left < right", "[Type Error] ordering is unavailable for Bool values at app.hex:1:56"},
+		{"count: UInt32 = 5 bad: Int32 = -count", "[Type Error] negation requires a signed type; got UInt32 at app.hex:1:32"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {
@@ -300,7 +300,7 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 	for _, source := range rejected {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires numeric operands") {
-			t.Fatalf("want numeric-operands diagnostic, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
+			t.Fatalf("want numeric-operands diagnostic; got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}
 	}
 	accepted := []string{
@@ -311,7 +311,7 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 }

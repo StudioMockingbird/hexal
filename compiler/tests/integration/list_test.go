@@ -196,7 +196,3 @@ func TestListFreeReleasesOnlyContainerStorage(t *testing.T) {
 }
 
 // listH returns the generated List component header.
-func listH(t *testing.T, result compiler.CompilationResult) string {
-	t.Helper()
-	return moduleFile(t, result, "hexal/list.h")
-}

@@ -57,13 +57,13 @@ func TestRejectsAliasResolutionErrors(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"type Distance = Coordinate", "[Type Error] unknown type Coordinate at 1:17"},
-		{"type Coordinate = Coordinate", "[Type Error] type alias Coordinate cannot reference itself at 1:6"},
-		{"type Coordinate = Ptr<Coordinate>", "[Type Error] type alias Coordinate cannot reference itself at 1:6"},
-		{"type Int32 = UInt32", "[Type Error] built-in type Int32 cannot be redeclared at 1:6"},
-		{"type Ptr = UInt64", "[Type Error] built-in type constructor Ptr cannot be redeclared at 1:6"},
-		{"type MutPtr = UInt64", "[Type Error] built-in type constructor MutPtr cannot be redeclared at 1:6"},
-		{"Ptr: Int32 = 1", "[Type Error] built-in type constructor Ptr cannot be redeclared at 1:1"},
+		{"type Distance = Coordinate", "[Type Error] unknown type Coordinate at app.hex:1:17"},
+		{"type Coordinate = Coordinate", "[Type Error] type alias Coordinate cannot reference itself at app.hex:1:6"},
+		{"type Coordinate = Ptr<Coordinate>", "[Type Error] type alias Coordinate cannot reference itself at app.hex:1:6"},
+		{"type Int32 = UInt32", "[Type Error] built-in type Int32 cannot be redeclared at app.hex:1:6"},
+		{"type Ptr = UInt64", "[Type Error] built-in type constructor Ptr cannot be redeclared at app.hex:1:6"},
+		{"type MutPtr = UInt64", "[Type Error] built-in type constructor MutPtr cannot be redeclared at app.hex:1:6"},
+		{"Ptr: Int32 = 1", "[Type Error] built-in type constructor Ptr cannot be redeclared at app.hex:1:1"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {
@@ -101,12 +101,12 @@ func TestRejectsUnknownType(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	wantErrors := []string{"[Type Error] unknown type Bogus at 1:4"}
+	wantErrors := []string{"[Type Error] unknown type Bogus at app.hex:1:4"}
 	if len(result.Stderr) != len(wantErrors) || result.Stderr[0] != wantErrors[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, wantErrors)
 	}
 	if len(result.Files) != 0 {
-		t.Fatalf("failure must produce no generated artifacts, got %v", sortedKeys(result.Files))
+		t.Fatalf("failure must produce no generated artifacts; got %v", sortedKeys(result.Files))
 	}
 }
 
@@ -115,7 +115,7 @@ func TestRejectsUnknownNamedType(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Type Error] unknown type yyy at 1:4"}
+	want := []string{"[Type Error] unknown type yyy at app.hex:1:4"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}

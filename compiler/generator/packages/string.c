@@ -12,10 +12,10 @@ uint64_t hex_utf8_next(const uint8_t *data, size_t length, size_t *index) {
         // limits: 0x80-0xC1 are bare continuation bytes or overlong 2-byte
         // leads, and 0xF5-0xFF cannot encode any scalar.
         if (lead < 0xC2 || lead >= 0xF5) {
-            hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+            hex_runtime_trap("[Runtime Error] invalid UTF-8 in string\n");
         }
         if (*index + 2 > length) {
-            hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+            hex_runtime_trap("[Runtime Error] invalid UTF-8 in string\n");
         }
         uint8_t first = data[*index + 1];
         // The boundary leads restrict their first continuation to the valid
@@ -25,7 +25,7 @@ uint64_t hex_utf8_next(const uint8_t *data, size_t length, size_t *index) {
             (lead == 0xED && first >= 0xA0) ||
             (lead == 0xF0 && first < 0x90) ||
             (lead == 0xF4 && first >= 0x90)) {
-            hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+            hex_runtime_trap("[Runtime Error] invalid UTF-8 in string\n");
         }
         if (lead < 0xE0) {
             width = 2;
@@ -36,11 +36,11 @@ uint64_t hex_utf8_next(const uint8_t *data, size_t length, size_t *index) {
         }
     }
     if (*index + width > length) {
-        hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+        hex_runtime_trap("[Runtime Error] invalid UTF-8 in string\n");
     }
     for (uint64_t continuation = 1; continuation < width; continuation++) {
         if ((data[*index + continuation] & 0xC0) != 0x80) {
-            hex_runtime_trap("[Runtime Error] invalid UTF-8 in String\n");
+            hex_runtime_trap("[Runtime Error] invalid UTF-8 in string\n");
         }
     }
     *index += width;
@@ -220,7 +220,7 @@ uint32_t hex_string_at_rune(const hex_string *text, size_t rune_index) {
     size_t rune = 0;
     for (;;) {
         if (index >= text->byte_length) {
-            hex_runtime_trap("[Runtime Error] String index is outside its bounds\n");
+            hex_runtime_trap("[Runtime Error] string index out of bounds\n");
         }
         if (rune == rune_index) {
             return hex_utf8_decode(text->data, text->byte_length, &index);
@@ -264,7 +264,7 @@ uint32_t hex_strand_at_rune(hex_strand text, size_t rune_index) {
     size_t rune = 0;
     for (;;) {
         if (index >= 32 || text.data[index] == 0) {
-            hex_runtime_trap("[Runtime Error] String index is outside its bounds\n");
+            hex_runtime_trap("[Runtime Error] string index out of bounds\n");
         }
         if (rune == rune_index) {
             return hex_utf8_decode(text.data, 32, &index);

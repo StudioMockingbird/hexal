@@ -53,12 +53,6 @@ func arrayComponents(merged *programEmission) ([]componentArtifact, error) {
 	}}, nil
 }
 
-// arrayFamilyContent is the transition seam; the array definitions have
-// moved to array.h, so hexal.h carries nothing.
-func arrayFamilyContent(state *generatedArrayState, views *generatedViewState) string {
-	return ""
-}
-
 // moduleArrayComponent selects hexal/array.h for a module with reachable
 // Array specializations.
 func moduleArrayComponent(emission *moduleEmission) []string {

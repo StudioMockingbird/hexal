@@ -153,7 +153,7 @@ func TestMatchAdmitsFullExpressions(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 }

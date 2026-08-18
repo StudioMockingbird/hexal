@@ -11,7 +11,7 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-func checkUnaryExpression(expression parser.UnaryExpression, context expressionContext, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkUnaryExpression(expression parser.UnaryExpression, context expressionContext, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	operator, ok := operatorFromToken(expression.Operator)
 	if expression.Operator.Kind == lexer.Minus {
 		operator = NegateOperator
@@ -21,7 +21,7 @@ func checkUnaryExpression(expression parser.UnaryExpression, context expressionC
 		return unsupportedOperatorExpression(expression.Operator)
 	}
 
-	hint := inferExpressionType(expression.Operand, operandContextType(operator, context.expected.Type), environment, typeEnvironment)
+	hint := inferExpressionType(expression.Operand, operandContextType(operator, context.expected.Type), names, typeEnvironment)
 	if hint.diagnostic != nil {
 		return checkedExpression{token: expression.Operator, diagnostic: hint.diagnostic}
 	}
@@ -31,11 +31,11 @@ func checkUnaryExpression(expression parser.UnaryExpression, context expressionC
 			operandType = expected
 		}
 	}
-	operand := checkExpression(expression.Operand, expressionContext{expected: compilerTypes.NewTypeUse(operandType), foldConstants: context.foldConstants}, environment, typeEnvironment)
+	operand := checkExpression(expression.Operand, expressionContext{expected: compilerTypes.NewTypeUse(operandType), foldConstants: context.foldConstants}, names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(operand); len(diagnostics) > 0 {
 		return checkedExpression{token: expression.Operator, diagnostics: diagnostics}
 	}
-	if environment.generics != nil && environment.generics.open && compilerTypes.ContainsTypeParameter(operand.typ) {
+	if names.generics != nil && names.generics.open && compilerTypes.ContainsTypeParameter(operand.typ) {
 		// An operation whose validity depends on a substituted type
 		// is deferred during open generic checking and rechecked at
 		// specialization with concrete types.
@@ -55,15 +55,15 @@ func checkUnaryExpression(expression parser.UnaryExpression, context expressionC
 	return foldUnary(operator, operand, operand.typ, resultType, expression.Operator, context.foldConstants)
 }
 
-func checkBinaryExpression(expression parser.BinaryExpression, context expressionContext, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkBinaryExpression(expression parser.BinaryExpression, context expressionContext, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	operator, ok := operatorFromToken(expression.Operator)
 	if !ok || operator == NegateOperator || operator == LogicalNotOperator {
 		return unsupportedOperatorExpression(expression.Operator)
 	}
 
 	expected := operandContextType(operator, context.expected.Type)
-	leftHint := inferExpressionType(expression.Left, expected, environment, typeEnvironment)
-	rightHint := inferExpressionType(expression.Right, expected, environment, typeEnvironment)
+	leftHint := inferExpressionType(expression.Left, expected, names, typeEnvironment)
+	rightHint := inferExpressionType(expression.Right, expected, names, typeEnvironment)
 	if leftHint.diagnostic != nil {
 		return checkedExpression{token: expression.Operator, diagnostic: leftHint.diagnostic}
 	}
@@ -71,14 +71,14 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return checkedExpression{token: expression.Operator, diagnostic: rightHint.diagnostic}
 	}
 	operandType := binaryOperandType(operator, expected, leftHint, rightHint)
-	left := checkExpression(expression.Left, expressionContext{expected: compilerTypes.NewTypeUse(operandType), foldConstants: context.foldConstants}, environment, typeEnvironment)
+	left := checkExpression(expression.Left, expressionContext{expected: compilerTypes.NewTypeUse(operandType), foldConstants: context.foldConstants}, names, typeEnvironment)
 	rightEvaluation := context.foldConstants
 	if rightEvaluation && (operator == LogicalAndOperator || operator == LogicalOrOperator) {
 		if leftValue, known := knownTruthinessMetadata(left); known {
 			rightEvaluation = (operator == LogicalAndOperator && leftValue) || (operator == LogicalOrOperator && !leftValue)
 		}
 	}
-	right := checkExpression(expression.Right, expressionContext{expected: compilerTypes.NewTypeUse(operandType), foldConstants: rightEvaluation}, environment, typeEnvironment)
+	right := checkExpression(expression.Right, expressionContext{expected: compilerTypes.NewTypeUse(operandType), foldConstants: rightEvaluation}, names, typeEnvironment)
 	diagnostics := append(initializerDiagnostics(left), initializerDiagnostics(right)...)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: expression.Operator, diagnostics: diagnostics}
@@ -102,7 +102,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		}
 	}
 
-	if environment.generics != nil && environment.generics.open &&
+	if names.generics != nil && names.generics.open &&
 		(compilerTypes.ContainsTypeParameter(left.typ) || compilerTypes.ContainsTypeParameter(right.typ)) {
 		// An operation whose validity depends on a substituted type
 		// is deferred during open generic checking and rechecked at
@@ -222,7 +222,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 	if operator == EqualOperator || operator == NotEqualOperator ||
 		operator == LessOperator || operator == LessEqualOperator ||
 		operator == GreaterOperator || operator == GreaterEqualOperator {
-		if result := checkDeepComparison(operator, left, right, expression.Operator, environment); result != nil {
+		if result := checkDeepComparison(operator, left, right, expression.Operator, names); result != nil {
 			return *result
 		}
 	}
@@ -241,14 +241,8 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 	}
 	if !compilerTypes.Equal(left.typ, right.typ) && operator != LogicalAndOperator && operator != LogicalOrOperator {
 		return checkedExpression{
-			token: expression.Operator,
-			diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     expression.Operator.Line,
-				Column:   expression.Operator.Column,
-				Message:  fmt.Sprintf("operator %s requires identical operand types; got %s and %s", operator, left.typ.Name, right.typ.Name),
-			},
+			token:      expression.Operator,
+			diagnostic: diagnosticAt(typeErrorAt(expression.Operator, fmt.Sprintf("operator %s requires identical operand types; got %s and %s", operator, left.typ.Name, right.typ.Name))),
 		}
 	}
 	resultType := left.typ
@@ -803,32 +797,14 @@ func staticDivisionDiagnostic(operator Operator, left, right checkedExpression, 
 		return nil
 	}
 	if constant.Sign(divisor) == 0 {
-		return &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  "division by zero",
-		}
+		return diagnosticAt(typeErrorAt(token, "division by zero"))
 	}
 	// Signed minimum divided by -1 wraps to the signed minimum and the
 	// remainder is zero, both at compile time and at runtime.
 	return nil
 }
 
-func isSignedMinimum(source Operand, typ compilerTypes.Type) bool {
-	if !compilerTypes.IsSignedInteger(typ) || source.Kind != ConstantOperand || source.Constant == nil || source.Constant.Kind() == constant.Unknown {
-		return false
-	}
-	minimum, _ := integerBounds(typ)
-	return constant.Compare(source.Constant, gotoken.EQL, minimum)
-}
-
-func isNegativeOne(source Operand) bool {
-	return source.Kind == ConstantOperand && source.Constant != nil && source.Constant.Kind() != constant.Unknown && constant.Compare(source.Constant, gotoken.EQL, constant.MakeInt64(-1))
-}
-
-func inferExpressionType(expression parser.Expression, expected compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) expressionTypeHint {
+func inferExpressionType(expression parser.Expression, expected compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) expressionTypeHint {
 	switch expression := expression.(type) {
 	case parser.IntegerLiteral:
 		return expressionTypeHint{typ: contextualIntegerType(expected), contextual: true, token: expression.Token}
@@ -855,25 +831,19 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 	case parser.RuneLiteral:
 		return expressionTypeHint{typ: compilerTypes.Rune, token: expression.Token}
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
-		place := checkPlace(expression, environment, typeEnvironment)
+		place := checkPlace(expression, names, typeEnvironment)
 		return expressionTypeHint{typ: place.typ, token: place.token, diagnostic: place.diagnostic}
 	case parser.ObjectLiteral:
 		typ, ok := typeEnvironment.Lookup(expression.TypeName.Lexeme)
 		if !ok {
-			return expressionTypeHint{token: expression.TypeName, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     expression.TypeName.Line,
-				Column:   expression.TypeName.Column,
-				Message:  "unknown type " + expression.TypeName.Lexeme,
-			}}
+			return expressionTypeHint{token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, "unknown type "+expression.TypeName.Lexeme))}
 		}
 		return expressionTypeHint{typ: typ, token: expression.TypeName}
 	case parser.RefExpression:
-		checked := checkReference(expression, environment, typeEnvironment)
+		checked := checkReference(expression, names, typeEnvironment)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.CallExpression:
-		checked := checkCallValue(expression, environment, typeEnvironment)
+		checked := checkCallValue(expression, names, typeEnvironment)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.UnaryExpression:
 		operator, ok := operatorFromToken(expression.Operator)
@@ -884,7 +854,7 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 		if !ok {
 			return expressionTypeHint{token: expression.Operator, diagnostic: unsupportedOperatorDiagnostic(expression.Operator)}
 		}
-		hint := inferExpressionType(expression.Operand, operandContextType(operator, expected), environment, typeEnvironment)
+		hint := inferExpressionType(expression.Operand, operandContextType(operator, expected), names, typeEnvironment)
 		if hint.diagnostic != nil {
 			return expressionTypeHint{token: expression.Operator, diagnostic: hint.diagnostic}
 		}
@@ -894,12 +864,12 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 			token:      expression.Operator,
 		}
 	case parser.SpawnExpression:
-		checked := checkSpawnExpression(expression, environment, typeEnvironment)
+		checked := checkSpawnExpression(expression, names, typeEnvironment)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.TryExpression:
 		// The try's true result is its checked success type; for literal
 		// contextual typing the operand's hint is the closest estimate.
-		hint := inferExpressionType(expression.Operand, expected, environment, typeEnvironment)
+		hint := inferExpressionType(expression.Operand, expected, names, typeEnvironment)
 		if hint.diagnostic != nil {
 			return expressionTypeHint{token: expression.Keyword, diagnostic: hint.diagnostic}
 		}
@@ -910,8 +880,8 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 			return expressionTypeHint{token: expression.Operator, diagnostic: unsupportedOperatorDiagnostic(expression.Operator)}
 		}
 		operandExpected := operandContextType(operator, expected)
-		left := inferExpressionType(expression.Left, operandExpected, environment, typeEnvironment)
-		right := inferExpressionType(expression.Right, operandExpected, environment, typeEnvironment)
+		left := inferExpressionType(expression.Left, operandExpected, names, typeEnvironment)
+		right := inferExpressionType(expression.Right, operandExpected, names, typeEnvironment)
 		if left.diagnostic != nil {
 			return expressionTypeHint{token: expression.Operator, diagnostic: left.diagnostic}
 		}
@@ -1076,13 +1046,7 @@ func unsupportedOperatorExpression(token lexer.Token) checkedExpression {
 }
 
 func unsupportedOperatorDiagnostic(token lexer.Token) *compilerTypes.Diagnostic {
-	return &compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  "unsupported operator " + token.Lexeme,
-	}
+	return diagnosticAt(typeErrorAt(token, "unsupported operator "+token.Lexeme))
 }
 
 func unaryOperatorDiagnostic(operator Operator, typ compilerTypes.Type, token lexer.Token) *compilerTypes.Diagnostic {
@@ -1093,13 +1057,7 @@ func unaryOperatorDiagnostic(operator Operator, typ compilerTypes.Type, token le
 	if operator == BitwiseNotOperator {
 		message = fmt.Sprintf("operator ~ requires an integer operand; got %s", typ.Name)
 	}
-	return &compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return diagnosticAt(typeErrorAt(token, message))
 }
 
 func binaryOperatorDiagnostic(operator Operator, typ compilerTypes.Type, token lexer.Token) *compilerTypes.Diagnostic {
@@ -1114,11 +1072,5 @@ func binaryOperatorDiagnostic(operator Operator, typ compilerTypes.Type, token l
 	case EqualOperator, NotEqualOperator:
 		message = fmt.Sprintf("operator %s requires scalar operands; got %s", operator, typ.Name)
 	}
-	return &compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return diagnosticAt(typeErrorAt(token, message))
 }

@@ -1,11 +1,78 @@
 # RFC 0074: Audit Refactor Batch
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready. Stages 1–6 are the whole spec; Stage 7 is
-  closed and its items are specified as RFCs 0073 and 0076–0079, of which 0078
-  was itself rejected.
+- Status: Implemented; verified 2026-08-18. Stages 1–6 are the whole spec;
+  Stage 7 is closed and its items are specified as RFCs 0073 and 0076–0079, of
+  which 0078 was itself rejected.
+
+  **Landed and validated 2026-08-18** (`go test ./...`, `go vet ./...`,
+  `go vet -tags c23`, `gofmt -l` all clean at each step):
+
+  | Item | State |
+  |---|---|
+  | R1 drained seams | Done. `FamilyContent`, its nine dead input fields, and the `{{.FamilyContent}}` template line are gone; `hexal.h` lost one blank line and the manifest was regenerated for that alone. |
+  | R2 unreachable functions | Done, with one correction below. |
+  | R3 test-only specialization API | Done. |
+  | R4 orphans | Done. |
+  | R5 write-only fields | `CloseParen` and `ElseColumn` done. `ImportKeyword` **is read** — see corrections. |
+  | Stage 3 stdlib | Done. `sort` no longer imported anywhere in `compiler/` or `workbench/`. |
+  | Stage 2 R8 | Done. `ContainsUnionMember` and `RemoveUnionMember` iterate members directly. |
+  | R9 one diagnostic idiom | Done to its floor. Every token-shaped composite in `checker/` now routes through `typeErrorAt` or one of the three new siblings, plus a `diagnosticAt` adapter for the many pointer-returning sites; **1,155 net lines removed from `checker/`**. 27 composites remain: the 4 constructor definitions themselves, 3 built from `SourceLine`/`SourceColumn` rather than a token, and 19 that carry no position at all and so cannot take a token-based constructor. |
+  | R11 diagnostic carries no module | Done. `Diagnostic.Module` holds the logical source key, stamped once per stage at the point where module identity is known — the `CheckModules` loop, the reachability walk, and the generator's per-module loops — rather than at any of the ~900 construction sites. `Error()` renders `at app.hex:5:3`. The prescribed `(Module, Line, Column)` sort was tried and reverted — see the ordering note below. 71 assertions across 11 files updated; lexer and parser unit tests keep the unqualified form because those stages legitimately do not know their module. |
+  | R12 | Done except one bullet, deliberately. Three unwrap ladders now use `errors.As`, `blockFailure.Unwrap` added, 35 `, got` → `; got`, both trap-message outliers normalized. **"Route every stage through `mergeDiagnostics`" is not done** — see the ordering note below; its premise is wrong and doing it makes the output worse. |
+  | R13 structure | Done. `validateExpressionNode` 876 → **388** lines and `renderExpressionUncheckedWithState` 661 → **279**, both matching the spec's targets. Collections moved to `arrays.go`, text to `strings.go`, concurrency to `concurrency.go`, view bridge to `views.go`; cases were moved verbatim, so every check and its order are unchanged. Zero new files. |
+  | R17 tests | Done. `generateOne(t, program)` replaces the call-plus-error-check that appeared verbatim at 42 sites; six `Test<X>ComponentDeterministic` copies became one table (Error stays separate — it renders from a synthetic emission, a different shape); the byte-identical Array and List `ComponentAbsentWithout` pair became one test (View stays separate, as the spec requires); `compileMulti`'s 61 pass-through uses call `compiler.Compile` directly; the five scattered artifact accessors moved beside `hexalH`/`rootC`/`rootH`; and the three assertion vocabularies are one `assert*` family. The `TestDictComponentHexalHeaderOwnsNoDictText` finding is stale — that test is 30 lines, not 289. |
+  | R14 parameter bundling | Done for the 15 `(expected Type, hasExpected bool)` sites; `expected *Type`, nil = absent. |
+  | R15 naming | Done: 42 `environment *scope` → `names`, component builders already plural, `alloc.go` → `heap.go`. Err-suffix item is stale — see corrections. |
+  | R16 exported API | Done: generator exports unexported, `UnsupportedError`/`LimitError` deleted, package docs added for `compiler`, `compiler/types`, and `workbench`, and every `CompilationResult`/`CompilationStats` field documented. |
+  | R18 coverage | Items 3 and 4 done: `determinism_test.go` asserts byte-identical artifacts and stable diagnostic order across repeated compiles, and every `CompilationStats` field on both success and failure. |
+
+  **Stages 1–6 are complete.** The only unactioned findings are the ones the
+  corrections below record as stale or wrong.
+
+  **R17's assertion-vocabulary hazard was honoured, not merged away.**
+  `assertRejects` requires the *first* diagnostic to match (27 tests) and
+  `assertRejectsAnyDiagnostic` — the former `requireRejected` — accepts a match
+  in *any* (26 tests). The spec is right that merging them naively weakens 27
+  tests or breaks 26, so the two semantics kept two names that say which is
+  which. The vocabulary is unified at the prefix, which is what made three
+  families in one package confusing; the assertions themselves are untouched,
+  as invariant 2 requires.
+
+  **R11's sort key and R12's routing bullet were both tried and both reverted,
+  by decision.** Implemented literally, they route every stage through
+  `mergeDiagnostics` and sort by `(Module, Line, Column)` — which reorders
+  multi-module diagnostics from *dependency-first* to *alphabetical*, since
+  `mergeDiagnostics` is the only place a module comparison would apply.
+
+  R12's premise for the routing is factually wrong: checker diagnostics do not
+  "reach `failureResult` unsorted". `CheckModules` already emits them grouped by
+  module in the graph's dependency order and sorted by position within each
+  module, which is strictly better than what `mergeDiagnostics` would produce.
+  The generator fails fast with a single diagnostic and has nothing to sort.
+
+  So neither landed, and both the module comparison and the three routing
+  wrappers are gone. That is less code than either alternative, and it keeps
+  dependency-first order: a failure is reported in the module it originates in
+  before the module that consumes it. `Diagnostic.Module` and its rendering —
+  R11's actual value — are independent of the sort and did land.
+
+  **Corrections to the spec's findings, all verified against the tree:**
+
+  - **`IsAtomic` is not dead.** R2 lists it, but `render.go` reads it to decide
+    whether an Atomic binding carries top-level `const` — the caller RFC 0073's
+    D26 fix added, after this audit was taken. It is inlined as `typ.Atomic != nil`
+    rather than deleted.
+  - **`ImportKeyword` is not write-only.** R5 lists it; `parser.go:95` reads it
+    for the misplaced-import diagnostic, which is D21's fix. Kept.
+  - **The err-suffix singletons are gone.** R15 counts 35 names occurring once;
+    none remain. `spawnError` is not an error variable at all — it is the
+    `Task<T> | Error` union type, correctly named.
+  - **Stage 4's "manifest unchanged" is wrong.** R12 mandates fixing two
+    generated-C trap messages, which necessarily moves the manifest. It moved for
+    `hexal/string.c` only, deliberately, alongside R1's `hexal.h` line.
 - Created: 2026-08-16
-- Updated: 2026-08-16
+- Updated: 2026-08-18
 - Scope: behavior-preserving cleanup found by the six-pass refactor audit —
   deletion, consolidation, structure, and one measured performance item
 - Depends on: nothing. Every item here lands independently of RFCs 0072–0079.

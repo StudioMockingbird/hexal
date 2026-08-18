@@ -60,12 +60,6 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 	}}, nil
 }
 
-// listFamilyContent is the transition seam; the list definitions have moved
-// to list.h, so hexal.h carries nothing.
-func listFamilyContent(state *generatedListState, views *generatedViewState) string {
-	return ""
-}
-
 // moduleListComponent selects hexal/list.h for a module with reachable List
 // specializations.
 func moduleListComponent(emission *moduleEmission) []string {

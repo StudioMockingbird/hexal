@@ -3,8 +3,6 @@ package generator
 import (
 	"strings"
 	"testing"
-
-	"hexal/compiler/checker"
 )
 
 // utf8SequenceValid mirrors the hexal/string.c hex_utf8_next scalar
@@ -100,10 +98,7 @@ func TestUTF8BoundaryTable(t *testing.T) {
 // stale mirror.
 func TestGeneratedUTF8ValidationGuards(t *testing.T) {
 	program := checkedGeneratorSource(t, "greeting: String = \"hi\"\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	source := files["hexal/string.c"]
 	for _, guard := range []string{
 		"lead < 0xC2 || lead >= 0xF5",

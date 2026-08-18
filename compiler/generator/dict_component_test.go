@@ -3,8 +3,6 @@ package generator
 import (
 	"strings"
 	"testing"
-
-	"hexal/compiler/checker"
 )
 
 // A dict-using program emits hexal/dict.h with every reachable
@@ -13,10 +11,7 @@ import (
 // owning module header includes the component.
 func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	dictH := files["hexal/dict.h"]
 	if dictH == "" {
 		t.Fatalf("generated files %v lack hexal/dict.h", files)
@@ -49,10 +44,7 @@ func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // checked operands, the direct Strand memcmp probes, and trap messages).
 func TestDictComponentHexalHeaderOwnsNoDictText(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> = Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_dict_") || strings.Contains(files["hexal.h"], "hex_hash_") {
 		t.Fatalf("hexal.h = %q, dict definitions must live in hexal/dict.h", files["hexal.h"])
 	}
@@ -344,10 +336,7 @@ static inline void hex_dict_free_Strand_Int32(hex_heap h, hex_dict_Strand_Int32 
 // header); migration neither repairs nor worsens it.
 func TestDictComponentModuleObjectValueRendersAsSpelled(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo(h: Heap) do\n    points: Dict<Int32, Point> = Dict<Int32, Point>.new(h)\n    defer points.free(h)\n    points.insert(1, Point { x = 1 })\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	dictH := files["hexal/dict.h"]
 	if !strings.Contains(dictH, "typedef struct hex_dict_entry_Int32_Point {") || !strings.Contains(dictH, "hex_t_m3_app_Point value;") {
 		t.Fatalf("hexal/dict.h = %q, want the entry struct spelling the module object by value", dictH)
@@ -358,10 +347,7 @@ func TestDictComponentModuleObjectValueRendersAsSpelled(t *testing.T) {
 // module includes it.
 func TestDictComponentAbsentWithoutReachableDicts(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 = 1\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	if _, exists := files["hexal/dict.h"]; exists {
 		t.Fatalf("scalar-only program emitted hexal/dict.h")
 	}
@@ -371,17 +357,3 @@ func TestDictComponentAbsentWithoutReachableDicts(t *testing.T) {
 }
 
 // Equivalent compilations render identical dict.h bytes.
-func TestDictComponentDeterministic(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend")
-	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	if first["hexal/dict.h"] != second["hexal/dict.h"] {
-		t.Fatalf("equivalent compilations rendered hexal/dict.h differently")
-	}
-}

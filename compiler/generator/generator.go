@@ -2,9 +2,11 @@
 package generator
 
 import (
+	"errors"
 	"fmt"
 
 	"hexal/compiler/checker"
+	compilerTypes "hexal/compiler/types"
 )
 
 // GenerateChecked emits every reachable module's C/header pair under
@@ -35,7 +37,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		}
 		emission, discoveryErr := discoverModuleEmission(program, canonical, key, literals)
 		if discoveryErr != nil {
-			return nil, discoveryErr
+			return nil, stampModule(discoveryErr, key)
 		}
 		modules = append(modules, emission)
 	}
@@ -48,7 +50,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		isRoot := emission.canonicalID == entrypointCanonical
 		moduleC, moduleH, emissionErr := emitModulePair(emission, merged, isRoot)
 		if emissionErr != nil {
-			return nil, emissionErr
+			return nil, stampModule(emissionErr, emission.logicalKey)
 		}
 		files["modules/"+emission.canonicalID+".c"] = moduleC
 		files["modules/"+emission.canonicalID+".h"] = moduleH
@@ -63,15 +65,6 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		return nil, fmt.Errorf("generator: the entrypoint module %s is not among the emitted modules", entrypointCanonical)
 	}
 	header, headerErr := hexalHeader(hexalHeaderInput{
-		errorUsed:    merged.errorUsed,
-		heaps:        merged.heapState,
-		views:        merged.viewState,
-		stringState:  merged.stringState,
-		lists:        merged.listState,
-		dicts:        merged.dictState,
-		arrays:       merged.arrayState,
-		concurrency:  merged.concurrencyState,
-		wrap:         merged.wrapState,
 		sizeLiterals: merged.sizeLiterals,
 		requirements: merged.requirements,
 	})
@@ -93,4 +86,22 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		files[key] = content
 	}
 	return files, nil
+}
+
+// stampModule attributes a generation error to the module being emitted.
+// Discovery and emission construct diagnostics without knowing which module
+// they are in; the per-module loops are where that is known (RFC 0074 R11).
+func stampModule(err error, logicalKey string) error {
+	if err == nil {
+		return nil
+	}
+	var diagnostics compilerTypes.Diagnostics
+	if errors.As(err, &diagnostics) {
+		return diagnostics.InModule(logicalKey)
+	}
+	var diagnostic compilerTypes.Diagnostic
+	if errors.As(err, &diagnostic) {
+		return diagnostic.InModule(logicalKey)
+	}
+	return err
 }

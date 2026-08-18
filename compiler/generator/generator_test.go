@@ -24,10 +24,7 @@ func TestGenerateInt32Declaration(t *testing.T) {
 	}
 
 	wantRoot := "#include \"modules/app.h\"\n\nint main(void) {\n    const int32_t hex_v_x = 13;\n    return 0;\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := generateOne(t, program)
 	if files["modules/app.c"] != wantRoot {
 		t.Fatalf("modules/app.c = %q, want %q", files["modules/app.c"], wantRoot)
 	}
@@ -436,24 +433,24 @@ func TestGenerateLineDirectives(t *testing.T) {
 
 func TestPrivateCNameUsesOneUnconditionalPrefix(t *testing.T) {
 	testCases := []struct {
-		kind   NameKind
+		kind   nameKind
 		source string
 		owner  string
 		want   string
 	}{
-		{ValueName, "main", "", "hex_v_main"},
-		{ValueName, "int", "3_app", "hex_v_int"},
-		{ValueName, "INT32_MAX", "3_app", "hex_v_INT32_MAX"},
-		{ValueName, "hex_v_score", "3_app", "hex_v_hex_v_score"},
-		{TypeName, "Point", "3_app", "hex_t_3_app_Point"},
-		{TypeName, "Point", "", "hex_t_Point"},
-		{MemberName, "x", "3_app", "hex_m_x"},
-		{FunctionName, "add", "3_app", "hex_f_3_app_add"},
-		{FunctionName, "add", "", "hex_f_add"},
+		{valueName, "main", "", "hex_v_main"},
+		{valueName, "int", "3_app", "hex_v_int"},
+		{valueName, "INT32_MAX", "3_app", "hex_v_INT32_MAX"},
+		{valueName, "hex_v_score", "3_app", "hex_v_hex_v_score"},
+		{typeName, "Point", "3_app", "hex_t_3_app_Point"},
+		{typeName, "Point", "", "hex_t_Point"},
+		{memberName, "x", "3_app", "hex_m_x"},
+		{functionName, "add", "3_app", "hex_f_3_app_add"},
+		{functionName, "add", "", "hex_f_add"},
 	}
 	for _, testCase := range testCases {
-		if got := PrivateCName(testCase.kind, testCase.source, testCase.owner); got != testCase.want {
-			t.Errorf("PrivateCName(%v, %q) = %q, want %q", testCase.kind, testCase.source, got, testCase.want)
+		if got := privateCName(testCase.kind, testCase.source, testCase.owner); got != testCase.want {
+			t.Errorf("privateCName(%v, %q) = %q, want %q", testCase.kind, testCase.source, got, testCase.want)
 		}
 	}
 }
@@ -1624,10 +1621,7 @@ func TestGenerateCheckedAcceptsReachableObjectReferenceWithoutTypeDeclaration(t 
 		Source: checker.Operand{Kind: checker.ObjectOperand, Type: point, Object: value},
 	}}}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	if !strings.Contains(files["modules/app.h"], "typedef struct hex_t_Point hex_t_Point;") {
 		t.Fatalf("modules/app.h = %q, want the reachable object definition", files["modules/app.h"])
 	}
@@ -2182,10 +2176,7 @@ func TestGenerateFunctionDefinitionsPrecedeMainInSourceOrder(t *testing.T) {
 		},
 	}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	gotC, gotH := files["modules/app.c"], files["modules/app.h"]
 	first := strings.Index(gotC, "hex_f_m3_app_identity")
 	next := strings.Index(gotC, "hex_f_m3_app_second")
@@ -2245,4 +2236,16 @@ func moduleGraphOf(root string, order []string, parsed map[string]parser.Program
 		}
 	}
 	return graph
+}
+
+// generateOne generates the single-module program these unit tests are built
+// from and fails the test on any error. It replaces the call-plus-three-line
+// error check that appeared verbatim at over a hundred sites (RFC 0074 R17).
+func generateOne(t *testing.T, program checker.Program) map[string]string {
+	t.Helper()
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	if err != nil {
+		t.Fatalf("GenerateChecked() error = %v", err)
+	}
+	return files
 }

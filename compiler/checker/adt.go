@@ -2,7 +2,7 @@ package checker
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
@@ -10,7 +10,7 @@ import (
 )
 
 // checkADTDeclaration validates and registers one ADT declaration.
-func checkADTDeclaration(declaration parser.TypeDeclaration, target parser.AdtDefinitionExpression, typeEnvironment *compilerTypes.Environment, environment *scope) (TypeDeclaration, compilerTypes.Diagnostics) {
+func checkADTDeclaration(declaration parser.TypeDeclaration, target parser.AdtDefinitionExpression, typeEnvironment *compilerTypes.Environment, names *scope) (TypeDeclaration, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	if len(target.Variants) < 2 {
@@ -32,12 +32,12 @@ func checkADTDeclaration(declaration parser.TypeDeclaration, target parser.AdtDe
 	// Like object declarations, an ADT is stamped with the declaring
 	// module's canonical id: that id owns its canonical key.
 	provisional := typeEnvironment.BeginADT(name, declaration.Name.Line, declaration.Name.Column)
-	provisional.Adt.ModuleID = environment.moduleID
+	provisional.Adt.ModuleID = names.moduleID
 	variants := make([]compilerTypes.AdtVariant, 0, len(target.Variants))
 	for _, variant := range target.Variants {
 		resolved := compilerTypes.AdtVariant{Name: variant.Name.Lexeme}
 		if variant.Payload != nil {
-			payload, payloadDiagnostics := resolveADTPayload(name, *variant.Payload, typeEnvironment, environment.generics)
+			payload, payloadDiagnostics := resolveADTPayload(name, *variant.Payload, typeEnvironment, names.generics)
 			diagnostics = append(diagnostics, payloadDiagnostics...)
 			resolved.Payload = payload
 		}
@@ -107,14 +107,14 @@ func resolveADTPayload(adtName string, expression parser.ObjectTypeExpression, t
 
 // resolveVariantOwner resolves a qualified variant's owner ADT, handling
 // generic owners through explicit arguments or expected-type inference.
-func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, expectedType compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) (compilerTypes.Type, *compilerTypes.AdtVariant, *compilerTypes.Diagnostic) {
+func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, expectedType compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (compilerTypes.Type, *compilerTypes.AdtVariant, *compilerTypes.Diagnostic) {
 	if adtType, ok := typeEnvironment.Lookup(owner); ok && adtType.Adt != nil {
 		return adtType, nil, nil
 	}
-	if environment.generics == nil {
+	if names.generics == nil {
 		return compilerTypes.Type{}, nil, nil
 	}
-	open, generic := environment.generics.types[owner]
+	open, generic := names.generics.types[owner]
 	if !generic {
 		return compilerTypes.Type{}, nil, nil
 	}
@@ -125,15 +125,15 @@ func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, e
 	if len(ownerArguments) > 0 {
 		arguments = make([]compilerTypes.Type, 0, len(ownerArguments))
 		for _, argument := range ownerArguments {
-			use, diagnostic := resolveTypeUse(argument, lexer.Token{}, typeEnvironment, environment.generics)
+			use, diagnostic := resolveTypeUse(argument, lexer.Token{}, typeEnvironment, names.generics)
 			if diagnostic != nil {
 				return compilerTypes.Type{}, nil, diagnostic
 			}
 			arguments = append(arguments, use.Type)
 		}
 	} else if expectedType.Adt != nil {
-		if expectedOpen := environment.generics.adtOpen[expectedType.Adt]; expectedOpen == open {
-			arguments = environment.generics.adtArguments[expectedType.Adt]
+		if expectedOpen := names.generics.adtOpen[expectedType.Adt]; expectedOpen == open {
+			arguments = names.generics.adtArguments[expectedType.Adt]
 		}
 	}
 	if len(arguments) == 0 {
@@ -143,7 +143,7 @@ func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, e
 			Message:  fmt.Sprintf("cannot infer generic parameter for %s", owner),
 		}
 	}
-	specialized, diagnostic := specializeADTType(open, arguments, lexer.Token{}, typeEnvironment, environment.generics)
+	specialized, diagnostic := specializeADTType(open, arguments, lexer.Token{}, typeEnvironment, names.generics)
 	if diagnostic != nil {
 		return compilerTypes.Type{}, nil, diagnostic
 	}
@@ -151,13 +151,13 @@ func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, e
 }
 
 // checkQualifiedVariant resolves a record-variant constructor.
-func checkQualifiedVariant(expression parser.QualifiedVariantExpression, expectedType compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
+func checkQualifiedVariant(expression parser.QualifiedVariantExpression, expectedType compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
 	// An import-alias owner routes to the target module's exported ADT
 	// variants before ordinary owner resolution.
-	if target, ok := environment.importAliasTarget(expression.Owner.Lexeme); ok {
-		return checkModuleVariantConstructor(expression, target, environment, typeEnvironment)
+	if target, ok := names.importAliasTarget(expression.Owner.Lexeme); ok {
+		return checkModuleVariantConstructor(expression, target, names, typeEnvironment)
 	}
-	adtType, _, ownerDiagnostic := resolveVariantOwner(expression.Owner.Lexeme, expression.OwnerArguments, expectedType, environment, typeEnvironment)
+	adtType, _, ownerDiagnostic := resolveVariantOwner(expression.Owner.Lexeme, expression.OwnerArguments, expectedType, names, typeEnvironment)
 	if ownerDiagnostic != nil {
 		return initializerValue{token: expression.Variant, diagnostic: ownerDiagnostic}
 	}
@@ -170,45 +170,33 @@ func checkQualifiedVariant(expression parser.QualifiedVariantExpression, expecte
 		}
 	}
 	if !ok {
-		return initializerValue{token: expression.Variant, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Variant.Line,
-			Column:   expression.Variant.Column,
-			Message:  fmt.Sprintf("unknown qualified variant %s.%s", expression.Owner.Lexeme, expression.Variant.Lexeme),
-		}}
+		return initializerValue{token: expression.Variant, diagnostic: diagnosticAt(typeErrorAt(expression.Variant, fmt.Sprintf("unknown qualified variant %s.%s", expression.Owner.Lexeme, expression.Variant.Lexeme)))}
 	}
-	return buildVariantConstructor(expression, adtType, variant, environment, typeEnvironment)
+	return buildVariantConstructor(expression, adtType, variant, names, typeEnvironment)
 }
 
 // checkModuleVariantConstructor resolves Owner.Variant {...} where Owner is an
 // import alias: the variant must belong to an exported ADT of the target
 // module.
-func checkModuleVariantConstructor(expression parser.QualifiedVariantExpression, target string, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
-	adtType, variant, ok := environment.registry.findExportedADTVariant(target, expression.Variant.Lexeme)
+func checkModuleVariantConstructor(expression parser.QualifiedVariantExpression, target string, names *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
+	adtType, variant, ok := names.registry.findExportedADTVariant(target, expression.Variant.Lexeme)
 	if !ok {
 		diagnostic := privateToModuleDiagnostic(expression.Variant, expression.Variant.Lexeme, target)
 		return initializerValue{token: expression.Variant, diagnostic: &diagnostic}
 	}
-	return buildVariantConstructor(expression, adtType, variant, environment, typeEnvironment)
+	return buildVariantConstructor(expression, adtType, variant, names, typeEnvironment)
 }
 
 // buildVariantConstructor checks the payload of one resolved record-variant
 // constructor and builds its AdtConstructExpression. Unit and payload shapes
 // are checked against the variant record exactly once, whichever path
 // resolved it.
-func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtType compilerTypes.Type, variant *compilerTypes.AdtVariant, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
+func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtType compilerTypes.Type, variant *compilerTypes.AdtVariant, names *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
 	if expression.Payload == nil {
 		return adtUnitVariant(adtType, variant, expression.Variant)
 	}
 	if len(variant.Payload) == 0 {
-		return initializerValue{token: expression.Variant, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Variant.Line,
-			Column:   expression.Variant.Column,
-			Message:  fmt.Sprintf("%s.%s is a unit variant and takes no payload", expression.Owner.Lexeme, expression.Variant.Lexeme),
-		}}
+		return initializerValue{token: expression.Variant, diagnostic: diagnosticAt(typeErrorAt(expression.Variant, fmt.Sprintf("%s.%s is a unit variant and takes no payload", expression.Owner.Lexeme, expression.Variant.Lexeme)))}
 	}
 	seen := make(map[string]bool, len(*expression.Payload))
 	arguments := make([]Operand, 0, len(*expression.Payload))
@@ -224,7 +212,7 @@ func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtTy
 			continue
 		}
 		seen[field.Name] = true
-		checked := checkInitializer(initializer.Value, field.Use, initializer.Name, environment, typeEnvironment)
+		checked := checkInitializer(initializer.Value, field.Use, initializer.Name, names, typeEnvironment)
 		if nestedDiagnostics := initializerDiagnostics(checked); len(nestedDiagnostics) > 0 {
 			diagnostics = append(diagnostics, nestedDiagnostics...)
 			continue
@@ -278,8 +266,8 @@ func adtVariantIndex(adtType compilerTypes.Type, variant string) int {
 // checkUnitVariant resolves a bare Owner.Variant chain as a unit variant value
 // when the owner names an ADT (or a generic ADT resolvable from the expected
 // type).
-func checkUnitVariant(owner, variant lexer.Token, expectedType compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) (*checkedExpression, *compilerTypes.Diagnostic) {
-	adtType, _, ownerDiagnostic := resolveVariantOwner(owner.Lexeme, nil, expectedType, environment, typeEnvironment)
+func checkUnitVariant(owner, variant lexer.Token, expectedType compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (*checkedExpression, *compilerTypes.Diagnostic) {
+	adtType, _, ownerDiagnostic := resolveVariantOwner(owner.Lexeme, nil, expectedType, names, typeEnvironment)
 	if ownerDiagnostic != nil {
 		return nil, ownerDiagnostic
 	}
@@ -324,11 +312,7 @@ func unionMemberIndex(union, member compilerTypes.Type) int {
 // reads the payload after the tag proof.
 func variantPayloadPlace(receiver checkedExpression, property lexer.Token) checkedExpression {
 	if receiver.variant == nil {
-		return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: property.Line, Column: property.Column,
-			Message: "ADT payload fields are only accessible inside a narrowed match arm",
-		}}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "ADT payload fields are only accessible inside a narrowed match arm"))}
 	}
 	memberIndex := -1
 	for index := range receiver.variant.Payload {
@@ -338,11 +322,7 @@ func variantPayloadPlace(receiver checkedExpression, property lexer.Token) check
 		}
 	}
 	if memberIndex < 0 {
-		return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: property.Line, Column: property.Column,
-			Message: fmt.Sprintf("%s has no field named %s", receiver.variant.Name, property.Lexeme),
-		}}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("%s has no field named %s", receiver.variant.Name, property.Lexeme)))}
 	}
 	member := receiver.variant.Payload[memberIndex]
 	receiverNode := receiver.source.Node
@@ -361,18 +341,14 @@ func variantPayloadPlace(receiver checkedExpression, property lexer.Token) check
 // checkMatchExpression checks a match expression: the scrutinee evaluates
 // once, patterns are validated against the mode, arms narrow a named
 // scrutinee, and exhaustiveness and arm typing are enforced.
-func checkMatchExpression(expression parser.MatchExpression, context expressionContext, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	scrutinee := checkValue(expression.Scrutinee, environment, typeEnvironment)
+func checkMatchExpression(expression parser.MatchExpression, context expressionContext, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	scrutinee := checkValue(expression.Scrutinee, names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(scrutinee); len(diagnostics) > 0 {
 		return checkedExpression{token: expression.Keyword, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	scrutineeType := scrutinee.typ
 	if scrutineeType == (compilerTypes.Type{}) {
-		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: expression.Keyword.Line, Column: expression.Keyword.Column,
-			Message: "match scrutinee does not produce a value",
-		}}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match scrutinee does not produce a value"))}
 	}
 	isADT := compilerTypes.IsADT(scrutineeType)
 	isUnion := compilerTypes.IsUnion(scrutineeType)
@@ -401,43 +377,27 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 		switch pattern := arm.Pattern.(type) {
 		case parser.ElsePattern:
 			if armIndex != len(expression.Arms)-1 {
-				return checkedExpression{token: pattern.Token, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: pattern.Token.Line, Column: pattern.Token.Column,
-					Message: "else must be the final match arm",
-				}}
+				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "else must be the final match arm"))}
 			}
 			for name := range remaining {
 				delete(remaining, name)
 			}
 			armTags = append(armTags, -1)
-			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, nil, context, environment, typeEnvironment)
+			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, nil, context, names, typeEnvironment)
 			if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
 				return checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
 			if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
-				return checkedExpression{token: arm.Then, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: arm.Then.Line, Column: arm.Then.Column,
-					Message: "match arm result types do not agree",
-				}}
+				return checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
 			}
 			resultType, hasResult = armResult.typ, true
 			armResults = append(armResults, armResult.source)
 		case parser.BoolPattern:
 			if expression.TypeMode {
-				return checkedExpression{token: pattern.Token, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: pattern.Token.Line, Column: pattern.Token.Column,
-					Message: "value patterns are not valid in type mode",
-				}}
+				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "value patterns are not valid in type mode"))}
 			}
 			if !isBool {
-				return checkedExpression{token: pattern.Token, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: pattern.Token.Line, Column: pattern.Token.Column,
-					Message: "match pattern does not belong to the scrutinee type",
-				}}
+				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "match pattern does not belong to the scrutinee type"))}
 			}
 			tag := 0
 			name := "false"
@@ -446,136 +406,88 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 				name = "true"
 			}
 			if !remaining[name] {
-				return checkedExpression{token: pattern.Token, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: pattern.Token.Line, Column: pattern.Token.Column,
-					Message: "duplicate or unreachable match pattern",
-				}}
+				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "duplicate or unreachable match pattern"))}
 			}
 			delete(remaining, name)
 			armTags = append(armTags, tag)
-			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, nil, context, environment, typeEnvironment)
+			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, nil, context, names, typeEnvironment)
 			if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
 				return checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
 			if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
-				return checkedExpression{token: arm.Then, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: arm.Then.Line, Column: arm.Then.Column,
-					Message: "match arm result types do not agree",
-				}}
+				return checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
 			}
 			resultType, hasResult = armResult.typ, true
 			armResults = append(armResults, armResult.source)
 		case parser.VariantPattern:
 			if !expression.TypeMode {
-				return checkedExpression{token: pattern.Variant, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: pattern.Variant.Line, Column: pattern.Variant.Column,
-					Message: "type and variant patterns are not valid in value mode",
-				}}
+				return checkedExpression{token: pattern.Variant, diagnostic: diagnosticAt(typeErrorAt(pattern.Variant, "type and variant patterns are not valid in value mode"))}
 			}
 			adtVariant, ok := typeEnvironment.AdtVariant(pattern.Owner.Lexeme, pattern.Variant.Lexeme)
-			if !ok && isADT && environment.generics != nil {
+			if !ok && isADT && names.generics != nil {
 				index := adtVariantIndex(scrutineeType, pattern.Variant.Lexeme)
 				if index >= 0 {
-					if open, generic := environment.generics.adtOpen[scrutineeType.Adt]; generic && open.Name == pattern.Owner.Lexeme {
+					if open, generic := names.generics.adtOpen[scrutineeType.Adt]; generic && open.Name == pattern.Owner.Lexeme {
 						adtVariant = &scrutineeType.Adt.Variants[index]
 						ok = true
 					}
 				}
 			}
 			if !ok {
-				return checkedExpression{token: pattern.Variant, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: pattern.Variant.Line, Column: pattern.Variant.Column,
-					Message: fmt.Sprintf("unknown qualified variant %s.%s", pattern.Owner.Lexeme, pattern.Variant.Lexeme),
-				}}
+				return checkedExpression{token: pattern.Variant, diagnostic: diagnosticAt(typeErrorAt(pattern.Variant, fmt.Sprintf("unknown qualified variant %s.%s", pattern.Owner.Lexeme, pattern.Variant.Lexeme)))}
 			}
 			ownerMatches := isADT && compilerTypes.Equal(scrutineeType, lookupADTType(typeEnvironment, pattern.Owner.Lexeme))
-			if !ownerMatches && isADT && environment.generics != nil {
-				if open, generic := environment.generics.adtOpen[scrutineeType.Adt]; generic && open.Name == pattern.Owner.Lexeme {
+			if !ownerMatches && isADT && names.generics != nil {
+				if open, generic := names.generics.adtOpen[scrutineeType.Adt]; generic && open.Name == pattern.Owner.Lexeme {
 					ownerMatches = true
 				}
 			}
 			if !isADT || !ownerMatches {
-				return checkedExpression{token: pattern.Variant, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: pattern.Variant.Line, Column: pattern.Variant.Column,
-					Message: "match pattern does not belong to the scrutinee type",
-				}}
+				return checkedExpression{token: pattern.Variant, diagnostic: diagnosticAt(typeErrorAt(pattern.Variant, "match pattern does not belong to the scrutinee type"))}
 			}
 			if !remaining[adtVariant.Name] {
-				return checkedExpression{token: pattern.Variant, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: pattern.Variant.Line, Column: pattern.Variant.Column,
-					Message: "duplicate or unreachable match pattern",
-				}}
+				return checkedExpression{token: pattern.Variant, diagnostic: diagnosticAt(typeErrorAt(pattern.Variant, "duplicate or unreachable match pattern"))}
 			}
 			delete(remaining, adtVariant.Name)
 			armTags = append(armTags, adtVariantIndex(scrutineeType, adtVariant.Name))
-			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, adtVariant, nil, context, environment, typeEnvironment)
+			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, adtVariant, nil, context, names, typeEnvironment)
 			if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
 				return checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
 			if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
-				return checkedExpression{token: arm.Then, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: arm.Then.Line, Column: arm.Then.Column,
-					Message: "match arm result types do not agree",
-				}}
+				return checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
 			}
 			resultType, hasResult = armResult.typ, true
 			armResults = append(armResults, armResult.source)
 		case parser.TypePattern:
 			if !expression.TypeMode {
-				return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: expression.Keyword.Line, Column: expression.Keyword.Column,
-					Message: "type and variant patterns are not valid in value mode",
-				}}
+				return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "type and variant patterns are not valid in value mode"))}
 			}
-			memberUse, diagnostic := resolveUnionMemberUse(pattern.Type, expression.Keyword, typeEnvironment, environment.generics)
+			memberUse, diagnostic := resolveUnionMemberUse(pattern.Type, expression.Keyword, typeEnvironment, names.generics)
 			if diagnostic != nil {
 				return checkedExpression{token: expression.Keyword, diagnostic: diagnostic}
 			}
 			member := memberUse.Type
 			if isUnion {
 				if !compilerTypes.ContainsUnionMember(scrutineeType, member) {
-					return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-						Category: compilerTypes.TypeError, Stage: "checker",
-						Line: expression.Keyword.Line, Column: expression.Keyword.Column,
-						Message: "match pattern does not belong to the scrutinee type",
-					}}
+					return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match pattern does not belong to the scrutinee type"))}
 				}
 				if !remaining[member.Name] {
-					return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-						Category: compilerTypes.TypeError, Stage: "checker",
-						Line: expression.Keyword.Line, Column: expression.Keyword.Column,
-						Message: "duplicate or unreachable match pattern",
-					}}
+					return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "duplicate or unreachable match pattern"))}
 				}
 				delete(remaining, member.Name)
 				armTags = append(armTags, unionMemberIndex(scrutineeType, member))
 			} else if !compilerTypes.Equal(scrutineeType, member) {
-				return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: expression.Keyword.Line, Column: expression.Keyword.Column,
-					Message: "match pattern does not belong to the scrutinee type",
-				}}
+				return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match pattern does not belong to the scrutinee type"))}
 			} else {
 				armTags = append(armTags, -2)
 			}
-			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, &member, context, environment, typeEnvironment)
+			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, &member, context, names, typeEnvironment)
 			if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
 				return checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
 			if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
-				return checkedExpression{token: arm.Then, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError, Stage: "checker",
-					Line: arm.Then.Line, Column: arm.Then.Column,
-					Message: "match arm result types do not agree",
-				}}
+				return checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
 			}
 			resultType, hasResult = armResult.typ, true
 			armResults = append(armResults, armResult.source)
@@ -596,7 +508,7 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 			for name := range remaining {
 				names = append(names, name)
 			}
-			sort.Strings(names)
+			slices.Sort(names)
 			if len(names) > 0 {
 				missing = names[0]
 			}
@@ -604,11 +516,7 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 		if isADT {
 			missing = scrutineeType.Name + "." + missing
 		}
-		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: expression.Keyword.Line, Column: expression.Keyword.Column,
-			Message: fmt.Sprintf("match is not exhaustive; missing %s", missing),
-		}}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, fmt.Sprintf("match is not exhaustive; missing %s", missing)))}
 	}
 	node := Expression{
 		Kind:        MatchExpression,
@@ -624,11 +532,11 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 
 // checkMatchArm checks one arm body in a child scope, narrowing a named
 // scrutinee binding to the variant or exact member.
-func checkMatchArm(scrutineeExpression parser.Expression, arm parser.MatchArm, scrutinee checkedExpression, variant *compilerTypes.AdtVariant, member *compilerTypes.Type, context expressionContext, environment *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
-	child := environment.child()
-	if variable, isVariable := scrutineeExpression.(parser.VariableExpression); isVariable && environment.flow != nil {
-		if bound, status := environment.lookup(variable.Name.Lexeme); status == nameFound && bound.id != 0 {
-			childFlow := environment.flow.clone()
+func checkMatchArm(scrutineeExpression parser.Expression, arm parser.MatchArm, scrutinee checkedExpression, variant *compilerTypes.AdtVariant, member *compilerTypes.Type, context expressionContext, names *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
+	child := names.child()
+	if variable, isVariable := scrutineeExpression.(parser.VariableExpression); isVariable && names.flow != nil {
+		if bound, status := names.lookup(variable.Name.Lexeme); status == nameFound && bound.id != 0 {
+			childFlow := names.flow.clone()
 			if variant != nil {
 				childFlow.narrowVariant(bound.id, variant)
 			} else if member != nil {

@@ -278,7 +278,7 @@ func renderBitCast(node checker.Expression, state *expressionValidation) (string
 	if node.Operand == nil {
 		return "", unknownExpressionDiagnostic("bit cast without a receiver")
 	}
-	operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if operandErr != nil {
 		return "", operandErr
 	}
@@ -306,7 +306,7 @@ func renderEndianConversion(node checker.Expression, state *expressionValidation
 		}
 		return endianHelperName(spec) + "(&(" + bytes + "))", nil
 	}
-	operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if operandErr != nil {
 		return "", operandErr
 	}
@@ -332,8 +332,5 @@ func bitCastEligible(typ compilerTypes.Type) bool {
 
 // endianEligible reports whether typ provides endian byte conversion: every
 // fixed-width integer, excluding Size and Rune.
-func endianEligible(typ compilerTypes.Type) bool {
-	return compilerTypes.IsInteger(typ) && !compilerTypes.IsRune(typ) && !compilerTypes.Equal(typ, compilerTypes.SizeType)
-}
 
 var _ = strings.TrimPrefix

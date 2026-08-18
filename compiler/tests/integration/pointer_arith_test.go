@@ -76,11 +76,11 @@ func TestPointerIdentityEqualityRemainsValid(t *testing.T) {
 
 func TestPointerIntegerConversionsRejected(t *testing.T) {
 	result := compileSource("fun demo() do\n    value: Int32 = 1\n    pointer: Ptr<Int32> = ref value\n    bad: UInt64 = pointer\nend")
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "expected UInt64 initializer, got Ptr<Int32>") {
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "expected UInt64 initializer; got Ptr<Int32>") {
 		t.Fatalf("Compile stderr = %#v, want pointer-to-integer rejection", result.Stderr)
 	}
 	result = compileSource("fun demo() do\n    address: UInt64 = 42\n    bad: Ptr<Int32> = address\nend")
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "expected Ptr<Int32> initializer, got UInt64") {
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "expected Ptr<Int32> initializer; got UInt64") {
 		t.Fatalf("Compile stderr = %#v, want integer-to-pointer rejection", result.Stderr)
 	}
 }

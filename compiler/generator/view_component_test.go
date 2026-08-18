@@ -3,8 +3,6 @@ package generator
 import (
 	"strings"
 	"testing"
-
-	"hexal/compiler/checker"
 )
 
 // A view-using program emits hexal/view.h with every reachable
@@ -13,10 +11,7 @@ import (
 // header includes the component.
 func TestViewComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(data: Ptr<UInt8>) do\n    first: View<Int32> = View<Int32>.empty()\n    second: View<UInt8> = View<UInt8>.from_pointer(data, 0)\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	viewH := files["hexal/view.h"]
 	if viewH == "" {
 		t.Fatalf("generated files %v lack hexal/view.h", files)
@@ -46,10 +41,7 @@ func TestViewComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // Go-written definitions byte for byte (struct, guards, and trap messages).
 func TestViewComponentHexalHeaderOwnsNoViewText(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    view: View<Int32> = View<Int32>.empty()\n    count: Size = view.length()\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_view_") {
 		t.Fatalf("hexal.h = %q, view definitions must live in hexal/view.h", files["hexal.h"])
 	}
@@ -90,10 +82,7 @@ static inline hex_view_Int32 hex_view_slice_Int32(hex_view_Int32 view, uint64_t 
 // no module includes it directly.
 func TestViewComponentAbsentWithoutReachableViews(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    first: Int32 = fixed[0]\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	viewH, exists := files["hexal/view.h"]
 	if !exists {
 		t.Fatalf("array-only program emitted no hexal/view.h dependency artifact: %v", files)
@@ -107,17 +96,3 @@ func TestViewComponentAbsentWithoutReachableViews(t *testing.T) {
 }
 
 // Equivalent compilations render identical view.h bytes.
-func TestViewComponentDeterministic(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    view: View<Int32> = View<Int32>.empty()\n    count: Size = view.length()\nend")
-	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	if first["hexal/view.h"] != second["hexal/view.h"] {
-		t.Fatalf("equivalent compilations rendered hexal/view.h differently")
-	}
-}

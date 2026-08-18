@@ -13,13 +13,7 @@ import (
 // inline element or a direct String.
 func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 1 {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Name.Line,
-			Column:   expression.Name.Column,
-			Message:  "List requires exactly one element type",
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "List requires exactly one element type"))
 	}
 	elementUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -27,13 +21,7 @@ func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	}
 	list := typeEnvironment.ListType(elementUse.Type)
 	if list == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Name.Line,
-			Column:   expression.Name.Column,
-			Message:  elementUse.Type.Name + " is not a list element type",
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, elementUse.Type.Name+" is not a list element type"))
 	}
 	return compilerTypes.NewTypeUse(list), nil
 }
@@ -42,13 +30,7 @@ func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 func checkListTypeCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme != "new" || len(call.TypeArguments) != 1 || len(call.Arguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Line,
-			Column:   callee.Column,
-			Message:  "List has no such operation; use List<T>.new(heap)",
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "List has no such operation; use List<T>.new(heap)"))}
 	}
 	listUse, diagnostic := resolveListTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "List", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, typeEnvironment, names.generics)
 	if diagnostic != nil {
@@ -75,9 +57,8 @@ func checkListTypeCall(call parser.CallExpression, callee lexer.Token, names *sc
 }
 
 // checkListMethodCall dispatches the built-in List methods: length, slice,
-// push, pop, set, clear, and free, and rejects the removed is_empty and at
-// names with their replacement spellings.
-func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+// push, pop, set, clear, and free.
+func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	listType := receiver.typ
 	element := listType.List.Element
@@ -90,22 +71,16 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: listType, ResultType: compilerTypes.SizeType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
-	case "is_empty":
-		diagnostic := typeErrorAt(callee.Property, "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-	case "at":
-		diagnostic := typeErrorAt(callee.Property, "`at` was removed; use `receiver[index]`")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	case "slice":
 		if len(call.Arguments) != 2 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments, got %d", len(call.Arguments)))
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
+		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, names, typeEnvironment)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, environment, typeEnvironment)
+		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, names, typeEnvironment)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
@@ -137,10 +112,10 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		switch name {
 		case "push":
 			if len(call.Arguments) != 1 {
-				diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("push expects 1 argument, got %d", len(call.Arguments)))
+				diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("push expects 1 argument; got %d", len(call.Arguments)))
 				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 			}
-			value, diagnostic := listElementArgument(call.Arguments[0], callee.Property, element, environment, typeEnvironment)
+			value, diagnostic := listElementArgument(call.Arguments[0], callee.Property, element, names, typeEnvironment)
 			if diagnostic != nil {
 				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 			}
@@ -149,14 +124,14 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 		case "set":
 			if len(call.Arguments) != 2 {
-				diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("set expects 2 arguments, got %d", len(call.Arguments)))
+				diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("set expects 2 arguments; got %d", len(call.Arguments)))
 				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 			}
-			index, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
+			index, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, names, typeEnvironment)
 			if diagnostic != nil {
 				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 			}
-			value, diagnostic := listElementArgument(call.Arguments[1], callee.Property, element, environment, typeEnvironment)
+			value, diagnostic := listElementArgument(call.Arguments[1], callee.Property, element, names, typeEnvironment)
 			if diagnostic != nil {
 				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 			}
@@ -182,10 +157,10 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		}
 	case "free":
 		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument, got %d", len(call.Arguments)))
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], environment, typeEnvironment)
+		heap := checkValue(call.Arguments[0], names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -208,20 +183,14 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		diagnostic := typeErrorAt(callee.Property, listType.Name+" has no method "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     callee.Property.Line,
-		Column:   callee.Property.Column,
-		Message:  "unsupported list operation",
-	}}
+	return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "unsupported list operation"))}
 }
 
 // listElementArgument checks one push or set value against the element type.
 // A String result is stored by shallow handle copy; cleanup stays the
 // programmer's responsibility.
-func listElementArgument(expression parser.Expression, fallback lexer.Token, element compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) (Operand, *compilerTypes.Diagnostic) {
-	checked := checkInitializer(expression, compilerTypes.NewTypeUse(element), fallback, environment, typeEnvironment)
+func listElementArgument(expression parser.Expression, fallback lexer.Token, element compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (Operand, *compilerTypes.Diagnostic) {
+	checked := checkInitializer(expression, compilerTypes.NewTypeUse(element), fallback, names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return Operand{}, &diagnostics[0]
 	}

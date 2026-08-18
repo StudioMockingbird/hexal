@@ -686,6 +686,8 @@ func (names *scope) recordChildReturnFlows(flows []returnFlow) {
 	}
 }
 
+// typeErrorAt is the checker's single Type Error constructor: every site
+// reports through it rather than expanding a composite literal.
 func typeErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.TypeError,
@@ -703,4 +705,46 @@ func moduleDataDiagnostic(owner, name string, token lexer.Token) compilerTypes.D
 func selfNotBoundDiagnostic(token lexer.Token) *compilerTypes.Diagnostic {
 	diagnostic := typeErrorAt(token, "self is not bound outside an impl body")
 	return &diagnostic
+}
+
+// diagnosticAt returns an addressable copy of one constructed diagnostic. The
+// checker reports a diagnostic by pointer in the many places where absence is
+// meaningful, and a constructor's result is not addressable; this adapter
+// keeps every construction going through one of the *At builders instead of
+// re-expanding a composite literal at each pointer site.
+func diagnosticAt(diagnostic compilerTypes.Diagnostic) *compilerTypes.Diagnostic {
+	return &diagnostic
+}
+
+// nameErrorAt, moduleErrorAt, and unknownAt are typeErrorAt's siblings for the
+// checker's other categories. Every diagnostic the checker reports is built by
+// one of these four, so a category is never spelled at a call site.
+func nameErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
+	return compilerTypes.Diagnostic{
+		Category: compilerTypes.NameError,
+		Stage:    "checker",
+		Line:     token.Line,
+		Column:   token.Column,
+		Message:  message,
+	}
+}
+
+func moduleErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
+	return compilerTypes.Diagnostic{
+		Category: compilerTypes.ModuleError,
+		Stage:    "checker",
+		Line:     token.Line,
+		Column:   token.Column,
+		Message:  message,
+	}
+}
+
+func unknownAt(token lexer.Token, message string) compilerTypes.Diagnostic {
+	return compilerTypes.Diagnostic{
+		Category: compilerTypes.UnknownError,
+		Stage:    "checker",
+		Line:     token.Line,
+		Column:   token.Column,
+		Message:  message,
+	}
 }

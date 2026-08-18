@@ -105,7 +105,7 @@ func TestTryStatementDiagnostics(t *testing.T) {
 
 	valueStatement := compileSource("fun demo(): Int32 | Error\n    5\nend\n")
 	if valueStatement.ExitCode != compiler.ExitFailure {
-		t.Fatalf("a bare value must not be a statement, got accept")
+		t.Fatalf("a bare value must not be a statement; got accept")
 	}
 }
 
@@ -261,7 +261,7 @@ func TestErrdeferAtRootScope(t *testing.T) {
 	result := compileSource(bad)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 ||
 		!strings.Contains(result.Stderr[0], "errdefer requires an enclosing function whose result accepts Error") {
-		t.Fatalf("want root errdefer Type Error, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want root errdefer Type Error; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 	for _, diagnostic := range result.Stderr {
 		if strings.Contains(diagnostic, "Unknown Error") {

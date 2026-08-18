@@ -11,14 +11,12 @@ import (
 	"testing"
 )
 
-func compileMulti(sources map[string]string, entrypoint string) compiler.CompilationResult {
-	return compiler.Compile(sources, entrypoint)
-}
-
-func wantStderr(t *testing.T, result compiler.CompilationResult, want ...string) {
+// assertStderrContains requires an already-computed failing result to carry
+// every want somewhere in its diagnostics.
+func assertStderrContains(t *testing.T, result compiler.CompilationResult, want ...string) {
 	t.Helper()
 	if result.ExitCode != compiler.ExitFailure {
-		t.Fatalf("expected failure, got %#v", result)
+		t.Fatalf("expected failure; got %#v", result)
 	}
 	message := strings.Join(result.Stderr, "\n")
 	for _, want := range want {
@@ -33,8 +31,8 @@ func TestMultiModuleCleanProgramsGenerate(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "math")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "math")
 	if len(result.Stderr) != 0 {
 		t.Fatalf("stderr = %#v, want no diagnostics", result.Stderr)
 	}
@@ -49,38 +47,38 @@ func TestRelativeImportsResolve(t *testing.T) {
 	}
 	// The nested and the ./graphics/shapes spelling both canonicalize; the
 	// unreachable graphics/shapes module contributes no artifacts.
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "libs/tools", "shared")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "libs/tools", "shared")
 }
 
 func TestImportAboveRootFails(t *testing.T) {
-	result := compileMulti(map[string]string{"app.hex": "module Up = import \"../up\"\n"}, "app.hex")
-	wantStderr(t, result, "import resolves above the logical source-map root")
+	result := compiler.Compile(map[string]string{"app.hex": "module Up = import \"../up\"\n"}, "app.hex")
+	assertStderrContains(t, result, "import resolves above the logical source-map root")
 }
 
 func TestImportPathMustBeRelative(t *testing.T) {
-	result := compileMulti(map[string]string{"app.hex": "module M = import \"math\"\n"}, "app.hex")
-	wantStderr(t, result, "import path \"math\" is not relative")
+	result := compiler.Compile(map[string]string{"app.hex": "module M = import \"math\"\n"}, "app.hex")
+	assertStderrContains(t, result, "import path \"math\" is not relative")
 }
 
 func TestHexSuffixSpellingResolvesSameModule(t *testing.T) {
 	// "./math" and "./math.hex" canonicalize identically; the second import
 	// of the same canonical module in one file is a duplicate, not a
 	// missing module.
-	result := compileMulti(map[string]string{
+	result := compiler.Compile(map[string]string{
 		"app.hex":  "module A = import \"./math\"\nmodule B = import \"./math.hex\"\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}, "app.hex")
-	wantStderr(t, result, "duplicate import of canonical module math")
+	assertStderrContains(t, result, "duplicate import of canonical module math")
 }
 
 func TestImportNotFound(t *testing.T) {
-	result := compileMulti(map[string]string{"app.hex": "module Nope = import \"./nope\"\n"}, "app.hex")
-	wantStderr(t, result, "imported module \"./nope\" was not found")
+	result := compiler.Compile(map[string]string{"app.hex": "module Nope = import \"./nope\"\n"}, "app.hex")
+	assertStderrContains(t, result, "imported module \"./nope\" was not found")
 
 	// A non-.hex extension is a different module name, not a suffix rule.
-	result = compileMulti(map[string]string{"app.hex": "module Txt = import \"./math.txt\"\n"}, "app.hex")
-	wantStderr(t, result, "imported module \"./math.txt\" was not found")
+	result = compiler.Compile(map[string]string{"app.hex": "module Txt = import \"./math.txt\"\n"}, "app.hex")
+	assertStderrContains(t, result, "imported module \"./math.txt\" was not found")
 }
 
 func TestImportCycleReportsCanonicalChain(t *testing.T) {
@@ -89,8 +87,8 @@ func TestImportCycleReportsCanonicalChain(t *testing.T) {
 		"math.hex":      "module Constants = import \"./constants\"\n",
 		"constants.hex": "module App = import \"./app\"\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "import cycle: app -> math -> constants -> app")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "import cycle: app -> math -> constants -> app")
 }
 
 func TestCaseDistinctModulesAreDistinct(t *testing.T) {
@@ -102,8 +100,8 @@ func TestCaseDistinctModulesAreDistinct(t *testing.T) {
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 		"Math.hex": "broken executable\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "math")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "math")
 	if len(result.Stderr) != 0 {
 		t.Fatalf("stderr = %#v, want no diagnostics", result.Stderr)
 	}
@@ -115,8 +113,8 @@ func TestImportAliasConflictsWithExistingBinding(t *testing.T) {
 		"math.hex":  "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 		"math2.hex": "fun sub(x: Int32, y: Int32): Int32 do\n    return x - y\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "import alias Math conflicts with an existing name")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "import alias Math conflicts with an existing name")
 }
 
 func TestParameterCannotShadowImportAlias(t *testing.T) {
@@ -124,8 +122,8 @@ func TestParameterCannotShadowImportAlias(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nfun f(Math: Int32) do\nend\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "import alias Math conflicts with an existing name")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "import alias Math conflicts with an existing name")
 }
 
 func TestImportsMustPrecedeOtherItems(t *testing.T) {
@@ -133,8 +131,8 @@ func TestImportsMustPrecedeOtherItems(t *testing.T) {
 		"app.hex":  "value: Int32 = 1\nmodule Math = import \"./math\"\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "imports must precede all other top-level items")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "imports must precede all other top-level items")
 }
 
 // The import prefix ends at the first non-import item of any kind: a type,
@@ -156,8 +154,8 @@ func TestImportAfterAnyDeclarationRejected(t *testing.T) {
 				"app.hex":  testCase.prefix + "module Math = import \"./math\"\n",
 				"math.hex": "export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 			}
-			result := compileMulti(sources, "app.hex")
-			wantStderr(t, result, "imports must precede all other top-level items")
+			result := compiler.Compile(sources, "app.hex")
+			assertStderrContains(t, result, "imports must precede all other top-level items")
 		})
 	}
 	// Imports-only-first programs remain accepted.
@@ -165,8 +163,8 @@ func TestImportAfterAnyDeclarationRejected(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\ntype T = { n: Int32 }\nexport fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 		"math.hex": "export fun helper(): Int32 do\n    return 1\nend\n",
 	}
-	compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
+	compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex"), "app", "math")
 }
 
 func TestImportedModuleIsDeclarationsOnly(t *testing.T) {
@@ -174,8 +172,8 @@ func TestImportedModuleIsDeclarationsOnly(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\n",
 		"math.hex": "value: Int32 = 1\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "imported module math contains executable statements")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "imported module math contains executable statements")
 }
 
 func TestUnreachableSourcesAreIgnored(t *testing.T) {
@@ -183,7 +181,7 @@ func TestUnreachableSourcesAreIgnored(t *testing.T) {
 		"app.hex":  "value: Int32 = 1\n",
 		"junk.hex": "broken executable\nx: Bogus = 1\n",
 	}
-	result := compileMulti(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("unreachable junk.hex leaked diagnostics: %#v", result)
 	}
@@ -208,8 +206,8 @@ func TestStatsSumOverReachableModules(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "math")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "math")
 	// Two logical lines (1 app + 3 math), plus one trailing newline per
 	// source file: 2 + 4 = 6.
 	if result.Stats.SourceLines != 6 {
@@ -237,6 +235,6 @@ func TestStatsFields(t *testing.T) {
 }
 
 func TestEntrypointAbsentFromSources(t *testing.T) {
-	result := compileMulti(map[string]string{"other.hex": "value: Int32 = 1\n"}, "app.hex")
-	wantStderr(t, result, "entrypoint app.hex was not found in the supplied sources")
+	result := compiler.Compile(map[string]string{"other.hex": "value: Int32 = 1\n"}, "app.hex")
+	assertStderrContains(t, result, "entrypoint app.hex was not found in the supplied sources")
 }

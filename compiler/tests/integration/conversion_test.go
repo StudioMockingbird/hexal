@@ -1,8 +1,10 @@
 package integration
 
 import (
-	"hexal/compiler"
+	"slices"
 	"strings"
+
+	"hexal/compiler"
 	"testing"
 )
 
@@ -118,7 +120,7 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want reject, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
+			t.Fatalf("want reject; got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}
 	}
 	accepted := []string{
@@ -130,12 +132,12 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
+			t.Fatalf("want accept; got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}
 	}
 	bad := "a: Array<Size, 2> = [1, 2]\nb: Array<UInt64, 2> = a\n"
 	if result := compileSource(bad); result.ExitCode != compiler.ExitFailure {
-		t.Fatalf("want Array<Size> and Array<UInt64> distinct, got accept")
+		t.Fatalf("want Array<Size> and Array<UInt64> distinct; got accept")
 	}
 }
 
@@ -171,7 +173,7 @@ func TestLosslessWideningPairTable(t *testing.T) {
 	// rows collapse into the UInt8 rows.
 	for _, source := range scalars {
 		for _, target := range scalars {
-			if source == target || slicesContains(widening[source], target) {
+			if source == target || slices.Contains(widening[source], target) {
 				continue
 			}
 			t.Run("reject_"+source+"_to_"+target, func(t *testing.T) {
@@ -179,7 +181,7 @@ func TestLosslessWideningPairTable(t *testing.T) {
 				if source == "Float32" || source == "Float64" {
 					value = literal[source]
 				}
-				assertRejects(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n", "expected "+target+" initializer, got "+source)
+				assertRejects(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n", "expected "+target+" initializer; got "+source)
 			})
 		}
 	}
@@ -194,19 +196,10 @@ func TestLosslessWideningPairTable(t *testing.T) {
 				if source == "Float32" || source == "Float64" {
 					value = literal[source]
 				}
-				assertRejects(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n", "expected "+target+" initializer, got "+source)
+				assertRejects(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n", "expected "+target+" initializer; got "+source)
 			})
 		}
 	}
-}
-
-func slicesContains(list []string, want string) bool {
-	for _, item := range list {
-		if item == want {
-			return true
-		}
-	}
-	return false
 }
 
 // A negated literal may not target an unsigned type, even at zero.

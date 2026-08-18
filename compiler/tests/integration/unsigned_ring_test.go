@@ -136,7 +136,7 @@ func TestUnsignedRingWidthBoundaries(t *testing.T) {
 				narrowings := strings.Count(generated, "("+typ.cName+")(")
 				seeds := strings.Count(generated, "(uintmax_t)")
 				if narrowings != 1 {
-					t.Fatalf("modules/app.c = %q, want exactly one narrowing to %s, got %d", generated, typ.cName, narrowings)
+					t.Fatalf("modules/app.c = %q, want exactly one narrowing to %s; got %d", generated, typ.cName, narrowings)
 				}
 				if seeds < 1 {
 					t.Fatalf("modules/app.c = %q, want the tree seeded into the uintmax_t domain", generated)

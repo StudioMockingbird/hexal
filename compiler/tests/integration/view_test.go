@@ -154,7 +154,7 @@ func TestViewReturnRules(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 	rejected := []string{
@@ -163,7 +163,7 @@ func TestViewReturnRules(t *testing.T) {
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want reject, got accept:\n%s", source)
+			t.Fatalf("want reject; got accept:\n%s", source)
 		}
 	}
 	// Documented limitation: a View nested inside a returned aggregate is

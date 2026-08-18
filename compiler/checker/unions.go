@@ -31,9 +31,9 @@ func isArithmeticToken(lexeme string) bool {
 	}
 }
 
-func checkContextualUnion(expression parser.Expression, expected compilerTypes.TypeUse, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	originalFlow := environment.flow
-	contextFree := inferExpressionType(expression, compilerTypes.Type{}, environment, typeEnvironment)
+func checkContextualUnion(expression parser.Expression, expected compilerTypes.TypeUse, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	originalFlow := names.flow
+	contextFree := inferExpressionType(expression, compilerTypes.Type{}, names, typeEnvironment)
 	if contextFree.diagnostic != nil {
 		return checkedExpression{token: contextFree.token, diagnostic: contextFree.diagnostic}
 	}
@@ -41,15 +41,15 @@ func checkContextualUnion(expression parser.Expression, expected compilerTypes.T
 		candidateFlow := originalFlow
 		if originalFlow != nil {
 			candidateFlow = originalFlow.clone()
-			environment.flow = candidateFlow
+			names.flow = candidateFlow
 		}
-		checked := checkExpression(expression, expressionContext{expected: candidate, foldConstants: true}, environment, typeEnvironment)
+		checked := checkExpression(expression, expressionContext{expected: candidate, foldConstants: true}, names, typeEnvironment)
 		if len(initializerDiagnostics(checked)) == 0 {
 			return injectIntoUnion(checked, expected.Type)
 		}
-		environment.flow = originalFlow
+		names.flow = originalFlow
 	}
-	environment.flow = originalFlow
+	names.flow = originalFlow
 	token := contextFree.token
 	if token.Line == 0 {
 		token = expressionToken(expression)
@@ -108,12 +108,12 @@ func unionDestinationIndex(destination, source compilerTypes.Type) int {
 	return -1
 }
 
-func checkUnionTypeTest(expression parser.TypeTestExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	operand := checkExpression(expression.Operand, expressionContext{}, environment, typeEnvironment)
+func checkUnionTypeTest(expression parser.TypeTestExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	operand := checkExpression(expression.Operand, expressionContext{}, names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(operand); len(diagnostics) > 0 {
 		return checkedExpression{token: expression.IsToken, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
-	queryUse, diagnostic := resolveUnionMemberUse(expression.Type, expression.IsToken, typeEnvironment, environment.generics)
+	queryUse, diagnostic := resolveUnionMemberUse(expression.Type, expression.IsToken, typeEnvironment, names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: expression.IsToken, diagnostic: diagnostic}
 	}
@@ -131,7 +131,7 @@ func checkUnionTypeTest(expression parser.TypeTestExpression, environment *scope
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
 	if variable, ok := expression.Operand.(parser.VariableExpression); ok && operand.source.Binding != 0 {
-		if fact, escaped := environment.flow.facts[operand.source.Binding]; escaped && fact.escaped {
+		if fact, escaped := names.flow.facts[operand.source.Binding]; escaped && fact.escaped {
 			diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("%s cannot be narrowed after its mutable address escapes", variable.Name.Lexeme))
 			return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 		}

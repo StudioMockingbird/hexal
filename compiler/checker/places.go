@@ -11,29 +11,23 @@ import (
 
 // checkPlace resolves only a syntactic place, tracking writability for the
 // three-place walk so assignment and ref can read the binding and member modes.
-func checkPlace(expression parser.Expression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkPlace(expression parser.Expression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	switch expression := expression.(type) {
 	case parser.VariableExpression:
 		if expression.Name.Kind == lexer.Self {
-			return selfPlace(environment, expression.Name)
+			return selfPlace(names, expression.Name)
 		}
-		binding, status := environment.lookup(expression.Name.Lexeme)
+		binding, status := names.lookup(expression.Name.Lexeme)
 		switch status {
 		case nameMissing:
 			return checkedExpression{
-				token: expression.Name,
-				diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError,
-					Stage:    "checker",
-					Line:     expression.Name.Line,
-					Column:   expression.Name.Column,
-					Message:  "unknown variable " + expression.Name.Lexeme,
-				},
+				token:      expression.Name,
+				diagnostic: diagnosticAt(typeErrorAt(expression.Name, "unknown variable "+expression.Name.Lexeme)),
 			}
 		case nameModuleData:
 			// Module storage lives in generated main and is unreachable from
 			// a function body, Fun<...> bindings included.
-			diagnostic := moduleDataDiagnostic(environment.owner, expression.Name.Lexeme, expression.Name)
+			diagnostic := moduleDataDiagnostic(names.owner, expression.Name.Lexeme, expression.Name)
 			return checkedExpression{token: expression.Name, diagnostic: &diagnostic}
 		}
 		if binding.kind == functionBinding {
@@ -54,22 +48,16 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 		if binding.kind == genericFunctionBinding {
 			// A generic function is not a value without a Fun<...> target to
 			// infer its arguments from.
-			return checkedExpression{token: expression.Name, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     expression.Name.Line,
-				Column:   expression.Name.Column,
-				Message:  "cannot infer generic parameter for " + expression.Name.Lexeme,
-			}}
+			return checkedExpression{token: expression.Name, diagnostic: diagnosticAt(typeErrorAt(expression.Name, "cannot infer generic parameter for "+expression.Name.Lexeme))}
 		}
 		// Ordinary reads use the branch-local narrowed type when a null test
 		// proved it; assignment and ref re-derive the declared storage type.
 		placeType := binding.typ
-		if narrowed, ok := environment.flow.narrowedType(binding.id); ok {
+		if narrowed, ok := names.flow.narrowedType(binding.id); ok {
 			placeType = narrowed
 		}
 		var narrowedVariant *compilerTypes.AdtVariant
-		if variant, ok := environment.flow.narrowedVariant(binding.id); ok {
+		if variant, ok := names.flow.narrowedVariant(binding.id); ok {
 			narrowedVariant = variant
 		}
 		node := variableNodeWithBinding(expression.Name.Lexeme, binding.id)
@@ -101,15 +89,15 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 		// target module's exported frame instead of the property path: an
 		// exported unit variant first, then an exported function reference.
 		if variable, isVariable := expression.Receiver.(parser.VariableExpression); isVariable {
-			if target, ok := environment.importAliasTarget(variable.Name.Lexeme); ok {
-				return checkModuleQualifiedReference(expression, target, environment)
+			if target, ok := names.importAliasTarget(variable.Name.Lexeme); ok {
+				return checkModuleQualifiedReference(expression, target, names)
 			}
 		}
 		var receiver checkedExpression
 		if _, temporary := expression.Receiver.(parser.ObjectLiteral); temporary {
-			receiver = checkValue(expression.Receiver, environment, typeEnvironment)
+			receiver = checkValue(expression.Receiver, names, typeEnvironment)
 		} else {
-			receiver = checkPlace(expression.Receiver, environment, typeEnvironment)
+			receiver = checkPlace(expression.Receiver, names, typeEnvironment)
 		}
 		if receiver.diagnostic != nil {
 			return receiver
@@ -128,7 +116,7 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 		// pointer.value.m. One layer only, and the built-in .value property
 		// wins, so an object member named value is reached as p.value.value.
 		if receiver.typ.Element != nil && receiver.typ.Element.Object != nil && expression.Property.Lexeme != "value" {
-			receiver = dereferencePlace(receiver, expression.Property, environment.flow)
+			receiver = dereferencePlace(receiver, expression.Property, names.flow)
 			if receiver.diagnostic != nil {
 				return receiver
 			}
@@ -138,7 +126,7 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 			if !ok {
 				// Method rule 6: a method is code, not a member, so naming one
 				// in a value position is a distinct error from a typo.
-				if environment.methods.lookup(receiver.typ.Object, expression.Property.Lexeme) != nil {
+				if names.methods.lookup(receiver.typ.Object, expression.Property.Lexeme) != nil {
 					diagnostic := typeErrorAt(expression.Property,
 						fmt.Sprintf("%s is a method on %s; methods are not values", expression.Property.Lexeme, receiver.typ.Object.Name))
 					return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
@@ -171,23 +159,14 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 			if expression.Property.Lexeme == "value" {
 				message = fmt.Sprintf("cannot access .value on %s; expected Ptr<T>", receiver.typ.Name)
 			}
-			if expression.Property.Lexeme == "addr" {
-				message = "'.addr' is no longer supported; use 'ref'"
-			}
 			return checkedExpression{
-				token: expression.Property,
-				diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError,
-					Stage:    "checker",
-					Line:     expression.Property.Line,
-					Column:   expression.Property.Column,
-					Message:  message,
-				},
+				token:      expression.Property,
+				diagnostic: diagnosticAt(typeErrorAt(expression.Property, message)),
 			}
 		}
-		return dereferencePlace(receiver, expression.Property, environment.flow)
+		return dereferencePlace(receiver, expression.Property, names.flow)
 	case parser.IndexExpression:
-		return checkIndexPlace(expression, environment, typeEnvironment)
+		return checkIndexPlace(expression, names, typeEnvironment)
 	case parser.IntegerLiteral:
 		initializer := integerInitializer(expression.Token, compilerTypes.Int32)
 		return checkedExpression{source: initializer.source, typ: initializer.typ, token: initializer.token, diagnostic: initializer.diagnostic}
@@ -200,7 +179,7 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 	case parser.BooleanLiteral:
 		return checkedExpression{source: constantOperand(compilerTypes.Bool, constant.MakeBool(expression.Token.Kind == lexer.True), expression.Token.Lexeme), typ: compilerTypes.Bool, token: expression.Token}
 	case parser.ObjectLiteral:
-		literal := checkObjectLiteral(expression, compilerTypes.Type{}, environment, typeEnvironment)
+		literal := checkObjectLiteral(expression, compilerTypes.Type{}, names, typeEnvironment)
 		return checkedExpression{source: literal.source, typ: literal.typ, token: literal.token, diagnostic: literal.diagnostic}
 	default:
 		return checkedExpression{
@@ -217,11 +196,11 @@ func checkPlace(expression parser.Expression, environment *scope, typeEnvironmen
 // Alias is an import alias. The property resolves to the target module's
 // exported unit variant when one exists, then to its exported function; any
 // other name is the visibility failure.
-func checkModuleQualifiedReference(expression parser.PropertyExpression, target string, environment *scope) checkedExpression {
-	if adtType, variant, ok := environment.registry.findExportedADTVariant(target, expression.Property.Lexeme); ok {
+func checkModuleQualifiedReference(expression parser.PropertyExpression, target string, names *scope) checkedExpression {
+	if adtType, variant, ok := names.registry.findExportedADTVariant(target, expression.Property.Lexeme); ok {
 		return adtUnitVariant(adtType, variant, expression.Property)
 	}
-	if function, ok := environment.registry.exportedFunction(target, expression.Property.Lexeme); ok {
+	if function, ok := names.registry.exportedFunction(target, expression.Property.Lexeme); ok {
 		return checkedExpression{
 			source: Operand{
 				Kind: VariableOperand,
@@ -327,8 +306,8 @@ func nullableAccessDiagnostic(receiver checkedExpression, token lexer.Token, pat
 // checkReference types ref by the place's writability: a writable place
 // yields MutPtr<T>, a fixed place yields Ptr<T>. There is no writability
 // requirement; taking a read-only pointer to fixed storage is valid.
-func checkReference(expression parser.RefExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	place := checkPlace(expression.Place, environment, typeEnvironment)
+func checkReference(expression parser.RefExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	place := checkPlace(expression.Place, names, typeEnvironment)
 	if place.diagnostic != nil {
 		return place
 	}
@@ -357,7 +336,7 @@ func checkReference(expression parser.RefExpression, environment *scope, typeEnv
 	storageType := place.typ
 	storageUse := place.use
 	if variable, ok := expression.Place.(parser.VariableExpression); ok && place.source.Binding != 0 {
-		if bound, status := environment.lookup(variable.Name.Lexeme); status == nameFound {
+		if bound, status := names.lookup(variable.Name.Lexeme); status == nameFound {
 			storageType = bound.typ
 			storageUse = bound.use
 		}
@@ -372,8 +351,8 @@ func checkReference(expression parser.RefExpression, environment *scope, typeEnv
 		// fails. Over-conservative only inside an already-failing program;
 		// deferring it would need escape to thread through every statement
 		// shape. Safe direction: it can only block a later narrowing.
-		if environment.flow != nil && place.source.Binding != 0 {
-			environment.flow.escape(place.source.Binding)
+		if names.flow != nil && place.source.Binding != 0 {
+			names.flow.escape(place.source.Binding)
 		}
 	}
 	return checkedExpression{
@@ -401,13 +380,7 @@ func placeDescription(expression parser.Expression) string {
 }
 
 func missingMemberDiagnostic(typ compilerTypes.Type, property lexer.Token) *compilerTypes.Diagnostic {
-	return &compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     property.Line,
-		Column:   property.Column,
-		Message:  fmt.Sprintf("%s has no member %s", typ.Name, property.Lexeme),
-	}
+	return diagnosticAt(typeErrorAt(property, fmt.Sprintf("%s has no member %s", typ.Name, property.Lexeme)))
 }
 
 // baseBindingID walks a place expression's checked node chain back to its

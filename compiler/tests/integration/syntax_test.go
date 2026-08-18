@@ -11,8 +11,8 @@ import (
 func TestReportsIndependentCheckerErrors(t *testing.T) {
 	result := compileSource("x: Bogus = 2147483648")
 	want := []string{
-		"[Type Error] unknown type Bogus at 1:4",
-		"[Type Error] given value is outside the Int32 range at 1:12",
+		"[Type Error] unknown type Bogus at app.hex:1:4",
+		"[Type Error] given value is outside the Int32 range at app.hex:1:12",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -25,8 +25,8 @@ func TestCollectsLexerDiagnostics(t *testing.T) {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
 	want := []string{
-		"[Syntax Error] unexpected character '@' at 1:12",
-		"[Syntax Error] unexpected character '#' at 1:14",
+		"[Syntax Error] unexpected character '@' at app.hex:1:12",
+		"[Syntax Error] unexpected character '#' at app.hex:1:14",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -38,7 +38,7 @@ func TestRejectsInvalidDeclarationSyntax(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Syntax Error] identifiers must begin with a letter at 1:1"}
+	want := []string{"[Syntax Error] identifiers must begin with a letter at app.hex:1:1"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
@@ -86,7 +86,7 @@ func TestRejectsSemicolon(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Syntax Error] unexpected character ';' at 1:14"}
+	want := []string{"[Syntax Error] unexpected character ';' at app.hex:1:14"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
@@ -97,7 +97,7 @@ func TestRejectsTypedReassignment(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Type Error] variable x is already declared; reassignment must omit the type annotation at 1:15"}
+	want := []string{"[Type Error] variable x is already declared; reassignment must omit the type annotation at app.hex:1:15"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
@@ -108,7 +108,7 @@ func TestRejectsUnknownAssignment(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Type Error] unknown variable x at 1:1"}
+	want := []string{"[Type Error] unknown variable x at app.hex:1:1"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
@@ -117,8 +117,8 @@ func TestRejectsUnknownAssignment(t *testing.T) {
 func TestReportsIndependentStatementErrors(t *testing.T) {
 	result := compileSource("x: Bogus = 1 y: Bogus = 2")
 	want := []string{
-		"[Type Error] unknown type Bogus at 1:4",
-		"[Type Error] unknown type Bogus at 1:17",
+		"[Type Error] unknown type Bogus at app.hex:1:4",
+		"[Type Error] unknown type Bogus at app.hex:1:17",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -131,7 +131,7 @@ func TestParseErrorsAbortBeforeChecking(t *testing.T) {
 	// are not stacked on top (earliest diagnostic ownership).
 	result := compileSource("x: Int32 = 13 y z: Bogus = 1")
 	want := []string{
-		"[Syntax Error] expected ':' for a declaration or '=' for an assignment at 1:17",
+		"[Syntax Error] expected ':' for a declaration or '=' for an assignment at app.hex:1:17",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -141,8 +141,8 @@ func TestParseErrorsAbortBeforeChecking(t *testing.T) {
 func TestDoesNotBindFailedDeclaration(t *testing.T) {
 	result := compileSource("bad: Bogus = 1 x = 2")
 	want := []string{
-		"[Type Error] unknown type Bogus at 1:6",
-		"[Type Error] unknown variable x at 1:16",
+		"[Type Error] unknown type Bogus at app.hex:1:6",
+		"[Type Error] unknown variable x at app.hex:1:16",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -223,13 +223,13 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at(0)", "`at` was removed; use `receiver[index]`"},
-		{"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    first: Int32 = values.at(0)\nend", "`at` was removed; use `receiver[index]`"},
-		{"text: String = \"hi\" first: Rune = text.at(0)", "`at` was removed; use `receiver[index]`"},
-		{"label: Strand = \"hi\" first: Rune = label.at(0)", "`at` was removed; use `receiver[index]`"},
-		{"fixed: Array<Int32, 2> = [1, 2] bad: Bool = fixed.is_empty()", "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`"},
-		{"fixed: Array<Int32, 3> = [1, 2, 3] view: View<Int32> = fixed.slice(0, 2) bad: Bool = view.is_empty()", "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`"},
-		{"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    empty: Bool = values.is_empty()\nend", "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`"},
+		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at(0)", "Array<Int32, 2> has no method at"},
+		{"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    first: Int32 = values.at(0)\nend", "List<Int32> has no method at"},
+		{"text: String = \"hi\" first: Rune = text.at(0)", "String has no method at"},
+		{"label: Strand = \"hi\" first: Rune = label.at(0)", "Strand has no method at"},
+		{"fixed: Array<Int32, 2> = [1, 2] bad: Bool = fixed.is_empty()", "Array<Int32, 2> has no method is_empty"},
+		{"fixed: Array<Int32, 3> = [1, 2, 3] view: View<Int32> = fixed.slice(0, 2) bad: Bool = view.is_empty()", "View<Int32> has no method is_empty"},
+		{"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    empty: Bool = values.is_empty()\nend", "List<Int32> has no method is_empty"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

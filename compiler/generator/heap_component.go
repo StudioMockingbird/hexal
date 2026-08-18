@@ -25,12 +25,6 @@ func heapComponents(merged *programEmission) ([]componentArtifact, error) {
 	}, nil
 }
 
-// heapFamilyContent is the transition seam: the heap definitions left hexal.h
-// for the heap component, so hexal.h contributes none of them.
-func heapFamilyContent(state *heapHelpers) string {
-	return ""
-}
-
 // moduleHeapComponent selects hexal/heap.h for a module whose generated
 // machinery allocates or spells hex_heap.
 func moduleHeapComponent(emission *moduleEmission) []string {

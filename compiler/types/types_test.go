@@ -15,6 +15,29 @@ func TestDiagnosticFormatsCategoryBeforeDescription(t *testing.T) {
 	}
 }
 
+// A stamped diagnostic qualifies its position with the module, so two modules'
+// messages are distinguishable and never read as one interleaved list. Stamping
+// is idempotent: an inner stage's attribution survives an outer stage's stamp.
+func TestDiagnosticQualifiesPositionWithItsModule(t *testing.T) {
+	diagnostic := Diagnostic{Category: TypeError, Line: 5, Column: 3, Message: "mismatch"}
+	stamped := diagnostic.InModule("graphics/shapes.hex")
+	if got, want := stamped.Error(), "[Type Error] mismatch at graphics/shapes.hex:5:3"; got != want {
+		t.Fatalf("stamped diagnostic = %q, want %q", got, want)
+	}
+	if got := stamped.InModule("other.hex").Module; got != "graphics/shapes.hex" {
+		t.Fatalf("re-stamped module = %q, want the first attribution to win", got)
+	}
+	if got := diagnostic.Module; got != "" {
+		t.Fatalf("InModule mutated its receiver: module = %q", got)
+	}
+	set := Diagnostics{diagnostic, {Category: NameError, Line: 1, Column: 1, Message: "unknown"}}.InModule("app.hex")
+	for _, entry := range set {
+		if entry.Module != "app.hex" {
+			t.Fatalf("set entry %q was not stamped", entry.Message)
+		}
+	}
+}
+
 // An empty category renders visibly as "[]" rather than being masked as a
 // compiler Unknown Error; omitting the category at a construction site must
 // surface the defect, never a user error wearing the compiler's label.

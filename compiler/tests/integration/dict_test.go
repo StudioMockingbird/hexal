@@ -180,7 +180,3 @@ func TestDictReturnHandoff(t *testing.T) {
 }
 
 // dictH returns the generated hexal/dict.h component artifact.
-func dictH(t *testing.T, result compiler.CompilationResult) string {
-	t.Helper()
-	return moduleFile(t, result, "hexal/dict.h")
-}

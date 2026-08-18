@@ -70,7 +70,6 @@ type IfStatement struct {
 	ElseIf          []IfBranch
 	Else            []Statement
 	ElseLine        int
-	ElseColumn      int
 	SourceLine      int
 	SourceColumn    int
 	EndLine         int
@@ -267,6 +266,10 @@ func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
 		node := graph.Modules[moduleID]
 		key := node.LogicalKey
 		moduleChecked, moduleDiagnostics := checkModule(node.Program, moduleID, entrypointCanonical, registry, arena)
+		// One stamping point for the whole stage: checkModule and everything
+		// under it construct diagnostics without knowing which module they
+		// are in, and the loop is where that is known (RFC 0074 R11).
+		moduleDiagnostics = moduleDiagnostics.InModule(key)
 		diagnostics = append(diagnostics, moduleDiagnostics...)
 		checked[key] = moduleChecked
 		if len(moduleDiagnostics) == 0 {
@@ -274,7 +277,7 @@ func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
 			// closure is validated, so importers see complete records and the
 			// walker can prove its own exports against the registry.
 			registry.registerExports(moduleID, moduleChecked)
-			diagnostics = append(diagnostics, registry.checkExportedClosure(moduleID, moduleChecked)...)
+			diagnostics = append(diagnostics, registry.checkExportedClosure(moduleID, moduleChecked).InModule(key)...)
 		}
 	}
 	// After every module checks, fold each defining module's specialization
@@ -320,13 +323,7 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 		// skipped entirely, never partially checked.
 		if moduleID != entrypointCanonical {
 			if token, executable := executableItemToken(item); executable {
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.ModuleError,
-					Stage:    "checker",
-					Line:     token.Line,
-					Column:   token.Column,
-					Message:  "imported module " + moduleID + " contains executable statements",
-				})
+				diagnostics = append(diagnostics, moduleErrorAt(token, "imported module "+moduleID+" contains executable statements"))
 				continue
 			}
 		}
@@ -449,13 +446,7 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 			// registry: the checker reads resolution, it never repeats it.
 			target, _ := registry.importTarget(moduleID, statement.Alias.Lexeme)
 			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.NameError,
-					Stage:    "checker",
-					Line:     statement.Alias.Line,
-					Column:   statement.Alias.Column,
-					Message:  "import alias " + statement.Alias.Lexeme + " conflicts with an existing name",
-				})
+				diagnostics = append(diagnostics, nameErrorAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" conflicts with an existing name"))
 			}
 		default:
 			diagnostics = append(diagnostics, compilerTypes.Diagnostic{

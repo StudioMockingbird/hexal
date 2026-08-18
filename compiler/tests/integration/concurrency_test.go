@@ -44,7 +44,7 @@ func TestSpawnRequiresFunctionWithResult(t *testing.T) {
 	source := "fun worker() do\n    Task.yield()\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 1\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "spawn requires a function with a result") {
-		t.Fatalf("want spawn-without-result diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want spawn-without-result diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -369,7 +369,7 @@ func TestTaskMethodCallsRequireCorrectArity(t *testing.T) {
 	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join(1)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "join expects no arguments") {
-		t.Fatalf("want join arity diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want join arity diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -377,7 +377,7 @@ func TestTaskHasNoUnknownMethods(t *testing.T) {
 	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    task.cancel()\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Task has no method cancel") {
-		t.Fatalf("want unknown-method diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want unknown-method diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -388,7 +388,7 @@ func TestSpawnRejectsNonDirectCall(t *testing.T) {
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "spawn requires a direct call") {
-			t.Fatalf("want direct-call diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+			t.Fatalf("want direct-call diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 		}
 	}
 }
@@ -402,7 +402,7 @@ func TestSpawnRejectsNonCopyableArguments(t *testing.T) {
 	bad := "fun take_atomic(counter: Atomic<Int32>): Int32 do\n    return 0\nend\nfun run(): Int32 | Error do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    task: Task<Int32> = try spawn take_atomic(counter)\n    return 0\nend\n"
 	result = compileSource(bad)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Atomic") {
-		t.Fatalf("want atomic-argument diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want atomic-argument diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -410,7 +410,7 @@ func TestSpawnRejectsAtomicResult(t *testing.T) {
 	source := "fun make_atomic(): Atomic<Int32> do\n    return Atomic<Int32>.new(0)\nend\nfun run(): Int32 | Error do\n    task: Task<Atomic<Int32>> = try spawn make_atomic()\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "shallow-copyable") {
-		t.Fatalf("want atomic-result diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want atomic-result diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -421,7 +421,7 @@ func TestChannelRejectsInvalidElements(t *testing.T) {
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
-			t.Fatalf("want channel element diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+			t.Fatalf("want channel element diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 		}
 	}
 }
@@ -430,7 +430,7 @@ func TestChannelZeroCapacityRejectedAtCompileTime(t *testing.T) {
 	source := "fun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 0)\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "capacity must be positive") {
-		t.Fatalf("want capacity diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want capacity diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -438,7 +438,7 @@ func TestAtomicRejectsUnsupportedElements(t *testing.T) {
 	source := "fun run(): Atomic<Float64> do\n    return Atomic<Float64>.new(1.5)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Atomic element type is not supported") {
-		t.Fatalf("want atomic element diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want atomic element diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -446,7 +446,7 @@ func TestAtomicFetchAddUnavailableForBool(t *testing.T) {
 	source := "fun run(): Bool do\n    flag: Atomic<Bool> = Atomic<Bool>.new(true)\n    old: Bool = flag.fetch_add(true)\n    return old\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "unavailable for Bool") {
-		t.Fatalf("want Bool fetch diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want Bool fetch diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -454,7 +454,7 @@ func TestSpawnRejectedInsideDefer(t *testing.T) {
 	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    defer spawn square(1)\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "not permitted inside defer") {
-		t.Fatalf("want defer diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want defer diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -462,7 +462,7 @@ func TestWhileTrueWithoutYieldRejectedWhenSchedulerLinked(t *testing.T) {
 	source := "fun worker(): Bool do\n    while true do\n    end\n    return true\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> = try spawn worker()\n    task.join()\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "while true loop must execute Task.yield()") {
-		t.Fatalf("want starvation diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want starvation diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -486,7 +486,7 @@ func TestTaskTypesAreProtected(t *testing.T) {
 	source := "type Task = { value: Int32, }\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot be redeclared") {
-		t.Fatalf("want protected-name diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want protected-name diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -501,7 +501,7 @@ func TestAtomicNonCopyability(t *testing.T) {
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want reject, got accept:\n%s", source)
+			t.Fatalf("want reject; got accept:\n%s", source)
 		}
 	}
 	accepted := []string{
@@ -511,7 +511,7 @@ func TestAtomicNonCopyability(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 }
@@ -531,7 +531,7 @@ func TestAtomicDirectPointeeRules(t *testing.T) {
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want reject, got accept:\n%s", source)
+			t.Fatalf("want reject; got accept:\n%s", source)
 		}
 	}
 	accepted := []string{
@@ -540,7 +540,7 @@ func TestAtomicDirectPointeeRules(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 }
@@ -552,7 +552,7 @@ func TestChannelAndTaskRejectFunElement(t *testing.T) {
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want Fun excluded from Channel/Task, got accept:\n%s", source)
+			t.Fatalf("want Fun excluded from Channel/Task; got accept:\n%s", source)
 		}
 	}
 }

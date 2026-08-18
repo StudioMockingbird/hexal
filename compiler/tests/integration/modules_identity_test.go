@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"hexal/compiler"
 	"strings"
 	"testing"
 )
@@ -13,8 +14,8 @@ func TestSameNamedTypesInDifferentModulesAreDistinct(t *testing.T) {
 	}
 	// Both aliases resolve to transparent Int32 aliases, so the assignment
 	// is legal; the point is that neither resolver leaks the other module.
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "math", "shapes")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "math", "shapes")
 }
 
 func TestNominalTypesAcrossModulesStayDistinct(t *testing.T) {
@@ -26,8 +27,8 @@ func TestNominalTypesAcrossModulesStayDistinct(t *testing.T) {
 	// math.Point and shapes.Point are distinct nominal identities despite
 	// identical structure and name: the cross-module assignment fails even
 	// though both sides render as "Point".
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "expected Point initializer, got Point")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "expected Point initializer; got Point")
 }
 
 func TestCannotDeclareMethodsForImportedType(t *testing.T) {
@@ -35,8 +36,8 @@ func TestCannotDeclareMethodsForImportedType(t *testing.T) {
 		"app.hex":      "module Geometry = import \"./geometry\"\nimpl Geometry.Point.rotate(): Geometry.Point do\n    return self\nend\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "cannot declare methods for imported type Geometry.Point")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "cannot declare methods for imported type Geometry.Point")
 }
 
 func TestCannotDeclareMethodsThroughAliasOfImportedType(t *testing.T) {
@@ -44,8 +45,8 @@ func TestCannotDeclareMethodsThroughAliasOfImportedType(t *testing.T) {
 		"app.hex":      "module Geometry = import \"./geometry\"\ntype LocalPoint = Geometry.Point\nimpl LocalPoint.rotate(): LocalPoint do\n    return self\nend\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "cannot declare methods for imported type LocalPoint")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "cannot declare methods for imported type LocalPoint")
 }
 
 func TestMethodCallsOnImportedTypesWork(t *testing.T) {
@@ -53,7 +54,7 @@ func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point = Geometry.make()\nlength: Int32 = p.length_squared()\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nexport impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n",
 	}
-	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "geometry")
+	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex"), "app", "geometry")
 }
 
 func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
@@ -61,8 +62,8 @@ func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
 		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point = Geometry.make()\nlength: Int32 = p.length_squared()\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nimpl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantStderr(t, result, "declaration length_squared is private to module geometry")
+	result := compiler.Compile(sources, "app.hex")
+	assertStderrContains(t, result, "declaration length_squared is private to module geometry")
 }
 
 func TestGenericSpecializationsOwnedByDefiningModule(t *testing.T) {
@@ -70,7 +71,7 @@ func TestGenericSpecializationsOwnedByDefiningModule(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\na: Int32 = Math.identity<Int32>(1)\nb: Float64 = Math.identity<Float64>(2.0)\nc: Int32 = Math.identity<Int32>(3)\n",
 		"math.hex": "export fun identity<T>(value: T): T do\n    return value\nend\n",
 	}
-	wantMultiSuccess(t, compileMulti(sources, "app.hex"), "app", "math")
+	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex"), "app", "math")
 }
 
 // Two modules exporting same-named types with different layouts still keep
@@ -94,8 +95,8 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 			"    vs: View<S.Point> = arr_s.slice(0, 1)\n" +
 			"end\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "m", "s")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "m", "s")
 	list := result.Files["hexal/list.h"]
 	if strings.Count(list, "typedef struct hex_list_Point") != 2 {
 		t.Fatalf("hexal/list.h has %d List<Point> typedefs, want 2", strings.Count(list, "typedef struct hex_list_Point"))
@@ -138,8 +139,8 @@ func TestIdenticalLayoutStillNominalDistinctAcrossModules(t *testing.T) {
 		"s.hex":   "export type Point = { x: Int32, y: Int32 }\n",
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun demo(h: Heap) do\n    a: List<M.Point> = List<M.Point>.new(h)\n    b: List<S.Point> = List<S.Point>.new(h)\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "m", "s")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "m", "s")
 	list := result.Files["hexal/list.h"]
 	if strings.Count(list, "typedef struct hex_list_Point") != 2 {
 		t.Fatalf("hexal/list.h has %d List<Point> typedefs, want 2 (identical layouts still nominal)", strings.Count(list, "typedef struct hex_list_Point"))
@@ -157,8 +158,8 @@ func TestSameNamedTypeUnionMembersStayDistinct(t *testing.T) {
 			"    u: (M.Point | S.Point) = pm\n" +
 			"end\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "m", "s")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "m", "s")
 	app := result.Files["modules/app.h"]
 	if !strings.Contains(app, "hex_t_m1_m_Point member_0;") || !strings.Contains(app, "hex_t_m1_s_Point member_1;") {
 		t.Fatalf("modules/app.h %v, want both same-named Point payload spellings in the union", app)
@@ -171,8 +172,8 @@ func TestSingleModuleProducesSingleSpecialization(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "type Point = { x: Int32, y: Int32 }\nfun demo(h: Heap) do\n    a: List<Point> = List<Point>.new(h)\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app")
 	list := result.Files["hexal/list.h"]
 	if strings.Count(list, "typedef struct hex_list_Point") != 1 {
 		t.Fatalf("hexal/list.h has %d List<Point> typedefs, want exactly 1", strings.Count(list, "typedef struct hex_list_Point"))
@@ -217,8 +218,8 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 			"    return nil\n" +
 			"end\n",
 	}
-	result := compileMulti(sources, "app.hex")
-	wantMultiSuccess(t, result, "app", "lib", "m", "s")
+	result := compiler.Compile(sources, "app.hex")
+	assertMultiModuleSuccess(t, result, "app", "lib", "m", "s")
 	if strings.Count(result.Files["hexal/list.h"], "typedef struct hex_list_Int32") != 1 {
 		t.Fatalf("hexal/list.h %v, want exactly one List<Int32> typedef shared across modules", result.Files["hexal/list.h"])
 	}

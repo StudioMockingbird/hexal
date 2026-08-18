@@ -57,24 +57,12 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 	if name == "print" {
 		// The protected builtin name cannot be bound by a function
 		// declaration.
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.NameError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "print is a protected built-in name",
-		})
+		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, "print is a protected built-in name"))
 	}
 	if layoutBuiltins[name] {
 		// The layout query names cannot be bound by a function
 		// declaration.
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.NameError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  name + " is a protected built-in name",
-		})
+		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, name+" is a protected built-in name"))
 	}
 	if compilerTypes.IsProtectedTypeName(name) || typeEnvironment.Contains(name) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+name+" is already declared as a type"))

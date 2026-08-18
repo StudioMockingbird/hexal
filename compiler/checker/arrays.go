@@ -19,23 +19,11 @@ func resolveArrayTypeUse(expression parser.ArrayTypeExpression, fallback lexer.T
 	}
 	length, err := strconv.ParseUint(expression.Length.Lexeme, 10, 64)
 	if err != nil || length == 0 {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Length.Line,
-			Column:   expression.Length.Column,
-			Message:  "an array length must be a positive decimal integer",
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Length, "an array length must be a positive decimal integer"))
 	}
 	array := typeEnvironment.ArrayType(elementUse.Type, length)
 	if array == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Keyword.Line,
-			Column:   expression.Keyword.Column,
-			Message:  elementUse.Type.Name + " is not an inline array element type",
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Keyword, elementUse.Type.Name+" is not an inline array element type"))
 	}
 	return compilerTypes.NewTypeUse(array), nil
 }
@@ -43,40 +31,22 @@ func resolveArrayTypeUse(expression parser.ArrayTypeExpression, fallback lexer.T
 // checkArrayLiteral checks a bracket literal against an expected Array<T, N>
 // destination. The literal must contain exactly N elements, each assignable
 // to T, evaluated left-to-right.
-func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compilerTypes.Type, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	if len(expression.Elements) == 0 {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.OpenBracket.Line,
-			Column:   expression.OpenBracket.Column,
-			Message:  "an array literal requires at least one element",
-		}}
+		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(typeErrorAt(expression.OpenBracket, "an array literal requires at least one element"))}
 	}
 	if expected.Array == nil {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.OpenBracket.Line,
-			Column:   expression.OpenBracket.Column,
-			Message:  "an array literal requires an expected Array<T, N> destination type",
-		}}
+		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(typeErrorAt(expression.OpenBracket, "an array literal requires an expected Array<T, N> destination type"))}
 	}
 	length := expected.Array.Length
 	if uint64(len(expression.Elements)) != length {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.OpenBracket.Line,
-			Column:   expression.OpenBracket.Column,
-			Message:  fmt.Sprintf("Array<%s, %d> requires exactly %d elements, got %d", expected.Array.Element.Name, length, length, len(expression.Elements)),
-		}}
+		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(typeErrorAt(expression.OpenBracket, fmt.Sprintf("Array<%s, %d> requires exactly %d elements; got %d", expected.Array.Element.Name, length, length, len(expression.Elements))))}
 	}
 	elementUse := compilerTypes.NewTypeUse(expected.Array.Element)
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	elements := make([]Operand, 0, len(expression.Elements))
 	for _, element := range expression.Elements {
-		checked := checkInitializer(element, elementUse, expression.OpenBracket, environment, typeEnvironment)
+		checked := checkInitializer(element, elementUse, expression.OpenBracket, names, typeEnvironment)
 		if nested := initializerDiagnostics(checked); len(nested) > 0 {
 			diagnostics = append(diagnostics, nested...)
 			continue
@@ -105,8 +75,8 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 // against a known array length are checked by the caller. The known-value
 // metadata is returned alongside the operand so the caller's constant-required
 // bounds check sees through reads of named immutable bindings.
-func checkArrayIndex(expression parser.Expression, fallback lexer.Token, environment *scope, typeEnvironment *compilerTypes.Environment) (Operand, *Operand, *compilerTypes.Diagnostic) {
-	checked := checkExpression(expression, expressionContext{}, environment, typeEnvironment)
+func checkArrayIndex(expression parser.Expression, fallback lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) (Operand, *Operand, *compilerTypes.Diagnostic) {
+	checked := checkExpression(expression, expressionContext{}, names, typeEnvironment)
 	if nested := initializerDiagnostics(checked); len(nested) > 0 {
 		return Operand{}, nil, &nested[0]
 	}
@@ -126,12 +96,12 @@ func checkArrayIndex(expression parser.Expression, fallback lexer.Token, environ
 // checkIndexPlace resolves array[index] or view[index] as a place: readable
 // always, writable only for a mutable Array. A View element place is never
 // writable, though a MutPtr element's pointee keeps its own capability.
-func checkIndexPlace(expression parser.IndexExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkIndexPlace(expression parser.IndexExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	var receiver checkedExpression
 	if _, temporary := expression.Receiver.(parser.ObjectLiteral); temporary {
-		receiver = checkValue(expression.Receiver, environment, typeEnvironment)
+		receiver = checkValue(expression.Receiver, names, typeEnvironment)
 	} else {
-		receiver = checkPlace(expression.Receiver, environment, typeEnvironment)
+		receiver = checkPlace(expression.Receiver, names, typeEnvironment)
 	}
 	if receiver.diagnostic != nil {
 		return receiver
@@ -156,7 +126,7 @@ func checkIndexPlace(expression parser.IndexExpression, environment *scope, type
 		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, View<T>, List<T>, String, or Strand")
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
-	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, environment, typeEnvironment)
+	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, names, typeEnvironment)
 	if diagnostic != nil {
 		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnostic}
 	}
@@ -188,9 +158,8 @@ func checkIndexPlace(expression parser.IndexExpression, environment *scope, type
 }
 
 // checkCollectionMethodCall dispatches the built-in Array and View methods
-// length and slice, and rejects the removed at and is_empty names with their
-// replacement spellings.
-func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+// length and slice.
+func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	collectionType := receiver.typ
 	switch name {
@@ -203,13 +172,7 @@ func checkCollectionMethodCall(call parser.CallExpression, callee parser.Propert
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
 	case "slice":
-		return checkSliceMethod(call, callee, receiver, environment, typeEnvironment)
-	case "at":
-		diagnostic := typeErrorAt(callee.Property, "`at` was removed; use `receiver[index]`")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-	case "is_empty":
-		diagnostic := typeErrorAt(callee.Property, "`is_empty` was removed for Array, View, and List; use `receiver.length() == 0`")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		return checkSliceMethod(call, callee, receiver, names, typeEnvironment)
 	default:
 		diagnostic := typeErrorAt(callee.Property, collectionType.Name+" has no method "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

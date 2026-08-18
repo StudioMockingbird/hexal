@@ -51,48 +51,24 @@ func resultAcceptsError(result compilerTypes.Type) bool {
 func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme != "new" || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Line,
-			Column:   callee.Column,
-			Message:  "Error must be created with Error.new(header, message)",
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Error must be created with Error.new(header, message)"))}
 	}
 	if len(call.Arguments) != 2 {
-		return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     property.Line,
-			Column:   property.Column,
-			Message:  fmt.Sprintf("Error.new expects 2 arguments (header, message), got %d", len(call.Arguments)),
-		}}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("Error.new expects 2 arguments (header, message); got %d", len(call.Arguments))))}
 	}
 	header := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.StrandType), tokenOf(call.Arguments[0]), names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(header); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 	}
 	if !compilerTypes.IsStrand(header.typ) {
-		return checkedExpression{token: header.token, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     header.token.Line,
-			Column:   header.token.Column,
-			Message:  "Error.new expects header: Strand and message: String; got " + header.typ.Name,
-		}}
+		return checkedExpression{token: header.token, diagnostic: diagnosticAt(typeErrorAt(header.token, "Error.new expects header: Strand and message: String; got "+header.typ.Name))}
 	}
 	message := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.StringType), tokenOf(call.Arguments[1]), names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(message); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
 	}
 	if !compilerTypes.IsString(message.typ) {
-		return checkedExpression{token: message.token, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     message.token.Line,
-			Column:   message.token.Column,
-			Message:  "Error.new expects header: Strand and message: String; got " + message.typ.Name,
-		}}
+		return checkedExpression{token: message.token, diagnostic: diagnosticAt(typeErrorAt(message.token, "Error.new expects header: Strand and message: String; got "+message.typ.Name))}
 	}
 
 	object := compilerTypes.ErrorType.Object
@@ -125,37 +101,19 @@ func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, names *sc
 // union containing Error and at least one success member, the enclosing
 // function's result must accept Error, and the try yields the normalized
 // success value or union.
-func checkTryExpression(expression parser.TryExpression, context expressionContext, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	if context.inCleanup || environment.cleanupDepth > 0 {
-		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Keyword.Line,
-			Column:   expression.Keyword.Column,
-			Message:  "try is not permitted inside defer or errdefer",
-		}}
+func checkTryExpression(expression parser.TryExpression, context expressionContext, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	if context.inCleanup || names.cleanupDepth > 0 {
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try is not permitted inside defer or errdefer"))}
 	}
-	if !environment.inFunction() || environment.result == nil || !resultAcceptsError(*environment.result) {
-		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Keyword.Line,
-			Column:   expression.Keyword.Column,
-			Message:  "try requires an enclosing function whose result accepts Error",
-		}}
+	if !names.inFunction() || names.result == nil || !resultAcceptsError(*names.result) {
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires an enclosing function whose result accepts Error"))}
 	}
-	operand := checkExpression(expression.Operand, expressionContext{foldConstants: true}, environment, typeEnvironment)
+	operand := checkExpression(expression.Operand, expressionContext{foldConstants: true}, names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(operand); len(diagnostics) > 0 {
 		return checkedExpression{token: expression.Keyword, diagnostics: diagnostics}
 	}
 	if !compilerTypes.IsUnion(operand.typ) || len(compilerTypes.UnionMembers(operand.typ)) < 2 {
-		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Keyword.Line,
-			Column:   expression.Keyword.Column,
-			Message:  "try requires a union containing Error and a success member; got " + operand.typ.Name,
-		}}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires a union containing Error and a success member; got "+operand.typ.Name))}
 	}
 	memberIndex := -1
 	for index, member := range compilerTypes.UnionMembers(operand.typ) {
@@ -165,30 +123,18 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 		}
 	}
 	if memberIndex < 0 {
-		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Keyword.Line,
-			Column:   expression.Keyword.Column,
-			Message:  "try requires a union containing Error and a success member; got " + operand.typ.Name,
-		}}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires a union containing Error and a success member; got "+operand.typ.Name))}
 	}
 	success, ok := compilerTypes.RemoveUnionMember(typeEnvironment, operand.typ, compilerTypes.ErrorType)
 	if !ok {
-		return checkedExpression{token: expression.Keyword, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Keyword.Line,
-			Column:   expression.Keyword.Column,
-			Message:  "try requires a union containing Error and a success member; got " + operand.typ.Name,
-		}}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires a union containing Error and a success member; got "+operand.typ.Name))}
 	}
 	node := Expression{
 		Kind:        TryExpression,
 		Operand:     &operand.source.Node,
 		OperandType: operand.typ,
 		ResultType:  success,
-		Element:     *environment.result,
+		Element:     *names.result,
 		MemberIndex: memberIndex,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: success, Name: "try", Node: node}

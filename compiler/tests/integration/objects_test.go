@@ -40,7 +40,7 @@ func TestNominalObjectsAndAliases(t *testing.T) {
 	}
 
 	invalid := compileSource("type Point = { x: Int32, y: Int32, } type Offset = { x: Int32, y: Int32, } point: Point = Point { x = 1, y = 2, } offset: Offset = point")
-	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected Offset initializer, got Point") {
+	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected Offset initializer; got Point") {
 		t.Fatalf("nominal mismatch = %#v, want object identity error", invalid)
 	}
 }
@@ -140,8 +140,8 @@ func TestAddrMemberAndTemporaryRead(t *testing.T) {
 	}
 
 	legacy := compileSource("x: Int32 = 1 y: Int32 = x.addr")
-	if legacy.ExitCode != compiler.ExitFailure || len(legacy.Stderr) != 1 || legacy.Stderr[0] != "[Type Error] '.addr' is no longer supported; use 'ref' at 1:27" {
-		t.Fatalf("legacy .addr diagnostic = %#v", legacy.Stderr)
+	if legacy.ExitCode != compiler.ExitFailure || len(legacy.Stderr) != 1 || legacy.Stderr[0] != "[Type Error] cannot access .addr on Int32; expected Ptr<T> or an object member at app.hex:1:27" {
+		t.Fatalf(".addr diagnostic = %#v", legacy.Stderr)
 	}
 }
 

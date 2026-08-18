@@ -30,13 +30,7 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 	}
 	callee, ok := call.Callee.(parser.VariableExpression)
 	if !ok {
-		return checkedExpression{token: call.OpenParen, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     call.OpenParen.Line,
-			Column:   call.OpenParen.Column,
-			Message:  "a call's callee must be a function name or a method selection",
-		}}
+		return checkedExpression{token: call.OpenParen, diagnostic: diagnosticAt(typeErrorAt(call.OpenParen, "a call's callee must be a function name or a method selection"))}
 	}
 	if callee.Name.Kind == lexer.Self {
 		return checkedExpression{token: callee.Name, diagnostic: selfNotBoundDiagnostic(callee.Name)}
@@ -89,7 +83,7 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 	}
 	if len(call.Arguments) != len(signature.Parameters) {
 		diagnostic := typeErrorAt(callee.Name,
-			fmt.Sprintf("%s expects %d arguments, got %d", name, len(signature.Parameters), len(call.Arguments)))
+			fmt.Sprintf("%s expects %d arguments; got %d", name, len(signature.Parameters), len(call.Arguments)))
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
 
@@ -154,7 +148,7 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 	}
 	if len(call.Arguments) != len(signature.Parameters) {
 		diagnostic := typeErrorAt(property,
-			fmt.Sprintf("%s expects %d arguments, got %d", function.Name, len(signature.Parameters), len(call.Arguments)))
+			fmt.Sprintf("%s expects %d arguments; got %d", function.Name, len(signature.Parameters), len(call.Arguments)))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(function.Parameters))
@@ -237,7 +231,7 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 	}
 	if len(call.Arguments) != len(signature.Parameters) {
 		diagnostic := typeErrorAt(property,
-			fmt.Sprintf("%s expects %d arguments, got %d", specialized.Name, len(signature.Parameters), len(call.Arguments)))
+			fmt.Sprintf("%s expects %d arguments; got %d", specialized.Name, len(signature.Parameters), len(call.Arguments)))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(specialized.Parameters))
@@ -282,7 +276,7 @@ func checkArguments(callee string, expected []compilerTypes.TypeUse, written []p
 		}
 		if checked.typ != (compilerTypes.Type{}) && !assignable(want.Type, checked.typ) {
 			diagnostics = append(diagnostics, typeErrorAt(checked.token,
-				fmt.Sprintf("%s argument %d requires %s, got %s", callee, index+1, want.Type.Name, checked.typ.Name)))
+				fmt.Sprintf("%s argument %d requires %s; got %s", callee, index+1, want.Type.Name, checked.typ.Name)))
 			continue
 		}
 		if diagnostic := atomicCopyDiagnostic(checked.source, token); diagnostic != nil {

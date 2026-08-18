@@ -4,7 +4,8 @@ package generator
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -465,8 +466,8 @@ func mergeTypeOrders(orders [][]compilerTypes.Type) []compilerTypes.Type {
 			}
 		}
 	}
-	sort.SliceStable(merged, func(left, right int) bool {
-		return merged[left].CName < merged[right].CName
+	slices.SortStableFunc(merged, func(left, right compilerTypes.Type) int {
+		return strings.Compare(left.CName, right.CName)
 	})
 	return merged
 }
@@ -592,7 +593,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
-			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, spawned[PrivateCName(FunctionName, declared.Name, owner)]); definitionErr != nil {
+			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, spawned[privateCName(functionNameKind, declared.Name, owner)]); definitionErr != nil {
 				return "", "", definitionErr
 			}
 		case checker.MethodDeclaration:
@@ -637,8 +638,6 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		// Runtime definitions and state live in the component artifacts
 		// under generated hexal/; the module C file is not the
 		// fallback runtime container.
-		moduleBody.WriteString(concurrencyRuntimeContent(merged.concurrencyState, merged.stringState))
-
 		renderState.pushScope()
 		// The module statements execute directly inside main(). Module-level
 		// storage stays inside main; a function body cannot reach it, so
@@ -740,18 +739,9 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	return components
 }
 
-// hexalHeaderInput carries every value the shared program-support header
-// builder consumes. One field per argument, no derived or cached state.
+// hexalHeaderInput carries the two values consumed by the shared
+// program-support header builder.
 type hexalHeaderInput struct {
-	errorUsed    bool
-	heaps        *heapHelpers
-	views        *generatedViewState
-	stringState  *literalRegistry
-	lists        *generatedListState
-	dicts        *generatedDictState
-	arrays       *generatedArrayState
-	concurrency  *generatedConcurrencyState
-	wrap         *generatedWrapState
 	sizeLiterals []string
 	// requirements is the demand-driven standard-header and hex_eos set.
 	requirements *cHeaderRequirements
@@ -787,14 +777,12 @@ type moduleHeaderInput struct {
 // the guard, the demand-driven program-wide standard-header umbrella, the
 // retained source-dependent Size-literal assertions, the hex_eos typedef when
 // required, and the extern declaration of the one program-wide diagnostic
-// trap. FamilyContent is the transition seam for families migrating to their
-// component artifacts; it is empty once every family has moved.
+// trap.
 type hexalHeaderModel struct {
-	Includes      []string
-	SizeAsserts   []string
-	Eos           bool
-	TrapDeclared  bool
-	FamilyContent string
+	Includes     []string
+	SizeAsserts  []string
+	Eos          bool
+	TrapDeclared bool
 }
 
 // hexalHeader emits hexal.h. Everything here is included by every translation
@@ -805,28 +793,9 @@ type hexalHeaderModel struct {
 // are emitted. The source of truth for the shell is packages/hexal.h; the
 // state data is the program-wide aggregate.
 func hexalHeader(input hexalHeaderInput) (string, error) {
-	var familyContent strings.Builder
-	familyContent.WriteString(wrapFamilyContent(input.wrap))
-	familyContent.WriteString(concurrencyFamilyContent(input.concurrency))
-	familyContent.WriteString(heapFamilyContent(input.heaps))
-	familyContent.WriteString(viewFamilyContent(input.views))
-	familyContent.WriteString(stringFamilyContent(input.stringState))
-	if input.errorUsed {
-		familyContent.WriteString(errorFamilyContent())
-	}
-	familyContent.WriteString(listFamilyContent(input.lists, input.views))
-	familyContent.WriteString(dictFamilyContent(input.dicts))
-	familyContent.WriteString(arrayFamilyContent(input.arrays, input.views))
-	model := hexalHeaderModel{
-		SizeAsserts:   input.sizeLiterals,
-		FamilyContent: familyContent.String(),
-	}
+	model := hexalHeaderModel{SizeAsserts: input.sizeLiterals}
 	if input.requirements != nil {
-		headers := make([]string, 0, len(input.requirements.headers))
-		for header := range input.requirements.headers {
-			headers = append(headers, header)
-		}
-		sort.Strings(headers)
+		headers := slices.Sorted(maps.Keys(input.requirements.headers))
 		model.Includes = headers
 		model.Eos = input.requirements.eos
 		model.TrapDeclared = input.requirements.trap
@@ -952,7 +921,7 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 			}
 			// Reference-like members (String, List, Dict) are pointer-sized
 			// handles, spelled like their declarations.
-			fmt.Fprintf(result, "    %s;\n", declaration(member.Type, PrivateCName(MemberName, member.Name, ""), true))
+			fmt.Fprintf(result, "    %s;\n", declaration(member.Type, privateCName(memberName, member.Name, ""), true))
 		}
 		fmt.Fprintf(result, "};\n")
 	}

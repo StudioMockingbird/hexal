@@ -6,7 +6,9 @@ import (
 	"testing"
 )
 
-func requireChecked(t *testing.T, source string) {
+// assertChecked requires the source to compile with no diagnostic at all. It
+// is stricter than assertCompiles, which only requires a successful exit.
+func assertChecked(t *testing.T, source string) {
 	t.Helper()
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
@@ -14,7 +16,11 @@ func requireChecked(t *testing.T, source string) {
 	}
 }
 
-func requireRejected(t *testing.T, source, want string) {
+// assertRejectsAnyDiagnostic requires the source to fail with want in ANY
+// diagnostic. assertRejects is the stricter form, requiring it in the first;
+// the two are deliberately separate names because merging them would weaken
+// one set of tests or break the other (RFC 0074 R17).
+func assertRejectsAnyDiagnostic(t *testing.T, source, want string) {
 	t.Helper()
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure {
@@ -29,88 +35,88 @@ func requireRejected(t *testing.T, source, want string) {
 }
 
 func TestFunctionDeclarationAndCall(t *testing.T) {
-	requireChecked(t, "fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 = adder(2, 3)\n")
+	assertChecked(t, "fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 = adder(2, 3)\n")
 }
 
 func TestNoReturnFunctionIsACallStatement(t *testing.T) {
-	requireChecked(t, "fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n")
-	requireRejected(t,
+	assertChecked(t, "fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n")
+	assertRejectsAnyDiagnostic(t,
 		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nresult: Int32 = reset(ref count)\n",
 		"reset produces no value")
 }
 
 func TestFunTypeBindingsAndCallbacks(t *testing.T) {
-	requireChecked(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\nresult: Int32 = apply(square, 5)\n")
-	requireChecked(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nmut selected: Fun<(Int32) : Int32> = identity\nselected = identity\n")
+	assertChecked(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\nresult: Int32 = apply(square, 5)\n")
+	assertChecked(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nmut selected: Fun<(Int32) : Int32> = identity\nselected = identity\n")
 }
 
 func TestFunTypeMismatchIsReported(t *testing.T) {
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"fun adder(dx: UInt32): UInt32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> = adder\n",
-		"handler requires Fun<(Int32) : Int32>, got Fun<(UInt32) : UInt32>")
+		"handler requires Fun<(Int32) : Int32>; got Fun<(UInt32) : UInt32>")
 }
 
 func TestDeclarationOrderIsSourceOrder(t *testing.T) {
-	requireChecked(t, "fun factorial(value: Int32): Int32 do\n    return value * factorial(value - 1)\nend\n")
-	requireRejected(t,
+	assertChecked(t, "fun factorial(value: Int32): Int32 do\n    return value * factorial(value - 1)\nend\n")
+	assertRejectsAnyDiagnostic(t,
 		"fun is_even(value: Int32): Int32 do\n    return is_odd(value - 1)\nend\nfun is_odd(value: Int32): Int32 do\n    return value\nend\n",
 		"unknown function is_odd; functions must be declared before use")
 }
 
 func TestFunctionScopeIsClosed(t *testing.T) {
-	requireChecked(t, "count: Int32 = 3\nfun scoped(seed: Int32): Int32 do\n    mut count: Int32 = seed\n    count = count + 1\n    return count\nend\n")
-	requireRejected(t,
+	assertChecked(t, "count: Int32 = 3\nfun scoped(seed: Int32): Int32 do\n    mut count: Int32 = seed\n    count = count + 1\n    return count\nend\n")
+	assertRejectsAnyDiagnostic(t,
 		"mut count: Int32 = 0\nfun read_count(): Int32 do\n    return count\nend\n",
 		"function read_count cannot access module data binding count; pass it as a parameter")
 }
 
 func TestParametersAreFixed(t *testing.T) {
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"fun small(value: Int32): Int32 do\n    value = 1\n    return value\nend\n",
 		"cannot assign to parameter value; parameters are fixed bindings")
 }
 
 func TestCallChecksArityAndArgumentTypes(t *testing.T) {
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 = adder(1, 2, 3)\n",
-		"adder expects 2 arguments, got 3")
-	requireChecked(t, "fun small(value: UInt8): UInt8 do\n    return value\nend\nok: UInt8 = small(200)\n")
-	requireRejected(t,
+		"adder expects 2 arguments; got 3")
+	assertChecked(t, "fun small(value: UInt8): UInt8 do\n    return value\nend\nok: UInt8 = small(200)\n")
+	assertRejectsAnyDiagnostic(t,
 		"fun small(value: UInt8): UInt8 do\n    return value\nend\nbad: UInt8 = small(300)\n",
 		"given value is outside the UInt8 range")
-	requireChecked(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nmut score: Int32 = 1\ntotal: Int32 = peek(ref score)\n")
+	assertChecked(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nmut score: Int32 = 1\ntotal: Int32 = peek(ref score)\n")
 }
 
 func TestReturnFormsMatchTheDeclaration(t *testing.T) {
-	requireChecked(t, "fun log_value(value: Int32) do\n    return\nend\n")
-	requireRejected(t,
+	assertChecked(t, "fun log_value(value: Int32) do\n    return\nend\n")
+	assertRejectsAnyDiagnostic(t,
 		"fun adder(dx: Int32): Int32 do\n    return\nend\n",
 		"return requires a value; adder declares Int32")
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"fun adder(dx: Int32): Int32 do\n    total: Int32 = dx\nend\n",
 		"returning adder may fall through without returning Int32")
 }
 
 func TestUnsupportedFunPositions(t *testing.T) {
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"fun maker(): Fun<(Int32) : Int32> do\n    return maker\nend\n",
 		"returning Fun<(Int32) : Int32> is not supported")
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"type Holder = { callback: Fun<(Int32) : Int32>, }\n",
 		"Fun<…> object members are not supported")
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"type Bad = Ptr<Fun<(Int32) : Int32>>\n",
 		"Ptr<Fun<(Int32) : Int32>> is not supported")
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> = ref adder\n",
 		"function declarations are not addressable; use adder as a Fun value")
 }
 
 func TestFunctionNamesAreNotStorage(t *testing.T) {
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nadder = adder\n",
 		"cannot assign to function adder")
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nmut adder: Int32 = 1\n",
 		"adder is already declared")
 }
@@ -119,7 +125,7 @@ func TestFunctionNamesAreNotStorage(t *testing.T) {
 const pointType = "type Point = { mut x: Int32, mut y: Int32, }\n"
 
 func TestMethodDeclarationsAndCalls(t *testing.T) {
-	requireChecked(t, pointType+
+	assertChecked(t, pointType+
 		"impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n"+
 		"impl Ptr<Point>.is_origin(): Bool do\n    return self.x == 0 and self.y == 0\nend\n"+
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n"+
@@ -130,44 +136,44 @@ func TestMethodDeclarationsAndCalls(t *testing.T) {
 }
 
 func TestSelfIsAFixedBinding(t *testing.T) {
-	requireRejected(t, pointType+"impl MutPtr<Point>.reset() do\n    self = self\nend\n",
+	assertRejectsAnyDiagnostic(t, pointType+"impl MutPtr<Point>.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
-	requireRejected(t, pointType+"impl Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
+	assertRejectsAnyDiagnostic(t, pointType+"impl Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
 		"cannot assign to read-only member self.x")
-	requireChecked(t, pointType+"impl Point.moved(dx: Int32): Point do\n    mut result: Point = self\n    result.x = result.x + dx\n    return result\nend\n")
+	assertChecked(t, pointType+"impl Point.moved(dx: Int32): Point do\n    mut result: Point = self\n    result.x = result.x + dx\n    return result\nend\n")
 }
 
 func TestMethodRulesAreEnforced(t *testing.T) {
-	requireRejected(t, pointType+"impl Point.translate() do\n    return\nend\nimpl MutPtr<Point>.translate() do\n    return\nend\n",
+	assertRejectsAnyDiagnostic(t, pointType+"impl Point.translate() do\n    return\nend\nimpl MutPtr<Point>.translate() do\n    return\nend\n",
 		"Point already has a method named translate")
-	requireRejected(t, pointType+"impl Point.x(): Int32 do\n    return 0\nend\n",
+	assertRejectsAnyDiagnostic(t, pointType+"impl Point.x(): Int32 do\n    return 0\nend\n",
 		"Point already has a member named x")
-	requireRejected(t, "impl Int32.doubled(): Int32 do\n    return 0\nend\n",
+	assertRejectsAnyDiagnostic(t, "impl Int32.doubled(): Int32 do\n    return 0\nend\n",
 		"Int32 is not a nominal object type; impl requires an object")
-	requireRejected(t, pointType+"origin: Point = Point { x = 0, y = 0, }\ntotal: Int32 = origin.rotate()\n",
+	assertRejectsAnyDiagnostic(t, pointType+"origin: Point = Point { x = 0, y = 0, }\ntotal: Int32 = origin.rotate()\n",
 		"Point has no method named rotate")
 }
 
 func TestMethodDeclarationOrderIsSourceOrder(t *testing.T) {
-	requireChecked(t, pointType+"impl Point.countdown(value: Int32): Int32 do\n    return self.countdown(value - 1)\nend\n")
-	requireRejected(t, pointType+
+	assertChecked(t, pointType+"impl Point.countdown(value: Int32): Int32 do\n    return self.countdown(value - 1)\nend\n")
+	assertRejectsAnyDiagnostic(t, pointType+
 		"impl Point.magnitude(): Int32 do\n    return self.length_squared()\nend\n"+
 		"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n",
 		"Point has no method named length_squared")
 }
 
 func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
-	requireRejected(t, pointType+
+	assertRejectsAnyDiagnostic(t, pointType+
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
 		"origin: Point = Point { x = 0, y = 0, }\norigin.translate(5, 5)\n",
 		"translate needs MutPtr<Point>; ref origin is Ptr<Point>")
 }
 
 func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
-	requireRejected(t, pointType+
+	assertRejectsAnyDiagnostic(t, pointType+
 		"impl Point.translate() do\n    return\nend\nfun Point_translate() do\n    return\nend\n",
 		"free function Point_translate collides with impl Point.translate")
-	requireRejected(t,
+	assertRejectsAnyDiagnostic(t,
 		"type A_B = { value: Int32, }\n"+
 			"type A = { value: Int32, }\n"+
 			"impl A_B.c() do\n    return\nend\n"+
@@ -175,7 +181,7 @@ func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
 		"impl A.B_c collides with impl A_B.c")
 }
 
-func requireGeneratedC(t *testing.T, source, want string) {
+func assertGeneratedC(t *testing.T, source, want string) {
 	t.Helper()
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
@@ -217,19 +223,19 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 }
 
 func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {
-	requireGeneratedC(t,
+	assertGeneratedC(t,
 		"fun identity(value: Int32): Int32 do\n    return value\nend\n",
 		"#include \"modules/app.h\"\n\nstatic int32_t hex_f_m3_app_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint main(void) {\n")
 }
 
 func TestGeneratedNoReturnFunctionIsVoid(t *testing.T) {
-	requireGeneratedC(t,
+	assertGeneratedC(t,
 		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n",
 		"static void hex_f_m3_app_reset(int32_t *const hex_v_counter) {\n    *hex_v_counter = 0;\n}\n")
 }
 
 func TestGeneratedZeroParameterFunctionTakesVoid(t *testing.T) {
-	requireGeneratedC(t,
+	assertGeneratedC(t,
 		"fun seed(): Int32 do\n    return 7\nend\n",
 		"static int32_t hex_f_m3_app_seed(void) {\n    return 7;\n}\n")
 }
@@ -240,15 +246,15 @@ func TestGeneratedZeroParameterFunctionTakesVoid(t *testing.T) {
 func TestGeneratedFunctionPointerObjectsKeepUnqualifiedParameters(t *testing.T) {
 	source := "fun identity(value: Int32): Int32 do\n    return value\nend\n" +
 		"callback: Fun<(Int32) : Int32> = identity\nmut selected: Fun<(Int32) : Int32> = identity\n"
-	requireGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_m3_app_identity;\n")
-	requireGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_m3_app_identity;\n")
+	assertGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_m3_app_identity;\n")
+	assertGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_m3_app_identity;\n")
 	if got := rootC(t, compileSource(source)); strings.Contains(got, ")(const int32_t)") {
 		t.Fatalf("modules/app.c = %q, function-pointer parameters must stay unqualified", got)
 	}
 }
 
 func TestGeneratedFunctionPointerParameterAndCall(t *testing.T) {
-	requireGeneratedC(t,
+	assertGeneratedC(t,
 		"fun square(value: Int32): Int32 do\n    return value * value\nend\n"+
 			"fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\n"+
 			"result: Int32 = apply(square, 5)\n",
@@ -257,17 +263,17 @@ func TestGeneratedFunctionPointerParameterAndCall(t *testing.T) {
 }
 
 func TestGeneratedCallExpressionAndCallStatement(t *testing.T) {
-	requireGeneratedC(t,
+	assertGeneratedC(t,
 		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx\nend\ntotal: Int32 = adder(2, 3)\n",
 		"    const int32_t hex_v_total = hex_f_m3_app_adder(2, 3);\n")
-	requireGeneratedC(t,
+	assertGeneratedC(t,
 		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n",
 		"    hex_f_m3_app_reset(&hex_v_count);\n")
 }
 
 func TestGeneratedSelfRecursionNeedsNoPrototype(t *testing.T) {
 	source := "fun countdown(value: Int32): Int32 do\n    return countdown(value)\nend\n"
-	requireGeneratedC(t, source,
+	assertGeneratedC(t, source,
 		"static int32_t hex_f_m3_app_countdown(const int32_t hex_v_value) {\n    return hex_f_m3_app_countdown(hex_v_value);\n}\n")
 	if got := rootC(t, compileSource(source)); strings.Contains(got, "hex_f_m3_app_countdown(const int32_t hex_v_value);") {
 		t.Fatalf("modules/app.c = %q, want no forward prototype region", got)

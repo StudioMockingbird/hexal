@@ -178,7 +178,7 @@ func TestLocalsAndMutableLocalsAreAllowed(t *testing.T) {
 func TestCallArityIsChecked(t *testing.T) {
 	requireDiagnostic(t,
 		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 = adder(1, 2, 3)\n",
-		"adder expects 2 arguments, got 3")
+		"adder expects 2 arguments; got 3")
 }
 
 func TestArgumentsUseParameterExpectedTypes(t *testing.T) {
@@ -271,7 +271,7 @@ func TestFunctionNameIsAssignableToAnIdenticalFunType(t *testing.T) {
 func TestFunTypeMismatchNamesBothSignatures(t *testing.T) {
 	requireDiagnostic(t,
 		"fun adder(dx: UInt32): UInt32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> = adder\n",
-		"handler requires Fun<(Int32) : Int32>, got Fun<(UInt32) : UInt32>")
+		"handler requires Fun<(Int32) : Int32>; got Fun<(UInt32) : UInt32>")
 }
 
 func TestFunctionNameIsNotAssignable(t *testing.T) {
@@ -471,7 +471,7 @@ func TestNullableArgumentsToNullableParameters(t *testing.T) {
 	requireDiagnostic(t,
 		"fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\n"+
 			"mut value: Int32 = 1\nmaybe: Ptr<Int32> | Nil = ref value\nbad: Int32 = peek(maybe)\n",
-		"peek argument 1 requires Ptr<Int32>, got Ptr<Int32> | Nil")
+		"peek argument 1 requires Ptr<Int32>; got Ptr<Int32> | Nil")
 	requireDiagnostic(t,
 		"fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nbad: Int32 = peek(nil)\n",
 		"nil requires an expected union containing Nil")

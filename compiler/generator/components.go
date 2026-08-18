@@ -100,11 +100,11 @@ func renderComponentArtifacts(merged *programEmission) (map[string]string, error
 	// Each migrated family contributes its artifacts through its own
 	// component builder; families still owned by hexal.h contribute none.
 	families := []func(*programEmission) ([]componentArtifact, error){
-		wrapComponent,
+		wrapComponents,
 		heapComponents,
-		viewComponent,
+		viewComponents,
 		stringComponents,
-		errorComponent,
+		errorComponents,
 		listComponents,
 		dictComponents,
 		arrayComponents,

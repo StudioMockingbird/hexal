@@ -241,7 +241,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			if node.Operand.Name == "" {
 				return "", unknownExpressionDiagnostic("deferred call without a checked function callee")
 			}
-			return PrivateCName(FunctionName, node.Operand.Name, moduleOwner(node.Operand.Module, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
+			return privateCName(functionNameKind, node.Operand.Name, moduleOwner(node.Operand.Module, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
 		}
 		// A Fun<>-valued callee was captured at registration; the call is the
 		// captured function value applied to the captured arguments.

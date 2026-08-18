@@ -42,11 +42,5 @@ func atomicCopyDiagnostic(source Operand, token lexer.Token) *compilerTypes.Diag
 	if !compilerTypes.ContainsAtomic(source.Type) || isFreshAtomicConstruction(source) {
 		return nil
 	}
-	return &compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  "Atomic values cannot be copied, assigned, addressed, or stored here",
-	}
+	return diagnosticAt(typeErrorAt(token, "Atomic values cannot be copied, assigned, addressed, or stored here"))
 }

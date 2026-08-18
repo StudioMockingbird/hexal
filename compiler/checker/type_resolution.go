@@ -9,13 +9,6 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// resolveType is the canonical-only compatibility wrapper around the
-// contextual type-use resolver.
-func resolveType(expression parser.TypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.Type, *compilerTypes.Diagnostic) {
-	use, diagnostic := resolveTypeUse(expression, fallback, typeEnvironment, generics)
-	return use.Type, diagnostic
-}
-
 // resolveTypeUse resolves syntax into canonical identity plus the written
 // candidate order retained for contextual expression checking.
 func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
@@ -38,13 +31,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		resolved, ok := typeEnvironment.LookupUse(expression.Name.Lexeme)
 		if !ok {
 			message := "unknown type " + expression.Name.Lexeme
-			return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     expression.Name.Line,
-				Column:   expression.Name.Column,
-				Message:  message,
-			}
+			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, message))
 		}
 		return resolved, nil
 	case parser.QualifiedTypeExpression:
@@ -64,13 +51,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 			}
 		}
 		message := "unknown module alias " + expression.Module.Lexeme
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.ModuleError,
-			Stage:    "checker",
-			Line:     expression.Module.Line,
-			Column:   expression.Module.Column,
-			Message:  message,
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Module, message))
 	case parser.GenericTypeExpression:
 		if expression.Name.Lexeme == "View" {
 			return resolveViewTypeUse(expression, fallback, typeEnvironment, generics)
@@ -174,13 +155,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		}
 		return compilerTypes.UnionTypeUse(union, members), nil
 	default:
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     fallback.Line,
-			Column:   fallback.Column,
-			Message:  "unsupported type expression",
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(fallback, "unsupported type expression"))
 	}
 }
 
@@ -280,13 +255,7 @@ func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnviro
 	}
 	functionType := typeEnvironment.FunType(parameters, result)
 	if functionType.Signature == nil {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Line:     expression.Keyword.Line,
-			Column:   expression.Keyword.Column,
-			Message:  "could not construct a Fun type",
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(unknownAt(expression.Keyword, "could not construct a Fun type"))
 	}
 	return compilerTypes.FunctionTypeUse(functionType, parameterUses, resultUse), nil
 }

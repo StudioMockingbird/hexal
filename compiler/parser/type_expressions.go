@@ -117,9 +117,8 @@ func (UnionTypeExpression) typeExpressionNode() {}
 // GroupedTypeExpression preserves explicit type grouping without changing the
 // canonical type identity of its inner expression.
 type GroupedTypeExpression struct {
-	OpenParen  lexer.Token
-	Inner      TypeExpression
-	CloseParen lexer.Token
+	OpenParen lexer.Token
+	Inner     TypeExpression
 }
 
 func (GroupedTypeExpression) typeExpressionNode() {}
@@ -141,11 +140,11 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 		if err != nil {
 			return nil, err
 		}
-		close, err := parser.consume(lexer.RightParen, "')' after a grouped type expression")
+		_, err = parser.consume(lexer.RightParen, "')' after a grouped type expression")
 		if err != nil {
 			return nil, err
 		}
-		return GroupedTypeExpression{OpenParen: open, Inner: inner, CloseParen: close}, nil
+		return GroupedTypeExpression{OpenParen: open, Inner: inner}, nil
 	}
 	if parser.check(lexer.Mut) {
 		return nil, parser.errorAtCurrent("mut is not allowed inside Ptr<...>; use MutPtr<...>")

@@ -18,12 +18,6 @@ func stringComponents(merged *programEmission) ([]componentArtifact, error) {
 	}, nil
 }
 
-// stringFamilyContent is the drained transition seam: the String machinery
-// owns the component artifacts, so hexal.h contributes nothing.
-func stringFamilyContent(_ *literalRegistry) string {
-	return ""
-}
-
 // moduleStringComponent selects hexal/string.h for a module using String or
 // Strand.
 func moduleStringComponent(emission *moduleEmission) []string {

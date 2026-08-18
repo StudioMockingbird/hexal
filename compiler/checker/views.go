@@ -15,13 +15,7 @@ import (
 // an owning payload.
 func resolveViewTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 1 {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Name.Line,
-			Column:   expression.Name.Column,
-			Message:  "View requires exactly one element type",
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "View requires exactly one element type"))
 	}
 	elementUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -29,13 +23,7 @@ func resolveViewTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	}
 	view := typeEnvironment.ViewType(elementUse.Type)
 	if view == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Name.Line,
-			Column:   expression.Name.Column,
-			Message:  elementUse.Type.Name + " is not an inline view element type",
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, elementUse.Type.Name+" is not an inline view element type"))
 	}
 	return compilerTypes.NewTypeUse(view), nil
 }
@@ -45,16 +33,16 @@ func resolveViewTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 // their recorded root chain, and slicing a temporary view keeps its original
 // stable root. Known constant bounds against a known array length fail at
 // compile time; all other invalid ranges trap at runtime.
-func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	if len(call.Arguments) != 2 {
-		diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments, got %d", len(call.Arguments)))
+		diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	start, startKnown, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, environment, typeEnvironment)
+	start, startKnown, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, names, typeEnvironment)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
-	end, endKnown, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, environment, typeEnvironment)
+	end, endKnown, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, names, typeEnvironment)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -118,13 +106,7 @@ func viewReturnDiagnostic(node Expression, token lexer.Token, names *scope) *com
 	}
 	for _, root := range node.ViewRoots {
 		if bound, ok := names.lookupBinding(root); ok && !bound.parameter && root != names.selfID {
-			return &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     token.Line,
-				Column:   token.Column,
-				Message:  "a View cannot be returned when it borrows a local of this function",
-			}
+			return diagnosticAt(typeErrorAt(token, "a View cannot be returned when it borrows a local of this function"))
 		}
 	}
 	return nil

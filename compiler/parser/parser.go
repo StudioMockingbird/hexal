@@ -1,6 +1,8 @@
 package parser
 
 import (
+	"errors"
+
 	"hexal/compiler/lexer"
 	compilerTypes "hexal/compiler/types"
 )
@@ -56,6 +58,10 @@ type blockFailure struct {
 }
 
 func (failure blockFailure) Error() string { return failure.err.Error() }
+
+// Unwrap exposes the carried diagnostic so errors.As and errors.Is traverse a
+// block failure instead of stopping at it.
+func (failure blockFailure) Unwrap() error { return failure.err }
 
 // Parse consumes every recoverable top-level item through EOF. Invalid items
 // are discarded during synchronization so valid later items remain available
@@ -494,14 +500,17 @@ func (parser *Parser) atStatementStart() bool {
 		parser.tokens[index].Line == parser.tokens[index-1].Line
 }
 
+// diagnosticsFrom renders any parser error as structured diagnostics. It
+// traverses wrappers with errors.As rather than a hand-rolled type-assertion
+// ladder, so a diagnostic stays reachable however deeply it is wrapped —
+// blockFailure included, through its Unwrap.
 func diagnosticsFrom(err error) compilerTypes.Diagnostics {
-	if failure, ok := err.(blockFailure); ok {
-		return diagnosticsFrom(failure.err)
-	}
-	if diagnostics, ok := err.(compilerTypes.Diagnostics); ok {
+	var diagnostics compilerTypes.Diagnostics
+	if errors.As(err, &diagnostics) {
 		return diagnostics
 	}
-	if diagnostic, ok := err.(compilerTypes.Diagnostic); ok {
+	var diagnostic compilerTypes.Diagnostic
+	if errors.As(err, &diagnostic) {
 		return compilerTypes.Diagnostics{diagnostic}
 	}
 	return compilerTypes.Diagnostics{{

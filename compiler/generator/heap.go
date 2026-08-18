@@ -66,7 +66,7 @@ func renderHeapAllocate(node checker.Expression, state *expressionValidation) (s
 	if node.Operand == nil || len(node.Arguments) != 1 || node.Element == (compilerTypes.Type{}) {
 		return "", unknownExpressionDiagnostic("heap allocation has invalid checked metadata")
 	}
-	receiver, err := renderExpressionExpectedWithState(*node.Operand, compilerTypes.Heap, true, state)
+	receiver, err := renderExpressionExpectedWithState(*node.Operand, &compilerTypes.Heap, state)
 	if err != nil {
 		return "", err
 	}
@@ -81,7 +81,7 @@ func renderHeapFree(node checker.Expression, state *expressionValidation) (strin
 	if node.Operand == nil || len(node.Arguments) != 1 {
 		return "", unknownExpressionDiagnostic("heap free has invalid checked metadata")
 	}
-	receiver, err := renderExpressionExpectedWithState(*node.Operand, compilerTypes.Heap, true, state)
+	receiver, err := renderExpressionExpectedWithState(*node.Operand, &compilerTypes.Heap, state)
 	if err != nil {
 		return "", err
 	}

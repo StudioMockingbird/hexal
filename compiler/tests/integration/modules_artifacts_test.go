@@ -21,22 +21,22 @@ func TestRootModuleArtifactsSplit(t *testing.T) {
 	hexalH := hexalH(t, result)
 
 	if !strings.Contains(rootH, "typedef struct hex_t_m3_app_Point") {
-		t.Fatalf("user type must live in the entrypoint module header, got C=%q H=%q", rootC, rootH)
+		t.Fatalf("user type must live in the entrypoint module header; got C=%q H=%q", rootC, rootH)
 	}
 	if !strings.Contains(rootC, "static int32_t hex_f_m3_app_area(") {
-		t.Fatalf("user function must live in modules/app.c, got %q", rootC)
+		t.Fatalf("user function must live in modules/app.c; got %q", rootC)
 	}
 	if !strings.Contains(rootC, "int main(void)") {
-		t.Fatalf("modules/app.c must define the process entry point, got %q", rootC)
+		t.Fatalf("modules/app.c must define the process entry point; got %q", rootC)
 	}
 	if !strings.Contains(rootC, "#line 5 \"app.hex\"") {
-		t.Fatalf("module statements must carry app.hex line mappings, got %q", rootC)
+		t.Fatalf("module statements must carry app.hex line mappings; got %q", rootC)
 	}
 	if strings.Contains(hexalH, "hex_f_m3_app_area") || strings.Contains(hexalH, "hex_t_m3_app_Point") {
 		t.Fatalf("user code leaked into hexal.h: %q", hexalH)
 	}
 	if strings.Contains(rootH, "int main(void)") {
-		t.Fatalf("the module header must not declare the process entry point, got %q", rootH)
+		t.Fatalf("the module header must not declare the process entry point; got %q", rootH)
 	}
 	generated := hexalH + "\n" + rootC + "\n" + rootH
 	for _, forbidden := range []string{"#include \"main.h\"", "HEXAL_MAIN_H", "hex_module_root_run"} {
@@ -45,23 +45,23 @@ func TestRootModuleArtifactsSplit(t *testing.T) {
 		}
 	}
 	if !strings.Contains(hexalH, "#ifndef HEXAL_H") {
-		t.Fatalf("hexal.h must carry the HEXAL_H guard, got %q", hexalH)
+		t.Fatalf("hexal.h must carry the HEXAL_H guard; got %q", hexalH)
 	}
 	if len(result.Files) != 3 {
-		t.Fatalf("successful compilation must produce exactly 3 artifacts, got %v", sortedKeys(result.Files))
+		t.Fatalf("successful compilation must produce exactly 3 artifacts; got %v", sortedKeys(result.Files))
 	}
 }
 
 func TestFailureReturnsNoArtifacts(t *testing.T) {
 	result := compileSource("x: Int32 = true")
 	if result.ExitCode != compiler.ExitFailure {
-		t.Fatalf("want failure, got %#v", result)
+		t.Fatalf("want failure; got %#v", result)
 	}
 	if result.Files == nil {
 		t.Fatalf("Files must be non-nil on failure")
 	}
 	if len(result.Files) != 0 {
-		t.Fatalf("failure must produce no artifacts, got %v", sortedKeys(result.Files))
+		t.Fatalf("failure must produce no artifacts; got %v", sortedKeys(result.Files))
 	}
 }
 
@@ -159,7 +159,7 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 	result := assertCompiles(t, "x: Int32 = 13")
 	header := hexalH(t, result)
-	want := "#ifndef HEXAL_H\n#define HEXAL_H\n\n#include <stdint.h>\n\n\n\n#endif\n"
+	want := "#ifndef HEXAL_H\n#define HEXAL_H\n\n#include <stdint.h>\n\n\n#endif\n"
 	if header != want {
 		t.Fatalf("hexal.h = %q, want %q", header, want)
 	}
@@ -244,12 +244,12 @@ func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 		"app.hex":   "module Files = import \"./files\"\nfun run(): Int32 do\n    return 1\nend\n",
 		"files.hex": "export fun helper(): Bool do\n    end_marker: EoS = eos\n    return true\nend\n",
 	}
-	result := compileMulti(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("multi-module EoS generation failed: %#v", result.Stderr)
 	}
 	if count := strings.Count(result.Files["hexal.h"], "typedef uint8_t hex_eos;"); count != 1 {
-		t.Fatalf("hexal.h must define hex_eos exactly once, got %d:\n%s", count, result.Files["hexal.h"])
+		t.Fatalf("hexal.h must define hex_eos exactly once; got %d:\n%s", count, result.Files["hexal.h"])
 	}
 	// A program with no EoS anywhere spells no hex_eos at all.
 	without := assertCompiles(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p)")

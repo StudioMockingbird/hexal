@@ -11,34 +11,33 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// NameKind identifies the Hexal-owned declaration namespace lowered by the
-// generator. The mapping is deliberately stateless and never consults a C
-// keyword list or a name registry.
-type NameKind uint8
+// nameKind identifies the Hexal-owned declaration namespace lowered by the
+// generator. The mapping is stateless and does not consult a C keyword list
+// or a name registry.
+type nameKind uint8
 
 const (
-	ValueName NameKind = iota
-	TypeName
-	MemberName
-	FunctionName
+	valueName nameKind = iota
+	typeName
+	memberName
+	functionNameKind
+	functionName = functionNameKind
 )
 
-// PrivateCName applies the private C prefix exactly once at the
-// declaration/reference rendering boundary. owner is the encoded module owner
-// of the declaring module ("" for compiler-owned names such as locals and
-// members, which stay unencoded): hex_f_m8_graphics6_shapes_draw names module
-// "graphics/shapes".
-func PrivateCName(kind NameKind, source, owner string) string {
+// privateCName applies the C prefix once at the declaration/reference
+// rendering boundary. owner is the encoded owner of the declaring module;
+// compiler-owned locals and members use an empty owner.
+func privateCName(kind nameKind, source, owner string) string {
 	prefix := "hex_v_"
 	switch kind {
-	case TypeName:
+	case typeName:
 		prefix = "hex_t_"
-	case MemberName:
+	case memberName:
 		prefix = "hex_m_"
-	case FunctionName:
+	case functionNameKind:
 		prefix = "hex_f_"
 	}
-	if owner != "" && (kind == TypeName || kind == FunctionName) {
+	if owner != "" && (kind == typeName || kind == functionNameKind) {
 		return prefix + owner + "_" + source
 	}
 	return prefix + source
@@ -148,7 +147,7 @@ func methodKey(object *compilerTypes.ObjectType, name string) string {
 }
 
 func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
-	return PrivateCName(FunctionName, methodKey(object, name), owner)
+	return privateCName(functionNameKind, methodKey(object, name), owner)
 }
 
 // writeFunctionDefinition emits one C function. Parameters are fixed
@@ -220,7 +219,7 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 	if !external && !declared.Exported {
 		linkage = "static "
 	}
-	fmt.Fprintf(body, "%s%s %s(%s) {\n", linkage, resultSpelling, PrivateCName(FunctionName, declared.Name, owner), parameterList(parameters))
+	fmt.Fprintf(body, "%s%s %s(%s) {\n", linkage, resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
 	if err := writeStatements(body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
@@ -321,7 +320,7 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 			for index, parameter := range declared.Parameters {
 				parameters[index] = typeSpelling(parameter.Type)
 			}
-			fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name, owner), parameterList(parameters))
+			fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
 		case checker.MethodDeclaration:
 			if !declared.Exported {
 				continue
@@ -354,7 +353,7 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				if callee == nil || callee.Module == "" || callee.ResultType.Signature == nil {
 					return
 				}
-				symbol := PrivateCName(FunctionName, callee.Name, moduleOwner(callee.Module, state.owner))
+				symbol := privateCName(functionNameKind, callee.Name, moduleOwner(callee.Module, state.owner))
 				if emitted[symbol] {
 					return
 				}
@@ -415,7 +414,7 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 			}
 			parameters[index] = typeSpelling(parameter.Type)
 		}
-		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, PrivateCName(FunctionName, declared.Name, owner), parameterList(parameters))
+		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
 		emitted++
 	}
 	for _, declared := range methods {

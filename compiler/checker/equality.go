@@ -89,7 +89,7 @@ func orderingAvailable(typ compilerTypes.Type) bool {
 // pointer identity, String and Strand text comparison, and the recursive
 // equality helpers for objects, ADTs, and sequences. It returns nil when
 // the plain binary path should continue.
-func checkDeepComparison(operator Operator, left, right checkedExpression, token lexer.Token, environment *scope) *checkedExpression {
+func checkDeepComparison(operator Operator, left, right checkedExpression, token lexer.Token, names *scope) *checkedExpression {
 	// Nil and nullable-union pairs are owned by the null-test and
 	// union-equality paths above.
 	if compilerTypes.IsNil(left.typ) || compilerTypes.IsNil(right.typ) ||

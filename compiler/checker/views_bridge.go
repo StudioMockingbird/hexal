@@ -19,50 +19,30 @@ func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
 	if len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: callee.Line, Column: callee.Column,
-			Message: "View requires exactly one element type",
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "View requires exactly one element type"))}
 	}
 	element := viewUse.Type.View.Element
 	switch property.Lexeme {
 	case "from_pointer":
 		if len(call.Arguments) != 2 {
-			return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: property.Line, Column: property.Column,
-				Message: "View.from_pointer expects 2 arguments (pointer, length)",
-			}}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "View.from_pointer expects 2 arguments (pointer, length)"))}
 		}
 		pointer := checkValue(call.Arguments[0], names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(pointer); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if pointer.typ.Element == nil || compilerTypes.IsNullable(pointer.typ) {
-			return checkedExpression{token: pointer.token, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: pointer.token.Line, Column: pointer.token.Column,
-				Message: "nullable pointer must be narrowed before View construction",
-			}}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, "nullable pointer must be narrowed before View construction"))}
 		}
 		if !compilerTypes.Equal(*pointer.typ.Element, element) {
-			return checkedExpression{token: pointer.token, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: pointer.token.Line, Column: pointer.token.Column,
-				Message: fmt.Sprintf("View<%s>.from_pointer requires Ptr<%s> or MutPtr<%s>; got %s", element.Name, element.Name, element.Name, pointer.typ.Name),
-			}}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("View<%s>.from_pointer requires Ptr<%s> or MutPtr<%s>; got %s", element.Name, element.Name, element.Name, pointer.typ.Name)))}
 		}
 		length := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[1]), names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(length); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
 		}
 		if !assignable(compilerTypes.SizeType, length.typ) {
-			return checkedExpression{token: length.token, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: length.token.Line, Column: length.token.Column,
-				Message: "View length cannot be represented as Size",
-			}}
+			return checkedExpression{token: length.token, diagnostic: diagnosticAt(typeErrorAt(length.token, "View length cannot be represented as Size"))}
 		}
 		if diagnostic := fromPointerRefTrace(pointer, names); diagnostic != nil {
 			return checkedExpression{token: pointer.token, diagnostic: diagnostic}
@@ -72,21 +52,13 @@ func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *
 		return checkedExpression{source: source, typ: viewUse.Type, token: property}
 	case "empty":
 		if len(call.Arguments) != 0 {
-			return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: property.Line, Column: property.Column,
-				Message: "View.empty expects no arguments",
-			}}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "View.empty expects no arguments"))}
 		}
 		node := Expression{Kind: ViewBridgeExpression, Name: "empty", OperandType: viewUse.Type, ResultType: viewUse.Type, Element: element, RootKind: ViewRootNone}
 		source := Operand{Kind: ExpressionOperand, Type: viewUse.Type, Name: "empty", Node: node}
 		return checkedExpression{source: source, typ: viewUse.Type, token: property}
 	}
-	return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError, Stage: "checker",
-		Line: property.Line, Column: property.Column,
-		Message: "View has no such operation; use from_pointer or empty",
-	}}
+	return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "View has no such operation; use from_pointer or empty"))}
 }
 
 // fromPointerRefTrace rejects a from_pointer pointer argument that traces,
@@ -95,11 +67,7 @@ func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *
 // ref; parameters, heap allocations, and opaque call results pass.
 func fromPointerRefTrace(pointer checkedExpression, names *scope) *compilerTypes.Diagnostic {
 	if nodeTracesToRef(&pointer.source.Node, names) {
-		return &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: pointer.token.Line, Column: pointer.token.Column,
-			Message: "from_pointer does not accept a pointer into this function's local storage",
-		}
+		return diagnosticAt(typeErrorAt(pointer.token, "from_pointer does not accept a pointer into this function's local storage"))
 	}
 	return nil
 }

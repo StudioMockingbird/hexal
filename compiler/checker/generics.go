@@ -165,22 +165,10 @@ func specializeTypeUse(expression parser.GenericTypeExpression, fallback lexer.T
 	}
 	open, ok := generics.types[expression.Name.Lexeme]
 	if !ok {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Name.Line,
-			Column:   expression.Name.Column,
-			Message:  "unknown generic type " + expression.Name.Lexeme,
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "unknown generic type "+expression.Name.Lexeme))
 	}
 	if len(expression.Arguments) != open.Declaration.Arity {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     expression.Name.Line,
-			Column:   expression.Name.Column,
-			Message:  fmt.Sprintf("generic type %s expects %d type arguments, got %d", open.Name, open.Declaration.Arity, len(expression.Arguments)),
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, fmt.Sprintf("generic type %s expects %d type arguments; got %d", open.Name, open.Declaration.Arity, len(expression.Arguments))))
 	}
 	arguments := make([]compilerTypes.Type, 0, len(expression.Arguments))
 	for _, argumentExpression := range expression.Arguments {
@@ -197,13 +185,7 @@ func specializeTypeUse(expression parser.GenericTypeExpression, fallback lexer.T
 // resolved canonical argument types.
 func specializeTypeUseArguments(open *openGenericType, arguments []compilerTypes.Type, token lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(arguments) != open.Declaration.Arity {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  fmt.Sprintf("generic type %s expects %d type arguments, got %d", open.Name, open.Declaration.Arity, len(arguments)),
-		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(token, fmt.Sprintf("generic type %s expects %d type arguments; got %d", open.Name, open.Declaration.Arity, len(arguments))))
 	}
 	if _, objectTarget := open.Target.(parser.ObjectTypeExpression); objectTarget {
 		specialized, diagnostic := specializeObjectType(open, arguments, token, typeEnvironment, generics)
@@ -243,13 +225,7 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 	}
 	for activeKey := range generics.active {
 		if strings.HasPrefix(activeKey, open.Name+"|") && activeKey != key {
-			return compilerTypes.Type{}, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     token.Line,
-				Column:   token.Column,
-				Message:  "recursive type specialization changes generic arguments",
-			}
+			return compilerTypes.Type{}, diagnosticAt(typeErrorAt(token, "recursive type specialization changes generic arguments"))
 		}
 	}
 	object, ok := open.Target.(parser.ObjectTypeExpression)
@@ -423,13 +399,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	}
 	for activeKey := range generics.active {
 		if strings.HasPrefix(activeKey, open.Name+"|") && activeKey != key {
-			return FunctionDeclaration{}, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     open.Declaration.Name.Line,
-				Column:   open.Declaration.Name.Column,
-				Message:  "recursive specialization changes generic arguments",
-			}
+			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.Name, "recursive specialization changes generic arguments"))
 		}
 	}
 	previousFrame := generics.frame
@@ -495,13 +465,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		return FunctionDeclaration{}, &bodyDiagnostics[0]
 	}
 	if result != nil && FallsThrough(statements) {
-		return FunctionDeclaration{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     open.Declaration.End.Line,
-			Column:   open.Declaration.End.Column,
-			Message:  fmt.Sprintf("returning %s may fall through without returning %s", specialized.Name, result.Name),
-		}
+		return FunctionDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", specialized.Name, result.Name)))
 	}
 	specialized.Body = statements
 	collection[key] = specialized
@@ -581,13 +545,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 		return MethodDeclaration{}, &bodyDiagnostics[0]
 	}
 	if result != nil && FallsThrough(statements) {
-		return MethodDeclaration{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     open.Declaration.End.Line,
-			Column:   open.Declaration.End.Column,
-			Message:  fmt.Sprintf("returning %s may fall through without returning %s", methodName, result.Name),
-		}
+		return MethodDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", methodName, result.Name)))
 	}
 	specialized.Body = statements
 	generics.methodSpecializations[key] = specialized
@@ -629,44 +587,20 @@ func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, 
 	}
 	generics.frame = previousFrame
 	if len(expected) != len(actual) {
-		return nil, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     open.Declaration.Name.Line,
-			Column:   open.Declaration.Name.Column,
-			Message:  fmt.Sprintf("%s expects %d arguments, got %d", open.Name, len(expected), len(actual)),
-		}
+		return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("%s expects %d arguments; got %d", open.Name, len(expected), len(actual))))
 	}
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)
 	for index := range expected {
 		if !unifyTypes(expected[index], actual[index], bindings, open.Generic) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     open.Declaration.Name.Line,
-				Column:   open.Declaration.Name.Column,
-				Message:  fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[0].Lexeme),
-			}
+			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[0].Lexeme)))
 		}
 	}
 	for index, binding := range bindings {
 		if binding == (compilerTypes.Type{}) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     open.Declaration.Name.Line,
-				Column:   open.Declaration.Name.Column,
-				Message:  fmt.Sprintf("cannot infer generic parameter %s for %s", open.Parameters[index].Lexeme, open.Name),
-			}
+			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("cannot infer generic parameter %s for %s", open.Parameters[index].Lexeme, open.Name)))
 		}
 		if compilerTypes.ContainsTypeParameter(binding) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     open.Declaration.Name.Line,
-				Column:   open.Declaration.Name.Column,
-				Message:  fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name),
-			}
+			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
 		}
 	}
 	_ = expectedUses
@@ -759,13 +693,7 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 			arguments = append(arguments, argumentUse.Type)
 		}
 		if len(arguments) != open.Generic.Arity {
-			return checkedExpression{token: token, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     token.Line,
-				Column:   token.Column,
-				Message:  "explicit generic argument count does not match declaration",
-			}}
+			return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "explicit generic argument count does not match declaration"))}
 		}
 	} else {
 		argumentTypes := make([]compilerTypes.Type, 0, len(call.Arguments))
@@ -775,13 +703,7 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 				return checkedExpression{token: token, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
 			if checked.typ == (compilerTypes.Type{}) {
-				return checkedExpression{token: token, diagnostic: &compilerTypes.Diagnostic{
-					Category: compilerTypes.TypeError,
-					Stage:    "checker",
-					Line:     token.Line,
-					Column:   token.Column,
-					Message:  fmt.Sprintf("cannot infer generic parameter for %s", name),
-				}}
+				return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, fmt.Sprintf("cannot infer generic parameter for %s", name)))}
 			}
 			argumentTypes = append(argumentTypes, checked.typ)
 		}
@@ -803,13 +725,7 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 func buildConcreteCall(call parser.CallExpression, specialized FunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment, token lexer.Token) checkedExpression {
 	signature := specialized.Type.Signature
 	if len(call.Arguments) != len(signature.Parameters) {
-		return checkedExpression{token: token, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  fmt.Sprintf("%s expects %d arguments, got %d", specialized.Name, len(signature.Parameters), len(call.Arguments)),
-		}}
+		return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, fmt.Sprintf("%s expects %d arguments; got %d", specialized.Name, len(signature.Parameters), len(call.Arguments))))}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(specialized.Parameters))
 	for _, parameter := range specialized.Parameters {
@@ -870,13 +786,7 @@ func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyEx
 			methodArguments = append(methodArguments, argumentUse.Type)
 		}
 		if len(methodArguments) != open.Generic.Arity {
-			return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     callee.Property.Line,
-				Column:   callee.Property.Column,
-				Message:  "explicit generic argument count does not match declaration",
-			}}
+			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "explicit generic argument count does not match declaration"))}
 		}
 	} else {
 		inferred, diagnostic := inferMethodArguments(open, receiverArguments, call.Arguments, callee.Property, names, typeEnvironment)
@@ -916,13 +826,7 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 	}
 	generics.frame = previousFrame
 	if len(expected) != len(written) {
-		return nil, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Line,
-			Column:   token.Column,
-			Message:  fmt.Sprintf("%s expects %d arguments, got %d", open.Name, len(expected), len(written)),
-		}
+		return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("%s expects %d arguments; got %d", open.Name, len(expected), len(written))))
 	}
 	actual := make([]compilerTypes.Type, 0, len(written))
 	for _, argument := range written {
@@ -935,33 +839,15 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)
 	for index := range expected {
 		if !unifyTypes(expected[index], actual[index], bindings, open.Generic) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     token.Line,
-				Column:   token.Column,
-				Message:  fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[index].Lexeme),
-			}
+			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[index].Lexeme)))
 		}
 	}
 	for index, binding := range bindings {
 		if binding == (compilerTypes.Type{}) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     token.Line,
-				Column:   token.Column,
-				Message:  fmt.Sprintf("cannot infer generic parameter %s for method %s", open.Parameters[index].Lexeme, open.Name),
-			}
+			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("cannot infer generic parameter %s for method %s", open.Parameters[index].Lexeme, open.Name)))
 		}
 		if compilerTypes.ContainsTypeParameter(binding) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     token.Line,
-				Column:   token.Column,
-				Message:  fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name),
-			}
+			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
 		}
 	}
 	return bindings, nil
@@ -971,13 +857,7 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 // builds the checked method-call node.
 func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyExpression, specialized MethodDeclaration, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	if len(call.Arguments) != len(specialized.Parameters) {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  fmt.Sprintf("%s expects %d arguments, got %d", specialized.Name, len(specialized.Parameters), len(call.Arguments)),
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("%s expects %d arguments; got %d", specialized.Name, len(specialized.Parameters), len(call.Arguments))))}
 	}
 	adapted, diagnostic := adaptReceiver(receiver, specialized, callee, typeEnvironment, names.flow)
 	if diagnostic != nil {
@@ -1060,55 +940,25 @@ func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type
 	generics.frame = previousFrame
 	signature := expected.Signature
 	if signature == nil || len(signature.Parameters) != len(expectedTypes) || (signature.Result == nil) != !hasResult {
-		return nil, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     name.Line,
-			Column:   name.Column,
-			Message:  fmt.Sprintf("cannot infer generic parameter for %s", open.Name),
-		}
+		return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("cannot infer generic parameter for %s", open.Name)))
 	}
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)
 	for index := range expectedTypes {
 		if !unifyTypes(expectedTypes[index], signature.Parameters[index], bindings, open.Generic) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     name.Line,
-				Column:   name.Column,
-				Message:  fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[index].Lexeme),
-			}
+			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[index].Lexeme)))
 		}
 	}
 	if hasResult {
 		if !unifyTypes(expectedResult, *signature.Result, bindings, open.Generic) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     name.Line,
-				Column:   name.Column,
-				Message:  fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[0].Lexeme),
-			}
+			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[0].Lexeme)))
 		}
 	}
 	for index, binding := range bindings {
 		if binding == (compilerTypes.Type{}) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     name.Line,
-				Column:   name.Column,
-				Message:  fmt.Sprintf("cannot infer generic parameter %s for %s", open.Parameters[index].Lexeme, open.Name),
-			}
+			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("cannot infer generic parameter %s for %s", open.Parameters[index].Lexeme, open.Name)))
 		}
 		if compilerTypes.ContainsTypeParameter(binding) {
-			return nil, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     name.Line,
-				Column:   name.Column,
-				Message:  fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name),
-			}
+			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
 		}
 	}
 	specialized, diagnostic := specializeFunction(open, bindings, names, typeEnvironment)
@@ -1138,13 +988,7 @@ func specializeADTType(open *openGenericType, arguments []compilerTypes.Type, to
 	}
 	for activeKey := range generics.active {
 		if strings.HasPrefix(activeKey, open.Name+"|") && activeKey != key {
-			return compilerTypes.Type{}, &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     token.Line,
-				Column:   token.Column,
-				Message:  "recursive type specialization changes generic arguments",
-			}
+			return compilerTypes.Type{}, diagnosticAt(typeErrorAt(token, "recursive type specialization changes generic arguments"))
 		}
 	}
 	target, ok := open.Target.(parser.AdtDefinitionExpression)

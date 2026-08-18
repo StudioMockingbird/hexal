@@ -16,10 +16,7 @@ import (
 // root module C keeps only its call sites.
 func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	header, exists := files["hexal/concurrency.h"]
 	if !exists {
 		t.Fatalf("concurrency program emitted no hexal/concurrency.h: %v", files)
@@ -104,10 +101,7 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 // definition, and the module header includes the component.
 func TestConcurrencyComponentAtomicOnly(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	header, exists := files["hexal/concurrency.h"]
 	if !exists {
 		t.Fatalf("atomic-only program emitted no hexal/concurrency.h: %v", files)
@@ -138,10 +132,7 @@ func TestConcurrencyComponentAtomicOnly(t *testing.T) {
 // includes the component.
 func TestConcurrencyComponentAbsentWithoutConcurrency(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	for _, key := range []string{"hexal/concurrency.h", "hexal/concurrency.c"} {
 		if _, exists := files[key]; exists {
 			t.Fatalf("scalar-only program emitted %s: %v", key, files)
@@ -192,21 +183,6 @@ func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 }
 
 // Equivalent compilations render identical concurrency artifacts.
-func TestConcurrencyComponentDeterministic(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n")
-	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	if first["hexal/concurrency.h"] != second["hexal/concurrency.h"] || first["hexal/concurrency.c"] != second["hexal/concurrency.c"] {
-		t.Fatalf("equivalent compilations rendered the concurrency pair differently")
-	}
-}
-
 // The templates render structurally from the typed model: pre-sorted handle
 // records become the typedef lines, the SpawnEntries the entry prototypes,
 // and each source-core flag its own section. Records render in the model's

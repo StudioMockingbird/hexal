@@ -64,12 +64,6 @@ func dictComponents(merged *programEmission) ([]componentArtifact, error) {
 	}}, nil
 }
 
-// dictFamilyContent is the drained transition seam: the Dict machinery owns
-// the component artifact, so hexal.h contributes nothing.
-func dictFamilyContent(state *generatedDictState) string {
-	return ""
-}
-
 // moduleDictComponent selects hexal/dict.h for a module with reachable Dict
 // specializations.
 func moduleDictComponent(emission *moduleEmission) []string {

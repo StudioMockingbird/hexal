@@ -140,7 +140,7 @@ func TestCheckerRoutesNullableAndUnknownAssignabilityThroughAllContexts(t *testi
 
 func TestCheckerRejectsNullableAndNilRemovalWithExactDiagnostics(t *testing.T) {
 	requireDiagnostic(t, "bad: MutPtr<Int32> = nil", "nil requires an expected union containing Nil")
-	requireDiagnostic(t, "maybe: Ptr<Int32> | Nil = nil bad: Ptr<Int32> = maybe", "expected Ptr<Int32>, got Ptr<Int32> | Nil")
+	requireDiagnostic(t, "maybe: Ptr<Int32> | Nil = nil bad: Ptr<Int32> = maybe", "expected Ptr<Int32>; got Ptr<Int32> | Nil")
 }
 
 func TestCheckerRejectsUnknownAccessStrengtheningWithExactDiagnostic(t *testing.T) {
@@ -152,7 +152,7 @@ func TestCheckerRejectsNestedUnknownErasureWithExactDiagnostic(t *testing.T) {
 }
 
 func TestCheckerRejectsComposedUnknownRecoveryWithExactDiagnostic(t *testing.T) {
-	requireDiagnostic(t, "mut value: Int8 = 1 small: MutPtr<Int8> = ref value bad: MutPtr<Int64> = small", "expected MutPtr<Int64>, got MutPtr<Int8>; erasure and recovery do not compose, bind MutPtr<Unknown> first")
+	requireDiagnostic(t, "mut value: Int8 = 1 small: MutPtr<Int8> = ref value bad: MutPtr<Int64> = small", "expected MutPtr<Int64>; got MutPtr<Int8>; erasure and recovery do not compose, bind MutPtr<Unknown> first")
 }
 
 func TestCheckerRequiresAConcretePointerBeforeUnknownDereference(t *testing.T) {
@@ -304,7 +304,7 @@ func TestCheckerReadsAndAssignsNullableObjectMembers(t *testing.T) {
 	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
 		"tail: Node = Node { value = 1, next = nil, }\n"+
 		"bad: MutPtr<Node> = tail.next\n",
-		"expected MutPtr<Node>, got MutPtr<Node> | Nil")
+		"expected MutPtr<Node>; got MutPtr<Node> | Nil")
 }
 
 func TestCheckerNullableMemberValueRequiresBindThenTest(t *testing.T) {

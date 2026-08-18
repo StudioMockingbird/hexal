@@ -86,9 +86,9 @@ func TestArrayLiteralRequiresExpectedTypeAndExactCount(t *testing.T) {
 		want   string
 	}{
 		{"value: Int32 = [1, 2]", "an array literal requires an expected Array<T, N> destination type"},
-		{"fixed: Array<Int32, 3> = [1, 2]", "Array<Int32, 3> requires exactly 3 elements, got 2"},
-		{"fixed: Array<Int32, 2> = [1, 2, 3]", "Array<Int32, 2> requires exactly 2 elements, got 3"},
-		{"fixed: Array<Int32, 2> = [1, true]", "expected Int32 initializer, got Bool"},
+		{"fixed: Array<Int32, 3> = [1, 2]", "Array<Int32, 3> requires exactly 3 elements; got 2"},
+		{"fixed: Array<Int32, 2> = [1, 2, 3]", "Array<Int32, 2> requires exactly 2 elements; got 3"},
+		{"fixed: Array<Int32, 2> = [1, true]", "expected Int32 initializer; got Bool"},
 		{"empty: Array<Int32, 2> = []", "an array literal requires at least one element"},
 	} {
 		result := compileSource(testCase.source)
@@ -108,7 +108,7 @@ func TestArrayIndexErrors(t *testing.T) {
 		{"value: Int32 = 1 bad: Int32 = value[0]", "cannot index Int32; expected Array<T, N>"},
 		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.first()", "Array<Int32, 2> has no method first"},
 		{"fixed: Array<Int32, 2> = [1, 2] bad: UInt64 = fixed.length(1)", "length expects no arguments"},
-		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at()", "`at` was removed; use `receiver[index]`"},
+		{"fixed: Array<Int32, 2> = [1, 2] bad: Int32 = fixed.at()", "Array<Int32, 2> has no method at"},
 		{"type A = Array<Int32, 0>", "an array length must be a positive decimal integer"},
 	} {
 		result := compileSource(testCase.source)
@@ -202,7 +202,3 @@ func TestArrayTrailingCommaLiteral(t *testing.T) {
 }
 
 // arrayH returns the generated array component header.
-func arrayH(t *testing.T, result compiler.CompilationResult) string {
-	t.Helper()
-	return moduleFile(t, result, "hexal/array.h")
-}

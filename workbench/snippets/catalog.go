@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -77,7 +77,7 @@ func Load() ([]Category, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list snippet categories: %w", err)
 	}
-	sort.Strings(paths)
+	slices.Sort(paths)
 
 	categories := make([]Category, 0, len(paths))
 	for _, path := range paths {
@@ -183,12 +183,7 @@ func LineLimitWarnings(categories []Category) []string {
 }
 
 func containsWord(source, word string) bool {
-	for _, field := range strings.FieldsFunc(source, func(r rune) bool {
+	return slices.Contains(strings.FieldsFunc(source, func(r rune) bool {
 		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_')
-	}) {
-		if field == word {
-			return true
-		}
-	}
-	return false
+	}), word)
 }

@@ -1,8 +1,27 @@
 # RFC 0077: Literal Registry
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; verified 2026-08-18. `literalRegistry` carries exactly
+  the specified API — `Intern`, `CName`, `Lookup`, `All` — over an opaque
+  `literalHandle`, and one registry is created with the emission state and
+  interned into directly in dependency order, so no per-module table exists and
+  nothing needs rebasing. `literalObjectName` and `rebaseLiteralNames` are gone
+  (`grep` returns nothing); `messageLiteral` takes a handle and its
+  filename-substitution fallback is deleted rather than guarded;
+  `generatedConcurrencyState` stores `fileLiteral`, `headerLiteral`, and the
+  four failure-message handles, all minted at discovery. Generated C is
+  unchanged and the snippet manifest never moved for this work. Coverage:
+  `TestLiteralRegistryInternsPayloadOnce` and
+  `TestLiteralRegistryPreservesRegistrationOrder` in
+  `compiler/generator/strings_test.go`, plus `TestModuleGenerationLiteralOrder`
+  and `TestModuleGenerationConcurrencyLiteralHandles` — the latter being the
+  specific test this RFC demanded for the single-registry decision: concurrency
+  in a non-entry module, behind a literal that shifts every index.
+
+  RFC 0073's D9 and D10 are resolved by deletion rather than by guards: the two
+  functions those guards would have protected no longer exist.
 - Created: 2026-08-16
+- Updated: 2026-08-18
 - Scope: generated String literal interning and lookup in the generator
 - Depends on: nothing. Independent of RFCs 0072–0079.
 - Coordinates with: RFC 0073 (D9 and D10 guard the same lookups tactically),

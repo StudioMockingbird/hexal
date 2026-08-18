@@ -261,7 +261,7 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 	if !compilerTypes.Equal(statement.Call.Type, statement.Call.Node.ResultType) {
 		return "", unknownExpressionDiagnostic("call statement type does not match its checked call")
 	}
-	return renderExpressionExpectedWithState(statement.Call.Node, compilerTypes.Type{}, false, state)
+	return renderExpressionExpectedWithState(statement.Call.Node, nil, state)
 }
 
 func renderReturnStatement(statement checker.ReturnStatement, result *compilerTypes.Type, state *expressionValidation, indent string) (string, error) {
@@ -321,14 +321,6 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 
 // hasPendingDefers reports whether any enclosing scope has registered a
 // deferred action that must run before an exit edge.
-func hasPendingDefers(state *expressionValidation) bool {
-	for _, scope := range state.deferStack {
-		if len(scope) > 0 {
-			return true
-		}
-	}
-	return false
-}
 
 // renderTruthiness renders a checked condition: nil is false, Bool and
 // nullable values render as themselves, and every other value is evaluated
@@ -366,7 +358,7 @@ func renderTruthinessChild(child *checker.Expression, state *expressionValidatio
 	if compilerTypes.Truthiness(childType) == compilerTypes.TruthinessNil {
 		return "false", nil
 	}
-	rendered, err := renderExpressionExpectedWithState(*child, compilerTypes.Type{}, false, state)
+	rendered, err := renderExpressionExpectedWithState(*child, nil, state)
 	if err != nil {
 		return "", err
 	}
@@ -476,7 +468,7 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 			state.variables = make(map[string]generatedBinding)
 		}
 		state.variables[sourceName] = generatedBinding{typ: typ, mutable: mutable}
-		return PrivateCName(ValueName, sourceName, ""), nil
+		return privateCName(valueName, sourceName, ""), nil
 	}
 	if state.bindings == nil {
 		state.bindings = make(map[checker.BindingID]generatedBinding)
@@ -488,7 +480,7 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 	if _, exists := state.bindings[id]; exists {
 		return "", unknownExpressionDiagnostic("duplicate checked binding identity")
 	}
-	base := PrivateCName(ValueName, sourceName, "")
+	base := privateCName(valueName, sourceName, "")
 	name := base
 	for suffix := 2; state.usedNames[name]; suffix++ {
 		name = fmt.Sprintf("%s_%d", base, suffix)
@@ -523,7 +515,7 @@ func (state *expressionValidation) cNameFor(node checker.Expression) (string, bo
 		}
 		return name, true
 	}
-	return PrivateCName(ValueName, node.Name, ""), true
+	return privateCName(valueName, node.Name, ""), true
 }
 
 // pointerSpelling renders a pointer type's C declarator base from the type
@@ -587,7 +579,7 @@ func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 		// mut declaration.
 		return typ.CName + " " + name
 	}
-	if compilerTypes.IsAtomic(typ) {
+	if typ.Atomic != nil {
 		// An Atomic is a mutable-through wrapper; its accessors take a
 		// non-const receiver, so the binding carries no top-level const even
 		// without a mut declaration.
@@ -666,18 +658,14 @@ func renderExpression(node checker.Expression) (string, error) {
 }
 
 func renderExpressionWithState(node checker.Expression, state *expressionValidation) (string, error) {
-	return renderExpressionExpectedWithState(node, compilerTypes.Type{}, false, state)
+	return renderExpressionExpectedWithState(node, nil, state)
 }
 
-func renderExpressionExpectedWithState(node checker.Expression, expected compilerTypes.Type, hasExpected bool, state *expressionValidation) (string, error) {
-	if err := validateExpressionNode(node, expected, hasExpected, state); err != nil {
+func renderExpressionExpectedWithState(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) (string, error) {
+	if err := validateExpressionNode(node, expected, state); err != nil {
 		return "", err
 	}
 	return renderExpressionUncheckedWithState(node, state)
-}
-
-func renderExpressionUnchecked(node checker.Expression) (string, error) {
-	return renderExpressionUncheckedWithState(node, &expressionValidation{})
 }
 
 func renderExpressionUncheckedWithState(node checker.Expression, state *expressionValidation) (string, error) {
@@ -699,12 +687,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Name == "" {
 			return "", unknownExpressionDiagnostic("function reference without a source name")
 		}
-		return PrivateCName(FunctionName, node.Name, moduleOwner(node.Module, state.owner)), nil
+		return privateCName(functionNameKind, node.Name, moduleOwner(node.Module, state.owner)), nil
 	case checker.CallExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("call without a checked callee")
 		}
-		callee, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+		callee, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 		if err != nil {
 			return "", err
 		}
@@ -728,7 +716,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if receiverErr != nil {
 			return "", receiverErr
 		}
-		receiver, _, receiverErr := renderExpressionNodeWithExpectedState(*node.Operand, receiverType, state, true)
+		receiver, _, receiverErr := renderExpressionNodeWithExpectedState(*node.Operand, &receiverType, state)
 		if receiverErr != nil {
 			return "", receiverErr
 		}
@@ -753,7 +741,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if !hasOperandType {
 			operandType, hasOperandType = expressionTypeWithState(*node.Operand, state)
 		}
-		operand, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, operandType, state, hasOperandType)
+		operand, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, optionalType(operandType, hasOperandType), state)
 		if err != nil {
 			return "", err
 		}
@@ -772,7 +760,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if !ok {
 			return "", unknownExpressionDiagnostic("dereference receiver type is unavailable")
 		}
-		operand, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, operandType, state, true)
+		operand, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, &operandType, state)
 		if err != nil {
 			return "", err
 		}
@@ -780,341 +768,17 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "*" + operand, nil
 		}
 		return "*(" + operand + ")", nil
-	case checker.IndexExpression:
-		place, placeErr := checkedPlaceMetadata(node, state)
-		if placeErr != nil {
-			return "", placeErr
-		}
-		receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-		if receiverErr != nil {
-			return "", receiverErr
-		}
-		index, indexErr := renderOperandWithState(node.Arguments[0], state)
-		if indexErr != nil {
-			return "", indexErr
-		}
-		if node.OperandType.View != nil {
-			return "*hex_view_at_" + strings.TrimPrefix(node.OperandType.CName, "hex_view_") + "(" + receiver + ", (size_t)(" + index + "))", nil
-		}
-		if node.OperandType.List != nil {
-			if place.writable {
-				return "*hex_list_at_mut_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
-			}
-			return "*hex_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
-		}
-		if compilerTypes.IsString(node.OperandType) {
-			return "hex_string_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
-		}
-		if compilerTypes.IsStrand(node.OperandType) {
-			return "hex_strand_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
-		}
-		return "*" + arrayAccessorCName(node.OperandType, place.writable) + "(&" + receiver + ", (size_t)(" + index + "))", nil
-	case checker.ArrayLiteralExpression:
-		if node.ResultType.Array == nil {
-			return "", unknownExpressionDiagnostic("array literal without a checked array type")
-		}
-		elements := make([]string, len(node.Arguments))
-		for index, element := range node.Arguments {
-			rendered, elementErr := renderOperandWithState(element, state)
-			if elementErr != nil {
-				return "", elementErr
-			}
-			elements[index] = rendered
-		}
-		// The element region is the struct's single data member, so the
-		// compound literal carries one extra brace layer.
-		return "(" + node.ResultType.CName + "){{" + strings.Join(elements, ", ") + "}}", nil
-	case checker.CollectionMethodCallExpression:
-		switch node.Name {
-		case "length":
-			if node.OperandType.Array != nil {
-				return fmt.Sprintf("(size_t)(%d)", node.OperandType.Array.Length), nil
-			}
-			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-			if receiverErr != nil {
-				return "", receiverErr
-			}
-			if node.OperandType.List != nil || node.OperandType.Dict != nil {
-				// List and Dict bindings are pointer-sized handles.
-				return "(" + receiver + ")->length", nil
-			}
-			return "(" + receiver + ").length", nil
-		case "push", "set", "clear", "pop":
-			if node.Operand == nil || node.OperandType.List == nil {
-				return "", unknownExpressionDiagnostic("list mutation without a checked list receiver")
-			}
-			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-			if receiverErr != nil {
-				return "", receiverErr
-			}
-			suffix := listSuffix(node.OperandType)
-			switch node.Name {
-			case "push":
-				if len(node.Arguments) != 1 {
-					return "", unknownExpressionDiagnostic("list push without a checked value")
-				}
-				value, valueErr := renderOperandWithState(node.Arguments[0], state)
-				if valueErr != nil {
-					return "", valueErr
-				}
-				return "hex_list_push_" + suffix + "(" + receiver + ", " + value + ")", nil
-			case "set":
-				if len(node.Arguments) != 2 {
-					return "", unknownExpressionDiagnostic("list set without checked operands")
-				}
-				index, indexErr := renderOperandWithState(node.Arguments[0], state)
-				if indexErr != nil {
-					return "", indexErr
-				}
-				value, valueErr := renderOperandWithState(node.Arguments[1], state)
-				if valueErr != nil {
-					return "", valueErr
-				}
-				return "hex_list_set_" + suffix + "(" + receiver + ", (size_t)(" + index + "), " + value + ")", nil
-			case "clear":
-				return "hex_list_clear_" + suffix + "(" + receiver + ")", nil
-			case "pop":
-				return "hex_list_pop_" + suffix + "(" + receiver + ")", nil
-			}
-		case "free":
-			if node.Operand == nil || len(node.Arguments) != 1 {
-				return "", unknownExpressionDiagnostic("collection free without a checked heap")
-			}
-			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-			if receiverErr != nil {
-				return "", receiverErr
-			}
-			heap, heapErr := renderOperandWithState(node.Arguments[0], state)
-			if heapErr != nil {
-				return "", heapErr
-			}
-			if node.OperandType.List != nil {
-				return "hex_list_free_" + listSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
-			}
-			if node.OperandType.Dict != nil {
-				return "hex_dict_free_" + dictSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
-			}
-			return "", unknownExpressionDiagnostic("collection free without a list or dictionary receiver")
-		case "insert", "get", "contains", "remove":
-			if node.Operand == nil || node.OperandType.Dict == nil {
-				return "", unknownExpressionDiagnostic("dictionary operation without a checked dictionary receiver")
-			}
-			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-			if receiverErr != nil {
-				return "", receiverErr
-			}
-			suffix := dictSuffix(node.OperandType)
-			switch node.Name {
-			case "insert":
-				if len(node.Arguments) != 2 {
-					return "", unknownExpressionDiagnostic("dictionary insert without checked operands")
-				}
-				key, keyErr := renderOperandWithState(node.Arguments[0], state)
-				if keyErr != nil {
-					return "", keyErr
-				}
-				value, valueErr := renderOperandWithState(node.Arguments[1], state)
-				if valueErr != nil {
-					return "", valueErr
-				}
-				return "hex_dict_insert_" + suffix + "(" + receiver + ", " + key + ", " + value + ")", nil
-			case "get", "remove":
-				if len(node.Arguments) != 1 {
-					return "", unknownExpressionDiagnostic("dictionary lookup without a checked key")
-				}
-				key, keyErr := renderOperandWithState(node.Arguments[0], state)
-				if keyErr != nil {
-					return "", keyErr
-				}
-				return "hex_dict_" + node.Name + "_" + suffix + "(" + receiver + ", " + key + ")", nil
-			case "contains":
-				if len(node.Arguments) != 1 {
-					return "", unknownExpressionDiagnostic("dictionary contains without a checked key")
-				}
-				key, keyErr := renderOperandWithState(node.Arguments[0], state)
-				if keyErr != nil {
-					return "", keyErr
-				}
-				return "hex_dict_contains_" + suffix + "(" + receiver + ", " + key + ")", nil
-			}
-		}
-		return "", unknownExpressionDiagnostic("unknown collection method")
-	case checker.CollectionSliceExpression:
-		if node.Operand == nil || len(node.Arguments) != 2 {
-			return "", unknownExpressionDiagnostic("collection slice without checked bounds")
-		}
-		receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-		if receiverErr != nil {
-			return "", receiverErr
-		}
-		start, startErr := renderOperandWithState(node.Arguments[0], state)
-		if startErr != nil {
-			return "", startErr
-		}
-		end, endErr := renderOperandWithState(node.Arguments[1], state)
-		if endErr != nil {
-			return "", endErr
-		}
-		if node.OperandType.View != nil {
-			return "hex_view_slice_" + strings.TrimPrefix(node.OperandType.CName, "hex_view_") + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
-		}
-		if node.OperandType.List != nil {
-			return "hex_list_slice_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
-		}
-		return "hex_array_slice_" + arrayAccessorSuffix(node.OperandType) + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
-	case checker.StringLiteralExpression:
-		handle, ok := state.strings.Lookup(node.Name)
-		if !ok {
-			return "", unknownExpressionDiagnostic("string literal is missing from the checked literal registry: " + node.Name)
-		}
-		if compilerTypes.IsStrand(node.ResultType) {
-			// A Strand is a 32-byte zero-padded inline value.
-			payload := node.Name
-			var builder strings.Builder
-			builder.WriteString("(hex_strand){{")
-			for _, character := range []byte(payload) {
-				fmt.Fprintf(&builder, " %d,", character)
-			}
-			builder.WriteString(" 0 }}")
-			return builder.String(), nil
-		}
-		return "&" + state.strings.CName(handle), nil
-	case checker.StringMethodCallExpression:
-		if node.Operand == nil {
-			return "", unknownExpressionDiagnostic("string method without a checked receiver")
-		}
-		receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
-		if receiverErr != nil {
-			return "", receiverErr
-		}
-		switch node.Name {
-		case "length":
-			if compilerTypes.IsStrand(node.OperandType) {
-				return "hex_strand_rune_length(" + receiver + ")", nil
-			}
-			return "hex_string_rune_length(" + receiver + ")", nil
-		case "is_empty":
-			if compilerTypes.IsStrand(node.OperandType) {
-				return "hex_strand_is_empty(" + receiver + ")", nil
-			}
-			return "hex_string_is_empty(" + receiver + ")", nil
-		case "rune_cursor":
-			return "hex_string_rune_cursor(" + receiver + ")", nil
-		case "bytes":
-			return "hex_string_bytes(" + receiver + ")", nil
-		case "slice":
-			if len(node.Arguments) != 2 {
-				return "", unknownExpressionDiagnostic("string slice without checked bounds")
-			}
-			start, startErr := renderOperandWithState(node.Arguments[0], state)
-			if startErr != nil {
-				return "", startErr
-			}
-			end, endErr := renderOperandWithState(node.Arguments[1], state)
-			if endErr != nil {
-				return "", endErr
-			}
-			return "hex_string_slice(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
-		case "to_string":
-			if len(node.Arguments) != 1 {
-				return "", unknownExpressionDiagnostic("string to_string without a checked heap")
-			}
-			heap, heapErr := renderOperandWithState(node.Arguments[0], state)
-			if heapErr != nil {
-				return "", heapErr
-			}
-			if compilerTypes.IsStrand(node.OperandType) {
-				return "hex_strand_to_string(" + heap + ", " + receiver + ")", nil
-			}
-			return "hex_string_to_string(" + heap + ", " + receiver + ")", nil
-		case "concat":
-			if len(node.Arguments) != 2 {
-				return "", unknownExpressionDiagnostic("string concat without checked operands")
-			}
-			heap, heapErr := renderOperandWithState(node.Arguments[0], state)
-			if heapErr != nil {
-				return "", heapErr
-			}
-			other, otherErr := renderOperandWithState(node.Arguments[1], state)
-			if otherErr != nil {
-				return "", otherErr
-			}
-			return "hex_string_concat(" + heap + ", " + receiver + ", " + other + ")", nil
-		case "free":
-			if len(node.Arguments) != 1 {
-				return "", unknownExpressionDiagnostic("string free without a checked heap")
-			}
-			heap, heapErr := renderOperandWithState(node.Arguments[0], state)
-			if heapErr != nil {
-				return "", heapErr
-			}
-			return "hex_string_free(" + heap + ", " + receiver + ")", nil
-		}
-		return "", unknownExpressionDiagnostic("unknown string method")
-	case checker.StringFromBytesExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("String.from_bytes without checked operands")
-		}
-		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, compilerTypes.Heap, state, true)
-		if heapErr != nil {
-			return "", heapErr
-		}
-		view, viewErr := renderOperandWithState(node.Arguments[0], state)
-		if viewErr != nil {
-			return "", viewErr
-		}
-		return "hex_string_from_bytes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
-	case checker.StringFromRunesExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("String.from_runes without checked operands")
-		}
-		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, compilerTypes.Heap, state, true)
-		if heapErr != nil {
-			return "", heapErr
-		}
-		view, viewErr := renderOperandWithState(node.Arguments[0], state)
-		if viewErr != nil {
-			return "", viewErr
-		}
-		return "hex_string_from_runes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
-	case checker.RuneCursorMethodCallExpression:
-		if node.Operand == nil {
-			return "", unknownExpressionDiagnostic("rune cursor method without a checked receiver")
-		}
-		receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
-		if err != nil {
-			return "", err
-		}
-		switch node.Name {
-		case "has_next":
-			return "hex_rune_cursor_has_next(" + receiver + ")", nil
-		case "next":
-			return "hex_rune_cursor_next(&(" + receiver + "))", nil
-		}
-		return "", unknownExpressionDiagnostic("unknown rune cursor method " + node.Name)
-	case checker.ListNewExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("List<T>.new without a checked heap")
-		}
-		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, compilerTypes.Heap, state, true)
-		if heapErr != nil {
-			return "", heapErr
-		}
-		return "hex_list_new_" + listSuffix(node.ResultType) + "(" + heap + ")", nil
-	case checker.DictNewExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("Dict<K, V>.new without a checked heap")
-		}
-		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, compilerTypes.Heap, state, true)
-		if heapErr != nil {
-			return "", heapErr
-		}
-		return "hex_dict_new_" + dictSuffix(node.ResultType) + "(" + heap + ")", nil
+	case checker.IndexExpression, checker.ArrayLiteralExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
+		return renderCollectionExpression(node, state)
+	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.RuneCursorMethodCallExpression:
+		return renderTextExpression(node, state)
+	case checker.ListNewExpression, checker.DictNewExpression:
+		return renderCollectionConstructor(node, state)
 	case checker.WideningExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("widening without an operand")
 		}
-		operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+		operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 		if operandErr != nil {
 			return "", operandErr
 		}
@@ -1126,11 +790,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Left == nil || node.Right == nil {
 			return "", unknownExpressionDiagnostic("deep equality without both operands")
 		}
-		left, _, leftErr := renderExpressionNodeWithExpectedState(*node.Left, node.OperandType, state, true)
+		left, _, leftErr := renderExpressionNodeWithExpectedState(*node.Left, &node.OperandType, state)
 		if leftErr != nil {
 			return "", leftErr
 		}
-		right, _, rightErr := renderExpressionNodeWithExpectedState(*node.Right, node.OperandType, state, true)
+		right, _, rightErr := renderExpressionNodeWithExpectedState(*node.Right, &node.OperandType, state)
 		if rightErr != nil {
 			return "", rightErr
 		}
@@ -1153,42 +817,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		return result, nil
 	case checker.StringCompareExpression:
-		if node.Left == nil || node.Right == nil {
-			return "", unknownExpressionDiagnostic("text ordering without both operands")
-		}
-		left, _, leftErr := renderExpressionNodeWithExpectedState(*node.Left, node.OperandType, state, true)
-		if leftErr != nil {
-			return "", leftErr
-		}
-		right, _, rightErr := renderExpressionNodeWithExpectedState(*node.Right, node.OperandType, state, true)
-		if rightErr != nil {
-			return "", rightErr
-		}
-		if compilerTypes.IsStrand(node.OperandType) {
-			// Strand ordering is a direct memcmp of the canonical 32-byte
-			// zero-filled representation; its sign is the ordering result.
-			comparison := " < 0"
-			switch node.Operator {
-			case checker.LessEqualOperator:
-				comparison = " <= 0"
-			case checker.GreaterOperator:
-				comparison = " > 0"
-			case checker.GreaterEqualOperator:
-				comparison = " >= 0"
-			}
-			return "(memcmp(" + left + ".data, " + right + ".data, 32)" + comparison + ")", nil
-		}
-		helper := "hex_compare_hex_string"
-		comparison := " < 0"
-		switch node.Operator {
-		case checker.LessEqualOperator:
-			comparison = " <= 0"
-		case checker.GreaterOperator:
-			comparison = " > 0"
-		case checker.GreaterEqualOperator:
-			comparison = " >= 0"
-		}
-		return "(" + helper + "(" + left + ", " + right + ")" + comparison + ")", nil
+		return renderTextComparison(node, state)
 	case checker.ConversionExpression:
 		return renderConversion(node, state)
 	case checker.BitCastExpression:
@@ -1226,7 +855,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Operand == nil || node.OperandType.Element == nil {
 			return "", unknownExpressionDiagnostic("volatile read without a checked pointer")
 		}
-		receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+		receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 		if err != nil {
 			return "", err
 		}
@@ -1239,7 +868,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Operand == nil || node.OperandType.Element == nil || len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("volatile write without checked operands")
 		}
-		receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+		receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 		if err != nil {
 			return "", err
 		}
@@ -1249,30 +878,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		return "*(volatile " + typeSpelling(node.Element) + " *)(" + receiver + ") = " + value, nil
 	case checker.ViewBridgeExpression:
-		// The descriptor is one pointer-and-count initialization; the pointer
-		// expression precedes the length expression in source order and each
-		// appears exactly once.
-		if node.OperandType.View == nil {
-			return "", unknownExpressionDiagnostic("view bridge without a checked View type")
-		}
-		if node.Name == "empty" {
-			if len(node.Arguments) != 0 {
-				return "", unknownExpressionDiagnostic("view bridge empty with unexpected arguments")
-			}
-			return "(" + node.OperandType.CName + "){ nullptr, 0 }", nil
-		}
-		if len(node.Arguments) != 2 {
-			return "", unknownExpressionDiagnostic("view bridge without checked pointer and length")
-		}
-		pointer, pointerErr := renderOperandWithState(node.Arguments[0], state)
-		if pointerErr != nil {
-			return "", pointerErr
-		}
-		length, lengthErr := renderOperandWithState(node.Arguments[1], state)
-		if lengthErr != nil {
-			return "", lengthErr
-		}
-		return "(" + node.OperandType.CName + "){ " + pointer + ", " + length + " }", nil
+		return renderViewBridgeExpression(node, state)
 	case checker.MemberExpression:
 		if node.Operand == nil || node.Member == nil {
 			return "", unknownExpressionDiagnostic("member selection without a receiver or member")
@@ -1288,7 +894,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if err != nil {
 			return "", err
 		}
-		return receiver + "." + PrivateCName(MemberName, node.Member.Name, ""), nil
+		return receiver + "." + privateCName(memberName, node.Member.Name, ""), nil
 	case checker.NullTestExpression:
 		// The nullable union shares its base pointer's null niche, so the
 		// test lowers to the ordinary C null pointer comparison.
@@ -1299,7 +905,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Operator == checker.NotEqualOperator {
 			operator = "!="
 		}
-		operand, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+		operand, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 		if err != nil {
 			return "", err
 		}
@@ -1343,10 +949,6 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 	}
 }
 
-func renderOperation(node checker.Expression) (string, error) {
-	return renderOperationWithState(node, &expressionValidation{})
-}
-
 func renderOperationWithState(node checker.Expression, state *expressionValidation) (string, error) {
 	switch node.Kind {
 	case checker.ConstantExpression:
@@ -1369,10 +971,6 @@ func renderOperationWithState(node checker.Expression, state *expressionValidati
 	}
 }
 
-func renderUnaryOperation(node checker.Expression) (string, error) {
-	return renderUnaryOperationWithState(node, &expressionValidation{})
-}
-
 func renderUnaryOperationWithState(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil {
 		return "", unknownExpressionDiagnostic("unary operation without an operand")
@@ -1386,7 +984,7 @@ func renderUnaryOperationWithState(node checker.Expression, state *expressionVal
 	if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 		return "", err
 	}
-	operand, err := renderExpressionExpectedWithState(*node.Operand, node.OperandType, true, state)
+	operand, err := renderExpressionExpectedWithState(*node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
@@ -1435,10 +1033,6 @@ func renderLogicalNotWithState(node checker.Expression, state *expressionValidat
 		return "", err
 	}
 	return "(!" + child + ")", nil
-}
-
-func renderBinaryOperation(node checker.Expression) (string, error) {
-	return renderBinaryOperationWithState(node, &expressionValidation{})
 }
 
 func renderBinaryOperationWithState(node checker.Expression, state *expressionValidation) (string, error) {
@@ -1523,11 +1117,11 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 	if resultIsBool != compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
 		return "", unknownExpressionDiagnostic("binary operation has an invalid result type")
 	}
-	left, err := renderExpressionExpectedWithState(*node.Left, node.OperandType, true, state)
+	left, err := renderExpressionExpectedWithState(*node.Left, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
-	right, err := renderExpressionExpectedWithState(*node.Right, rightExpected, true, state)
+	right, err := renderExpressionExpectedWithState(*node.Right, &rightExpected, state)
 	if err != nil {
 		return "", err
 	}
@@ -1777,7 +1371,7 @@ func renderRingOperand(child checker.Expression, parent *checker.Expression, isL
 		}
 		return inner, nil
 	}
-	rendered, atomic, err := renderExpressionNodeWithExpectedState(child, parent.OperandType, state, true)
+	rendered, atomic, err := renderExpressionNodeWithExpectedState(child, &parent.OperandType, state)
 	if err != nil {
 		return "", err
 	}
@@ -1817,16 +1411,8 @@ func ringPrecedence(operator checker.Operator) int {
 	return 1
 }
 
-func renderExpressionNode(node checker.Expression) (string, bool, error) {
-	return renderExpressionNodeWithState(node, &expressionValidation{})
-}
-
-func renderExpressionNodeWithState(node checker.Expression, state *expressionValidation) (string, bool, error) {
-	return renderExpressionNodeWithExpectedState(node, compilerTypes.Type{}, state, false)
-}
-
-func renderExpressionNodeWithExpectedState(node checker.Expression, expected compilerTypes.Type, state *expressionValidation, hasExpected bool) (string, bool, error) {
-	value, err := renderExpressionExpectedWithState(node, expected, hasExpected, state)
+func renderExpressionNodeWithExpectedState(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) (string, bool, error) {
+	value, err := renderExpressionExpectedWithState(node, expected, state)
 	if err != nil {
 		return "", false, err
 	}
@@ -1847,7 +1433,7 @@ func renderReceiver(operand *checker.Expression, expected compilerTypes.Type, st
 	if operand == nil {
 		return "", unknownExpressionDiagnostic("receiver expression is missing")
 	}
-	receiver, atomic, err := renderExpressionNodeWithExpectedState(*operand, expected, state, true)
+	receiver, atomic, err := renderExpressionNodeWithExpectedState(*operand, &expected, state)
 	if err != nil {
 		return "", err
 	}
@@ -1984,7 +1570,7 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 		if expressionType, ok := expressionResultType(source.Node); ok && !compilerTypes.Equal(source.Type, expressionType) && !compilerTypes.WidensTo(expressionType, source.Type) {
 			return "", unknownExpressionDiagnostic("operand expression type does not match its checked type")
 		}
-		return renderExpressionExpectedWithState(source.Node, source.Type, true, state)
+		return renderExpressionExpectedWithState(source.Node, &source.Type, state)
 	case checker.ConstantOperand:
 		// An object constant (Error.new result wrapped by union injection)
 		// renders its object value.
@@ -2042,10 +1628,6 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 	}
 }
 
-func objectLiteral(value *checker.ObjectValue) (string, error) {
-	return objectLiteralWithState(value, &expressionValidation{})
-}
-
 func objectLiteralWithState(value *checker.ObjectValue, state *expressionValidation) (string, error) {
 	if err := validateObjectValue(value, state); err != nil {
 		return "", err
@@ -2069,7 +1651,7 @@ func objectLiteralWithState(value *checker.ObjectValue, state *expressionValidat
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&result, "\n        .%s = %s,", PrivateCName(MemberName, member.Name, ""), rendered)
+		fmt.Fprintf(&result, "\n        .%s = %s,", privateCName(memberName, member.Name, ""), rendered)
 	}
 	result.WriteString("\n    }")
 	return result.String(), nil
@@ -2171,21 +1753,6 @@ func signedMinimumMacro(typ compilerTypes.Type) (string, error) {
 	}
 }
 
-func signedMaximumMacro(typ compilerTypes.Type) (string, error) {
-	switch typ.Name {
-	case compilerTypes.Int8.Name:
-		return "INT8_MAX", nil
-	case compilerTypes.Int16.Name:
-		return "INT16_MAX", nil
-	case compilerTypes.Int32.Name:
-		return "INT32_MAX", nil
-	case compilerTypes.Int64.Name:
-		return "INT64_MAX", nil
-	default:
-		return "", unknownExpressionDiagnostic("no maximum macro for signed integer type " + typ.Name)
-	}
-}
-
 func formatInteger(value uint64, radix checker.LiteralRadix) string {
 	switch radix {
 	case checker.HexadecimalRadix:
@@ -2215,4 +1782,14 @@ func formatDecimalFloat(bits uint64, bitSize int) string {
 		text += ".0"
 	}
 	return text
+}
+
+// optionalType packages a (value, present) pair as the optional-expected-type
+// pointer the validation and render entry points take. It exists only for the
+// two callers that still receive the pair from elsewhere; nil means absent.
+func optionalType(typ compilerTypes.Type, present bool) *compilerTypes.Type {
+	if !present {
+		return nil
+	}
+	return &typ
 }

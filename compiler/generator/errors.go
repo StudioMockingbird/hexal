@@ -144,7 +144,7 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 	if state.hoistedTries == nil {
 		state.hoistedTries = make(map[*checker.Expression]string)
 	}
-	operand, err := renderExpressionExpectedWithState(*node.Operand, node.OperandType, true, state)
+	operand, err := renderExpressionExpectedWithState(*node.Operand, &node.OperandType, state)
 	if err != nil {
 		return err
 	}

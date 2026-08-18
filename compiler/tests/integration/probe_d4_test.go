@@ -32,7 +32,7 @@ func TestProbeD4FromPointerProvenance(t *testing.T) {
 	for _, source := range accept {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitSuccess {
-			t.Errorf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Errorf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 }

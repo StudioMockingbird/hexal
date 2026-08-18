@@ -19,7 +19,7 @@ func directPointerBinding(source Operand, target compilerTypes.Type) BindingID {
 	return source.Node.Binding
 }
 
-func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, environment *scope) (TypeDeclaration, compilerTypes.Diagnostics) {
+func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, names *scope) (TypeDeclaration, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	name := declaration.Name.Lexeme
 	previousType, hadPreviousType := typeEnvironment.Lookup(name)
@@ -29,49 +29,25 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 		if name == "Ptr" || name == "MutPtr" {
 			message = "built-in type constructor " + name + " cannot be redeclared"
 		}
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  message,
-		})
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, message))
 	} else if typeEnvironment.Contains(name) {
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "type " + name + " is already declared",
-		})
-	} else if environment.declaredHere(name) {
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "type " + name + " is already declared as a value",
-		})
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type "+name+" is already declared"))
+	} else if names.declaredHere(name) {
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type "+name+" is already declared as a value"))
 	}
 
 	if len(declaration.Parameters) > 0 {
-		genericDiagnostics := registerGenericTypeDeclaration(declaration, typeEnvironment, environment)
+		genericDiagnostics := registerGenericTypeDeclaration(declaration, typeEnvironment, names)
 		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, genericDiagnostics
 	}
 
 	if adt, isADT := declaration.Target.(parser.AdtDefinitionExpression); isADT {
-		return checkADTDeclaration(declaration, adt, typeEnvironment, environment)
+		return checkADTDeclaration(declaration, adt, typeEnvironment, names)
 	}
 
 	if object, ok := declaration.Target.(parser.ObjectTypeExpression); ok {
 		if len(object.Members) == 0 {
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     declaration.Name.Line,
-				Column:   declaration.Name.Column,
-				Message:  "object type " + name + " must declare at least one member",
-			})
+			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "object type "+name+" must declare at least one member"))
 		}
 		// Publish a provisional nominal identity before resolving members so a
 		// member may reach this object behind at least one pointer layer. The
@@ -79,8 +55,8 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 		// complete success. The object is stamped with the declaring module's
 		// canonical id: that id is what owns its methods.
 		beginResult := typeEnvironment.BeginObject(name, declaration.Name.Line, declaration.Name.Column)
-		beginResult.Object.ModuleID = environment.moduleID
-		members, memberDiagnostics := resolveObjectMembers(name, object, typeEnvironment, environment.generics)
+		beginResult.Object.ModuleID = names.moduleID
+		members, memberDiagnostics := resolveObjectMembers(name, object, typeEnvironment, names.generics)
 		diagnostics = append(diagnostics, memberDiagnostics...)
 		if len(diagnostics) == 0 {
 			resolved := typeEnvironment.CompleteObject(name, members)
@@ -112,14 +88,8 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 	}
 
 	if containsTypeName(declaration.Target, name) {
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "type alias " + name + " cannot reference itself",
-		})
-	} else if resolvedUse, diagnostic := resolveTypeUse(declaration.Target, declaration.Name, typeEnvironment, environment.generics); diagnostic != nil {
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type alias "+name+" cannot reference itself"))
+	} else if resolvedUse, diagnostic := resolveTypeUse(declaration.Target, declaration.Name, typeEnvironment, names.generics); diagnostic != nil {
 		diagnostics = append(diagnostics, *diagnostic)
 	} else if len(diagnostics) == 0 {
 		return TypeDeclaration{
@@ -144,25 +114,13 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 	seen := make(map[string]bool, len(expression.Members))
 	for _, declaration := range expression.Members {
 		if seen[declaration.Name.Lexeme] {
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     declaration.Name.Line,
-				Column:   declaration.Name.Column,
-				Message:  fmt.Sprintf("object type %s declares member %s more than once", objectName, declaration.Name.Lexeme),
-			})
+			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, fmt.Sprintf("object type %s declares member %s more than once", objectName, declaration.Name.Lexeme)))
 			continue
 		}
 		seen[declaration.Name.Lexeme] = true
 
 		if containsTypeName(declaration.Type, objectName) && !containsPointerType(declaration.Type) {
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     declaration.Name.Line,
-				Column:   declaration.Name.Column,
-				Message:  "object type " + objectName + " cannot contain itself by value",
-			})
+			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "object type "+objectName+" cannot contain itself by value"))
 			continue
 		}
 
@@ -186,13 +144,7 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 		// Fun, Unknown, and Atomic at non-construction positions. An open type
 		// parameter defers to specialization rechecking.
 		if !compilerTypes.ContainsTypeParameter(resolved) && !compilerTypes.Storable(resolved, compilerTypes.PositionObjectMember) {
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     declaration.Name.Line,
-				Column:   declaration.Name.Column,
-				Message:  "unsupported object member type " + resolved.Name,
-			})
+			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "unsupported object member type "+resolved.Name))
 			continue
 		}
 		members = append(members, compilerTypes.ObjectMember{
@@ -278,7 +230,7 @@ func containsTypeName(expression parser.TypeExpression, name string) bool {
 // registerGenericTypeDeclaration validates and stores one generic type or
 // alias declaration as an open template. The target is not resolved yet:
 // parameters are placeholders until a concrete specialization is requested.
-func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, environment *scope) compilerTypes.Diagnostics {
+func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, names *scope) compilerTypes.Diagnostics {
 	name := declaration.Name.Lexeme
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	seen := make(map[string]bool, len(declaration.Parameters))
@@ -309,7 +261,7 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvi
 	} else if containsTypeName(declaration.Target, name) {
 		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, "type alias "+name+" cannot reference itself")}
 	}
-	environment.generics.types[name] = &openGenericType{
+	names.generics.types[name] = &openGenericType{
 		Name:        name,
 		Parameters:  append([]lexer.Token(nil), declaration.Parameters...),
 		Target:      declaration.Target,
@@ -318,9 +270,9 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvi
 	return nil
 }
 
-func checkDeclaration(declaration parser.Declaration, environment *scope, typeEnvironment *compilerTypes.Environment) (Declaration, binding, compilerTypes.Diagnostics) {
+func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironment *compilerTypes.Environment) (Declaration, binding, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	declaredUse, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, environment.generics)
+	declaredUse, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, names.generics)
 	declaredType := declaredUse.Type
 	if typeDiagnostic != nil {
 		diagnostics = append(diagnostics, *typeDiagnostic)
@@ -330,57 +282,27 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 	if declaration.Name.Lexeme == "print" {
 		// The protected builtin name cannot be bound by a local or
 		// module declaration.
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.NameError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "print is a protected built-in name",
-		})
+		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, "print is a protected built-in name"))
 	}
 	if layoutBuiltins[declaration.Name.Lexeme] {
 		// The layout query names cannot be bound by a local or
 		// module declaration.
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.NameError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  declaration.Name.Lexeme + " is a protected built-in name",
-		})
+		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, declaration.Name.Lexeme+" is a protected built-in name"))
 	}
 	if compilerTypes.IsProtectedTypeName(declaration.Name.Lexeme) {
 		message := "value " + declaration.Name.Lexeme + " is already declared as a type"
 		if declaration.Name.Lexeme == "Ptr" || declaration.Name.Lexeme == "MutPtr" {
 			message = "built-in type constructor " + declaration.Name.Lexeme + " cannot be redeclared"
 		}
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  message,
-		})
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, message))
 	} else if typeEnvironment.Contains(declaration.Name.Lexeme) {
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "value " + declaration.Name.Lexeme + " is already declared as a type",
-		})
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+declaration.Name.Lexeme+" is already declared as a type"))
 	}
-	if environment.declaredHere(declaration.Name.Lexeme) {
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     declaration.Name.Line,
-			Column:   declaration.Name.Column,
-			Message:  "variable " + declaration.Name.Lexeme + " is already declared; reassignment must omit the type annotation",
-		})
+	if names.declaredHere(declaration.Name.Lexeme) {
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "variable "+declaration.Name.Lexeme+" is already declared; reassignment must omit the type annotation"))
 	}
 
-	initializer := checkInitializer(declaration.Initializer, declaredUse, declaration.Name, environment, typeEnvironment)
+	initializer := checkInitializer(declaration.Initializer, declaredUse, declaration.Name, names, typeEnvironment)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
@@ -397,9 +319,9 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		typ:     declaredType,
 		use:     declaredUse,
 		mutable: declaration.Mutable,
-		id:      environment.newBindingID(),
+		id:      names.newBindingID(),
 	}
-	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, environment) {
+	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, names) {
 		declaredBinding.fromRef = true
 	}
 	if declaredType.View != nil {
@@ -415,11 +337,11 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 		known := *initializer.known
 		declaredBinding.known = &known
 	}
-	if len(diagnostics) == 0 && environment.flow != nil && trackablePointerBinding(declaredBinding) {
-		environment.flow.trackFreed(declaredBinding.id)
+	if len(diagnostics) == 0 && names.flow != nil && trackablePointerBinding(declaredBinding) {
+		names.flow.trackFreed(declaredBinding.id)
 		if sourceBinding := directPointerBinding(initializer.source, declaredType); sourceBinding != 0 {
-			environment.flow.dropFreed(sourceBinding)
-			environment.flow.dropFreed(declaredBinding.id)
+			names.flow.dropFreed(sourceBinding)
+			names.flow.dropFreed(declaredBinding.id)
 		}
 	}
 	return Declaration{
@@ -434,9 +356,9 @@ func checkDeclaration(declaration parser.Declaration, environment *scope, typeEn
 	}, declaredBinding, diagnostics
 }
 
-func checkAssignment(assignment parser.Assignment, environment *scope, typeEnvironment *compilerTypes.Environment) (Assignment, compilerTypes.Diagnostics) {
+func checkAssignment(assignment parser.Assignment, names *scope, typeEnvironment *compilerTypes.Environment) (Assignment, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	target := checkPlace(assignment.Target, environment, typeEnvironment)
+	target := checkPlace(assignment.Target, names, typeEnvironment)
 	switch {
 	case target.diagnostic != nil:
 		diagnostics = append(diagnostics, *target.diagnostic)
@@ -464,7 +386,7 @@ func checkAssignment(assignment parser.Assignment, environment *scope, typeEnvir
 	targetBinding := BindingID(0)
 	if variable, ok := assignment.Target.(parser.VariableExpression); ok && target.source.Binding != 0 {
 		targetBinding = target.source.Binding
-		if bound, status := environment.lookup(variable.Name.Lexeme); status == nameFound {
+		if bound, status := names.lookup(variable.Name.Lexeme); status == nameFound {
 			targetType = bound.typ
 			target.source.Type = bound.typ
 			target.use = bound.use
@@ -474,7 +396,7 @@ func checkAssignment(assignment parser.Assignment, environment *scope, typeEnvir
 	if targetUse.Type == (compilerTypes.Type{}) {
 		targetUse = compilerTypes.NewTypeUse(targetType)
 	}
-	initializer := checkInitializer(assignment.Initializer, targetUse, assignment.Name, environment, typeEnvironment)
+	initializer := checkInitializer(assignment.Initializer, targetUse, assignment.Name, names, typeEnvironment)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
@@ -486,20 +408,20 @@ func checkAssignment(assignment parser.Assignment, environment *scope, typeEnvir
 	if len(diagnostics) == 0 && initializer.typ != (compilerTypes.Type{}) && !assignable(targetType, initializer.typ) {
 		diagnostics = append(diagnostics, bindingMismatchDiagnostic(assignment.Name.Lexeme, targetType, initializer.typ, initializer.token))
 	}
-	if len(diagnostics) == 0 && environment.flow != nil && targetBinding != 0 {
-		environment.flow.invalidateNarrowing(targetBinding)
+	if len(diagnostics) == 0 && names.flow != nil && targetBinding != 0 {
+		names.flow.invalidateNarrowing(targetBinding)
 		if sourceBinding := directPointerBinding(initializer.source, targetType); sourceBinding != 0 {
-			environment.flow.dropFreed(sourceBinding)
-			environment.flow.dropFreed(targetBinding)
+			names.flow.dropFreed(sourceBinding)
+			names.flow.dropFreed(targetBinding)
 		} else {
-			environment.flow.clearFreed(targetBinding)
+			names.flow.clearFreed(targetBinding)
 		}
 	}
 	if len(diagnostics) == 0 && targetBinding != 0 {
 		// Assignment re-sources the slot: the binding now holds the ref-derived
 		// value exactly when the assigned initializer traces to a ref, so the
 		// flag is both set and cleared by the same check.
-		environment.setFromRef(targetBinding, nodeTracesToRef(&initializer.source.Node, environment))
+		names.setFromRef(targetBinding, nodeTracesToRef(&initializer.source.Node, names))
 	}
 
 	return Assignment{
@@ -514,37 +436,19 @@ func checkAssignment(assignment parser.Assignment, environment *scope, typeEnvir
 
 func assignmentTargetDiagnostic(target parser.Expression, fallback lexer.Token) compilerTypes.Diagnostic {
 	if variable, ok := target.(parser.VariableExpression); ok {
-		return compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     variable.Name.Line,
-			Column:   variable.Name.Column,
-			Message:  "cannot assign to constant " + variable.Name.Lexeme,
-		}
+		return typeErrorAt(variable.Name, "cannot assign to constant "+variable.Name.Lexeme)
 	}
 	if property, ok := target.(parser.PropertyExpression); ok && property.Property.Lexeme != "value" {
-		return compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     property.Property.Line,
-			Column:   property.Property.Column,
-			Message:  "cannot assign to read-only member " + placeDescription(target),
-		}
+		return typeErrorAt(property.Property, "cannot assign to read-only member "+placeDescription(target))
 	}
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     fallback.Line,
-		Column:   fallback.Column,
-		Message:  "cannot write through a read-only pointer " + placeDescription(target),
-	}
+	return typeErrorAt(fallback, "cannot write through a read-only pointer "+placeDescription(target))
 }
 
 // bindingMismatchDiagnostic names the binding for a function-pointer slot,
 // where "expected X initializer" reads poorly against two Fun<...> spellings.
 func bindingMismatchDiagnostic(name string, declaredType, actualType compilerTypes.Type, token lexer.Token) compilerTypes.Diagnostic {
 	if declaredType.Signature != nil || actualType.Signature != nil {
-		return typeErrorAt(token, fmt.Sprintf("%s requires %s, got %s", name, declaredType.Name, actualType.Name))
+		return typeErrorAt(token, fmt.Sprintf("%s requires %s; got %s", name, declaredType.Name, actualType.Name))
 	}
 	return typeMismatchDiagnostic(declaredType, actualType, token)
 }
@@ -552,21 +456,15 @@ func bindingMismatchDiagnostic(name string, declaredType, actualType compilerTyp
 func typeMismatchDiagnostic(declaredType, actualType compilerTypes.Type, token lexer.Token) compilerTypes.Diagnostic {
 	message := assignabilityMismatchMessage(declaredType, actualType)
 	if message == "" {
-		message = fmt.Sprintf("expected %s initializer, got %s", declaredType.Name, actualType.Name)
+		message = fmt.Sprintf("expected %s initializer; got %s", declaredType.Name, actualType.Name)
 	}
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return typeErrorAt(token, message)
 }
 
 func assignabilityMismatchMessage(target, source compilerTypes.Type) string {
 	if compilerTypes.IsNil(source) || compilerTypes.IsNullable(source) {
 		if !compilerTypes.IsNullable(target) {
-			return fmt.Sprintf("expected %s, got %s", target.Name, source.Name)
+			return fmt.Sprintf("expected %s; got %s", target.Name, source.Name)
 		}
 	}
 	if target.Element != nil && source.Element != nil {
@@ -583,7 +481,7 @@ func assignabilityMismatchMessage(target, source compilerTypes.Type) string {
 			if source.PointeeWritable {
 				erased = "MutPtr<Unknown>"
 			}
-			return fmt.Sprintf("expected %s, got %s; erasure and recovery do not compose, bind %s first", target.Name, source.Name, erased)
+			return fmt.Sprintf("expected %s; got %s; erasure and recovery do not compose, bind %s first", target.Name, source.Name, erased)
 		}
 	}
 	return ""

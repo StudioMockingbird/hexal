@@ -22,29 +22,17 @@ var layoutBuiltins = map[string]bool{
 // specialization pass, which re-checks the body with concrete arguments.
 func checkLayoutCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	if len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: callee.Line, Column: callee.Column,
-			Message: callee.Lexeme + " requires exactly one type argument",
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, callee.Lexeme+" requires exactly one type argument"))}
 	}
 	if len(call.Arguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: callee.Line, Column: callee.Column,
-			Message: callee.Lexeme + " takes no value arguments",
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, callee.Lexeme+" takes no value arguments"))}
 	}
 	use, diagnostic := resolveTypeUse(call.TypeArguments[0], callee, typeEnvironment, names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
 	if !layoutEligible(use.Type) {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: callee.Line, Column: callee.Column,
-			Message: callee.Lexeme + " requires one complete finite-sized type; got " + use.Type.Name,
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, callee.Lexeme+" requires one complete finite-sized type; got "+use.Type.Name))}
 	}
 	node := Expression{Kind: LayoutExpression, Name: callee.Lexeme, OperandType: use.Type, ResultType: compilerTypes.SizeType}
 	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: callee.Lexeme, Node: node}
@@ -91,11 +79,7 @@ func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpress
 	name := callee.Property.Lexeme
 	element := *receiver.typ.Element
 	if !volatileEligibleType(element) {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError, Stage: "checker",
-			Line: callee.Property.Line, Column: callee.Property.Column,
-			Message: "volatile access is supported only for integer storage types; got " + element.Name,
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "volatile access is supported only for integer storage types; got "+element.Name))}
 	}
 	if diagnostic := freedPointeeDiagnostic(receiver, callee.Property, names.flow); diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
@@ -103,48 +87,28 @@ func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpress
 	switch name {
 	case "read_volatile":
 		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: callee.Property.Line, Column: callee.Property.Column,
-				Message: "read_volatile expects no arguments",
-			}}
+			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "read_volatile expects no arguments"))}
 		}
 		node := Expression{Kind: VolatileReadExpression, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: element, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: element, Name: name, Node: node}
 		return checkedExpression{source: source, typ: element, token: callee.Property}
 	case "write_volatile":
 		if receiver.typ.PointeeWritable == false {
-			return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: callee.Property.Line, Column: callee.Property.Column,
-				Message: "Ptr<" + element.Name + "> is read-only; volatile write requires MutPtr<" + element.Name + ">",
-			}}
+			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Ptr<"+element.Name+"> is read-only; volatile write requires MutPtr<"+element.Name+">"))}
 		}
 		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: callee.Property.Line, Column: callee.Property.Column,
-				Message: "write_volatile expects 1 argument",
-			}}
+			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "write_volatile expects 1 argument"))}
 		}
 		value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.Arguments[0]), names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if !assignable(element, value.typ) {
-			return checkedExpression{token: value.token, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError, Stage: "checker",
-				Line: value.token.Line, Column: value.token.Column,
-				Message: fmt.Sprintf("write_volatile requires %s; got %s", element.Name, value.typ.Name),
-			}}
+			return checkedExpression{token: value.token, diagnostic: diagnosticAt(typeErrorAt(value.token, fmt.Sprintf("write_volatile requires %s; got %s", element.Name, value.typ.Name)))}
 		}
 		node := Expression{Kind: VolatileWriteExpression, Operand: &receiver.source.Node, Arguments: []Operand{value.source}, OperandType: receiver.typ, ResultType: compilerTypes.Type{}, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	}
-	return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError, Stage: "checker",
-		Line: callee.Property.Line, Column: callee.Property.Column,
-		Message: "volatile access supports read_volatile and write_volatile only",
-	}}
+	return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "volatile access supports read_volatile and write_volatile only"))}
 }

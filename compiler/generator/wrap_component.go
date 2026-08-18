@@ -16,11 +16,11 @@ type wrapHelperRecord struct {
 	Helper string
 }
 
-// wrapComponent returns the generated hexal/wrap.h artifact when signed
+// wrapComponents returns the generated hexal/wrap.h artifact when signed
 // wrapping helpers are selected. The helpers migrate here from hexal.h; the
 // template renders presentation only, so Go resolves the ordered records and
 // type spellings from the program-wide discovery state.
-func wrapComponent(merged *programEmission) ([]componentArtifact, error) {
+func wrapComponents(merged *programEmission) ([]componentArtifact, error) {
 	state := merged.wrapState
 	if state == nil || len(state.order) == 0 {
 		return nil, nil
@@ -46,12 +46,6 @@ func wrapHeaderModelFor(state *generatedWrapState) wrapHeaderModel {
 		})
 	}
 	return wrapHeaderModel{Helpers: records}
-}
-
-// wrapFamilyContent is the transition seam; the wrapping helpers left hexal.h
-// for the wrap component, so hexal.h contributes none of them.
-func wrapFamilyContent(state *generatedWrapState) string {
-	return ""
 }
 
 // moduleWrapComponent selects hexal/wrap.h for a module using signed

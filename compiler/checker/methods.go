@@ -96,10 +96,11 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		return checked, registerGenericMethod(declaration, names, typeEnvironment)
 	}
 
-	target, targetDiagnostic := resolveType(declaration.SelfType, declaration.Keyword, typeEnvironment, names.generics)
+	targetUse, targetDiagnostic := resolveTypeUse(declaration.SelfType, declaration.Keyword, typeEnvironment, names.generics)
 	if targetDiagnostic != nil {
 		return checked, compilerTypes.Diagnostics{*targetDiagnostic}
 	}
+	target := targetUse.Type
 	// Method rule 1 admits T, Ptr<T>, and MutPtr<T>. A nullable union is not
 	// a receiver form: `self` would hold the union and every use would need a
 	// narrowing the method body can never prove, so the target is rejected.
@@ -108,7 +109,7 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 			fmt.Sprintf("impl requires T, Ptr<T>, or MutPtr<T>; got %s", target.Name))}
 	}
 	// Method rule 1: the target is T, Ptr<T>, or MutPtr<T> for a declared
-	// nominal object T. Alias resolution already happened in resolveType.
+	// nominal object T. Alias resolution already happened in resolveTypeUse.
 	object := target.Object
 	if object == nil && target.Element != nil {
 		object = target.Element.Object
@@ -433,7 +434,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 
 	if len(call.Arguments) != len(method.Parameters) {
 		diagnostic := typeErrorAt(callee.Property,
-			fmt.Sprintf("%s expects %d arguments, got %d", name, len(method.Parameters), len(call.Arguments)))
+			fmt.Sprintf("%s expects %d arguments; got %d", name, len(method.Parameters), len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	expected := make([]compilerTypes.TypeUse, 0, len(method.Parameters))
@@ -488,7 +489,7 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 	}
 	if len(call.Arguments) != len(method.Parameters) {
 		diagnostic := typeErrorAt(callee.Property,
-			fmt.Sprintf("%s expects %d arguments, got %d", name, len(method.Parameters), len(call.Arguments)))
+			fmt.Sprintf("%s expects %d arguments; got %d", name, len(method.Parameters), len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	expected := make([]compilerTypes.TypeUse, 0, len(method.Parameters))

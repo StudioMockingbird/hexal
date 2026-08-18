@@ -296,10 +296,7 @@ func TestRenderConversionClassification(t *testing.T) {
 // concrete pair and the shared trap.
 func TestGenerateDirectConversionEmitsCastOnly(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := generateOne(t, program)
 	rootC, rootH, header := files["modules/app.c"], files["modules/app.h"], files["hexal.h"]
 	if !strings.Contains(rootC, "(double)hex_v_value") {
 		t.Fatalf("modules/app.c = %q, want a direct cast", rootC)
@@ -318,10 +315,7 @@ func TestGenerateDirectConversionEmitsCastOnly(t *testing.T) {
 
 func TestGenerateCheckedConversionSelectsHelperAndTrap(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: Float64 = 3.75\n    whole: Int32 = value.to<Int32>()\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := generateOne(t, program)
 	rootC, rootH, header := files["modules/app.c"], files["modules/app.h"], files["hexal.h"]
 	for _, want := range []string{
 		"static inline int32_t hex_convert_double_int32_t(double value) {",
@@ -347,10 +341,7 @@ func TestGenerateCheckedConversionSelectsHelperAndTrap(t *testing.T) {
 
 func TestGenerateRepeatedCheckedPairEmitsOneHelper(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    big: Int64 = 9000000000\n    a: Int8 = big.to<Int8>()\n    b: Int8 = big.to<Int8>()\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := generateOne(t, program)
 	rootH := files["modules/app.h"]
 	rootC := files["modules/app.c"]
 	if strings.Count(rootH, "static inline int8_t hex_convert_int64_t_int8_t") != 1 {
@@ -363,10 +354,7 @@ func TestGenerateRepeatedCheckedPairEmitsOneHelper(t *testing.T) {
 
 func TestGenerateMixedSafeAndCheckedEmitsOnlyCheckedHelpers(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\n    big: Int64 = 9000000000\n    narrow: Int8 = big.to<Int8>()\n    other: Float64 = value.to<Float64>()\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := generateOne(t, program)
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if strings.Count(rootC, "(double)hex_v_value") != 2 {
 		t.Fatalf("modules/app.c = %q, want both safe casts inline", rootC)

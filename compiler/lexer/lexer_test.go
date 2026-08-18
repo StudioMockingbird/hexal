@@ -555,7 +555,7 @@ func TestLexRejectsRawNewlinesInStringLiteral(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Lex(tc.source)
 			if err == nil || !strings.Contains(err.Error(), "raw newline") {
-				t.Fatalf("want raw-newline diagnostic, got %v", err)
+				t.Fatalf("want raw-newline diagnostic; got %v", err)
 			}
 		})
 	}
@@ -568,7 +568,7 @@ func TestLexStringEscapedNewlinesRemainValid(t *testing.T) {
 			t.Fatalf("escaped newline rejected: %v", err)
 		}
 		if len(tokens) != 2 || tokens[0].Kind != StringLiteral {
-			t.Fatalf("want one StringLiteral token, got %#v", tokens)
+			t.Fatalf("want one StringLiteral token; got %#v", tokens)
 		}
 	}
 }
@@ -576,10 +576,10 @@ func TestLexStringEscapedNewlinesRemainValid(t *testing.T) {
 func TestLexRawNewlineRecoveryKeepsSourcePositions(t *testing.T) {
 	tokens, err := Lex("\"a\nb\" x: Int32 = 1")
 	if err == nil || !strings.Contains(err.Error(), "raw newline") {
-		t.Fatalf("want raw-newline diagnostic, got %v", err)
+		t.Fatalf("want raw-newline diagnostic; got %v", err)
 	}
 	if len(tokens) == 0 || tokens[0].Kind != Identifier || tokens[0].Line != 2 {
-		t.Fatalf("want identifier x on line 2, got %#v", tokens)
+		t.Fatalf("want identifier x on line 2; got %#v", tokens)
 	}
 }
 
@@ -589,6 +589,6 @@ func TestLexClosedMultilineStringReportsOneDiagnostic(t *testing.T) {
 		t.Fatal("want a diagnostic")
 	}
 	if n := strings.Count(err.Error(), "raw newline"); n != 1 {
-		t.Fatalf("want exactly one raw-newline diagnostic, got %d", n)
+		t.Fatalf("want exactly one raw-newline diagnostic; got %d", n)
 	}
 }

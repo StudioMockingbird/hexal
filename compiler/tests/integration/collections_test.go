@@ -22,7 +22,7 @@ func TestStorabilityRule(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 	rejected := []string{
@@ -34,7 +34,7 @@ func TestStorabilityRule(t *testing.T) {
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want reject, got accept:\n%s", source)
+			t.Fatalf("want reject; got accept:\n%s", source)
 		}
 	}
 	// A Fun inside a union member stays accepted; only structural payload
@@ -43,7 +43,7 @@ func TestStorabilityRule(t *testing.T) {
 		"fun helper(x: Int32): Int32 do return x end\ntype Wrapper = Fun<(Int32) : Int32> | Int32\nw: Wrapper = 1\n",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 }

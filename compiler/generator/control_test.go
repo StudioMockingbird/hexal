@@ -57,7 +57,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(multiC, "hex_try_result_") || !strings.Contains(multiC, "switch (hex_try_1.tag) {") {
-		t.Fatalf("multi-success try must normalize through a temporary, got %q", multiC)
+		t.Fatalf("multi-success try must normalize through a temporary; got %q", multiC)
 	}
 }
 
@@ -66,10 +66,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 // typedef exists.
 func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := generateOne(t, program)
 	rootH := files["modules/app.h"]
 	for _, want := range []string{
 		"typedef _Atomic(int32_t) hex_atomic_Int32;",
@@ -93,10 +90,7 @@ func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
 // component; the module C file keeps only the direct core call sites.
 func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun worker(m: Mutex): Bool do\n    m.lock()\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(m)\n    task.join()\n    return 0\nend\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatal(err)
-	}
+	files := generateOne(t, program)
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	concurrencyC := files["hexal/concurrency.c"]
 	for _, want := range []string{

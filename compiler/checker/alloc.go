@@ -75,13 +75,7 @@ func captureDeferredHeapFree(action *DeferredAction, names *scope) {
 func checkHeapTypeCall(call parser.CallExpression, token parser.VariableExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
 	if name != "new" || len(call.Arguments) != 0 {
-		return checkedExpression{token: token.Name, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     token.Name.Line,
-			Column:   token.Name.Column,
-			Message:  "Heap has no such operation; use Heap.new()",
-		}}
+		return checkedExpression{token: token.Name, diagnostic: diagnosticAt(typeErrorAt(token.Name, "Heap has no such operation; use Heap.new()"))}
 	}
 	source := constantOperand(compilerTypes.Heap, nil, "")
 	source.Node = constantNode(source)
@@ -94,24 +88,12 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 	if len(call.Arguments) != 1 {
 		message := "allocation requires an explicit initializer"
 		if len(call.Arguments) > 1 {
-			message = "allocate expects 1 argument, got " + fmt.Sprint(len(call.Arguments))
+			message = "allocate expects 1 argument; got " + fmt.Sprint(len(call.Arguments))
 		}
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  message,
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, message))}
 	}
 	if len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  "allocate requires exactly one type argument",
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "allocate requires exactly one type argument"))}
 	}
 	elementUse, diagnostic := resolveTypeUse(call.TypeArguments[0], callee.Property, typeEnvironment, names.generics)
 	if diagnostic != nil {
@@ -119,26 +101,14 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 	}
 	element := elementUse.Type
 	if !compilerTypes.Eligible(element, compilerTypes.PositionHeapAllocation) {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  "allocation requires a complete finite type",
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "allocation requires a complete finite type"))}
 	}
 	initial := checkInitializer(call.Arguments[0], elementUse, callee.Property, names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(initial); len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	if initial.typ != (compilerTypes.Type{}) && !assignable(element, initial.typ) {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  fmt.Sprintf("allocation initializer requires %s, got %s", element.Name, initial.typ.Name),
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("allocation initializer requires %s; got %s", element.Name, initial.typ.Name)))}
 	}
 	receiverNode := expressionNode(receiver.source)
 	result := typeEnvironment.MutPtrType(element)
@@ -158,26 +128,14 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 // HeapFreeExpression. The value may be Ptr<T> or MutPtr<T>.
 func checkHeapFree(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  "free expects exactly one pointer argument",
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "free expects exactly one pointer argument"))}
 	}
 	value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.Type{}), callee.Property, names, typeEnvironment)
 	if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	if value.typ.Element == nil {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  "value is not an allocation produced by this Heap",
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "value is not an allocation produced by this Heap"))}
 	}
 	if nodeTracesToRef(&value.source.Node, names) {
 		diagnostic := freeLocalStorageDiagnostic(callee.Property)

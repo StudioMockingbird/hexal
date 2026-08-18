@@ -1,7 +1,8 @@
 package generator
 
 import (
-	"sort"
+	"maps"
+	"slices"
 )
 
 // concurrencyComponents returns the generated hexal/concurrency.h and
@@ -60,27 +61,15 @@ type concurrencySourceModel struct {
 // state, pre-sorting every data-driven handle and entry list by its C name.
 func concurrencyHeaderModelFrom(state *generatedConcurrencyState) concurrencyHeaderModel {
 	model := concurrencyHeaderModel{Scheduler: state.used}
-	taskNames := make([]string, 0, len(state.taskTypes))
-	for name := range state.taskTypes {
-		taskNames = append(taskNames, name)
-	}
-	sort.Strings(taskNames)
+	taskNames := slices.Sorted(maps.Keys(state.taskTypes))
 	for _, name := range taskNames {
 		model.Tasks = append(model.Tasks, taskSuffix(state.taskTypes[name]))
 	}
-	channelNames := make([]string, 0, len(state.channels))
-	for name := range state.channels {
-		channelNames = append(channelNames, name)
-	}
-	sort.Strings(channelNames)
+	channelNames := slices.Sorted(maps.Keys(state.channels))
 	for _, name := range channelNames {
 		model.Channels = append(model.Channels, channelSuffix(state.channels[name]))
 	}
-	atomicNames := make([]string, 0, len(state.atomics))
-	for name := range state.atomics {
-		atomicNames = append(atomicNames, name)
-	}
-	sort.Strings(atomicNames)
+	atomicNames := slices.Sorted(maps.Keys(state.atomics))
 	for _, name := range atomicNames {
 		atomic := state.atomics[name]
 		model.Atomics = append(model.Atomics, concurrencyAtomicModel{
@@ -92,7 +81,7 @@ func concurrencyHeaderModelFrom(state *generatedConcurrencyState) concurrencyHea
 	for _, site := range state.spawns {
 		entryNames = append(entryNames, site.function)
 	}
-	sort.Strings(entryNames)
+	slices.Sort(entryNames)
 	model.SpawnEntries = entryNames
 	return model
 }
@@ -107,20 +96,6 @@ func concurrencySourceModelFrom(state *generatedConcurrencyState) concurrencySou
 		Channels:  len(state.channels) > 0,
 		Mutex:     state.mutexNew || state.mutexLock || state.mutexUnlock || state.mutexFree,
 	}
-}
-
-// concurrencyFamilyContent is the drained transition seam: the prelude and
-// runtime declarations own the concurrency component, so hexal.h contributes
-// none of them.
-func concurrencyFamilyContent(state *generatedConcurrencyState) string {
-	return ""
-}
-
-// concurrencyRuntimeContent is the drained transition seam: the runtime
-// definitions and state own the concurrency component, so the root module C
-// file contributes none of them.
-func concurrencyRuntimeContent(state *generatedConcurrencyState, literals *literalRegistry) string {
-	return ""
 }
 
 // moduleConcurrencyComponent selects hexal/concurrency.h for a module whose

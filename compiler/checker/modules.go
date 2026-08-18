@@ -7,7 +7,8 @@ package checker
 // the per-module exported records.
 
 import (
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"hexal/compiler/lexer"
@@ -246,11 +247,7 @@ func (registry *ModuleRegistry) assembleSpecializations(moduleID string, program
 // specializeKey spellings, so sorting them is exactly the (decl, args) order
 // the generator consumes.
 func sortedFunctionSpecializations(collection map[string]FunctionDeclaration) []FunctionDeclaration {
-	keys := make([]string, 0, len(collection))
-	for key := range collection {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(collection))
 	result := make([]FunctionDeclaration, 0, len(keys))
 	for _, key := range keys {
 		result = append(result, collection[key])
@@ -263,11 +260,7 @@ func sortedFunctionSpecializations(collection map[string]FunctionDeclaration) []
 // name and arguments before the method name and its own arguments, matching
 // the order the interner builds them in.
 func sortedMethodSpecializations(collection map[string]MethodDeclaration) []MethodDeclaration {
-	keys := make([]string, 0, len(collection))
-	for key := range collection {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(collection))
 	result := make([]MethodDeclaration, 0, len(keys))
 	for _, key := range keys {
 		result = append(result, collection[key])
@@ -298,11 +291,7 @@ func (registry *ModuleRegistry) findExportedADTVariant(moduleID, variant string)
 	if !ok {
 		return compilerTypes.Type{}, nil, false
 	}
-	names := make([]string, 0, len(entry.types))
-	for name := range entry.types {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(entry.types))
 	for _, name := range names {
 		typ := entry.types[name].Type
 		if typ.Adt == nil {
@@ -320,13 +309,7 @@ func (registry *ModuleRegistry) findExportedADTVariant(moduleID, variant string)
 // privateToModuleDiagnostic is the visibility failure for a cross-module use
 // of a name that is private or unknown in its target module.
 func privateToModuleDiagnostic(token lexer.Token, name, target string) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.NameError,
-		Stage:    "checker",
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  "declaration " + name + " is private to module " + target,
-	}
+	return nameErrorAt(token, "declaration "+name+" is private to module "+target)
 }
 
 // checkExportedClosure validates every exported declaration's source-level

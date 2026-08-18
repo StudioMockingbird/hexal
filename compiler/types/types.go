@@ -1,6 +1,10 @@
+// Package types is the Hexal type system: the interned Type identity every
+// later stage reads, the per-compilation Environment and Arena that intern
+// constructed types, and the structured Diagnostic every stage reports through.
 package types
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -147,23 +151,47 @@ func (object *ObjectType) Member(name string) (*ObjectMember, bool) {
 type ErrorCategory string
 
 const (
-	SemanticError    ErrorCategory = "Semantic Error"
-	TypeError        ErrorCategory = "Type Error"
-	NameError        ErrorCategory = "Name Error"
-	ModuleError      ErrorCategory = "Module Error"
-	UnsupportedError ErrorCategory = "Unsupported Error"
-	LimitError       ErrorCategory = "Limit Error"
-	UnknownError     ErrorCategory = "Unknown Error"
-	SyntaxError      ErrorCategory = "Syntax Error"
+	SemanticError ErrorCategory = "Semantic Error"
+	TypeError     ErrorCategory = "Type Error"
+	NameError     ErrorCategory = "Name Error"
+	ModuleError   ErrorCategory = "Module Error"
+	UnknownError  ErrorCategory = "Unknown Error"
+	SyntaxError   ErrorCategory = "Syntax Error"
 )
 
 // Diagnostic is one structured compilation error.
 type Diagnostic struct {
 	Category ErrorCategory
 	Stage    string
-	Line     int
-	Column   int
-	Message  string
+	// Module is the logical source key the diagnostic belongs to, the same
+	// key the caller supplied in the sources map. Construction sites do not
+	// set it: each stage stamps its diagnostics at the one point where it
+	// knows which module it was checking, so a message can never claim the
+	// wrong module. It is empty only for a diagnostic about the compilation
+	// as a whole, such as a missing entrypoint.
+	Module  string
+	Line    int
+	Column  int
+	Message string
+}
+
+// InModule returns a copy of the diagnostic stamped with its module, leaving
+// an already-stamped diagnostic alone so an inner stage's attribution wins
+// over an outer one's.
+func (diagnostic Diagnostic) InModule(module string) Diagnostic {
+	if diagnostic.Module == "" {
+		diagnostic.Module = module
+	}
+	return diagnostic
+}
+
+// InModule stamps every diagnostic of the set with its module.
+func (diagnostics Diagnostics) InModule(module string) Diagnostics {
+	stamped := make(Diagnostics, len(diagnostics))
+	for index, diagnostic := range diagnostics {
+		stamped[index] = diagnostic.InModule(module)
+	}
+	return stamped
 }
 
 // Diagnostics is the ordered set of diagnostics one stage produced.
@@ -173,9 +201,15 @@ func (diagnostic Diagnostic) Error() string {
 	// An empty category is a construction defect in the compiler: every site
 	// must name a category, so an empty one renders as "[]" instead of being
 	// masked as a compiler Unknown Error that a user error never merits.
+	// The module qualifies the position: in a multi-module build "at 5:3"
+	// names no file, and two modules' messages read as one interleaved list.
 	location := ""
 	if diagnostic.Line > 0 {
-		location = fmt.Sprintf(" at %d:%d", diagnostic.Line, diagnostic.Column)
+		if diagnostic.Module != "" {
+			location = fmt.Sprintf(" at %s:%d:%d", diagnostic.Module, diagnostic.Line, diagnostic.Column)
+		} else {
+			location = fmt.Sprintf(" at %d:%d", diagnostic.Line, diagnostic.Column)
+		}
 	}
 	return "[" + string(diagnostic.Category) + "] " + diagnostic.Message + location
 }
@@ -196,23 +230,26 @@ func NewDiagnostic(category ErrorCategory, stage string, line, column int, messa
 	return Diagnostic{Category: category, Stage: stage, Line: line, Column: column, Message: message}
 }
 
-// ErrorMessages renders an error into the message lines of a failed build.
+// ErrorMessages renders an error into the message lines of a failed build. It
+// traverses wrappers with errors.As, so a diagnostic wrapped by any stage still
+// renders as itself rather than as an opaque message.
 func ErrorMessages(err error) []string {
-	switch value := err.(type) {
-	case Diagnostics:
-		messages := make([]string, 0, len(value))
-		for _, diagnostic := range value {
+	if err == nil {
+		return nil
+	}
+	var diagnostics Diagnostics
+	if errors.As(err, &diagnostics) {
+		messages := make([]string, 0, len(diagnostics))
+		for _, diagnostic := range diagnostics {
 			messages = append(messages, diagnostic.Error())
 		}
 		return messages
-	case Diagnostic:
-		return []string{value.Error()}
-	default:
-		if err == nil {
-			return nil
-		}
-		return []string{err.Error()}
 	}
+	var diagnostic Diagnostic
+	if errors.As(err, &diagnostic) {
+		return []string{diagnostic.Error()}
+	}
+	return []string{err.Error()}
 }
 
 // Environment is the store of all module-scoped types known to one
@@ -224,7 +261,6 @@ type Environment struct {
 	aliases             map[string]Type
 	aliasUses           map[string]TypeUse
 	genericDeclarations map[string]*GenericDeclaration
-	specializations     map[string]Type
 	identity            *typeIdentity
 	// arena holds the compilation-wide constructed-type intern maps.
 	arena *Arena
@@ -287,7 +323,6 @@ func NewCompilationEnvironment(arena *Arena, moduleID string) *Environment {
 		aliases:             make(map[string]Type),
 		aliasUses:           make(map[string]TypeUse),
 		genericDeclarations: make(map[string]*GenericDeclaration),
-		specializations:     make(map[string]Type),
 		identity:            newTypeIdentity(nil),
 		arena:               arena,
 		moduleID:            moduleID,
@@ -451,7 +486,7 @@ func (environment *Environment) MutPtrType(element Type) Type {
 func (environment *Environment) pointerType(element Type, writable bool) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, true) ||
-		IsManaged(element) ||
+		isManaged(element) ||
 		// The pointee occupies a named position: a direct Atomic element is
 		// rejected by Storable, while an enclosing object stays valid
 		// because containment stops at the indirection. The check defers
@@ -491,11 +526,18 @@ func (environment *Environment) pointerType(element Type, writable bool) Type {
 // compilation scope. Later stages use this when only the pointer's metadata
 // (name, C name) is needed; the checker always interns through its own
 // environment.
+//
+// The environment must be fresh per call, never shared across calls. An
+// arena interns by CanonicalKey, which is module-qualified but not
+// identity-qualified, so a shared arena hands a second compilation the first
+// compilation's ObjectType for a same-named type — and generation then
+// rejects it as undeclared.
 func PtrType(element Type) Type {
 	return NewEnvironment().PtrType(element)
 }
 
-// MutPtrType is the package-level convenience form of MutPtrType.
+// MutPtrType is the package-level convenience form of MutPtrType, with the
+// same fresh-environment requirement as PtrType.
 func MutPtrType(element Type) Type {
 	return NewEnvironment().MutPtrType(element)
 }

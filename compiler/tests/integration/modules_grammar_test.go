@@ -17,7 +17,7 @@ func TestModuleImportResolvesToNotFound(t *testing.T) {
 	// than a grammar error — the grammar itself parsed.
 	result := compileSource("module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n")
 	if result.ExitCode != compiler.ExitFailure {
-		t.Fatalf("want failure until ./math exists, got %#v", result)
+		t.Fatalf("want failure until ./math exists; got %#v", result)
 	}
 	if len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "imported module \"./math\" was not found") {
 		t.Fatalf("first diagnostic = %#v, want the resolution error", result.Stderr)

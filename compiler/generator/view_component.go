@@ -20,10 +20,10 @@ type viewComponentRecord struct {
 	ElementSpelling string
 }
 
-// viewComponent returns the generated hexal/view.h artifact when View
+// viewComponents returns the generated hexal/view.h artifact when View
 // specializations are reachable or another component declares view.h as a
 // dependency.
-func viewComponent(merged *programEmission) ([]componentArtifact, error) {
+func viewComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil || merged.viewState == nil || len(merged.viewState.views) == 0 && !merged.viewState.required {
 		return nil, nil
 	}
@@ -40,12 +40,6 @@ func viewComponent(merged *programEmission) ([]componentArtifact, error) {
 		template: "view.h",
 		model:    viewComponentModel{Views: records},
 	}}, nil
-}
-
-// viewFamilyContent is the transition seam; the view definitions have moved
-// to view.h, so hexal.h carries nothing.
-func viewFamilyContent(state *generatedViewState) string {
-	return ""
 }
 
 // moduleViewComponent selects hexal/view.h for a module with reachable View

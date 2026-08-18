@@ -2,7 +2,8 @@ package generator
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -239,7 +240,7 @@ func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Ty
 	site := spawnSite{
 		name:     node.Operand.Name,
 		module:   module,
-		function: PrivateCName(FunctionName, node.Operand.Name, moduleOwner(node.Operand.Module, localOwner)),
+		function: privateCName(functionNameKind, node.Operand.Name, moduleOwner(node.Operand.Module, localOwner)),
 		params:   append([]compilerTypes.Type(nil), signature.Signature.Parameters...),
 	}
 	if signature.Signature.Result != nil {
@@ -323,11 +324,7 @@ func writeTaskTypeHelpers(result *strings.Builder, state *generatedConcurrencySt
 		return
 	}
 	result.WriteString("\n// join copies R out of the result frame and reclaims the task storage.\n")
-	names := make([]string, 0, len(state.joinTypes))
-	for name := range state.joinTypes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(state.joinTypes))
 	for _, name := range names {
 		task := state.joinTypes[name]
 		suffix := taskSuffix(task)
@@ -407,11 +404,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 	if len(state.channels) == 0 {
 		return nil
 	}
-	channelNames := make([]string, 0, len(state.channels))
-	for name := range state.channels {
-		channelNames = append(channelNames, name)
-	}
-	sort.Strings(channelNames)
+	channelNames := slices.Sorted(maps.Keys(state.channels))
 	for _, name := range channelNames {
 		channel := state.channels[name]
 		suffix := channelSuffix(channel)
@@ -485,11 +478,7 @@ func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyStat
 	if len(state.atomics) == 0 {
 		return
 	}
-	atomicNames := make([]string, 0, len(state.atomics))
-	for name := range state.atomics {
-		atomicNames = append(atomicNames, name)
-	}
-	sort.Strings(atomicNames)
+	atomicNames := slices.Sorted(maps.Keys(state.atomics))
 	for _, name := range atomicNames {
 		atomic := state.atomics[name]
 		suffix := atomicSuffix(atomic)
@@ -663,7 +652,7 @@ func renderTaskMethod(node checker.Expression, state *expressionValidation) (str
 	if node.Operand == nil || node.OperandType.Task == nil {
 		return "", unknownExpressionDiagnostic("task method without a checked receiver")
 	}
-	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
@@ -704,7 +693,7 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 	if node.Operand == nil || node.OperandType.Channel == nil {
 		return "", unknownExpressionDiagnostic("channel method without a checked receiver")
 	}
-	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
@@ -767,7 +756,7 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 	if node.Operand == nil || !compilerTypes.IsMutex(node.OperandType) {
 		return "", unknownExpressionDiagnostic("mutex method without a checked receiver")
 	}
-	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
@@ -806,7 +795,7 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 	if node.Operand == nil || node.OperandType.Atomic == nil {
 		return "", unknownExpressionDiagnostic("atomic method without a checked receiver")
 	}
-	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
@@ -838,4 +827,190 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 		return helper + "(&(" + receiver + "), " + expected + ", " + desired + ")", nil
 	}
 	return "", unknownExpressionDiagnostic("unknown atomic method " + node.Name)
+}
+
+func validateConcurrencyExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	switch node.Kind {
+	case checker.SpawnExpression:
+		if node.Operand == nil || node.OperandType.Task == nil || node.OperandType.Task.Result == (compilerTypes.Type{}) || node.ResultType.Union == nil || !compilerTypes.Equal(node.Element, node.OperandType.Task.Result) || node.SourceLine <= 0 {
+			return unknownExpressionDiagnostic("spawn expression has invalid checked metadata")
+		}
+		if unionMemberIndex(node.ResultType, node.OperandType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
+			return unknownExpressionDiagnostic("spawn result union is missing its Task or Error member")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("spawn result type does not match its expected type")
+		}
+		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Type{}, state); err != nil {
+			return err
+		}
+		return nil
+	case checker.TaskYieldExpression:
+		if node.ResultType != (compilerTypes.Type{}) {
+			return unknownExpressionDiagnostic("Task.yield() result type is not zero")
+		}
+		return nil
+	case checker.TaskMethodCallExpression:
+		if node.Operand == nil || node.OperandType.Task == nil {
+			return unknownExpressionDiagnostic("task method has invalid checked metadata")
+		}
+		switch node.Name {
+		case "join":
+			if !compilerTypes.Equal(node.Element, node.OperandType.Task.Result) || !compilerTypes.Equal(node.ResultType, node.Element) {
+				return unknownExpressionDiagnostic("task join result does not match its Task result")
+			}
+		case "detach":
+			if node.ResultType != (compilerTypes.Type{}) {
+				return unknownExpressionDiagnostic("task detach result type is not zero")
+			}
+		default:
+			return unknownExpressionDiagnostic("unknown task method " + node.Name)
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("task method result type does not match its expected type")
+		}
+		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+	case checker.ChannelConstructorExpression:
+		if node.OperandType.Channel == nil || len(node.Arguments) != 2 || !compilerTypes.Equal(node.Element, node.OperandType.Channel.Element) || node.ResultType.Union == nil || node.SourceLine <= 0 {
+			return unknownExpressionDiagnostic("channel constructor has invalid checked metadata")
+		}
+		if unionMemberIndex(node.ResultType, node.OperandType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
+			return unknownExpressionDiagnostic("channel constructor union is missing its Channel or Error member")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("channel constructor result type does not match its expected type")
+		}
+		if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
+			return err
+		}
+		return validateCheckedOperandWithState(node.Arguments[1], state)
+	case checker.ChannelMethodCallExpression:
+		if node.Operand == nil || node.OperandType.Channel == nil || !compilerTypes.Equal(node.Element, node.OperandType.Channel.Element) {
+			return unknownExpressionDiagnostic("channel method has invalid checked metadata")
+		}
+		switch node.Name {
+		case "send":
+			if len(node.Arguments) != 1 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.Nil) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || node.SourceLine <= 0 {
+				return unknownExpressionDiagnostic("channel send has invalid checked metadata")
+			}
+		case "receive":
+			if len(node.Arguments) != 0 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, node.Element) < 0 || unionMemberIndex(node.ResultType, compilerTypes.EoS) < 0 {
+				return unknownExpressionDiagnostic("channel receive has invalid checked metadata")
+			}
+		case "close":
+			if len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
+				return unknownExpressionDiagnostic("channel close has invalid checked metadata")
+			}
+		case "length", "capacity":
+			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
+				return unknownExpressionDiagnostic("channel " + node.Name + " has invalid checked metadata")
+			}
+		case "is_closed":
+			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
+				return unknownExpressionDiagnostic("channel is_closed has invalid checked metadata")
+			}
+		case "free":
+			if len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
+				return unknownExpressionDiagnostic("channel free has invalid checked metadata")
+			}
+		default:
+			return unknownExpressionDiagnostic("unknown channel method " + node.Name)
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("channel method result type does not match its expected type")
+		}
+		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
+			return err
+		}
+		for _, argument := range node.Arguments {
+			if err := validateCheckedOperandWithState(argument, state); err != nil {
+				return err
+			}
+		}
+		return nil
+	case checker.MutexConstructorExpression:
+		if len(node.Arguments) != 1 || !compilerTypes.IsMutex(node.OperandType) || node.ResultType.Union == nil || node.SourceLine <= 0 {
+			return unknownExpressionDiagnostic("mutex constructor has invalid checked metadata")
+		}
+		if unionMemberIndex(node.ResultType, compilerTypes.MutexType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
+			return unknownExpressionDiagnostic("mutex constructor union is missing its Mutex or Error member")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("mutex constructor result type does not match its expected type")
+		}
+		return validateCheckedOperandWithState(node.Arguments[0], state)
+	case checker.MutexMethodCallExpression:
+		if node.Operand == nil || !compilerTypes.IsMutex(node.OperandType) || node.ResultType != (compilerTypes.Type{}) {
+			return unknownExpressionDiagnostic("mutex method has invalid checked metadata")
+		}
+		switch node.Name {
+		case "lock", "unlock":
+			if len(node.Arguments) != 0 {
+				return unknownExpressionDiagnostic("mutex " + node.Name + " expects no arguments")
+			}
+		case "free":
+			if len(node.Arguments) != 1 {
+				return unknownExpressionDiagnostic("mutex free expects one argument")
+			}
+		default:
+			return unknownExpressionDiagnostic("unknown mutex method " + node.Name)
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("mutex method result type does not match its expected type")
+		}
+		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
+			return err
+		}
+		for _, argument := range node.Arguments {
+			if err := validateCheckedOperandWithState(argument, state); err != nil {
+				return err
+			}
+		}
+		return nil
+	case checker.AtomicConstructorExpression:
+		if node.OperandType.Atomic == nil || len(node.Arguments) != 1 || !compilerTypes.Equal(node.Element, node.OperandType.Atomic.Element) || !compilerTypes.Equal(node.ResultType, node.OperandType) {
+			return unknownExpressionDiagnostic("atomic constructor has invalid checked metadata")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("atomic constructor result type does not match its expected type")
+		}
+		return validateCheckedOperandWithState(node.Arguments[0], state)
+	case checker.AtomicMethodCallExpression:
+		if node.Operand == nil || node.OperandType.Atomic == nil || !compilerTypes.Equal(node.Element, node.OperandType.Atomic.Element) {
+			return unknownExpressionDiagnostic("atomic method has invalid checked metadata")
+		}
+		switch node.Name {
+		case "load":
+			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, node.Element) {
+				return unknownExpressionDiagnostic("atomic load has invalid checked metadata")
+			}
+		case "store":
+			if len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
+				return unknownExpressionDiagnostic("atomic store has invalid checked metadata")
+			}
+		case "exchange", "fetch_add", "fetch_sub":
+			if len(node.Arguments) != 1 || !compilerTypes.Equal(node.ResultType, node.Element) {
+				return unknownExpressionDiagnostic("atomic " + node.Name + " has invalid checked metadata")
+			}
+		case "compare_exchange":
+			if len(node.Arguments) != 2 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
+				return unknownExpressionDiagnostic("atomic compare_exchange has invalid checked metadata")
+			}
+		default:
+			return unknownExpressionDiagnostic("unknown atomic method " + node.Name)
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("atomic method result type does not match its expected type")
+		}
+		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
+			return err
+		}
+		for _, argument := range node.Arguments {
+			if err := validateCheckedOperandWithState(argument, state); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return unknownExpressionDiagnostic("unsupported concurrency expression")
 }

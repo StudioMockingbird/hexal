@@ -1,7 +1,7 @@
 package generator
 
 import (
-	"sort"
+	"slices"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -32,8 +32,8 @@ func discoverGeneratedDicts(program checker.Program) *generatedDictState {
 	}
 	walkProgram(program, visitor)
 
-	sort.SliceStable(state.order, func(left, right int) bool {
-		return state.order[left].CName < state.order[right].CName
+	slices.SortStableFunc(state.order, func(left, right compilerTypes.Type) int {
+		return strings.Compare(left.CName, right.CName)
 	})
 	return state
 }

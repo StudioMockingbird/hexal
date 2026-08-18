@@ -3,8 +3,6 @@ package generator
 import (
 	"strings"
 	"testing"
-
-	"hexal/compiler/checker"
 )
 
 // An Error-using program emits hexal/error.h with the canonical Error
@@ -12,10 +10,7 @@ import (
 // carries the definition.
 func TestErrorComponentSelectedByUse(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(): Int32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	errorH, exists := files["hexal/error.h"]
 	if !exists {
 		t.Fatalf("Error-using program emitted no hexal/error.h: %v", files)
@@ -56,10 +51,7 @@ func TestErrorComponentSelectedByUse(t *testing.T) {
 // A program that never names Error emits no hexal/error.h artifact.
 func TestErrorComponentAbsentWithoutError(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	if _, exists := files["hexal/error.h"]; exists {
 		t.Fatalf("scalar-only program emitted hexal/error.h: %v", files)
 	}

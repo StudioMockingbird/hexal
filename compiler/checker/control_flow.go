@@ -211,7 +211,6 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		EndLine:      statement.End.Line,
 		EndColumn:    statement.End.Column,
 		ElseLine:     statement.ElseKeyword.Line,
-		ElseColumn:   statement.ElseKeyword.Column,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	condition, _, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, names, typeEnvironment)
@@ -383,13 +382,7 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 	seen := make(map[string]bool, len(statement.Binders))
 	for _, binder := range statement.Binders {
 		if seen[binder.Lexeme] {
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.NameError,
-				Stage:    "checker",
-				Line:     binder.Line,
-				Column:   binder.Column,
-				Message:  "duplicate loop binder name " + binder.Lexeme,
-			})
+			diagnostics = append(diagnostics, nameErrorAt(binder, "duplicate loop binder name "+binder.Lexeme))
 		}
 		seen[binder.Lexeme] = true
 	}

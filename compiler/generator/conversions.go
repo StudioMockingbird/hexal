@@ -124,14 +124,6 @@ func writeConversionDefinitions(result *strings.Builder, specs []conversionSpec)
 
 // containsSizeConversion reports whether any generated conversion targets
 // Size, which requires the 64-bit size_t target profile assertion.
-func containsSizeConversion(specs []conversionSpec) bool {
-	for _, spec := range specs {
-		if compilerTypes.Equal(spec.target, compilerTypes.SizeType) {
-			return true
-		}
-	}
-	return false
-}
 
 func conversionHelperName(spec conversionSpec) string {
 	sourceSuffix := spec.source.CName
@@ -321,7 +313,7 @@ func renderConversion(node checker.Expression, state *expressionValidation) (str
 	if node.Operand == nil {
 		return "", unknownExpressionDiagnostic("numeric conversion without an operand")
 	}
-	operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, node.OperandType, state, true)
+	operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if operandErr != nil {
 		return "", operandErr
 	}

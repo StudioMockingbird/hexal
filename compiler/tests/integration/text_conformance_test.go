@@ -98,12 +98,12 @@ func TestStrandRejectsInvalidLiterals(t *testing.T) {
 	source := "label: Strand = \"" + tooLong + "\"\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "exceeds 31 UTF-8 bytes") {
-		t.Fatalf("want Strand size diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want Strand size diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 	source = "label: Strand = \"a\\0b\"\n"
 	result = compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot contain NUL") {
-		t.Fatalf("want Strand NUL diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want Strand NUL diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -111,7 +111,7 @@ func TestStrandRejectsStringOnlyMethods(t *testing.T) {
 	source := "fun demo() do\n    label: Strand = \"x\"\n    view: View<Byte> = label.bytes()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Strand has no method bytes") {
-		t.Fatalf("want Strand method diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want Strand method diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -132,7 +132,7 @@ func TestStringFromBytesRejectsWrongView(t *testing.T) {
 	source := "fun demo(h: Heap) do\n    runes: Array<Rune, 1> = ['a']\n    view: View<Rune> = runes.slice(0, 1)\n    made: String = String.from_bytes(h, view)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires View<Byte>") {
-		t.Fatalf("want from_bytes view diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want from_bytes view diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -145,7 +145,7 @@ func TestByteAndRuneLiteralDiagnostics(t *testing.T) {
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
-			t.Fatalf("want literal diagnostic for %q, got exit=%d stderr=%v", source, result.ExitCode, result.Stderr)
+			t.Fatalf("want literal diagnostic for %q; got exit=%d stderr=%v", source, result.ExitCode, result.Stderr)
 		}
 	}
 }
@@ -154,6 +154,6 @@ func TestRuneCursorHasNoUnknownMethods(t *testing.T) {
 	source := "fun demo(): Rune do\n    text: String = \"a\"\n    cursor: RuneCursor = text.rune_cursor()\n    return cursor.rewind()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "RuneCursor has no method rewind") {
-		t.Fatalf("want cursor method diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want cursor method diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }

@@ -26,12 +26,6 @@ other.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
 
-### Implementation-ready
-
-| Work | Spec |
-|---|---|
-| Audit refactor batch | [0074](specs/0074-audit-refactor-batch.md) |
-
 ## Unowned
 
 Items without a determinable meaning, staged here until each gets a spec or is

@@ -9,5 +9,4 @@ typedef uint8_t hex_eos;
 {{end}}{{if .TrapDeclared}}
 [[noreturn]] void hex_runtime_trap(const char *message);
 {{end}}
-{{.FamilyContent}}
 #endif

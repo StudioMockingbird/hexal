@@ -40,7 +40,7 @@ func TestViewFromPointerRequiresMatchingPointer(t *testing.T) {
 	source := "fun bad(data: Ptr<Float64>, count: Size) do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires Ptr<Int32> or MutPtr<Int32>") {
-		t.Fatalf("want pointer-type diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want pointer-type diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -48,7 +48,7 @@ func TestViewFromPointerRejectsNullablePointer(t *testing.T) {
 	source := "fun bad(data: Ptr<Int32> | Nil, count: Size) do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "must be narrowed") {
-		t.Fatalf("want nullable diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want nullable diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestViewFromPointerRejectsNonSizeLength(t *testing.T) {
 	source := "fun bad(data: Ptr<Int32>, count: Int64) do\n    items: View<Int32> = View<Int32>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Size") {
-		t.Fatalf("want length diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want length diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -66,7 +66,7 @@ func TestViewFromPointerRejectsStringPointee(t *testing.T) {
 	source := "fun bad(data: Ptr<String>, count: Size) do\n    items: View<String> = View<String>.from_pointer(data, count)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "could not construct pointer type") {
-		t.Fatalf("want pointee diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want pointee diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -81,7 +81,7 @@ func TestFromPointerRejectsStackRoots(t *testing.T) {
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want reject, got accept:\n%s", source)
+			t.Fatalf("want reject; got accept:\n%s", source)
 		}
 	}
 	accepted := []string{
@@ -93,7 +93,7 @@ func TestFromPointerRejectsStackRoots(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 	// Documented caller-side hole: wrap(ref local, 1) is not caught because

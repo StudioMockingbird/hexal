@@ -64,7 +64,7 @@ func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
 				variantName := compilerTypes.SanitizeIdentifier(variant.Name)
 				fmt.Fprintf(result, "        struct {\n")
 				for _, member := range variant.Payload {
-					fmt.Fprintf(result, "            %s %s;\n", typeSpelling(member.Type), PrivateCName(MemberName, member.Name, ""))
+					fmt.Fprintf(result, "            %s %s;\n", typeSpelling(member.Type), privateCName(memberName, member.Name, ""))
 				}
 				fmt.Fprintf(result, "        } %s;\n", variantName)
 			}
@@ -93,7 +93,7 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 			if err != nil {
 				return "", err
 			}
-			fmt.Fprintf(&builder, " .%s = %s,", PrivateCName(MemberName, member.Name, ""), value)
+			fmt.Fprintf(&builder, " .%s = %s,", privateCName(memberName, member.Name, ""), value)
 		}
 		builder.WriteString(" }")
 	}
@@ -116,7 +116,7 @@ func renderAdtPayload(node checker.Expression, state *expressionValidation) (str
 	if err != nil {
 		return "", err
 	}
-	return receiver + ".payload." + compilerTypes.SanitizeIdentifier(variant.Name) + "." + PrivateCName(MemberName, variant.Payload[node.MemberIndex].Name, ""), nil
+	return receiver + ".payload." + compilerTypes.SanitizeIdentifier(variant.Name) + "." + privateCName(memberName, variant.Payload[node.MemberIndex].Name, ""), nil
 }
 
 // renderMatchStatement lowers a match expression to statement-level if/else
@@ -128,7 +128,7 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 	state.matchCounter++
 	temp := fmt.Sprintf("hex_match_scrutinee_%d", state.matchCounter)
 	result := fmt.Sprintf("hex_match_result_%d", state.matchCounter)
-	scrutinee, err := renderExpressionExpectedWithState(*node.Operand, node.OperandType, true, state)
+	scrutinee, err := renderExpressionExpectedWithState(*node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}

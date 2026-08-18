@@ -88,22 +88,10 @@ func printUnsupportedPath(typ compilerTypes.Type) string {
 // argument, takes no type arguments, and produces no value.
 func checkPrintCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	if len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Line,
-			Column:   callee.Column,
-			Message:  "print does not take type arguments",
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "print does not take type arguments"))}
 	}
 	if len(call.Arguments) == 0 {
-		return checkedExpression{token: callee, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Line,
-			Column:   callee.Column,
-			Message:  "print expects at least 1 argument",
-		}}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "print expects at least 1 argument"))}
 	}
 	arguments := make([]Operand, 0, len(call.Arguments))
 	for _, argument := range call.Arguments {
@@ -123,13 +111,7 @@ func checkPrintCall(call parser.CallExpression, callee lexer.Token, names *scope
 			} else if compilerTypes.IsUnion(checked.typ) {
 				message += "; narrow or match it first"
 			}
-			return checkedExpression{token: checked.token, diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Line:     checked.token.Line,
-				Column:   checked.token.Column,
-				Message:  message,
-			}}
+			return checkedExpression{token: checked.token, diagnostic: diagnosticAt(typeErrorAt(checked.token, message))}
 		}
 		arguments = append(arguments, checked.source)
 	}

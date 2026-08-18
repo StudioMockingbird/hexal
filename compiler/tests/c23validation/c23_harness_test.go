@@ -7,11 +7,12 @@ package c23validation
 // the toolchain is missing instead of skipping.
 
 import (
+	"slices"
+
 	"hexal/compiler"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -23,7 +24,7 @@ func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 	t.Helper()
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex")
 	if result.ExitCode != compiler.ExitSuccess {
-		t.Fatalf("expected success, got %d diagnostic(s):\n%s\n--- source ---\n%s", len(result.Stderr), strings.Join(result.Stderr, "\n"), source)
+		t.Fatalf("expected success; got %d diagnostic(s):\n%s\n--- source ---\n%s", len(result.Stderr), strings.Join(result.Stderr, "\n"), source)
 	}
 	return result
 }
@@ -60,7 +61,7 @@ func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string
 	for name := range result.Files {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	for _, name := range names {
 		if strings.HasSuffix(name, ".c") {
 			command.Args = append(command.Args, filepath.Join(dir, name))

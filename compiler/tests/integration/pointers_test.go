@@ -74,7 +74,7 @@ func TestFixedMutPtrMemberWritesPointeeButRejectsMutableReference(t *testing.T) 
 	}
 
 	invalid := compileSource("type Holder = { fixedMember: Int32, pointer: MutPtr<Int32>, } mut value: Int32 = 0 holder: Holder = Holder { fixedMember = 1, pointer = ref value, } bad: MutPtr<Int32> = ref holder.fixedMember")
-	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected MutPtr<Int32> initializer, got Ptr<Int32>") {
+	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected MutPtr<Int32> initializer; got Ptr<Int32>") {
 		t.Fatalf("fixed member reference = %#v, want MutPtr mismatch", invalid)
 	}
 }
@@ -144,7 +144,7 @@ func TestWeakeningDeclarationAndAssignment(t *testing.T) {
 	}
 
 	invalid := compileSource("answer: Int32 = 42 look: Ptr<Int32> = ref answer promoted: MutPtr<Int32> = look")
-	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || invalid.Stderr[0] != "[Type Error] expected MutPtr<Int32> initializer, got Ptr<Int32> at 1:76" {
+	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || invalid.Stderr[0] != "[Type Error] expected MutPtr<Int32> initializer; got Ptr<Int32> at app.hex:1:76" {
 		t.Fatalf("reverse weakening = %#v, want type mismatch", invalid.Stderr)
 	}
 }
@@ -159,7 +159,7 @@ func TestWeakeningIsOutermostLayerOnly(t *testing.T) {
 	}
 
 	invalid := compileSource("mut value: Int32 = 0 mut inner: MutPtr<Int32> = ref value mut outer: MutPtr<MutPtr<Int32>> = ref inner no: Ptr<Ptr<Int32>> = outer")
-	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected Ptr<Ptr<Int32>> initializer, got MutPtr<MutPtr<Int32>>") {
+	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected Ptr<Ptr<Int32>> initializer; got MutPtr<MutPtr<Int32>>") {
 		t.Fatalf("deep weakening = %#v, want inner-layer mismatch", invalid.Stderr)
 	}
 }
@@ -321,7 +321,7 @@ func TestBindingsAreConstantUnlessMutable(t *testing.T) {
 	}
 
 	result = compileSource("x: Int32 = 13 x = 14")
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != "[Type Error] cannot assign to constant x at 1:15" {
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != "[Type Error] cannot assign to constant x at app.hex:1:15" {
 		t.Fatalf("Compile returned %#v, want constant-binding diagnostic", result)
 	}
 }
@@ -331,12 +331,12 @@ func TestPointerDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"p: Ptr<Int32> = 13", "[Type Error] expected Ptr<Int32> initializer, got Int32 at 1:17"},
-		{"x: Int32 = 13 p: Ptr<Int32> = x.value", "[Type Error] cannot access .value on Int32; expected Ptr<T> at 1:33"},
-		{"mut x: Int32 = 13 p: Ptr<Int32> = ref x q: Ptr<Bool> = p", "[Type Error] expected Ptr<Bool> initializer, got Ptr<Int32> at 1:56"},
-		{"mut x: Int32 = 13 p: Ptr<Int32> = ref x q: Ptr<Int32> = ref 42", "[Syntax Error] expected a place identifier at 1:61"},
-		{"mut x: Int32 = 13 p: Ptr<Int32> = ref x p.value = 42", "[Type Error] cannot write through a read-only pointer p.value at 1:41"},
-		{"x: Int32 = 13 p: Ptr<Int32> = mut ref x", "[Syntax Error] mut is not valid on the right-hand side; use ref value at 1:31"},
+		{"p: Ptr<Int32> = 13", "[Type Error] expected Ptr<Int32> initializer; got Int32 at app.hex:1:17"},
+		{"x: Int32 = 13 p: Ptr<Int32> = x.value", "[Type Error] cannot access .value on Int32; expected Ptr<T> at app.hex:1:33"},
+		{"mut x: Int32 = 13 p: Ptr<Int32> = ref x q: Ptr<Bool> = p", "[Type Error] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:56"},
+		{"mut x: Int32 = 13 p: Ptr<Int32> = ref x q: Ptr<Int32> = ref 42", "[Syntax Error] expected a place identifier at app.hex:1:61"},
+		{"mut x: Int32 = 13 p: Ptr<Int32> = ref x p.value = 42", "[Type Error] cannot write through a read-only pointer p.value at app.hex:1:41"},
+		{"x: Int32 = 13 p: Ptr<Int32> = mut ref x", "[Syntax Error] mut is not valid on the right-hand side; use ref value at app.hex:1:31"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {
@@ -455,7 +455,7 @@ func TestRefThroughAutoDereferencedMember(t *testing.T) {
 	}
 
 	readOnly := compileSource("type Point = { x: Int32, mut y: Int32, } pt: Point = Point { x = 1, y = 2, } p: Ptr<Point> = ref pt q: MutPtr<Int32> = ref p.y")
-	if readOnly.ExitCode != compiler.ExitFailure || len(readOnly.Stderr) != 1 || !strings.Contains(readOnly.Stderr[0], "expected MutPtr<Int32> initializer, got Ptr<Int32>") {
+	if readOnly.ExitCode != compiler.ExitFailure || len(readOnly.Stderr) != 1 || !strings.Contains(readOnly.Stderr[0], "expected MutPtr<Int32> initializer; got Ptr<Int32>") {
 		t.Fatalf("ref through read-only pointer = %#v, want MutPtr mismatch", readOnly.Stderr)
 	}
 }
@@ -483,13 +483,13 @@ func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept, got %v:\n%s", result.Stderr, source)
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
 	// A fixed member downgrades the final place to Ptr even under a writable root.
 	rejected := "type Row = { value: Int32 }\nfun f() do\n    mut rows: Array<Row, 2> = [Row { value = 1 }, Row { value = 2 }]\n    p: MutPtr<Int32> = ref rows[0].value\nend\n"
 	if result := compileSource(rejected); result.ExitCode != compiler.ExitFailure {
-		t.Fatalf("want fixed-member ref downgraded to Ptr, got accept:\n%s", rejected)
+		t.Fatalf("want fixed-member ref downgraded to Ptr; got accept:\n%s", rejected)
 	}
 }
 

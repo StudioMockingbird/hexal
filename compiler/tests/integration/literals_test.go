@@ -75,9 +75,9 @@ func TestRejectsScalarMismatchesAndRanges(t *testing.T) {
 		{"x: Int8 = -129", "outside the Int8 range"},
 		{"x: UInt64 = 18446744073709551616", "outside the UInt64 range"},
 		{"x: UInt8 = -0", "negated integer literal requires a signed destination"},
-		{"x: Float32 = 1", "expected Float32 initializer, got Int32"},
-		{"x: Int32 = 1.0", "expected Int32 initializer, got Float64"},
-		{"x: Bool = 1", "expected Bool initializer, got Int32"},
+		{"x: Float32 = 1", "expected Float32 initializer; got Int32"},
+		{"x: Int32 = 1.0", "expected Int32 initializer; got Float64"},
+		{"x: Bool = 1", "expected Bool initializer; got Int32"},
 	}
 	for _, testCase := range testCases {
 		result := compileSource(testCase.source)
@@ -303,8 +303,8 @@ func TestNumericLiteralShapeDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"x: Byte = 13", ""},
-		{"x: Float32 = 13", "[Type Error] expected Float32 initializer, got Int32 at 1:14"},
-		{"x: Int64 = 13.0", "[Type Error] expected Int64 initializer, got Float64 at 1:12"},
+		{"x: Float32 = 13", "[Type Error] expected Float32 initializer; got Int32 at app.hex:1:14"},
+		{"x: Int64 = 13.0", "[Type Error] expected Int64 initializer; got Float64 at app.hex:1:12"},
 	} {
 		result := compileSource(testCase.source)
 		if testCase.want == "" {
@@ -352,8 +352,8 @@ func TestRejectsMismatchedInitializer(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"x: Int32 = true", "[Type Error] expected Int32 initializer, got Bool at 1:12"},
-		{"flag: Bool = 1", "[Type Error] expected Bool initializer, got Int32 at 1:14"},
+		{"x: Int32 = true", "[Type Error] expected Int32 initializer; got Bool at app.hex:1:12"},
+		{"flag: Bool = 1", "[Type Error] expected Bool initializer; got Int32 at app.hex:1:14"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure {
@@ -367,7 +367,7 @@ func TestRejectsMismatchedInitializer(t *testing.T) {
 
 func TestRejectsHexPrefixWithoutDigits(t *testing.T) {
 	result := compileSource("mask: Int32 = 0x")
-	want := "[Syntax Error] malformed hexadecimal literal at 1:15"
+	want := "[Syntax Error] malformed hexadecimal literal at app.hex:1:15"
 	if len(result.Stderr) == 0 || result.Stderr[0] != want {
 		t.Fatalf("std.err = %#v, want first entry %q", result.Stderr, want)
 	}
@@ -375,7 +375,7 @@ func TestRejectsHexPrefixWithoutDigits(t *testing.T) {
 
 func TestRejectsOutOfRangeHex(t *testing.T) {
 	result := compileSource("mask: Int32 = 0x80000000")
-	want := "[Type Error] given value is outside the Int32 range at 1:15"
+	want := "[Type Error] given value is outside the Int32 range at app.hex:1:15"
 	if len(result.Stderr) != 1 || result.Stderr[0] != want {
 		t.Fatalf("std.err = %#v, want [%q]", result.Stderr, want)
 	}
@@ -386,7 +386,7 @@ func TestRejectsMalformedHexadecimalLiteral(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Syntax Error] malformed hexadecimal literal at 1:12"}
+	want := []string{"[Syntax Error] malformed hexadecimal literal at app.hex:1:12"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}

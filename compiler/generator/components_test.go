@@ -3,8 +3,6 @@ package generator
 import (
 	"strings"
 	"testing"
-
-	"hexal/compiler/checker"
 )
 
 // Every mandatory runtime template exists under packages/ with its eventual
@@ -98,11 +96,87 @@ func TestRuntimeComponentSelectedByTrap(t *testing.T) {
 // silently overwriting.
 func TestGenerateCheckedRejectsDuplicateArtifactKey(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	if _, exists := files["hexal/runtime.c"]; exists {
 		t.Fatalf("scalar-only program emitted hexal/runtime.c")
+	}
+}
+
+// Every demand-driven component renders identically for equivalent programs.
+// The per-family copies of this test differed only in their source and
+// artifact keys, so they are one table (RFC 0074 R17). The Error component is
+// not here: it renders from a synthetic emission rather than a source program,
+// which is a different shape, not a different row.
+func TestComponentRenderingIsDeterministic(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		source    string
+		artifacts []string
+	}{
+		{
+			name:      "array",
+			source:    "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    first: Int32 = fixed[0]\nend",
+			artifacts: []string{"hexal/array.h"},
+		},
+		{
+			name: "concurrency",
+			source: "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n" +
+				"    Task.yield()\n    return true\nend\n" +
+				"fun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n" +
+				"    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n",
+			artifacts: []string{"hexal/concurrency.h", "hexal/concurrency.c"},
+		},
+		{
+			name:      "dict",
+			source:    "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend",
+			artifacts: []string{"hexal/dict.h"},
+		},
+		{
+			name:      "list",
+			source:    "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\nend",
+			artifacts: []string{"hexal/list.h"},
+		},
+		{
+			name:      "string",
+			source:    "greeting: String = \"hello\"\n",
+			artifacts: []string{"hexal/string.h", "hexal/string.c"},
+		},
+		{
+			name:      "view",
+			source:    "fun demo() do\n    view: View<Int32> = View<Int32>.empty()\n    count: Size = view.length()\nend",
+			artifacts: []string{"hexal/view.h"},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			program := checkedGeneratorSource(t, testCase.source)
+			first := generateOne(t, program)
+			second := generateOne(t, program)
+			for _, artifact := range testCase.artifacts {
+				if first[artifact] == "" {
+					t.Fatalf("%s was not emitted for the %s program", artifact, testCase.name)
+				}
+				if first[artifact] != second[artifact] {
+					t.Fatalf("equivalent compilations rendered %s differently", artifact)
+				}
+			}
+		})
+	}
+}
+
+// A scalar-only program selects no collection component and its module header
+// includes none. Array and List were byte-identical copies of this check
+// (RFC 0074 R17); View is deliberately not here — view.h is emitted
+// transitively by the array component, so its absence has a different
+// precondition and keeps its own test.
+func TestUnselectedCollectionComponentsAreAbsent(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 = 1\nend")
+	files := generateOne(t, program)
+	for _, artifact := range []string{"hexal/array.h", "hexal/list.h"} {
+		if _, exists := files[artifact]; exists {
+			t.Errorf("scalar-only program emitted %s", artifact)
+		}
+		if strings.Contains(files["modules/app.h"], artifact) {
+			t.Errorf("modules/app.h = %q, must not include the unselected %s", files["modules/app.h"], artifact)
+		}
 	}
 }

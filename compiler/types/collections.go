@@ -42,36 +42,21 @@ type AtomicInfo struct {
 	Element Type
 }
 
-// IsArray reports whether typ is a fixed inline array.
-func IsArray(typ Type) bool { return typ.Array != nil }
-
-// IsView reports whether typ is a non-owning contiguous view.
-func IsView(typ Type) bool { return typ.View != nil }
-
 // IsList reports whether typ is an owning growable list.
 func IsList(typ Type) bool { return typ.List != nil }
 
 // IsDict reports whether typ is an owning dictionary.
 func IsDict(typ Type) bool { return typ.Dict != nil }
 
-// IsManaged reports whether typ is a reference-like handle value rejected
+// isManaged reports whether typ is a reference-like handle value rejected
 // from inline positions, storage, and union alternatives. Views are
 // the borrowed form; String, List, and Dict are owning forms.
-func IsManaged(typ Type) bool {
+func isManaged(typ Type) bool {
 	return typ.View != nil || IsString(typ) || IsList(typ) || IsDict(typ)
 }
 
-// IsTask reports whether typ is a Task<R> handle.
-func IsTask(typ Type) bool { return typ.Task != nil }
-
-// IsChannel reports whether typ is a Channel<T> handle.
-func IsChannel(typ Type) bool { return typ.Channel != nil }
-
 // IsMutex reports whether typ is the canonical scheduler-aware Mutex handle.
 func IsMutex(typ Type) bool { return typ.identity != nil && typ.identity == MutexType.identity }
-
-// IsAtomic reports whether typ is an inline Atomic<T> wrapper.
-func IsAtomic(typ Type) bool { return typ.Atomic != nil }
 
 // IsString reports whether typ is the canonical String type.
 func IsString(typ Type) bool { return typ.identity != nil && typ.identity == StringType.identity }

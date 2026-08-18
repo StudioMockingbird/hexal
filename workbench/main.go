@@ -1,3 +1,5 @@
+// Command workbench renders the Hexal snippet catalog and its generated C so a
+// reader can browse language examples beside the artifacts they compile to.
 package main
 
 import (

@@ -3,9 +3,11 @@ package integration
 // Shared test helpers.
 
 import (
-	"hexal/compiler"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
+
+	"hexal/compiler"
 	"testing"
 )
 
@@ -22,7 +24,7 @@ func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 	t.Helper()
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
-		t.Fatalf("expected success, got %d diagnostic(s):\n%s\n--- source ---\n%s", len(result.Stderr), strings.Join(result.Stderr, "\n"), source)
+		t.Fatalf("expected success; got %d diagnostic(s):\n%s\n--- source ---\n%s", len(result.Stderr), strings.Join(result.Stderr, "\n"), source)
 	}
 	return result
 }
@@ -36,24 +38,10 @@ func assertRejects(t *testing.T, source, want string) {
 		t.Fatalf("expected rejection, but the source compiled:\n%s", source)
 	}
 	if len(result.Stderr) == 0 {
-		t.Fatalf("expected a diagnostic containing %q, got none:\n%s", want, source)
+		t.Fatalf("expected a diagnostic containing %q; got none:\n%s", want, source)
 	}
 	if !strings.Contains(result.Stderr[0], want) {
 		t.Fatalf("first diagnostic %q does not contain %q:\n%s\n--- source ---\n%s", result.Stderr[0], want, strings.Join(result.Stderr, "\n"), source)
-	}
-}
-
-// assertEmits requires the source to compile and the generated files to
-// contain every want string. The want strings may live in any artifact: the
-// shared hexal.h or the entrypoint module's C/header pair.
-func assertEmits(t *testing.T, source string, wants ...string) {
-	t.Helper()
-	result := assertCompiles(t, source)
-	generated := hexalH(t, result) + "\n" + rootC(t, result) + "\n" + rootH(t, result)
-	for _, want := range wants {
-		if !strings.Contains(generated, want) {
-			t.Fatalf("generated output does not contain %q:\n%s\n--- source ---\n%s", want, generated, source)
-		}
 	}
 }
 
@@ -87,12 +75,7 @@ func moduleFile(t *testing.T, result compiler.CompilationResult, key string) str
 }
 
 func sortedKeys(files map[string]string) []string {
-	keys := make([]string, 0, len(files))
-	for key := range files {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
+	return slices.Sorted(maps.Keys(files))
 }
 
 func withoutLineDirectives(source string) string {
@@ -104,4 +87,31 @@ func withoutLineDirectives(source string) string {
 		}
 	}
 	return strings.Join(filtered, "\n")
+}
+
+// The component-artifact accessors live here beside hexalH, rootC, and rootH
+// rather than in whichever feature test first needed one.
+func arrayH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/array.h")
+}
+
+func dictH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/dict.h")
+}
+
+func listH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/list.h")
+}
+
+func stringH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/string.h")
+}
+
+func stringC(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/string.c")
 }

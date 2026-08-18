@@ -2,7 +2,7 @@ package types
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -89,9 +89,7 @@ func (environment *Environment) UnionType(members []Type) Type {
 	if len(unique) < 2 {
 		return Type{}
 	}
-	sort.SliceStable(unique, func(left, right int) bool {
-		return compareUnionMembers(unique[left], unique[right]) < 0
-	})
+	slices.SortStableFunc(unique, compareUnionMembers)
 	if len(unique) == 2 && IsNil(unique[1]) && IsPointerLike(unique[0]) {
 		return environment.NullableType(unique[0])
 	}
@@ -221,21 +219,33 @@ func ContainsUnionMember(union, member Type) bool {
 	if !IsUnion(union) {
 		return false
 	}
-	for _, candidate := range unionMembers(union) {
-		if Equal(candidate, member) {
-			return true
+	if union.Union != nil {
+		for _, candidate := range union.Union.Members {
+			if Equal(candidate, member) {
+				return true
+			}
 		}
+		return false
 	}
-	return false
+	base, ok := NullableBase(union)
+	return ok && (Equal(base, member) || IsNil(member))
 }
 
 func RemoveUnionMember(environment *Environment, union, member Type) (Type, bool) {
 	if !IsUnion(union) {
 		return Type{}, false
 	}
-	remaining := make([]Type, 0, len(unionMembers(union)))
+	var members []Type
+	if union.Union != nil {
+		members = union.Union.Members
+	} else if base, ok := NullableBase(union); ok {
+		members = []Type{base, Nil}
+	} else {
+		return Type{}, false
+	}
+	remaining := make([]Type, 0, len(members))
 	removed := false
-	for _, candidate := range unionMembers(union) {
+	for _, candidate := range members {
 		if Equal(candidate, member) {
 			removed = true
 			continue

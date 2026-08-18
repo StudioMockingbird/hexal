@@ -36,7 +36,7 @@ func TestCheckGenericAliasSpecializesTransparently(t *testing.T) {
 func TestCheckGenericTypeArityMismatch(t *testing.T) {
 	requireDiagnostic(t,
 		"type Pair<Left, Right> = { left: Left, right: Right } bad: Pair<Int32> = value",
-		"generic type Pair expects 2 type arguments, got 1")
+		"generic type Pair expects 2 type arguments; got 1")
 }
 
 func TestCheckGenericTypeUnknownArgument(t *testing.T) {

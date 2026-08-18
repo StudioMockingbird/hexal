@@ -43,7 +43,7 @@ func TestVolatileWriteRequiresMutPtr(t *testing.T) {
 	source := "fun bad(register: Ptr<UInt32>) do\n    register.write_volatile(1)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "read-only") {
-		t.Fatalf("want read-only diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want read-only diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestVolatileRejectsNonIntegerElements(t *testing.T) {
 		source := "fun bad(pointer: MutPtr<" + element + ">) do\n    value: " + element + " = pointer.read_volatile()\nend\n"
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "volatile access is supported only for integer storage types") {
-			t.Fatalf("want volatile eligibility diagnostic for %s, got exit=%d stderr=%v", element, result.ExitCode, result.Stderr)
+			t.Fatalf("want volatile eligibility diagnostic for %s; got exit=%d stderr=%v", element, result.ExitCode, result.Stderr)
 		}
 	}
 }
@@ -72,7 +72,7 @@ func TestVolatileNullablePointerRequiresNarrowing(t *testing.T) {
 	source := "fun bad(pointer: Ptr<UInt32> | Nil) do\n    value: UInt32 = pointer.read_volatile()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
-		t.Fatalf("want nullable diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want nullable diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -80,7 +80,7 @@ func TestLayoutQueriesRejectIneligibleTypes(t *testing.T) {
 	source := "fun bad(): Size do\n    return size_of<Unknown>()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "complete finite-sized") {
-		t.Fatalf("want layout eligibility diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want layout eligibility diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -88,12 +88,12 @@ func TestLayoutQueriesRequireOneTypeArgument(t *testing.T) {
 	source := "fun bad(): Size do\n    return size_of()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "exactly one type argument") {
-		t.Fatalf("want arity diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want arity diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 	source = "fun bad(): Size do\n    return size_of<Int32>(1)\nend\n"
 	result = compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "no value arguments") {
-		t.Fatalf("want value-argument diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want value-argument diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
@@ -101,7 +101,7 @@ func TestLayoutQueriesAreProtectedNames(t *testing.T) {
 	source := "fun size_of(): Int32 do\n    return 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "protected built-in name") {
-		t.Fatalf("want protected-name diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want protected-name diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 

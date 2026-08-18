@@ -33,39 +33,21 @@ func truncateTowardZero(value constant.Value) constant.Value {
 // eligible scalar receiver. The receiver-scoped builtin resolves before
 // ordinary method lookup; an unrelated nominal object may declare its own
 // method named `to`.
-func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, environment *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	source := receiver.typ
 	if len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  "to requires exactly 1 explicit type argument",
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "to requires exactly 1 explicit type argument"))}
 	}
 	if len(call.Arguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  "to accepts no value arguments",
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "to accepts no value arguments"))}
 	}
-	targetUse, diagnostic := resolveTypeUse(call.TypeArguments[0], call.OpenParen, typeEnvironment, environment.generics)
+	targetUse, diagnostic := resolveTypeUse(call.TypeArguments[0], call.OpenParen, typeEnvironment, names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
 	target := targetUse.Type
 	if !conversionPairValid(source, target) {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Line:     callee.Property.Line,
-			Column:   callee.Property.Column,
-			Message:  "numeric conversion requires a supported scalar source and destination; got " + source.Name + " and " + target.Name,
-		}}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "numeric conversion requires a supported scalar source and destination; got "+source.Name+" and "+target.Name))}
 	}
 
 	// A known-invalid constant conversion is a compile-time error; valid
@@ -165,7 +147,7 @@ func foldNumericConversion(value constant.Value, source, target compilerTypes.Ty
 		// Integer to float: nearest representable value, ties-to-even.
 		floatValue := constant.ToFloat(value)
 		if floatValue.Kind() == constant.Unknown {
-			return nil, &compilerTypes.Diagnostic{Category: compilerTypes.TypeError, Stage: "checker", Line: token.Line, Column: token.Column, Message: "value cannot be represented as " + target.Name}
+			return nil, diagnosticAt(typeErrorAt(token, "value cannot be represented as "+target.Name))
 		}
 		return floatValue, nil
 	}
@@ -187,7 +169,7 @@ func foldNumericConversion(value constant.Value, source, target compilerTypes.Ty
 		// Float to float: nearest representable value.
 		floatValue := constant.ToFloat(value)
 		if floatValue.Kind() == constant.Unknown {
-			return nil, &compilerTypes.Diagnostic{Category: compilerTypes.TypeError, Stage: "checker", Line: token.Line, Column: token.Column, Message: "value cannot be represented as " + target.Name}
+			return nil, diagnosticAt(typeErrorAt(token, "value cannot be represented as "+target.Name))
 		}
 		return floatValue, nil
 	}
@@ -197,7 +179,7 @@ func foldNumericConversion(value constant.Value, source, target compilerTypes.Ty
 func foldIntegerConversion(value constant.Value, source, target compilerTypes.Type, token lexer.Token) (constant.Value, *compilerTypes.Diagnostic) {
 	integer := constant.ToInt(value)
 	if integer.Kind() == constant.Unknown {
-		return nil, &compilerTypes.Diagnostic{Category: compilerTypes.TypeError, Stage: "checker", Line: token.Line, Column: token.Column, Message: "value is not an integer"}
+		return nil, diagnosticAt(typeErrorAt(token, "value is not an integer"))
 	}
 	if compilerTypes.IsRune(target) {
 		// Integer-to-Rune checks Unicode scalar validity: the value must be

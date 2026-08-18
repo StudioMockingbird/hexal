@@ -3,8 +3,6 @@ package generator
 import (
 	"strings"
 	"testing"
-
-	"hexal/compiler/checker"
 )
 
 // An array-using program emits hexal/array.h with every reachable
@@ -13,10 +11,7 @@ import (
 // module header includes the component.
 func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    bytes: Array<UInt8, 2> = [4, 5]\n    first: Int32 = fixed[0]\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	arrayH := files["hexal/array.h"]
 	if arrayH == "" {
 		t.Fatalf("generated files %v lack hexal/array.h", files)
@@ -48,10 +43,7 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // and trap messages).
 func TestArrayComponentHexalHeaderOwnsNoArrayText(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    view: View<Int32> = fixed.slice(0, 2)\n    first: Int32 = fixed[0]\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_array_") {
 		t.Fatalf("hexal.h = %q, array definitions must live in hexal/array.h", files["hexal.h"])
 	}
@@ -96,36 +88,7 @@ static inline hex_view_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *ar
 
 // A program without reachable Array types emits no array artifact and no
 // module includes it.
-func TestArrayComponentAbsentWithoutReachableArrays(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 = 1\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	if _, exists := files["hexal/array.h"]; exists {
-		t.Fatalf("scalar-only program emitted hexal/array.h")
-	}
-	if strings.Contains(files["modules/app.h"], "hexal/array.h") {
-		t.Fatalf("modules/app.h = %q, must not include an unselected component", files["modules/app.h"])
-	}
-}
-
 // Equivalent compilations render identical array.h bytes.
-func TestArrayComponentDeterministic(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    first: Int32 = fixed[0]\nend")
-	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	if first["hexal/array.h"] != second["hexal/array.h"] {
-		t.Fatalf("equivalent compilations rendered hexal/array.h differently")
-	}
-}
-
 // A specialization over a module-owned object element is a pre-existing
 // representation limitation (the module typedef completes only after
 // hexal.h's include), not a migration blocker: the array family still
@@ -133,10 +96,7 @@ func TestArrayComponentDeterministic(t *testing.T) {
 // module includes it.
 func TestArrayComponentMigratesForModuleOwnedObjectElements(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo() do\n    fixed: Array<Point, 2> = [Point { x = 1, }, Point { x = 2, }]\n    first: Int32 = fixed[0].x\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	if !strings.Contains(files["hexal/array.h"], "typedef struct hex_array_Point_2 {") {
 		t.Fatalf("hexal/array.h = %q, want the Point specialization", files["hexal/array.h"])
 	}

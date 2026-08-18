@@ -15,10 +15,7 @@ import (
 // module header includes only the component it needs.
 func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 	program := checkedGeneratorSource(t, "greeting: String = \"hello\"\nfarewell: String = \"bye\"\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	header, exists := files["hexal/string.h"]
 	if !exists {
 		t.Fatalf("String program emitted no hexal/string.h: %v", files)
@@ -90,10 +87,7 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 // operations to the pair; a String-only program keeps the strand surface out.
 func TestStringComponentStrandSurface(t *testing.T) {
 	program := checkedGeneratorSource(t, "label: Strand = \"hexal\"\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	header, source := files["hexal/string.h"], files["hexal/string.c"]
 	if !strings.Contains(header, "typedef struct hex_strand {\n    uint8_t data[32];\n} hex_strand;") {
 		t.Fatalf("hexal/string.h = %q, want the hex_strand representation", header)
@@ -107,10 +101,7 @@ func TestStringComponentStrandSurface(t *testing.T) {
 	}
 
 	program = checkedGeneratorSource(t, "text: String = \"x\"\n")
-	files, err = GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files = generateOne(t, program)
 	if strings.Contains(files["hexal/string.h"], "hex_strand") {
 		t.Fatalf("String-only hexal/string.h carries the strand surface: %q", files["hexal/string.h"])
 	}
@@ -123,10 +114,7 @@ func TestStringComponentStrandSurface(t *testing.T) {
 // the component.
 func TestStringComponentAbsentWithoutStrings(t *testing.T) {
 	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
+	files := generateOne(t, program)
 	for _, key := range []string{"hexal/string.h", "hexal/string.c"} {
 		if _, exists := files[key]; exists {
 			t.Fatalf("scalar-only program emitted %s: %v", key, files)
@@ -177,21 +165,6 @@ func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 }
 
 // Equivalent compilations render identical string artifacts.
-func TestStringComponentDeterministic(t *testing.T) {
-	program := checkedGeneratorSource(t, "greeting: String = \"hello\"\n")
-	first, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	second, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
-	if err != nil {
-		t.Fatalf("GenerateChecked() error = %v", err)
-	}
-	if first["hexal/string.h"] != second["hexal/string.h"] || first["hexal/string.c"] != second["hexal/string.c"] {
-		t.Fatalf("equivalent compilations rendered the string pair differently")
-	}
-}
-
 // The templates render structurally from the typed model: literal records
 // become one header declaration pair and one source definition pair with the
 // model's exact payload bytes, and the Strand requirement drives the

@@ -1,8 +1,13 @@
+// Package compiler is the Hexal compiler entry point: it lexes, parses,
+// resolves the module graph, checks, and generates C from an in-memory source
+// map. It performs no filesystem access — Compile takes logical source keys and
+// returns generated artifacts as strings.
 package compiler
 
 import (
+	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,21 +34,34 @@ type CompilationResult struct {
 	// (hexal/runtime.c when a selected path can trap, and each selected
 	// component pair); failure returns a non-nil empty map. A build driver
 	// must compile every ".c" entry, not only those under modules/.
-	Files    map[string]string
-	Stderr   []string
+	Files map[string]string
+	// Stderr is every diagnostic of the failing stage, already rendered and
+	// ordered; it is empty on success. A compilation reports the first stage
+	// that failed, not every stage that would have.
+	Stderr []string
+	// ExitCode is ExitSuccess or ExitFailure, suitable for a process status.
 	ExitCode int
 	Stats    CompilationStats
 }
 
-// CompilationStats records the work done by each compiler phase.
+// CompilationStats records the work done by each compiler phase. Durations are
+// wall-clock and measured per stage; they are diagnostics for a human reading a
+// build, never an input to compilation.
 type CompilationStats struct {
-	TokenCount       int
-	SourceLines      int
+	// TokenCount and SourceLines sum over the reachable module set only —
+	// a source in the map that no import reaches contributes nothing.
+	TokenCount  int
+	SourceLines int
+	// LexDuration covers reachability as a whole: lexing, parsing, and import
+	// resolution fold into one pass and one duration.
 	LexDuration      time.Duration
 	CheckDuration    time.Duration
 	GenerateDuration time.Duration
-	PixelSubtotal    time.Duration
-	TotalDuration    time.Duration
+	// PixelSubtotal is the sum of the three stage durations; TotalDuration
+	// additionally covers everything outside them, so the difference is the
+	// entry point's own overhead.
+	PixelSubtotal time.Duration
+	TotalDuration time.Duration
 }
 
 // Compile runs Hexal source through every stage and returns the generated
@@ -213,11 +231,20 @@ func reachableModules(sources map[string]string, entrypoint string) (*checker.Mo
 	merged := make(compilerTypes.Diagnostics, 0)
 	for _, moduleID := range state.order {
 		diagnostics := state.byModule[moduleID]
-		sort.SliceStable(diagnostics, func(left, right int) bool {
-			if diagnostics[left].Line != diagnostics[right].Line {
-				return diagnostics[left].Line < diagnostics[right].Line
+		slices.SortStableFunc(diagnostics, func(left, right compilerTypes.Diagnostic) int {
+			if left.Line != right.Line {
+				if left.Line < right.Line {
+					return -1
+				}
+				return 1
 			}
-			return diagnostics[left].Column < diagnostics[right].Column
+			if left.Column < right.Column {
+				return -1
+			}
+			if left.Column > right.Column {
+				return 1
+			}
+			return 0
 		})
 		merged = append(merged, diagnostics...)
 	}
@@ -262,11 +289,11 @@ func (s *reachState) visit(canonical string) error {
 	key := keys[0]
 	tokens, lexErr := lexer.Lex(s.sources[key])
 	if lexErr != nil {
-		return mergeDiagnostics(lexErr, nil)
+		return stampModule(mergeDiagnostics(lexErr, nil), key)
 	}
 	program, parseErr := parser.Parse(tokens)
 	if parseErr != nil {
-		return mergeDiagnostics(nil, parseErr)
+		return stampModule(mergeDiagnostics(nil, parseErr), key)
 	}
 	s.nodes[canonical] = &checker.ModuleNode{
 		Canonical:  canonical,
@@ -335,7 +362,7 @@ func (s *reachState) sourceKeyFor(id string) []string {
 			keys = append(keys, key)
 		}
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	return keys
 }
 
@@ -348,9 +375,19 @@ func (s *reachState) record(moduleID string, line, column int, message string) {
 	if column < 1 {
 		column = 1
 	}
+	// The node carries the exact source key this module was read from; a
+	// module diagnosed before its node exists (the ambiguous-key scan) falls
+	// back to the first key that canonicalizes to it.
+	logicalKey := ""
+	if node, ok := s.nodes[moduleID]; ok {
+		logicalKey = node.LogicalKey
+	} else if keys := s.sourceKeyFor(moduleID); len(keys) > 0 {
+		logicalKey = keys[0]
+	}
 	s.byModule[moduleID] = append(s.byModule[moduleID], compilerTypes.Diagnostic{
 		Category: compilerTypes.ModuleError,
 		Stage:    "compile",
+		Module:   logicalKey,
 		Line:     line,
 		Column:   column,
 		Message:  message,
@@ -367,32 +404,51 @@ func indexIn(haystack []string, needle string) int {
 	return -1
 }
 
-func mergeDiagnostics(errors ...error) error {
+// mergeDiagnostics folds every stage error into one sorted diagnostic set. It
+// traverses wrappers with errors.As rather than asserting concrete types, so a
+// wrapped diagnostic sorts by its own position instead of degrading to an
+// Unknown Error at 0:0.
+func mergeDiagnostics(stageErrors ...error) error {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	for _, err := range errors {
+	for _, err := range stageErrors {
 		if err == nil {
 			continue
 		}
-		switch err := err.(type) {
-		case compilerTypes.Diagnostics:
-			diagnostics = append(diagnostics, err...)
-		case compilerTypes.Diagnostic:
-			diagnostics = append(diagnostics, err)
-		default:
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.UnknownError,
-				Message:  err.Error(),
-			})
+		var many compilerTypes.Diagnostics
+		if errors.As(err, &many) {
+			diagnostics = append(diagnostics, many...)
+			continue
 		}
+		var one compilerTypes.Diagnostic
+		if errors.As(err, &one) {
+			diagnostics = append(diagnostics, one)
+			continue
+		}
+		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+			Category: compilerTypes.UnknownError,
+			Message:  err.Error(),
+		})
 	}
 	if len(diagnostics) == 0 {
 		return nil
 	}
-	sort.SliceStable(diagnostics, func(left, right int) bool {
-		if diagnostics[left].Line != diagnostics[right].Line {
-			return diagnostics[left].Line < diagnostics[right].Line
+	// Position only: every caller passes one module's diagnostics, and each
+	// stage already emits modules in dependency order. Sorting on the module
+	// here would reorder them alphabetically for no gain — see RFC 0074 R11.
+	slices.SortStableFunc(diagnostics, func(left, right compilerTypes.Diagnostic) int {
+		if left.Line != right.Line {
+			if left.Line < right.Line {
+				return -1
+			}
+			return 1
 		}
-		return diagnostics[left].Column < diagnostics[right].Column
+		if left.Column < right.Column {
+			return -1
+		}
+		if left.Column > right.Column {
+			return 1
+		}
+		return 0
 	})
 	return diagnostics
 }
@@ -422,4 +478,22 @@ func sourceLineCount(source string) int {
 		return 0
 	}
 	return strings.Count(source, "\n") + 1
+}
+
+// stampModule attributes a stage error to one module's logical source key.
+// Lexing and parsing report positions without knowing which module they were
+// handed; the reachability walk is where that is known (RFC 0074 R11).
+func stampModule(err error, logicalKey string) error {
+	if err == nil {
+		return nil
+	}
+	var diagnostics compilerTypes.Diagnostics
+	if errors.As(err, &diagnostics) {
+		return diagnostics.InModule(logicalKey)
+	}
+	var diagnostic compilerTypes.Diagnostic
+	if errors.As(err, &diagnostic) {
+		return diagnostic.InModule(logicalKey)
+	}
+	return err
 }

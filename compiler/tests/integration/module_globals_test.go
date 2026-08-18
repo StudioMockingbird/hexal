@@ -28,7 +28,7 @@ func TestFunctionCannotCaptureRootLocal(t *testing.T) {
 	source := "mut counter: Int32 = 0\nfun increment() do\n    counter = counter + 1\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
-		t.Fatalf("want capture diagnostic, got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+		t.Fatalf("want capture diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 
