@@ -119,7 +119,7 @@ func concurrencyFamilyContent(state *generatedConcurrencyState) string {
 // concurrencyRuntimeContent is the drained transition seam: the runtime
 // definitions and state own the concurrency component, so the root module C
 // file contributes none of them.
-func concurrencyRuntimeContent(state *generatedConcurrencyState, stringState *generatedStringState) string {
+func concurrencyRuntimeContent(state *generatedConcurrencyState, literals *literalRegistry) string {
 	return ""
 }
 

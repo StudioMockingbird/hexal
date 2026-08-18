@@ -7,44 +7,73 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// generatedStringState records the unique String literals in first-use order
-// plus whether the String machinery is needed at all.
-type generatedStringState struct {
-	used       bool
-	needStrand bool
-	literals   []string
-	seen       map[string]int // payload -> literal index + 1
+// literalHandle identifies one payload in a literalRegistry.
+type literalHandle struct{ index int }
+
+// literalRegistry owns the program-wide literal order and the only valid
+// mapping from a payload to its generated C object.
+type literalRegistry struct {
+	payloads []string
+	seen     map[string]literalHandle
+	used     bool
+	strand   bool
 }
 
-// discoverGeneratedStrings walks the program collecting unique String
-// literal payloads. The machinery is marked used whenever a String-typed
-// value or literal appears.
-func discoverGeneratedStrings(program checker.Program) *generatedStringState {
-	state := &generatedStringState{seen: make(map[string]int)}
+func newLiteralRegistry() *literalRegistry {
+	return &literalRegistry{seen: make(map[string]literalHandle)}
+}
+
+func (registry *literalRegistry) Intern(payload string) literalHandle {
+	if handle, exists := registry.seen[payload]; exists {
+		return handle
+	}
+	handle := literalHandle{index: len(registry.payloads)}
+	registry.payloads = append(registry.payloads, payload)
+	registry.seen[payload] = handle
+	return handle
+}
+
+func (registry *literalRegistry) CName(handle literalHandle) string {
+	return stringLiteralCName(handle.index)
+}
+
+func (registry *literalRegistry) Lookup(payload string) (literalHandle, bool) {
+	handle, exists := registry.seen[payload]
+	return handle, exists
+}
+
+func (registry *literalRegistry) All() []string {
+	return registry.payloads
+}
+
+// discoverGeneratedStrings interns checked string payloads and reports
+// whether this module needs the String component.
+func discoverGeneratedStrings(program checker.Program, registry *literalRegistry) bool {
+	used := false
 	visitor := &programVisitor{
 		Type: func(typ compilerTypes.Type) {
 			if compilerTypes.IsString(typ) {
-				state.used = true
+				used = true
+				registry.used = true
 				return
 			}
 			if compilerTypes.IsStrand(typ) {
-				state.used = true
-				state.needStrand = true
+				used = true
+				registry.used = true
+				registry.strand = true
 				return
 			}
 		},
 		Expression: func(node checker.Expression) {
 			if node.Kind == checker.StringLiteralExpression {
-				state.used = true
-				if _, exists := state.seen[node.Name]; !exists {
-					state.seen[node.Name] = len(state.literals) + 1
-					state.literals = append(state.literals, node.Name)
-				}
+				used = true
+				registry.used = true
+				registry.Intern(node.Name)
 			}
 		},
 	}
 	walkProgram(program, visitor)
-	return state
+	return used
 }
 
 // stringLiteralCName returns the object base name of one literal.

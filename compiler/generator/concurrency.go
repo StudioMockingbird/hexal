@@ -47,12 +47,16 @@ type generatedConcurrencyState struct {
 	channelReceiveUnions map[string]compilerTypes.Type
 	mutexNewUnion        compilerTypes.Type
 	// failure kinds whose literals the Error helper must reference.
-	spawnFail     bool
-	channelNew    bool
-	channelSend   bool
-	mutexCreate   bool
-	fileLiteral   string
-	headerLiteral string
+	spawnFail             bool
+	channelNew            bool
+	channelSend           bool
+	mutexCreate           bool
+	fileLiteral           literalHandle
+	headerLiteral         literalHandle
+	taskCreationFailed    literalHandle
+	channelCreationFailed literalHandle
+	channelSendFailed     literalHandle
+	mutexCreationFailed   literalHandle
 }
 
 // spawnSite is one spawned function: its checked signature drives the
@@ -82,7 +86,7 @@ const (
 // entries. Literals needed by the failure-Error helper are registered in the
 // string literal registry so the Error object's String members lower through
 // the ordinary literal machinery.
-func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, stringState *generatedStringState, moduleID, owner string) *generatedConcurrencyState {
+func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, literals *literalRegistry, moduleID, owner string) *generatedConcurrencyState {
 	state := &generatedConcurrencyState{
 		taskTypes:            make(map[string]compilerTypes.Type),
 		joinTypes:            make(map[string]compilerTypes.Type),
@@ -194,40 +198,25 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 		},
 	}
 	walkProgram(program, visitor)
-	if state.used && stringState != nil {
-		stringState.used = true
-		stringState.needStrand = true
-		state.fileLiteral = registerConcurrencyLiteral(stringState, sourceFilename)
-		state.headerLiteral = registerConcurrencyLiteral(stringState, "Scheduler")
-		for _, payload := range []string{taskCreationFailed, channelCreationFailed, channelSendFailed, mutexCreationFailed} {
-			needed := false
-			switch payload {
-			case taskCreationFailed:
-				needed = state.spawnFail
-			case channelCreationFailed:
-				needed = state.channelNew
-			case channelSendFailed:
-				needed = state.channelSend
-			case mutexCreationFailed:
-				needed = state.mutexCreate
-			}
-			if needed {
-				registerConcurrencyLiteral(stringState, payload)
-			}
+	if state.used {
+		literals.used = true
+		literals.strand = true
+		state.fileLiteral = literals.Intern(sourceFilename)
+		state.headerLiteral = literals.Intern("Scheduler")
+		if state.spawnFail {
+			state.taskCreationFailed = literals.Intern(taskCreationFailed)
+		}
+		if state.channelNew {
+			state.channelCreationFailed = literals.Intern(channelCreationFailed)
+		}
+		if state.channelSend {
+			state.channelSendFailed = literals.Intern(channelSendFailed)
+		}
+		if state.mutexCreate {
+			state.mutexCreationFailed = literals.Intern(mutexCreationFailed)
 		}
 	}
 	return state
-}
-
-// registerConcurrencyLiteral interns one payload in the string literal
-// registry and returns the C literal object name.
-func registerConcurrencyLiteral(stringState *generatedStringState, payload string) string {
-	if index, ok := stringState.seen[payload]; ok {
-		return stringLiteralCName(index - 1)
-	}
-	stringState.literals = append(stringState.literals, payload)
-	stringState.seen[payload] = len(stringState.literals)
-	return stringLiteralCName(len(stringState.literals) - 1)
 }
 
 // spawnSiteFor derives one spawn site from the checked call node: the named
@@ -275,21 +264,16 @@ func atomicSuffix(atomic compilerTypes.Type) string {
 }
 
 // messageLiteral returns the C literal object name of one failure message.
-// Fail-closed form of the old file-literal substitution on a miss: a missing
-// payload is a generator defect, and a wrong message is a silent misreport.
-func (state *generatedConcurrencyState) messageLiteral(stringState *generatedStringState, payload string) (string, error) {
-	if index, ok := stringState.seen[payload]; ok {
-		return stringLiteralCName(index - 1), nil
-	}
-	return "", unknownExpressionDiagnostic("concurrency failure message " + payload + " was never registered")
+func (state *generatedConcurrencyState) messageLiteral(literals *literalRegistry, handle literalHandle) string {
+	return literals.CName(handle)
 }
 
 // writeErrorHelper emits the runtime Error-construction helper hex_sched_error
 // once, before any operation family that can fail.
-func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder) {
+func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder, literals *literalRegistry) {
 	fmt.Fprintf(result, "\nstatic inline hex_t_Error hex_sched_error(size_t line, size_t column, const hex_string *message) {\n")
 	fmt.Fprintf(result, "    return (hex_t_Error){\n")
-	fmt.Fprintf(result, "        .hex_m_file = &%s,\n", state.fileLiteral)
+	fmt.Fprintf(result, "        .hex_m_file = &%s,\n", literals.CName(state.fileLiteral))
 	fmt.Fprintf(result, "        .hex_m_line = line,\n")
 	fmt.Fprintf(result, "        .hex_m_column = column,\n")
 	fmt.Fprintf(result, "        .hex_m_header = (hex_strand){{")
@@ -306,7 +290,7 @@ func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder
 // parameter types), the Task join helpers, the Channel and Mutex operation
 // families, and the Atomic family. They are state-free and only call the
 // runtime core through the hexal/concurrency.h declarations.
-func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) error {
+func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry) error {
 	if state == nil || !state.used && len(state.atomics) == 0 {
 		return nil
 	}
@@ -316,14 +300,14 @@ func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConc
 			// through hex_sched_error, spawn prologues included. One helper
 			// precedes every family that references it; the per-family
 			// writers must not re-emit it.
-			state.writeErrorHelper(result)
+			state.writeErrorHelper(result, literals)
 		}
 		writeSpawnArgFrames(result, state.spawns)
 		writeTaskTypeHelpers(result, state)
-		if err := writeChannelInlineHelpers(result, state, stringState); err != nil {
+		if err := writeChannelInlineHelpers(result, state, literals); err != nil {
 			return err
 		}
-		if err := writeMutexInlineHelpers(result, state, stringState); err != nil {
+		if err := writeMutexInlineHelpers(result, state, literals); err != nil {
 			return err
 		}
 	}
@@ -419,7 +403,7 @@ func writeSpawnArgFrames(result *strings.Builder, sites []spawnSite) {
 // (Channel | Error, Nil | Error, and T | EoS) around the shared core, and
 // free adapts the checked Heap identity argument. close, length, capacity,
 // and is_closed lower directly to the core and need no inline wrapper.
-func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) error {
+func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry) error {
 	if len(state.channels) == 0 {
 		return nil
 	}
@@ -438,10 +422,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 			if union != (compilerTypes.Type{}) {
 				channelIndex := unionMemberIndex(union, channel)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-				message, messageErr := state.messageLiteral(stringState, channelCreationFailed)
-				if messageErr != nil {
-					return messageErr
-				}
+				message := state.messageLiteral(literals, state.channelCreationFailed)
 				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.member_%d = channel };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, channelIndex), channelIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
 			}
@@ -451,10 +432,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 			if union != (compilerTypes.Type{}) {
 				nilIndex := unionMemberIndex(union, compilerTypes.Nil)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-				message, messageErr := state.messageLiteral(stringState, channelSendFailed)
-				if messageErr != nil {
-					return messageErr
-				}
+				message := state.messageLiteral(literals, state.channelSendFailed)
 				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, nilIndex), union.CName, unionTagName(union, errorIndex), errorIndex, message)
 			}
@@ -480,7 +458,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 // and accepts the checked Heap identity even though the current runtime
 // ignores it. lock and unlock lower directly to the core and need no inline
 // wrapper.
-func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, stringState *generatedStringState) error {
+func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry) error {
 	if !state.mutexNew && !state.mutexLock && !state.mutexUnlock && !state.mutexFree {
 		return nil
 	}
@@ -489,10 +467,7 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 		if union != (compilerTypes.Type{}) {
 			mutexIndex := unionMemberIndex(union, compilerTypes.MutexType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
-			message, messageErr := state.messageLiteral(stringState, mutexCreationFailed)
-			if messageErr != nil {
-				return messageErr
-			}
+			message := state.messageLiteral(literals, state.mutexCreationFailed)
 			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.member_%d = mutex };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
 				union.CName, union.CName, unionTagName(union, mutexIndex), mutexIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
 		}
@@ -676,14 +651,11 @@ func renderSpawnExpression(node checker.Expression, state *expressionValidation)
 // errorMessageLiteral resolves one failure message literal registered during
 // discovery.
 func errorMessageLiteral(state *expressionValidation, payload string) (string, error) {
-	if state.strings == nil {
-		return "", unknownExpressionDiagnostic("concurrency failure without the string literal registry")
-	}
-	index, ok := state.strings.seen[payload]
+	handle, ok := state.strings.Lookup(payload)
 	if !ok {
 		return "", unknownExpressionDiagnostic("concurrency failure message is missing from the literal registry: " + payload)
 	}
-	return stringLiteralCName(index - 1), nil
+	return state.strings.CName(handle), nil
 }
 
 // renderTaskMethod renders one Task handle method call.

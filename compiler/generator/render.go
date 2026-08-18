@@ -442,8 +442,8 @@ type expressionValidation struct {
 	// processed, in registration order. A try error branch may render
 	// earlier than a later defer statement, and must not run it.
 	registeredDefers []checker.DeferredAction
-	printCounter     int                   // unique hex_print_arg_N stems for print temporaries
-	strings          *generatedStringState // literal index lookup for rendering
+	printCounter     int              // unique hex_print_arg_N stems for print temporaries
+	strings          *literalRegistry // payload lookup for checked string rendering
 }
 
 type generatedBinding struct {
@@ -963,10 +963,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		return "hex_array_slice_" + arrayAccessorSuffix(node.OperandType) + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 	case checker.StringLiteralExpression:
-		if state.strings == nil {
-			return "", unknownExpressionDiagnostic("string literal without the string literal registry")
-		}
-		index, ok := state.strings.seen[node.Name]
+		handle, ok := state.strings.Lookup(node.Name)
 		if !ok {
 			return "", unknownExpressionDiagnostic("string literal is missing from the checked literal registry: " + node.Name)
 		}
@@ -981,7 +978,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			builder.WriteString(" 0 }}")
 			return builder.String(), nil
 		}
-		return "&" + stringLiteralCName(index-1), nil
+		return "&" + state.strings.CName(handle), nil
 	case checker.StringMethodCallExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("string method without a checked receiver")

@@ -15,7 +15,7 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-func validateCheckedProgram(program checker.Program, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *generatedStringState) error {
+func validateCheckedProgram(program checker.Program, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry) error {
 	typeState := &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
 	state := &expressionValidation{
 		variables:      make(map[string]generatedBinding),
@@ -54,10 +54,10 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 
 // validateFunctionDeclaration validates one concrete function declaration and
 // its body without mutating the main statement state. stringState is the
-// module's literal registry: the preflight renders call statements to prove
+// shared literal registry: the preflight renders call statements to prove
 // them renderable, and a string-literal argument must resolve against the
 // same registry the emission pass uses.
-func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *generatedStringState) error {
+func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry) error {
 	if !validSourceName(declared.Name) || declared.Type.Signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked specialized function")
 	}
@@ -81,9 +81,9 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 }
 
 // validateMethodDeclaration validates one concrete method declaration and its
-// body. stringState is the module's literal registry, threaded through for the
+// body. stringState is the shared literal registry, threaded through for the
 // same reason as validateFunctionDeclaration.
-func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *generatedStringState) error {
+func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry) error {
 	if declared.Object == nil || !validSourceName(declared.Name) || !validateGeneratedType(declared.SelfType, typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked specialized method")
 	}

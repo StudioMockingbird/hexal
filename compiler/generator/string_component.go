@@ -9,8 +9,8 @@ func stringComponents(merged *programEmission) ([]componentArtifact, error) {
 		return nil, nil
 	}
 	model := stringRenderModel{
-		NeedStrand: merged.stringState.needStrand,
-		Literals:   buildStringLiteralModels(merged.stringState.literals),
+		NeedStrand: merged.stringState.strand,
+		Literals:   buildStringLiteralModels(merged.stringState.All()),
 	}
 	return []componentArtifact{
 		{key: "hexal/string.h", template: "string.h", model: model},
@@ -20,14 +20,14 @@ func stringComponents(merged *programEmission) ([]componentArtifact, error) {
 
 // stringFamilyContent is the drained transition seam: the String machinery
 // owns the component artifacts, so hexal.h contributes nothing.
-func stringFamilyContent(state *generatedStringState) string {
+func stringFamilyContent(_ *literalRegistry) string {
 	return ""
 }
 
 // moduleStringComponent selects hexal/string.h for a module using String or
 // Strand.
 func moduleStringComponent(emission *moduleEmission) []string {
-	if emission == nil || emission.stringState == nil || !emission.stringState.used {
+	if emission == nil || !emission.stringUsed {
 		return nil
 	}
 	return []string{"hexal/string.h"}

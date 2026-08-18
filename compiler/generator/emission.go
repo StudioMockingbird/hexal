@@ -1,6 +1,5 @@
-// emission.go owns module/program emission: per-module discovery state,
-// program-wide state merging, module and main C/header pair emission, and
-// header assembly.
+// emission.go owns module/program emission: module discovery, program-wide
+// state merging, module and main C/header pair emission, and header assembly.
 package generator
 
 import (
@@ -53,7 +52,8 @@ type moduleEmission struct {
 	adtState         *generatedAdtState
 	arrayState       *generatedArrayState
 	viewState        *generatedViewState
-	stringState      *generatedStringState
+	stringState      *literalRegistry
+	stringUsed       bool // module-local String/Strand dependency selection
 	listState        *generatedListState
 	dictState        *generatedDictState
 	equalityState    *generatedEqualityState
@@ -72,9 +72,9 @@ type moduleEmission struct {
 // discoverModuleEmission validates one module and runs every built-in
 // discovery walk over it. canonicalID names the module ("graphics/shapes");
 // logicalKey is its source-map filename for #line directives
-// ("graphics/shapes.hex"). The module's own string literal registry is a
-// contribution to the program-wide table merged before emission.
-func discoverModuleEmission(program checker.Program, canonicalID, logicalKey string) (*moduleEmission, error) {
+// ("graphics/shapes.hex"). literals is the registry shared by every module
+// in dependency-first discovery order.
+func discoverModuleEmission(program checker.Program, canonicalID, logicalKey string, literals *literalRegistry) (*moduleEmission, error) {
 	owner := compilerTypes.EncodeModuleOwner(canonicalID)
 	functions, functionErr := declaredFunctions(program)
 	if functionErr != nil {
@@ -95,9 +95,9 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	// preflight renders call statements to prove them renderable, and a
 	// string-literal argument must resolve against the same registry the
 	// emission pass uses.
-	stringState := discoverGeneratedStrings(program)
-	emission.stringState = stringState
-	if validationErr := validateCheckedProgram(program, functions, methods, stringState); validationErr != nil {
+	emission.stringState = literals
+	emission.stringUsed = discoverGeneratedStrings(program, literals)
+	if validationErr := validateCheckedProgram(program, functions, methods, literals); validationErr != nil {
 		return nil, validationErr
 	}
 	emission.errorUsed = discoverErrorUsed(program)
@@ -128,7 +128,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.endianSpecs = discoverGeneratedEndian(program)
 	emission.printState = discoverGeneratedPrint(program)
 	emission.wrapState = discoverGeneratedWraps(program)
-	concurrencyState := discoverGeneratedConcurrency(program, functions, stringState, canonicalID, owner)
+	concurrencyState := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner)
 	emission.concurrencyState = concurrencyState
 	if concurrencyState.used {
 		// The task runtime needs the String and Strand typedefs and the
@@ -136,22 +136,25 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// constructs; the discovery pass registered the literals. The
 		// Channel and Mutex helpers take a hex_heap argument, so the heap
 		// machinery is required too.
-		stringState.used = true
-		stringState.needStrand = true
+		literals.used = true
+		literals.strand = true
+		emission.stringUsed = true
 		heapState.required = true
 	}
 	if emission.errorUsed {
 		// Error's representation names the String and Strand types, so the
 		// string component is a required dependency of error.h.
-		stringState.used = true
-		stringState.needStrand = true
+		literals.used = true
+		literals.strand = true
+		emission.stringUsed = true
 	}
 	if len(dictState.order) > 0 {
 		// The dict component header declares its String dependency, so the
 		// string component must exist.
-		stringState.used = true
+		literals.used = true
+		emission.stringUsed = true
 	}
-	if stringState.used {
+	if emission.stringUsed {
 		ensureViewUInt8(viewState)
 		// The String helpers allocate through the heap machinery, and the
 		// string component header declares its Heap and View dependencies.
@@ -182,7 +185,7 @@ type programEmission struct {
 	errorUsed        bool
 	heapState        *heapHelpers
 	viewState        *generatedViewState
-	stringState      *generatedStringState
+	stringState      *literalRegistry
 	listState        *generatedListState
 	dictState        *generatedDictState
 	arrayState       *generatedArrayState
@@ -204,11 +207,11 @@ type programEmission struct {
 // program-wide aggregate. Every merge is deterministic: modules contribute
 // in the dependency-first order slice, deduplicated collections are keyed by
 // canonical identity, and slice order is preserved or re-sorted explicitly.
-func mergeProgramEmission(modules []*moduleEmission) (*programEmission, error) {
+func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) (*programEmission, error) {
 	merged := &programEmission{
 		heapState:   &heapHelpers{seen: make(map[string]bool)},
 		viewState:   &generatedViewState{seen: make(map[*compilerTypes.ViewInfo]bool)},
-		stringState: &generatedStringState{seen: make(map[string]int)},
+		stringState: literals,
 		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool)},
 		dictState:   &generatedDictState{seen: make(map[*compilerTypes.DictInfo]bool)},
 		arrayState:  &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool)},
@@ -233,7 +236,6 @@ func mergeProgramEmission(modules []*moduleEmission) (*programEmission, error) {
 	for _, module := range modules {
 		merged.errorUsed = merged.errorUsed || module.errorUsed
 		mergeHeapInto(merged.heapState, module.heapState)
-		mergeStringsInto(merged.stringState, module.stringState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
 		mergeWrapState(merged.wrapState, module.wrapState)
 		if module.arrayState != nil {
@@ -261,12 +263,6 @@ func mergeProgramEmission(modules []*moduleEmission) (*programEmission, error) {
 	merged.listState.order = mergeTypeOrders(listOrders)
 	merged.dictState.order = mergeTypeOrders(dictOrders)
 	merged.adapterSites = routeSpawnSites(merged.concurrencyState)
-	// The per-module runtime error literals were registered against each
-	// module's own table during discovery; after aggregation the emitted
-	// indices must match the program-wide table hexal.h defines.
-	if err := rebaseLiteralNames(modules, merged.stringState); err != nil {
-		return nil, err
-	}
 	// The standard-header and hex_eos requirements aggregate after every
 	// family state is merged, so the umbrella set covers the complete
 	// reachable generated program.
@@ -304,7 +300,7 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			requirements.add("stdint.h")
 			requirements.trap = true
 		}
-		if module.stringState != nil && module.stringState.used {
+		if module.stringUsed {
 			// hex_string/hex_strand storage and the UTF-8 helpers use
 			// uint8_t, size_t, free, ckd_add, and memcpy (<string.h>);
 			// diagnostic traps report through hex_runtime_trap.
@@ -492,28 +488,6 @@ func mergeHeapInto(merged, state *heapHelpers) {
 	}
 }
 
-// mergeStringsInto folds one module's literal table into the program-wide
-// table: flags OR, payloads concatenate in module order, deduplicated by
-// first occurrence. The aggregated index is authoritative for every module's
-// emitted literal references.
-func mergeStringsInto(merged, state *generatedStringState) {
-	if state == nil {
-		return
-	}
-	if state.used {
-		merged.used = true
-	}
-	if state.needStrand {
-		merged.needStrand = true
-	}
-	for _, payload := range state.literals {
-		if _, exists := merged.seen[payload]; !exists {
-			merged.seen[payload] = len(merged.literals) + 1
-			merged.literals = append(merged.literals, payload)
-		}
-	}
-}
-
 // mergeConcurrencyInto unions one module's concurrency machinery into the
 // program-wide state: operation flags OR, per-element tables union by C
 // name, and spawn sites concatenate in module order deduplicated by entry
@@ -580,39 +554,6 @@ func routeSpawnSites(merged *generatedConcurrencyState) map[string][]spawnSite {
 		routed[site.module] = append(routed[site.module], site)
 	}
 	return routed
-}
-
-// rebaseLiteralNames rewrites each module's precomputed runtime failure
-// literal names against the program-wide literal table: discovery registered
-// the payloads into each module's own table, but every emitted reference must
-// name the aggregated index hexal.h defines, the one canonical literal set
-// program-wide.
-func rebaseLiteralNames(modules []*moduleEmission, stringState *generatedStringState) error {
-	for _, module := range modules {
-		if module.concurrencyState != nil && module.concurrencyState.used {
-			fileLiteral, err := literalObjectName(stringState, sourceFilename)
-			if err != nil {
-				return err
-			}
-			headerLiteral, err := literalObjectName(stringState, "Scheduler")
-			if err != nil {
-				return err
-			}
-			module.concurrencyState.fileLiteral = fileLiteral
-			module.concurrencyState.headerLiteral = headerLiteral
-		}
-	}
-	return nil
-}
-
-// literalObjectName returns the program-wide object name of one literal
-// payload. Fail-closed form of the old ""-on-a-miss: a miss is a generator
-// defect, and emitting an empty name would render invalid C.
-func literalObjectName(stringState *generatedStringState, payload string) (string, error) {
-	if index, ok := stringState.seen[payload]; ok {
-		return stringLiteralCName(index - 1), nil
-	}
-	return "", unknownExpressionDiagnostic("runtime literal payload " + payload + " was never registered")
 }
 
 // emitModulePair writes one module's C/header pair from its own discovery
@@ -805,7 +746,7 @@ type hexalHeaderInput struct {
 	errorUsed    bool
 	heaps        *heapHelpers
 	views        *generatedViewState
-	stringState  *generatedStringState
+	stringState  *literalRegistry
 	lists        *generatedListState
 	dicts        *generatedDictState
 	arrays       *generatedArrayState
@@ -831,11 +772,12 @@ type moduleHeaderInput struct {
 	heaps         *heapHelpers
 	printState    *generatedPrintState
 	concurrency   *generatedConcurrencyState
-	stringState   *generatedStringState
+	stringState   *literalRegistry
 	canonicalID   string
-	prototypes    string
-	extraFrames   string
-	filename      string
+
+	prototypes  string
+	extraFrames string
+	filename    string
 	// components are the path-qualified component headers this module needs,
 	// in dependency order.
 	components []string

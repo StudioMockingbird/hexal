@@ -21,6 +21,7 @@ import (
 func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program) (map[string]string, error) {
 	files := make(map[string]string, 1+2*len(graph.Order))
 	modules := make([]*moduleEmission, 0, len(graph.Order))
+	literals := newLiteralRegistry()
 	entrypointCanonical := graph.Root
 	for _, canonical := range graph.Order {
 		key := graph.Modules[canonical].LogicalKey
@@ -32,13 +33,13 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 			// omitted module.
 			return nil, fmt.Errorf("generator: the graph names module %s at source key %s, but no checked program has that key", canonical, key)
 		}
-		emission, discoveryErr := discoverModuleEmission(program, canonical, key)
+		emission, discoveryErr := discoverModuleEmission(program, canonical, key, literals)
 		if discoveryErr != nil {
 			return nil, discoveryErr
 		}
 		modules = append(modules, emission)
 	}
-	merged, mergeErr := mergeProgramEmission(modules)
+	merged, mergeErr := mergeProgramEmission(modules, literals)
 	if mergeErr != nil {
 		return nil, mergeErr
 	}
