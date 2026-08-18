@@ -39,7 +39,8 @@ type scope struct {
 	flow         *flowState // branch-local narrowing facts
 	generics     *genericTable
 	defers       []DeferredAction
-	cleanupDepth int // checking a defer or errdefer action
+	returnFlows  []*flowState // states reaching a return from this lexical sequence
+	cleanupDepth int          // checking a defer or errdefer action
 	// registry is the compilation's module graph: it resolves import aliases
 	// against the target modules' exported records.
 	// It is shared by reference with every child scope.
@@ -68,18 +69,25 @@ type flowFact struct {
 	escaped bool
 	variant *compilerTypes.AdtVariant // active ADT variant when variant-narrowed
 	freed   bool                      // the tracked pointer's pointee was released on every path here
+	version uint64                    // identity of the pointer value currently in the binding
 }
 
 // flowState is the branch-local fact table for one function body or module
 // scope. tracked distinguishes a known cleanup state from an intentionally
-// unknown state after a copy or escape.
+// unknown state after a copy or escape. released retains proven cleanup of
+// older pointer values so deferred captures survive later rebinding.
 type flowState struct {
-	facts   map[BindingID]flowFact
-	tracked map[BindingID]bool
+	facts    map[BindingID]flowFact
+	tracked  map[BindingID]bool
+	released map[BindingID]map[uint64]bool
 }
 
 func newFlowState() *flowState {
-	return &flowState{facts: make(map[BindingID]flowFact), tracked: make(map[BindingID]bool)}
+	return &flowState{
+		facts:    make(map[BindingID]flowFact),
+		tracked:  make(map[BindingID]bool),
+		released: make(map[BindingID]map[uint64]bool),
+	}
 }
 
 func (state *flowState) clone() *flowState {
@@ -89,6 +97,25 @@ func (state *flowState) clone() *flowState {
 	}
 	for id := range state.tracked {
 		cloned.tracked[id] = true
+	}
+	for id, versions := range state.released {
+		cloned.released[id] = make(map[uint64]bool, len(versions))
+		for version := range versions {
+			cloned.released[id][version] = true
+		}
+	}
+	return cloned
+}
+
+// withoutFreedChecks gives exit-time expression typing a flow view that
+// retains types but cannot observe or mutate cleanup facts at registration.
+func (state *flowState) withoutFreedChecks() *flowState {
+	cloned := state.clone()
+	cloned.tracked = make(map[BindingID]bool)
+	cloned.released = make(map[BindingID]map[uint64]bool)
+	for id, fact := range cloned.facts {
+		fact.freed = false
+		cloned.facts[id] = fact
 	}
 	return cloned
 }
@@ -204,6 +231,9 @@ func (state *flowState) trackFreed(id BindingID) {
 	}
 	state.tracked[id] = true
 	fact := state.facts[id]
+	if fact.version == 0 {
+		fact.version = 1
+	}
 	fact.freed = false
 	state.facts[id] = fact
 }
@@ -215,6 +245,7 @@ func (state *flowState) dropFreed(id BindingID) {
 		return
 	}
 	delete(state.tracked, id)
+	delete(state.released, id)
 	if fact, ok := state.facts[id]; ok {
 		fact.freed = false
 		state.facts[id] = fact
@@ -231,13 +262,50 @@ func (state *flowState) freed(id BindingID) bool {
 	return ok && fact.freed
 }
 
+func (state *flowState) trackedVersion(id BindingID) (uint64, bool) {
+	if state == nil || !state.tracked[id] {
+		return 0, false
+	}
+	fact, ok := state.facts[id]
+	return fact.version, ok && fact.version != 0
+}
+
+func (state *flowState) freedAt(id BindingID, version uint64) bool {
+	if state == nil || !state.tracked[id] || version == 0 {
+		return false
+	}
+	fact, ok := state.facts[id]
+	if ok && fact.version == version && fact.freed {
+		return true
+	}
+	return state.released[id][version]
+}
+
 func (state *flowState) markFreed(id BindingID) {
 	if state == nil || !state.tracked[id] {
 		return
 	}
 	fact := state.facts[id]
-	fact.freed = true
-	state.facts[id] = fact
+	state.markFreedVersion(id, fact.version)
+}
+
+func (state *flowState) markFreedVersion(id BindingID, version uint64) {
+	if state == nil || !state.tracked[id] || version == 0 {
+		return
+	}
+	if fact, ok := state.facts[id]; !ok {
+		return
+	} else if fact.version == version {
+		fact.freed = true
+		state.facts[id] = fact
+	}
+	if state.released == nil {
+		state.released = make(map[BindingID]map[uint64]bool)
+	}
+	if state.released[id] == nil {
+		state.released[id] = make(map[uint64]bool)
+	}
+	state.released[id][version] = true
 }
 
 func (state *flowState) clearFreed(id BindingID) {
@@ -245,6 +313,10 @@ func (state *flowState) clearFreed(id BindingID) {
 		return
 	}
 	fact := state.facts[id]
+	fact.version++
+	if fact.version == 0 {
+		fact.version = 1
+	}
 	fact.freed = false
 	state.facts[id] = fact
 }
@@ -273,6 +345,7 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 		return
 	}
 	parent := state.clone()
+	versionMismatch := make(map[BindingID]bool)
 	for _, branch := range branches {
 		if branch == nil {
 			continue
@@ -286,6 +359,9 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 			if !exists {
 				continue
 			}
+			if parent.tracked[id] && parentFact.version != fact.version {
+				versionMismatch[id] = true
+			}
 			if !compilerTypes.Equal(parentFact.typ, fact.typ) {
 				current := state.facts[id]
 				current.typ = compilerTypes.Type{}
@@ -294,6 +370,10 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 		}
 	}
 	for id := range parent.tracked {
+		if versionMismatch[id] {
+			state.dropFreed(id)
+			continue
+		}
 		allFreed := true
 		for _, branch := range branches {
 			if branch == nil || !branch.tracked[id] || !branch.freed(id) {
@@ -307,6 +387,58 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 			state.dropFreed(id)
 		}
 	}
+
+	// Deferred actions may retain an older binding version after every branch
+	// reassigns the slot. Intersect the versions each continuing branch proves
+	// released; disagreement is an unknown state and stays accepted.
+	versions := make(map[BindingID]map[uint64]bool)
+	addVersions := func(branch *flowState) {
+		if branch == nil {
+			return
+		}
+		for id, released := range branch.released {
+			if versions[id] == nil {
+				versions[id] = make(map[uint64]bool)
+			}
+			for version := range released {
+				versions[id][version] = true
+			}
+		}
+		for id, fact := range branch.facts {
+			if branch.tracked[id] && fact.freed && fact.version != 0 {
+				if versions[id] == nil {
+					versions[id] = make(map[uint64]bool)
+				}
+				versions[id][fact.version] = true
+			}
+		}
+	}
+	addVersions(parent)
+	for _, branch := range branches {
+		addVersions(branch)
+	}
+	mergedReleased := make(map[BindingID]map[uint64]bool)
+	for id, candidates := range versions {
+		if !state.tracked[id] {
+			continue
+		}
+		for version := range candidates {
+			allReleased := true
+			for _, branch := range branches {
+				if branch == nil || !branch.tracked[id] || !branch.freedAt(id, version) {
+					allReleased = false
+					break
+				}
+			}
+			if allReleased {
+				if mergedReleased[id] == nil {
+					mergedReleased[id] = make(map[uint64]bool)
+				}
+				mergedReleased[id][version] = true
+			}
+		}
+	}
+	state.released = mergedReleased
 }
 
 // adopt replaces the continuing state with one continuing branch's facts
@@ -323,6 +455,13 @@ func (state *flowState) adopt(branch *flowState) {
 	state.tracked = make(map[BindingID]bool, len(branch.tracked))
 	for id := range branch.tracked {
 		state.tracked[id] = true
+	}
+	state.released = make(map[BindingID]map[uint64]bool, len(branch.released))
+	for id, versions := range branch.released {
+		state.released[id] = make(map[uint64]bool, len(versions))
+		for version := range versions {
+			state.released[id][version] = true
+		}
 	}
 }
 
@@ -468,6 +607,13 @@ func (names *scope) child() *scope {
 		registry: names.registry,
 		moduleID: names.moduleID,
 	}
+}
+
+func (names *scope) recordReturnFlow() {
+	if names == nil || names.flow == nil {
+		return
+	}
+	names.returnFlows = append(names.returnFlows, names.flow.clone())
 }
 
 func typeErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {

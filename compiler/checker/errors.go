@@ -213,9 +213,10 @@ func checkErrdeferStatement(statement parser.ErrdeferStatement, names *scope, ty
 		}
 		action.IsCall = true
 		action.Call = &checked.source
+		captureDeferredHeapFree(&action, names)
 		source = checked.source
 	} else {
-		checked := checkExpression(statement.Expression, expressionContext{inCleanup: true}, names, typeEnvironment)
+		checked := checkExitTimeExpression(statement.Expression, names, typeEnvironment)
 		if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 			return ErrdeferStatement{}, diagnostics
 		}

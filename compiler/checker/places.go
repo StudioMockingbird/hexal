@@ -243,10 +243,12 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 // place construction reject a known released local without affecting value
 // arguments, which are not dereferences.
 func dereferencePlace(receiver checkedExpression, token lexer.Token, states ...*flowState) checkedExpression {
-	if len(states) > 0 && states[0] != nil && receiver.source.Node.Kind == VariableExpression &&
-		receiver.source.Node.Binding != 0 && states[0].freed(receiver.source.Node.Binding) {
-		diagnostic := useAfterFreeDiagnostic(token)
-		return checkedExpression{token: token, diagnostic: &diagnostic}
+	var state *flowState
+	if len(states) > 0 {
+		state = states[0]
+	}
+	if diagnostic := freedPointeeDiagnostic(receiver, token, state); diagnostic != nil {
+		return checkedExpression{token: token, diagnostic: diagnostic}
 	}
 	if receiver.typ.Element != nil && compilerTypes.IsUnknown(*receiver.typ.Element) {
 		diagnostic := typeErrorAt(token, receiver.typ.Name+" cannot be dereferenced; recover a concrete pointer type first")
@@ -268,6 +270,14 @@ func dereferencePlace(receiver checkedExpression, token lexer.Token, states ...*
 		use:   use,
 		token: token,
 	}
+}
+
+func freedPointeeDiagnostic(receiver checkedExpression, token lexer.Token, state *flowState) *compilerTypes.Diagnostic {
+	if state == nil || receiver.source.Node.Kind != VariableExpression || receiver.source.Node.Binding == 0 || !state.freed(receiver.source.Node.Binding) {
+		return nil
+	}
+	diagnostic := useAfterFreeDiagnostic(token)
+	return &diagnostic
 }
 
 func valueFromPlace(place checkedExpression) checkedExpression {

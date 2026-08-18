@@ -63,9 +63,12 @@ func checkStatements(statements []parser.Statement, names *scope, typeEnvironmen
 				names.define(declaration.Name.Lexeme, declaredBinding)
 			}
 			checked = append(checked, checkedStatement)
+			if _, returns := checkedStatement.(ReturnStatement); returns {
+				names.recordReturnFlow()
+			}
 		}
 	}
-	diagnostics = append(diagnostics, validateDeferredActions(names)...)
+	diagnostics = append(diagnostics, validateDeferredActions(names, !sequenceTerminates(checked))...)
 	return checked, diagnostics
 }
 
@@ -233,6 +236,9 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 	diagnostics = append(diagnostics, thenDiagnostics...)
 	checked.Then = thenBody
 	checked.ThenDefers = append(checked.ThenDefers, thenScope.defers...)
+	if len(thenDiagnostics) == 0 {
+		names.returnFlows = append(names.returnFlows, thenScope.returnFlows...)
+	}
 
 	continuing := make([]*flowState, 0, len(statement.ElseIf)+2)
 	if len(thenDiagnostics) == 0 && !sequenceTerminates(thenBody) && thenState != nil {
@@ -268,6 +274,9 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		branchBody, branchDiagnostics := checkStatements(branch.Body, branchScope, typeEnvironment, loopDepth)
 		diagnostics = append(diagnostics, branchDiagnostics...)
 		checked.ElseIfDefers = append(checked.ElseIfDefers, append([]DeferredAction(nil), branchScope.defers...))
+		if len(branchDiagnostics) == 0 {
+			names.returnFlows = append(names.returnFlows, branchScope.returnFlows...)
+		}
 		checked.ElseIf = append(checked.ElseIf, IfBranch{
 			Condition:       branchCondition,
 			ConditionLine:   branchToken.Line,
@@ -287,6 +296,9 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		diagnostics = append(diagnostics, elseDiagnostics...)
 		checked.Else = elseBody
 		checked.ElseDefers = append(checked.ElseDefers, elseScope.defers...)
+		if len(elseDiagnostics) == 0 {
+			names.returnFlows = append(names.returnFlows, elseScope.returnFlows...)
+		}
 		if len(elseDiagnostics) == 0 && !sequenceTerminates(elseBody) && elseState != nil {
 			continuing = append(continuing, elseState)
 		}
@@ -418,6 +430,9 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = body
 	checked.BodyDefers = append(checked.BodyDefers, bodyScope.defers...)
+	if len(bodyDiagnostics) == 0 {
+		names.returnFlows = append(names.returnFlows, bodyScope.returnFlows...)
+	}
 	checked.Source = source.source
 	if len(bodyDiagnostics) == 0 && parentState != nil && bodyState != nil {
 		parentState.mergeBranches(parentState.clone(), bodyState)
@@ -508,6 +523,9 @@ func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvi
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = body
 	checked.BodyDefers = append(checked.BodyDefers, bodyScope.defers...)
+	if len(bodyDiagnostics) == 0 {
+		names.returnFlows = append(names.returnFlows, bodyScope.returnFlows...)
+	}
 	if len(bodyDiagnostics) == 0 && parentState != nil && bodyState != nil {
 		parentState.mergeBranches(parentState.clone(), bodyState)
 	}

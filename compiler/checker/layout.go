@@ -97,6 +97,9 @@ func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpress
 			Message: "volatile access is supported only for integer storage types; got " + element.Name,
 		}}
 	}
+	if diagnostic := freedPointeeDiagnostic(receiver, callee.Property, names.flow); diagnostic != nil {
+		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	}
 	switch name {
 	case "read_volatile":
 		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {

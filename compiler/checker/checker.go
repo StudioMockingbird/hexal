@@ -161,6 +161,10 @@ type DeferredAction struct {
 	// is validated at scope exit rather than at registration.
 	SourceLine   int
 	SourceColumn int
+	// HeapFreeBinding and HeapFreeVersion identify the pointer value captured
+	// by a deferred Heap.free call across later rebinding of the same slot.
+	HeapFreeBinding BindingID
+	HeapFreeVersion uint64
 	// Err marks an errdefer action: it runs only when the current
 	// function exits by returning Error.
 	Err bool
@@ -461,7 +465,7 @@ func checkModule(program parser.Program, moduleID string, entrypointCanonical st
 			})
 		}
 	}
-	diagnostics = append(diagnostics, validateDeferredActions(environment)...)
+	diagnostics = append(diagnostics, validateDeferredActions(environment, !sequenceTerminates(checked.Statements))...)
 
 	checked.TypeDeclarations = append(checked.TypeDeclarations, environment.generics.typeDeclarations...)
 	checked.SpecializedFunctions = specializedFunctionList(environment.generics)

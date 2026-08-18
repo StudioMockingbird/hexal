@@ -546,6 +546,72 @@ h.free(p)
 `,
 			want: "free releases storage already released on every path to this point",
 		},
+		{
+			name: "outer defer after terminating branches",
+			source: `fun finish(flag: Bool, h: Heap): Int32 do
+    p: MutPtr<Int32> = h.allocate<Int32>(0)
+    defer h.free(p)
+    if flag then
+        h.free(p)
+        return 1
+    else
+        h.free(p)
+        return 2
+    end
+end
+`,
+			want: "free releases storage already released on every path to this point",
+		},
+		{
+			name: "deferred capture after reallocation",
+			source: `h: Heap = Heap.new()
+mut p: MutPtr<Int32> = h.allocate<Int32>(0)
+defer h.free(p)
+h.free(p)
+p = h.allocate<Int32>(1)
+`,
+			want: "free releases storage already released on every path to this point",
+		},
+		{
+			name: "method receiver after free",
+			source: `type Point = { value: Int32, }
+impl Point.read(): Int32 do
+    return self.value
+end
+h: Heap = Heap.new()
+p: MutPtr<Point> = h.allocate<Point>(Point { value = 1, })
+h.free(p)
+value: Int32 = p.read()
+`,
+			want: "this pointer's storage was released on every path to this point",
+		},
+		{
+			name: "volatile read after free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<UInt32> = h.allocate<UInt32>(0)
+h.free(p)
+value: UInt32 = p.read_volatile()
+`,
+			want: "this pointer's storage was released on every path to this point",
+		},
+		{
+			name: "volatile write after free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<UInt32> = h.allocate<UInt32>(0)
+h.free(p)
+p.write_volatile(1)
+`,
+			want: "this pointer's storage was released on every path to this point",
+		},
+		{
+			name: "deferred expression after free",
+			source: `h: Heap = Heap.new()
+p: MutPtr<Int32> = h.allocate<Int32>(0)
+h.free(p)
+defer p.value
+`,
+			want: "this pointer's storage was released on every path to this point",
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -635,6 +701,29 @@ defer h.free(p)
 p: MutPtr<Int32> = h.allocate<Int32>(0)
 defer h.free(p)
 value: Int32 = p.value
+`,
+		},
+		{
+			name: "deferred expression after reallocation",
+			source: `h: Heap = Heap.new()
+mut p: MutPtr<Int32> = h.allocate<Int32>(0)
+h.free(p)
+defer p.value
+p = h.allocate<Int32>(1)
+`,
+		},
+		{
+			name: "deferred capture with branch-reassigned pointer",
+			source: `h: Heap = Heap.new()
+mut p: MutPtr<Int32> = h.allocate<Int32>(0)
+defer h.free(p)
+flag: Bool = true
+if flag then
+    p = h.allocate<Int32>(1)
+else
+    p = h.allocate<Int32>(2)
+end
+h.free(p)
 `,
 		},
 		{

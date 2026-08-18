@@ -426,7 +426,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 
-	adapted, diagnostic := adaptReceiver(receiver, *method, callee, typeEnvironment)
+	adapted, diagnostic := adaptReceiver(receiver, *method, callee, typeEnvironment, names.flow)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -482,7 +482,7 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 		diagnostic := privateToModuleDiagnostic(callee.Property, name, object.ModuleID)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	adapted, diagnostic := adaptReceiver(receiver, method, callee, typeEnvironment)
+	adapted, diagnostic := adaptReceiver(receiver, method, callee, typeEnvironment, names.flow)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -547,13 +547,17 @@ func methodParameterTypes(method *MethodDeclaration) []compilerTypes.Type {
 //
 // Rule 4 is `ref` exactly as written source would be: a fixed place yields
 // Ptr<T> and so cannot reach a MutPtr<T> method.
-func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee parser.PropertyExpression, typeEnvironment *compilerTypes.Environment) (Operand, *compilerTypes.Diagnostic) {
+func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee parser.PropertyExpression, typeEnvironment *compilerTypes.Environment, flow *flowState) (Operand, *compilerTypes.Diagnostic) {
 	target := method.SelfType
 	switch {
 	case compilerTypes.Equal(target, receiver.typ), assignable(target, receiver.typ):
 		return valueFromPlace(receiver).source, nil
 	case receiver.typ.Element != nil && compilerTypes.Equal(*receiver.typ.Element, target):
-		return valueFromPlace(dereferencePlace(receiver, callee.Property)).source, nil
+		dereferenced := dereferencePlace(receiver, callee.Property, flow)
+		if dereferenced.diagnostic != nil {
+			return Operand{}, dereferenced.diagnostic
+		}
+		return valueFromPlace(dereferenced).source, nil
 	case target.Element != nil && compilerTypes.Equal(*target.Element, receiver.typ):
 		pointer := typeEnvironment.PtrType(receiver.typ)
 		if receiver.source.Writable {

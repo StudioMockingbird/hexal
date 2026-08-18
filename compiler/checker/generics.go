@@ -979,7 +979,7 @@ func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyE
 			Message:  fmt.Sprintf("%s expects %d arguments, got %d", specialized.Name, len(specialized.Parameters), len(call.Arguments)),
 		}}
 	}
-	adapted, diagnostic := adaptReceiver(receiver, specialized, callee, typeEnvironment)
+	adapted, diagnostic := adaptReceiver(receiver, specialized, callee, typeEnvironment, names.flow)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
