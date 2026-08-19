@@ -58,7 +58,7 @@ func TestListLifecycle(t *testing.T) {
 }
 
 func TestListViewDerivationAndInvalidation(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    view: View<Int32> = values.slice(0, 2)\n    total: Int32 = view[0] + view[1]\n    values.set(0, 9)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    view: View<Int32> = values.slice(0, 2)\n    total: Int32 = view[0] + view[1]\n    values[0] = 9\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -117,14 +117,14 @@ func TestListReturnHandoff(t *testing.T) {
 func TestListOfStrings(t *testing.T) {
 	// A stored literal is never freed by the collection or by a pop; a
 	// runtime String popped out of the list is freed explicitly.
-	result := compileSource("fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    names.set(0, \"carol\")\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names[0]\nend")
+	result := compileSource("fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    names[0] = \"carol\"\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
 		"hex_list_push_String(hex_v_names, &hex_lit_0);",
 		"hex_list_push_String(hex_v_names, hex_v_runtime);",
-		"hex_list_set_String(hex_v_names, (size_t)(0), &hex_lit_2);",
+		"*hex_list_at_mut_String(hex_v_names, (size_t)(0)) = &hex_lit_2;",
 		"hex_v_popped = hex_list_pop_String(hex_v_names);",
 		"hex_string_free(hex_v_h, hex_v_popped);",
 	} {
@@ -138,7 +138,7 @@ func TestListOfStrings(t *testing.T) {
 // read handle is live are the programmer's responsibility.
 func TestListStringMutationAfterReadIsValid(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.set(0, \"b\")\nend",
+		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names[0] = \"b\"\nend",
 		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    dropped: String = names.pop()\nend",
 		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.clear()\nend",
 		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.free(h)\nend",

@@ -65,7 +65,7 @@
         "type Entry = { name: Strand, note: String, first: Rune, kind: Byte, }",
         "entry: Entry = Entry { name = \"hexal\", note = \"hi\", first = 'h', kind = b'\\x01' }",
         "initial: Rune = entry.first",
-        "header: Rune = entry.name[0]",
+        "header: Size = entry.name.length()",
         "kind_value: Byte = entry.kind"
       ]},
       "features": ["objects", "text", "literals"],

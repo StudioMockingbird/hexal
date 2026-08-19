@@ -14,7 +14,7 @@ func c23GeneratedArrayViewCCompiles(t *testing.T) {
 // Smoke-check that an owning List program generates C that gcc accepts with
 // -std=c23: growth, bounds traps, and shallow String handle copies.
 func c23GeneratedListCCompiles(t *testing.T) {
-	source := "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values.set(0, 9)\n    first: Int32 = values[0]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> = values.slice(0, 1)\n    total: Int32 = view[0]\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String = names.pop()\n    popped.free(h)\n    name: String = names[0]\nend"
+	source := "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    first: Int32 = values[0]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> = values.slice(0, 1)\n    total: Int32 = view[0]\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String = names.pop()\n    popped.free(h)\n    name: String = names[0]\nend"
 	compileGeneratedC(t, assertCompiles(t, source))
 }
 
@@ -43,7 +43,7 @@ func c23GeneratedStringCCompiles(t *testing.T) {
 // Runtime conformance: an owning List computes length, at, set, pop, clear,
 // slice, and String element round-trips through the checked heap machinery.
 func c23GeneratedListRuns(t *testing.T) {
-	source := "fun demo(h: Heap): Bool do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values.set(0, 9)\n    first: Int32 = values[0]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> = values.slice(0, 1)\n    total: Int32 = view[0]\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String = names.pop()\n    popped.free(h)\n    name: String = names[0]\n    return first == 9 and last == 5 and total == 7 and name.length() == 5\nend\nprint(demo(Heap.new()))\n"
+	source := "fun demo(h: Heap): Bool do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    first: Int32 = values[0]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> = values.slice(0, 1)\n    total: Int32 = view[0]\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String = names.pop()\n    popped.free(h)\n    name: String = names[0]\n    return first == 9 and last == 5 and total == 7 and name.length() == 5\nend\nprint(demo(Heap.new()))\n"
 	if got := runGeneratedC(t, assertCompiles(t, source)); got != "true" {
 		t.Fatalf("program output = %q, want %q", got, "true")
 	}

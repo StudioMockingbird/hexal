@@ -73,6 +73,16 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 	keyType := dictType.Dict.Key
 	valueType := dictType.Dict.Value
 	switch name {
+	case "length":
+		// Entry count is not an ordering, so reporting it exposes nothing
+		// about the unspecified iteration order Dict deliberately hides.
+		if len(call.Arguments) != 0 {
+			diagnostic := typeErrorAt(callee.Property, "length expects no arguments")
+			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: dictType, ResultType: compilerTypes.SizeType, Element: valueType}
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
+		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
 	case "insert":
 		if len(call.Arguments) != 2 {
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("insert expects 2 arguments; got %d", len(call.Arguments)))

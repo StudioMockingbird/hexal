@@ -118,12 +118,17 @@ func checkIndexPlace(expression parser.IndexExpression, names *scope, typeEnviro
 		// object; no mut binding is required.
 		element = receiver.typ.List.Element
 		writable = true
-	} else if compilerTypes.IsString(receiver.typ) || compilerTypes.IsStrand(receiver.typ) {
-		// Text indexing yields a Rune and is never writable.
-		element = compilerTypes.Rune
+	}
+	if compilerTypes.IsString(receiver.typ) || compilerTypes.IsStrand(receiver.typ) {
+		// Text is UTF-8, so reaching the nth Rune walks from the start.
+		// Indexing spelled the same as an O(1) collection index hid that
+		// cost and made a positional loop quadratic; the cursor makes the
+		// traversal explicit and bytes() indexes in constant time.
+		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; use rune_cursor() to walk Runes or bytes() for indexed byte access")
+		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
 	if element == (compilerTypes.Type{}) {
-		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, View<T>, List<T>, String, or Strand")
+		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, View<T>, or List<T>")
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
 	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, names, typeEnvironment)

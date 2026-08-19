@@ -201,6 +201,35 @@ handle: MutPtr<Widget.Handle> | Nil = Widget.open()
 The conceptual binding notation is not accepted syntax until this RFC settles
 its grammar.
 
+### The open grammar question
+
+**This is the first gate on the rest of the RFC and is deliberately unresolved.**
+Everything downstream — the declaration model, ABI checking, lowering, exports —
+assumes a notation exists; none of it depends on which one.
+
+The sketch above puts three modifiers before `fun` (`export extern c fun`) and
+gives the symbol name a clause that looks like a body but is not. An alternative
+worth evaluating in the same pass, recorded so it is not lost: since a binding
+module is *wholly* foreign and normally machine-generated, foreign-ness can be
+structural rather than repeated per declaration.
+
+```hexal
+foreign "widget.h" do
+    export type Handle = opaque
+    export fun open(): MutPtr<Handle> | Nil = "widget_open"
+    export fun close(handle: MutPtr<Handle>) = "widget_close"
+end
+```
+
+One new keyword instead of a modifier chain, and the C symbol becomes a value
+rather than a pseudo-body. Goal 3 keeps the language surface small, and
+`extern c` repeated on every declaration works against it.
+
+Neither form is adopted here. Whichever pass settles this must also answer the
+question the author note raises — how binding generation accepts C projects
+written against older C standards rather than assuming C23 — because that
+constrains what the notation has to express.
+
 ## Foreign declaration model
 
 The compiler needs checked representations for:

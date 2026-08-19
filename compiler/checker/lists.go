@@ -108,7 +108,7 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		}
 		source := Operand{Kind: ExpressionOperand, Type: viewType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: viewType, token: callee.Property}
-	case "push", "set", "clear", "pop":
+	case "push", "clear", "pop":
 		switch name {
 		case "push":
 			if len(call.Arguments) != 1 {
@@ -120,22 +120,6 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 			}
 			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{value}, OperandType: listType, ResultType: compilerTypes.Type{}, Element: element}
-			source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
-		case "set":
-			if len(call.Arguments) != 2 {
-				diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("set expects 2 arguments; got %d", len(call.Arguments)))
-				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-			}
-			index, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, names, typeEnvironment)
-			if diagnostic != nil {
-				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
-			}
-			value, diagnostic := listElementArgument(call.Arguments[1], callee.Property, element, names, typeEnvironment)
-			if diagnostic != nil {
-				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
-			}
-			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{index, value}, OperandType: listType, ResultType: compilerTypes.Type{}, Element: element}
 			source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 		case "clear":

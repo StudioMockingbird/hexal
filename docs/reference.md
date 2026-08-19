@@ -326,6 +326,16 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 
 ## Values, copying, and evaluation
 
+- **Representation follows ownership, not shape.** A type that owns an allocation is a
+  pointer-sized handle: it is passed as a pointer and copies alias one allocation. These are
+  exactly the types exposing `free` — `String`, List, Dict, Channel, Mutex — plus Task, whose
+  storage the scheduler reclaims through join or detach. A type that is inline or borrows
+  storage is a value: it is passed by value and a copy copies its region. These are scalars,
+  `Strand`, Array, objects, ADTs, and View. A new type derives its representation from this
+  rule rather than from resemblance to an existing one.
+- The rule is ownership because the C struct shape does not decide it: `String` and `View<T>`
+  are both a pointer and a length, and differ only in that `String` owns its bytes while a View
+  borrows them. `String` is therefore a handle and a View is a descriptor value.
 - Every value is stored inline. Every copy copies the C representation. Scalars and
   inline aggregates (`Strand`, Array, objects, ADTs) copy all inline bytes. Pointers and
   `String`, List, Dict, Task, Channel, Mutex copy their handle representation. View copies
@@ -754,15 +764,14 @@ List<T>[index: Integer] -> place<T>
 List<T>.slice(start: Integer, end: Integer) -> View<T>
 List<T>.push(value: T) -> no value
 List<T>.pop() -> T
-List<T>.set(index: Integer, value: T) -> no value
 List<T>.clear() -> no value
 List<T>.free(heap: Heap) -> no value
 ```
 
 - Growable allocated sequence. A fixed handle can mutate its List; `mut` only reassigns the handle.
-  `pop` traps when empty; access and set are bounds-checked.
+  `pop` traps when empty; indexed access is bounds-checked.
 - T follows general storability. Every operation copies/discards T shallowly, including String.
-  `set`, `clear`, and `free` drop slots without freeing referents; free releases only List storage.
+  Index assignment, `clear`, and `free` drop slots without freeing referents; free releases only List storage.
 - Values read or popped are aliases. Each distinct referenced owned allocation requires exactly one
   cleanup before loss of reachability. Repeated aliases must not be freed per slot. Reverse defer
   order runs later-registered element cleanup before earlier-registered container cleanup.
@@ -775,6 +784,7 @@ Dict<K,V>.insert(key: K, value: V) -> no value
 Dict<K,V>.get(key: K) -> V
 Dict<K,V>.contains(key: K) -> Bool
 Dict<K,V>.remove(key: K) -> V
+Dict<K,V>.length() -> Size
 Dict<K,V>.free(heap: Heap) -> no value
 ```
 
@@ -792,7 +802,6 @@ Dict<K,V>.free(heap: Heap) -> no value
 ```text
 String.length() -> Size
 String.is_empty() -> Bool
-String[index: Integer] -> Rune
 String.bytes() -> View<Byte>
 String.slice(start: Integer, end: Integer) -> View<Byte>
 String.rune_cursor() -> RuneCursor
@@ -803,7 +812,6 @@ String.from_bytes(heap: Heap, bytes: View<Byte>) -> String
 String.from_runes(heap: Heap, runes: View<Rune>) -> String
 Strand.length() -> Size
 Strand.is_empty() -> Bool
-Strand[index: Integer] -> Rune
 Strand.to_string(heap: Heap) -> String
 RuneCursor.has_next() -> Bool
 RuneCursor.next() -> Rune
@@ -816,7 +824,9 @@ RuneCursor.next() -> Rune
 - String is immutable UTF-8 behind a non-null pointer-sized handle. Runtime values use one
   header-plus-bytes allocation; literals use static storage. Strand is immutable literal-only inline
   32 bytes: at most 31 UTF-8 bytes, NUL, then zero fill; embedded NUL/invalid UTF-8/overflow reject.
-- String/Strand indexing and length count Runes; byte Views count bytes.
+- String and Strand length counts Runes; byte Views count bytes. Neither is indexable: reaching the
+  nth Rune of UTF-8 walks from the start, so a positional loop would be quadratic behind O(1)
+  syntax. `rune_cursor` walks Runes in one pass and `bytes` gives indexed byte access.
 - String slice uses Rune bounds and returns the corresponding zero-copy UTF-8 bytes. `from_bytes`
   validates before allocation and traps on malformed UTF-8.
 - RuneCursor borrows String; `next` traps after exhaustion. Copies hold independent positions over

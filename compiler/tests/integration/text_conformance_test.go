@@ -52,7 +52,7 @@ func TestStringUnicodeEscapesCompile(t *testing.T) {
 }
 
 func TestStringSurfaceCompiles(t *testing.T) {
-	source := "fun demo(): Size do\n    text: String = \"hello\"\n    count: Size = text.length()\n    empty: Bool = text.is_empty()\n    first: Rune = text[0]\n    indexed: Rune = text[1]\n    cursor: RuneCursor = text.rune_cursor()\n    return count\nend\n"
+	source := "fun demo(): Size do\n    text: String = \"hello\"\n    count: Size = text.length()\n    empty: Bool = text.is_empty()\n    cursor: RuneCursor = text.rune_cursor()\n    first: Rune = cursor.next()\n    return count\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -83,7 +83,7 @@ func TestRuneCursorIterationCompiles(t *testing.T) {
 }
 
 func TestStrandSurfaceCompiles(t *testing.T) {
-	source := "fun demo(h: Heap): Bool do\n    label: Strand = \"hexal\"\n    count: Size = label.length()\n    empty: Bool = label.is_empty()\n    first: Rune = label[0]\n    indexed: Rune = label[1]\n    text: String = label.to_string(h)\n    text.free(h)\n    return empty\nend\n"
+	source := "fun demo(h: Heap): Bool do\n    label: Strand = \"hexal\"\n    count: Size = label.length()\n    empty: Bool = label.is_empty()\n    text: String = label.to_string(h)\n    text.free(h)\n    return empty\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)

@@ -44,7 +44,7 @@ func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // bounds guards, growth with the checked multiply chain, the guarded memcpy,
 // and trap messages).
 func TestListComponentHexalHeaderOwnsNoListText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> = values.slice(0, 1)\n    first: Int32 = values[0]\n    values.set(0, 9)\n    last: Int32 = values.pop()\n    values.clear()\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> = values.slice(0, 1)\n    first: Int32 = values[0]\n    values[0] = 9\n    last: Int32 = values.pop()\n    values.clear()\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_list_") {
 		t.Fatalf("hexal.h = %q, list definitions must live in hexal/list.h", files["hexal.h"])
@@ -96,12 +96,6 @@ static inline void hex_list_push_Int32(hex_list_Int32 *list, int32_t value) {
         hex_list_grow_Int32(list);
     }
     list->data[list->length++] = value;
-}
-static inline void hex_list_set_Int32(hex_list_Int32 *list, size_t index, int32_t value) {
-    if (index >= list->length) {
-        hex_runtime_trap("[Runtime Error] list index out of bounds\n");
-    }
-    list->data[index] = value;
 }
 static inline int32_t hex_list_pop_Int32(hex_list_Int32 *list) {
     if (list->length == 0) {

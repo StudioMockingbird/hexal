@@ -191,15 +191,6 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
-		case "set":
-			if node.OperandType.List == nil || len(node.Arguments) != 2 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("list set call has invalid checked metadata")
-			}
-			for _, argument := range node.Arguments {
-				if err := validateCheckedOperandWithState(argument, state); err != nil {
-					return err
-				}
-			}
 		case "clear":
 			if node.OperandType.List == nil || len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic("list clear call has invalid checked metadata")
@@ -364,7 +355,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return "(" + receiver + ")->length", nil
 			}
 			return "(" + receiver + ").length", nil
-		case "push", "set", "clear", "pop":
+		case "push", "clear", "pop":
 			if node.Operand == nil || node.OperandType.List == nil {
 				return "", unknownExpressionDiagnostic("list mutation without a checked list receiver")
 			}
@@ -383,19 +374,6 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 					return "", valueErr
 				}
 				return "hex_list_push_" + suffix + "(" + receiver + ", " + value + ")", nil
-			case "set":
-				if len(node.Arguments) != 2 {
-					return "", unknownExpressionDiagnostic("list set without checked operands")
-				}
-				index, indexErr := renderOperandWithState(node.Arguments[0], state)
-				if indexErr != nil {
-					return "", indexErr
-				}
-				value, valueErr := renderOperandWithState(node.Arguments[1], state)
-				if valueErr != nil {
-					return "", valueErr
-				}
-				return "hex_list_set_" + suffix + "(" + receiver + ", (size_t)(" + index + "), " + value + ")", nil
 			case "clear":
 				return "hex_list_clear_" + suffix + "(" + receiver + ")", nil
 			case "pop":

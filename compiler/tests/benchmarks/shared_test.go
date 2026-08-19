@@ -184,7 +184,7 @@ end`,
     names.push("beta")
     mut total: Int32 = values[0] + totals.get(1).to<Int32>() + view[0].to<Int32>()
     for name in names do
-        total = total + name[0].to<Int32>()
+        total = total + name.length().to<Int32>()
     end
     return total
 end`,

@@ -33,6 +33,10 @@ other.
 | Module-typed collection elements — emit specializations where the element type is available | [0081](specs/0081-module-typed-collection-elements.md) |
 | Demand-driven component dependencies — no hollow `hexal/*.h` artifacts | [0082](specs/0082-demand-driven-component-dependencies.md) |
 | Text and collection surface — drop `List.set`, add `Dict.length`/`Dict.find`, remove text indexing | [0083](specs/0083-text-and-collection-surface.md) |
+| Cached rune length — O(1) `String.length()`; supersedes 0083 Part B rename | [0087](specs/0087-cached-rune-length.md) |
+| Provably dead bounds checks — elide Array checks the compiler already proved | [0088](specs/0088-provably-dead-bounds-checks.md) |
+| Composed name encoding — stop re-embedding `hex_` inside union names | [0089](specs/0089-composed-name-encoding.md) |
+
 ## Unowned
 
 Items without a determinable meaning, staged here until each gets a spec or is

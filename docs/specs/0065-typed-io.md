@@ -89,6 +89,26 @@ Do not expose `IO<T>` until T changes valid operations, representation, or
 static checking in a useful and coherent way. If T adds no semantic value, use
 a non-generic `IO` type instead.
 
+**Deferred, not open-ended — two of the three candidates already have answers,
+recorded here so the next pass starts from them rather than re-deriving them:**
+
+- **The value unit is not a real distinction.** Representation is exactly
+  `FILE *`, and a `FILE *` can be read as bytes or as runes. Whether a read
+  yields Byte or Rune is a property of the *operation*, not of the stream, so
+  `IO<Byte>` would carry no information the call site does not already state.
+- **A capability marker is a real distinction but collides with the absence of
+  subtyping.** `IO<Read>` versus `IO<Write>` would catch a genuine error class
+  statically and at zero cost. But Hexal has no subtyping, so a function taking
+  `IO<Write>` could not accept an `IO<ReadWrite>`; the options are to add
+  subtyping (large, and unrelated to I/O) or to duplicate every API. `Read` and
+  `Write` would also be marker types, a category the language has no other use
+  for.
+
+On that basis the expected outcome is a **non-generic `IO`**, and the burden of
+the next design pass is to show why that is wrong rather than why it is right.
+Reopen the parameter only if a third interpretation appears that changes
+representation or checking without requiring subtyping.
+
 ### Construction and standard handles
 
 Define:

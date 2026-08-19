@@ -10,11 +10,11 @@
       "sources": {"app.hex": [
         "fun demo(): Bool do",
         "    text: String = \"caf\\u{00E9}\"",
-        "    first: Rune = text[0]",
-        "    indexed: Rune = text[0]",
+        "    cursor: RuneCursor = text.rune_cursor()",
+        "    first: Rune = cursor.next()",
         "    raw: View<Byte> = text.bytes()",
         "    first_byte: Byte = raw[0]",
-        "    return first == indexed and first == 'c' and first_byte == b'c'",
+        "    return first == 'c' and first_byte == b'c'",
         "end"
       ]},
       "features": ["text", "views"],
@@ -140,11 +140,11 @@
       "sources": {"app.hex": [
         "fun demo(h: Heap): Bool do",
         "    label: Strand = \"hexal\"",
-        "    first: Rune = label[0]",
+        "    empty: Bool = label.is_empty()",
         "    text: String = label.to_string(h)",
         "    count: Size = text.length()",
         "    text.free(h)",
-        "    return first == 'h' and count == 5",
+        "    return count == 5 and empty == false",
         "end"
       ]},
       "features": ["text", "literals"],

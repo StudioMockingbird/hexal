@@ -29,6 +29,18 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   fluff; code samples where they explain better than prose.
 - **Clarify ambiguity.** When a request is ambiguous about user-visible
   behavior, ask one focused question before implementing.
+- **A spec's Validation section is exhaustive.** It is the complete definition
+  of done for that spec — implement exactly those cases and no more. Do not add
+  tests for behaviour the spec does not name, and do not extend a spec's scope
+  because an adjacent case looks related. If you believe a case is missing, say
+  so and stop; adding it is a spec change, which is the author's call. A
+  detailed spec is not an invitation to infer more requirements from it.
+- **Verify before recording.** A claim about this codebase — from an audit, a
+  review, another agent, or your own reading — is a hypothesis until a probe
+  confirms it. Write the probe, run it, quote the output. Findings that fail to
+  reproduce get recorded as excluded with the evidence, not silently dropped;
+  that record is what stops the same wrong claim returning. This applies to
+  your own conclusions as forcefully as to someone else's.
 - **Workbench validation.** Once code implementation is complete, rebuild the workbench
   binary into `bin/` and restart the running workbench before handoff.
 - **Pushback.** When a request is wrong or a poor fit for Hexal, push back with
@@ -46,8 +58,6 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   spine at their entrypoint; safety reasoning sits adjacent to the operation
   it protects. Prefer an accurate name over a comment, and a deletion over a
   restatement of the next line.
-- **C23 is also the refernce** When in doubt, always try to align to how C does things and keep it simple.
-
 - **Line endings.** Go source is LF, everywhere, without exception — `gofmt`
   emits LF unconditionally, so a CRLF `.go` file is by definition unformatted
   and there is no Windows-convention alternative for it. `.gitattributes` pins
@@ -90,7 +100,6 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 17. If it compiles, it runs.
 18. Compiler should catch every memory error that a local analysis can decide
     without adding a language concept or disproportionate checker complexity.
-19. Like Crystal, everything here is also an object.
 
 ## Architecture
 
@@ -101,10 +110,12 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   user's program.
 - Analyzer and code-generation dispatch must handle every supported syntax
   node explicitly.
-- The current literal-only compiler may pass checked statements directly to
-  code generation. Do not add an empty analyzer pass; introduce the analyzer
-  when operators, conversion lowering, or ownership analysis first requires an
-  analyzed representation distinct from checked syntax.
+- **There is no analyzer pass and none is planned.** Checked syntax goes
+  directly to code generation. Analysis that needs more than the checked tree —
+  constant folding, provenance, freed-state — lives in the checker beside the
+  facts it consumes, not in a separate stage. Do not introduce an analyzer
+  package; if a future feature genuinely cannot be expressed in the checker,
+  that is a spec-level argument, not an implementation decision.
 - **Earliest diagnostic ownership.** Define each compilation error at the
   earliest phase that can prove it. If the same source construct could produce
   errors in multiple phases, keep the earliest diagnostic and do not let later
@@ -201,10 +212,28 @@ authority. Do not copy a rule out of a spec without checking it against
   but execute no tests and no external processes.
 - Ordinary tests never invoke an external tool — gcc, clang, or anything else.
   All ordinary tests are pure Go.
+- **A green suite does not mean the generated C is correct.** No test compiles
+  or executes generated C, and the c23 canaries are dormant, so `go test ./...`,
+  `go vet ./...`, and `go vet -tags c23` all pass on output that a C compiler
+  would reject, and on output that compiles and behaves wrongly. Known instances
+  are recorded under "Known coverage gaps" in `docs/status.md`; every one was
+  found by review or by hand, never by the suite.
+
+  What follows for anything touching the generator: assert on the **text** of
+  the emitted C — that a required declaration precedes its use, that a helper is
+  emitted once, that an include is present or absent. A test that only checks
+  the compiler returned success proves nothing about the artifact.
 - `go test ./compiler` does not run the full-pipeline suite (that package
-  declares only the benchmark-source smoke test in `bench_test.go` and the
-  module-graph tests in `modulegraph_test.go`); use `go test ./...` or target
-  `./compiler/tests/integration`.
+  declares only the module-graph tests in `modulegraph_test.go`); use
+  `go test ./...` or target `./compiler/tests/integration`.
+- The benchmark suite and the complexity report live in
+  `compiler/tests/benchmarks/`, every file a `_test.go` file so that
+  `go build ./compiler/...` compiles none of the third-party complexity
+  libraries. Run them with:
+  - `go test -bench . -benchmem -benchtime 1x ./compiler/tests/benchmarks`
+  - `go test -run TestComplexityReport -v ./compiler/tests/benchmarks`
+  - `go test -tags benchmetrics -bench Traversal -benchtime 1x ./compiler/tests/benchmarks`
+    for walk and node counts, which exist only under that tag.
 - `go test ./...` must pass with no external toolchain installed.
 - Future test packages require a genuinely distinct execution lifecycle,
   dependency boundary, or toolchain requirement; a Go directory is a package

@@ -41,12 +41,6 @@ static inline void hex_list_push_{{.Suffix}}({{.CName}} *list, {{.ElementSpellin
     }
     list->data[list->length++] = value;
 }
-static inline void hex_list_set_{{.Suffix}}({{.CName}} *list, size_t index, {{.ElementSpelling}} value) {
-    if (index >= list->length) {
-        hex_runtime_trap("[Runtime Error] list index out of bounds\n");
-    }
-    list->data[index] = value;
-}
 static inline {{.ElementSpelling}} hex_list_pop_{{.Suffix}}({{.CName}} *list) {
     if (list->length == 0) {
         hex_runtime_trap("[Runtime Error] list index out of bounds\n");
