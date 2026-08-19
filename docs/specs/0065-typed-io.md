@@ -7,8 +7,8 @@
 - Status: Draft; direction and scope settled, surface not yet designed
 - Created: 2026-08-15
 - Scope: byte streams over an open handle for the compiled program
-- Depends on: RFC 0039 (C interop compiler core), and a **blocking-syscall
-  boundary specification that does not yet exist** — see Prerequisite
+- Depends on: RFC 0039 (C interop compiler core) and **RFC 0091**
+  (blocking-syscall boundary) — see Prerequisite
 - Coordinates with: RFC 0055 (filesystem/build driver), RFC 0064 (removal of
   current File builtins), a future sockets specification, target profiles,
   `docs/reference.md`, and `docs/status.md`
@@ -40,7 +40,8 @@ handles.
 ## Prerequisite — the blocking-syscall boundary
 
 **Nothing here can be designed until the scheduler's contract with a blocking
-call is written down, and it is currently unspecified anywhere.**
+call is settled. That is now RFC 0091, which owns the question and records the
+options.**
 
 The scheduler is cooperative: a worker is freed only when a task yields, parks,
 or finishes. Channel and Mutex waits park the *task*. A blocking `read` parks
@@ -422,5 +423,5 @@ Blocked: everything downstream of the blocking-syscall boundary, which is
 unowned. The representation question rides on it, and the surface rides on the
 representation.
 
-The next action for this RFC is not to write more of it. It is to specify the
-scheduler's contract with a blocking call.
+The next action for this RFC is not to write more of it. It is to settle
+RFC 0091.
