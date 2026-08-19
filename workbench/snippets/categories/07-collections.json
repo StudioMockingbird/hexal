@@ -244,6 +244,98 @@
       ]},
       "features": ["lists", "for"],
       "reservedWords": ["fun", "for", "in", "do", "return", "end", "defer", "mut"]
+    },
+    {
+      "id": "collections-dictionary-length-history",
+      "name": "Dictionary length history",
+      "description": "Observe dictionary length after insertion, replacement, and removal.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Size do",
+        "    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)",
+        "    defer scores.free(h)",
+        "    scores.insert(1, 10)",
+        "    first: Size = scores.length()",
+        "    scores.insert(1, 20)",
+        "    replaced: Size = scores.length()",
+        "    scores.remove(1)",
+        "    return first + replaced + scores.length()",
+        "end"
+      ]},
+      "features": ["dicts", "defer"],
+      "reservedWords": ["fun", "return", "end", "do", "defer"]
+    },
+    {
+      "id": "collections-dictionary-remove",
+      "name": "Dictionary removal",
+      "description": "Retrieve a value from remove, use it, and perform the required cleanup.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Int32 do",
+        "    values: Dict<Int32, String> = Dict<Int32, String>.new(h)",
+        "    defer values.free(h)",
+        "    value: String = \"removed\".to_string(h)",
+        "    values.insert(1, value)",
+        "    removed: String = values.remove(1)",
+        "    result: Int32 = removed.length().to<Int32>()",
+        "    removed.free(h)",
+        "    return result",
+        "end"
+      ]},
+      "features": ["dicts", "text", "defer", "heap-allocation"],
+      "reservedWords": ["fun", "return", "end", "do", "defer"]
+    },
+    {
+      "id": "collections-list-clear-reuse",
+      "name": "List clear and reuse",
+      "description": "Clear a list, append new values, read them, and release the list.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Int32 do",
+        "    values: List<Int32> = List<Int32>.new(h)",
+        "    defer values.free(h)",
+        "    values.push(1)",
+        "    values.push(2)",
+        "    values.clear()",
+        "    values.push(7)",
+        "    return values[0]",
+        "end"
+      ]},
+      "features": ["lists", "defer"],
+      "reservedWords": ["fun", "return", "end", "do", "defer"]
+    },
+    {
+      "id": "collections-list-slice-view",
+      "name": "List slice view",
+      "description": "Create a non-owning view from a list slice and read through it.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Int32 do",
+        "    values: List<Int32> = List<Int32>.new(h)",
+        "    defer values.free(h)",
+        "    values.push(4)",
+        "    values.push(5)",
+        "    values.push(6)",
+        "    middle: View<Int32> = values.slice(1, 3)",
+        "    return middle[0] + middle[1]",
+        "end"
+      ]},
+      "features": ["lists", "views", "defer"],
+      "reservedWords": ["fun", "return", "end", "do", "defer"]
+    },
+    {
+      "id": "collections-empty-view",
+      "name": "Empty view",
+      "description": "Construct View.empty and use its zero-length behavior safely.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Size do",
+        "    empty: View<Int32> = View<Int32>.empty()",
+        "    return empty.length()",
+        "end"
+      ]},
+      "features": ["views", "functions"],
+      "reservedWords": ["fun", "return", "end", "do"]
     }
   ]
 }

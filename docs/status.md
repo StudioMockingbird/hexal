@@ -32,6 +32,8 @@ other.
 | Work | Spec |
 |---|---|
 | Dict.find — one-lookup optional get; blocked on union-in-component layering (RFC 0083 A3) | [0083](specs/0083-text-and-collection-surface.md) |
+| Non-capturing anonymous function literals | [0094](specs/0094-anonymous-function-literals.md) |
+| Declaration `:=` and assignment `=` operator split | [0093](specs/0093-declaration-and-assignment-operators.md) |
 
 ## Unowned
 

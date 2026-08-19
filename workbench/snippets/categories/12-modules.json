@@ -44,6 +44,152 @@
       },
       "features": ["modules", "exports", "methods"],
       "reservedWords": ["module", "import", "export", "type", "fun", "impl", "self", "return", "end", "do"]
+    },
+    {
+      "id": "modules-private-facade",
+      "name": "Private helper with exported facade",
+      "description": "Keep a helper private while exposing one exported function that uses it.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "module Math = import \"./math\"",
+          "answer: Int32 = Math.double(21)"
+        ],
+        "math.hex": [
+          "fun twice(value: Int32): Int32 do",
+          "    return value + value",
+          "end",
+          "export fun double(value: Int32): Int32 do",
+          "    return twice(value)",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports", "functions"],
+      "reservedWords": ["module", "import", "export", "fun", "return", "end", "do"]
+    },
+    {
+      "id": "modules-list-imported-type",
+      "name": "List of an imported type",
+      "description": "Instantiate and use List<ImportedType> across a module boundary.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "module Types = import \"./types\"",
+          "fun total(h: Heap): Int32 do",
+          "    points: List<Types.Point> = List<Types.Point>.new(h)",
+          "    defer points.free(h)",
+          "    points.push(Types.make())",
+          "    point: Types.Point = points[0]",
+          "    return point.x + point.y",
+          "end"
+        ],
+        "types.hex": [
+          "export type Point = { x: Int32, y: Int32, }",
+          "export fun make(): Point do",
+          "    return Point { x = 2, y = 3 }",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports", "lists", "generics", "objects"],
+      "reservedWords": ["module", "import", "fun", "return", "end", "do", "export", "type", "defer"]
+    },
+    {
+      "id": "modules-dict-imported-types",
+      "name": "Dictionary of imported types",
+      "description": "Use an imported type as a dictionary value with qualified names.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "module Types = import \"./types\"",
+          "fun lookup(h: Heap): Int32 do",
+          "    scores: Dict<Strand, Types.Score> = Dict<Strand, Types.Score>.new(h)",
+          "    defer scores.free(h)",
+          "    scores.insert(\"ada\", Types.make())",
+          "    score: Types.Score = scores.get(\"ada\")",
+          "    return score.value",
+          "end"
+        ],
+        "types.hex": [
+          "export type Score = { value: Int32, }",
+          "export fun make(): Score do",
+          "    return Score { value = 42 }",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports", "dicts", "generics", "objects"],
+      "reservedWords": ["module", "import", "fun", "return", "end", "do", "export", "type", "defer"]
+    },
+    {
+      "id": "modules-cross-module-nominal-types",
+      "name": "Cross-module nominal identity",
+      "description": "Same-shaped types from different modules remain distinct while each can be used by its own function.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "module Left = import \"./left\"",
+          "module Right = import \"./right\"",
+          "left: Int32 = Left.measure(Left.make())",
+          "right: Int32 = Right.measure(Right.make())",
+          "answer: Int32 = left + right"
+        ],
+        "left.hex": [
+          "export type Point = { value: Int32, }",
+          "export fun make(): Point do",
+          "    return Point { value = 2 }",
+          "end",
+          "export fun measure(point: Point): Int32 do",
+          "    return point.value",
+          "end"
+        ],
+        "right.hex": [
+          "export type Point = { value: Int32, }",
+          "export fun make(): Point do",
+          "    return Point { value = 3 }",
+          "end",
+          "export fun measure(point: Point): Int32 do",
+          "    return point.value * 10",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports", "objects", "functions"],
+      "reservedWords": ["module", "import", "export", "type", "fun", "return", "end", "do"]
+    },
+    {
+      "id": "modules-unreachable-source",
+      "name": "Unreachable source",
+      "description": "Supply an unused source module and show that only reachable modules contribute to the program.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "answer: Int32 = 42"
+        ],
+        "unused.hex": [
+          "export fun never_called(): Int32 do",
+          "    return 99",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports"],
+      "reservedWords": ["export", "fun", "return", "end", "do"]
+    },
+    {
+      "id": "modules-import-alias-normalization",
+      "name": "Import alias normalization",
+      "description": "Use an explicit extension in a logical import path while resolving the matching source module.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "module Math = import \"./math.hex\"",
+          "answer: Int32 = Math.answer()"
+        ],
+        "math.hex": [
+          "export fun answer(): Int32 do",
+          "    return 42",
+          "end"
+        ]
+      },
+      "features": ["modules", "exports"],
+      "reservedWords": ["module", "import", "export", "fun", "return", "end", "do"]
     }
   ]
 }

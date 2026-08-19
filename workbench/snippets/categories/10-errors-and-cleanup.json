@@ -121,6 +121,119 @@
       ]},
       "features": ["defer", "lists", "no-result-functions"],
       "reservedWords": ["fun", "defer", "return", "end", "do"]
+    },
+    {
+      "id": "errors-nested-try-block",
+      "name": "Nested-block try",
+      "description": "Propagate a fallible result from inside a conditional block exactly once.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun read_value(): Int32 | Error do",
+        "    return 7",
+        "end",
+        "fun load(): Int32 | Error do",
+        "    if true then",
+        "        value: Int32 = try read_value()",
+        "        return value + 1",
+        "    end",
+        "    return 0",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer", "if-elseif-else"],
+      "reservedWords": ["fun", "return", "end", "do", "if", "then", "try"]
+    },
+    {
+      "id": "errors-try-expression",
+      "name": "Try expression",
+      "description": "Preserve and use the successful value produced by a try expression.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun read_value(): Int32 | Error do",
+        "    return 20",
+        "end",
+        "fun load(): Int32 | Error do",
+        "    value: Int32 = try read_value()",
+        "    return value * 2",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer", "functions"],
+      "reservedWords": ["fun", "return", "end", "do", "try"]
+    },
+    {
+      "id": "errors-try-spawn-in-loop",
+      "name": "Try spawn in a loop",
+      "description": "Spawn fallible tasks from inside a for loop and join each result.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun square(value: Int32): Int32 do",
+        "    return value * value",
+        "end",
+        "fun total(): Int32 | Error do",
+        "    values: Array<Int32, 3> = [2, 3, 4]",
+        "    mut total: Int32 = 0",
+        "    for value in values do",
+        "        task: Task<Int32> = try spawn square(value)",
+        "        total = total + task.join()",
+        "    end",
+        "    return total",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer", "tasks", "for", "arrays"],
+      "reservedWords": ["fun", "return", "end", "do", "for", "in", "mut", "try", "spawn"]
+    },
+    {
+      "id": "errors-error-construction",
+      "name": "Error construction",
+      "description": "Construct an Error with Error.new and inspect its header and message fields.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun fail(): Int32 | Error do",
+        "    return Error.new(\"Input Error\", \"missing value\")",
+        "end",
+        "fun inspect(): Bool do",
+        "    err: Error = Error.new(\"Input Error\", \"missing value\")",
+        "    return err.header == \"Input Error\" and err.message == \"missing value\"",
+        "end"
+      ]},
+      "features": ["errors", "unions", "text"],
+      "reservedWords": ["fun", "return", "end", "do", "and"]
+    },
+    {
+      "id": "errors-channel-send-after-close",
+      "name": "Channel send failure",
+      "description": "Propagate the Error returned by a send attempted after channel closure.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun send_after_close(h: Heap): Nil | Error do",
+        "    channel: Channel<Int32> = try Channel<Int32>.new(h, 1)",
+        "    defer channel.free(h)",
+        "    channel.close()",
+        "    try channel.send(1)",
+        "    return nil",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer", "channels", "defer"],
+      "reservedWords": ["fun", "try", "defer", "return", "nil", "end", "do"]
+    },
+    {
+      "id": "errors-success-failure-cleanup",
+      "name": "Success and failure cleanup",
+      "description": "Combine defer and errdefer across successful and fallible paths.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun cleanup() do",
+        "end",
+        "fun work(fail: Bool): Nil | Error do",
+        "    defer cleanup()",
+        "    errdefer cleanup()",
+        "    if fail then",
+        "        return Error.new(\"Work Error\", \"failed\")",
+        "    end",
+        "    return nil",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer", "defer"],
+      "reservedWords": ["fun", "defer", "errdefer", "if", "then", "return", "nil", "end", "do"]
     }
   ]
 }

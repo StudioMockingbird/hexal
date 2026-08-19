@@ -209,6 +209,129 @@
       ]},
       "features": ["tasks", "mutex", "errors", "defer"],
       "reservedWords": ["fun", "try", "defer", "spawn", "return", "end", "do"]
+    },
+    {
+      "id": "concurrency-cpu-saturating-fibers",
+      "name": "CPU-saturating M:N fibers",
+      "description": "Queue 128 CPU-bound fibers so the runtime's one-worker-per-logical-processor scheduler can occupy all available workers.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun burn(seed: Int64): Int64 do",
+        "    mut value: Int64 = seed",
+        "    mut step: Int64 = 0",
+        "    while step < 1000000 do",
+        "        value = (value * 31 + step) % 1000003",
+        "        step = step + 1",
+        "    end",
+        "    return value",
+        "end",
+        "fun saturate(h: Heap): Nil | Error do",
+        "    jobs: List<Task<Int64>> = List<Task<Int64>>.new(h)",
+        "    defer jobs.free(h)",
+        "    mut seed: Int64 = 0",
+        "    while seed < 128 do",
+        "        jobs.push(try spawn burn(seed))",
+        "        seed = seed + 1",
+        "    end",
+        "    for job in jobs do",
+        "        job.join()",
+        "    end",
+        "    return nil",
+        "end",
+        "saturate(Heap.new())"
+      ]},
+      "features": ["tasks", "lists", "while", "for", "errors", "try-errdefer", "heap-allocation"],
+      "reservedWords": ["fun", "mut", "while", "do", "end", "return", "try", "spawn", "for", "in", "nil"]
+    },
+    {
+      "id": "concurrency-task-detach",
+      "name": "Detached task",
+      "description": "Spawn a task, detach it, and demonstrate result-discarding ownership.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun worker(): Int32 do",
+        "    return 42",
+        "end",
+        "fun run(): Int32 | Error do",
+        "    task: Task<Int32> = try spawn worker()",
+        "    task.detach()",
+        "    return 0",
+        "end"
+      ]},
+      "features": ["tasks", "errors"],
+      "reservedWords": ["fun", "return", "end", "do", "try", "spawn"]
+    },
+    {
+      "id": "concurrency-atomic-exchange",
+      "name": "Atomic exchange",
+      "description": "Replace an atomic value and use the value returned by exchange.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun run(): Int32 do",
+        "    counter: Atomic<Int32> = Atomic<Int32>.new(4)",
+        "    previous: Int32 = counter.exchange(9)",
+        "    return previous + counter.load()",
+        "end"
+      ]},
+      "features": ["atomics", "functions"],
+      "reservedWords": ["fun", "return", "end", "do"]
+    },
+    {
+      "id": "concurrency-atomic-compare-exchange",
+      "name": "Atomic compare-exchange",
+      "description": "Demonstrate both successful and unsuccessful compare-exchange operations.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun run(): Bool do",
+        "    counter: Atomic<Int32> = Atomic<Int32>.new(1)",
+        "    succeeded: Bool = counter.compare_exchange(1, 2)",
+        "    failed: Bool = counter.compare_exchange(1, 3)",
+        "    return succeeded and !failed and counter.load() == 2",
+        "end"
+      ]},
+      "features": ["atomics", "truthiness", "equality-ordering"],
+      "reservedWords": ["fun", "return", "end", "do", "and"]
+    },
+    {
+      "id": "concurrency-atomic-fetch-sub",
+      "name": "Atomic fetch subtraction",
+      "description": "Decrement a supported atomic integer with fetch_sub.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun run(): Int32 do",
+        "    counter: Atomic<Int32> = Atomic<Int32>.new(5)",
+        "    previous: Int32 = counter.fetch_sub(2)",
+        "    return previous + counter.load()",
+        "end"
+      ]},
+      "features": ["atomics", "functions"],
+      "reservedWords": ["fun", "return", "end", "do"]
+    },
+    {
+      "id": "concurrency-channel-state",
+      "name": "Channel state",
+      "description": "Inspect channel length, capacity, and closed state around a receive.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun run(h: Heap): Size | Error do",
+        "    channel: Channel<Int32> = try Channel<Int32>.new(h, 2)",
+        "    defer channel.free(h)",
+        "    capacity: Size = channel.capacity()",
+        "    before: Size = channel.length()",
+        "    channel.send(7)",
+        "    during: Size = channel.length()",
+        "    channel.close()",
+        "    step: Int32 | EoS = channel.receive()",
+        "    if channel.is_closed() then",
+        "        if step is Int32 then",
+        "            return capacity + before + during + channel.length()",
+        "        end",
+        "    end",
+        "    return 0",
+        "end"
+      ]},
+      "features": ["channels", "errors", "defer", "unions", "truthiness"],
+      "reservedWords": ["fun", "return", "end", "do", "try", "defer", "if", "is", "then"]
     }
   ]
 }

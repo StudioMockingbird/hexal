@@ -171,6 +171,59 @@
       ]},
       "features": ["volatile", "pointers"],
       "reservedWords": ["fun", "mut", "return", "end", "ref", "do"]
+    },
+    {
+      "id": "memory-array-element-pointer",
+      "name": "Array element pointer",
+      "description": "Take a mutable pointer to an array element and update it.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun bump(value: MutPtr<Int32>) do",
+        "    value.value = value.value + 1",
+        "end",
+        "fun demo(): Int32 do",
+        "    mut values: Array<Int32, 2> = [1, 2]",
+        "    bump(ref values[1])",
+        "    return values[1]",
+        "end"
+      ]},
+      "features": ["pointers", "arrays", "functions", "no-result-functions"],
+      "reservedWords": ["fun", "mut", "return", "end", "ref", "do"]
+    },
+    {
+      "id": "memory-object-member-pointer",
+      "name": "Object member pointer",
+      "description": "Take a pointer to an object field and use it through the pointer.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Counter = { mut value: Int32, }",
+        "fun increment(value: MutPtr<Int32>) do",
+        "    value.value = value.value + 1",
+        "end",
+        "fun demo(): Int32 do",
+        "    mut counter: Counter = Counter { value = 4 }",
+        "    increment(ref counter.value)",
+        "    return counter.value",
+        "end"
+      ]},
+      "features": ["pointers", "objects", "functions", "no-result-functions"],
+      "reservedWords": ["type", "mut", "fun", "return", "end", "ref", "do"]
+    },
+    {
+      "id": "memory-heap-alias-lifetime",
+      "name": "Heap alias lifetime",
+      "description": "Create shallow pointer aliases and perform one explicit cleanup.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Int32 do",
+        "    value: MutPtr<Int32> = h.allocate<Int32>(42)",
+        "    alias: Ptr<Int32> = value",
+        "    defer h.free(value)",
+        "    return alias.value",
+        "end"
+      ]},
+      "features": ["pointers", "heap-allocation", "defer", "copying"],
+      "reservedWords": ["fun", "return", "end", "defer", "do"]
     }
   ]
 }

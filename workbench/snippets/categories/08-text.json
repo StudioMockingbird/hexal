@@ -205,6 +205,88 @@
       ]},
       "features": ["text", "adts", "match"],
       "reservedWords": ["type", "fun", "if", "return", "end", "match", "while", "do", "break", "mut", "then", "as", "eos", "is"]
+    },
+    {
+      "id": "text-multibyte-length",
+      "name": "Multibyte length",
+      "description": "Distinguish String rune length from the byte length of its UTF-8 view.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool do",
+        "    text: String = \"Aλ🙂\"",
+        "    bytes: View<Byte> = text.bytes()",
+        "    return text.length() == 3 and bytes.length() == 7",
+        "end"
+      ]},
+      "features": ["text", "views", "equality-ordering"],
+      "reservedWords": ["fun", "return", "end", "and", "do"]
+    },
+    {
+      "id": "text-multibyte-slice",
+      "name": "Multibyte slice",
+      "description": "Slice a String with rune bounds and inspect the returned byte view.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Size do",
+        "    text: String = \"AλB\"",
+        "    part: View<Byte> = text.slice(1, 2)",
+        "    return part.length()",
+        "end"
+      ]},
+      "features": ["text", "views"],
+      "reservedWords": ["fun", "return", "end", "do"]
+    },
+    {
+      "id": "text-from-bytes",
+      "name": "String from bytes",
+      "description": "Construct a String from a valid UTF-8 byte view.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Size do",
+        "    bytes: Array<Byte, 3> = [b'H', b'i', b'!']",
+        "    view: View<Byte> = bytes.slice(0, 3)",
+        "    text: String = String.from_bytes(h, view)",
+        "    defer text.free(h)",
+        "    return text.length()",
+        "end"
+      ]},
+      "features": ["text", "arrays", "views", "heap-allocation", "defer"],
+      "reservedWords": ["fun", "return", "end", "defer", "do"]
+    },
+    {
+      "id": "text-from-runes",
+      "name": "String from runes",
+      "description": "Construct a String from a rune view and inspect the result.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Size do",
+        "    runes: Array<Rune, 2> = ['λ', '!']",
+        "    view: View<Rune> = runes.slice(0, 2)",
+        "    text: String = String.from_runes(h, view)",
+        "    defer text.free(h)",
+        "    return text.length()",
+        "end"
+      ]},
+      "features": ["text", "arrays", "views", "heap-allocation", "defer"],
+      "reservedWords": ["fun", "return", "end", "defer", "do"]
+    },
+    {
+      "id": "text-independent-cursors",
+      "name": "Independent rune cursors",
+      "description": "Copy a rune cursor and advance the copies independently over shared text.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool do",
+        "    text: String = \"abc\"",
+        "    left: RuneCursor = text.rune_cursor()",
+        "    right: RuneCursor = text.rune_cursor()",
+        "    first: Rune = left.next()",
+        "    same: Rune = right.next()",
+        "    return first == same and left.has_next() and right.has_next()",
+        "end"
+      ]},
+      "features": ["text", "equality-ordering"],
+      "reservedWords": ["fun", "return", "end", "and", "do"]
     }
   ]
 }
