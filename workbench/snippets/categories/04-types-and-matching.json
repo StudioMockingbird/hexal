@@ -8,9 +8,9 @@
       "description": "Narrows Int32 | Nil before reading the value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "score: Int32 | Nil = 42",
+        "score: Int32 | Nil:= 42",
         "if score != nil then",
-        "    display: Int32 = score",
+        "    display: Int32:= score",
         "end"
       ]},
       "features": ["unions", "nullability"],
@@ -22,11 +22,11 @@
       "description": "Distinguishes an Int32 | Bool | Nil union with is.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "value: Int32 | Bool | Nil = true",
+        "value: Int32 | Bool | Nil:= true",
         "if value is Int32 then",
-        "    number: Int32 = value",
+        "    number: Int32:= value",
         "elseif value != nil then",
-        "    flag: Bool = value",
+        "    flag: Bool:= value",
         "else",
         "    print(value)",
         "end"
@@ -41,8 +41,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Direction = | North | East | South | West",
-        "heading: Direction = Direction.East",
-        "step: Int32 = match heading is",
+        "heading: Direction:= Direction.East",
+        "step: Int32:= match heading is",
         "| Direction.North then 0",
         "| Direction.East then 1",
         "| Direction.South then 2",
@@ -59,8 +59,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Command = | Stop | Move as { distance: Int32 }",
-        "command: Command = Command.Move { distance = 4 }",
-        "label: Int32 = match command is",
+        "command: Command:= Command.Move { distance = 4 }",
+        "label: Int32:= match command is",
         "| Command.Stop then 0",
         "| Command.Move then command.distance",
         "end"
@@ -75,8 +75,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Shape = | Circle as { radius: Int32 } | Rect as { width: Int32, height: Int32 }",
-        "shape: Shape = Shape.Circle { radius = 2 }",
-        "area: Int32 = match shape is",
+        "shape: Shape:= Shape.Circle { radius = 2 }",
+        "area: Int32:= match shape is",
         "| Shape.Circle then shape.radius * shape.radius",
         "| Shape.Rect then shape.width * shape.height",
         "end"
@@ -90,8 +90,8 @@
       "description": "Matches a present configuration value against nil.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "config: Int32 | Nil = 8",
-        "level: Int32 = match config is",
+        "config: Int32 | Nil:= 8",
+        "level: Int32:= match config is",
         "| Int32 then config",
         "| Nil then 0",
         "end"
@@ -111,7 +111,7 @@
         "    end",
         "    return Error.new(\"Lookup Error\", \"unknown key\")",
         "end",
-        "value: Int32 | Error = lookup(1)"
+        "value: Int32 | Error:= lookup(1)"
       ]},
       "features": ["unions", "errors"],
       "reservedWords": ["fun", "if", "return", "end", "do", "then"]
@@ -123,8 +123,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Protocol = | Ping | Pong | Quit",
-        "frame: Protocol = Protocol.Ping",
-        "code: Int32 = match frame is",
+        "frame: Protocol:= Protocol.Ping",
+        "code: Int32:= match frame is",
         "| Protocol.Ping then 1",
         "| Protocol.Pong then 2",
         "| Protocol.Quit then 0",
@@ -141,8 +141,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Event = | Key as { code: Int32 } | Move as { dx: Int32, dy: Int32 }",
-        "event: Event = Event.Move { dx = 3, dy = 4 }",
-        "distance: Int32 = match event is",
+        "event: Event:= Event.Move { dx = 3, dy = 4 }",
+        "distance: Int32:= match event is",
         "| Event.Key then event.code",
         "| Event.Move then event.dx + event.dy",
         "end"
@@ -156,8 +156,8 @@
       "description": "Selects formatting behavior based on a union member type.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "value: Int32 | Float64 = 1",
-        "label: Strand = match value is",
+        "value: Int32 | Float64:= 1",
+        "label: Strand:= match value is",
         "| Int32 then \"integer\"",
         "| Float64 then \"float\"",
         "end"

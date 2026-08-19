@@ -92,7 +92,7 @@ func TestModuleGraphEdgesCarryResolvedPaths(t *testing.T) {
 func TestModuleGraphInvariants(t *testing.T) {
 	sources := map[string]string{
 		"graphics/app.hex": "module Shapes = import \"./shapes\"\nmodule Tools = import \"../shared/tools\"\n" +
-			"result: Int32 = Shapes.corners() + Tools.value()\n",
+			"result: Int32 := Shapes.corners() + Tools.value()\n",
 		"graphics/shapes.hex": "module Tools = import \"../shared/tools\"\n" +
 			"export fun corners(): Int32 do\n    return Tools.value()\nend\n",
 		"shared/tools.hex": "export fun value(): Int32 do\n    return 1\nend\n",

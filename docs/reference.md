@@ -51,7 +51,7 @@ non-control-statement = declaration | assignment | call-statement
                         | defer-statement | errdefer-statement ;
 block = { statement } ;
 declaration = [ "mut" ] , identifier
-              , ( ":" , type-expression , "=" | ":=" ) , expression ;
+              , ( ":" , type-expression , ":=" | ":=" ) , expression ;
 assignment = assignment-target , "=" , expression ;
 assignment-target = place-expression ;
 call-statement = ? call-expression whose first token is identifier or "self" ? ;
@@ -275,12 +275,15 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, and constructors `Ptr`,
   `MutPtr`, `Fun`, `Array`, `View`, `List`, `Dict`, `Task`, `Channel`, `Atomic`.
   Protected operations are `print`, `size_of`, and `align_of`.
-- Every binding declaration states its type exactly once, on one side or the other.
-  `name: T = initializer` states it on the left; `name := initializer` (RFC 0090) says the
+- Every value-binding declaration uses `:=` and states its type exactly once, on one side or the
+  other. `name: T := initializer` states it on the left; `name := initializer` says the
   initializer states it, and is rejected when the initializer is contextual — an integer, float,
   or string literal, `nil`, an array literal, or a `match` whose every arm is contextual. Stating
   it on neither side is an error. Written parameters, members, ADT payloads, and results always
   require an explicit type. Compiler-typed `self` and `for` binders are the remaining exceptions.
+- `=` assigns to an existing writable place. It does not introduce a value binding. Type
+  definitions, module aliases, object literal member initializers, and ADT payload initializers
+  retain their grammar-defined uses of `=`.
 - Bindings and object members are fixed by default. `mut` permits replacement and appears only on
   their declarations. Parameters, `self`, and `for` binders are fixed and cannot be shadowed in
   their own scopes.

@@ -13,7 +13,7 @@ import (
 // their own counter over a literal bound, so neither level keeps a check, and
 // hexal/array.h collapses to the two typedefs.
 func TestNestedForInEmitsNoAccessorAtAnyLevel(t *testing.T) {
-	result := assertCompiles(t, "fun demo(): Int32 do\n    grid: Array<Array<Int32, 3>, 2> = [[1, 2, 3], [4, 5, 6]]\n    mut total: Int32 = 0\n    for row in grid do\n        for cell in row do\n            total = total + cell\n        end\n    end\n    return total\nend\n")
+	result := assertCompiles(t, "fun demo(): Int32 do\n    grid: Array<Array<Int32, 3>, 2> := [[1, 2, 3], [4, 5, 6]]\n    mut total: Int32 := 0\n    for row in grid do\n        for cell in row do\n            total = total + cell\n        end\n    end\n    return total\nend\n")
 	body := rootC(t, result)
 	if strings.Contains(body, "hex_array_at_") {
 		t.Fatalf("modules/app.c still calls an accessor for a for-in binder:\n%s", body)
@@ -44,7 +44,7 @@ func TestNestedForInEmitsNoAccessorAtAnyLevel(t *testing.T) {
 // and its check; a literal beside it does not. The for-in binder in the same
 // body stays direct even though the accessor now exists.
 func TestRuntimeIndexKeepsItsCheckBesideAnElidedOne(t *testing.T) {
-	result := assertCompiles(t, "fun demo(i: Size): Int32 do\n    fixed: Array<Int32, 5> = [1, 2, 3, 4, 5]\n    mut total: Int32 = fixed[0] + fixed[i]\n    for value in fixed do\n        total = total + value\n    end\n    return total\nend\n")
+	result := assertCompiles(t, "fun demo(i: Size): Int32 do\n    fixed: Array<Int32, 5> := [1, 2, 3, 4, 5]\n    mut total: Int32 := fixed[0] + fixed[i]\n    for value in fixed do\n        total = total + value\n    end\n    return total\nend\n")
 	body := rootC(t, result)
 	for _, want := range []string{
 		"hex_v_fixed.data[0]", // literal: elided
@@ -64,14 +64,14 @@ func TestRuntimeIndexKeepsItsCheckBesideAnElidedOne(t *testing.T) {
 // The demand rule is per direction. A read-only program emits no at_mut even
 // when its check survives; a write through a mut binding emits it.
 func TestAccessorDemandIsPerDirection(t *testing.T) {
-	readOnly := arrayH(t, assertCompiles(t, "fun demo(i: Size): Int32 do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    return fixed[i]\nend\n"))
+	readOnly := arrayH(t, assertCompiles(t, "fun demo(i: Size): Int32 do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    return fixed[i]\nend\n"))
 	if !strings.Contains(readOnly, "hex_array_at_Int32_3(") {
 		t.Fatalf("a surviving read lost its accessor:\n%s", readOnly)
 	}
 	if strings.Contains(readOnly, "hex_array_at_mut_") {
 		t.Fatalf("a read-only program emits the mutable accessor:\n%s", readOnly)
 	}
-	writing := arrayH(t, assertCompiles(t, "fun demo(i: Size): Int32 do\n    mut fixed: Array<Int32, 3> = [1, 2, 3]\n    fixed[i] = 9\n    return fixed[0]\nend\n"))
+	writing := arrayH(t, assertCompiles(t, "fun demo(i: Size): Int32 do\n    mut fixed: Array<Int32, 3> := [1, 2, 3]\n    fixed[i] = 9\n    return fixed[0]\nend\n"))
 	if !strings.Contains(writing, "hex_array_at_mut_Int32_3(") {
 		t.Fatalf("a writing program lost the mutable accessor:\n%s", writing)
 	}
@@ -82,7 +82,7 @@ func TestAccessorDemandIsPerDirection(t *testing.T) {
 // spells at_mut because every live List reference permits mutation without a
 // mut binding — pre-existing behaviour this RFC does not touch.
 func TestListAndViewAccessorsAreUntouched(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): Int32 do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    window: View<Int32> = fixed.slice(0, 2)\n    values: List<Int32> = List<Int32>.new(h)\n    values.push(1)\n    total: Int32 = window[0] + values[0]\n    values.free(h)\n    return total\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): Int32 do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    window: View<Int32> := fixed.slice(0, 2)\n    values: List<Int32> := List<Int32>.new(h)\n    values.push(1)\n    total: Int32 := window[0] + values[0]\n    values.free(h)\n    return total\nend\n")
 	body := rootC(t, result)
 	for _, want := range []string{
 		"*hex_view_at_Int32(",
@@ -101,10 +101,10 @@ func TestListAndViewAccessorsAreUntouched(t *testing.T) {
 // generated artifact.
 func TestEveryCalledArrayAccessorIsDefined(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(): Int32 do\n    grid: Array<Array<Int32, 3>, 2> = [[1, 2, 3], [4, 5, 6]]\n    mut total: Int32 = 0\n    for row in grid do\n        for cell in row do\n            total = total + cell\n        end\n    end\n    return total\nend\n",
-		"fun demo(i: Size): Int32 do\n    fixed: Array<Int32, 5> = [1, 2, 3, 4, 5]\n    return fixed[0] + fixed[i]\nend\n",
-		"fun demo(i: Size): Int32 do\n    mut fixed: Array<Int32, 3> = [1, 2, 3]\n    fixed[i] = 9\n    return fixed[i]\nend\n",
-		"type Pair = { mut values: Array<Int32, 2>, }\nfun demo(i: Size): Int32 do\n    mut pair: Pair = Pair { values = [3, 4], }\n    pair.values[i] = 9\n    return pair.values[0]\nend\n",
+		"fun demo(): Int32 do\n    grid: Array<Array<Int32, 3>, 2> := [[1, 2, 3], [4, 5, 6]]\n    mut total: Int32 := 0\n    for row in grid do\n        for cell in row do\n            total = total + cell\n        end\n    end\n    return total\nend\n",
+		"fun demo(i: Size): Int32 do\n    fixed: Array<Int32, 5> := [1, 2, 3, 4, 5]\n    return fixed[0] + fixed[i]\nend\n",
+		"fun demo(i: Size): Int32 do\n    mut fixed: Array<Int32, 3> := [1, 2, 3]\n    fixed[i] = 9\n    return fixed[i]\nend\n",
+		"type Pair = { mut values: Array<Int32, 2>, }\nfun demo(i: Size): Int32 do\n    mut pair: Pair := Pair { values = [3, 4], }\n    pair.values[i] = 9\n    return pair.values[0]\nend\n",
 	} {
 		result := assertCompiles(t, source)
 		defined := ""

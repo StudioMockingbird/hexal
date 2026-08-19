@@ -10,7 +10,7 @@ import (
 // hexal.h include, and exactly one trailing newline; the owning module
 // header includes the component.
 func TestViewComponentEmitsReachableSpecializationsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(data: Ptr<UInt8>) do\n    first: View<Int32> = View<Int32>.empty()\n    second: View<UInt8> = View<UInt8>.from_pointer(data, 0)\nend")
+	program := checkedGeneratorSource(t, "fun demo(data: Ptr<UInt8>) do\n    first: View<Int32> := View<Int32>.empty()\n    second: View<UInt8> := View<UInt8>.from_pointer(data, 0)\nend")
 	files := generateOne(t, program)
 	viewH := files["hexal/view.h"]
 	if viewH == "" {
@@ -40,7 +40,7 @@ func TestViewComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // free of hex_view_ text, and the rendered view.h matches the previous
 // Go-written definitions byte for byte (struct, guards, and trap messages).
 func TestViewComponentHexalHeaderOwnsNoViewText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    view: View<Int32> = View<Int32>.empty()\n    count: Size = view.length()\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    view: View<Int32> := View<Int32>.empty()\n    count: Size := view.length()\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_view_") {
 		t.Fatalf("hexal.h = %q, view definitions must live in hexal/view.h", files["hexal.h"])
@@ -82,7 +82,7 @@ static inline hex_view_Int32 hex_view_slice_Int32(hex_view_Int32 view, uint64_t 
 // artifact is emitted for it. A component that declared the dependency
 // anyway would ship a header holding only its include guard.
 func TestViewComponentAbsentWithoutReachableViews(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    first: Int32 = fixed[0]\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    first: Int32 := fixed[0]\nend")
 	files := generateOne(t, program)
 	if viewH, exists := files["hexal/view.h"]; exists {
 		t.Fatalf("array-only program emitted hexal/view.h with nothing to declare: %q", viewH)

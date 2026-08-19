@@ -272,8 +272,8 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvi
 
 func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironment *compilerTypes.Environment) (Declaration, binding, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	// RFC 0090: a `:=` declaration has no type expression to resolve. Its
-	// type comes from the initializer, below.
+	// A declaration without a type expression takes its type from the
+	// initializer below.
 	var declaredUse compilerTypes.TypeUse
 	if declaration.Type != nil {
 		resolved, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, names.generics)
@@ -305,16 +305,15 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+declaration.Name.Lexeme+" is already declared as a type"))
 	}
 	if names.declaredHere(declaration.Name.Lexeme) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "variable "+declaration.Name.Lexeme+" is already declared; reassignment must omit the type annotation"))
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "variable "+declaration.Name.Lexeme+" is already declared in this scope; use '=' for reassignment"))
 	}
 
-	// RFC 0090: `:=` says the initializer determines the type. A contextual
-	// initializer determines none, and the literal defaults would silently
-	// supply one — Int32 for `total := 0` — so the form is rejected before
-	// any type work, on the source shape alone.
+	// An inferred binding has no destination context. A contextual initializer
+	// would otherwise receive a silent literal default, so reject it before type
+	// checking can select one.
 	inferred := declaration.Type == nil
 	if inferred && isContextualForInference(declaration.Initializer) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Infer,
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Operator,
 			"`:=` requires an initializer whose type does not depend on context; annotate the binding instead"))
 	}
 

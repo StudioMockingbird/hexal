@@ -17,7 +17,7 @@
         "        return \"C\"",
         "    end",
         "end",
-        "grade: Strand = band(82)"
+        "grade: Strand:= band(82)"
       ]},
       "features": ["functions", "if-elseif-else"],
       "reservedWords": ["fun", "if", "elseif", "else", "return", "end", "do", "then"]
@@ -28,9 +28,9 @@
       "description": "Scans an array and stops when a matching value is found.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "values: Array<Int32, 4> = [3, 7, 2, 9]",
-        "mut found: Bool = false",
-        "mut index: Int32 = 0",
+        "values: Array<Int32, 4>:= [3, 7, 2, 9]",
+        "mut found: Bool:= false",
+        "mut index: Int32:= 0",
         "while index < 4 do",
         "    if values[index] == 7 then",
         "        found = true",
@@ -49,8 +49,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun sum_nonzero() do",
-        "    values: Array<Int32, 5> = [1, 0, 3, 0, 5]",
-        "    mut total: Int32 = 0",
+        "    values: Array<Int32, 5>:= [1, 0, 3, 0, 5]",
+        "    mut total: Int32:= 0",
         "    for value in values do",
         "        if value == 0 then",
         "            continue",
@@ -68,8 +68,8 @@
       "description": "Uses a while loop with a changing termination condition.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "mut count: Int32 = 0",
-        "mut limit: Int32 = 5",
+        "mut count: Int32:= 0",
+        "mut limit: Int32:= 5",
         "while count < limit do",
         "    count = count + 1",
         "    if count > 2 then",
@@ -87,8 +87,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun scan_grid() do",
-        "    grid: Array<Array<Int32, 3>, 2> = [[1, 2, 3], [4, 5, 6]]",
-        "    mut total: Int32 = 0",
+        "    grid: Array<Array<Int32, 3>, 2>:= [[1, 2, 3], [4, 5, 6]]",
+        "    mut total: Int32:= 0",
         "    for row in grid do",
         "        for cell in row do",
         "            total = total + cell",
@@ -106,8 +106,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun weighted_total() do",
-        "    scores: Array<Int32, 3> = [10, 20, 30]",
-        "    mut weighted: Int32 = 0",
+        "    scores: Array<Int32, 3>:= [10, 20, 30]",
+        "    mut weighted: Int32:= 0",
         "    for index, value in scores do",
         "        weighted = weighted + value * (index.to<Int32>() + 1)",
         "    end",
@@ -123,11 +123,11 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap) do",
-        "    names: Dict<Int32, Strand> = Dict<Int32, Strand>.new(h)",
+        "    names: Dict<Int32, Strand>:= Dict<Int32, Strand>.new(h)",
         "    defer names.free(h)",
         "    names.insert(1, \"one\")",
         "    names.insert(2, \"two\")",
-        "    mut pairs: Int32 = 0",
+        "    mut pairs: Int32:= 0",
         "    for index, key, value in names do",
         "        pairs = pairs + index.to<Int32>() + key + value.length().to<Int32>()",
         "    end",
@@ -149,8 +149,8 @@
         "    health.value = health.value - amount",
         "    return true",
         "end",
-        "mut hp: Int32 = 10",
-        "applied: Bool = apply_damage(ref hp, 3)"
+        "mut hp: Int32:= 10",
+        "applied: Bool:= apply_damage(ref hp, 3)"
       ]},
       "features": ["functions", "pointers"],
       "reservedWords": ["fun", "if", "return", "end", "mut", "ref", "false", "true", "do", "then"]
@@ -161,8 +161,8 @@
       "description": "Moves through a small state sequence using conditions and a mutable label.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "mut phase: Int32 = 0",
-        "mut running: Bool = true",
+        "mut phase: Int32:= 0",
+        "mut running: Bool:= true",
         "while running do",
         "    if phase == 0 then",
         "        phase = 1",
@@ -182,10 +182,10 @@
       "description": "Shows that only false and nil are falsey: a zero integer, an empty text value, and an empty collection all take the truthy branch.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "count: Int32 = 0",
-        "label: Strand = \"\"",
-        "values: View<Int32> = View<Int32>.empty()",
-        "mut truthy: Int32 = 0",
+        "count: Int32:= 0",
+        "label: Strand:= \"\"",
+        "values: View<Int32>:= View<Int32>.empty()",
+        "mut truthy: Int32:= 0",
         "if count then",
         "    truthy = truthy + 1",
         "end",

@@ -50,7 +50,7 @@ func TestErrorComponentSelectedByUse(t *testing.T) {
 
 // A program that never names Error emits no hexal/error.h artifact.
 func TestErrorComponentAbsentWithoutError(t *testing.T) {
-	program := checkedGeneratorSource(t, "x: Int32 = 1")
+	program := checkedGeneratorSource(t, "x: Int32 := 1")
 	files := generateOne(t, program)
 	if _, exists := files["hexal/error.h"]; exists {
 		t.Fatalf("scalar-only program emitted hexal/error.h: %v", files)

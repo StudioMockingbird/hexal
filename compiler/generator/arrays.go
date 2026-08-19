@@ -36,7 +36,7 @@ type arrayAccessorDemand struct {
 // the check is dead by construction.
 //
 // This is deliberately narrower than the checker's proof: the checker
-// resolves constants through immutable bindings, so `n: Size = 0` followed by
+// resolves constants through immutable bindings, so `n: Size := 0` followed by
 // `a[n]` is proven at check time but arrives here as a variable reference.
 // Emitting a check that cannot fire is always correct, so the narrow rule is
 // safe; RFC 0088 promises only the literal case.

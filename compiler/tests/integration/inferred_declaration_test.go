@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// RFC 0090: `name := initializer` omits the annotation exactly where the
-// initializer already determines the type. A declaration must still state its
-// type once — `:=` moves which side states it, and rejects a declaration where
-// neither does.
+// An inferred binding omits the annotation exactly where the initializer
+// already determines the type. A declaration must still state its type once;
+// a binding where neither side does is rejected.
 
 const inferRejection = "`:=` requires an initializer whose type does not depend on context"
 
@@ -34,7 +33,7 @@ func TestInferredDeclarationTakesTheInitializersType(t *testing.T) {
 		},
 		{
 			"another typed binding",
-			"fun demo() do\n    a: Int64 = 1\n    b := a\nend",
+			"fun demo() do\n    a: Int64 := 1\n    b := a\nend",
 			"const int64_t hex_v_b = hex_v_a;",
 		},
 		{
@@ -49,7 +48,7 @@ func TestInferredDeclarationTakesTheInitializersType(t *testing.T) {
 		},
 		{
 			"typed value with an untyped literal",
-			"fun demo() do\n    count: Int64 = 1\n    sum := count + 1\nend",
+			"fun demo() do\n    count: Int64 := 1\n    sum := count + 1\nend",
 			"const int64_t hex_v_sum =",
 		},
 		{
@@ -83,6 +82,20 @@ func TestInferredDeclarationRejectsContextualInitializers(t *testing.T) {
 	}
 }
 
+func TestInferredDeclarationAcceptsDistinctLiteralTypes(t *testing.T) {
+	result := assertCompiles(t, "fun demo() do\n    flag := true\n    done := eos\n    byte := b'A'\n    rune := 'A'\nend")
+	for _, want := range []string{
+		"const bool hex_v_flag = true;",
+		"const hex_eos hex_v_done =",
+		"const uint8_t hex_v_byte = 65;",
+		"const uint32_t hex_v_rune = 65;",
+	} {
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
+		}
+	}
+}
+
 // The silent-acceptance case. A match forwards the expected type into every
 // arm, so a match of bare literals has no type of its own and would default to
 // Int32 without a word from the source. Without this case the predicate passes
@@ -95,8 +108,8 @@ func TestInferredDeclarationRejectsMatchOverBareLiterals(t *testing.T) {
 	//
 	// One typed arm beside a bare literal is still rejected, but by the arm
 	// agreement rule rather than the predicate: with no expected type the
-	// literal defaults to Int32 and disagrees with the Int64 arm. RFC 0090's
-	// Validation calls this case accepted, which is wrong — it is rejected,
+	// literal defaults to Int32 and disagrees with the Int64 arm. The
+	// Validation calls this case accepted, which is wrong: it is rejected,
 	// and for a reason that is if anything more precise.
 	assertRejects(t,
 		"fun compute(): Int64 do\n    return 7\nend\nfun demo(ready: Bool) do\n    x := match ready | true then compute() | false then 0 end\nend",
@@ -124,7 +137,7 @@ func TestInferredDeclarationCarriesMutability(t *testing.T) {
 func TestInferredAndAnnotatedDeclarationsGenerateIdenticalC(t *testing.T) {
 	const prelude = "fun compute(): Int64 do\n    return 7\nend\ntype Entry = { x: Int32, }\nfun demo(h: Heap) do\n"
 	inferred := assertCompiles(t, prelude+"    total := compute()\n    e := Entry { x = 1, }\n    names := Dict<Int32, Strand>.new(h)\n    names.free(h)\nend")
-	annotated := assertCompiles(t, prelude+"    total: Int64 = compute()\n    e: Entry = Entry { x = 1, }\n    names: Dict<Int32, Strand> = Dict<Int32, Strand>.new(h)\n    names.free(h)\nend")
+	annotated := assertCompiles(t, prelude+"    total: Int64 := compute()\n    e: Entry := Entry { x = 1, }\n    names: Dict<Int32, Strand> := Dict<Int32, Strand>.new(h)\n    names.free(h)\nend")
 	for _, key := range []string{"modules/app.c", "modules/app.h", "hexal.h"} {
 		if inferred.Files[key] != annotated.Files[key] {
 			t.Fatalf("%s differs between the inferred and annotated forms:\n--- inferred ---\n%s\n--- annotated ---\n%s", key, inferred.Files[key], annotated.Files[key])
@@ -132,8 +145,8 @@ func TestInferredAndAnnotatedDeclarationsGenerateIdenticalC(t *testing.T) {
 	}
 }
 
-// A bare variant literal is contextual — it resolves its name against the
-// expected ADT — but it is syntactically identical to a named object literal,
+// A bare variant literal is contextual: it resolves its name against the
+// expected ADT, but it is syntactically identical to a named object literal,
 // which is not. No syntactic predicate can separate them, so this one is left
 // to the type checker, which rejects it. Recorded as a test because the
 // rejection is what keeps the case from being silently mistyped, and the

@@ -32,7 +32,7 @@ func TestOperationNodeCarriesResolvedOperatorAndTypes(t *testing.T) {
 }
 
 func TestCheckContextualTypingThroughOperators(t *testing.T) {
-	checked, err := Check(parseProgram(t, "total: Int64 = 5_000_000_000 + 1 ratio: Float32 = 1.5 * 2.0"))
+	checked, err := Check(parseProgram(t, "total: Int64 := 5_000_000_000 + 1 ratio: Float32 := 1.5 * 2.0"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -49,12 +49,12 @@ func TestCheckContextualTypingThroughOperators(t *testing.T) {
 }
 
 func TestCheckContextualTypingUsesOnlyAdmissibleExpectedTypes(t *testing.T) {
-	_, err := Check(parseProgram(t, "big: Bool = 5_000_000_000 > 1"))
+	_, err := Check(parseProgram(t, "big: Bool := 5_000_000_000 > 1"))
 	if err == nil || !strings.Contains(err.Error(), "given value is outside the Int32 range") {
 		t.Fatalf("Check error = %v, want Int32 fallback range diagnostic", err)
 	}
 
-	checked, err := Check(parseProgram(t, "mut threshold: Int64 = 5_000_000_000 big: Bool = threshold > 1"))
+	checked, err := Check(parseProgram(t, "mut threshold: Int64 := 5_000_000_000 big: Bool := threshold > 1"))
 	if err != nil {
 		t.Fatalf("Check returned an error for a typed comparison: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestCheckContextualTypingUsesOnlyAdmissibleExpectedTypes(t *testing.T) {
 func TestCheckContextualTypingAllowsLosslessResultWidening(t *testing.T) {
 	// An expected destination may widen a completed arithmetic
 	// result losslessly.
-	checked, err := Check(parseProgram(t, "a: Int32 = 2 doubled: Int64 = a + a"))
+	checked, err := Check(parseProgram(t, "a: Int32 := 2 doubled: Int64 := a + a"))
 	if err != nil {
 		t.Fatalf("Check error = %v, want successful lossless widening", err)
 	}
@@ -84,9 +84,9 @@ func TestCheckOperatorDomains(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"value: Float64 = 1.0 % 2.0", "operator % requires integer operands; got Float64"},
-		{"left: Bool = true right: Bool = false bad: Bool = left < right", "ordering is unavailable for Bool values"},
-		{"count: UInt32 = 5 bad: Int32 = -count", "negation requires a signed type; got UInt32"},
+		{"value: Float64 := 1.0 % 2.0", "operator % requires integer operands; got Float64"},
+		{"left: Bool := true right: Bool := false bad: Bool := left < right", "ordering is unavailable for Bool values"},
+		{"count: UInt32 := 5 bad: Int32 := -count", "negation requires a signed type; got UInt32"},
 	} {
 		_, err := Check(parseProgram(t, testCase.source))
 		if err == nil || !strings.Contains(err.Error(), testCase.want) {
@@ -98,7 +98,7 @@ func TestCheckOperatorDomains(t *testing.T) {
 func TestCheckOperatorSelectsLosslessCommonArithmeticType(t *testing.T) {
 	// Mixed arithmetic selects the unique least lossless
 	// common type.
-	checked, err := Check(parseProgram(t, "small: Int16 = 1 large: Int32 = 2 total: Int32 = small + large"))
+	checked, err := Check(parseProgram(t, "small: Int16 := 1 large: Int32 := 2 total: Int32 := small + large"))
 	if err != nil {
 		t.Fatalf("Check error = %v, want successful common-type arithmetic", err)
 	}
@@ -112,7 +112,7 @@ func TestCheckFoldsLiteralArithmeticAndWrapsOverflow(t *testing.T) {
 	// Literal-only arithmetic still folds; a read of a named immutable
 	// binding stays a runtime operation, so the fold assertions use
 	// literal spellings.
-	checked, err := Check(parseProgram(t, "next: UInt8 = 200 + 1"))
+	checked, err := Check(parseProgram(t, "next: UInt8 := 200 + 1"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestCheckFoldsLiteralArithmeticAndWrapsOverflow(t *testing.T) {
 	}
 
 	// Integer overflow wraps at the result type during folding.
-	checked, err = Check(parseProgram(t, "over: UInt8 = 200 + 100"))
+	checked, err = Check(parseProgram(t, "over: UInt8 := 200 + 100"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestCheckFoldsLiteralArithmeticAndWrapsOverflow(t *testing.T) {
 }
 
 func TestCheckKeepsMutableOperationsForRuntimeWrapping(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut count: UInt8 = 200 next: UInt8 = count + 100"))
+	checked, err := Check(parseProgram(t, "mut count: UInt8 := 200 next: UInt8 := count + 100"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestCheckKeepsMutableOperationsForRuntimeWrapping(t *testing.T) {
 }
 
 func TestCheckFoldsIntegerBooleanAndComparisonOperations(t *testing.T) {
-	checked, err := Check(parseProgram(t, "sum: Int32 = 2 + 3 difference: Int32 = 9 - 4 product: Int32 = 3 * 4 quotient: Int32 = 9 / 2 remainder: Int32 = 9 % 4 inverted: Bool = !true equal: Bool = 2 == 2 ordered: Bool = 1 < 2 both: Bool = true and false either: Bool = false or true"))
+	checked, err := Check(parseProgram(t, "sum: Int32 := 2 + 3 difference: Int32 := 9 - 4 product: Int32 := 3 * 4 quotient: Int32 := 9 / 2 remainder: Int32 := 9 % 4 inverted: Bool := !true equal: Bool := 2 == 2 ordered: Bool := 1 < 2 both: Bool := true and false either: Bool := false or true"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestCheckFoldsIntegerBooleanAndComparisonOperations(t *testing.T) {
 func TestCheckFoldsFloatBitsAndIEEEComparisons(t *testing.T) {
 	// Fold assertions use literal spellings: `-negativeZero` and `nan ==
 	// nan` read named bindings, which stay runtime operations.
-	checked, err := Check(parseProgram(t, "sum: Float32 = 1.5 + 2.25 negativeZero: Float64 = -0.0 negatedZero: Float64 = -(-0.0) nan: Float64 = 0.0 / 0.0 nanEqual: Bool = (0.0 / 0.0) == (0.0 / 0.0) nanDifferent: Bool = (0.0 / 0.0) != (0.0 / 0.0)"))
+	checked, err := Check(parseProgram(t, "sum: Float32 := 1.5 + 2.25 negativeZero: Float64 := -0.0 negatedZero: Float64 := -(-0.0) nan: Float64 := 0.0 / 0.0 nanEqual: Bool := (0.0 / 0.0) == (0.0 / 0.0) nanDifferent: Bool := (0.0 / 0.0) != (0.0 / 0.0)"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -199,10 +199,10 @@ func TestCheckFoldsFloatBitsAndIEEEComparisons(t *testing.T) {
 
 func TestCheckRejectsStaticZeroDivisorsIncludingFoldedExpressions(t *testing.T) {
 	for _, source := range []string{
-		"result: Int32 = 1 / 0",
-		"mut total: Int32 = 10 bad: Int32 = total / 0",
-		"mut total: Int32 = 10 bad: Int32 = total % 0",
-		"mut total: Int32 = 10 bad: Int32 = total / (2 - 2)",
+		"result: Int32 := 1 / 0",
+		"mut total: Int32 := 10 bad: Int32 := total / 0",
+		"mut total: Int32 := 10 bad: Int32 := total % 0",
+		"mut total: Int32 := 10 bad: Int32 := total / (2 - 2)",
 	} {
 		_, err := Check(parseProgram(t, source))
 		if err == nil || !strings.Contains(err.Error(), "division by zero") {
@@ -215,7 +215,7 @@ func TestCheckFoldsStaticSignedMinimumDivisors(t *testing.T) {
 	// Signed minimum divided by -1 wraps to the minimum; the
 	// remainder is zero. The fold is asserted with literal spellings, since
 	// a read of the named immutable `minimum` binding stays runtime.
-	checked, err := Check(parseProgram(t, "quotient: Int8 = -128 / -1"))
+	checked, err := Check(parseProgram(t, "quotient: Int8 := -128 / -1"))
 	if err != nil {
 		t.Fatalf("Check error = %v, want folded minimum/-1 division", err)
 	}
@@ -226,7 +226,7 @@ func TestCheckFoldsStaticSignedMinimumDivisors(t *testing.T) {
 	if got, ok := constant.Int64Val(quotient.Source.Constant); !ok || got != -128 {
 		t.Fatalf("quotient value = %v, want -128", quotient.Source.Constant)
 	}
-	checked, err = Check(parseProgram(t, "remainder: Int8 = -128 % -1"))
+	checked, err = Check(parseProgram(t, "remainder: Int8 := -128 % -1"))
 	if err != nil {
 		t.Fatalf("Check error = %v, want folded minimum/-1 remainder", err)
 	}
@@ -241,12 +241,12 @@ func TestCheckShortCircuitReachability(t *testing.T) {
 		source string
 		want   bool
 	}{
-		{"result: Bool = true or (1 / 0 == 0)", true},
-		{"result: Bool = false and (1 / 0 == 0)", false},
+		{"result: Bool := true or (1 / 0 == 0)", true},
+		{"result: Bool := false and (1 / 0 == 0)", false},
 		// Mixed-type logical operands fold through their
 		// truthiness; the unreachable RHS never evaluates.
-		{"result: Bool = true or (1 and 2)", true},
-		{"result: Bool = false and (1 or 2)", false},
+		{"result: Bool := true or (1 and 2)", true},
+		{"result: Bool := false and (1 or 2)", false},
 	} {
 		checked, err := Check(parseProgram(t, testCase.source))
 		if err != nil {
@@ -259,8 +259,8 @@ func TestCheckShortCircuitReachability(t *testing.T) {
 	}
 
 	for _, source := range []string{
-		"mut guard: Bool = true result: Bool = guard or (1 / 0 == 0)",
-		"mut guard: Bool = false result: Bool = guard and (1 / 0 == 0)",
+		"mut guard: Bool := true result: Bool := guard or (1 / 0 == 0)",
+		"mut guard: Bool := false result: Bool := guard and (1 / 0 == 0)",
 	} {
 		_, err := Check(parseProgram(t, source))
 		if err == nil || !strings.Contains(err.Error(), "division by zero") {
@@ -270,7 +270,7 @@ func TestCheckShortCircuitReachability(t *testing.T) {
 }
 
 func TestCheckAcceptsUnknownRuntimeDivisors(t *testing.T) {
-	if _, err := Check(parseProgram(t, "mut divisor: Int32 = 0 total: Int32 = 10 quotient: Int32 = total / divisor remainder: Int32 = total % divisor")); err != nil {
+	if _, err := Check(parseProgram(t, "mut divisor: Int32 := 0 total: Int32 := 10 quotient: Int32 := total / divisor remainder: Int32 := total % divisor")); err != nil {
 		t.Fatalf("Check rejected unknown runtime divisors: %v", err)
 	}
 }
@@ -278,7 +278,7 @@ func TestCheckAcceptsUnknownRuntimeDivisors(t *testing.T) {
 // and/or accept mixed operand types and the result is always Bool;
 // constant operands fold through their truthiness.
 func TestCheckLogicalOperandsAcceptMixedTypes(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut count: Int32 = 1 ready: Bool = true flag: Bool = count and ready"))
+	checked, err := Check(parseProgram(t, "mut count: Int32 := 1 ready: Bool := true flag: Bool := count and ready"))
 	if err != nil {
 		t.Fatalf("Check returned an error for a mixed-type logical operation: %v", err)
 	}
@@ -294,11 +294,11 @@ func TestCheckLogicalOperandsAcceptMixedTypes(t *testing.T) {
 		source string
 		want   bool
 	}{
-		{"flag: Bool = 1 and 2", true},
-		{"flag: Bool = 1 and nil", false},
-		{"flag: Bool = nil or 2", true},
-		{"flag: Bool = !0", false},
-		{"flag: Bool = !nil", true},
+		{"flag: Bool := 1 and 2", true},
+		{"flag: Bool := 1 and nil", false},
+		{"flag: Bool := nil or 2", true},
+		{"flag: Bool := !0", false},
+		{"flag: Bool := !nil", true},
 	} {
 		checked, err := Check(parseProgram(t, testCase.source))
 		if err != nil {
@@ -314,7 +314,7 @@ func TestCheckLogicalOperandsAcceptMixedTypes(t *testing.T) {
 // not accepts any value-producing operand; a runtime non-Bool
 // operand stays a runtime operation.
 func TestCheckLogicalNotAcceptsNonBoolOperand(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut count: Int32 = 1 flag: Bool = !count"))
+	checked, err := Check(parseProgram(t, "mut count: Int32 := 1 flag: Bool := !count"))
 	if err != nil {
 		t.Fatalf("Check returned an error for a non-Bool not operand: %v", err)
 	}

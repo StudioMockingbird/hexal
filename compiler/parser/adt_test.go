@@ -50,7 +50,7 @@ func TestParseADTRequiresVariantAfterPipe(t *testing.T) {
 }
 
 func TestParseQualifiedVariantConstructor(t *testing.T) {
-	tokens, err := lexer.Lex("shape: Shape = Shape.Circle { r = 10 }")
+	tokens, err := lexer.Lex("shape: Shape := Shape.Circle { r = 10 }")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestParseQualifiedVariantConstructor(t *testing.T) {
 }
 
 func TestParseQualifiedUnitVariantValue(t *testing.T) {
-	tokens, err := lexer.Lex("heading: Direction = Direction.North")
+	tokens, err := lexer.Lex("heading: Direction := Direction.North")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestParseQualifiedUnitVariantValue(t *testing.T) {
 }
 
 func TestParseValueModeMatch(t *testing.T) {
-	tokens, err := lexer.Lex("label: Int32 = match ready\n| true then 1\n| false then 0\nend")
+	tokens, err := lexer.Lex("label: Int32 := match ready\n| true then 1\n| false then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestParseValueModeMatch(t *testing.T) {
 }
 
 func TestParseTypeModeMatch(t *testing.T) {
-	tokens, err := lexer.Lex("area: Int32 = match shape is\n| Shape.Circle then 1\n| Shape.Square then 2\nend")
+	tokens, err := lexer.Lex("area: Int32 := match shape is\n| Shape.Circle then 1\n| Shape.Square then 2\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestParseTypeModeMatch(t *testing.T) {
 }
 
 func TestParseMatchScrutineeWithIsRequiresParens(t *testing.T) {
-	tokens, err := lexer.Lex("label: Int32 = match (value is Int32)\n| true then 1\n| false then 0\nend")
+	tokens, err := lexer.Lex("label: Int32 := match (value is Int32)\n| true then 1\n| false then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestParseMatchScrutineeWithIsRequiresParens(t *testing.T) {
 }
 
 func TestParseMatchParenthesizedPipeIsBitwiseOr(t *testing.T) {
-	tokens, err := lexer.Lex("r: Int32 = match (mask | flag)\n| true then 1\n| false then 0\nend")
+	tokens, err := lexer.Lex("r: Int32 := match (mask | flag)\n| true then 1\n| false then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestParseMatchParenthesizedPipeIsBitwiseOr(t *testing.T) {
 }
 
 func TestParseMatchScrutineeAndOrExpressions(t *testing.T) {
-	tokens, err := lexer.Lex("r: Int32 = match ready and enabled\n| true then 1\n| false then 0\nend")
+	tokens, err := lexer.Lex("r: Int32 := match ready and enabled\n| true then 1\n| false then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestParseMatchScrutineeAndOrExpressions(t *testing.T) {
 }
 
 func TestParseNestedMatchOwnsItsBoundary(t *testing.T) {
-	source := "r: Int32 = match x is\n| Int32 then match y\n    | true then 1\n    | false then 0\n    end\n| else then 0\nend\n"
+	source := "r: Int32 := match x is\n| Int32 then match y\n    | true then 1\n    | false then 0\n    end\n| else then 0\nend\n"
 	tokens, err := lexer.Lex(source)
 	if err != nil {
 		t.Fatal(err)

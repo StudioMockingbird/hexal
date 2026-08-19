@@ -17,7 +17,7 @@ var failureBenchmarkPrograms = []benchmarkProgram{
 	{
 		name: "lex",
 		sources: map[string]string{
-			"app.hex": "value: Int32 = 1 $ 2\nother: Int32 = 0b\ntext: String = \"unterminated\n",
+			"app.hex": "value: Int32 := 1 $ 2\nother: Int32 := 0b\ntext: String := \"unterminated\n",
 		},
 		entrypoint: "app.hex",
 	},
@@ -27,14 +27,14 @@ var failureBenchmarkPrograms = []benchmarkProgram{
 			"app.hex": "fun broken( do\nend\n" +
 				"type = { x: Int32 }\n" +
 				"fun other(): Int32 do\n    return\n" +
-				"value: Int32 = \n",
+				"value: Int32 := \n",
 		},
 		entrypoint: "app.hex",
 	},
 	{
 		name: "resolve",
 		sources: map[string]string{
-			"app.hex":   "module Missing = import \"./absent\"\nmodule Bad = import \"nonrelative\"\nvalue: Int32 = 1\n",
+			"app.hex":   "module Missing = import \"./absent\"\nmodule Bad = import \"nonrelative\"\nvalue: Int32 := 1\n",
 			"cycle.hex": "module Back = import \"./app\"\nexport fun f(): Int32 do\n    return 1\nend\n",
 		},
 		entrypoint: "app.hex",
@@ -43,9 +43,9 @@ var failureBenchmarkPrograms = []benchmarkProgram{
 		name: "check",
 		sources: map[string]string{
 			"app.hex": "fun demo(h: Heap) do\n" +
-				"    wrong: Int32 = true\n" +
-				"    unknown: Int32 = notDeclared\n" +
-				"    p: MutPtr<Int32> = h.allocate<Int32>(1)\n" +
+				"    wrong: Int32 := true\n" +
+				"    unknown: Int32 := notDeclared\n" +
+				"    p: MutPtr<Int32> := h.allocate<Int32>(1)\n" +
 				"    h.free(p)\n" +
 				"    h.free(p)\n" +
 				"end\n",
@@ -65,7 +65,7 @@ var failureBenchmarkPrograms = []benchmarkProgram{
 func manyErrorsSource() string {
 	source := ""
 	for index := 0; index < 50; index++ {
-		source += "bad" + string(rune('a'+index%26)) + string(rune('0'+index/26)) + ": Int32 = true\n"
+		source += "bad" + string(rune('a'+index%26)) + string(rune('0'+index/26)) + ": Int32 := true\n"
 	}
 	return source
 }

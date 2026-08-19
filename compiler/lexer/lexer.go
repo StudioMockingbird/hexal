@@ -196,9 +196,8 @@ const (
 	Import
 	Export
 	ModulePathLiteral
-	// ColonEqual is RFC 0090's inferred-binding operator. It is one token,
-	// not Colon followed by Equal, so `x : = 5` stays a syntax error: the
-	// feature has exactly one spelling.
+	// ColonEqual is one token, not Colon followed by Equal, so `x : = 5`
+	// stays a syntax error.
 	ColonEqual
 	EOF
 )

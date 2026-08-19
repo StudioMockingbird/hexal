@@ -28,7 +28,7 @@ func TestDiagnosticQualifiesPositionWithItsModule(t *testing.T) {
 		t.Fatalf("re-stamped module = %q, want the first attribution to win", got)
 	}
 	if got := diagnostic.Module; got != "" {
-		t.Fatalf("InModule mutated its receiver: module = %q", got)
+		t.Fatalf("InModule mutated its receiver: module := %q", got)
 	}
 	set := Diagnostics{diagnostic, {Category: NameError, Line: 1, Column: 1, Message: "unknown"}}.InModule("app.hex")
 	for _, entry := range set {

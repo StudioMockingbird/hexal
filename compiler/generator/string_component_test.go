@@ -14,7 +14,7 @@ import (
 // owns the definitions, hexal.h keeps none of the family, and the using
 // module header includes only the component it needs.
 func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
-	program := checkedGeneratorSource(t, "greeting: String = \"hello\"\nfarewell: String = \"bye\"\n")
+	program := checkedGeneratorSource(t, "greeting: String := \"hello\"\nfarewell: String := \"bye\"\n")
 	files := generateOne(t, program)
 	header, exists := files["hexal/string.h"]
 	if !exists {
@@ -86,7 +86,7 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 // Strand selection adds the hex_strand representation and the strand
 // operations to the pair; a String-only program keeps the strand surface out.
 func TestStringComponentStrandSurface(t *testing.T) {
-	program := checkedGeneratorSource(t, "label: Strand = \"hexal\"\n")
+	program := checkedGeneratorSource(t, "label: Strand := \"hexal\"\n")
 	files := generateOne(t, program)
 	header, source := files["hexal/string.h"], files["hexal/string.c"]
 	if !strings.Contains(header, "typedef struct hex_strand {\n    uint8_t data[32];\n} hex_strand;") {
@@ -100,7 +100,7 @@ func TestStringComponentStrandSurface(t *testing.T) {
 		t.Fatalf("hexal/string.c = %q, want the strand operation bodies", source)
 	}
 
-	program = checkedGeneratorSource(t, "text: String = \"x\"\n")
+	program = checkedGeneratorSource(t, "text: String := \"x\"\n")
 	files = generateOne(t, program)
 	if strings.Contains(files["hexal/string.h"], "hex_strand") {
 		t.Fatalf("String-only hexal/string.h carries the strand surface: %q", files["hexal/string.h"])
@@ -113,7 +113,7 @@ func TestStringComponentStrandSurface(t *testing.T) {
 // A scalar-only program selects no string artifact and no module includes
 // the component.
 func TestStringComponentAbsentWithoutStrings(t *testing.T) {
-	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
+	program := checkedGeneratorSource(t, "x: Int32 := 1\n")
 	files := generateOne(t, program)
 	for _, key := range []string{"hexal/string.h", "hexal/string.c"} {
 		if _, exists := files[key]; exists {
@@ -131,8 +131,8 @@ func TestStringComponentAbsentWithoutStrings(t *testing.T) {
 func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 	parsed := make(map[string]parser.Program, 2)
 	for key, source := range map[string]string{
-		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.compute()\n",
-		"math.hex": "export fun compute(): Int32 do\n    text: String = \"hello\"\n    return 1\nend\n",
+		"app.hex":  "module Math = import \"./math\"\nresult: Int32 := Math.compute()\n",
+		"math.hex": "export fun compute(): Int32 do\n    text: String := \"hello\"\n    return 1\nend\n",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {

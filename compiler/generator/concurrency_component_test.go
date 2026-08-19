@@ -15,7 +15,7 @@ import (
 // process-wide state exactly once, hexal.h keeps none of the family, and the
 // root module C keeps only its call sites.
 func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	header, exists := files["hexal/concurrency.h"]
 	if !exists {
@@ -102,7 +102,7 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 // runtime: the header owns the Atomic typedefs, the source owns no runtime
 // definition, and the module header includes the component.
 func TestConcurrencyComponentAtomicOnly(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
+	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
 	files := generateOne(t, program)
 	header, exists := files["hexal/concurrency.h"]
 	if !exists {
@@ -133,7 +133,7 @@ func TestConcurrencyComponentAtomicOnly(t *testing.T) {
 // A scalar-only program selects no concurrency artifact and no module
 // includes the component.
 func TestConcurrencyComponentAbsentWithoutConcurrency(t *testing.T) {
-	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
+	program := checkedGeneratorSource(t, "x: Int32 := 1\n")
 	files := generateOne(t, program)
 	for _, key := range []string{"hexal/concurrency.h", "hexal/concurrency.c"} {
 		if _, exists := files[key]; exists {
@@ -151,8 +151,8 @@ func TestConcurrencyComponentAbsentWithoutConcurrency(t *testing.T) {
 func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 	parsed := make(map[string]parser.Program, 2)
 	for key, source := range map[string]string{
-		"app.hex":  "module Math = import \"./math\"\nresult: Int32 | Error = Math.compute()\n",
-		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nexport fun compute(): Int32 | Error do\n    task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\n",
+		"app.hex":  "module Math = import \"./math\"\nresult: Int32 | Error := Math.compute()\n",
+		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nexport fun compute(): Int32 | Error do\n    task: Task<Int32> := try spawn double(21)\n    return task.join()\nend\n",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -275,11 +275,11 @@ func TestGenerateSpawnNestingShapesEmitOneSite(t *testing.T) {
 		name   string
 		source string
 	}{
-		{"top level", spawned + "fun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"},
-		{"if", spawned + "fun run(): Int32 | Error do\n    if true then\n        task: Task<Int32> = try spawn square(6)\n        task.join()\n    end\n    return 0\nend\n"},
-		{"while", spawned + "fun run(): Int32 | Error do\n    mut n: Int32 = 1\n    while n > 0 do\n        task: Task<Int32> = try spawn square(6)\n        task.join()\n        n = n - 1\n    end\n    return 0\nend\n"},
-		{"nested if inside while", spawned + "fun run(): Int32 | Error do\n    mut n: Int32 = 1\n    while n > 0 do\n        if n > 0 then\n            task: Task<Int32> = try spawn square(6)\n            task.join()\n        end\n        n = n - 1\n    end\n    return 0\nend\n"},
-		{"for", "fun burn(value: Int64): Int64 do\n    return value\nend\nfun run(): Int64 | Error do\n    a: Array<Int64, 3> = [1, 2, 3]\n    for v in a do\n        w: Task<Int64> = try spawn burn(v)\n        w.join()\n    end\n    return 0\nend\n"},
+		{"top level", spawned + "fun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n"},
+		{"if", spawned + "fun run(): Int32 | Error do\n    if true then\n        task: Task<Int32> := try spawn square(6)\n        task.join()\n    end\n    return 0\nend\n"},
+		{"while", spawned + "fun run(): Int32 | Error do\n    mut n: Int32 := 1\n    while n > 0 do\n        task: Task<Int32> := try spawn square(6)\n        task.join()\n        n = n - 1\n    end\n    return 0\nend\n"},
+		{"nested if inside while", spawned + "fun run(): Int32 | Error do\n    mut n: Int32 := 1\n    while n > 0 do\n        if n > 0 then\n            task: Task<Int32> := try spawn square(6)\n            task.join()\n        end\n        n = n - 1\n    end\n    return 0\nend\n"},
+		{"for", "fun burn(value: Int64): Int64 do\n    return value\nend\nfun run(): Int64 | Error do\n    a: Array<Int64, 3> := [1, 2, 3]\n    for v in a do\n        w: Task<Int64> := try spawn burn(v)\n        w.join()\n    end\n    return 0\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			program := checkedGeneratorSource(t, testCase.source)
@@ -298,7 +298,7 @@ func TestGenerateSpawnNestingShapesEmitOneSite(t *testing.T) {
 // torn down with munmap, and the initial commit is documented as a
 // Windows-only knob.
 func TestConcurrencyPosixStackHasGuardPage(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	for _, fragment := range []string{
@@ -324,7 +324,7 @@ func TestConcurrencyPosixStackHasGuardPage(t *testing.T) {
 // re-raise for every other fault, and the Windows vectored exception handler
 // on EXCEPTION_STACK_OVERFLOW. Every worker installs its setup.
 func TestConcurrencyOverflowTrapReachesRuntime(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	posix := []string{

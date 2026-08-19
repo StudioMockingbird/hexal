@@ -7,7 +7,7 @@ import (
 )
 
 func TestCheckGenericObjectTypeDeclarationAndUse(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Box<T> = { value: T } box: Box<Int32> = Box<Int32> { value = 42 }"))
+	checked, err := Check(parseProgram(t, "type Box<T> = { value: T } box: Box<Int32> := Box<Int32> { value = 42 }"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestCheckGenericObjectTypeDeclarationAndUse(t *testing.T) {
 }
 
 func TestCheckGenericAliasSpecializesTransparently(t *testing.T) {
-	_, err := Check(parseProgram(t, "type Pointer<T> = Ptr<T> pointer: Pointer<Int32> = nil"))
+	_, err := Check(parseProgram(t, "type Pointer<T> = Ptr<T> pointer: Pointer<Int32> := nil"))
 	if err == nil {
 		t.Fatal("Check accepted a Nil initializer for a non-null pointer")
 	}
@@ -35,18 +35,18 @@ func TestCheckGenericAliasSpecializesTransparently(t *testing.T) {
 
 func TestCheckGenericTypeArityMismatch(t *testing.T) {
 	requireDiagnostic(t,
-		"type Pair<Left, Right> = { left: Left, right: Right } bad: Pair<Int32> = value",
+		"type Pair<Left, Right> = { left: Left, right: Right } bad: Pair<Int32> := value",
 		"generic type Pair expects 2 type arguments; got 1")
 }
 
 func TestCheckGenericTypeUnknownArgument(t *testing.T) {
 	requireDiagnostic(t,
-		"type Box<T> = { value: T } bad: Box<Missing> = value",
+		"type Box<T> = { value: T } bad: Box<Missing> := value",
 		"unknown type Missing")
 }
 
 func TestCheckGenericObjectPointerIndirectedRecursion(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Link<T> = { value: T, mut next: MutPtr<Link<T>> | Nil, } link: Link<Int32> = Link<Int32> { value = 1, next = nil }"))
+	checked, err := Check(parseProgram(t, "type Link<T> = { value: T, mut next: MutPtr<Link<T>> | Nil, } link: Link<Int32> := Link<Int32> { value = 1, next = nil }"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestCheckGenericObjectPointerIndirectedRecursion(t *testing.T) {
 }
 
 func TestCheckGenericFunctionCallInfersArguments(t *testing.T) {
-	checked, err := Check(parseProgram(t, "fun identity<T>(value: T): T do\nreturn value\nend answer: Int32 = identity(42)"))
+	checked, err := Check(parseProgram(t, "fun identity<T>(value: T): T do\nreturn value\nend answer: Int32 := identity(42)"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestCheckGenericFunctionCallInfersArguments(t *testing.T) {
 }
 
 func TestCheckGenericFunctionExplicitArguments(t *testing.T) {
-	checked, err := Check(parseProgram(t, "fun identity<T>(value: T): T do\nreturn value\nend answer: Int64 = identity<Int64>(42)"))
+	checked, err := Check(parseProgram(t, "fun identity<T>(value: T): T do\nreturn value\nend answer: Int64 := identity<Int64>(42)"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,18 +88,18 @@ func TestCheckGenericFunctionExplicitArguments(t *testing.T) {
 
 func TestCheckGenericFunctionArityMismatch(t *testing.T) {
 	requireDiagnostic(t,
-		"fun identity<T>(value: T): T do\nreturn value\nend bad: Int32 = identity<Int32, Bool>(42)",
+		"fun identity<T>(value: T): T do\nreturn value\nend bad: Int32 := identity<Int32, Bool>(42)",
 		"explicit generic argument count does not match declaration")
 }
 
 func TestCheckGenericFunctionInferenceConflict(t *testing.T) {
 	requireDiagnostic(t,
-		"fun same<T>(left: T, right: T): Bool do\nreturn left == right\nend bad: Bool = same(1, true)",
+		"fun same<T>(left: T, right: T): Bool do\nreturn left == right\nend bad: Bool := same(1, true)",
 		"conflicting inferred types for generic parameter T")
 }
 
 func TestCheckGenericMethodSpecializesWithReceiverArguments(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Box<T> = { value: T }\nimpl Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> = Box<Int32> { value = 42 }\nvalue: Int32 = box.get()"))
+	checked, err := Check(parseProgram(t, "type Box<T> = { value: T }\nimpl Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> := Box<Int32> { value = 42 }\nvalue: Int32 := box.get()"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestCheckGenericMethodSpecializesWithReceiverArguments(t *testing.T) {
 }
 
 func TestCheckGenericFunctionValueReferenceInfersFromTarget(t *testing.T) {
-	checked, err := Check(parseProgram(t, "fun identity<T>(value: T): T do\nreturn value\nend callback: Fun<(Int32) : Int32> = identity"))
+	checked, err := Check(parseProgram(t, "fun identity<T>(value: T): T do\nreturn value\nend callback: Fun<(Int32) : Int32> := identity"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestCheckGenericFunctionValueReferenceInfersFromTarget(t *testing.T) {
 }
 
 func TestCheckGenericObjectLiteralInfersFromExpectedType(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Box<T> = { value: T } box: Box<Int32> = Box { value = 42 }"))
+	checked, err := Check(parseProgram(t, "type Box<T> = { value: T } box: Box<Int32> := Box { value = 42 }"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,11 +136,11 @@ func TestCheckGenericObjectLiteralInfersFromExpectedType(t *testing.T) {
 }
 
 func TestCheckGenericDependentOperationFailsAtSpecialization(t *testing.T) {
-	_, err := Check(parseProgram(t, "fun maximum<T>(left: T, right: T): T do\nif left > right then\nreturn left\nelse\nreturn right\nend\nend largest: Int32 = maximum(10, 20)"))
+	_, err := Check(parseProgram(t, "fun maximum<T>(left: T, right: T): T do\nif left > right then\nreturn left\nelse\nreturn right\nend\nend largest: Int32 := maximum(10, 20)"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	requireDiagnostic(t,
-		"fun maximum<T>(left: T, right: T): T do\nif left > right then\nreturn left\nelse\nreturn right\nend\nend bad: Bool = maximum(true, false)",
+		"fun maximum<T>(left: T, right: T): T do\nif left > right then\nreturn left\nelse\nreturn right\nend\nend bad: Bool := maximum(true, false)",
 		"ordering is unavailable for Bool values")
 }

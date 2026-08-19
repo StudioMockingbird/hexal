@@ -17,7 +17,7 @@
         "        return \"hot\"",
         "    end",
         "end",
-        "label: Strand = classify(15.0)"
+        "label: Strand:= classify(15.0)"
       ]},
       "features": ["functions", "if-elseif-else"],
       "reservedWords": ["fun", "if", "elseif", "else", "return", "end", "do", "then"]
@@ -33,8 +33,8 @@
         "    self.count = self.count + 1",
         "    return self.count",
         "end",
-        "mut counter: Counter = Counter { count = 0 }",
-        "next: Int32 = counter.tick()"
+        "mut counter: Counter:= Counter { count = 0 }",
+        "next: Int32:= counter.tick()"
       ]},
       "features": ["objects", "methods"],
       "reservedWords": ["type", "impl", "mut", "self", "return", "end", "do"]
@@ -50,7 +50,7 @@
         "    self.x = self.x + dx",
         "    self.y = self.y + dy",
         "end",
-        "mut origin: Point = Point { x = 0, y = 0 }",
+        "mut origin: Point:= Point { x = 0, y = 0 }",
         "origin.translate(3, -4)"
       ]},
       "features": ["objects", "methods"],
@@ -65,8 +65,8 @@
         "fun combine(a: Int32, b: Int32): Int32 do",
         "    return a * 2 + b",
         "end",
-        "step: Fun<(Int32, Int32) : Int32> = combine",
-        "result: Int32 = step(3, 4)"
+        "step: Fun<(Int32, Int32) : Int32> := combine",
+        "result: Int32:= step(3, 4)"
       ]},
       "features": ["functions", "function-values"],
       "reservedWords": ["fun", "return", "end", "do"]
@@ -80,7 +80,7 @@
         "fun notify(name: Strand) do",
         "    print(\"notify \", name)",
         "end",
-        "boot: Strand = \"boot\"",
+        "boot: Strand:= \"boot\"",
         "notify(boot)"
       ]},
       "features": ["no-result-functions", "print"],
@@ -95,9 +95,9 @@
         "fun identity<T>(value: T): T do",
         "    return value",
         "end",
-        "number: Int32 = identity(7)",
-        "word: Strand = \"seven\"",
-        "text: Strand = identity(word)"
+        "number: Int32:= identity(7)",
+        "word: Strand:= \"seven\"",
+        "text: Strand:= identity(word)"
       ]},
       "features": ["generics", "functions"],
       "reservedWords": ["fun", "return", "end", "do"]
@@ -112,8 +112,8 @@
         "impl Box<T>.get(): T do",
         "    return self.value",
         "end",
-        "box: Box<Int32> = Box { value = 42 }",
-        "stored: Int32 = box.get()"
+        "box: Box<Int32>:= Box { value = 42 }",
+        "stored: Int32:= box.get()"
       ]},
       "features": ["generics", "objects"],
       "reservedWords": ["type", "impl", "self", "return", "end", "do"]
@@ -125,7 +125,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Status = { name: Strand, code: Int32, }",
-        "status: Status = Status { name = \"ok\", code = 200 }",
+        "status: Status:= Status { name = \"ok\", code = 200 }",
         "print(status)"
       ]},
       "features": ["objects", "print"],
@@ -139,7 +139,7 @@
       "sources": {"app.hex": [
         "type Inner = { mut level: Int32, }",
         "type Outer = { mut inner: Inner, }",
-        "mut outer: Outer = Outer { inner = Inner { level = 1 } }",
+        "mut outer: Outer:= Outer { inner = Inner { level = 1 } }",
         "outer.inner.level = 5"
       ]},
       "features": ["objects", "bindings"],
@@ -161,9 +161,9 @@
         "impl MutPtr<Meter>.raise() do",
         "    self.reading = self.reading + 1",
         "end",
-        "mut meter: Meter = Meter { reading = 1 }",
-        "copied: Int32 = meter.peek()",
-        "read: Int32 = meter.seen()",
+        "mut meter: Meter:= Meter { reading = 1 }",
+        "copied: Int32:= meter.peek()",
+        "read: Int32:= meter.seen()",
         "meter.raise()"
       ]},
       "features": ["objects", "methods"],

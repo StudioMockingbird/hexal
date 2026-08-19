@@ -34,7 +34,7 @@ func TestSnippetsEndpointReturnsValidatedCatalog(t *testing.T) {
 }
 
 func TestCompileEndpointAcceptsSourceMapAndReturnsGeneratedFiles(t *testing.T) {
-	body := []byte(`{"sources":{"app.hex":"answer: Int32 = 42\n"},"entrypoint":"app.hex"}`)
+	body := []byte(`{"sources":{"app.hex":"answer: Int32 := 42\n"},"entrypoint":"app.hex"}`)
 	request := httptest.NewRequest(http.MethodPost, "/api/compile", bytes.NewReader(body))
 	response := httptest.NewRecorder()
 	routes(nil).ServeHTTP(response, request)

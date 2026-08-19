@@ -1,8 +1,9 @@
 # RFC 0093: Declaration and Assignment Operators
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented
 - Created: 2026-08-19
+- Updated: 2026-08-19
 - Updated: 2026-08-19
 - Scope: use `:=` for value/binding declarations and `=` for assignment
 - Depends on: RFC 0090 (inferred binding declarations), `docs/reference.md`

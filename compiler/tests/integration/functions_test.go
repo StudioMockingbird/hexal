@@ -35,24 +35,24 @@ func assertRejectsAnyDiagnostic(t *testing.T, source, want string) {
 }
 
 func TestFunctionDeclarationAndCall(t *testing.T) {
-	assertChecked(t, "fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 = adder(2, 3)\n")
+	assertChecked(t, "fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 := adder(2, 3)\n")
 }
 
 func TestNoReturnFunctionIsACallStatement(t *testing.T) {
-	assertChecked(t, "fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n")
+	assertChecked(t, "fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nreset(ref count)\n")
 	assertRejectsAnyDiagnostic(t,
-		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nresult: Int32 = reset(ref count)\n",
+		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nresult: Int32 := reset(ref count)\n",
 		"reset produces no value")
 }
 
 func TestFunTypeBindingsAndCallbacks(t *testing.T) {
-	assertChecked(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\nresult: Int32 = apply(square, 5)\n")
-	assertChecked(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nmut selected: Fun<(Int32) : Int32> = identity\nselected = identity\n")
+	assertChecked(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\nresult: Int32 := apply(square, 5)\n")
+	assertChecked(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nmut selected: Fun<(Int32) : Int32> := identity\nselected = identity\n")
 }
 
 func TestFunTypeMismatchIsReported(t *testing.T) {
 	assertRejectsAnyDiagnostic(t,
-		"fun adder(dx: UInt32): UInt32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> = adder\n",
+		"fun adder(dx: UInt32): UInt32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> := adder\n",
 		"handler requires Fun<(Int32) : Int32>; got Fun<(UInt32) : UInt32>")
 }
 
@@ -64,9 +64,9 @@ func TestDeclarationOrderIsSourceOrder(t *testing.T) {
 }
 
 func TestFunctionScopeIsClosed(t *testing.T) {
-	assertChecked(t, "count: Int32 = 3\nfun scoped(seed: Int32): Int32 do\n    mut count: Int32 = seed\n    count = count + 1\n    return count\nend\n")
+	assertChecked(t, "count: Int32 := 3\nfun scoped(seed: Int32): Int32 do\n    mut count: Int32 := seed\n    count = count + 1\n    return count\nend\n")
 	assertRejectsAnyDiagnostic(t,
-		"mut count: Int32 = 0\nfun read_count(): Int32 do\n    return count\nend\n",
+		"mut count: Int32 := 0\nfun read_count(): Int32 do\n    return count\nend\n",
 		"function read_count cannot access module data binding count; pass it as a parameter")
 }
 
@@ -78,13 +78,13 @@ func TestParametersAreFixed(t *testing.T) {
 
 func TestCallChecksArityAndArgumentTypes(t *testing.T) {
 	assertRejectsAnyDiagnostic(t,
-		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 = adder(1, 2, 3)\n",
+		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 := adder(1, 2, 3)\n",
 		"adder expects 2 arguments; got 3")
-	assertChecked(t, "fun small(value: UInt8): UInt8 do\n    return value\nend\nok: UInt8 = small(200)\n")
+	assertChecked(t, "fun small(value: UInt8): UInt8 do\n    return value\nend\nok: UInt8 := small(200)\n")
 	assertRejectsAnyDiagnostic(t,
-		"fun small(value: UInt8): UInt8 do\n    return value\nend\nbad: UInt8 = small(300)\n",
+		"fun small(value: UInt8): UInt8 do\n    return value\nend\nbad: UInt8 := small(300)\n",
 		"given value is outside the UInt8 range")
-	assertChecked(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nmut score: Int32 = 1\ntotal: Int32 = peek(ref score)\n")
+	assertChecked(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nmut score: Int32 := 1\ntotal: Int32 := peek(ref score)\n")
 }
 
 func TestReturnFormsMatchTheDeclaration(t *testing.T) {
@@ -93,7 +93,7 @@ func TestReturnFormsMatchTheDeclaration(t *testing.T) {
 		"fun adder(dx: Int32): Int32 do\n    return\nend\n",
 		"return requires a value; adder declares Int32")
 	assertRejectsAnyDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    total: Int32 = dx\nend\n",
+		"fun adder(dx: Int32): Int32 do\n    total: Int32 := dx\nend\n",
 		"returning adder may fall through without returning Int32")
 }
 
@@ -108,7 +108,7 @@ func TestUnsupportedFunPositions(t *testing.T) {
 		"type Bad = Ptr<Fun<(Int32) : Int32>>\n",
 		"Ptr<Fun<(Int32) : Int32>> is not supported")
 	assertRejectsAnyDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> = ref adder\n",
+		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> := ref adder\n",
 		"function declarations are not addressable; use adder as a Fun value")
 }
 
@@ -117,7 +117,7 @@ func TestFunctionNamesAreNotStorage(t *testing.T) {
 		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nadder = adder\n",
 		"cannot assign to function adder")
 	assertRejectsAnyDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nmut adder: Int32 = 1\n",
+		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nmut adder: Int32 := 1\n",
 		"adder is already declared")
 }
 
@@ -129,10 +129,10 @@ func TestMethodDeclarationsAndCalls(t *testing.T) {
 		"impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n"+
 		"impl Ptr<Point>.is_origin(): Bool do\n    return self.x == 0 and self.y == 0\nend\n"+
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n"+
-		"mut here: Point = Point { x = 0, y = 0, }\n"+
+		"mut here: Point := Point { x = 0, y = 0, }\n"+
 		"here.translate(5, 5)\n"+
-		"total: Int32 = here.length_squared()\n"+
-		"flag: Bool = here.is_origin()\n")
+		"total: Int32 := here.length_squared()\n"+
+		"flag: Bool := here.is_origin()\n")
 }
 
 func TestSelfIsAFixedBinding(t *testing.T) {
@@ -140,7 +140,7 @@ func TestSelfIsAFixedBinding(t *testing.T) {
 		"cannot assign to self; self is a fixed binding")
 	assertRejectsAnyDiagnostic(t, pointType+"impl Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
 		"cannot assign to read-only member self.x")
-	assertChecked(t, pointType+"impl Point.moved(dx: Int32): Point do\n    mut result: Point = self\n    result.x = result.x + dx\n    return result\nend\n")
+	assertChecked(t, pointType+"impl Point.moved(dx: Int32): Point do\n    mut result: Point := self\n    result.x = result.x + dx\n    return result\nend\n")
 }
 
 func TestMethodRulesAreEnforced(t *testing.T) {
@@ -150,7 +150,7 @@ func TestMethodRulesAreEnforced(t *testing.T) {
 		"Point already has a member named x")
 	assertRejectsAnyDiagnostic(t, "impl Int32.doubled(): Int32 do\n    return 0\nend\n",
 		"Int32 is not a nominal object type; impl requires an object")
-	assertRejectsAnyDiagnostic(t, pointType+"origin: Point = Point { x = 0, y = 0, }\ntotal: Int32 = origin.rotate()\n",
+	assertRejectsAnyDiagnostic(t, pointType+"origin: Point := Point { x = 0, y = 0, }\ntotal: Int32 := origin.rotate()\n",
 		"Point has no method named rotate")
 }
 
@@ -165,7 +165,7 @@ func TestMethodDeclarationOrderIsSourceOrder(t *testing.T) {
 func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
 	assertRejectsAnyDiagnostic(t, pointType+
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"origin: Point = Point { x = 0, y = 0, }\norigin.translate(5, 5)\n",
+		"origin: Point := Point { x = 0, y = 0, }\norigin.translate(5, 5)\n",
 		"translate needs MutPtr<Point>; ref origin is Ptr<Point>")
 }
 
@@ -201,8 +201,8 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 		"    return self.x == 0 and self.y == 0\n" +
 		"end\n" +
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n" + "    self.x = self.x + dx\n" + "    self.y = self.y + dy\n" + "end\n" +
-		"mut here: Point = Point { x = 0, y = 0, }\n" +
-		"here.translate(5, 5)\n" + "total: Int32 = here.length_squared()\n" + "flag: Bool = here.is_origin()\n"
+		"mut here: Point := Point { x = 0, y = 0, }\n" +
+		"here.translate(5, 5)\n" + "total: Int32 := here.length_squared()\n" + "flag: Bool := here.is_origin()\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("method generation failed: %#v", result)
@@ -230,7 +230,7 @@ func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {
 
 func TestGeneratedNoReturnFunctionIsVoid(t *testing.T) {
 	assertGeneratedC(t,
-		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n",
+		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nreset(ref count)\n",
 		"static void hex_f_m3_app_reset(int32_t *const hex_v_counter) {\n    *hex_v_counter = 0;\n}\n")
 }
 
@@ -245,7 +245,7 @@ func TestGeneratedZeroParameterFunctionTakesVoid(t *testing.T) {
 // when comparing function types, so the parameters must stay unqualified.
 func TestGeneratedFunctionPointerObjectsKeepUnqualifiedParameters(t *testing.T) {
 	source := "fun identity(value: Int32): Int32 do\n    return value\nend\n" +
-		"callback: Fun<(Int32) : Int32> = identity\nmut selected: Fun<(Int32) : Int32> = identity\n"
+		"callback: Fun<(Int32) : Int32> := identity\nmut selected: Fun<(Int32) : Int32> := identity\n"
 	assertGeneratedC(t, source, "    int32_t (*const hex_v_callback)(int32_t) = hex_f_m3_app_identity;\n")
 	assertGeneratedC(t, source, "    int32_t (*hex_v_selected)(int32_t) = hex_f_m3_app_identity;\n")
 	if got := rootC(t, compileSource(source)); strings.Contains(got, ")(const int32_t)") {
@@ -257,17 +257,17 @@ func TestGeneratedFunctionPointerParameterAndCall(t *testing.T) {
 	assertGeneratedC(t,
 		"fun square(value: Int32): Int32 do\n    return value * value\nend\n"+
 			"fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\n"+
-			"result: Int32 = apply(square, 5)\n",
+			"result: Int32 := apply(square, 5)\n",
 		"static int32_t hex_f_m3_app_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n"+
 			"    return hex_v_callback(hex_v_value);\n}\n")
 }
 
 func TestGeneratedCallExpressionAndCallStatement(t *testing.T) {
 	assertGeneratedC(t,
-		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx\nend\ntotal: Int32 = adder(2, 3)\n",
+		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx\nend\ntotal: Int32 := adder(2, 3)\n",
 		"    const int32_t hex_v_total = hex_f_m3_app_adder(2, 3);\n")
 	assertGeneratedC(t,
-		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n",
+		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nreset(ref count)\n",
 		"    hex_f_m3_app_reset(&hex_v_count);\n")
 }
 
@@ -287,7 +287,7 @@ func TestGeneratedDefinitionsAreOrderedBeforeMain(t *testing.T) {
 	result := compileSource(pointType +
 		"fun first(value: Int32): Int32 do\n    return value\nend\n" +
 		"fun second(value: Int32): Int32 do\n    return value\nend\n" +
-		"origin: Point = Point { x = 0, y = 0, }\n")
+		"origin: Point := Point { x = 0, y = 0, }\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -329,7 +329,7 @@ func TestRootCallStatementWithStringLiteralArgument(t *testing.T) {
 // The preflight also validates specialized generic bodies, so a string
 // literal argument there resolves against the registry too.
 func TestSpecializedBodyCallStatementWithStringLiteralArgument(t *testing.T) {
-	result := compileSource("fun greet(text: String) do\nend\nfun wrap<T>(v: T): T do\n    greet(\"hi\")\n    return v\nend\nx: Int32 = wrap(1)\n")
+	result := compileSource("fun greet(text: String) do\nend\nfun wrap<T>(v: T): T do\n    greet(\"hi\")\n    return v\nend\nx: Int32 := wrap(1)\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

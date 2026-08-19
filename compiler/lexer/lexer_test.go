@@ -6,7 +6,7 @@ import (
 )
 
 func TestLexDeclaration(t *testing.T) {
-	tokens, err := Lex("x: Int32 = 13")
+	tokens, err := Lex("x: Int32 := 13")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -15,9 +15,9 @@ func TestLexDeclaration(t *testing.T) {
 		{Kind: Identifier, Lexeme: "x", Line: 1, Column: 1},
 		{Kind: Colon, Lexeme: ":", Line: 1, Column: 2},
 		{Kind: Identifier, Lexeme: "Int32", Line: 1, Column: 4},
-		{Kind: Equal, Lexeme: "=", Line: 1, Column: 10},
-		{Kind: Integer, Lexeme: "13", Line: 1, Column: 12},
-		{Kind: EOF, Line: 1, Column: 14},
+		{Kind: ColonEqual, Lexeme: ":=", Line: 1, Column: 10},
+		{Kind: Integer, Lexeme: "13", Line: 1, Column: 13},
+		{Kind: EOF, Line: 1, Column: 15},
 	}
 
 	if len(tokens) != len(want) {
@@ -31,11 +31,11 @@ func TestLexDeclaration(t *testing.T) {
 }
 
 func TestLexRejectsUnexpectedCharacter(t *testing.T) {
-	_, err := Lex("x: Int32 = @")
+	_, err := Lex("x: Int32 := @")
 	if err == nil {
 		t.Fatal("Lex accepted an unexpected character")
 	}
-	if err.Error() != `[Syntax Error] unexpected character '@' at 1:12` {
+	if err.Error() != `[Syntax Error] unexpected character '@' at 1:13` {
 		t.Fatalf("Lex error = %q", err)
 	}
 }
@@ -190,7 +190,7 @@ func TestLexOperatorLocationsCommentsAndNestedPointers(t *testing.T) {
 }
 
 func TestLexRejectsLeadingUnderscoreIdentifier(t *testing.T) {
-	_, err := Lex("_player: Int32 = 1")
+	_, err := Lex("_player: Int32 := 1")
 	if err == nil {
 		t.Fatal("Lex accepted an identifier beginning with an underscore")
 	}
@@ -302,7 +302,7 @@ func TestLexMinusAndAllIntegerBases(t *testing.T) {
 }
 
 func TestLexHexadecimalInteger(t *testing.T) {
-	tokens, err := Lex("mask: Int32 = 0xFF")
+	tokens, err := Lex("mask: Int32 := 0xFF")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -316,28 +316,28 @@ func TestLexHexadecimalInteger(t *testing.T) {
 }
 
 func TestLexRejectsMalformedHexadecimalInteger(t *testing.T) {
-	for _, source := range []string{"x: Int32 = 0x", "x: Int32 = 0xG", "x: Int32 = 0x12G"} {
+	for _, source := range []string{"x: Int32 := 0x", "x: Int32 := 0xG", "x: Int32 := 0x12G"} {
 		_, err := Lex(source)
 		if err == nil {
 			t.Fatalf("Lex accepted malformed hexadecimal literal in %q", source)
 		}
-		want := "[Syntax Error] malformed hexadecimal literal at 1:12"
+		want := "[Syntax Error] malformed hexadecimal literal at 1:13"
 		if got := err.Error(); got != want {
 			t.Fatalf("Lex error for %q = %q, want %q", source, got, want)
 		}
 	}
 
-	_, err := Lex("x: Int32 = 0XFF")
+	_, err := Lex("x: Int32 := 0XFF")
 	if err == nil {
 		t.Fatal("Lex accepted an uppercase hexadecimal prefix")
 	}
-	if got, want := err.Error(), "[Syntax Error] integer base prefixes must be lowercase at 1:12"; got != want {
+	if got, want := err.Error(), "[Syntax Error] integer base prefixes must be lowercase at 1:13"; got != want {
 		t.Fatalf("Lex error = %q, want %q", got, want)
 	}
 }
 
 func TestLexSkipsSingleLineAndDocumentationComments(t *testing.T) {
-	source := "--- declare the counter\nx: Int32 = 13 -- initialize\nx = 14 -- eof"
+	source := "--- declare the counter\nx: Int32 := 13 -- initialize\nx = 14 -- eof"
 	tokens, err := Lex(source)
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
@@ -370,11 +370,11 @@ func TestLexSkipsMultilineCommentAndTracksLocation(t *testing.T) {
 }
 
 func TestLexRejectsUnterminatedMultilineComment(t *testing.T) {
-	_, err := Lex("x: Int32 = --[ missing close")
+	_, err := Lex("x: Int32 := --[ missing close")
 	if err == nil {
 		t.Fatal("Lex accepted an unterminated multiline comment")
 	}
-	if got, want := err.Error(), "[Syntax Error] unterminated multiline comment at 1:12"; got != want {
+	if got, want := err.Error(), "[Syntax Error] unterminated multiline comment at 1:13"; got != want {
 		t.Fatalf("Lex error = %q, want %q", got, want)
 	}
 }
@@ -574,7 +574,7 @@ func TestLexStringEscapedNewlinesRemainValid(t *testing.T) {
 }
 
 func TestLexRawNewlineRecoveryKeepsSourcePositions(t *testing.T) {
-	tokens, err := Lex("\"a\nb\" x: Int32 = 1")
+	tokens, err := Lex("\"a\nb\" x: Int32 := 1")
 	if err == nil || !strings.Contains(err.Error(), "raw newline") {
 		t.Fatalf("want raw-newline diagnostic; got %v", err)
 	}
@@ -593,9 +593,8 @@ func TestLexClosedMultilineStringReportsOneDiagnostic(t *testing.T) {
 	}
 }
 
-// RFC 0090's `:=` is one token, produced only when the two characters are
-// adjacent. Separated, they stay Colon then Equal, which is what makes
-// `x : = 5` a syntax error rather than a second spelling of the feature.
+// `:=` is one token, produced only when the two characters are adjacent.
+// Separated, they stay Colon then Equal, so `x : = 5` is a syntax error.
 func TestLexColonEqualRequiresAdjacency(t *testing.T) {
 	joined, err := Lex("x := 13")
 	if err != nil {

@@ -80,17 +80,15 @@ type ObjectMemberDeclaration struct {
 	Type    TypeExpression
 }
 
-// Declaration binds a name to a typed initializer.
+// Declaration binds a name to an initializer and records its declaration operator.
 type Declaration struct {
 	Name        lexer.Token
 	Mutable     bool
 	Type        TypeExpression
 	Initializer Expression
-	// Infer is the `:=` token when the declaration omits its annotation and
-	// takes its type from the initializer (RFC 0090); it is the zero Token
-	// otherwise, so Type == nil and Infer set are the same condition. The
-	// token is retained because the rejection diagnostic points at it.
-	Infer lexer.Token
+	// Operator is the := token for both typed and inferred declarations. Type
+	// being nil is the sole marker for the inferred form.
+	Operator lexer.Token
 }
 
 func (Declaration) topLevelItemNode() {}

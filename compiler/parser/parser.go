@@ -316,6 +316,10 @@ func (parser *Parser) statement() (Statement, error) {
 		if err != nil {
 			return nil, err
 		}
+		if parser.check(lexer.Equal) {
+			equal := parser.advance()
+			return nil, parser.errorAt(equal, "binding declarations require ':='; '=' assigns to an existing place")
+		}
 		if !parser.check(lexer.Colon) && !parser.check(lexer.ColonEqual) {
 			return nil, parser.errorAt(mutable, "'mut' at statement start must introduce a declaration")
 		}
@@ -353,7 +357,7 @@ func (parser *Parser) postfixStatement(start Expression) (Statement, error) {
 	if call, ok := target.(CallExpression); ok {
 		return call, nil
 	}
-	return nil, parser.errorAtCurrent("expected ':' for a declaration or '=' for an assignment")
+	return nil, parser.errorAtCurrent("expected ':' or ':=' for a declaration, or '=' for an assignment")
 }
 
 // returnStatement parses `return` with its optional value. The value's first

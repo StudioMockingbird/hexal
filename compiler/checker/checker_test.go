@@ -23,7 +23,7 @@ func parseProgram(t *testing.T, source string) parser.Program {
 }
 
 func TestCheckResolvesInt32Declaration(t *testing.T) {
-	checked, err := Check(parseProgram(t, "x: Int32 = 13"))
+	checked, err := Check(parseProgram(t, "x: Int32 := 13"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestCheckResolvesInt32Declaration(t *testing.T) {
 }
 
 func TestCheckRejectsUnknownType(t *testing.T) {
-	_, err := Check(parseProgram(t, "x: yyy = 13"))
+	_, err := Check(parseProgram(t, "x: yyy := 13"))
 	if err == nil {
 		t.Fatal("Check accepted an unknown type")
 	}
@@ -50,25 +50,25 @@ func TestCheckRejectsUnknownType(t *testing.T) {
 }
 
 func TestCheckRejectsOutOfRangeInt32(t *testing.T) {
-	_, err := Check(parseProgram(t, "x: Int32 = 2147483648"))
+	_, err := Check(parseProgram(t, "x: Int32 := 2147483648"))
 	if err == nil {
 		t.Fatal("Check accepted an out-of-range Int32 literal")
 	}
 }
 
 func TestCheckReportsIndependentErrors(t *testing.T) {
-	_, err := Check(parseProgram(t, "x: Bogus = 2147483648"))
+	_, err := Check(parseProgram(t, "x: Bogus := 2147483648"))
 	if err == nil {
 		t.Fatal("Check accepted invalid type and value")
 	}
-	want := "[Type Error] unknown type Bogus at app.hex:1:4\n[Type Error] given value is outside the Int32 range at app.hex:1:12"
+	want := "[Type Error] unknown type Bogus at app.hex:1:4\n[Type Error] given value is outside the Int32 range at app.hex:1:13"
 	if err.Error() != want {
 		t.Fatalf("Check errors = %q, want %q", err, want)
 	}
 }
 
 func TestCheckResolvesBoolDeclaration(t *testing.T) {
-	checked, err := Check(parseProgram(t, "enabled: Bool = true"))
+	checked, err := Check(parseProgram(t, "enabled: Bool := true"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestCheckResolvesBoolDeclaration(t *testing.T) {
 }
 
 func TestCheckResolvesHexadecimalInt32Declaration(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mask: Int32 = 0xFF"))
+	checked, err := Check(parseProgram(t, "mask: Int32 := 0xFF"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -96,17 +96,17 @@ func TestCheckResolvesHexadecimalInt32Declaration(t *testing.T) {
 }
 
 func TestCheckRejectsOutOfRangeHex(t *testing.T) {
-	_, err := Check(parseProgram(t, "mask: Int32 = 0x80000000"))
+	_, err := Check(parseProgram(t, "mask: Int32 := 0x80000000"))
 	if err == nil {
 		t.Fatal("Check accepted an out-of-range hexadecimal Int32 literal")
 	}
-	if got, want := err.Error(), "[Type Error] given value is outside the Int32 range at app.hex:1:15"; got != want {
+	if got, want := err.Error(), "[Type Error] given value is outside the Int32 range at app.hex:1:16"; got != want {
 		t.Fatalf("Check error = %q, want %q", got, want)
 	}
 }
 
 func TestCheckTracksAssignmentsInOrder(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut x: Int32 = 13 x = 14"))
+	checked, err := Check(parseProgram(t, "mut x: Int32 := 13 x = 14"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -120,11 +120,11 @@ func TestCheckTracksAssignmentsInOrder(t *testing.T) {
 }
 
 func TestCheckKeepsEnvironmentAfterFailedAssignment(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut x: Int32 = 1 flag: Bool = true x = flag x = 2"))
+	checked, err := Check(parseProgram(t, "mut x: Int32 := 1 flag: Bool := true x = flag x = 2"))
 	if err == nil {
 		t.Fatal("Check accepted a mismatched assignment")
 	}
-	if got, want := err.Error(), "[Type Error] expected Int32 initializer; got Bool at app.hex:1:40"; got != want {
+	if got, want := err.Error(), "[Type Error] expected Int32 initializer; got Bool at app.hex:1:42"; got != want {
 		t.Fatalf("Check error = %q, want %q", got, want)
 	}
 	if got, want := len(checked.Statements), 3; got != want {
@@ -158,7 +158,7 @@ func isNestedDereference(expression Expression, name string) bool {
 }
 
 func TestCheckResolvesPointerExpressions(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut x: Int32 = 13 writer: MutPtr<Int32> = ref x alias: Ptr<Int32> = writer y: Int32 = writer.value"))
+	checked, err := Check(parseProgram(t, "mut x: Int32 := 13 writer: MutPtr<Int32> := ref x alias: Ptr<Int32> := writer y: Int32 := writer.value"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestCheckResolvesPointerExpressions(t *testing.T) {
 }
 
 func TestCheckResolvesNestedPointers(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut x: Int32 = 13 writer: MutPtr<Int32> = ref x writer_pointer: Ptr<MutPtr<Int32>> = ref writer z: Int32 = writer_pointer.value.value"))
+	checked, err := Check(parseProgram(t, "mut x: Int32 := 13 writer: MutPtr<Int32> := ref x writer_pointer: Ptr<MutPtr<Int32>> := ref writer z: Int32 := writer_pointer.value.value"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -195,11 +195,11 @@ func TestCheckPointerDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"x: Int32 = 13 p: Ptr<Int32> = 13", "[Type Error] expected Ptr<Int32> initializer; got Int32 at app.hex:1:31"},
-		{"x: Int32 = 13 p: Ptr<Int32> = x.value", "[Type Error] cannot access .value on Int32; expected Ptr<T> at app.hex:1:33"},
-		{"mut x: Int32 = 13 p: Ptr<Int32> = ref x q: Ptr<Bool> = p", "[Type Error] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:56"},
-		{"mut x: Int32 = 13 look: Ptr<Int32> = ref x look.value = 42", "[Type Error] cannot write through a read-only pointer look.value at app.hex:1:44"},
-		{"x: Int32 = 13 promoted: MutPtr<Int32> = ref x", "[Type Error] expected MutPtr<Int32> initializer; got Ptr<Int32> at app.hex:1:41"},
+		{"x: Int32 := 13 p: Ptr<Int32> := 13", "[Type Error] expected Ptr<Int32> initializer; got Int32 at app.hex:1:33"},
+		{"x: Int32 := 13 p: Ptr<Int32> := x.value", "[Type Error] cannot access .value on Int32; expected Ptr<T> at app.hex:1:35"},
+		{"mut x: Int32 := 13 p: Ptr<Int32> := ref x q: Ptr<Bool> := p", "[Type Error] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:59"},
+		{"mut x: Int32 := 13 look: Ptr<Int32> := ref x look.value = 42", "[Type Error] cannot write through a read-only pointer look.value at app.hex:1:46"},
+		{"x: Int32 := 13 promoted: MutPtr<Int32> := ref x", "[Type Error] expected MutPtr<Int32> initializer; got Ptr<Int32> at app.hex:1:43"},
 	} {
 		_, err := Check(parseProgram(t, testCase.source))
 		if err == nil || err.Error() != testCase.want {

@@ -10,7 +10,7 @@
       "sources": {
         "app.hex": [
           "module Math = import \"./math\"",
-          "answer: Int32 = Math.add(20, 22)"
+          "answer: Int32:= Math.add(20, 22)"
         ],
         "math.hex": [
           "export fun add(left: Int32, right: Int32): Int32 do",
@@ -29,8 +29,8 @@
       "sources": {
         "app.hex": [
           "module Shapes = import \"./graphics/shapes\"",
-          "origin: Shapes.Point = Shapes.origin()",
-          "width: Int32 = origin.width()"
+          "origin: Shapes.Point := Shapes.origin()",
+          "width: Int32:= origin.width()"
         ],
         "graphics/shapes.hex": [
           "export type Point = { x: Int32, y: Int32 }",
@@ -53,7 +53,7 @@
       "sources": {
         "app.hex": [
           "module Math = import \"./math\"",
-          "answer: Int32 = Math.double(21)"
+          "answer: Int32:= Math.double(21)"
         ],
         "math.hex": [
           "fun twice(value: Int32): Int32 do",
@@ -76,10 +76,10 @@
         "app.hex": [
           "module Types = import \"./types\"",
           "fun total(h: Heap): Int32 do",
-          "    points: List<Types.Point> = List<Types.Point>.new(h)",
+          "    points: List<Types.Point> := List<Types.Point>.new(h)",
           "    defer points.free(h)",
           "    points.push(Types.make())",
-          "    point: Types.Point = points[0]",
+          "    point: Types.Point := points[0]",
           "    return point.x + point.y",
           "end"
         ],
@@ -102,10 +102,10 @@
         "app.hex": [
           "module Types = import \"./types\"",
           "fun lookup(h: Heap): Int32 do",
-          "    scores: Dict<Strand, Types.Score> = Dict<Strand, Types.Score>.new(h)",
+          "    scores: Dict<Strand, Types.Score> := Dict<Strand, Types.Score>.new(h)",
           "    defer scores.free(h)",
           "    scores.insert(\"ada\", Types.make())",
-          "    score: Types.Score = scores.get(\"ada\")",
+          "    score: Types.Score := scores.get(\"ada\")",
           "    return score.value",
           "end"
         ],
@@ -128,9 +128,9 @@
         "app.hex": [
           "module Left = import \"./left\"",
           "module Right = import \"./right\"",
-          "left: Int32 = Left.measure(Left.make())",
-          "right: Int32 = Right.measure(Right.make())",
-          "answer: Int32 = left + right"
+          "left: Int32:= Left.measure(Left.make())",
+          "right: Int32:= Right.measure(Right.make())",
+          "answer: Int32:= left + right"
         ],
         "left.hex": [
           "export type Point = { value: Int32, }",
@@ -161,7 +161,7 @@
       "entrypoint": "app.hex",
       "sources": {
         "app.hex": [
-          "answer: Int32 = 42"
+          "answer: Int32:= 42"
         ],
         "unused.hex": [
           "export fun never_called(): Int32 do",
@@ -180,7 +180,7 @@
       "sources": {
         "app.hex": [
           "module Math = import \"./math.hex\"",
-          "answer: Int32 = Math.answer()"
+          "answer: Int32:= Math.answer()"
         ],
         "math.hex": [
           "export fun answer(): Int32 do",

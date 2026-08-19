@@ -70,7 +70,7 @@ func TestProjectCommitNotPageMultipleRejected(t *testing.T) {
 // The rejection must fail the whole compilation through the public entry
 // point, with the Configuration Error category and no artifacts.
 func TestCompileRejectsInvalidProject(t *testing.T) {
-	result := Compile(map[string]string{"app.hex": "value: Int32 = 1\n"}, "app.hex", Project{TaskStackReserve: 4097, TaskStackCommit: 4096})
+	result := Compile(map[string]string{"app.hex": "value: Int32 := 1\n"}, "app.hex", Project{TaskStackReserve: 4097, TaskStackCommit: 4096})
 	if result.ExitCode != ExitFailure {
 		t.Fatalf("invalid project compiled successfully")
 	}

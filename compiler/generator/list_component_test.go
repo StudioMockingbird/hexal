@@ -10,7 +10,7 @@ import (
 // hexal.h/heap.h/view.h includes, and exactly one trailing newline; the
 // owning module header includes the component.
 func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    numbers: List<Int32> = List<Int32>.new(h)\n    defer numbers.free(h)\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    numbers: List<Int32> := List<Int32>.new(h)\n    defer numbers.free(h)\n    names: List<String> := List<String>.new(h)\n    defer names.free(h)\nend")
 	files := generateOne(t, program)
 	listH := files["hexal/list.h"]
 	if listH == "" {
@@ -44,7 +44,7 @@ func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // bounds guards, growth with the checked multiply chain, the guarded memcpy,
 // and trap messages).
 func TestListComponentHexalHeaderOwnsNoListText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> = values.slice(0, 1)\n    first: Int32 = values[0]\n    values[0] = 9\n    last: Int32 = values.pop()\n    values.clear()\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> := values.slice(0, 1)\n    first: Int32 := values[0]\n    values[0] = 9\n    last: Int32 := values.pop()\n    values.clear()\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_list_") {
 		t.Fatalf("hexal.h = %q, list definitions must live in hexal/list.h", files["hexal.h"])
@@ -153,7 +153,7 @@ static inline hex_view_Int32 hex_list_slice_Int32(const hex_list_Int32 *list, ui
 // consuming module's header, after that element's typedef, because the
 // program-wide component cannot declare a per-module type.
 func TestListModuleOwnedElementSpecializationLivesInModuleHeader(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo(h: Heap) do\n    points: List<Point> = List<Point>.new(h)\n    defer points.free(h)\n    points.push(Point { x = 1, })\nend")
+	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo(h: Heap) do\n    points: List<Point> := List<Point>.new(h)\n    defer points.free(h)\n    points.push(Point { x = 1, })\nend")
 	files := generateOne(t, program)
 	if got := files["hexal/list.h"]; got != "" {
 		t.Fatalf("hexal/list.h = %q, want no component artifact: its only specialization is module-typed", got)

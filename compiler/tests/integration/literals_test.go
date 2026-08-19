@@ -7,12 +7,12 @@ import (
 )
 
 func TestCoreScalars(t *testing.T) {
-	source := "visible: Bool = true " +
-		"u8: UInt8 = 255 u16: UInt16 = 65535 " +
-		"u32: UInt32 = 4294967295 u64: UInt64 = 18446744073709551615 " +
-		"i8: Int8 = -128 i16: Int16 = -32768 " +
-		"i32: Int32 = -2147483648 i64: Int64 = -9223372036854775808 " +
-		"f32: Float32 = -0.0 f64: Float64 = 6.02e23"
+	source := "visible: Bool := true " +
+		"u8: UInt8 := 255 u16: UInt16 := 65535 " +
+		"u32: UInt32 := 4294967295 u64: UInt64 := 18446744073709551615 " +
+		"i8: Int8 := -128 i16: Int16 := -32768 " +
+		"i32: Int32 := -2147483648 i64: Int64 := -9223372036854775808 " +
+		"f32: Float32 := -0.0 f64: Float64 := 6.02e23"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
@@ -37,7 +37,7 @@ func TestCoreScalars(t *testing.T) {
 }
 
 func TestIntegerRadices(t *testing.T) {
-	result := compileSource("decimal: UInt16 = 255 hexadecimal: UInt16 = 0xFF binary: UInt16 = 0b1111_1111 octal: UInt16 = 0o377")
+	result := compileSource("decimal: UInt16 := 255 hexadecimal: UInt16 := 0xFF binary: UInt16 := 0b1111_1111 octal: UInt16 := 0o377")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -54,7 +54,7 @@ func TestIntegerRadices(t *testing.T) {
 }
 
 func TestContextualAssignmentAndPointerValue(t *testing.T) {
-	result := compileSource("mut byte: UInt8 = 0 byte = 255 mut value: Int8 = 0 writer: MutPtr<Int8> = ref value writer.value = -128")
+	result := compileSource("mut byte: UInt8 := 0 byte = 255 mut value: Int8 := 0 writer: MutPtr<Int8> := ref value writer.value = -128")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -70,14 +70,14 @@ func TestRejectsScalarMismatchesAndRanges(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"x: UInt8 = 256", "outside the UInt8 range"},
-		{"x: Int8 = 128", "outside the Int8 range"},
-		{"x: Int8 = -129", "outside the Int8 range"},
-		{"x: UInt64 = 18446744073709551616", "outside the UInt64 range"},
-		{"x: UInt8 = -0", "negated integer literal requires a signed destination"},
-		{"x: Float32 = 1", "expected Float32 initializer; got Int32"},
-		{"x: Int32 = 1.0", "expected Int32 initializer; got Float64"},
-		{"x: Bool = 1", "expected Bool initializer; got Int32"},
+		{"x: UInt8 := 256", "outside the UInt8 range"},
+		{"x: Int8 := 128", "outside the Int8 range"},
+		{"x: Int8 := -129", "outside the Int8 range"},
+		{"x: UInt64 := 18446744073709551616", "outside the UInt64 range"},
+		{"x: UInt8 := -0", "negated integer literal requires a signed destination"},
+		{"x: Float32 := 1", "expected Float32 initializer; got Int32"},
+		{"x: Int32 := 1.0", "expected Int32 initializer; got Float64"},
+		{"x: Bool := 1", "expected Bool initializer; got Int32"},
 	}
 	for _, testCase := range testCases {
 		result := compileSource(testCase.source)
@@ -92,14 +92,14 @@ func TestLexicalDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"x: UInt8 = 007", "decimal integer literals cannot have leading zeros"},
-		{"x: UInt8 = 0XFF", "integer base prefixes must be lowercase"},
-		{"x: UInt8 = 0b102", "malformed binary integer literal"},
-		{"x: UInt8 = 0o8", "malformed octal integer literal"},
-		{"x: UInt8 = 0x_FF", "malformed hexadecimal literal"},
-		{"x: Float32 = .5", "malformed floating literal"},
-		{"x: Float32 = 1.", "malformed decimal floating literal"},
-		{"x: Float32 = 1e", "malformed decimal floating literal"},
+		{"x: UInt8 := 007", "decimal integer literals cannot have leading zeros"},
+		{"x: UInt8 := 0XFF", "integer base prefixes must be lowercase"},
+		{"x: UInt8 := 0b102", "malformed binary integer literal"},
+		{"x: UInt8 := 0o8", "malformed octal integer literal"},
+		{"x: UInt8 := 0x_FF", "malformed hexadecimal literal"},
+		{"x: Float32 := .5", "malformed floating literal"},
+		{"x: Float32 := 1.", "malformed decimal floating literal"},
+		{"x: Float32 := 1e", "malformed decimal floating literal"},
 	}
 	for _, testCase := range testCases {
 		result := compileSource(testCase.source)
@@ -110,7 +110,7 @@ func TestLexicalDiagnostics(t *testing.T) {
 }
 
 func TestGeneralNegativeSyntax(t *testing.T) {
-	result := compileSource("mut name: Int32 = 5 negative: Int32 = -name repeated: Int32 = - -name")
+	result := compileSource("mut name: Int32 := 5 negative: Int32 := -name repeated: Int32 := - -name")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile general unary negation = %#v, want success", result)
 	}
@@ -123,14 +123,14 @@ func TestGeneralNegativeSyntax(t *testing.T) {
 		}
 	}
 
-	result = compileSource("x: Int32 = - -- a comment\n 128")
+	result = compileSource("x: Int32 := - -- a comment\n 128")
 	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(rootC(t, result), "const int32_t hex_v_x = -128;") {
 		t.Fatalf("Compile with comment-separated negative literal = %#v, want success", result)
 	}
 }
 
 func TestFloatUnaryNegation(t *testing.T) {
-	result := compileSource("mut f32Value: Float32 = 1.5 negative32: Float32 = -f32Value mut f64Value: Float64 = 2.5 negative64: Float64 = -f64Value")
+	result := compileSource("mut f32Value: Float32 := 1.5 negative32: Float32 := -f32Value mut f64Value: Float64 := 2.5 negative64: Float64 := -f64Value")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile float unary negation = %#v, want success", result)
 	}
@@ -145,7 +145,7 @@ func TestFloatUnaryNegation(t *testing.T) {
 }
 
 func TestNegativeZeroUnaryFolding(t *testing.T) {
-	result := compileSource("f32: Float32 = -(0.0) f64: Float64 = -(0.0)")
+	result := compileSource("f32: Float32 := -(0.0) f64: Float64 := -(0.0)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile negative-zero unary folding = %#v, want success", result)
 	}
@@ -160,7 +160,7 @@ func TestNegativeZeroUnaryFolding(t *testing.T) {
 }
 
 func TestFloatRoundingAndUnderflow(t *testing.T) {
-	result := compileSource("tie: Float32 = 1.000000059604644775390625 underflow: Float32 = 1e-1000 negative: Float32 = -1e-1000")
+	result := compileSource("tie: Float32 := 1.000000059604644775390625 underflow: Float32 := 1e-1000 negative: Float32 := -1e-1000")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -173,7 +173,7 @@ func TestFloatRoundingAndUnderflow(t *testing.T) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
 	}
-	for _, source := range []string{"x: Float32 = 1e1000", "x: Float64 = 1e10000"} {
+	for _, source := range []string{"x: Float32 := 1e1000", "x: Float64 := 1e10000"} {
 		result = compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "outside the") {
 			t.Errorf("Compile(%q) = %#v, want finite-range diagnostic", source, result.Stderr)
@@ -182,7 +182,7 @@ func TestFloatRoundingAndUnderflow(t *testing.T) {
 }
 
 func TestPointerScalarMappings(t *testing.T) {
-	result := compileSource("mut value: UInt8 = 1 reader: Ptr<UInt8> = ref value writer: MutPtr<UInt8> = ref value mut float_value: Float32 = 1.0 float_writer: MutPtr<Float32> = ref float_value nested: Ptr<MutPtr<Float32>> = ref float_writer")
+	result := compileSource("mut value: UInt8 := 1 reader: Ptr<UInt8> := ref value writer: MutPtr<UInt8> := ref value mut float_value: Float32 := 1.0 float_writer: MutPtr<Float32> := ref float_value nested: Ptr<MutPtr<Float32>> := ref float_writer")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -199,7 +199,7 @@ func TestPointerScalarMappings(t *testing.T) {
 }
 
 func TestSizeLiteralTargetGuard(t *testing.T) {
-	result := compileSource("count: Size = 5000000000\nsmall: Size = 3\n")
+	result := compileSource("count: Size := 5000000000\nsmall: Size := 3\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -218,7 +218,7 @@ func TestSizeLiteralTargetGuard(t *testing.T) {
 }
 
 func TestInt32Declaration(t *testing.T) {
-	result := compileSource("x: Int32 = 13")
+	result := compileSource("x: Int32 := 13")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitSuccess)
 	}
@@ -247,7 +247,7 @@ func TestInt32Declaration(t *testing.T) {
 }
 
 func TestBoolDeclaration(t *testing.T) {
-	result := compileSource("flag: Bool = true")
+	result := compileSource("flag: Bool := true")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -261,21 +261,21 @@ func TestBoolDeclaration(t *testing.T) {
 // Byte is the canonical transparent alias of UInt8, and byte literals
 // b'...' are ordinary UInt8 constants.
 func TestByteAndByteTypeBehavior(t *testing.T) {
-	result := compileSource("letter: UInt8 = b'A'")
+	result := compileSource("letter: UInt8 := b'A'")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile returned %#v, want byte literal accepted", result)
 	}
 	if !strings.Contains(rootC(t, result), "65") {
 		t.Fatalf("generated C lacks the byte value: %s", rootC(t, result))
 	}
-	result = compileSource("letter: Byte = 65 again: UInt8 = letter")
+	result = compileSource("letter: Byte := 65 again: UInt8 := letter")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile returned %#v, want Byte alias accepted", result)
 	}
 }
 
 func TestAdditionalNumericTypes(t *testing.T) {
-	result := compileSource("count: Int64 = 9_000_000_000 single: Float32 = 3.14 precise: Float64 = 6.02e23")
+	result := compileSource("count: Int64 := 9_000_000_000 single: Float32 := 3.14 precise: Float64 := 6.02e23")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -302,9 +302,9 @@ func TestNumericLiteralShapeDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"x: Byte = 13", ""},
-		{"x: Float32 = 13", "[Type Error] expected Float32 initializer; got Int32 at app.hex:1:14"},
-		{"x: Int64 = 13.0", "[Type Error] expected Int64 initializer; got Float64 at app.hex:1:12"},
+		{"x: Byte := 13", ""},
+		{"x: Float32 := 13", "[Type Error] expected Float32 initializer; got Int32 at app.hex:1:15"},
+		{"x: Int64 := 13.0", "[Type Error] expected Int64 initializer; got Float64 at app.hex:1:13"},
 	} {
 		result := compileSource(testCase.source)
 		if testCase.want == "" {
@@ -327,7 +327,7 @@ func TestDefaultsUncontextualizedNumericFamilies(t *testing.T) {
 
 	// The assignment forms are rejected before a checked operand can expose a
 	// default type. Declarations provide the current contextual entry point.
-	result = compileSource("whole: Int32 = 13 fraction: Float64 = 3.14")
+	result = compileSource("whole: Int32 := 13 fraction: Float64 := 3.14")
 	if result.ExitCode != compiler.ExitSuccess || !strings.Contains(rootC(t, result), "const int32_t hex_v_whole = 13;") || !strings.Contains(rootC(t, result), "const double hex_v_fraction = 3.14;") {
 		t.Fatalf("Compile returned %#v, want Int32 and Float64 declarations", result)
 	}
@@ -336,7 +336,7 @@ func TestDefaultsUncontextualizedNumericFamilies(t *testing.T) {
 // The generated C keeps the literal's original spelling so a mask written in
 // hexadecimal stays readable in the emitted source.
 func TestHexLiteralPreservesSpelling(t *testing.T) {
-	result := compileSource("mask: Int32 = 0xFF")
+	result := compileSource("mask: Int32 := 0xFF")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -352,8 +352,8 @@ func TestRejectsMismatchedInitializer(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"x: Int32 = true", "[Type Error] expected Int32 initializer; got Bool at app.hex:1:12"},
-		{"flag: Bool = 1", "[Type Error] expected Bool initializer; got Int32 at app.hex:1:14"},
+		{"x: Int32 := true", "[Type Error] expected Int32 initializer; got Bool at app.hex:1:13"},
+		{"flag: Bool := 1", "[Type Error] expected Bool initializer; got Int32 at app.hex:1:15"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure {
@@ -366,27 +366,27 @@ func TestRejectsMismatchedInitializer(t *testing.T) {
 }
 
 func TestRejectsHexPrefixWithoutDigits(t *testing.T) {
-	result := compileSource("mask: Int32 = 0x")
-	want := "[Syntax Error] malformed hexadecimal literal at app.hex:1:15"
+	result := compileSource("mask: Int32 := 0x")
+	want := "[Syntax Error] malformed hexadecimal literal at app.hex:1:16"
 	if len(result.Stderr) == 0 || result.Stderr[0] != want {
 		t.Fatalf("std.err = %#v, want first entry %q", result.Stderr, want)
 	}
 }
 
 func TestRejectsOutOfRangeHex(t *testing.T) {
-	result := compileSource("mask: Int32 = 0x80000000")
-	want := "[Type Error] given value is outside the Int32 range at app.hex:1:15"
+	result := compileSource("mask: Int32 := 0x80000000")
+	want := "[Type Error] given value is outside the Int32 range at app.hex:1:16"
 	if len(result.Stderr) != 1 || result.Stderr[0] != want {
 		t.Fatalf("std.err = %#v, want [%q]", result.Stderr, want)
 	}
 }
 
 func TestRejectsMalformedHexadecimalLiteral(t *testing.T) {
-	result := compileSource("x: Int32 = 0x")
+	result := compileSource("x: Int32 := 0x")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Syntax Error] malformed hexadecimal literal at app.hex:1:12"}
+	want := []string{"[Syntax Error] malformed hexadecimal literal at app.hex:1:13"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}

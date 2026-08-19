@@ -10,7 +10,7 @@ import (
 )
 
 func TestParseNamedTypeExpression(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 = 13")
+	tokens, err := lexer.Lex("x: Int32 := 13")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -27,17 +27,17 @@ func TestParseNamedTypeExpression(t *testing.T) {
 	}
 }
 
-// Standalone `nothing: Nil = nil` appears here as syntax only; the checker
+// Standalone `nothing: Nil := nil` appears here as syntax only; the checker
 // rejects the written standalone Nil type.
 func TestParseBuiltinNilAndUnknownTypeExpressions(t *testing.T) {
-	if got := fmt.Sprintf("%T", parseAnnotation(t, "nothing: Nil = nil")); got != "parser.NilTypeExpression" {
+	if got := fmt.Sprintf("%T", parseAnnotation(t, "nothing: Nil := nil")); got != "parser.NilTypeExpression" {
 		t.Fatalf("Nil annotation type = %q, want parser.NilTypeExpression", got)
 	}
-	if got := fmt.Sprintf("%T", parseAnnotation(t, "opaque: Unknown = value")); got != "parser.UnknownTypeExpression" {
+	if got := fmt.Sprintf("%T", parseAnnotation(t, "opaque: Unknown := value")); got != "parser.UnknownTypeExpression" {
 		t.Fatalf("Unknown annotation type = %q, want parser.UnknownTypeExpression", got)
 	}
 
-	pointer, ok := parseAnnotation(t, "erased: Ptr<Unknown> = value").(PtrTypeExpression)
+	pointer, ok := parseAnnotation(t, "erased: Ptr<Unknown> := value").(PtrTypeExpression)
 	if !ok {
 		t.Fatalf("Ptr<Unknown> annotation = %#v, want pointer type", pointer)
 	}
@@ -47,7 +47,7 @@ func TestParseBuiltinNilAndUnknownTypeExpressions(t *testing.T) {
 }
 
 func TestParseNullableTypeExpressionPreservesNestedAndRepeatedSuffixes(t *testing.T) {
-	typeExpression := parseAnnotation(t, "nested: MutPtr<MutPtr<Node> | Nil> | Nil | Nil = nil")
+	typeExpression := parseAnnotation(t, "nested: MutPtr<MutPtr<Node> | Nil> | Nil | Nil := nil")
 	outer, ok := typeExpression.(UnionTypeExpression)
 	if !ok || len(outer.Pipes) != 2 || len(outer.Members) != 3 {
 		t.Fatalf("outer union = %#v, want 3 members and 2 pipes", typeExpression)
@@ -68,13 +68,13 @@ func TestParseNullableTypeExpressionPreservesNestedAndRepeatedSuffixes(t *testin
 		t.Fatalf("inner pointer element = %#v, want named Node", innerPointer.Element)
 	}
 
-	if got := fmt.Sprintf("%T", parseInitializer(t, "nothing: Nil = nil")); got != "parser.NilLiteral" {
+	if got := fmt.Sprintf("%T", parseInitializer(t, "nothing: Nil := nil")); got != "parser.NilLiteral" {
 		t.Fatalf("nil initializer type = %q, want parser.NilLiteral", got)
 	}
 }
 
 func TestParseGeneralUnionTypeExpression(t *testing.T) {
-	typeExpression := parseAnnotation(t, "value: (Int32 | Float64) | Nil = nil")
+	typeExpression := parseAnnotation(t, "value: (Int32 | Float64) | Nil := nil")
 	if got := fmt.Sprintf("%T", typeExpression); got != "parser.UnionTypeExpression" {
 		t.Fatalf("type expression = %q, want parser.UnionTypeExpression", got)
 	}
@@ -88,14 +88,14 @@ func TestParseGeneralUnionTypeExpression(t *testing.T) {
 }
 
 func TestParseTypeTestExpression(t *testing.T) {
-	typeExpression := parseInitializer(t, "tested: Bool = value is Int32")
+	typeExpression := parseInitializer(t, "tested: Bool := value is Int32")
 	if got := fmt.Sprintf("%T", typeExpression); got != "parser.TypeTestExpression" {
 		t.Fatalf("initializer = %q, want parser.TypeTestExpression", got)
 	}
 }
 
 func TestParseTypeTestPrecedence(t *testing.T) {
-	initializer := parseInitializer(t, "tested: Bool = value is Int32 == expected")
+	initializer := parseInitializer(t, "tested: Bool := value is Int32 == expected")
 	if got := fmt.Sprintf("%T", initializer); got != "parser.BinaryExpression" {
 		t.Fatalf("initializer = %q, want parser.BinaryExpression", got)
 	}
@@ -106,7 +106,7 @@ func TestParseTypeTestPrecedence(t *testing.T) {
 }
 
 func TestParseRejectsChainedTypeTests(t *testing.T) {
-	message := parseError(t, "tested: Bool = value is Int32 is Bool")
+	message := parseError(t, "tested: Bool := value is Int32 is Bool")
 	if !strings.Contains(message, "is tests cannot be chained") {
 		t.Fatalf("Parse error = %q, want chained-is diagnostic", message)
 	}
@@ -114,8 +114,8 @@ func TestParseRejectsChainedTypeTests(t *testing.T) {
 
 func TestParseGeneralUnionAcceptsAnyMemberOrder(t *testing.T) {
 	for _, source := range []string{
-		"value: Nil | Ptr<Int32> = nil",
-		"value: Ptr<Int32> | MutPtr<Int32> = nil",
+		"value: Nil | Ptr<Int32> := nil",
+		"value: Ptr<Int32> | MutPtr<Int32> := nil",
 	} {
 		if _, err := Parse(mustLex(t, source)); err != nil {
 			t.Errorf("Parse(%q) returned an error: %v", source, err)
@@ -133,7 +133,7 @@ func mustLex(t *testing.T, source string) []lexer.Token {
 }
 
 func TestParsePtrTypeExpressionIsRecursive(t *testing.T) {
-	tokens, err := lexer.Lex("x: Ptr<Ptr<Int32>> = y")
+	tokens, err := lexer.Lex("x: Ptr<Ptr<Int32>> := y")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -180,8 +180,8 @@ func TestParseObjectTypeExpressionOnlyAfterTypeDeclaration(t *testing.T) {
 
 func TestParseRejectsObjectTypeOutsideTypeDeclaration(t *testing.T) {
 	for _, source := range []string{
-		"point: { x: Int32 } = value",
-		"point: { x: Int32 } | Nil = value",
+		"point: { x: Int32 } := value",
+		"point: { x: Int32 } | Nil := value",
 		"type Box = Ptr<{ x: Int32 }>",
 		"type Box = Ptr<{ x: Int32 } | Nil>",
 	} {
@@ -208,8 +208,8 @@ func TestParseRejectsEmptyObjectType(t *testing.T) {
 
 func TestParseRejectsMalformedPtrType(t *testing.T) {
 	for _, source := range []string{
-		"x: Ptr<Int32 = y",
-		"x: Ptr<> = y",
+		"x: Ptr<Int32 := y",
+		"x: Ptr<> := y",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -247,7 +247,7 @@ func TestParseTypeDeclarationIsTopLevelItem(t *testing.T) {
 }
 
 func TestParseMixedTopLevelItemsPreservesOrder(t *testing.T) {
-	tokens, err := lexer.Lex("type Coordinate = Int32 x: Coordinate = 1")
+	tokens, err := lexer.Lex("type Coordinate = Int32 x: Coordinate := 1")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -271,10 +271,10 @@ func TestParseMutPtrTypeExpression(t *testing.T) {
 		source   string
 		writable bool
 	}{
-		{"x: MutPtr<Int32> = y", true},
-		{"x: MutPtr<MutPtr<Int32>> = y", true},
-		{"x: Ptr<MutPtr<Int32>> = y", false},
-		{"x: MutPtr<Ptr<Int32>> = y", true},
+		{"x: MutPtr<Int32> := y", true},
+		{"x: MutPtr<MutPtr<Int32>> := y", true},
+		{"x: Ptr<MutPtr<Int32>> := y", false},
+		{"x: MutPtr<Ptr<Int32>> := y", true},
 	} {
 		tokens, err := lexer.Lex(testCase.source)
 		if err != nil {
@@ -295,7 +295,7 @@ func TestParseMutPtrTypeExpression(t *testing.T) {
 }
 
 func TestParseRejectsMutInsidePtr(t *testing.T) {
-	tokens, err := lexer.Lex("x: Ptr<mut Int32> = y")
+	tokens, err := lexer.Lex("x: Ptr<mut Int32> := y")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -322,7 +322,7 @@ func parseAnnotation(t *testing.T, source string) TypeExpression {
 }
 
 func TestParseFunctionTypeExpression(t *testing.T) {
-	function, ok := parseAnnotation(t, "handler: Fun<(Int32, Bool) : Int32> = f").(FunctionTypeExpression)
+	function, ok := parseAnnotation(t, "handler: Fun<(Int32, Bool) : Int32> := f").(FunctionTypeExpression)
 	if !ok {
 		t.Fatal("annotation is not a FunctionTypeExpression")
 	}
@@ -338,7 +338,7 @@ func TestParseFunctionTypeExpression(t *testing.T) {
 }
 
 func TestParseFunctionTypeWithoutReturn(t *testing.T) {
-	function := parseAnnotation(t, "handler: Fun<(Int32)> = f").(FunctionTypeExpression)
+	function := parseAnnotation(t, "handler: Fun<(Int32)> := f").(FunctionTypeExpression)
 	if function.Return != nil {
 		t.Fatalf("return = %#v, want nil", function.Return)
 	}
@@ -348,7 +348,7 @@ func TestParseFunctionTypeWithoutReturn(t *testing.T) {
 }
 
 func TestParseFunctionTypeWithoutParameters(t *testing.T) {
-	function := parseAnnotation(t, "handler: Fun<()> = f").(FunctionTypeExpression)
+	function := parseAnnotation(t, "handler: Fun<()> := f").(FunctionTypeExpression)
 	if len(function.Parameters) != 0 {
 		t.Fatalf("parameter count = %d, want 0", len(function.Parameters))
 	}
@@ -358,7 +358,7 @@ func TestParseFunctionTypeWithoutParameters(t *testing.T) {
 }
 
 func TestParseNestedFunctionType(t *testing.T) {
-	function := parseAnnotation(t, "handler: Fun<(Fun<(Int32) : Int32>) : Int32> = f").(FunctionTypeExpression)
+	function := parseAnnotation(t, "handler: Fun<(Fun<(Int32) : Int32>) : Int32> := f").(FunctionTypeExpression)
 	inner, ok := function.Parameters[0].(FunctionTypeExpression)
 	if !ok {
 		t.Fatalf("first parameter = %#v, want a nested function type", function.Parameters[0])
@@ -370,9 +370,9 @@ func TestParseNestedFunctionType(t *testing.T) {
 
 func TestParseRejectsMalformedFunctionTypes(t *testing.T) {
 	for _, source := range []string{
-		"handler: Fun<Int32> = f",
-		"handler: Fun<(Int32) : Int32 = f",
-		"handler: Fun(Int32) = f",
+		"handler: Fun<Int32> := f",
+		"handler: Fun<(Int32) : Int32 := f",
+		"handler: Fun(Int32) := f",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {

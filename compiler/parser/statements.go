@@ -447,17 +447,15 @@ func (parser *Parser) condition(keyword string) (Expression, error) {
 }
 
 func (parser *Parser) declaration(name lexer.Token, mutable bool) (Declaration, error) {
-	// RFC 0090: `:=` is one token, so the annotation and the `=` are both
-	// absent and the initializer follows directly. `x : = 5` never reaches
-	// here as a declaration — the lexer produces Colon then Equal, and the
-	// annotation parse below rejects it.
+	// `:=` is one token. `x : = 5` remains a syntax error because the lexer
+	// produces separate Colon and Equal tokens.
 	if parser.check(lexer.ColonEqual) {
 		operator := parser.advance()
 		initializer, err := parser.expression()
 		if err != nil {
 			return Declaration{}, err
 		}
-		return Declaration{Name: name, Mutable: mutable, Initializer: initializer, Infer: operator}, nil
+		return Declaration{Name: name, Mutable: mutable, Initializer: initializer, Operator: operator}, nil
 	}
 	if _, err := parser.consume(lexer.Colon, "':'"); err != nil {
 		return Declaration{}, err
@@ -466,7 +464,12 @@ func (parser *Parser) declaration(name lexer.Token, mutable bool) (Declaration, 
 	if err != nil {
 		return Declaration{}, err
 	}
-	if _, err := parser.consume(lexer.Equal, "'='"); err != nil {
+	if parser.check(lexer.Equal) {
+		equal := parser.advance()
+		return Declaration{}, parser.errorAt(equal, "binding declarations require ':='; '=' assigns to an existing place")
+	}
+	operator, err := parser.consume(lexer.ColonEqual, "':=' after a declaration type")
+	if err != nil {
 		return Declaration{}, err
 	}
 	initializer, err := parser.expression()
@@ -479,5 +482,6 @@ func (parser *Parser) declaration(name lexer.Token, mutable bool) (Declaration, 
 		Mutable:     mutable,
 		Type:        typeExpression,
 		Initializer: initializer,
+		Operator:    operator,
 	}, nil
 }

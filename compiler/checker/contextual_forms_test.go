@@ -12,10 +12,10 @@ import (
 	"hexal/compiler/parser"
 )
 
-// RFC 0090's predicate must stay in step with every form that threads the
+// The inference predicate must stay in step with every form that threads the
 // expected type inward, and the failure mode is not symmetric: a form the
-// predicate misses is *accepted* by `:=` and silently defaulted, which is how
-// `match` was nearly shipped taking Int32 from nowhere. A form it wrongly
+// predicate misses is *accepted* by `:=` and silently defaulted, which lets
+// `match` take Int32 from nowhere. A form it wrongly
 // includes only over-rejects, which is loud.
 //
 // Nothing enforces that mechanically, so this does. It enumerates the
@@ -25,14 +25,14 @@ import (
 // **When this test fails, do not just add the name.** Decide first whether the
 // new reader forwards the expected type to a sub-expression. If it does, the
 // form belongs in contextualExpression's forInference cases; if it merely
-// consumes the expected type for itself, it does not — see the accepted
+// consumes the expected type for itself, it does not; see the accepted
 // qualified-variant and function-reference cases in the integration tests.
 // Then record it here with which of the two it is.
 func TestEveryReaderOfTheExpectedTypeIsClassified(t *testing.T) {
 	reviewed := []string{
 		// The expression switch. It both forwards (literals, string, nil,
 		// array, match) and consumes for itself (qualified variant, unit
-		// variant, generic function reference) — the split lives in
+		// variant, generic function reference); the split lives in
 		// contextualExpression, not here.
 		"checkExpression",
 		// Forwards to every arm, which is why a match of bare literals is
@@ -122,7 +122,7 @@ func TestUnionInjectionPredicateIsUnchangedByTheInferenceCases(t *testing.T) {
 // smallest declaration that accepts it, then returns the initializer.
 func parseOneExpression(t *testing.T, source string) parser.Expression {
 	t.Helper()
-	program := parseProgram(t, "fun probe(ready: Bool) do\n    value: Int32 = "+source+"\nend")
+	program := parseProgram(t, "fun probe(ready: Bool) do\n    value: Int32 := "+source+"\nend")
 	for _, item := range program.Items {
 		function, ok := item.(parser.FunctionDeclaration)
 		if !ok {

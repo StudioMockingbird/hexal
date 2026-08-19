@@ -18,12 +18,12 @@ import (
 // visible omission rather than a silent zero.
 func TestCachedRuneLengthSetAtEveryConstructionPath(t *testing.T) {
 	source := "fun demo(h: Heap): Size do\n" +
-		"    literal: String = \"hello\"\n" +
-		"    joined: String = literal.concat(h, literal)\n" +
-		"    copied: String = joined.to_string(h)\n" +
-		"    raw: View<UInt8> = copied.bytes()\n" +
-		"    rebuilt: String = String.from_bytes(h, raw)\n" +
-		"    count: Size = rebuilt.length()\n" +
+		"    literal: String := \"hello\"\n" +
+		"    joined: String := literal.concat(h, literal)\n" +
+		"    copied: String := joined.to_string(h)\n" +
+		"    raw: View<UInt8> := copied.bytes()\n" +
+		"    rebuilt: String := String.from_bytes(h, raw)\n" +
+		"    count: Size := rebuilt.length()\n" +
 		"    rebuilt.free(h)\n" +
 		"    copied.free(h)\n" +
 		"    joined.free(h)\n" +
@@ -47,7 +47,7 @@ func TestCachedRuneLengthSetAtEveryConstructionPath(t *testing.T) {
 // byte count substituted for a rune count would go unnoticed. "café 🦀" is 6
 // runes across 10 bytes, which makes the two numbers impossible to confuse.
 func TestCachedRuneLengthCountsRunesNotBytesInLiterals(t *testing.T) {
-	result := assertCompiles(t, "fun demo(): Size do\n    text: String = \"caf\\u{00E9} \\u{1F980}\"\n    return text.length()\nend\n")
+	result := assertCompiles(t, "fun demo(): Size do\n    text: String := \"caf\\u{00E9} \\u{1F980}\"\n    return text.length()\nend\n")
 	const want = "const hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 10, .rune_length = 6 };"
 	if !strings.Contains(stringC(t, result), want) {
 		t.Fatalf("hexal/string.c = %q, want %q", stringC(t, result), want)
@@ -58,7 +58,7 @@ func TestCachedRuneLengthCountsRunesNotBytesInLiterals(t *testing.T) {
 // count now that the header carries one; slice still walks to reach a
 // position, which is a different thing and stays.
 func TestCachedRuneLengthConsumersDoNotScan(t *testing.T) {
-	result := assertCompiles(t, "fun demo(): Size do\n    text: String = \"hello\"\n    part: View<UInt8> = text.slice(1, 3)\n    return text.length()\nend\n")
+	result := assertCompiles(t, "fun demo(): Size do\n    text: String := \"hello\"\n    part: View<UInt8> := text.slice(1, 3)\n    return text.length()\nend\n")
 	header := stringH(t, result)
 	for _, want := range []string{
 		"static inline size_t hex_string_rune_length(const hex_string *text) {\n    return text->rune_length;\n}",
@@ -80,7 +80,7 @@ func TestCachedRuneLengthConsumersDoNotScan(t *testing.T) {
 // Invariant 1: the header grew, the handle did not. A List<String> element is
 // still one pointer, so element size, copying, and passing are unchanged.
 func TestCachedRuneLengthLeavesStringHandleSizeUnchanged(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): Size do\n    names: List<String> = List<String>.new(h)\n    names.push(\"hello\")\n    count: Size = names.length()\n    names.free(h)\n    return count\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): Size do\n    names: List<String> := List<String>.new(h)\n    names.push(\"hello\")\n    count: Size := names.length()\n    names.free(h)\n    return count\nend\n")
 	header := listH(t, result)
 	for _, want := range []string{
 		"const hex_string * *data;",
@@ -96,8 +96,8 @@ func TestCachedRuneLengthLeavesStringHandleSizeUnchanged(t *testing.T) {
 // reinstating indexing, which RFC 0083 removed. Nothing here reopens it.
 func TestCachedRuneLengthDoesNotReopenTextIndexing(t *testing.T) {
 	for _, testCase := range []struct{ source, want string }{
-		{"text: String = \"hi\" first: Rune = text[0]", "cannot index String"},
-		{"label: Strand = \"hi\" first: Rune = label[0]", "cannot index Strand"},
+		{"text: String := \"hi\" first: Rune := text[0]", "cannot index String"},
+		{"label: Strand := \"hi\" first: Rune := label[0]", "cannot index Strand"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

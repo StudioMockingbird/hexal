@@ -11,11 +11,11 @@ import (
 // keep heap- and parameter-derived pointers accepted.
 func TestProbeD4FromPointerProvenance(t *testing.T) {
 	reject := []string{
-		"fun f() do\n    mut a: Int32 = 1\n    view: View<Int32> = View<Int32>.from_pointer(ref a, 1)\nend\n",
-		"fun f() do\n    mut a: Int32 = 1\n    p: Ptr<Int32> = ref a\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
-		"fun f() do\n    mut a: Int32 = 1\n    p: Ptr<Int32> = ref a\n    q: Ptr<Int32> = p\n    view: View<Int32> = View<Int32>.from_pointer(q, 1)\nend\n",
-		"fun f() do\n    mut a: Int32 = 1\n    p: Ptr<Int32> = ref a\n    mut q: Ptr<Int32> = p\n    q = ref a\n    view: View<Int32> = View<Int32>.from_pointer(q, 1)\nend\n",
-		"fun f() do\n    mut a: Int32 = 1\n    p: Ptr<Int32> = ref a\n    q: Ptr<Int32> = p\n    r: Ptr<Int32> = q\n    view: View<Int32> = View<Int32>.from_pointer(r, 1)\nend\n",
+		"fun f() do\n    mut a: Int32 := 1\n    view: View<Int32> := View<Int32>.from_pointer(ref a, 1)\nend\n",
+		"fun f() do\n    mut a: Int32 := 1\n    p: Ptr<Int32> := ref a\n    view: View<Int32> := View<Int32>.from_pointer(p, 1)\nend\n",
+		"fun f() do\n    mut a: Int32 := 1\n    p: Ptr<Int32> := ref a\n    q: Ptr<Int32> := p\n    view: View<Int32> := View<Int32>.from_pointer(q, 1)\nend\n",
+		"fun f() do\n    mut a: Int32 := 1\n    p: Ptr<Int32> := ref a\n    mut q: Ptr<Int32> := p\n    q = ref a\n    view: View<Int32> := View<Int32>.from_pointer(q, 1)\nend\n",
+		"fun f() do\n    mut a: Int32 := 1\n    p: Ptr<Int32> := ref a\n    q: Ptr<Int32> := p\n    r: Ptr<Int32> := q\n    view: View<Int32> := View<Int32>.from_pointer(r, 1)\nend\n",
 	}
 	for _, source := range reject {
 		result := compileSource(source)
@@ -26,8 +26,8 @@ func TestProbeD4FromPointerProvenance(t *testing.T) {
 		}
 	}
 	accept := []string{
-		"fun f(h: Heap) do\n    p: Ptr<Int32> = h.allocate<Int32>(1)\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
-		"fun f(p: Ptr<Int32>) do\n    view: View<Int32> = View<Int32>.from_pointer(p, 1)\nend\n",
+		"fun f(h: Heap) do\n    p: Ptr<Int32> := h.allocate<Int32>(1)\n    view: View<Int32> := View<Int32>.from_pointer(p, 1)\nend\n",
+		"fun f(p: Ptr<Int32>) do\n    view: View<Int32> := View<Int32>.from_pointer(p, 1)\nend\n",
 	}
 	for _, source := range accept {
 		result := compileSource(source)

@@ -15,7 +15,7 @@ func TestModuleImportResolvesToNotFound(t *testing.T) {
 	// "./math" is a valid module-path literal that resolves; no source
 	// provides it, so the build fails with the resolution diagnostic rather
 	// than a grammar error — the grammar itself parsed.
-	result := compileSource("module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n")
+	result := compileSource("module Math = import \"./math\"\nresult: Int32 := Math.add(2, 3)\n")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want failure until ./math exists; got %#v", result)
 	}
@@ -46,23 +46,23 @@ func TestModulePathRejectsBackslashesAndEscapes(t *testing.T) {
 }
 
 func TestExportRequiresModuleLevelDeclaration(t *testing.T) {
-	assertRejects(t, "export x: Int32 = 1", "export may prefix only a module-level type, function, or implementation declaration")
+	assertRejects(t, "export x: Int32 := 1", "export may prefix only a module-level type, function, or implementation declaration")
 	assertRejects(t, "export x = 1", "export may prefix only a module-level type, function, or implementation declaration")
-	assertRejects(t, "fun f() do\n    export g: Int32 = 1\nend", "export may prefix only a module-level type, function, or implementation declaration")
+	assertRejects(t, "fun f() do\n    export g: Int32 := 1\nend", "export may prefix only a module-level type, function, or implementation declaration")
 }
 
 func TestExportPrefixesDeclarations(t *testing.T) {
 	assertCompiles(t, "export fun f(): Int32 do\n    return 1\nend\n")
-	assertCompiles(t, "export type Point = { x: Int32, }\npoint: Point = Point { x = 1, }\n")
+	assertCompiles(t, "export type Point = { x: Int32, }\npoint: Point := Point { x = 1, }\n")
 	// An exported method needs an exported receiver type.
-	assertCompiles(t, "export type Point = { x: Int32, }\nexport impl Point.getX(): Int32 do\n    return self.x\nend\np: Point = Point { x = 1, }\nv: Int32 = p.getX()\n")
+	assertCompiles(t, "export type Point = { x: Int32, }\nexport impl Point.getX(): Int32 do\n    return self.x\nend\np: Point := Point { x = 1, }\nv: Int32 := p.getX()\n")
 }
 
 func TestQualifiedTypeParsesToUnknownAlias(t *testing.T) {
-	assertRejects(t, "x: M.T = 1", "unknown module alias M")
-	assertRejects(t, "x: M.A.B = 1", "unknown module alias M")
+	assertRejects(t, "x: M.T := 1", "unknown module alias M")
+	assertRejects(t, "x: M.A.B := 1", "unknown module alias M")
 }
 
 func TestPropertyChainsStillParseAsExpressions(t *testing.T) {
-	assertCompiles(t, "type Point = { x: Int32, }\npoint: Point = Point { x = 1, }\nvalue: Int32 = point.x\n")
+	assertCompiles(t, "type Point = { x: Int32, }\npoint: Point := Point { x = 1, }\nvalue: Int32 := point.x\n")
 }

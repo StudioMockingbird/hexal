@@ -8,12 +8,12 @@
       "description": "Declares representative signed, unsigned, floating-point, boolean, and size values, then combines them in a small calculation.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fan_speed: Int16 = -5",
-        "power_level: UInt8 = 42",
-        "balance: Float32 = 0.75",
-        "enabled: Bool = true",
-        "steps: Size = 4",
-        "mut adjusted: Float64 = balance.to<Float64>() + power_level.to<Float64>()",
+        "fan_speed: Int16:= -5",
+        "power_level: UInt8:= 42",
+        "balance: Float32:= 0.75",
+        "enabled: Bool:= true",
+        "steps: Size:= 4",
+        "mut adjusted: Float64:= balance.to<Float64>() + power_level.to<Float64>()",
         "if enabled then",
         "    adjusted = adjusted + steps.to<Float64>()",
         "end",
@@ -29,13 +29,13 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun total_after_steps(seed: Int32): Int32 do",
-        "    mut total: Int32 = seed",
+        "    mut total: Int32:= seed",
         "    total = total + 5",
         "    total = total * 2",
         "    total = total - 3",
         "    return total",
         "end",
-        "result: Int32 = total_after_steps(10)"
+        "result: Int32:= total_after_steps(10)"
       ]},
       "features": ["bindings", "functions"],
       "reservedWords": ["fun", "mut", "return", "end", "do"]
@@ -46,13 +46,13 @@
       "description": "Decodes flags using hexadecimal, binary, octal, and separated integer literals.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "version: UInt8 = 0x04",
-        "flags: UInt8 = 0b1010_0101",
-        "mode: UInt8 = 0o17",
-        "port: UInt16 = 0x1F_90",
-        "low: UInt8 = flags & 0x0F",
-        "high: UInt8 = flags >> 4",
-        "total: UInt32 = version.to<UInt32>() + low.to<UInt32>() + high.to<UInt32>() + mode.to<UInt32>() + port.to<UInt32>()"
+        "version: UInt8:= 0x04",
+        "flags: UInt8:= 0b1010_0101",
+        "mode: UInt8:= 0o17",
+        "port: UInt16:= 0x1F_90",
+        "low: UInt8:= flags & 0x0F",
+        "high: UInt8:= flags >> 4",
+        "total: UInt32:= version.to<UInt32>() + low.to<UInt32>() + high.to<UInt32>() + mode.to<UInt32>() + port.to<UInt32>()"
       ]},
       "features": ["literals", "bitwise"]
     },
@@ -63,10 +63,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Entry = { name: Strand, note: String, first: Rune, kind: Byte, }",
-        "entry: Entry = Entry { name = \"hexal\", note = \"hi\", first = 'h', kind = b'\\x01' }",
-        "initial: Rune = entry.first",
-        "header: Size = entry.name.length()",
-        "kind_value: Byte = entry.kind"
+        "entry: Entry:= Entry { name = \"hexal\", note = \"hi\", first = 'h', kind = b'\\x01' }",
+        "initial: Rune:= entry.first",
+        "header: Size:= entry.name.length()",
+        "kind_value: Byte:= entry.kind"
       ]},
       "features": ["objects", "text", "literals"],
       "reservedWords": ["type"]
@@ -78,10 +78,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Meter = { mut reading: Int32, unit: Strand, }",
-        "mut live: Meter = Meter { reading = 10, unit = \"kwh\" }",
-        "snapshot: Meter = live",
+        "mut live: Meter:= Meter { reading = 10, unit = \"kwh\" }",
+        "snapshot: Meter:= live",
         "live.reading = 42",
-        "saved: Int32 = snapshot.reading"
+        "saved: Int32:= snapshot.reading"
       ]},
       "features": ["objects", "copying"],
       "reservedWords": ["type", "mut"]
@@ -94,7 +94,7 @@
       "sources": {"app.hex": [
         "type Score = Int32",
         "type Match = { mut home: Score, mut away: Score, }",
-        "mut game: Match = Match { home = 2, away = 1 }",
+        "mut game: Match:= Match { home = 2, away = 1 }",
         "game.home = game.home + 1"
       ]},
       "features": ["aliases", "objects"],
@@ -106,11 +106,11 @@
       "description": "Combines comparisons with and, or, and boolean negation to choose a policy.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "age: Int32 = 21",
-        "has_ticket: Bool = true",
-        "vip: Bool = false",
-        "mut admitted: Bool = (age >= 18 and has_ticket) or vip",
-        "mut rejected: Bool = !admitted",
+        "age: Int32:= 21",
+        "has_ticket: Bool:= true",
+        "vip: Bool:= false",
+        "mut admitted: Bool:= (age >= 18 and has_ticket) or vip",
+        "mut rejected: Bool:= !admitted",
         "rejected = rejected and (age < 16)"
       ]},
       "features": ["bindings", "truthiness"],
@@ -123,10 +123,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Entry = { tag: UInt8, value: Float64, }",
-        "entry: Entry = Entry { tag = 1, value = 0.5 }",
-        "size: Size = size_of<Entry>()",
-        "alignment: Size = align_of<Entry>()",
-        "total: Size = size + alignment"
+        "entry: Entry:= Entry { tag = 1, value = 0.5 }",
+        "size: Size:= size_of<Entry>()",
+        "alignment: Size:= align_of<Entry>()",
+        "total: Size:= size + alignment"
       ]},
       "features": ["objects", "layout"],
       "reservedWords": ["type"]
@@ -139,11 +139,11 @@
       "sources": {"app.hex": [
         "--- Render settings",
         "--[ These values drive the default render. ]--",
-        "mut width: Int32 = 800",
-        "mut height: Int32 = 600",
+        "mut width: Int32:= 800",
+        "mut height: Int32:= 600",
         "--- Two halves of the canvas",
-        "left: Int32 = width / 2",
-        "right: Int32 = height / 2"
+        "left: Int32:= width / 2",
+        "right: Int32:= height / 2"
       ]},
       "features": ["comments", "bindings"],
       "reservedWords": ["mut"]
@@ -154,11 +154,11 @@
       "description": "Uses escaped strings, bytes, runes, and numeric separators together in a normalized value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "greeting: String = \"a\\\"b\\\\c\\nd\\te\"",
-        "marker: Byte = b'\\x41'",
-        "symbol: Rune = '\\u{03BB}'",
-        "mask: UInt32 = 0xFF00_FF00",
-        "combined: UInt32 = mask + symbol.to<UInt32>()"
+        "greeting: String:= \"a\\\"b\\\\c\\nd\\te\"",
+        "marker: Byte:= b'\\x41'",
+        "symbol: Rune:= '\\u{03BB}'",
+        "mask: UInt32:= 0xFF00_FF00",
+        "combined: UInt32:= mask + symbol.to<UInt32>()"
       ]},
       "features": ["literals", "text"]
     }

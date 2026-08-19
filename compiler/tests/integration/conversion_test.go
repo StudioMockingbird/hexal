@@ -9,7 +9,7 @@ import (
 )
 
 func TestConversionMethods(t *testing.T) {
-	result := compileSource("fun demo() do\n    wide: Int64 = 9_000_000_000\n    small: Int8 = 12\n    narrowed: Int8 = wide.to<Int8>()\n    whole: Int32 = 3.75.to<Int32>()\n    size: Size = small.to<Size>()\n    count: UInt32 = size.to<UInt32>()\n    letter: Rune = wide.to<Rune>()\n    code: UInt32 = letter.to<UInt32>()\nend")
+	result := compileSource("fun demo() do\n    wide: Int64 := 9_000_000_000\n    small: Int8 := 12\n    narrowed: Int8 := wide.to<Int8>()\n    whole: Int32 := 3.75.to<Int32>()\n    size: Size := small.to<Size>()\n    count: UInt32 := size.to<UInt32>()\n    letter: Rune := wide.to<Rune>()\n    code: UInt32 := letter.to<UInt32>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -35,7 +35,7 @@ func TestConversionMethods(t *testing.T) {
 }
 
 func TestCheckedConstantConversionDiagnostics(t *testing.T) {
-	result := compileSource("bad: Int8 = (200).to<Int8>()")
+	result := compileSource("bad: Int8 := (200).to<Int8>()")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "outside the range of Int8") {
 		t.Fatalf("Compile stderr = %#v, want checked-conversion range diagnostic", result.Stderr)
 	}
@@ -46,10 +46,10 @@ func TestRuneScalarValidity(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"good: Rune = (0x1F600).to<Rune>()", ""},
-		{"surrogate: Rune = (0xD800).to<Rune>()", "not a valid Unicode scalar value"},
-		{"high: Rune = (0x110000).to<Rune>()", "not a valid Unicode scalar value"},
-		{"negative: Rune = (-1).to<Rune>()", "not a valid Unicode scalar value"},
+		{"good: Rune := (0x1F600).to<Rune>()", ""},
+		{"surrogate: Rune := (0xD800).to<Rune>()", "not a valid Unicode scalar value"},
+		{"high: Rune := (0x110000).to<Rune>()", "not a valid Unicode scalar value"},
+		{"negative: Rune := (-1).to<Rune>()", "not a valid Unicode scalar value"},
 	} {
 		result := compileSource(testCase.source)
 		if testCase.want == "" {
@@ -69,15 +69,15 @@ func TestConversionMatrixRejections(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo() do\n    flag: Bool = true\n    bad: Int32 = flag.to<Int32>()\nend", "Bool has no method named to"},
-		{"fun demo() do\n    letter: Rune = (65).to<Rune>()\n    bad: Rune = letter.to<Rune>()\nend", "supported scalar source and destination"},
-		{"fun demo() do\n    whole: Float64 = 1.5\n    bad: Rune = whole.to<Rune>()\nend", "supported scalar source and destination"},
-		{"fun demo() do\n    value: Int32 = 1\n    bad: Bool = value.to<Bool>()\nend", "supported scalar source and destination"},
-		{"fun demo() do\n    value: Int32 = 1\n    pointer: Ptr<Int32> = ref value\n    bad: UInt64 = pointer.to<UInt64>()\nend", "Ptr<Int32> has no method named to"},
-		{"fun demo() do\n    value: Int32 = 1\n    bad: Int32 = value.to()\nend", "to requires exactly 1 explicit type argument"},
-		{"fun demo() do\n    value: Int32 = 1\n    bad: Int32 = value.to(1)\nend", "to requires exactly 1 explicit type argument"},
-		{"fun demo() do\n    value: Int32 = 1\n    bad: Int32 = value.to<Int32>(1)\nend", "to accepts no value arguments"},
-		{"fun demo() do\n    value: Int32 = 1\n    bad: Int32 = value.to_int32()\nend", "Int32 has no method named to_int32"},
+		{"fun demo() do\n    flag: Bool := true\n    bad: Int32 := flag.to<Int32>()\nend", "Bool has no method named to"},
+		{"fun demo() do\n    letter: Rune := (65).to<Rune>()\n    bad: Rune := letter.to<Rune>()\nend", "supported scalar source and destination"},
+		{"fun demo() do\n    whole: Float64 := 1.5\n    bad: Rune := whole.to<Rune>()\nend", "supported scalar source and destination"},
+		{"fun demo() do\n    value: Int32 := 1\n    bad: Bool := value.to<Bool>()\nend", "supported scalar source and destination"},
+		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := ref value\n    bad: UInt64 := pointer.to<UInt64>()\nend", "Ptr<Int32> has no method named to"},
+		{"fun demo() do\n    value: Int32 := 1\n    bad: Int32 := value.to()\nend", "to requires exactly 1 explicit type argument"},
+		{"fun demo() do\n    value: Int32 := 1\n    bad: Int32 := value.to(1)\nend", "to requires exactly 1 explicit type argument"},
+		{"fun demo() do\n    value: Int32 := 1\n    bad: Int32 := value.to<Int32>(1)\nend", "to accepts no value arguments"},
+		{"fun demo() do\n    value: Int32 := 1\n    bad: Int32 := value.to_int32()\nend", "Int32 has no method named to_int32"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -87,18 +87,18 @@ func TestConversionMatrixRejections(t *testing.T) {
 }
 
 func TestConversionGenericSpecialization(t *testing.T) {
-	result := compileSource("fun convert<Source, Destination>(value: Source): Destination do\n    return value.to<Destination>()\nend\nfun demo() do\n    good: Int32 = convert<Int64, Int32>(10)\nend")
+	result := compileSource("fun convert<Source, Destination>(value: Source): Destination do\n    return value.to<Destination>()\nend\nfun demo() do\n    good: Int32 := convert<Int64, Int32>(10)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	result = compileSource("fun convert<Source, Destination>(value: Source): Destination do\n    return value.to<Destination>()\nend\nfun demo() do\n    bad: Bool = convert<Int32, Bool>(10)\nend")
+	result = compileSource("fun convert<Source, Destination>(value: Source): Destination do\n    return value.to<Destination>()\nend\nfun demo() do\n    bad: Bool := convert<Int32, Bool>(10)\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
 		t.Fatalf("Compile stderr = %#v, want specialization rejection", result.Stderr)
 	}
 }
 
 func TestConversionAliasCanonicalizes(t *testing.T) {
-	result := compileSource("type Count = Int32\nfun demo() do\n    value: Int64 = 5\n    count: Count = value.to<Count>()\nend")
+	result := compileSource("type Count = Int32\nfun demo() do\n    value: Int64 := 5\n    count: Count := value.to<Count>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -111,12 +111,12 @@ func TestConversionAliasCanonicalizes(t *testing.T) {
 // portable routes.
 func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 	rejected := []string{
-		"raw: UInt64 = 42\ncount: Size = raw\n",
-		"count: Size = 1\nraw: UInt64 = count\n",
-		"count: Size = 1\nraw: UInt64 = 2\ntotal: Size = count + raw\n",
-		"count: Size = 1\noffset: Int32 = 2\ntotal: Size = count + offset\n",
-		"count: Size = 1\nwide: Float64 = count\n",
-		"count: Size = 1\nsize: Float32 = count\n",
+		"raw: UInt64 := 42\ncount: Size := raw\n",
+		"count: Size := 1\nraw: UInt64 := count\n",
+		"count: Size := 1\nraw: UInt64 := 2\ntotal: Size := count + raw\n",
+		"count: Size := 1\noffset: Int32 := 2\ntotal: Size := count + offset\n",
+		"count: Size := 1\nwide: Float64 := count\n",
+		"count: Size := 1\nsize: Float32 := count\n",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
@@ -124,18 +124,18 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 		}
 	}
 	accepted := []string{
-		"count: Size = 1\nother: Size = count\n",
-		"count: Size = 1\ntotal: Size = count + 2\n",
-		"raw: UInt64 = 42\ncount: Size = raw.to<Size>()\n",
-		"count: Size = 1\nraw: UInt64 = count.to<UInt64>()\n",
-		"count: Size = 1\nsmall: UInt8 = count.to<UInt8>()\n",
+		"count: Size := 1\nother: Size := count\n",
+		"count: Size := 1\ntotal: Size := count + 2\n",
+		"raw: UInt64 := 42\ncount: Size := raw.to<Size>()\n",
+		"count: Size := 1\nraw: UInt64 := count.to<UInt64>()\n",
+		"count: Size := 1\nsmall: UInt8 := count.to<UInt8>()\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept; got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}
 	}
-	bad := "a: Array<Size, 2> = [1, 2]\nb: Array<UInt64, 2> = a\n"
+	bad := "a: Array<Size, 2> := [1, 2]\nb: Array<UInt64, 2> := a\n"
 	if result := compileSource(bad); result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want Array<Size> and Array<UInt64> distinct; got accept")
 	}
@@ -164,7 +164,7 @@ func TestLosslessWideningPairTable(t *testing.T) {
 				if source == "Float32" || source == "Float64" {
 					value = literal[source]
 				}
-				assertCompiles(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n")
+				assertCompiles(t, "value: "+source+" := "+value+"\ndest: "+target+" := value\n")
 			})
 		}
 	}
@@ -181,7 +181,7 @@ func TestLosslessWideningPairTable(t *testing.T) {
 				if source == "Float32" || source == "Float64" {
 					value = literal[source]
 				}
-				assertRejects(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n", "expected "+target+" initializer; got "+source)
+				assertRejects(t, "value: "+source+" := "+value+"\ndest: "+target+" := value\n", "expected "+target+" initializer; got "+source)
 			})
 		}
 	}
@@ -196,7 +196,7 @@ func TestLosslessWideningPairTable(t *testing.T) {
 				if source == "Float32" || source == "Float64" {
 					value = literal[source]
 				}
-				assertRejects(t, "value: "+source+" = "+value+"\ndest: "+target+" = value\n", "expected "+target+" initializer; got "+source)
+				assertRejects(t, "value: "+source+" := "+value+"\ndest: "+target+" := value\n", "expected "+target+" initializer; got "+source)
 			})
 		}
 	}
@@ -206,14 +206,14 @@ func TestLosslessWideningPairTable(t *testing.T) {
 func TestNegatedLiteralRequiresSignedDestination(t *testing.T) {
 	for _, target := range []string{"UInt8", "UInt16", "UInt32", "UInt64"} {
 		t.Run(target, func(t *testing.T) {
-			assertRejects(t, "value: "+target+" = -0\n", "negated integer literal requires a signed destination")
+			assertRejects(t, "value: "+target+" := -0\n", "negated integer literal requires a signed destination")
 		})
 	}
 }
 
 func TestDirectConversionLowering(t *testing.T) {
 	// Two uses of one safe pair emit two casts and no helper.
-	result := assertCompiles(t, "fun demo() do\n    value: UInt8 = 12\n    a: Float64 = value.to<Float64>()\n    b: Float64 = value.to<Float64>()\nend")
+	result := assertCompiles(t, "fun demo() do\n    value: UInt8 := 12\n    a: Float64 := value.to<Float64>()\n    b: Float64 := value.to<Float64>()\nend")
 	bodyC, bodyH := rootC(t, result), rootH(t, result)
 	if strings.Count(bodyC, "(double)hex_v_value") != 2 {
 		t.Fatalf("modules/app.c = %q, want two inline casts", bodyC)
@@ -227,10 +227,10 @@ func TestDirectConversionLowering(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"value: Int16 = 3\nwide: Int64 = value.to<Int64>()", "(int64_t)hex_v_value"},
-		{"value: UInt64 = 3\nwide: Float32 = value.to<Float32>()", "(float)hex_v_value"},
-		{"value: Float32 = 1.5\nwide: Float64 = value.to<Float64>()", "(double)hex_v_value"},
-		{"value: Rune = (65).to<Rune>()\ncode: UInt32 = value.to<UInt32>()", "(uint32_t)hex_v_value"},
+		{"value: Int16 := 3\nwide: Int64 := value.to<Int64>()", "(int64_t)hex_v_value"},
+		{"value: UInt64 := 3\nwide: Float32 := value.to<Float32>()", "(float)hex_v_value"},
+		{"value: Float32 := 1.5\nwide: Float64 := value.to<Float64>()", "(double)hex_v_value"},
+		{"value: Rune := (65).to<Rune>()\ncode: UInt32 := value.to<UInt32>()", "(uint32_t)hex_v_value"},
 	} {
 		source := "fun demo() do\n    " + testCase.source + "\nend"
 		result := assertCompiles(t, source)
@@ -239,7 +239,7 @@ func TestDirectConversionLowering(t *testing.T) {
 		}
 	}
 	// Identity emits neither helper nor cast.
-	result = assertCompiles(t, "fun demo() do\n    value: Int32 = 3\n    same: Int32 = value.to<Int32>()\nend")
+	result = assertCompiles(t, "fun demo() do\n    value: Int32 := 3\n    same: Int32 := value.to<Int32>()\nend")
 	bodyC, bodyH = rootC(t, result), rootH(t, result)
 	if !strings.Contains(bodyC, "const int32_t hex_v_same = hex_v_value;") {
 		t.Fatalf("modules/app.c = %q, want the identity operand read", bodyC)
@@ -249,7 +249,7 @@ func TestDirectConversionLowering(t *testing.T) {
 	}
 	// A non-atomic operand expression appears exactly once inside the
 	// direct cast.
-	result = assertCompiles(t, "fun demo(left: Float32, right: Float32) do\n    total: Float64 = (left + right).to<Float64>()\nend")
+	result = assertCompiles(t, "fun demo(left: Float32, right: Float32) do\n    total: Float64 := (left + right).to<Float64>()\nend")
 	bodyC = rootC(t, result)
 	initializer := ""
 	for _, line := range strings.Split(bodyC, "\n") {
@@ -265,12 +265,12 @@ func TestDirectConversionLowering(t *testing.T) {
 
 func TestCheckedConversionLowering(t *testing.T) {
 	// Int64 to Int8 keeps one range-checking helper for repeated uses.
-	result := assertCompiles(t, "fun demo() do\n    wide: Int64 = 9_000_000_000\n    a: Int8 = wide.to<Int8>()\n    b: Int8 = wide.to<Int8>()\nend")
+	result := assertCompiles(t, "fun demo() do\n    wide: Int64 := 9_000_000_000\n    a: Int8 := wide.to<Int8>()\n    b: Int8 := wide.to<Int8>()\nend")
 	if strings.Count(rootH(t, result), "static inline int8_t hex_convert_int64_t_int8_t") != 1 {
 		t.Fatalf("modules/app.h = %q, want one deduplicated helper", rootH(t, result))
 	}
 	// Signed to unsigned retains lower and upper checks.
-	result = assertCompiles(t, "fun demo() do\n    value: Int32 = -3\n    code: UInt32 = value.to<UInt32>()\nend")
+	result = assertCompiles(t, "fun demo() do\n    value: Int32 := -3\n    code: UInt32 := value.to<UInt32>()\nend")
 	headerText := rootH(t, result)
 	for _, want := range []string{"static inline uint32_t hex_convert_int32_t_uint32_t(int32_t value) {", "if (!(value >= 0 && value <= UINT32_MAX)) {"} {
 		if !strings.Contains(headerText, want) {
@@ -278,7 +278,7 @@ func TestCheckedConversionLowering(t *testing.T) {
 		}
 	}
 	// Integer to Rune retains Unicode scalar validation.
-	result = assertCompiles(t, "fun demo() do\n    value: UInt32 = 0x1F600\n    letter: Rune = value.to<Rune>()\nend")
+	result = assertCompiles(t, "fun demo() do\n    value: UInt32 := 0x1F600\n    letter: Rune := value.to<Rune>()\nend")
 	headerText = rootH(t, result)
 	for _, want := range []string{"static inline uint32_t hex_convert_uint32_t_rune(uint32_t value) {", "value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)"} {
 		if !strings.Contains(headerText, want) {
@@ -286,7 +286,7 @@ func TestCheckedConversionLowering(t *testing.T) {
 		}
 	}
 	// Float64 to Float32 retains the finite-overflow validation.
-	result = assertCompiles(t, "fun demo() do\n    value: Float64 = 1.5\n    small: Float32 = value.to<Float32>()\nend")
+	result = assertCompiles(t, "fun demo() do\n    value: Float64 := 1.5\n    small: Float32 := value.to<Float32>()\nend")
 	headerText = rootH(t, result)
 	for _, want := range []string{"static inline float hex_convert_double_float(double value) {", "if (isfinite(value) && isinf(result)) {"} {
 		if !strings.Contains(headerText, want) {
@@ -294,7 +294,7 @@ func TestCheckedConversionLowering(t *testing.T) {
 		}
 	}
 	// Mixed safe and checked emit helpers only for the checked pair.
-	result = assertCompiles(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\n    big: Int64 = 9_000_000_000\n    narrow: Int8 = big.to<Int8>()\nend")
+	result = assertCompiles(t, "fun demo() do\n    value: UInt8 := 12\n    wide: Float64 := value.to<Float64>()\n    big: Int64 := 9_000_000_000\n    narrow: Int8 := big.to<Int8>()\nend")
 	headerText = rootH(t, result)
 	if !strings.Contains(headerText, "hex_convert_int64_t_int8_t") || strings.Contains(headerText, "hex_convert_uint8_t_double") {
 		t.Fatalf("modules/app.h = %q, want only the checked helper", headerText)
@@ -304,7 +304,7 @@ func TestCheckedConversionLowering(t *testing.T) {
 // Float-to-integer checks use one truncation, exact power-of-two bounds,
 // and cast the truncated temporary.
 func TestFloatToIntegerHelperBounds(t *testing.T) {
-	result := assertCompiles(t, "fun demo() do\n    value: Float64 = 3.75\n    signed: Int64 = value.to<Int64>()\n    code: UInt64 = value.to<UInt64>()\n    count: Size = value.to<Size>()\nend")
+	result := assertCompiles(t, "fun demo() do\n    value: Float64 := 3.75\n    signed: Int64 := value.to<Int64>()\n    code: UInt64 := value.to<UInt64>()\n    count: Size := value.to<Size>()\nend")
 	headerText := rootH(t, result)
 	for _, want := range []string{
 		"static inline int64_t hex_convert_double_int64_t(double value) {",
@@ -326,7 +326,7 @@ func TestFloatToIntegerHelperBounds(t *testing.T) {
 		}
 	}
 	// Float32 sources truncate with truncf and check exact bounds.
-	result = assertCompiles(t, "fun demo() do\n    value: Float32 = 3.75\n    whole: Int16 = value.to<Int16>()\n    count: Size = value.to<Size>()\nend")
+	result = assertCompiles(t, "fun demo() do\n    value: Float32 := 3.75\n    whole: Int16 := value.to<Int16>()\n    count: Size := value.to<Size>()\nend")
 	headerText = rootH(t, result)
 	for _, want := range []string{
 		"float truncated = truncf(value);",
@@ -341,7 +341,7 @@ func TestFloatToIntegerHelperBounds(t *testing.T) {
 
 func TestConversionTrapSelection(t *testing.T) {
 	// A safe-conversion-only program gets no trap and no trap-owned headers.
-	result := assertCompiles(t, "fun demo() do\n    value: UInt8 = 12\n    wide: Float64 = value.to<Float64>()\nend")
+	result := assertCompiles(t, "fun demo() do\n    value: UInt8 := 12\n    wide: Float64 := value.to<Float64>()\nend")
 	header := hexalH(t, result)
 	for _, forbidden := range []string{"hex_runtime_trap", "<stdio.h>", "<stdlib.h>", "<math.h>"} {
 		if strings.Contains(header, forbidden) {
@@ -349,7 +349,7 @@ func TestConversionTrapSelection(t *testing.T) {
 		}
 	}
 	// A checked integer conversion selects the trap but no <math.h>.
-	result = assertCompiles(t, "fun demo() do\n    value: Int64 = 9_000_000_000\n    narrow: Int8 = value.to<Int8>()\nend")
+	result = assertCompiles(t, "fun demo() do\n    value: Int64 := 9_000_000_000\n    narrow: Int8 := value.to<Int8>()\nend")
 	header = hexalH(t, result)
 	if !strings.Contains(header, "[[noreturn]] void hex_runtime_trap(const char *message);") {
 		t.Fatalf("hexal.h = %q, want the trap declaration", header)
@@ -359,7 +359,7 @@ func TestConversionTrapSelection(t *testing.T) {
 	}
 	// A checked float-to-integer conversion selects the trap and <math.h>;
 	// stdio/stdlib come only from the trap definition.
-	result = assertCompiles(t, "fun demo() do\n    value: Float64 = 3.75\n    whole: Int32 = value.to<Int32>()\nend")
+	result = assertCompiles(t, "fun demo() do\n    value: Float64 := 3.75\n    whole: Int32 := value.to<Int32>()\nend")
 	header = hexalH(t, result)
 	for _, want := range []string{"[[noreturn]] void hex_runtime_trap(const char *message);", "#include <math.h>", "#include <stdio.h>", "#include <stdlib.h>"} {
 		if !strings.Contains(header, want) {

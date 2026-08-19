@@ -95,7 +95,7 @@ func TestRuntimeComponentSelectedByTrap(t *testing.T) {
 // GenerateChecked rejects a duplicate logical artifact key instead of
 // silently overwriting.
 func TestGenerateCheckedRejectsDuplicateArtifactKey(t *testing.T) {
-	program := checkedGeneratorSource(t, "x: Int32 = 1\n")
+	program := checkedGeneratorSource(t, "x: Int32 := 1\n")
 	files := generateOne(t, program)
 	if _, exists := files["hexal/runtime.c"]; exists {
 		t.Fatalf("scalar-only program emitted hexal/runtime.c")
@@ -115,35 +115,35 @@ func TestComponentRenderingIsDeterministic(t *testing.T) {
 	}{
 		{
 			name:      "array",
-			source:    "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    first: Int32 = fixed[0]\nend",
+			source:    "fun demo() do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    first: Int32 := fixed[0]\nend",
 			artifacts: []string{"hexal/array.h"},
 		},
 		{
 			name: "concurrency",
 			source: "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n" +
 				"    Task.yield()\n    return true\nend\n" +
-				"fun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    ch: Channel<Int32> = try Channel<Int32>.new(h, 4)\n" +
-				"    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n",
+				"fun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    ch: Channel<Int32> := try Channel<Int32>.new(h, 4)\n" +
+				"    m: Mutex := try Mutex.new(h)\n    task: Task<Bool> := try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n",
 			artifacts: []string{"hexal/concurrency.h", "hexal/concurrency.c"},
 		},
 		{
 			name:      "dict",
-			source:    "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend",
+			source:    "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend",
 			artifacts: []string{"hexal/dict.h"},
 		},
 		{
 			name:      "list",
-			source:    "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\nend",
+			source:    "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\nend",
 			artifacts: []string{"hexal/list.h"},
 		},
 		{
 			name:      "string",
-			source:    "greeting: String = \"hello\"\n",
+			source:    "greeting: String := \"hello\"\n",
 			artifacts: []string{"hexal/string.h", "hexal/string.c"},
 		},
 		{
 			name:      "view",
-			source:    "fun demo() do\n    view: View<Int32> = View<Int32>.empty()\n    count: Size = view.length()\nend",
+			source:    "fun demo() do\n    view: View<Int32> := View<Int32>.empty()\n    count: Size := view.length()\nend",
 			artifacts: []string{"hexal/view.h"},
 		},
 	} {
@@ -169,7 +169,7 @@ func TestComponentRenderingIsDeterministic(t *testing.T) {
 // transitively by the array component, so its absence has a different
 // precondition and keeps its own test.
 func TestUnselectedCollectionComponentsAreAbsent(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 = 1\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    value: Int32 := 1\nend")
 	files := generateOne(t, program)
 	for _, artifact := range []string{"hexal/array.h", "hexal/list.h"} {
 		if _, exists := files[artifact]; exists {

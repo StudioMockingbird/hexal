@@ -39,7 +39,7 @@ func TestGenerateInt32Declaration(t *testing.T) {
 }
 
 func TestGenerateTaggedUnionDeclaration(t *testing.T) {
-	tokens, err := lexer.Lex("value: Int32 | Float64 = 1")
+	tokens, err := lexer.Lex("value: Int32 | Float64 := 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestGenerateTaggedUnionDeclaration(t *testing.T) {
 }
 
 func TestDiscoverGeneratedUnionHelpers(t *testing.T) {
-	tokens, err := lexer.Lex("value: Int32 | Float64 = 1")
+	tokens, err := lexer.Lex("value: Int32 | Float64 := 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestSupportedGeneratedUnionTypeRejectsForgedMetadata(t *testing.T) {
 }
 
 func TestGenerateUnionOperations(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Float64 = 1 active: Bool = value is Int32 maybe: Int32 | Float64 | Nil = nil present: Bool = maybe != nil left: Int32 | Bool = true right: Bool | Int32 = false same: Bool = left == right small: Int32 | Bool = true wide: Int32 | Bool | Nil = small")
+	program := checkedGeneratorSource(t, "value: Int32 | Float64 := 1 active: Bool := value is Int32 maybe: Int32 | Float64 | Nil := nil present: Bool := maybe != nil left: Int32 | Bool := true right: Bool | Int32 := false same: Bool := left == right small: Int32 | Bool := true wide: Int32 | Bool | Nil := small")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -108,13 +108,13 @@ func TestGenerateUnionOperations(t *testing.T) {
 		"hex_internal_widen_hex_union_4_bool7_int32_t_to_hex_union_4_bool7_int32_t9_nullptr_t",
 	} {
 		if !strings.Contains(rootC, want) && !strings.Contains(rootH, want) {
-			t.Fatalf("generated output does not contain %q: C=%q H=%q", want, rootC, rootH)
+			t.Fatalf("generated output does not contain %q: C := %q H=%q", want, rootC, rootH)
 		}
 	}
 }
 
 func TestGenerateUnionTruthiness(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Bool | Nil = true if value then noop: Int32 = 0 end")
+	program := checkedGeneratorSource(t, "value: Int32 | Bool | Nil := true if value then noop: Int32 := 0 end")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -126,7 +126,7 @@ func TestGenerateUnionTruthiness(t *testing.T) {
 }
 
 func TestGenerateNarrowedUnionPayloadRead(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Float64 = 1 if value is Int32 then result: Int32 = value end")
+	program := checkedGeneratorSource(t, "value: Int32 | Float64 := 1 if value is Int32 then result: Int32 := value end")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -316,7 +316,7 @@ func TestGenerateCheckedRejectsForgedAssignmentTargetType(t *testing.T) {
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	assertGeneratorUnknownError(t, err)
 	if rootC != "" || rootH != "" {
-		t.Fatalf("generated output for forged assignment target: rootC=%q rootH=%q", rootC, rootH)
+		t.Fatalf("generated output for forged assignment target: rootC := %q rootH=%q", rootC, rootH)
 	}
 }
 
@@ -330,7 +330,7 @@ func TestGenerateCheckedRejectsDuplicateDeclarationNames(t *testing.T) {
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	assertGeneratorUnknownError(t, err)
 	if rootC != "" || rootH != "" {
-		t.Fatalf("generated output for duplicate declaration: rootC=%q rootH=%q", rootC, rootH)
+		t.Fatalf("generated output for duplicate declaration: rootC := %q rootH=%q", rootC, rootH)
 	}
 }
 
@@ -350,7 +350,7 @@ func TestGenerateCheckedRejectsDuplicateGeneratedObjectCNames(t *testing.T) {
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	assertGeneratorUnknownError(t, err)
 	if rootC != "" || rootH != "" {
-		t.Fatalf("generated output for duplicate object C name: rootC=%q rootH=%q", rootC, rootH)
+		t.Fatalf("generated output for duplicate object C name: rootC := %q rootH=%q", rootC, rootH)
 	}
 }
 
@@ -494,7 +494,7 @@ func TestGenerateCheckedRejectsLoopControlOutsideGeneratedLoop(t *testing.T) {
 			assertGeneratorUnknownError(t, err)
 			rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 			if rootC != "" || rootH != "" {
-				t.Fatalf("generated output for loop control outside a loop: rootC=%q rootH=%q", rootC, rootH)
+				t.Fatalf("generated output for loop control outside a loop: rootC := %q rootH=%q", rootC, rootH)
 			}
 		})
 	}
@@ -564,7 +564,7 @@ func TestGenerateCheckedRestoresLoopContextAfterLoop(t *testing.T) {
 	assertGeneratorUnknownError(t, err)
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if rootC != "" || rootH != "" {
-		t.Fatalf("generated output after loop-context leak: rootC=%q rootH=%q", rootC, rootH)
+		t.Fatalf("generated output after loop-context leak: rootC := %q rootH=%q", rootC, rootH)
 	}
 }
 
@@ -601,7 +601,7 @@ func TestGenerateCheckedRejectsForgedReturningDeclarationWithoutReturn(t *testin
 			assertGeneratorUnknownError(t, err)
 			rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 			if rootC != "" || rootH != "" {
-				t.Fatalf("generated output for forged missing return: rootC=%q rootH=%q", rootC, rootH)
+				t.Fatalf("generated output for forged missing return: rootC := %q rootH=%q", rootC, rootH)
 			}
 		})
 	}
@@ -643,7 +643,7 @@ func TestGenerateCheckedRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 				assertGeneratorUnknownError(t, err)
 				rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 				if rootC != "" || rootH != "" {
-					t.Fatalf("generated output for nested declaration: rootC=%q rootH=%q", rootC, rootH)
+					t.Fatalf("generated output for nested declaration: rootC := %q rootH=%q", rootC, rootH)
 				}
 			})
 		}
@@ -709,7 +709,7 @@ func TestGenerateCheckedRejectsForgedTopLevelScalarMetadata(t *testing.T) {
 			t.Errorf("case %d diagnostic = %#v, want generator Unknown Error", index, diagnostic)
 		}
 		if rootC != "" || rootH != "" {
-			t.Errorf("case %d returned generated C for forged metadata: rootC=%q rootH=%q", index, rootC, rootH)
+			t.Errorf("case %d returned generated C for forged metadata: rootC := %q rootH=%q", index, rootC, rootH)
 		}
 	}
 }
@@ -781,7 +781,7 @@ func TestGenerateCheckedRejectsForgedPointerElementMetadata(t *testing.T) {
 			assertGeneratorUnknownError(t, err)
 			rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 			if rootC != "" || rootH != "" {
-				t.Fatalf("generated output for forged pointer metadata: rootC=%q rootH=%q", rootC, rootH)
+				t.Fatalf("generated output for forged pointer metadata: rootC := %q rootH=%q", rootC, rootH)
 			}
 		})
 	}
@@ -1502,7 +1502,7 @@ func TestGenerateCheckedValidatesPlaceMetadata(t *testing.T) {
 			if testCase.wantError {
 				assertGeneratorUnknownError(t, err)
 				if rootC != "" || rootH != "" {
-					t.Fatalf("generated output for forged place metadata: rootC=%q rootH=%q", rootC, rootH)
+					t.Fatalf("generated output for forged place metadata: rootC := %q rootH=%q", rootC, rootH)
 				}
 				return
 			}

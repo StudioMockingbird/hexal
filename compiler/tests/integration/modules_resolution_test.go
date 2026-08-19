@@ -128,7 +128,7 @@ func TestParameterCannotShadowImportAlias(t *testing.T) {
 
 func TestImportsMustPrecedeOtherItems(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "value: Int32 = 1\nmodule Math = import \"./math\"\n",
+		"app.hex":  "value: Int32 := 1\nmodule Math = import \"./math\"\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -146,7 +146,7 @@ func TestImportAfterAnyDeclarationRejected(t *testing.T) {
 		{"type declaration", "type T = { n: Int32 }\n"},
 		{"function declaration", "fun helper(): Int32 do\n    return 1\nend\n"},
 		{"impl declaration", "type P = { x: Int32 }\nimpl P.get(): Int32 do\n    return self.x\nend\n"},
-		{"executable statement", "count: Int32 = 1\n"},
+		{"executable statement", "count: Int32 := 1\n"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -170,7 +170,7 @@ func TestImportAfterAnyDeclarationRejected(t *testing.T) {
 func TestImportedModuleIsDeclarationsOnly(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "value: Int32 = 1\n",
+		"math.hex": "value: Int32 := 1\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "imported module math contains executable statements")
@@ -178,8 +178,8 @@ func TestImportedModuleIsDeclarationsOnly(t *testing.T) {
 
 func TestUnreachableSourcesAreIgnored(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "value: Int32 = 1\n",
-		"junk.hex": "broken executable\nx: Bogus = 1\n",
+		"app.hex":  "value: Int32 := 1\n",
+		"junk.hex": "broken executable\nx: Bogus := 1\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -221,7 +221,7 @@ func TestStatsSumOverReachableModules(t *testing.T) {
 // Every CompilationStats field is asserted, so a permanently-unwritten or
 // double-folded field cannot survive unnoticed (ParseDuration did).
 func TestStatsFields(t *testing.T) {
-	result := assertCompiles(t, "value: Int32 = 1\n")
+	result := assertCompiles(t, "value: Int32 := 1\n")
 	if result.Stats.TokenCount == 0 || result.Stats.SourceLines == 0 {
 		t.Fatalf("TokenCount=%d SourceLines=%d, want both nonzero", result.Stats.TokenCount, result.Stats.SourceLines)
 	}
@@ -235,6 +235,6 @@ func TestStatsFields(t *testing.T) {
 }
 
 func TestEntrypointAbsentFromSources(t *testing.T) {
-	result := compiler.Compile(map[string]string{"other.hex": "value: Int32 = 1\n"}, "app.hex", compiler.Project{})
+	result := compiler.Compile(map[string]string{"other.hex": "value: Int32 := 1\n"}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "entrypoint app.hex was not found in the supplied sources")
 }

@@ -13,7 +13,7 @@ import (
 )
 
 func TestRootModuleArtifactsSplit(t *testing.T) {
-	source := "type Point = { x: Int32, }\nfun area(point: Point): Int32 do\n    return point.x\nend\nvalue: Int32 = 13\n"
+	source := "type Point = { x: Int32, }\nfun area(point: Point): Int32 do\n    return point.x\nend\nvalue: Int32 := 13\n"
 	result := assertCompiles(t, source)
 
 	rootC := rootC(t, result)
@@ -53,7 +53,7 @@ func TestRootModuleArtifactsSplit(t *testing.T) {
 }
 
 func TestFailureReturnsNoArtifacts(t *testing.T) {
-	result := compileSource("x: Int32 = true")
+	result := compileSource("x: Int32 := true")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want failure; got %#v", result)
 	}
@@ -77,61 +77,61 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 	}{
 		{
 			name:      "bool-only",
-			source:    "flag: Bool = true",
+			source:    "flag: Bool := true",
 			includes:  nil,
 			forbidden: []string{"#include", "static_assert", "hex_eos"},
 		},
 		{
 			name:      "float-only",
-			source:    "ratio: Float64 = 1.5",
+			source:    "ratio: Float64 := 1.5",
 			includes:  nil,
 			forbidden: []string{"static_assert", "FLT_MANT_DIG", "DBL_MANT_DIG", "#include <float.h>", "#include <math.h>"},
 		},
 		{
 			name:      "special-float-selects-math",
-			source:    "x: Float64 = 0.0 / 0.0 y: Float64 = 1.0 / 0.0",
+			source:    "x: Float64 := 0.0 / 0.0 y: Float64 := 1.0 / 0.0",
 			includes:  []string{"#include <math.h>"},
 			forbidden: []string{"#include <float.h>"},
 		},
 		{
 			name:      "size-small",
-			source:    "count: Size = 3",
+			source:    "count: Size := 3",
 			includes:  []string{"#include <stddef.h>"},
 			forbidden: []string{"static_assert", "hex_eos", "#include <stdint.h>"},
 		},
 		{
 			name:      "size-dependent",
-			source:    "count: Size = 5000000000",
+			source:    "count: Size := 5000000000",
 			includes:  []string{"#include <stddef.h>", "#include <stdint.h>", "static_assert(5000000000 <= SIZE_MAX"},
 			forbidden: nil,
 		},
 		{
 			name:      "eos-literal",
-			source:    "end_marker: EoS = eos",
+			source:    "end_marker: EoS := eos",
 			includes:  []string{"#include <stdint.h>", "typedef uint8_t hex_eos;"},
 			forbidden: nil,
 		},
 		{
 			name:      "atomic-only",
-			source:    "counter: Atomic<Int32> = Atomic<Int32>.new(5) value: Int32 = counter.load()",
+			source:    "counter: Atomic<Int32> := Atomic<Int32>.new(5) value: Int32 := counter.load()",
 			includes:  []string{"#include <stdint.h>", "#include <stdatomic.h>"},
 			forbidden: []string{"#include <stdio.h>", "#include <stdlib.h>", "hex_scheduler_init"},
 		},
 		{
 			name:      "heap",
-			source:    "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p)",
+			source:    "h: Heap := Heap.new() p: MutPtr<Int32> := h.allocate<Int32>(0) h.free(p)",
 			includes:  []string{"#include <stdckdint.h>", "#include <stddef.h>", "#include <stdint.h>", "#include <stdio.h>", "#include <stdlib.h>"},
 			forbidden: nil,
 		},
 		{
 			name:      "list-checked-arithmetic",
-			source:    "fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\nend",
+			source:    "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\nend",
 			includes:  []string{"#include <stdckdint.h>"},
 			forbidden: nil,
 		},
 		{
 			name:      "view-size-triggers-stddef",
-			source:    "values: Array<Int32, 3> = [1, 2, 3] view: View<Int32> = values.slice(0, 2)",
+			source:    "values: Array<Int32, 3> := [1, 2, 3] view: View<Int32> := values.slice(0, 2)",
 			includes:  []string{"#include <stddef.h>", "#include <stdint.h>", "#include <stdio.h>", "#include <stdlib.h>"},
 			forbidden: nil,
 		},
@@ -157,7 +157,7 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 // and the root C returns the C-defined successful status directly without
 // needing <stdlib.h>.
 func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
-	result := assertCompiles(t, "x: Int32 = 13")
+	result := assertCompiles(t, "x: Int32 := 13")
 	header := hexalH(t, result)
 	want := "#ifndef HEXAL_H\n#define HEXAL_H\n\n#include <stdint.h>\n\n\n#endif\n"
 	if header != want {
@@ -176,7 +176,7 @@ func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 // hexal/runtime.c, [[noreturn]], owning <stdio.h>/<stdlib.h> — and no
 // per-family trap or raw fputs/abort pair remains in generated C.
 func TestSingleRuntimeTrapContract(t *testing.T) {
-	source := "mut h: Heap = Heap.new()\nitems: List<Int32> = List<Int32>.new(h)\nitems.push(7)\nvalues: Array<Int32, 2> = [1, 2]\nview: View<Int32> = values.slice(0, 1)\ntext: String = \"hello\"\nmut count: Int32 = 0\nmut shift: Int32 = 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
+	source := "mut h: Heap := Heap.new()\nitems: List<Int32> := List<Int32>.new(h)\nitems.push(7)\nvalues: Array<Int32, 2> := [1, 2]\nview: View<Int32> := values.slice(0, 1)\ntext: String := \"hello\"\nmut count: Int32 := 0\nmut shift: Int32 := 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
 	result := assertCompiles(t, source)
 	header := hexalH(t, result)
 	declaration := "[[noreturn]] void hex_runtime_trap(const char *message);"
@@ -218,7 +218,7 @@ func TestSingleRuntimeTrapContract(t *testing.T) {
 // Every #include in hexal.h precedes its first declaration, and no helper
 // writer inserts a later include.
 func TestHexalHeaderIncludesPrecedeDeclarations(t *testing.T) {
-	result := assertCompiles(t, "fun count(): Int32 do\n    items: List<Int32> = List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\ncount()\n")
+	result := assertCompiles(t, "fun count(): Int32 do\n    items: List<Int32> := List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\ncount()\n")
 	header := hexalH(t, result)
 	lines := strings.Split(header, "\n")
 	seenDeclaration := false
@@ -242,7 +242,7 @@ func TestHexalHeaderIncludesPrecedeDeclarations(t *testing.T) {
 func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":   "module Files = import \"./files\"\nfun run(): Int32 do\n    return 1\nend\n",
-		"files.hex": "export fun helper(): Bool do\n    end_marker: EoS = eos\n    return true\nend\n",
+		"files.hex": "export fun helper(): Bool do\n    end_marker: EoS := eos\n    return true\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -252,7 +252,7 @@ func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 		t.Fatalf("hexal.h must define hex_eos exactly once; got %d:\n%s", count, result.Files["hexal.h"])
 	}
 	// A program with no EoS anywhere spells no hex_eos at all.
-	without := assertCompiles(t, "h: Heap = Heap.new() p: MutPtr<Int32> = h.allocate<Int32>(0) h.free(p)")
+	without := assertCompiles(t, "h: Heap := Heap.new() p: MutPtr<Int32> := h.allocate<Int32>(0) h.free(p)")
 	if strings.Contains(hexalH(t, without), "hex_eos") {
 		t.Fatalf("hexal.h = %q, want no hex_eos spelling", hexalH(t, without))
 	}
@@ -260,7 +260,7 @@ func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 
 // Unselected helper families contribute no standard headers.
 func TestHexalHeaderUnselectedFamiliesContributeNothing(t *testing.T) {
-	result := assertCompiles(t, "x: Int32 = 13")
+	result := assertCompiles(t, "x: Int32 := 13")
 	header := hexalH(t, result)
 	for _, forbidden := range []string{
 		"<string.h>", "<inttypes.h>", "<math.h>", "<stdatomic.h>", "<stdio.h>", "<stdlib.h>", "<stddef.h>",

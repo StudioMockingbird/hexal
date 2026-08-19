@@ -34,7 +34,7 @@ func requireMessage(t *testing.T, err error, want string) {
 // unknown variable until the missing path is reported.
 func TestImportAliasIsNotAValue(t *testing.T) {
 	requireAccepted(t, "module Math = import \"./math\"\n")
-	requireDiagnostic(t, "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n", "unknown variable Math")
+	requireDiagnostic(t, "module Math = import \"./math\"\nresult: Int32 := Math.add(2, 3)\n", "unknown variable Math")
 }
 
 // An import alias colliding with an existing module binding is a Name Error
@@ -47,7 +47,7 @@ func TestImportAliasConflictsWithExistingName(t *testing.T) {
 // first non-import top-level item and rejects any later import as a Syntax
 // Error, so the checker never sees a misplaced import.
 func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
-	tokens, lexErr := lexer.Lex("x: Int32 = 1\nmodule Math = import \"./math\"\n")
+	tokens, lexErr := lexer.Lex("x: Int32 := 1\nmodule Math = import \"./math\"\n")
 	if lexErr != nil {
 		t.Fatalf("Lex returned an error: %v", lexErr)
 	}
@@ -62,7 +62,7 @@ func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
 // statement is rejected and skipped entirely.
 func TestImportedModuleRejectsExecutableStatements(t *testing.T) {
 	app := parseProgram(t, "module Math = import \"./vec3\"\n")
-	dep := parseProgram(t, "x: Int32 = 1\n")
+	dep := parseProgram(t, "x: Int32 := 1\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	requireMessage(t, err, "imported module vec3 contains executable statements")
 }

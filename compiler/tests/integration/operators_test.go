@@ -7,35 +7,35 @@ import (
 	"testing"
 )
 
-const completeOperatorsSource = "mut left: Int32 = 7 mut right: Int32 = 3 " +
-	"sum: Int32 = left + right difference: Int32 = left - right " +
-	"product: Int32 = left * right quotient: Int32 = left / right " +
-	"remainder: Int32 = left % right negative: Int32 = -left " +
-	"equal: Bool = left == right notEqual: Bool = left != right " +
-	"less: Bool = left < right lessEqual: Bool = left <= right " +
-	"greater: Bool = left > right greaterEqual: Bool = left >= right " +
-	"mut ready: Bool = true mut loaded: Bool = false " +
-	"notReady: Bool = !ready both: Bool = ready and loaded " +
-	"either: Bool = ready or loaded boolEqual: Bool = ready == loaded " +
-	"boolNotEqual: Bool = ready != loaded " +
-	"mut f32Left: Float32 = 1.5 mut f32Right: Float32 = 2.0 " +
-	"f32Sum: Float32 = f32Left + f32Right " +
-	"f32Difference: Float32 = f32Left - f32Right " +
-	"f32Product: Float32 = f32Left * f32Right " +
-	"f32Quotient: Float32 = f32Left / f32Right " +
-	"f32Less: Bool = f32Left < f32Right " +
-	"mut first: Float64 = 2.0 mut second: Float64 = 3.0 mut third: Float64 = 4.0 " +
-	"f64Sum: Float64 = first + second f64Difference: Float64 = first - second " +
-	"f64Product: Float64 = first * second f64Quotient: Float64 = first / second " +
-	"f64Less: Bool = first < second f64Equal: Bool = first == second " +
-	"precedence: Float64 = first + second * third " +
-	"grouped: Float64 = (first + second) * third " +
-	"mut unsignedLeft: UInt32 = 7 mut unsignedRight: UInt32 = 3 " +
-	"unsignedSum: UInt32 = unsignedLeft + unsignedRight " +
-	"unsignedDifference: UInt32 = unsignedLeft - unsignedRight " +
-	"unsignedProduct: UInt32 = unsignedLeft * unsignedRight " +
-	"unsignedQuotient: UInt32 = unsignedLeft / unsignedRight " +
-	"unsignedRemainder: UInt32 = unsignedLeft % unsignedRight"
+const completeOperatorsSource = "mut left: Int32 := 7 mut right: Int32 := 3 " +
+	"sum: Int32 := left + right difference: Int32 := left - right " +
+	"product: Int32 := left * right quotient: Int32 := left / right " +
+	"remainder: Int32 := left % right negative: Int32 := -left " +
+	"equal: Bool := left == right notEqual: Bool := left != right " +
+	"less: Bool := left < right lessEqual: Bool := left <= right " +
+	"greater: Bool := left > right greaterEqual: Bool := left >= right " +
+	"mut ready: Bool := true mut loaded: Bool := false " +
+	"notReady: Bool := !ready both: Bool := ready and loaded " +
+	"either: Bool := ready or loaded boolEqual: Bool := ready == loaded " +
+	"boolNotEqual: Bool := ready != loaded " +
+	"mut f32Left: Float32 := 1.5 mut f32Right: Float32 := 2.0 " +
+	"f32Sum: Float32 := f32Left + f32Right " +
+	"f32Difference: Float32 := f32Left - f32Right " +
+	"f32Product: Float32 := f32Left * f32Right " +
+	"f32Quotient: Float32 := f32Left / f32Right " +
+	"f32Less: Bool := f32Left < f32Right " +
+	"mut first: Float64 := 2.0 mut second: Float64 := 3.0 mut third: Float64 := 4.0 " +
+	"f64Sum: Float64 := first + second f64Difference: Float64 := first - second " +
+	"f64Product: Float64 := first * second f64Quotient: Float64 := first / second " +
+	"f64Less: Bool := first < second f64Equal: Bool := first == second " +
+	"precedence: Float64 := first + second * third " +
+	"grouped: Float64 := (first + second) * third " +
+	"mut unsignedLeft: UInt32 := 7 mut unsignedRight: UInt32 := 3 " +
+	"unsignedSum: UInt32 := unsignedLeft + unsignedRight " +
+	"unsignedDifference: UInt32 := unsignedLeft - unsignedRight " +
+	"unsignedProduct: UInt32 := unsignedLeft * unsignedRight " +
+	"unsignedQuotient: UInt32 := unsignedLeft / unsignedRight " +
+	"unsignedRemainder: UInt32 := unsignedLeft % unsignedRight"
 
 func TestCompleteOperatorProgram(t *testing.T) {
 	result := compileSource(completeOperatorsSource)
@@ -80,7 +80,7 @@ func TestCompleteOperatorProgram(t *testing.T) {
 }
 
 func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
-	result := compileSource("mut unsigned: UInt8 = 200 wrappedUnsigned: UInt8 = unsigned + 100 mut signed: Int8 = 127 wrappedSigned: Int8 = signed + 1")
+	result := compileSource("mut unsigned: UInt8 := 200 wrappedUnsigned: UInt8 := unsigned + 100 mut signed: Int8 := 127 wrappedSigned: Int8 := signed + 1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful mutable wrapping program", result)
 	}
@@ -95,19 +95,19 @@ func TestMutableWrappingRemainsRuntimeArithmetic(t *testing.T) {
 }
 
 func TestImmutableArithmeticStaysRuntimeAndLiteralFoldingSurvives(t *testing.T) {
-	result := compileSource("count: UInt8 = 200 next: UInt8 = count + 1")
+	result := compileSource("count: UInt8 := 200 next: UInt8 := count + 1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_next = (uint8_t)((uintmax_t)hex_v_count + 1);") {
 		t.Fatalf("Compile returned %#v, want runtime UInt8 wrapping on the binding read", result)
 	}
 
 	// Integer overflow wraps at the result type during folding.
-	result = compileSource("over: UInt8 = 200 + 100")
+	result = compileSource("over: UInt8 := 200 + 100")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 || !strings.Contains(rootC(t, result), "const uint8_t hex_v_over = 44;") {
 		t.Fatalf("Compile returned %#v, want folded wrapped value 44", result)
 	}
 
 	// Signed minimum divided by -1 folds to the signed minimum.
-	result = compileSource("quotient: Int8 = -128 / -1 remainder: Int8 = -128 % -1")
+	result = compileSource("quotient: Int8 := -128 / -1 remainder: Int8 := -128 % -1")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 ||
 		!strings.Contains(rootC(t, result), "const int8_t hex_v_quotient = INT8_MIN;") ||
 		!strings.Contains(rootC(t, result), "const int8_t hex_v_remainder = 0;") {
@@ -116,7 +116,7 @@ func TestImmutableArithmeticStaysRuntimeAndLiteralFoldingSurvives(t *testing.T) 
 }
 
 func TestPrecedenceChain(t *testing.T) {
-	result := compileSource("mut first: Float64 = 1.0 mut second: Float64 = 2.0 mut third: Float64 = 3.0 mut limit: Float64 = 8.0 mut expected: Bool = true mut all: Bool = false mut either: Bool = true result: Bool = !(first + second * third < limit == expected and all or either)")
+	result := compileSource("mut first: Float64 := 1.0 mut second: Float64 := 2.0 mut third: Float64 := 3.0 mut limit: Float64 := 8.0 mut expected: Bool := true mut all: Bool := false mut either: Bool := true result: Bool := !(first + second * third < limit == expected and all or either)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful precedence-chain program", result)
 	}
@@ -131,13 +131,13 @@ func TestOperatorDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"result: Int32 = 1 / 0", "[Type Error] division by zero at app.hex:1:19"},
-		{"mut total: Int32 = 10 bad: Int32 = total / 0", "[Type Error] division by zero at app.hex:1:42"},
-		{"mut total: Int32 = 10 bad: Int32 = total % 0", "[Type Error] division by zero at app.hex:1:42"},
-		{"mut total: Int32 = 10 bad: Int32 = total / (2 - 2)", "[Type Error] division by zero at app.hex:1:42"},
-		{"value: Float64 = 1.0 bad: Float64 = value % 2.0", "[Type Error] operator % requires integer operands; got Float64 at app.hex:1:43"},
-		{"left: Bool = true right: Bool = false bad: Bool = left < right", "[Type Error] ordering is unavailable for Bool values at app.hex:1:56"},
-		{"count: UInt32 = 5 bad: Int32 = -count", "[Type Error] negation requires a signed type; got UInt32 at app.hex:1:32"},
+		{"result: Int32 := 1 / 0", "[Type Error] division by zero at app.hex:1:20"},
+		{"mut total: Int32 := 10 bad: Int32 := total / 0", "[Type Error] division by zero at app.hex:1:44"},
+		{"mut total: Int32 := 10 bad: Int32 := total % 0", "[Type Error] division by zero at app.hex:1:44"},
+		{"mut total: Int32 := 10 bad: Int32 := total / (2 - 2)", "[Type Error] division by zero at app.hex:1:44"},
+		{"value: Float64 := 1.0 bad: Float64 := value % 2.0", "[Type Error] operator % requires integer operands; got Float64 at app.hex:1:45"},
+		{"left: Bool := true right: Bool := false bad: Bool := left < right", "[Type Error] ordering is unavailable for Bool values at app.hex:1:59"},
+		{"count: UInt32 := 5 bad: Int32 := -count", "[Type Error] negation requires a signed type; got UInt32 at app.hex:1:34"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {
@@ -148,12 +148,12 @@ func TestOperatorDiagnostics(t *testing.T) {
 
 func TestShortCircuitReachability(t *testing.T) {
 	for _, source := range []string{
-		"result: Bool = true or (1 / 0 == 0)",
-		"result: Bool = false and (1 / 0 == 0)",
+		"result: Bool := true or (1 / 0 == 0)",
+		"result: Bool := false and (1 / 0 == 0)",
 		// Mixed-type logical operands are valid; the unreachable
 		// RHS folds away without ever evaluating.
-		"result: Bool = true or (1 and 2)",
-		"result: Bool = false and (1 or 2)",
+		"result: Bool := true or (1 and 2)",
+		"result: Bool := false and (1 or 2)",
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
@@ -165,8 +165,8 @@ func TestShortCircuitReachability(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"mut guard: Bool = true result: Bool = guard or (1 / 0 == 0)", "division by zero"},
-		{"mut guard: Bool = false result: Bool = guard and (1 / 0 == 0)", "division by zero"},
+		{"mut guard: Bool := true result: Bool := guard or (1 / 0 == 0)", "division by zero"},
+		{"mut guard: Bool := false result: Bool := guard and (1 / 0 == 0)", "division by zero"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -190,7 +190,7 @@ func TestAllIntegerWidths(t *testing.T) {
 		{"Int64", "hex_wrap_add_int64_t(hex_v_left, hex_v_right)"},
 	} {
 		t.Run(testCase.typ, func(t *testing.T) {
-			source := fmt.Sprintf("mut left: %s = 1 mut right: %s = 2 result: %s = left + right", testCase.typ, testCase.typ, testCase.typ)
+			source := fmt.Sprintf("mut left: %s := 1 mut right: %s := 2 result: %s := left + right", testCase.typ, testCase.typ, testCase.typ)
 			result := compileSource(source)
 			if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 				t.Fatalf("Compile returned %#v, want successful %s program", result, testCase.typ)
@@ -203,7 +203,7 @@ func TestAllIntegerWidths(t *testing.T) {
 }
 
 func TestSignedWrappingBoundaries(t *testing.T) {
-	result := compileSource("mut signed8: Int8 = 127 wrapped8: Int8 = signed8 + 1 mut minimum64: Int64 = -9223372036854775808 wrapped64: Int64 = minimum64 - 1 negative64: Int64 = -minimum64")
+	result := compileSource("mut signed8: Int8 := 127 wrapped8: Int8 := signed8 + 1 mut minimum64: Int64 := -9223372036854775808 wrapped64: Int64 := minimum64 - 1 negative64: Int64 := -minimum64")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful signed boundary program", result)
 	}
@@ -246,7 +246,7 @@ func TestSignedWrappingBoundaries(t *testing.T) {
 }
 
 func TestShortCircuitRuntime(t *testing.T) {
-	result := compileSource("mut zero: Int32 = 0 mut guardOr: Bool = true resultOr: Bool = guardOr or (zero / zero > 0) mut guardAnd: Bool = false resultAnd: Bool = guardAnd and (zero / zero > 0)")
+	result := compileSource("mut zero: Int32 := 0 mut guardOr: Bool := true resultOr: Bool := guardOr or (zero / zero > 0) mut guardAnd: Bool := false resultAnd: Bool := guardAnd and (zero / zero > 0)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful short-circuit program", result)
 	}
@@ -261,7 +261,7 @@ func TestShortCircuitRuntime(t *testing.T) {
 }
 
 func TestNaNComparisons(t *testing.T) {
-	result := compileSource("mut zero32: Float32 = 0.0 nan32Equal: Bool = (zero32 / zero32) == (zero32 / zero32) nan32Different: Bool = (zero32 / zero32) != (zero32 / zero32) nan32Less: Bool = (zero32 / zero32) < (zero32 / zero32) mut zero: Float64 = 0.0 nanEqual: Bool = (zero / zero) == (zero / zero) nanDifferent: Bool = (zero / zero) != (zero / zero)")
+	result := compileSource("mut zero32: Float32 := 0.0 nan32Equal: Bool := (zero32 / zero32) == (zero32 / zero32) nan32Different: Bool := (zero32 / zero32) != (zero32 / zero32) nan32Less: Bool := (zero32 / zero32) < (zero32 / zero32) mut zero: Float64 := 0.0 nanEqual: Bool := (zero / zero) == (zero / zero) nanDifferent: Bool := (zero / zero) != (zero / zero)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful NaN comparison program", result)
 	}
@@ -280,22 +280,22 @@ func TestNaNComparisons(t *testing.T) {
 
 func TestRuneBinaryArithmeticRejected(t *testing.T) {
 	rejected := []string{
-		"r: Int32 = 'a' + 'b'\n",
-		"r: Int32 = 'a' - 'b'\n",
-		"r: Int32 = 'a' * 'b'\n",
-		"r: Int32 = 'a' / 'b'\n",
-		"r: Int32 = 'a' % 'b'\n",
-		"r: Int32 = 'a' + 1\n",
-		"r: Int32 = 1 + 'a'\n",
-		"letter: Rune = 'a'\nr: Int32 = letter + 1\n",
-		"letter: Rune = 'a'\nr: Int32 = 1 - letter\n",
-		"letter: Rune = 'a'\nr: Int32 = letter - letter\n",
-		"letter: Rune = 'a'\nr: Int32 = letter * letter\n",
-		"letter: Rune = 'a'\nr: Int32 = letter / letter\n",
-		"letter: Rune = 'a'\nr: Int32 = letter % letter\n",
-		"letter: Rune = 'a'\nr: Int32 = 1 * letter\n",
-		"letter: Rune = 'a'\nr: Int32 = 1 / letter\n",
-		"letter: Rune = 'a'\nr: Int32 = 1 % letter\n",
+		"r: Int32 := 'a' + 'b'\n",
+		"r: Int32 := 'a' - 'b'\n",
+		"r: Int32 := 'a' * 'b'\n",
+		"r: Int32 := 'a' / 'b'\n",
+		"r: Int32 := 'a' % 'b'\n",
+		"r: Int32 := 'a' + 1\n",
+		"r: Int32 := 1 + 'a'\n",
+		"letter: Rune := 'a'\nr: Int32 := letter + 1\n",
+		"letter: Rune := 'a'\nr: Int32 := 1 - letter\n",
+		"letter: Rune := 'a'\nr: Int32 := letter - letter\n",
+		"letter: Rune := 'a'\nr: Int32 := letter * letter\n",
+		"letter: Rune := 'a'\nr: Int32 := letter / letter\n",
+		"letter: Rune := 'a'\nr: Int32 := letter % letter\n",
+		"letter: Rune := 'a'\nr: Int32 := 1 * letter\n",
+		"letter: Rune := 'a'\nr: Int32 := 1 / letter\n",
+		"letter: Rune := 'a'\nr: Int32 := 1 % letter\n",
 	}
 	for _, source := range rejected {
 		result := compileSource(source)
@@ -304,10 +304,10 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 		}
 	}
 	accepted := []string{
-		"ok: Bool = 'a' < 'b'\n",
-		"ok: Bool = 'a' == 'a'\n",
-		"code: UInt32 = 'a'.to<UInt32>()\n",
-		"code: UInt32 = 'a'.to<UInt32>() + 1\n",
+		"ok: Bool := 'a' < 'b'\n",
+		"ok: Bool := 'a' == 'a'\n",
+		"code: UInt32 := 'a'.to<UInt32>()\n",
+		"code: UInt32 := 'a'.to<UInt32>() + 1\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -322,7 +322,7 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 // never invokes a toolchain, so an undeclared uintmax_t is otherwise
 // invisible to it (RFC 0073 D33, RFC 0072).
 func TestSizeOnlyArithmeticSelectsStdint(t *testing.T) {
-	source := "a: Size = 1\nb: Size = 2\nc: Size = a + b\nd: Size = c * a\n"
+	source := "a: Size := 1\nb: Size := 2\nc: Size := a + b\nd: Size := c * a\n"
 	result := assertCompiles(t, source)
 	if !strings.Contains(hexalH(t, result), "#include <stdint.h>") {
 		t.Fatalf("hexal.h = %q, want <stdint.h> selected for the unsigned arithmetic intermediate", hexalH(t, result))

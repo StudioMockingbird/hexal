@@ -34,7 +34,7 @@ func TestGenerateTryStatementLowering(t *testing.T) {
 }
 
 func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun read_count(): Int32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    count: Int32 = try read_count()\n    return count\nend\n")
+	program := checkedGeneratorSource(t, "fun read_count(): Int32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    count: Int32 := try read_count()\n    return count\nend\n")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -50,7 +50,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 		}
 	}
 	// A union with several success members needs a normalization temporary.
-	multiple := checkedGeneratorSource(t, "fun read_number(): Int32 | Float32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    value: Int32 | Float32 = try read_number()\n    return 1\nend\n")
+	multiple := checkedGeneratorSource(t, "fun read_number(): Int32 | Float32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    value: Int32 | Float32 := try read_number()\n    return 1\nend\n")
 	files, err = GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": multiple}, Config{})
 	multiC := files["modules/app.c"]
 	if err != nil {
@@ -65,7 +65,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 // statement position: the operand call appears once and the prologue sits
 // inside the block, so an untaken branch performs no call.
 func TestGenerateTryInNestedBlockEmitsSinglePrologue(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun mk(): Int32 | Error do\n    return 1\nend\nfun run(): Int32 | Error do\n    if true then\n        v: Int32 = try mk()\n        print(v)\n    end\n    return 0\nend\n")
+	program := checkedGeneratorSource(t, "fun mk(): Int32 | Error do\n    return 1\nend\nfun run(): Int32 | Error do\n    if true then\n        v: Int32 := try mk()\n        print(v)\n    end\n    return 0\nend\n")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestGenerateTryInNestedBlockEmitsSinglePrologue(t *testing.T) {
 // sequential consistency; no delegating generic forwarder over the handle
 // typedef exists.
 func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> = Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
+	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
 	files := generateOne(t, program)
 	rootH := files["modules/app.h"]
 	for _, want := range []string{
@@ -114,7 +114,7 @@ func TestGenerateAtomicHelpersCallStandardOperationsDirectly(t *testing.T) {
 // spell nullptr. The scheduler runtime lives in the hexal/concurrency.c
 // component; the module C file keeps only the direct core call sites.
 func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun worker(m: Mutex): Bool do\n    m.lock()\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap = Heap.new()\n    m: Mutex = try Mutex.new(h)\n    task: Task<Bool> = try spawn worker(m)\n    task.join()\n    return 0\nend\n")
+	program := checkedGeneratorSource(t, "fun worker(m: Mutex): Bool do\n    m.lock()\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    m: Mutex := try Mutex.new(h)\n    task: Task<Bool> := try spawn worker(m)\n    task.join()\n    return 0\nend\n")
 	files := generateOne(t, program)
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	concurrencyC := files["hexal/concurrency.c"]
@@ -141,7 +141,7 @@ func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
 	}
 	for _, gone := range []string{"hex_sched_fatal", "hex_mutex_lock_hex_mutex(", "fputs(\"[Runtime Error]", "NULL"} {
 		if strings.Contains(rootC, gone) || strings.Contains(rootH, gone) || strings.Contains(concurrencyC, gone) {
-			t.Fatalf("generated output retains %q: C=%q H=%q conc=%q", gone, rootC, rootH, concurrencyC)
+			t.Fatalf("generated output retains %q: C := %q H=%q conc=%q", gone, rootC, rootH, concurrencyC)
 		}
 	}
 	if !strings.Contains(rootH, "static inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex)") {

@@ -8,7 +8,7 @@ import (
 
 func TestPrivateValueNames(t *testing.T) {
 	longName := "long_identifier_name_with_more_than_one_hundred_characters_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	source := "main: Int32 = 1 int: Int32 = 2 restrict: Int32 = 3 INT32_MAX: Int32 = 4 hex_v_score: Int32 = 5 " + longName + ": Int32 = 6"
+	source := "main: Int32 := 1 int: Int32 := 2 restrict: Int32 := 3 INT32_MAX: Int32 := 4 hex_v_score: Int32 := 5 " + longName + ": Int32 := 6"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
@@ -28,7 +28,7 @@ func TestPrivateValueNames(t *testing.T) {
 }
 
 func TestReferencesUsePrivateValueNames(t *testing.T) {
-	result := compileSource("mut int: Int32 = 1 int = 2 pointer: Ptr<Int32> = ref int value: Int32 = pointer.value")
+	result := compileSource("mut int: Int32 := 1 int = 2 pointer: Ptr<Int32> := ref int value: Int32 := pointer.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}

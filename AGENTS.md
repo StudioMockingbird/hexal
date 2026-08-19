@@ -187,10 +187,10 @@ secondarily a lookup document for humans. Optimize it for precise retrieval:
 
 Closed specs are historical records, superseded wherever they disagree with
 `docs/reference.md`. Some contain syntax the language never had — blanket `:=`
-inference (RFCs 0016, 0017, 0029, 0036); do not reintroduce it. RFC 0090 admits
-`:=` only where the initializer already determines the type, and rejects it in
-exactly the cases those four proposed, so they stay superseded rather than
-becoming authority again. Others
+inference in older proposals; do not reintroduce it. The current declaration
+operator is `:=` for both typed and inferred value bindings. Inference still
+rejects initializers that provide neither a type nor a usable contextual type.
+Other closed specs
 predate RFC 0061 and show the old delimiter-free forms (`fun f()` or
 `if cond` without the mandatory `do`/`then`); the language now requires those
 block openers, so treat their absence in a closed spec as superseded, not as

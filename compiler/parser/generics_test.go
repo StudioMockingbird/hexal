@@ -25,7 +25,7 @@ func TestParseGenericAliasParameters(t *testing.T) {
 }
 
 func TestParseGenericTypeExpression(t *testing.T) {
-	typeExpression := parseAnnotation(t, "box: Box<Int32> = value")
+	typeExpression := parseAnnotation(t, "box: Box<Int32> := value")
 	generic, ok := typeExpression.(GenericTypeExpression)
 	if !ok || generic.Name.Lexeme != "Box" || len(generic.Arguments) != 1 {
 		t.Fatalf("type expression = %#v, want Box<Int32>", typeExpression)
@@ -36,7 +36,7 @@ func TestParseGenericTypeExpression(t *testing.T) {
 }
 
 func TestParseNestedGenericTypeExpression(t *testing.T) {
-	typeExpression := parseAnnotation(t, "box: Ptr<Box<Pair<Int32, Bool>>> = value")
+	typeExpression := parseAnnotation(t, "box: Ptr<Box<Pair<Int32, Bool>>> := value")
 	pointer, ok := typeExpression.(PtrTypeExpression)
 	if !ok {
 		t.Fatalf("type expression = %#v, want Ptr", typeExpression)
@@ -47,7 +47,7 @@ func TestParseNestedGenericTypeExpression(t *testing.T) {
 }
 
 func TestParseGenericTypeExpressionRequiresArgument(t *testing.T) {
-	tokens, err := lexer.Lex("box: Box<> = value")
+	tokens, err := lexer.Lex("box: Box<> := value")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestParseGenericMethodDeclaration(t *testing.T) {
 }
 
 func TestParseGenericCallSuffix(t *testing.T) {
-	tokens, err := lexer.Lex("result: Int64 = identity<Int64>(42)")
+	tokens, err := lexer.Lex("result: Int64 := identity<Int64>(42)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestParseGenericMethodCallSuffix(t *testing.T) {
 }
 
 func TestParseRelationalLessIsNotGenericSuffix(t *testing.T) {
-	tokens, err := lexer.Lex("flag: Bool = left < right")
+	tokens, err := lexer.Lex("flag: Bool := left < right")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestParseRelationalLessIsNotGenericSuffix(t *testing.T) {
 }
 
 func TestParseGenericObjectLiteral(t *testing.T) {
-	tokens, err := lexer.Lex("box: Box<Int32> = Box<Int32> { value = 42 }")
+	tokens, err := lexer.Lex("box: Box<Int32> := Box<Int32> { value = 42 }")
 	if err != nil {
 		t.Fatal(err)
 	}

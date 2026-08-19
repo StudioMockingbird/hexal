@@ -65,13 +65,13 @@ fun read_count(): Int32 | Error do
     return 0
 end
 fun demo(h: Heap): Int32 | Error do
-    mut count: Int32 = 1
+    mut count: Int32 := 1
     count = count + 1
     print("hi")
-    mut value: Int32 = 3
+    mut value: Int32 := 3
     value = value.to<UInt8>().to<Int32>()
     defer print("bye")
-    values: Array<Int32, 3> = [1, 2, 3]
+    values: Array<Int32, 3> := [1, 2, 3]
     for i in values do
         if count > 0 then
             count = count - 1
@@ -83,9 +83,9 @@ fun demo(h: Heap): Int32 | Error do
     while count < 2 do
         count = count + 1
     end
-    box: Box<Int32> = Box<Int32> { value = 1 }
+    box: Box<Int32> := Box<Int32> { value = 1 }
     box.get()
-    viaTry: Int32 = try read_count()
+    viaTry: Int32 := try read_count()
     return count
 end
 `)
@@ -98,7 +98,7 @@ end
 }
 
 func TestWalkProgramIsDeterministicPreOrder(t *testing.T) {
-	source := "fun demo(count: Int32): Int32 do\n    total: Int32 = count + 2\n    return total\nend\n"
+	source := "fun demo(count: Int32): Int32 do\n    total: Int32 := count + 2\n    return total\nend\n"
 	first := walkTestProgram(t, source)
 	for range 3 {
 		again := walkTestProgram(t, source)
@@ -116,7 +116,7 @@ func TestWalkProgramIsDeterministicPreOrder(t *testing.T) {
 }
 
 func TestWalkProgramAcceptsNilVisitor(t *testing.T) {
-	source := "fun demo(count: Int32): Int32 do\n    total: Int32 = count + 2\n    return total\nend\n"
+	source := "fun demo(count: Int32): Int32 do\n    total: Int32 := count + 2\n    return total\nend\n"
 	tokens, err := lexer.Lex(source)
 	if err != nil {
 		t.Fatalf("lex: %v", err)

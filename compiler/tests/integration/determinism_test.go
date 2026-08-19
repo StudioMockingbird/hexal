@@ -19,17 +19,17 @@ func TestCompilationIsDeterministic(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module Shapes = import \"./shapes\"\n" +
 			"fun run(h: Heap): Int32 do\n" +
-			"    values: List<Int32> = List<Int32>.new(h)\n" +
+			"    values: List<Int32> := List<Int32>.new(h)\n" +
 			"    defer values.free(h)\n" +
 			"    values.push(Shapes.corners())\n" +
-			"    text: String = \"corners\"\n" +
+			"    text: String := \"corners\"\n" +
 			"    print(text)\n" +
-			"    counts: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n" +
+			"    counts: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n" +
 			"    defer counts.free(h)\n" +
 			"    return values.length().to<Int32>()\n" +
 			"end\n" +
-			"h: Heap = Heap.new()\n" +
-			"total: Int32 = run(h)\n",
+			"h: Heap := Heap.new()\n" +
+			"total: Int32 := run(h)\n",
 		"shapes.hex": "export fun corners(): Int32 do\n    return 4\nend\n",
 	}
 	first := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -55,7 +55,7 @@ func TestCompilationIsDeterministic(t *testing.T) {
 // Diagnostics are deterministic too: a program with several errors reports
 // them in the same order every time.
 func TestDiagnosticOrderIsDeterministic(t *testing.T) {
-	source := "a: Int32 = true\nb: Bool = 1\nc: Int32 = unknownName\nd: Int32 = 1 / 0\n"
+	source := "a: Int32 := true\nb: Bool := 1\nc: Int32 := unknownName\nd: Int32 := 1 / 0\n"
 	first := compileSource(source)
 	if first.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want a failing program, got %#v", first)
@@ -76,7 +76,7 @@ func TestDiagnosticOrderIsDeterministic(t *testing.T) {
 // Every CompilationStats field is populated on a successful build. A field
 // that is never assigned reads as zero and no other test would notice.
 func TestCompilationStatsArePopulated(t *testing.T) {
-	result := compileSource("fun twice(v: Int32): Int32 do\n    return v * 2\nend\nvalue: Int32 = twice(21)\n")
+	result := compileSource("fun twice(v: Int32): Int32 do\n    return v * 2\nend\nvalue: Int32 := twice(21)\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("compile failed: %v", result.Stderr)
 	}
@@ -102,7 +102,7 @@ func TestCompilationStatsArePopulated(t *testing.T) {
 // A failed compilation still reports the stages that ran, so a build that
 // fails in checking does not report a zeroed lex phase.
 func TestCompilationStatsSurviveFailure(t *testing.T) {
-	result := compileSource("x: Int32 = true\n")
+	result := compileSource("x: Int32 := true\n")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want a failing program, got %#v", result)
 	}

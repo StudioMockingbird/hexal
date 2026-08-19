@@ -63,7 +63,7 @@ func TestWrapHeaderRendersSelectedHelpersInDiscoveryOrder(t *testing.T) {
 // hexal/wrap.h, hexal.h spells no hex_wrap name, and the using module
 // includes the component header after hexal.h.
 func TestWrapHelpersLeaveHexalHeader(t *testing.T) {
-	program := checkedGeneratorSource(t, "mut value: Int8 = 127 wrapped: Int8 = value + 1\n")
+	program := checkedGeneratorSource(t, "mut value: Int8 := 127 wrapped: Int8 := value + 1\n")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_wrap") {
 		t.Fatalf("hexal.h = %q, wrapping helpers must leave hexal.h", files["hexal.h"])
@@ -83,7 +83,7 @@ func TestWrapHelpersLeaveHexalHeader(t *testing.T) {
 // A scalar-only program selects no wrap helpers: no hexal/wrap.h artifact is
 // emitted, and no module requires the component.
 func TestWrapComponentAbsentWithoutSelection(t *testing.T) {
-	program := checkedGeneratorSource(t, "x: Int32 = 13\n")
+	program := checkedGeneratorSource(t, "x: Int32 := 13\n")
 	files := generateOne(t, program)
 	if _, exists := files["hexal/wrap.h"]; exists {
 		t.Fatalf("scalar-only program emitted hexal/wrap.h: %v", files)

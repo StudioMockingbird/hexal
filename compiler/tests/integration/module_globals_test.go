@@ -11,7 +11,7 @@ import (
 // and no accepted declaration emits user value storage at C file scope.
 
 func TestRootBindingsLowerAsLocals(t *testing.T) {
-	source := "fun run(value: MutPtr<Int32>) do\n    value.value = 1\nend\nmut counter: Int32 = 0\nrun(ref counter)\n"
+	source := "fun run(value: MutPtr<Int32>) do\n    value.value = 1\nend\nmut counter: Int32 := 0\nrun(ref counter)\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -25,7 +25,7 @@ func TestRootBindingsLowerAsLocals(t *testing.T) {
 }
 
 func TestFunctionCannotCaptureRootLocal(t *testing.T) {
-	source := "mut counter: Int32 = 0\nfun increment() do\n    counter = counter + 1\nend\n"
+	source := "mut counter: Int32 := 0\nfun increment() do\n    counter = counter + 1\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
 		t.Fatalf("want capture diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -35,7 +35,7 @@ func TestFunctionCannotCaptureRootLocal(t *testing.T) {
 func TestNoNativeModuleConstantsOrStatics(t *testing.T) {
 	// No global/static syntax exists: the words are ordinary identifiers or
 	// rejected, and a root binding never produces C file-scope storage.
-	source := "static: Int32 = 1\nglobal: Int32 = 2\n"
+	source := "static: Int32 := 1\nglobal: Int32 := 2\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)

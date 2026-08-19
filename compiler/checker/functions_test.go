@@ -77,7 +77,7 @@ func TestFunctionDeclarationProducesCheckedIR(t *testing.T) {
 }
 
 func TestCheckedCallAndFunctionReferenceNodes(t *testing.T) {
-	checked := requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\ncallback: Fun<(Int32) : Int32> = identity\ntotal: Int32 = identity(7)\n")
+	checked := requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\ncallback: Fun<(Int32) : Int32> := identity\ntotal: Int32 := identity(7)\n")
 	reference := checked.Statements[1].(Declaration)
 	if reference.Source.Node.Kind != FunctionReferenceExpression || reference.Source.Node.Name != "identity" {
 		t.Fatalf("callback source = %#v, want a function reference", reference.Source.Node)
@@ -95,7 +95,7 @@ func TestCheckedCallAndFunctionReferenceNodes(t *testing.T) {
 }
 
 func TestNoReturnCallStatementIsChecked(t *testing.T) {
-	checked := requireAccepted(t, "fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nreset(ref count)\n")
+	checked := requireAccepted(t, "fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nreset(ref count)\n")
 	statement, ok := checked.Statements[2].(CallStatement)
 	if !ok {
 		t.Fatalf("statement = %T, want CallStatement", checked.Statements[2])
@@ -140,13 +140,13 @@ func TestLaterFunctionIsNotVisible(t *testing.T) {
 
 func TestFunctionCannotReadModuleDataBinding(t *testing.T) {
 	requireDiagnostic(t,
-		"mut count: Int32 = 0\nfun read_count(): Int32 do\n    return count\nend\n",
+		"mut count: Int32 := 0\nfun read_count(): Int32 do\n    return count\nend\n",
 		"function read_count cannot access module data binding count; pass it as a parameter")
 }
 
 func TestFunctionCannotReadModuleFunBinding(t *testing.T) {
 	requireDiagnostic(t,
-		"fun identity(value: Int32): Int32 do\n    return value\nend\nhandler: Fun<(Int32) : Int32> = identity\nfun call_handler(value: Int32): Int32 do\n    return handler(value)\nend\n",
+		"fun identity(value: Int32): Int32 do\n    return value\nend\nhandler: Fun<(Int32) : Int32> := identity\nfun call_handler(value: Int32): Int32 do\n    return handler(value)\nend\n",
 		"function call_handler cannot access module data binding handler; pass it as a parameter")
 }
 
@@ -157,49 +157,49 @@ func TestParametersAreFixedBindings(t *testing.T) {
 }
 
 func TestLocalShadowsModuleValueButNotType(t *testing.T) {
-	requireAccepted(t, "count: Int32 = 3\nfun scoped(): Int32 do\n    count: Int32 = 1\n    return count\nend\n")
+	requireAccepted(t, "count: Int32 := 3\nfun scoped(): Int32 do\n    count: Int32 := 1\n    return count\nend\n")
 	requireDiagnostic(t,
-		"type Counter = Int32\nfun scoped(): Int32 do\n    Counter: Int32 = 1\n    return Counter\nend\n",
+		"type Counter = Int32\nfun scoped(): Int32 do\n    Counter: Int32 := 1\n    return Counter\nend\n",
 		"value Counter is already declared as a type")
 }
 
 func TestDuplicateLocalDeclarationRejected(t *testing.T) {
 	requireDiagnostic(t,
-		"fun scoped(): Int32 do\n    total: Int32 = 1\n    total: Int32 = 2\n    return total\nend\n",
-		"variable total is already declared; reassignment must omit the type annotation")
+		"fun scoped(): Int32 do\n    total: Int32 := 1\n    total: Int32 := 2\n    return total\nend\n",
+		"variable total is already declared in this scope; use '=' for reassignment")
 }
 
 func TestLocalsAndMutableLocalsAreAllowed(t *testing.T) {
-	requireAccepted(t, "fun scoped(seed: Int32): Int32 do\n    mut total: Int32 = seed\n    total = total + 1\n    return total\nend\n")
+	requireAccepted(t, "fun scoped(seed: Int32): Int32 do\n    mut total: Int32 := seed\n    total = total + 1\n    return total\nend\n")
 }
 
 // 5. Calls.
 
 func TestCallArityIsChecked(t *testing.T) {
 	requireDiagnostic(t,
-		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 = adder(1, 2, 3)\n",
+		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx + dy\nend\ntotal: Int32 := adder(1, 2, 3)\n",
 		"adder expects 2 arguments; got 3")
 }
 
 func TestArgumentsUseParameterExpectedTypes(t *testing.T) {
-	requireAccepted(t, "fun small(value: UInt8): UInt8 do\n    return value\nend\nok: UInt8 = small(200)\n")
+	requireAccepted(t, "fun small(value: UInt8): UInt8 do\n    return value\nend\nok: UInt8 := small(200)\n")
 	requireDiagnostic(t,
-		"fun small(value: UInt8): UInt8 do\n    return value\nend\nbad: UInt8 = small(300)\n",
+		"fun small(value: UInt8): UInt8 do\n    return value\nend\nbad: UInt8 := small(300)\n",
 		"given value is outside the UInt8 range")
 }
 
 func TestArgumentsUsePointerWeakening(t *testing.T) {
-	requireAccepted(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nmut score: Int32 = 1\ntotal: Int32 = peek(ref score)\n")
+	requireAccepted(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nmut score: Int32 := 1\ntotal: Int32 := peek(ref score)\n")
 }
 
 func TestNoReturnCallCannotInitializeStorage(t *testing.T) {
 	requireDiagnostic(t,
-		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 = 1\nresult: Int32 = reset(ref count)\n",
+		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nresult: Int32 := reset(ref count)\n",
 		"reset produces no value")
 }
 
 func TestFunBindingIsCallableInsideAFunction(t *testing.T) {
-	requireAccepted(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\nresult: Int32 = apply(square, 5)\n")
+	requireAccepted(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\nresult: Int32 := apply(square, 5)\n")
 }
 
 // 6. Returns.
@@ -213,7 +213,7 @@ func TestBareReturnRequiresANoReturnFunction(t *testing.T) {
 
 func TestReturningBodyMustEndWithAReturn(t *testing.T) {
 	requireDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    total: Int32 = dx\nend\n",
+		"fun adder(dx: Int32): Int32 do\n    total: Int32 := dx\nend\n",
 		"returning adder may fall through without returning Int32")
 }
 
@@ -226,7 +226,7 @@ func TestReturnValueMustBeAssignable(t *testing.T) {
 // 7. Fun<...> position whitelist.
 
 func TestSupportedFunPositionsAreAccepted(t *testing.T) {
-	requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nmodule_level: Fun<(Int32) : Int32> = identity\nfun higher(callback: Fun<(Fun<(Int32) : Int32>)>, value: Int32): Int32 do\n    local: Fun<(Int32) : Int32> = identity\n    return local(value)\nend\n")
+	requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nmodule_level: Fun<(Int32) : Int32> := identity\nfun higher(callback: Fun<(Fun<(Int32) : Int32>)>, value: Int32): Int32 do\n    local: Fun<(Int32) : Int32> := identity\n    return local(value)\nend\n")
 }
 
 func TestReturningAFunTypeIsUnsupported(t *testing.T) {
@@ -255,22 +255,22 @@ func TestPointersToFunAreUnsupported(t *testing.T) {
 
 func TestRefOfAFunctionOrFunBindingIsUnsupported(t *testing.T) {
 	requireDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> = ref adder\n",
+		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> := ref adder\n",
 		"function declarations are not addressable; use adder as a Fun value")
 	requireDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> = adder\nbad: Ptr<Int32> = ref handler\n",
+		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> := adder\nbad: Ptr<Int32> := ref handler\n",
 		"Fun<(Int32) : Int32> bindings are not addressable")
 }
 
 // 8. Function names are not storage.
 
 func TestFunctionNameIsAssignableToAnIdenticalFunType(t *testing.T) {
-	requireAccepted(t, "fun adder(dx: Int32): Int32 do\n    return dx\nend\nmut handler: Fun<(Int32) : Int32> = adder\nhandler = adder\n")
+	requireAccepted(t, "fun adder(dx: Int32): Int32 do\n    return dx\nend\nmut handler: Fun<(Int32) : Int32> := adder\nhandler = adder\n")
 }
 
 func TestFunTypeMismatchNamesBothSignatures(t *testing.T) {
 	requireDiagnostic(t,
-		"fun adder(dx: UInt32): UInt32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> = adder\n",
+		"fun adder(dx: UInt32): UInt32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> := adder\n",
 		"handler requires Fun<(Int32) : Int32>; got Fun<(UInt32) : UInt32>")
 }
 
@@ -360,7 +360,7 @@ func TestSelfCannotBeAssigned(t *testing.T) {
 func TestValueReceiverSelfIsFixed(t *testing.T) {
 	requireDiagnostic(t, point+"impl Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
 		"cannot assign to read-only member self.x")
-	requireAccepted(t, point+"impl Point.moved(dx: Int32): Point do\n    mut result: Point = self\n    result.x = result.x + dx\n    return result\nend\n")
+	requireAccepted(t, point+"impl Point.moved(dx: Int32): Point do\n    mut result: Point := self\n    result.x = result.x + dx\n    return result\nend\n")
 }
 
 func TestPtrReceiverSelfIsReadOnly(t *testing.T) {
@@ -405,32 +405,32 @@ func TestLaterMethodIsNotVisible(t *testing.T) {
 func TestReceiverAdaptationRules(t *testing.T) {
 	// exact target type
 	requireAccepted(t, point+"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"origin: Point = Point { x = 0, y = 0, }\ntotal: Int32 = origin.length_squared()\n")
+		"origin: Point := Point { x = 0, y = 0, }\ntotal: Int32 := origin.length_squared()\n")
 	// MutPtr<T> weakens to a Ptr<T> target
 	requireAccepted(t, point+"impl Ptr<Point>.is_origin(): Bool do\n    return self.x == 0\nend\n"+
-		"mut here: Point = Point { x = 0, y = 0, }\nwriter: MutPtr<Point> = ref here\nflag: Bool = writer.is_origin()\n")
+		"mut here: Point := Point { x = 0, y = 0, }\nwriter: MutPtr<Point> := ref here\nflag: Bool := writer.is_origin()\n")
 	// a pointer dereferences to a copied T target
 	requireAccepted(t, point+"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"origin: Point = Point { x = 0, y = 0, }\nreader: Ptr<Point> = ref origin\ntotal: Int32 = reader.length_squared()\n")
+		"origin: Point := Point { x = 0, y = 0, }\nreader: Ptr<Point> := ref origin\ntotal: Int32 := reader.length_squared()\n")
 	// an addressable T takes ref for a MutPtr<T> target
 	requireAccepted(t, point+"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"mut here: Point = Point { x = 0, y = 0, }\nhere.translate(5, 5)\n")
+		"mut here: Point := Point { x = 0, y = 0, }\nhere.translate(5, 5)\n")
 }
 
 func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
 	requireDiagnostic(t, point+"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"origin: Point = Point { x = 0, y = 0, }\norigin.translate(5, 5)\n",
+		"origin: Point := Point { x = 0, y = 0, }\norigin.translate(5, 5)\n",
 		"translate needs MutPtr<Point>; ref origin is Ptr<Point>")
 }
 
 func TestMissingMethodIsRejected(t *testing.T) {
-	requireDiagnostic(t, point+"origin: Point = Point { x = 0, y = 0, }\ntotal: Int32 = origin.rotate()\n",
+	requireDiagnostic(t, point+"origin: Point := Point { x = 0, y = 0, }\ntotal: Int32 := origin.rotate()\n",
 		"Point has no method named rotate")
 }
 
 func TestMethodsAreNotValues(t *testing.T) {
 	requireDiagnostic(t, point+"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"origin: Point = Point { x = 0, y = 0, }\ncallback: Fun<() : Int32> = origin.length_squared\n",
+		"origin: Point := Point { x = 0, y = 0, }\ncallback: Fun<() : Int32> := origin.length_squared\n",
 		"length_squared is a method on Point; methods are not values")
 }
 
@@ -450,14 +450,14 @@ func TestNullableFunctionSignaturesAndReturns(t *testing.T) {
 	requireAccepted(t, "fun find_none(): Ptr<Int32> | Nil do\n    return nil\nend\n")
 	requireAccepted(t, "fun pass_through(maybe: Ptr<Int32> | Nil): Ptr<Int32> | Nil do\n    return maybe\nend\n")
 	// MutPtr-to-Ptr weakening then union injection: MutPtr<Int32> -> Ptr<Int32> | Nil
-	requireAccepted(t, "mut value: Int32 = 1\nwriter: MutPtr<Int32> = ref value\nfun lift(source: MutPtr<Int32>): Ptr<Int32> | Nil do\n    return source\nend\nok: Ptr<Int32> | Nil = lift(writer)\n")
+	requireAccepted(t, "mut value: Int32 := 1\nwriter: MutPtr<Int32> := ref value\nfun lift(source: MutPtr<Int32>): Ptr<Int32> | Nil do\n    return source\nend\nok: Ptr<Int32> | Nil := lift(writer)\n")
 	// A function returning no value has no result type.
 	requireAccepted(t, "fun absent() do\n    return\nend\nabsent()\n")
 }
 
 func TestNonNullableReturnRejectsNullableValues(t *testing.T) {
 	requireDiagnostic(t,
-		"fun bad(): Ptr<Int32> do\n    mut value: Int32 = 1\n    maybe: Ptr<Int32> | Nil = ref value\n    return maybe\nend\n",
+		"fun bad(): Ptr<Int32> do\n    mut value: Int32 := 1\n    maybe: Ptr<Int32> | Nil := ref value\n    return maybe\nend\n",
 		"bad returns Ptr<Int32>; got Ptr<Int32> | Nil")
 	requireDiagnostic(t,
 		"fun bad(): Ptr<Int32> do\n    return nil\nend\n",
@@ -466,20 +466,20 @@ func TestNonNullableReturnRejectsNullableValues(t *testing.T) {
 
 func TestNullableArgumentsToNullableParameters(t *testing.T) {
 	requireAccepted(t, "fun probe(maybe: Ptr<Int32> | Nil): Ptr<Int32> | Nil do\n    return maybe\nend\n"+
-		"mut value: Int32 = 1\nwriter: MutPtr<Int32> = ref value\n"+
-		"ok: Ptr<Int32> | Nil = probe(writer)\nnone: Ptr<Int32> | Nil = probe(nil)\n")
+		"mut value: Int32 := 1\nwriter: MutPtr<Int32> := ref value\n"+
+		"ok: Ptr<Int32> | Nil := probe(writer)\nnone: Ptr<Int32> | Nil := probe(nil)\n")
 	requireDiagnostic(t,
 		"fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\n"+
-			"mut value: Int32 = 1\nmaybe: Ptr<Int32> | Nil = ref value\nbad: Int32 = peek(maybe)\n",
+			"mut value: Int32 := 1\nmaybe: Ptr<Int32> | Nil := ref value\nbad: Int32 := peek(maybe)\n",
 		"peek argument 1 requires Ptr<Int32>; got Ptr<Int32> | Nil")
 	requireDiagnostic(t,
-		"fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nbad: Int32 = peek(nil)\n",
+		"fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nbad: Int32 := peek(nil)\n",
 		"nil requires an expected union containing Nil")
 }
 
 func TestResetRemainsNoResultForNilBindings(t *testing.T) {
 	requireAccepted(t, "fun reset() do\n    return\nend\nreset()\n")
-	requireDiagnostic(t, "fun reset() do\n    return\nend\nresult: Nil = reset()\n", "reset produces no value")
+	requireDiagnostic(t, "fun reset() do\n    return\nend\nresult: Nil := reset()\n", "reset produces no value")
 }
 
 func TestMethodSignaturesAcceptNullableParameterAndReturnTypes(t *testing.T) {
@@ -491,14 +491,14 @@ func TestMethodSignaturesAcceptNullableParameterAndReturnTypes(t *testing.T) {
 // path consults the branch-local narrowing, so the same binding that cannot
 // be called bare can be called inside a != nil branch.
 func TestNullableFunctionPointerRequiresNarrowingBeforeCall(t *testing.T) {
-	requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nhandler: Fun<(Int32) : Int32> | Nil = identity\n")
+	requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nhandler: Fun<(Int32) : Int32> | Nil := identity\n")
 	requireDiagnostic(t,
-		"fun identity(value: Int32): Int32 do\n    return value\nend\nhandler: Fun<(Int32) : Int32> | Nil = identity\nresult: Int32 = handler(5)\n",
+		"fun identity(value: Int32): Int32 do\n    return value\nend\nhandler: Fun<(Int32) : Int32> | Nil := identity\nresult: Int32 := handler(5)\n",
 		"Fun<(Int32) : Int32> | Nil may be Nil; narrow it before calling it")
-	requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nhandler: Fun<(Int32) : Int32> | Nil = identity\nif handler != nil then\n    result: Int32 = handler(5)\nend\n")
+	requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nhandler: Fun<(Int32) : Int32> | Nil := identity\nif handler != nil then\n    result: Int32 := handler(5)\nend\n")
 	requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\n"+
 		"fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n    return callback(value)\nend\n"+
-		"handler: Fun<(Int32) : Int32> | Nil = identity\nif handler != nil then\n    result: Int32 = apply(handler, 5)\nend\n")
+		"handler: Fun<(Int32) : Int32> | Nil := identity\nif handler != nil then\n    result: Int32 := apply(handler, 5)\nend\n")
 	requireAccepted(t, "fun identity(value: Int32): Int32 do\n    return value\nend\n"+
 		"fun invoke(callback: Fun<(Int32) : Int32> | Nil, value: Int32): Int32 do\n"+
 		"    if callback != nil then\n        return callback(value)\n    end\n    return 0\nend\n")
@@ -527,7 +527,7 @@ func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
 
 func TestMethodCallProducesCheckedIR(t *testing.T) {
 	checked := requireAccepted(t, point+"impl MutPtr<Point>.translate(dx: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"mut here: Point = Point { x = 0, y = 0, }\nhere.translate(5)\n")
+		"mut here: Point := Point { x = 0, y = 0, }\nhere.translate(5)\n")
 	statement, ok := checked.Statements[2].(CallStatement)
 	if !ok {
 		t.Fatalf("statement = %T, want CallStatement", checked.Statements[2])

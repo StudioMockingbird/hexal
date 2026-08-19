@@ -14,8 +14,8 @@ func isContextualExpression(expression parser.Expression) bool {
 	return contextualExpression(expression, false)
 }
 
-// isContextualForInference is the same question asked by RFC 0090's `:=`,
-// which must reject an initializer that determines no type of its own.
+// isContextualForInference identifies initializers that determine no type of
+// their own and therefore cannot infer a binding without destination context.
 //
 // It is deliberately the same function. Two predicates answering "does this
 // form take its type from context" would drift apart silently, and the drift

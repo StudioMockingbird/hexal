@@ -15,9 +15,9 @@ import (
 // addition.
 func TestUnsignedRingPacketHeaderLowersToOneSeedAndOneNarrowing(t *testing.T) {
 	source := "fun header(version: UInt8, low: UInt8, high: UInt8, mode: UInt8, port: UInt8): UInt32 do\n" +
-		"    total: UInt32 = version.to<UInt32>() + low.to<UInt32>() + high.to<UInt32>() + mode.to<UInt32>() + port.to<UInt32>()\n" +
+		"    total: UInt32 := version.to<UInt32>() + low.to<UInt32>() + high.to<UInt32>() + mode.to<UInt32>() + port.to<UInt32>()\n" +
 		"    return total\nend\n" +
-		"value: UInt32 = header(1, 2, 3, 4, 5)\n"
+		"value: UInt32 := header(1, 2, 3, 4, 5)\n"
 	generated := rootC(t, assertCompiles(t, source))
 	want := "const uint32_t hex_v_total = (uint32_t)((uintmax_t)(uint32_t)hex_v_version + (uint32_t)hex_v_low + " +
 		"(uint32_t)hex_v_high + (uint32_t)hex_v_mode + (uint32_t)hex_v_port);"
@@ -104,7 +104,7 @@ func TestUnsignedRingBoundariesKeepTheirTypedValue(t *testing.T) {
 func TestUnsignedRingRendersEachCallExactlyOnce(t *testing.T) {
 	source := "fun one(): UInt32 do\n    return 1\nend\n" +
 		"fun demo(a: UInt32): UInt32 do\n    return one() + a + one()\nend\n" +
-		"value: UInt32 = demo(2)\n"
+		"value: UInt32 := demo(2)\n"
 	generated := rootC(t, assertCompiles(t, source))
 	want := "return (uint32_t)((uintmax_t)hex_f_m3_app_one() + hex_v_a + hex_f_m3_app_one());"
 	if !strings.Contains(generated, want) {

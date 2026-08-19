@@ -97,7 +97,7 @@ func TestUTF8BoundaryTable(t *testing.T) {
 // table evaluates, so template drift fails the suite rather than passing as a
 // stale mirror.
 func TestGeneratedUTF8ValidationGuards(t *testing.T) {
-	program := checkedGeneratorSource(t, "greeting: String = \"hi\"\n")
+	program := checkedGeneratorSource(t, "greeting: String := \"hi\"\n")
 	files := generateOne(t, program)
 	source := files["hexal/string.c"]
 	for _, guard := range []string{

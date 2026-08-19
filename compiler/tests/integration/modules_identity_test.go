@@ -8,7 +8,7 @@ import (
 
 func TestSameNamedTypesInDifferentModulesAreDistinct(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":    "module Math = import \"./math\"\nmodule Shapes = import \"./shapes\"\nm: Math.Point = 0\ns: Shapes.Point = m\n",
+		"app.hex":    "module Math = import \"./math\"\nmodule Shapes = import \"./shapes\"\nm: Math.Point := 0\ns: Shapes.Point := m\n",
 		"math.hex":   "export type Point = Int32\n",
 		"shapes.hex": "export type Point = Int32\n",
 	}
@@ -20,7 +20,7 @@ func TestSameNamedTypesInDifferentModulesAreDistinct(t *testing.T) {
 
 func TestNominalTypesAcrossModulesStayDistinct(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":    "module Math = import \"./math\"\nmodule Shapes = import \"./shapes\"\nm: Math.Point = Math.make()\ns: Shapes.Point = m\n",
+		"app.hex":    "module Math = import \"./math\"\nmodule Shapes = import \"./shapes\"\nm: Math.Point := Math.make()\ns: Shapes.Point := m\n",
 		"math.hex":   "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 1, y = 2 }\nend\n",
 		"shapes.hex": "export type Point = { x: Int32, y: Int32 }\n",
 	}
@@ -51,7 +51,7 @@ func TestCannotDeclareMethodsThroughAliasOfImportedType(t *testing.T) {
 
 func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point = Geometry.make()\nlength: Int32 = p.length_squared()\n",
+		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point := Geometry.make()\nlength: Int32 := p.length_squared()\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nexport impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "geometry")
@@ -59,7 +59,7 @@ func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 
 func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point = Geometry.make()\nlength: Int32 = p.length_squared()\n",
+		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point := Geometry.make()\nlength: Int32 := p.length_squared()\n",
 		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nimpl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -68,7 +68,7 @@ func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
 
 func TestGenericSpecializationsOwnedByDefiningModule(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\na: Int32 = Math.identity<Int32>(1)\nb: Float64 = Math.identity<Float64>(2.0)\nc: Int32 = Math.identity<Int32>(3)\n",
+		"app.hex":  "module Math = import \"./math\"\na: Int32 := Math.identity<Int32>(1)\nb: Float64 := Math.identity<Float64>(2.0)\nc: Int32 := Math.identity<Int32>(3)\n",
 		"math.hex": "export fun identity<T>(value: T): T do\n    return value\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
@@ -83,16 +83,16 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 		"m.hex": "export type Point = { x: Int32 }\nexport fun point(): Point do\n    return Point { x = 1 }\nend\n",
 		"s.hex": "export type Point = { y: Int64, z: Int64 }\nexport fun point(): Point do\n    return Point { y = 1, z = 2 }\nend\n",
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun demo(h: Heap) do\n" +
-			"    lm: List<M.Point> = List<M.Point>.new(h)\n" +
-			"    ls: List<S.Point> = List<S.Point>.new(h)\n" +
-			"    dm: Dict<Int32, M.Point> = Dict<Int32, M.Point>.new(h)\n" +
-			"    ds: Dict<Int32, S.Point> = Dict<Int32, S.Point>.new(h)\n" +
-			"    pm: M.Point = M.point()\n" +
-			"    ps: S.Point = S.point()\n" +
-			"    am: Array<M.Point, 2> = [pm, pm]\n" +
-			"    arr_s: Array<S.Point, 2> = [ps, ps]\n" +
-			"    vm: View<M.Point> = am.slice(0, 1)\n" +
-			"    vs: View<S.Point> = arr_s.slice(0, 1)\n" +
+			"    lm: List<M.Point> := List<M.Point>.new(h)\n" +
+			"    ls: List<S.Point> := List<S.Point>.new(h)\n" +
+			"    dm: Dict<Int32, M.Point> := Dict<Int32, M.Point>.new(h)\n" +
+			"    ds: Dict<Int32, S.Point> := Dict<Int32, S.Point>.new(h)\n" +
+			"    pm: M.Point := M.point()\n" +
+			"    ps: S.Point := S.point()\n" +
+			"    am: Array<M.Point, 2> := [pm, pm]\n" +
+			"    arr_s: Array<S.Point, 2> := [ps, ps]\n" +
+			"    vm: View<M.Point> := am.slice(0, 1)\n" +
+			"    vs: View<S.Point> := arr_s.slice(0, 1)\n" +
 			"end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -134,7 +134,7 @@ func TestIdenticalLayoutStillNominalDistinctAcrossModules(t *testing.T) {
 	sources := map[string]string{
 		"m.hex":   "export type Point = { x: Int32, y: Int32 }\n",
 		"s.hex":   "export type Point = { x: Int32, y: Int32 }\n",
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun demo(h: Heap) do\n    a: List<M.Point> = List<M.Point>.new(h)\n    b: List<S.Point> = List<S.Point>.new(h)\nend\n",
+		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun demo(h: Heap) do\n    a: List<M.Point> := List<M.Point>.new(h)\n    b: List<S.Point> := List<S.Point>.new(h)\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "m", "s")
@@ -151,8 +151,8 @@ func TestSameNamedTypeUnionMembersStayDistinct(t *testing.T) {
 		"m.hex": "export type Point = { x: Int32 }\nexport fun point(): Point do\n    return Point { x = 1 }\nend\n",
 		"s.hex": "export type Point = { y: Int64, z: Int64 }\nexport fun point(): Point do\n    return Point { y = 1, z = 2 }\nend\n",
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun demo() do\n" +
-			"    pm: M.Point = M.point()\n" +
-			"    u: (M.Point | S.Point) = pm\n" +
+			"    pm: M.Point := M.point()\n" +
+			"    u: (M.Point | S.Point) := pm\n" +
 			"end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -167,7 +167,7 @@ func TestSameNamedTypeUnionMembersStayDistinct(t *testing.T) {
 // specialization and no module-qualified suffix.
 func TestSingleModuleProducesSingleSpecialization(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "type Point = { x: Int32, y: Int32 }\nfun demo(h: Heap) do\n    a: List<Point> = List<Point>.new(h)\nend\n",
+		"app.hex": "type Point = { x: Int32, y: Int32 }\nfun demo(h: Heap) do\n    a: List<Point> := List<Point>.new(h)\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app")
@@ -199,19 +199,19 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 			"export fun identity<T>(value: T): T do\n    return value\nend\n",
 		"app.hex": "module Lib = import \"./lib\"\nmodule M = import \"./m\"\nmodule S = import \"./s\"\n" +
 			"fun demo(h: Heap): Nil | Error do\n" +
-			"    l: List<Int32> = Lib.make_list(h)\n" +
+			"    l: List<Int32> := Lib.make_list(h)\n" +
 			"    Lib.take_list(l)\n" +
-			"    d: Dict<Int32, Int32> = Dict<Int32, Int32>.new(h)\n" +
+			"    d: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n" +
 			"    Lib.take_dict(d)\n" +
-			"    a: Array<Int32, 2> = [1, 2]\n" +
+			"    a: Array<Int32, 2> := [1, 2]\n" +
 			"    Lib.take_array(a)\n" +
-			"    v: View<Int32> = a.slice(0, 1)\n" +
+			"    v: View<Int32> := a.slice(0, 1)\n" +
 			"    Lib.take_view(v)\n" +
-			"    holder: Lib.Holder = Lib.make_holder(l)\n" +
+			"    holder: Lib.Holder := Lib.make_holder(l)\n" +
 			"    Lib.take_holder(holder)\n" +
-			"    same: List<Int32> = Lib.identity<List<Int32>>(l)\n" +
-			"    lm: List<M.Point> = List<M.Point>.new(h)\n" +
-			"    ls: List<S.Point> = List<S.Point>.new(h)\n" +
+			"    same: List<Int32> := Lib.identity<List<Int32>>(l)\n" +
+			"    lm: List<M.Point> := List<M.Point>.new(h)\n" +
+			"    ls: List<S.Point> := List<S.Point>.new(h)\n" +
 			"    return nil\n" +
 			"end\n",
 	}
@@ -244,7 +244,7 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 func TestModuleOwnedCollectionElementsDeclareBeforeUse(t *testing.T) {
 	point := "export type Point = { x: Int32, y: Int32 }\n"
 	color := "export type Color = { r: Int32 }\n"
-	prelude := "module M = import \"./m\"\nmodule S = import \"./s\"\nh: Heap = Heap.new()\n"
+	prelude := "module M = import \"./m\"\nmodule S = import \"./s\"\nh: Heap := Heap.new()\n"
 
 	cases := []struct {
 		name           string
@@ -252,19 +252,19 @@ func TestModuleOwnedCollectionElementsDeclareBeforeUse(t *testing.T) {
 		specialization string
 		element        string
 	}{
-		{"List", "l: List<M.Point> = List<M.Point>.new(h)\n",
+		{"List", "l: List<M.Point> := List<M.Point>.new(h)\n",
 			"typedef struct hex_list_Point", "struct hex_t_m1_m_Point {"},
-		{"Dict value", "d: Dict<Int32, M.Point> = Dict<Int32, M.Point>.new(h)\n",
+		{"Dict value", "d: Dict<Int32, M.Point> := Dict<Int32, M.Point>.new(h)\n",
 			"typedef struct hex_dict_Int32_Point", "struct hex_t_m1_m_Point {"},
 		// Two owning modules contributing elements to one header is the shape
 		// that would break placement if re-emission order did not follow
 		// dependency order.
 		{"two owning modules",
-			"d: Dict<Int32, M.Point> = Dict<Int32, M.Point>.new(h)\ne: Dict<Int32, S.Color> = Dict<Int32, S.Color>.new(h)\n",
+			"d: Dict<Int32, M.Point> := Dict<Int32, M.Point>.new(h)\ne: Dict<Int32, S.Color> := Dict<Int32, S.Color>.new(h)\n",
 			"typedef struct hex_dict_Int32_Color", "struct hex_t_m1_s_Color {"},
-		{"nested List", "l: List<List<M.Point>> = List<List<M.Point>>.new(h)\n",
+		{"nested List", "l: List<List<M.Point>> := List<List<M.Point>>.new(h)\n",
 			"typedef struct hex_list_List_Point_", "struct hex_t_m1_m_Point {"},
-		{"Array", "fun f(p: M.Point) do\n    a: Array<M.Point, 2> = [p, p]\n    q: M.Point = a[0]\nend\n",
+		{"Array", "fun f(p: M.Point) do\n    a: Array<M.Point, 2> := [p, p]\n    q: M.Point := a[0]\nend\n",
 			"typedef struct hex_array_Point_2", "struct hex_t_m1_m_Point {"},
 	}
 

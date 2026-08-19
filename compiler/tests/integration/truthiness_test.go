@@ -17,9 +17,9 @@ func TestTruthinessConditions(t *testing.T) {
 		want   string
 	}{
 		{"if 0 then end", "if (((void)(0), true)) {"},
-		{"p: Ptr<Int32> | Nil = nil if p then end", "if ((hex_v_p != nullptr)) {"},
+		{"p: Ptr<Int32> | Nil := nil if p then end", "if ((hex_v_p != nullptr)) {"},
 		{"if true then end", "if (true) {"},
-		{"mut count: Int32 = 1 if count then count = count - 1 end", "if (((void)(hex_v_count), true)) {"},
+		{"mut count: Int32 := 1 if count then count = count - 1 end", "if (((void)(hex_v_count), true)) {"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
@@ -34,7 +34,7 @@ func TestTruthinessConditions(t *testing.T) {
 func TestTruthinessConditionLoweringPreservesBranches(t *testing.T) {
 	// A falsey condition still emits its branches: the checker must have
 	// type-checked them, and the generated C keeps them for runtime.
-	result := compileSource("p: Ptr<Int32> | Nil = nil if p then missing: Int32 = 1 end")
+	result := compileSource("p: Ptr<Int32> | Nil := nil if p then missing: Int32 := 1 end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want successful nil-condition program", result)
 	}
@@ -47,7 +47,7 @@ func TestNullableTruthinessCondition(t *testing.T) {
 	// The if and elseif conditions are the bare nullable binding; deref of
 	// maybe would need a narrowing null test, so the branches only touch it
 	// through truthiness.
-	result := compileSource("mut value: Int32 = 5 mut maybe: Ptr<Int32> | Nil = ref value if maybe then noop: Int32 = 0 elseif maybe then result: Int32 = 1 end")
+	result := compileSource("mut value: Int32 := 5 mut maybe: Ptr<Int32> | Nil := ref value if maybe then noop: Int32 := 0 elseif maybe then result: Int32 := 1 end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want a successful nullable truthiness program", result)
 	}
@@ -83,10 +83,10 @@ func TestTruthinessLogicalOperators(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"mut count: Int32 = 1 mut ready: Bool = true flag: Bool = count and ready", "((void)(hex_v_count), true) && hex_v_ready"},
-		{"mut count: Int32 = 1 flag: Bool = count or false", "((void)(hex_v_count), true) || false"},
-		{"mut count: Int32 = 1 flag: Bool = !count", "(!((void)(hex_v_count), true))"},
-		{"mut value: Float64 = 0.0 flag: Bool = !value", "(!((void)(hex_v_value), true))"},
+		{"mut count: Int32 := 1 mut ready: Bool := true flag: Bool := count and ready", "((void)(hex_v_count), true) && hex_v_ready"},
+		{"mut count: Int32 := 1 flag: Bool := count or false", "((void)(hex_v_count), true) || false"},
+		{"mut count: Int32 := 1 flag: Bool := !count", "(!((void)(hex_v_count), true))"},
+		{"mut value: Float64 := 0.0 flag: Bool := !value", "(!((void)(hex_v_value), true))"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
@@ -99,7 +99,7 @@ func TestTruthinessLogicalOperators(t *testing.T) {
 }
 
 func TestTruthinessConstantFolding(t *testing.T) {
-	result := compileSource("flag: Bool = 1 and 2")
+	result := compileSource("flag: Bool := 1 and 2")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want a folded truthiness constant", result)
 	}
@@ -111,10 +111,10 @@ func TestTruthinessConstantFolding(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"flag: Bool = 0 and false", "const bool hex_v_flag = false;"},
-		{"flag: Bool = false or 0", "const bool hex_v_flag = true;"},
-		{"flag: Bool = !0", "const bool hex_v_flag = false;"},
-		{"flag: Bool = !false", "const bool hex_v_flag = true;"},
+		{"flag: Bool := 0 and false", "const bool hex_v_flag = false;"},
+		{"flag: Bool := false or 0", "const bool hex_v_flag = true;"},
+		{"flag: Bool := !0", "const bool hex_v_flag = false;"},
+		{"flag: Bool := !false", "const bool hex_v_flag = true;"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
@@ -130,12 +130,12 @@ func TestTruthinessShortCircuitSkipsFoldedSide(t *testing.T) {
 	// 0 is truthy, so the right side of and is evaluated and its division by
 	// zero is a static error; false is falsey, so the right side is never
 	// evaluated and the same expression is fine.
-	result := compileSource("result: Bool = 0 and (1 / 0 == 0)")
+	result := compileSource("result: Bool := 0 and (1 / 0 == 0)")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "division by zero") {
 		t.Fatalf("Compile = %#v, want the evaluated side to fail statically", result)
 	}
 
-	result = compileSource("result: Bool = false and (1 / 0 == 0)")
+	result = compileSource("result: Bool := false and (1 / 0 == 0)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want the skipped side to never be checked", result)
 	}

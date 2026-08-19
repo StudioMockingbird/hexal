@@ -7,7 +7,7 @@ import (
 )
 
 func TestListLifecycle(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    count: Size = values.length()\n    empty: Bool = values.length() == 0\n    first: Int32 = values[0]\n    second: Int32 = values[1]\n    values[1] = 5\n    last: Int32 = values.pop()\n    values.clear()\nend")
+	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    count: Size := values.length()\n    empty: Bool := values.length() == 0\n    first: Int32 := values[0]\n    second: Int32 := values[1]\n    values[1] = 5\n    last: Int32 := values.pop()\n    values.clear()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -58,7 +58,7 @@ func TestListLifecycle(t *testing.T) {
 }
 
 func TestListViewDerivationAndInvalidation(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    view: View<Int32> = values.slice(0, 2)\n    total: Int32 = view[0] + view[1]\n    values[0] = 9\nend")
+	result := compileSource("fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    view: View<Int32> := values.slice(0, 2)\n    total: Int32 := view[0] + view[1]\n    values[0] = 9\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -71,10 +71,10 @@ func TestListViewDerivationAndInvalidation(t *testing.T) {
 // view is live is the programmer's responsibility.
 func TestListViewAfterStructuralMutationIsValid(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> = values.slice(0, 1)\n    values.push(1)\nend",
-		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> = values.slice(0, 1)\n    dropped: Int32 = values.pop()\nend",
-		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> = values.slice(0, 1)\n    values.clear()\nend",
-		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    view: View<Int32> = values.slice(0, 1)\n    values.free(h)\nend",
+		"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> := values.slice(0, 1)\n    values.push(1)\nend",
+		"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> := values.slice(0, 1)\n    dropped: Int32 := values.pop()\nend",
+		"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    view: View<Int32> := values.slice(0, 1)\n    values.clear()\nend",
+		"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    view: View<Int32> := values.slice(0, 1)\n    values.free(h)\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
@@ -84,15 +84,15 @@ func TestListViewAfterStructuralMutationIsValid(t *testing.T) {
 
 func TestListShallowCopySemantics(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    other: List<Int32> = values\nend",
-		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\nend",
-		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    values.free(h)\n    values.free(h)\nend",
+		"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    other: List<Int32> := values\nend",
+		"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\nend",
+		"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    values.free(h)\n    values.free(h)\nend",
 		"fun demo(h: Heap) do\n    List<Int32>.new(h)\nend",
-		"fun demo(h: Heap) do\n    mut values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    values = List<Int32>.new(h)\nend",
-		"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    values.free(h)\n    values.push(1)\nend",
+		"fun demo(h: Heap) do\n    mut values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values = List<Int32>.new(h)\nend",
+		"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    values.free(h)\n    values.push(1)\nend",
 		"fun demo(h: Heap, values: List<Int32>) do\n    values.free(h)\nend",
 		"fun make_values(h: Heap, values: List<Int32>): List<Int32> do\n    return values\nend",
-		"fun demo(h: Heap, release: Bool) do\n    values: List<Int32> = List<Int32>.new(h)\n    if release then\n        values.free(h)\n    end\n    values.push(1)\nend",
+		"fun demo(h: Heap, release: Bool) do\n    values: List<Int32> := List<Int32>.new(h)\n    if release then\n        values.free(h)\n    end\n    values.push(1)\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
@@ -101,14 +101,14 @@ func TestListShallowCopySemantics(t *testing.T) {
 }
 
 func TestListBorrowParameterMutatesCaller(t *testing.T) {
-	result := compileSource("fun append_default(values: List<Int32>) do\n    values.push(0)\nend\nfun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    defer values.free(h)\n    append_default(values)\nend")
+	result := compileSource("fun append_default(values: List<Int32>) do\n    values.push(0)\nend\nfun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    append_default(values)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestListReturnHandoff(t *testing.T) {
-	result := compileSource("fun make_values(h: Heap): List<Int32> do\n    values: List<Int32> = List<Int32>.new(h)\n    values.push(1)\n    return values\nend\nfun demo(h: Heap) do\n    values: List<Int32> = make_values(h)\n    values.free(h)\nend")
+	result := compileSource("fun make_values(h: Heap): List<Int32> do\n    values: List<Int32> := List<Int32>.new(h)\n    values.push(1)\n    return values\nend\nfun demo(h: Heap) do\n    values: List<Int32> := make_values(h)\n    values.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -117,7 +117,7 @@ func TestListReturnHandoff(t *testing.T) {
 func TestListOfStrings(t *testing.T) {
 	// A stored literal is never freed by the collection or by a pop; a
 	// runtime String popped out of the list is freed explicitly.
-	result := compileSource("fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    names[0] = \"carol\"\n    popped: String = names.pop()\n    popped.free(h)\n    first: String = names[0]\nend")
+	result := compileSource("fun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String := \"bob\".to_string(h)\n    names.push(runtime)\n    names[0] = \"carol\"\n    popped: String := names.pop()\n    popped.free(h)\n    first: String := names[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -138,13 +138,13 @@ func TestListOfStrings(t *testing.T) {
 // read handle is live are the programmer's responsibility.
 func TestListStringMutationAfterReadIsValid(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names[0] = \"b\"\nend",
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    dropped: String = names.pop()\nend",
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.clear()\nend",
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.free(h)\nend",
-		"fun demo(h: Heap) do\n    mut names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names = List<String>.new(h)\nend",
-		"fun inspect(names: List<String>) do\nend\nfun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    inspect(names)\nend",
-		"fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String = names[0]\n    names.push(\"b\")\nend",
+		"fun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String := names[0]\n    names[0] = \"b\"\nend",
+		"fun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String := names[0]\n    dropped: String := names.pop()\nend",
+		"fun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String := names[0]\n    names.clear()\nend",
+		"fun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    names.push(\"a\")\n    first: String := names[0]\n    names.free(h)\nend",
+		"fun demo(h: Heap) do\n    mut names: List<String> := List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String := names[0]\n    names = List<String>.new(h)\nend",
+		"fun inspect(names: List<String>) do\nend\nfun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String := names[0]\n    inspect(names)\nend",
+		"fun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    defer names.free(h)\n    names.push(\"a\")\n    first: String := names[0]\n    names.push(\"b\")\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
@@ -154,14 +154,14 @@ func TestListStringMutationAfterReadIsValid(t *testing.T) {
 
 func TestListRestrictions(t *testing.T) {
 	// An object member List is an ordinary shallow handle.
-	if result := compileSource("type Holder = { values: List<Int32>, }\nfun demo(h: Heap) do\n    holder: Holder = Holder { values = List<Int32>.new(h), }\n    holder.values.push(1)\nend"); result.ExitCode != compiler.ExitSuccess {
+	if result := compileSource("type Holder = { values: List<Int32>, }\nfun demo(h: Heap) do\n    holder: Holder := Holder { values = List<Int32>.new(h), }\n    holder.values.push(1)\nend"); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want 0", result.ExitCode, result.Stderr)
 	}
 	for _, testCase := range []struct {
 		source string
 		want   string
 	}{
-		{"fun demo() do\n    pointer: Ptr<List<Int32>> = nil\nend", "could not construct pointer type"},
+		{"fun demo() do\n    pointer: Ptr<List<Int32>> := nil\nend", "could not construct pointer type"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -171,7 +171,7 @@ func TestListRestrictions(t *testing.T) {
 }
 
 func TestListStringElementsAreShallow(t *testing.T) {
-	source := "fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    text: String = \"hi\".to_string(h)\n    names.push(text)\n    names.free(h)\n    text.free(h)\nend\n"
+	source := "fun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    text: String := \"hi\".to_string(h)\n    names.push(text)\n    names.free(h)\n    text.free(h)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -182,7 +182,7 @@ func TestListStringElementsAreShallow(t *testing.T) {
 }
 
 func TestListFreeReleasesOnlyContainerStorage(t *testing.T) {
-	source := "fun demo(h: Heap) do\n    names: List<String> = List<String>.new(h)\n    names.free(h)\nend\n"
+	source := "fun demo(h: Heap) do\n    names: List<String> := List<String>.new(h)\n    names.free(h)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
