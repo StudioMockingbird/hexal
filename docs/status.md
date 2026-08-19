@@ -25,6 +25,7 @@ other.
 |---|---|
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
+| Inferred binding declarations — narrow `:=` for context-independent initializers | [0090](specs/0090-inferred-binding-declarations.md) |
 
 ### Implementation-ready
 
