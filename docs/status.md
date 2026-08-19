@@ -31,9 +31,7 @@ other.
 
 | Work | Spec |
 |---|---|
-| Module-typed collection elements — emit specializations where the element type is available | [0081](specs/0081-module-typed-collection-elements.md) |
-| Demand-driven component dependencies — no hollow `hexal/*.h` artifacts | [0082](specs/0082-demand-driven-component-dependencies.md) |
-| Text and collection surface — drop `List.set`, add `Dict.length`/`Dict.find`, remove text indexing | [0083](specs/0083-text-and-collection-surface.md) |
+| Dict.find — one-lookup optional get; blocked on union-in-component layering (RFC 0083 A3) | [0083](specs/0083-text-and-collection-surface.md) |
 | Cached rune length — O(1) `String.length()`; supersedes 0083 Part B rename | [0087](specs/0087-cached-rune-length.md) |
 | Provably dead bounds checks — elide Array checks the compiler already proved | [0088](specs/0088-provably-dead-bounds-checks.md) |
 | Composed name encoding — stop re-embedding `hex_` inside union names | [0089](specs/0089-composed-name-encoding.md) |
@@ -54,16 +52,9 @@ deleted:
 
 ## Open bugs
 
-- **Module-owned object elements in List/Dict/Array/View specializations
-  generate uncompilable C.** `List<M.Point>` compiles clean and emits C
-  referencing an undeclared type: the program-wide component header
-  `hexal/list.h` spells `hex_t_m1_m_Point` but never includes the module that
-  defines it, and module headers never include one another. Direct use of the
-  same type is correct — a consuming module re-emits the definitions it needs —
-  so this is a layering inversion specific to shared component artifacts, not
-  the include-order failure previously recorded here. No test, c23 canary, or
-  snippet exercises it. Owned by
-  [0081](specs/0081-module-typed-collection-elements.md).
+None. RFC 0081 closed the last one — module-owned collection elements now
+emit their specialization beside the element typedef in the consuming module
+header, so every spelled type is declared before use.
 
 ## Known coverage gaps
 

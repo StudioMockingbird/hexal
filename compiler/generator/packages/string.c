@@ -215,21 +215,6 @@ bool hex_string_is_empty(const hex_string *text) {
     return text->byte_length == 0;
 }
 
-uint32_t hex_string_at_rune(const hex_string *text, size_t rune_index) {
-    size_t index = 0;
-    size_t rune = 0;
-    for (;;) {
-        if (index >= text->byte_length) {
-            hex_runtime_trap("[Runtime Error] string index out of bounds\n");
-        }
-        if (rune == rune_index) {
-            return hex_utf8_decode(text->data, text->byte_length, &index);
-        }
-        hex_utf8_next(text->data, text->byte_length, &index);
-        rune++;
-    }
-}
-
 hex_rune_cursor hex_string_rune_cursor(const hex_string *text) {
     return (hex_rune_cursor){ text->data, text->byte_length, 0 };
 }
@@ -257,21 +242,6 @@ size_t hex_strand_rune_length(hex_strand text) {
 
 bool hex_strand_is_empty(hex_strand text) {
     return text.data[0] == 0;
-}
-
-uint32_t hex_strand_at_rune(hex_strand text, size_t rune_index) {
-    size_t index = 0;
-    size_t rune = 0;
-    for (;;) {
-        if (index >= 32 || text.data[index] == 0) {
-            hex_runtime_trap("[Runtime Error] string index out of bounds\n");
-        }
-        if (rune == rune_index) {
-            return hex_utf8_decode(text.data, 32, &index);
-        }
-        hex_utf8_next(text.data, 32, &index);
-        rune++;
-    }
 }
 
 const hex_string *hex_strand_to_string(hex_heap h, hex_strand text) {

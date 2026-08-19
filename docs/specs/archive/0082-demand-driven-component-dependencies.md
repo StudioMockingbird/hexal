@@ -1,7 +1,13 @@
 # RFC 0082: Demand-Driven Component Dependencies
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Implemented; verified 2026-08-19. `NeedsView` on the array and list
+  models guards both the include and the requirement predicate
+  (`collectionsNeedView`), so the include, the selection, and the slice helper
+  now read one fact. Eight catalog snippets stopped emitting a hollow
+  `hexal/view.h`. The class guard the spec required is
+  `TestNoComponentArtifactIsHollow`, proven to fire by reverting the predicate
+  and observing the same eight.
 - Created: 2026-08-19
 - Scope: component artifact selection — a component is emitted only when
   something references it

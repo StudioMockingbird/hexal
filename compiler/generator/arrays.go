@@ -318,12 +318,6 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			}
 			return "*hex_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
 		}
-		if compilerTypes.IsString(node.OperandType) {
-			return "hex_string_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
-		}
-		if compilerTypes.IsStrand(node.OperandType) {
-			return "hex_strand_at_rune(" + receiver + ", (size_t)(" + index + "))", nil
-		}
 		return "*" + arrayAccessorCName(node.OperandType, place.writable) + "(&" + receiver + ", (size_t)(" + index + "))", nil
 	case checker.ArrayLiteralExpression:
 		if node.ResultType.Array == nil {

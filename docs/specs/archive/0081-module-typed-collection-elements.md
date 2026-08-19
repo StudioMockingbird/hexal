@@ -1,7 +1,16 @@
 # RFC 0081: Module-Typed Collection Elements
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready. Option A is decided; see Decided.
+- Status: Implemented; verified 2026-08-19. Option A landed as specified: a
+  specialization whose element is module-owned is emitted into the consuming
+  module header after that element typedef, and a module whose only
+  specializations are module-typed emits no component artifact and no include
+  for one. Builtin-element specializations are unchanged. The two-module probe
+  the spec required ran before implementation and held, so the recorded
+  fallback was not needed; `Dict<M.Point, S.Color>`, nested
+  `List<List<M.Point>>`, `Array`, and `Dict` all declare the element before the
+  specialization, covered by
+  `TestModuleOwnedCollectionElementsDeclareBeforeUse`.
 - Created: 2026-08-18
 - Scope: where a collection specialization over a module-owned element type is
   emitted, so the generated C declares every type it spells

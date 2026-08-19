@@ -4,3 +4,8 @@
 # Go source is always LF: gofmt emits LF unconditionally, so a CRLF .go
 # file is unformatted by definition. Everything else follows text=auto.
 *.go text eol=lf
+
+# Generated-C templates are LF: their bytes become the emitted artifact, so a
+# CRLF working-tree copy changes every generated file and moves the snippet
+# manifest. Unlike ordinary text, these are content, not source.
+compiler/generator/packages/* text eol=lf

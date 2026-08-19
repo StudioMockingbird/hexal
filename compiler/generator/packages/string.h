@@ -32,7 +32,6 @@ const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const he
 void hex_string_free(hex_heap h, const hex_string *text);
 size_t hex_string_rune_length(const hex_string *text);
 bool hex_string_is_empty(const hex_string *text);
-uint32_t hex_string_at_rune(const hex_string *text, size_t rune_index);
 
 typedef struct hex_rune_cursor {
     const uint8_t *data;
@@ -73,7 +72,6 @@ static inline hex_view_UInt8 hex_string_slice(const hex_string *text, size_t sta
 {{if .NeedStrand}}
 size_t hex_strand_rune_length(hex_strand text);
 bool hex_strand_is_empty(hex_strand text);
-uint32_t hex_strand_at_rune(hex_strand text, size_t rune_index);
 const hex_string *hex_strand_to_string(hex_heap h, hex_strand text);
 {{end}}
 #endif

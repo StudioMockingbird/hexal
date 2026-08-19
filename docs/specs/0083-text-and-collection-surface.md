@@ -1,8 +1,21 @@
 # RFC 0083: Text and Collection Surface Corrections
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready. Part B's Option A is decided.
-  The two parts are independent and may land separately, in either order.
+- Status: Partially implemented; verified 2026-08-19. Landed: A1 `List.set`
+  deleted, A2 `Dict.length` added, and Part B index removal for both String
+  and Strand.
+
+  Open, tracked here until each is closed:
+
+  - **A3 `Dict.find(key) -> V | Nil`** is deferred. Returning a union from a
+    component helper hits the layering constraint RFC 0081 addressed: a
+    program-wide component cannot name a union declared in a module header.
+    The workable lowering returns `const V *` from the runtime and builds the
+    union at the call site, which needs prologue hoisting — the machinery RFC
+    0084 had just repaired. It needs its own design pass, not a rushed one.
+  - **Part B `length()` rename and `is_empty` removal** are withdrawn, not
+    pending: RFC 0087 caches the rune count, which makes `length()` O(1) and
+    removes the reason for both.
 - Created: 2026-08-19
 - Scope: redundant and missing collection operations; the cost model of text
   indexing

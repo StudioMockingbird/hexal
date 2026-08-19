@@ -63,7 +63,6 @@ func TestStringSurfaceCompiles(t *testing.T) {
 	for _, fragment := range []string{
 		"hex_string_rune_length(",
 		"hex_string_is_empty(",
-		"hex_string_at_rune(",
 		"hex_string_rune_cursor(",
 		"hex_rune_cursor_has_next(",
 		"hex_rune_cursor_next(",
