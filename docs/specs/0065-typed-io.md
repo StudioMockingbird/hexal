@@ -337,6 +337,49 @@ is no `List<IO>` of mixed stream kinds and no function that accepts "some
 stream" decided at run time. Every use site knows the concrete type. Go,
 Crystal, and Odin all support that; Hexal would not.
 
+### The mechanism carries a real signature, not just a toy
+
+The `v.get()` probe above proves the mechanism exists. This one compiles a
+reader with a fallible read and a generic consumer over it, which is the shape
+the surface will actually have:
+
+```hexal
+impl MutPtr<MemReader>.read(buf: MutPtr<Array<Byte, 4>>): Size | EoS | Error do
+    if self.cursor >= self.data.length() then
+        return eos
+    end
+    ...
+    return copied
+end
+
+fun drain<R>(src: MutPtr<R>): Size | Error do
+    ...
+    outcome: Size | EoS | Error = src.read(ref buf)
+    n: Size | EoS = try outcome
+    if n is EoS then
+        return total
+    end
+    total = total + n
+    ...
+end
+```
+
+Three facts fall out, none of them decisions, all of them constraints the
+surface design inherits:
+
+- **A method may take a `MutPtr<T>` receiver.** `impl MutPtr<MemReader>.read`
+  is accepted, which is what a stream needs: reading advances a cursor.
+- **The count is the return value; there are no out-parameters.** A C-shaped
+  `read(buf, bytes_read: MutPtr<Size>): IoError` is unnecessary here, because a
+  union return carries both. Any proposed signature with an out-parameter for
+  the transferred count is importing a C constraint the language does not have.
+- **`match` cannot express error control flow.** It is an expression
+  (`reference.md:525`) and its arms are expressions, so `match err | Case then
+  return …` does not parse and neither does `match` in statement position.
+  Branching on a failed operation goes through `try`, `errdefer`, or
+  `if … is …`. A surface designed around matching an error enum would not
+  compile.
+
 ### The idea most worth taking
 
 **Zig's explicit `Io` parameter**, because Hexal already passes allocators
@@ -418,6 +461,20 @@ pipeline.
    borrowed and must not be closable by an ordinary `close`.
 6. How does a read distinguish end-of-input, a partial transfer, and an Error?
    Partial is not a failure and must not be reported as one.
+
+   **The language may already answer this.** `EoS` is a builtin zero-state
+   value (`reference.md:394`) and `Channel<T>.receive() -> T | EoS`
+   (`:917`) is the established precedent for a source that has run dry — a
+   drained receive returns `eos` rather than an error. `Size | EoS | Error`
+   applies the same shape: the count is the success value, `eos` is
+   end-of-input, `Error` is failure, and a short count is an ordinary `Size`
+   that needs no separate signal. Verified to compile, above.
+
+   This is evidence, not a decision. It settles nothing about whether the
+   operation is blocking, which is still the prerequisite. But it means the
+   answer is likely a spelling the language already has rather than a new
+   error enum, and any proposal for one should have to argue against this
+   precedent first.
 7. What opens a handle? Path types and open modes belong to the filesystem
    specification; this RFC consumes the handle it produces.
 
