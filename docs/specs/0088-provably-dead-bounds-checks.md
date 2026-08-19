@@ -74,6 +74,17 @@ Any constant index that survives checking is in range. The generator does not
 need to re-derive that — it needs only to notice the operand is a constant and
 skip the check.
 
+**Scope this to literal indices.** The checker's constant proof is wider than
+the generator's view: it resolves through immutable bindings, so
+`n: Int32 = 0` followed by `a[n]` is proven in range at check time
+(`checker/arrays.go`). The generator sees a variable reference unless the known
+operand is carried forward, so it will emit the check there.
+
+That is safe — emitting a check that cannot fire is always correct — and this
+RFC deliberately promises only the literal case. Widening it later to consume
+the checker's known-constant result is additive. Do not claim the wider
+behaviour before implementing it.
+
 ### Consequence — accessors become demand-driven
 
 An accessor is emitted only when a program performs an access whose check
@@ -99,6 +110,12 @@ const int32_t x = hex_v_a.data[0];
 Accessor emission keys off whether any surviving access needs one, per array
 specialization and per direction (`at` versus `at_mut`) — a program that only
 reads emits no `at_mut`.
+
+**The demand rule is partition-agnostic.** RFC 0081 emits a module-typed
+specialization into its consuming module header rather than the shared
+component, so the same array type can be rendered from either position. The
+filter applies at both: it keys on whether an access survived, never on which
+artifact the specialization landed in.
 
 ## Not doing: replacing the struct with a raw C array
 

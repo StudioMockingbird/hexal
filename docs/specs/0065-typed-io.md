@@ -284,6 +284,70 @@ Blocking C `FILE *` operations can block a scheduler worker, not merely one
 fiber. This must be an explicit accepted limitation or addressed by a runtime
 I/O strategy before implementation.
 
+## Prior art, and what Hexal can take from it
+
+Four languages with comparable goals, surveyed for the operation set and the
+polymorphism mechanism. Treat the Zig detail as approximate: its I/O surface was
+being reworked when this was written.
+
+| | Abstraction | Concurrency |
+|---|---|---|
+| **Go** | `io.Reader`/`io.Writer`, two methods; fat pointer + vtable | netpoller parks the goroutine on socket readiness; **files are not pollable**, so the runtime detaches the P and lets the thread block |
+| **Crystal** | abstract `IO` class; subclasses implement `read(Bytes)`/`write(Bytes)` | fibers plus an event loop, blocking-looking API |
+| **Zig** | historically `comptime`-generic readers/writers monomorphized per type; more recently concrete buffered structs plus an explicit `Io` parameter | chosen by the caller through that parameter |
+| **Odin** | `io.Stream` is `{ data, procedure }` — one function pointer switching on a mode enum | blocking only |
+
+**All four agree on the primitive set**: read into a caller buffer, write from
+one, both returning a count, with partial transfers ordinary. Four independent
+designs reaching the same two operations is the strongest available evidence
+that the Operations section above is right.
+
+**Go's split confirms Blocking class.** It is the only one of the four that
+handles both pollable and non-pollable handles, and it needs two mechanisms to
+do it. That is the same fork this RFC faces.
+
+### Three of the four mechanisms are unavailable
+
+| Mechanism | Hexal |
+|---|---|
+| Go interfaces | none |
+| Crystal inheritance | none |
+| Odin function pointer in a struct | **`Fun` cannot be an object member** (`reference.md:459`) |
+| Zig `comptime` | none |
+
+### What is available: duck-typed generics
+
+Verified — a generic function may call a method on its type parameter, resolved
+per instantiation:
+
+```hexal
+fun use<T>(v: T): Int32 do
+    return v.get()
+end
+```
+
+So `fun copy<S, D>(source: S, dest: D)` calling `source.read(…)` and
+`dest.write(…)` monomorphizes per instantiation. Generic helpers work across
+File, Pipe, and Socket with no vtable and no indirect call. This is Zig's older
+model and needs no new language feature.
+
+**The cost, which must be stated in the surface design: no type erasure.** There
+is no `List<IO>` of mixed stream kinds and no function that accepts "some
+stream" decided at run time. Every use site knows the concrete type. Go,
+Crystal, and Odin all support that; Hexal would not.
+
+### The idea most worth taking
+
+**Zig's explicit `Io` parameter**, because Hexal already passes allocators
+explicitly rather than ambiently. Passing the I/O implementation is the same
+pattern one level up, and it may dissolve the blocking-boundary question rather
+than answering it: a blocking implementation and an evented one behind one
+surface, selected by the caller instead of by the runtime.
+
+That is the strongest lead available, and it comes from the language whose
+ethos this one already shares. It should be the first thing the detailed design
+pass evaluates.
+
 ## Architecture direction
 
 Prefer implementing IO through ordinary Hexal bindings/core-library code over

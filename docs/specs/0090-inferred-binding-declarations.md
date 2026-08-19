@@ -138,18 +138,63 @@ Rejecting it needs the compiler to distinguish *determined* from *defaulted*.
 Nothing records that today: `checkedExpression` carries ten fields and none is
 an untyped marker.
 
-**The cheap answer is a syntactic predicate on the initializer's parse node,
-decided before checking rather than after.** A form is contextual when it is:
+**The predicate already exists.** `isContextualExpression`
+(`compiler/checker/unions.go:11`) decides which forms a contextual union
+injection may reach, and it is the same question in a different setting:
 
-- an integer, float, or string literal;
-- `nil`;
-- an array literal; or
-- an operation **all** of whose operands are contextual.
+```go
+case parser.IntegerLiteral, parser.DecimalLiteral, parser.NegatedNumericLiteral:
+    return true
+case parser.UnaryExpression:
+    return expression.Operator.Lexeme == "-" || isContextualExpression(expression.Operand)
+case parser.BinaryExpression:
+    return isArithmeticToken(...) && isContextual(Left) && isContextual(Right)
+default:
+    return false
+```
+
+**Extend it rather than write a second one.** Two predicates answering "does
+this form take its type from context" would drift apart, and the drift would be
+silent. Four cases are missing for `:=`:
+
+- **string literals** — `"hexal"` is valid as String and as Strand;
+- **`nil`** — requires a contextual union containing Nil;
+- **array literals** — need an element type and a length;
+- **`match`** — see below, and it is the one that matters.
 
 Everything else — a constructor, a named object literal, a call, a binding read,
-a member or index read, `try`, `spawn` — determines itself. The recursion in the
-last case is what makes `1 + 2` reject and `count + 1` accept, and it needs no
-type information at all: one operand being a name is enough.
+a member or index read, `try`, `spawn` — determines itself. The existing
+arithmetic recursion is what makes `1 + 2` reject and `count + 1` accept, and it
+needs no type information: one operand being a name is enough.
+
+### `match` is the silent-acceptance case
+
+A `match` used as an initializer forwards the expected type into every arm
+(`checker/adt.go:548` passes `context.expected` to each arm's expression), so
+its arms are typed by the annotation, not by themselves. Verified:
+
+```
+x: Int64 = match ready | true then 1 | false then 0 end   →  const int64_t
+x: Int32 = match ready | true then 1 | false then 0 end   →  const int32_t
+```
+
+Identical source, two types, decided entirely by the annotation. Remove the
+annotation and the arms default to Int32 — silently, and with `match` absent
+from the predicate the declaration would be **accepted**.
+
+That is the exact failure this RFC exists to prevent, and it arrives in the
+direction the Drawbacks section claimed was impossible.
+
+**A `match` is contextual when every arm's expression is contextual.** The
+scrutinee is irrelevant — it has its own type and never receives the expected
+one. This keeps the predicate purely syntactic and matches the recursion already
+there for arithmetic.
+
+The general rule, which is what makes the extension checkable rather than a
+list: **a form is contextual if it forwards the expected type to
+sub-expressions and all of those are contextual.** Any future construct that
+threads `context.expected` inward must be added here in the same change. Grep
+for `context.expected` to enumerate them.
 
 This is preferable to threading an `untyped` flag through the checker. It is
 local, it runs before any type work, and it cannot drift out of agreement with
@@ -220,6 +265,16 @@ Both edits land with the implementation.
   a subsequent use that would fail under any other type.
 - Each rejected form produces the diagnostic above, at the `:=` token.
 - `sum := count + 1` with `count: Int32` is accepted and yields Int32.
+- **`x := match ready | true then 1 | false then 0 end` is rejected**, and the
+  same match with a typed arm is accepted. This is the silent-acceptance case;
+  without it the predicate passes its other tests while defaulting to Int32 here.
+- Every form that threads `context.expected` inward is covered. Derive the list
+  by grepping `context.expected` in `compiler/checker/` rather than trusting the
+  enumeration in Mechanism — a form added later must fail this test, not slip
+  through it.
+- The union-injection path that already uses `isContextualExpression` keeps its
+  existing behaviour: extending the predicate must not change which contextual
+  unions are accepted today.
 - `mut total := compute()` is accepted and rebindable; `total := compute()`
   followed by assignment is rejected as a constant.
 - A `:=` binding and its annotated equivalent generate identical C.
@@ -245,12 +300,13 @@ Both edits land with the implementation.
   worth it.
 - An author must learn which initializers qualify. The diagnostic teaches it at
   the point of failure, but it is a rule where there was none.
-- The contextual predicate is a **second** place that decides what a form's type
-  depends on, beside the checker's own expected-type threading. They must agree,
-  and nothing enforces that they do. The mitigation is that the predicate is
-  deliberately coarser — it asks only whether the source named anything — so it
-  can be wrong in one direction only: rejecting a declaration the checker could
-  have typed. That failure is visible and annotatable, never silent.
+- The predicate must stay in step with every form that threads the expected type
+  inward, and nothing enforces that mechanically. An omission is **not**
+  symmetric: a missing contextual case is accepted and silently defaulted, which
+  is how `match` was nearly shipped. An earlier revision of this section claimed
+  the predicate could only over-reject; that was wrong. Extending the existing
+  `isContextualExpression` rather than adding a second predicate is the
+  mitigation, since the union path exercises the same function.
 - It reverses a documented instruction in `AGENTS.md`, which is a cost to the
   credibility of such instructions. Reversing it explicitly and narrowly, rather
   than quietly, is the mitigation.

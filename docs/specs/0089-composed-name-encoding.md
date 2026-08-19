@@ -76,8 +76,14 @@ same embedded form**. They cannot, and the argument has two halves:
 1. Every member `CName` either begins with `hex_` — user types (`hex_t_*`),
    specializations (`hex_list_*`, `hex_array_*`, `hex_view_*`, `hex_dict_*`,
    `hex_task_*`, `hex_channel_*`), and builtins (`hex_string`, `hex_strand`,
-   `hex_heap`) — or is a fixed C scalar spelling (`int32_t`, `bool`, `double`,
-   `size_t`).
+   `hex_heap`, `hex_mutex`, `hex_rune_cursor`, `hex_eos`) — or is a fixed C
+   spelling that does not.
+
+   **The non-`hex_` set is wider than the obvious four and the prose here is not
+   its authority.** Real unions carry `int8_t` through `int64_t`, `uint8_t`
+   through `uint64_t`, `float`, `double`, `bool`, `size_t`, `void`, and
+   `nullptr_t` — the last from every nullable member. Derive the set from the
+   `types` package, never from this list.
 2. Stripping maps the first set to names beginning with a compiler category
    token (`t_`, `list_`, `array_`, `view_`, `dict_`, `task_`, `channel_`,
    `string`, `strand`, `heap`) and leaves the second set untouched. No C scalar
@@ -152,8 +158,10 @@ ever wanted, it needs its own injectivity argument.
 ## Validation
 
 - A property test asserts the stripped embedded forms are pairwise distinct
-  across every constructible member type, including every scalar, every builtin,
-  a user type, and one specialization of each collection and handle kind.
+  across every constructible member type. **Enumerate the scalar spellings from
+  the `types` package, not from this spec** — the prose list is illustrative and
+  will rot. Cover every builtin, a user type, and one specialization of each
+  collection and handle kind.
 - The same union written in two modules still produces one C type with one name.
 - Two structurally different unions still produce two distinct names, including
   the RFC 0073 D19 shape — `M.Point | Bool` versus `S.Point | Bool`.

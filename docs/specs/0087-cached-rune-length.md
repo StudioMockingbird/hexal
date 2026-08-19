@@ -33,6 +33,9 @@ removal instead of a removal plus a rename plus a permanent asymmetry.
 | literals | **zero** — computed at compile time, emitted as a constant |
 | `to_string` | **zero** — copies the field |
 
+And one consumer beside `length()`: `slice` validates its bounds against a rune
+count it computes by scanning, which becomes a field read. See The change.
+
 **Literals are the sixth site and the only one outside the C templates.** They
 do not use `hex_string_storage`; the Go emitter writes two objects, and the
 header with a **positional** initializer:
@@ -81,10 +84,30 @@ typedef struct hex_string {
 } hex_string;
 ```
 
-`hex_string_rune_length` becomes a field read. Nothing else consumes a rune
-position: `hex_string_at_rune` and `hex_strand_at_rune` were deleted when RFC
-0083 removed text indexing, and `rune_cursor` walks incrementally from its own
-stored offset. With the count cached, no O(n) rune path remains.
+`hex_string_rune_length` becomes a field read.
+
+**`hex_string_slice` is the second consumer and this RFC halves it.** It
+currently walks twice (`string.h`): once over the whole string counting runes to
+validate the bounds, then again to `end` to convert rune offsets into byte
+offsets.
+
+```c
+while (index < text->byte_length) { hex_utf8_next(...); runes++; }   /* → field read */
+if (!(start <= end && end <= runes)) { trap }
+for (size_t rune = 0; rune < end; rune++) { hex_utf8_next(...); }    /* stays */
+```
+
+The validation scan becomes `text->rune_length`. The second walk stays and
+shrinks from O(n) to O(end): a count gives no byte offset, so reaching rune
+`end` still requires walking there. Slice must be updated in the same change —
+leaving it scanning to derive a number now stored in the header would be the
+inconsistency this RFC exists to remove.
+
+**So one O(n) rune path remains, deliberately.** `rune_cursor` walks
+incrementally from its own stored offset and is unchanged; `hex_string_at_rune`
+and `hex_strand_at_rune` were deleted when RFC 0083 removed text indexing. After
+this RFC the only walks left are the ones that need a *position*, never a
+*count*.
 
 Space cost is 8 bytes on the header, which is heap-allocated once per string and
 shares one allocation with the bytes (`hex_string_storage`). **String values stay
@@ -156,6 +179,10 @@ layout today. The same change after bindings exist is a breaking ABI change.
 
 - `s.length()` performs no scan: assert on the generated C that it reads the
   field rather than calling a walking helper.
+- `s.slice(a, b)` validates against the cached count rather than a scan, and
+  still walks only as far as `end`. Its result is byte-identical to today for
+  ASCII, multi-byte, and mixed-width inputs, including empty and full-range
+  slices.
 - The count is correct for each construction path — literal, `from_bytes`,
   `from_runes`, `concat`, `to_string` — over ASCII, multi-byte, and
   mixed-width inputs, including an empty string.
