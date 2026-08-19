@@ -67,42 +67,63 @@ func TestTypeUsePreservesCandidatesAndNestedElement(t *testing.T) {
 	}
 }
 
-// Stripping the leading hex_ from member CNames preserves injectivity only if
-// all stripped forms are pairwise distinct across constructible member types.
-func TestStrippedUnionMemberFormsArePairwiseDistinct(t *testing.T) {
+// unionCName embeds each member's CName with its leading hex_ stripped, so the
+// encoding stays injective exactly as long as stripping never merges two
+// distinct C spellings into one. That is the property, and it is not the same
+// as "every member's stripped form is unique": several builtins deliberately
+// share a spelling — Byte and UInt8 are both uint8_t, Rune and UInt32 are both
+// uint32_t — and a union of two of those has one member, not two.
+//
+// The builtin half enumerates types.builtinTypes rather than a list written
+// here, so a builtin added without a distinct spelling fails this test instead
+// of silently escaping it. The parameterized half must stay written out: those
+// types are constructed, not registered.
+func TestStrippingHexPrefixNeverMergesTwoCSpellings(t *testing.T) {
 	environment := NewEnvironment()
-	userObject := environment.BeginObject("Point", 1, 1)
-	userAdt := environment.BeginADT("Option", 1, 1)
-
-	constructibleTypes := []Type{
-		Int8, Int16, Int32, Int64,
-		UInt8, UInt16, UInt32, UInt64,
-		Float32, Float64,
-		Bool, SizeType,
-		Nil, EoS, Unknown, Heap,
-		StringType, StrandType, ErrorType, MutexType, RuneCursorType,
-		userObject, userAdt,
-		environment.ArrayType(Int32, 4),
-		environment.ViewType(Int32),
-		environment.ListType(Int32),
-		environment.DictType(Int32, StringType),
-		environment.TaskType(Int32),
-		environment.ChannelType(Int32),
-		environment.AtomicType(Int32),
-		environment.PtrType(Int32),
+	spellings := map[string]string{}
+	record := func(name, cName string) {
+		if previous, exists := spellings[cName]; exists && previous != name {
+			return // one C spelling reached by two Hexal names is fine and pre-existing
+		}
+		spellings[cName] = name
+	}
+	for name, member := range builtinTypes {
+		record(name, member.CName)
+	}
+	for name, member := range map[string]Type{
+		"Point":          environment.BeginObject("Point", 1, 1),
+		"Option":         environment.BeginADT("Option", 1, 1),
+		"Array<Int32,4>": environment.ArrayType(Int32, 4),
+		"View<Int32>":    environment.ViewType(Int32),
+		"List<Int32>":    environment.ListType(Int32),
+		"Dict<Int32,S>":  environment.DictType(Int32, StringType),
+		"Task<Int32>":    environment.TaskType(Int32),
+		"Channel<Int32>": environment.ChannelType(Int32),
+		"Atomic<Int32>":  environment.AtomicType(Int32),
+		"Ptr<Int32>":     environment.PtrType(Int32),
+	} {
+		record(name, member.CName)
 	}
 
-	seen := make(map[string]Type)
-	for _, member := range constructibleTypes {
-		stripped := strings.TrimPrefix(member.CName, "hex_")
-		if previous, exists := seen[stripped]; exists {
-			t.Fatalf("collision in stripped union member form %q: between %s (CName: %s) and %s (CName: %s)",
-				stripped, member.Name, member.CName, previous.Name, previous.CName)
+	stripped := map[string]string{}
+	for cName := range spellings {
+		form := strings.TrimPrefix(cName, "hex_")
+		if previous, exists := stripped[form]; exists {
+			t.Fatalf("stripping hex_ merges two distinct C spellings into %q: %q (%s) and %q (%s)",
+				form, cName, spellings[cName], previous, spellings[previous])
 		}
-		seen[stripped] = member
+		stripped[form] = cName
+	}
+	if len(stripped) != len(spellings) {
+		t.Fatalf("stripped forms = %d, distinct C spellings = %d", len(stripped), len(spellings))
 	}
 }
 
+// unionCName is exercised directly here on a member that is itself a union.
+// UnionType flattens, so this shape never reaches the encoder through normal
+// construction — TestNestedUnionEncodingIntegration covers what a source-level
+// nested union actually produces. This pins the encoder's own behaviour so the
+// length prefix stays correct if flattening ever changes.
 func TestNestedUnionEncoding(t *testing.T) {
 	environment := NewEnvironment()
 	inner := environment.UnionType([]Type{Int32, Bool})
