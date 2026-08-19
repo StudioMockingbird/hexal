@@ -50,8 +50,8 @@ non-control-statement = declaration | assignment | call-statement
                         | "break" | "continue"
                         | defer-statement | errdefer-statement ;
 block = { statement } ;
-declaration = [ "mut" ] , identifier , ":" , type-expression
-              , "=" , expression ;
+declaration = [ "mut" ] , identifier
+              , ( ":" , type-expression , "=" | ":=" ) , expression ;
 assignment = assignment-target , "=" , expression ;
 assignment-target = place-expression ;
 call-statement = ? call-expression whose first token is identifier or "self" ? ;
