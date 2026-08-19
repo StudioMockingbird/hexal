@@ -201,7 +201,34 @@ local, it runs before any type work, and it cannot drift out of agreement with
 the type rules because it never consults them — it only asks whether the source
 named anything.
 
-The predicate is the one new piece of machinery, and it is perhaps thirty lines.
+The predicate is the one new piece of machinery **in the checker**. There is
+also lexer and parser work, below.
+
+### `:=` is not a token today, and that is a decision
+
+The lexer emits a bare `Colon` and advances one character
+(`compiler/lexer/lexer.go`); there is no `:=` lexeme and no lookahead for `=`.
+The parser's declaration path then requires a type after the colon
+(`parser/statements.go`). So `x := 5` currently lexes as
+`Ident Colon Equal Int` and fails in the parser.
+
+Two ways to accept it, and they differ in what else they accept:
+
+**Lex `:=` as one token.** `x : = 5` — colon, space, equals — stays a syntax
+error, because the lexer only produces the token when the characters are
+adjacent. This is what most languages do, and for the same reason.
+
+**Parse `Colon` followed immediately by `Equal`.** No lexer change, but
+whitespace between them becomes invisible, so `x : = 5` is silently accepted as
+a declaration. That is a second spelling of the feature, arriving by accident
+rather than design — precisely what the Summary argues this RFC avoids.
+
+**Take the token.** It costs a lexeme and a case in the lexer's colon branch,
+and it keeps the surface to exactly one spelling. Note that the existing branch
+already has the shape to copy: `!` looks ahead for `=` two cases below.
+
+An earlier revision of this section called the checker predicate "the one new
+piece of machinery." That was wrong — it is the only *subtle* piece.
 
 ## Why literals are excluded
 
@@ -264,6 +291,9 @@ Both edits land with the implementation.
 - Each accepted form above declares a binding of the expected type, verified by
   a subsequent use that would fail under any other type.
 - Each rejected form produces the diagnostic above, at the `:=` token.
+- `x : = 5` — colon, space, equals — is a syntax error, not a declaration. This
+  is the test that distinguishes the token from the lookahead: it passes under
+  one and fails under the other.
 - `sum := count + 1` with `count: Int32` is accepted and yields Int32.
 - **`x := match ready | true then 1 | false then 0 end` is rejected**, and the
   same match with a typed arm is accepted. This is the silent-acceptance case;

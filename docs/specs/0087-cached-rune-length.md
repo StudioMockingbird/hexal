@@ -31,7 +31,7 @@ removal instead of a removal plus a rename plus a permanent asymmetry.
 | `from_runes` | **zero** — the count is the `length` parameter |
 | `concat` | **O(1)** — `left->rune_length + right->rune_length`, beside the `byte_length` add it already performs |
 | literals | **zero** — computed at compile time, emitted as a constant |
-| `to_string` | **zero** — copies the field |
+| `to_string` | **zero** — both forms delegate to `from_bytes` (`string.c:156`, `:247`), so the count falls out of the scan already there. Neither copies the field. |
 
 And one consumer beside `length()`: `slice` validates its bounds against a rune
 count it computes by scanning, which becomes a field read. See The change.
