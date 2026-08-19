@@ -106,12 +106,18 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   firing and process exit on both platforms, the unchanged re-raise of a
   fault outside any Task guard page, a 64 KiB reserve overflowing sooner than
   1 MiB, and a POSIX Task using more than the 8 KiB initial commit without
-  faulting. What is verified without execution: the whole generated
-  concurrency runtime compiles and links under a strict `-std=c23` glibc
-  x86-64 toolchain (zig cc) at both the default and a 64 KiB reserve, the
-  reserve and commit spellings reach both platform allocation sites, the
-  POSIX site documents the commit as unused there, and the snippet manifest
-  moved only the ten task-spawning snippets.
+  faulting. What is verified: the reserve and commit spellings reach both
+  platform allocation sites, the POSIX site documents the commit as unused
+  there, and the snippet manifest moved only the ten task-spawning snippets —
+  all by textual assertion, which is the only mechanism available.
+
+  An earlier revision of this entry also claimed the generated concurrency
+  runtime compiles under an external `-std=c23` toolchain. That claim is
+  withdrawn, not because it was false but because producing it required
+  invoking a compiler, which this project does not do. It was a manual
+  one-off, nothing in the repository reproduces it, and leaving it recorded
+  would present a prohibited action as an available one. The compile status of
+  that runtime is unverified, like every other generated artifact.
 
   The second kind is the worse one: a textual assertion can catch an undeclared
   identifier, but nothing short of running the binary catches a task that is
