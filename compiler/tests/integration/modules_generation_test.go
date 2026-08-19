@@ -306,9 +306,9 @@ func TestModuleGenerationLiteralOrder(t *testing.T) {
 	}
 	output := result.Files["hexal/string.c"]
 	definitions := []string{
-		"const uint8_t hex_lit_0_bytes[9] = { 105, 109, 112, 111, 114, 116, 101, 100, 0 };\nconst hex_string hex_lit_0 = { hex_lit_0_bytes, 8 };",
-		"const uint8_t hex_lit_1_bytes[7] = { 115, 104, 97, 114, 101, 100, 0 };\nconst hex_string hex_lit_1 = { hex_lit_1_bytes, 6 };",
-		"const uint8_t hex_lit_2_bytes[5] = { 114, 111, 111, 116, 0 };\nconst hex_string hex_lit_2 = { hex_lit_2_bytes, 4 };",
+		"const uint8_t hex_lit_0_bytes[9] = { 105, 109, 112, 111, 114, 116, 101, 100, 0 };\nconst hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 8, .rune_length = 8 };",
+		"const uint8_t hex_lit_1_bytes[7] = { 115, 104, 97, 114, 101, 100, 0 };\nconst hex_string hex_lit_1 = { .data = hex_lit_1_bytes, .byte_length = 6, .rune_length = 6 };",
+		"const uint8_t hex_lit_2_bytes[5] = { 114, 111, 111, 116, 0 };\nconst hex_string hex_lit_2 = { .data = hex_lit_2_bytes, .byte_length = 4, .rune_length = 4 };",
 	}
 	previous := -1
 	for _, definition := range definitions {
@@ -356,10 +356,10 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 	}
 	stringOutput := result.Files["hexal/string.c"]
 	definitions := []string{
-		"const uint8_t hex_lit_0_bytes[5] = { 114, 111, 111, 116, 0 };\nconst hex_string hex_lit_0 = { hex_lit_0_bytes, 4 };",
-		"const uint8_t hex_lit_1_bytes[9] = { 109, 97, 105, 110, 46, 104, 101, 120, 0 };\nconst hex_string hex_lit_1 = { hex_lit_1_bytes, 8 };",
-		"const uint8_t hex_lit_2_bytes[10] = { 83, 99, 104, 101, 100, 117, 108, 101, 114, 0 };\nconst hex_string hex_lit_2 = { hex_lit_2_bytes, 9 };",
-		"const uint8_t hex_lit_3_bytes[21] = { 116, 97, 115, 107, 32, 99, 114, 101, 97, 116, 105, 111, 110, 32, 102, 97, 105, 108, 101, 100, 0 };\nconst hex_string hex_lit_3 = { hex_lit_3_bytes, 20 };",
+		"const uint8_t hex_lit_0_bytes[5] = { 114, 111, 111, 116, 0 };\nconst hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 4, .rune_length = 4 };",
+		"const uint8_t hex_lit_1_bytes[9] = { 109, 97, 105, 110, 46, 104, 101, 120, 0 };\nconst hex_string hex_lit_1 = { .data = hex_lit_1_bytes, .byte_length = 8, .rune_length = 8 };",
+		"const uint8_t hex_lit_2_bytes[10] = { 83, 99, 104, 101, 100, 117, 108, 101, 114, 0 };\nconst hex_string hex_lit_2 = { .data = hex_lit_2_bytes, .byte_length = 9, .rune_length = 9 };",
+		"const uint8_t hex_lit_3_bytes[21] = { 116, 97, 115, 107, 32, 99, 114, 101, 97, 116, 105, 111, 110, 32, 102, 97, 105, 108, 101, 100, 0 };\nconst hex_string hex_lit_3 = { .data = hex_lit_3_bytes, .byte_length = 20, .rune_length = 20 };",
 	}
 	for _, definition := range definitions {
 		if count := strings.Count(stringOutput, definition); count != 1 {

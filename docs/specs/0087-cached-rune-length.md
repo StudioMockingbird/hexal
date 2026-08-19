@@ -1,7 +1,7 @@
 # RFC 0087: Cached Rune Length
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Closed; implemented
 - Created: 2026-08-19
 - Scope: store the rune count in the String header so `length()` is O(1), and
   the text-surface consequences that follow

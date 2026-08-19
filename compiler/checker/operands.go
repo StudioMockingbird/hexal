@@ -102,7 +102,7 @@ const (
 	// carries the decoded payload bytes.
 	StringLiteralExpression
 	// StringMethodCallExpression is one built-in String method: length,
-	// is_empty, bytes, slice, rune_cursor, to_string, concat, or free. Name
+	// bytes, slice, rune_cursor, to_string, concat, or free. Name
 	// selects the operation; Element
 	// is the byte view element type for bytes and slice.
 	StringMethodCallExpression

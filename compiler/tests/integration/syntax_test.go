@@ -230,6 +230,8 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 		{"fixed: Array<Int32, 2> = [1, 2] bad: Bool = fixed.is_empty()", "Array<Int32, 2> has no method is_empty"},
 		{"fixed: Array<Int32, 3> = [1, 2, 3] view: View<Int32> = fixed.slice(0, 2) bad: Bool = view.is_empty()", "View<Int32> has no method is_empty"},
 		{"fun demo(h: Heap) do\n    values: List<Int32> = List<Int32>.new(h)\n    empty: Bool = values.is_empty()\nend", "List<Int32> has no method is_empty"},
+		{"text: String = \"hi\" bad: Bool = text.is_empty()", "String has no method is_empty"},
+		{"label: Strand = \"hi\" bad: Bool = label.is_empty()", "Strand has no method is_empty"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -238,14 +240,13 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 	}
 }
 
-// String.is_empty, Strand.is_empty, and String.bytes are retained because
-// their replacements would be asymptotically worse; they still lower to
-// their constant-time helpers (positive test, not an absence check).
+// String.bytes is retained because its replacement would be asymptotically
+// worse; it still lowers to its constant-time helper (positive test, not an
+// absence check). RFC 0087 removed is_empty from String and Strand once the
+// cached rune count made length() == 0 the identical O(1) test.
 func TestRetainedTextOperationsKeepConstantTimeHelpers(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    text: String = \"hello\"\n    emptyText: Bool = text.is_empty()\n    raw: View<UInt8> = text.bytes()\n    label: Strand = \"hexal\"\n    emptyLabel: Bool = label.is_empty()\n    return emptyText and emptyLabel\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    text: String = \"hello\"\n    raw: View<UInt8> = text.bytes()\n    label: Strand = \"hexal\"\n    return text.length() == 0 and label.length() == 0\nend\n")
 	for _, want := range []string{
-		"hex_string_is_empty(",
-		"hex_strand_is_empty(",
 		"hex_string_bytes(",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {

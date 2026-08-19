@@ -47,8 +47,8 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 		}
 	}
 	for _, definition := range []string{
-		"const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };\nconst hex_string hex_lit_0 = { hex_lit_0_bytes, 5 };",
-		"const uint8_t hex_lit_1_bytes[4] = { 98, 121, 101, 0 };\nconst hex_string hex_lit_1 = { hex_lit_1_bytes, 3 };",
+		"const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };\nconst hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 5, .rune_length = 5 };",
+		"const uint8_t hex_lit_1_bytes[4] = { 98, 121, 101, 0 };\nconst hex_string hex_lit_1 = { .data = hex_lit_1_bytes, .byte_length = 3, .rune_length = 3 };",
 	} {
 		if strings.Count(source, definition) != 1 {
 			t.Fatalf("hexal/string.c defines %q %d times, want once: %q", definition, strings.Count(source, definition), source)
@@ -173,7 +173,7 @@ func TestStringTemplatesRenderModel(t *testing.T) {
 	model := stringRenderModel{
 		NeedStrand: true,
 		Literals: []stringLiteralModel{
-			{Name: "hex_lit_0", Payload: []uint8{104, 105}, ArraySize: 3, PayloadLength: 2},
+			{Name: "hex_lit_0", Payload: []uint8{104, 105}, ArraySize: 3, PayloadLength: 2, RuneLength: 2},
 		},
 	}
 	header, err := renderComponent(componentArtifact{key: "hexal/string.h", template: "string.h", model: model})
@@ -193,7 +193,7 @@ func TestStringTemplatesRenderModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("string.c render error = %v", err)
 	}
-	if !strings.Contains(source, "const uint8_t hex_lit_0_bytes[3] = { 104, 105, 0 };\nconst hex_string hex_lit_0 = { hex_lit_0_bytes, 2 };\n") {
+	if !strings.Contains(source, "const uint8_t hex_lit_0_bytes[3] = { 104, 105, 0 };\nconst hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 2, .rune_length = 2 };\n") {
 		t.Fatalf("hexal/string.c = %q, want the literal definitions", source)
 	}
 	if !strings.Contains(source, "size_t hex_strand_rune_length(hex_strand text) {") {

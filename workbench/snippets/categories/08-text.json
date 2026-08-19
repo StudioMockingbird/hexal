@@ -140,7 +140,7 @@
       "sources": {"app.hex": [
         "fun demo(h: Heap): Bool do",
         "    label: Strand = \"hexal\"",
-        "    empty: Bool = label.is_empty()",
+        "    empty: Bool = label.length() == 0",
         "    text: String = label.to_string(h)",
         "    count: Size = text.length()",
         "    text.free(h)",

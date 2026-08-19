@@ -1,5 +1,7 @@
 package generator
 
+import "unicode/utf8"
+
 // stringComponents returns the generated hexal/string.h and hexal/string.c
 // artifacts when String or Strand is reachable. The types,
 // literal declarations, UTF-8 helpers, and String operations migrate here
@@ -36,6 +38,7 @@ type stringLiteralModel struct {
 	Payload       []uint8
 	ArraySize     int
 	PayloadLength int
+	RuneLength    int
 }
 
 // stringRenderModel is the render model shared by the string.h and string.c
@@ -56,6 +59,7 @@ func buildStringLiteralModels(payloads []string) []stringLiteralModel {
 			Payload:       []byte(payload),
 			ArraySize:     len(payload) + 1,
 			PayloadLength: len(payload),
+			RuneLength:    utf8.RuneCountInString(payload),
 		})
 	}
 	return literals

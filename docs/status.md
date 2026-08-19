@@ -32,7 +32,6 @@ other.
 | Work | Spec |
 |---|---|
 | Dict.find — one-lookup optional get; blocked on union-in-component layering (RFC 0083 A3) | [0083](specs/0083-text-and-collection-surface.md) |
-| Cached rune length — O(1) `String.length()`; supersedes 0083 Part B rename | [0087](specs/0087-cached-rune-length.md) |
 | Provably dead bounds checks — elide Array checks the compiler already proved | [0088](specs/0088-provably-dead-bounds-checks.md) |
 | Inferred binding declarations — `:=` where the initializer states the type | [0090](specs/0090-inferred-binding-declarations.md) |
 
@@ -101,6 +100,14 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   platform allocation sites, the POSIX site documents the commit as unused
   there, and the snippet manifest moved only the ten task-spawning snippets —
   all by textual assertion, which is the only mechanism available.
+
+  RFC 0087's runtime validation is unverified for the same reason: that a
+  slice over multi-byte input is byte-identical to the scanning version, and
+  that a concatenated count matches an independent scan of the result. What is
+  verified textually: every one of the five construction paths sets
+  `rune_length`, a multi-byte literal gets a rune count rather than a byte
+  count, `length()` and `slice` read the field instead of scanning, and the
+  `List<String>` element is still one pointer.
 
   An earlier revision of this entry also claimed the generated concurrency
   runtime compiles under an external `-std=c23` toolchain. That claim is

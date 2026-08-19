@@ -44,7 +44,7 @@ func TestRuneLiteralsCompile(t *testing.T) {
 }
 
 func TestStringUnicodeEscapesCompile(t *testing.T) {
-	source := "fun demo(): Bool do\n    text: String = \"caf\\u{00E9} \\u{1F980}\\0\"\n    return text.is_empty()\nend\n"
+	source := "fun demo(): Bool do\n    text: String = \"caf\\u{00E9} \\u{1F980}\\0\"\n    return text.length() == 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -52,7 +52,7 @@ func TestStringUnicodeEscapesCompile(t *testing.T) {
 }
 
 func TestStringSurfaceCompiles(t *testing.T) {
-	source := "fun demo(): Size do\n    text: String = \"hello\"\n    count: Size = text.length()\n    empty: Bool = text.is_empty()\n    cursor: RuneCursor = text.rune_cursor()\n    first: Rune = cursor.next()\n    return count\nend\n"
+	source := "fun demo(): Size do\n    text: String = \"hello\"\n    count: Size = text.length()\n    cursor: RuneCursor = text.rune_cursor()\n    first: Rune = cursor.next()\n    return count\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -62,7 +62,6 @@ func TestStringSurfaceCompiles(t *testing.T) {
 	output := rootC(t, result) + rootH(t, result) + stringH(t, result) + stringC(t, result)
 	for _, fragment := range []string{
 		"hex_string_rune_length(",
-		"hex_string_is_empty(",
 		"hex_string_rune_cursor(",
 		"hex_rune_cursor_has_next(",
 		"hex_rune_cursor_next(",
@@ -82,7 +81,7 @@ func TestRuneCursorIterationCompiles(t *testing.T) {
 }
 
 func TestStrandSurfaceCompiles(t *testing.T) {
-	source := "fun demo(h: Heap): Bool do\n    label: Strand = \"hexal\"\n    count: Size = label.length()\n    empty: Bool = label.is_empty()\n    text: String = label.to_string(h)\n    text.free(h)\n    return empty\nend\n"
+	source := "fun demo(h: Heap): Bool do\n    label: Strand = \"hexal\"\n    count: Size = label.length()\n    text: String = label.to_string(h)\n    text.free(h)\n    return count == 0\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)

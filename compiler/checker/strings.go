@@ -160,7 +160,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *
 }
 
 // checkStringMethodCall dispatches the String method surface:
-// length, is_empty, bytes, slice, rune_cursor, to_string, concat, and free,
+// length, bytes, slice, rune_cursor, to_string, concat, and free,
 // and rejects the removed at name with its replacement. Indexing
 // ([index]) resolves through checkIndexPlace.
 func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
@@ -175,14 +175,6 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: compilerTypes.SizeType, Element: compilerTypes.UInt8}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
-	case "is_empty":
-		if len(call.Arguments) != 0 {
-			diagnostic := typeErrorAt(callee.Property, "is_empty expects no arguments")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: compilerTypes.Bool, Element: compilerTypes.UInt8}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
 	case "bytes":
 		if len(call.Arguments) != 0 {
 			diagnostic := typeErrorAt(callee.Property, "bytes expects no arguments")
@@ -323,9 +315,8 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 	}
 }
 
-// checkStrandMethodCall dispatches the Strand surface: length, is_empty,
-// and to_string. Strand never exposes bytes, slice, rune_cursor, concat, or
-// free.
+// checkStrandMethodCall dispatches the Strand surface: length and to_string.
+// Strand never exposes bytes, slice, rune_cursor, concat, or free.
 func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
@@ -337,14 +328,6 @@ func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: compilerTypes.SizeType, Element: compilerTypes.UInt8}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
-	case "is_empty":
-		if len(call.Arguments) != 0 {
-			diagnostic := typeErrorAt(callee.Property, "is_empty expects no arguments")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: compilerTypes.Bool, Element: compilerTypes.UInt8}
-		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
 	case "to_string":
 		if len(call.Arguments) != 1 {
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("to_string expects 1 argument; got %d", len(call.Arguments)))

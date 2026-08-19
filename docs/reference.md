@@ -709,9 +709,11 @@ Heap.free<T>(pointer: MutPtr<T>) -> no value
 - Lengths, capacities, indices, and normalized bounds use Size. Index arguments may be any integer
   and are normalized with compile-time rejection or dynamic traps.
 - Ranges are zero-based and end-exclusive. `length`, indexing, and `slice` use the
-  same bounds where available. `at` and the Array/View/List `is_empty` methods were
-  removed (RFC 0063): `receiver[index]` and `receiver.length() == 0` are their
-  identical O(1) replacements.
+  same bounds where available. `at` and every `is_empty` method were removed
+  (RFC 0063 for Array/View/List, RFC 0087 for String/Strand once a cached rune
+  count made String `length()` O(1)): `receiver[index]` and
+  `receiver.length() == 0` are their identical replacements. No collection or
+  text type has `is_empty`.
 - Array/View/List equality compares length then elements. No collection ordering; no Dict equality.
 
 ### `Array<T, N>`
@@ -801,7 +803,6 @@ Dict<K,V>.free(heap: Heap) -> no value
 
 ```text
 String.length() -> Size
-String.is_empty() -> Bool
 String.bytes() -> View<Byte>
 String.slice(start: Integer, end: Integer) -> View<Byte>
 String.rune_cursor() -> RuneCursor
@@ -811,7 +812,6 @@ String.free(heap: Heap) -> no value
 String.from_bytes(heap: Heap, bytes: View<Byte>) -> String
 String.from_runes(heap: Heap, runes: View<Rune>) -> String
 Strand.length() -> Size
-Strand.is_empty() -> Bool
 Strand.to_string(heap: Heap) -> String
 RuneCursor.has_next() -> Bool
 RuneCursor.next() -> Rune
@@ -824,7 +824,10 @@ RuneCursor.next() -> Rune
 - String is immutable UTF-8 behind a non-null pointer-sized handle. Runtime values use one
   header-plus-bytes allocation; literals use static storage. Strand is immutable literal-only inline
   32 bytes: at most 31 UTF-8 bytes, NUL, then zero fill; embedded NUL/invalid UTF-8/overflow reject.
-- String and Strand length counts Runes; byte Views count bytes. Neither is indexable: reaching the
+- String and Strand `length()` counts Runes; byte Views count bytes. String stores the count in its
+  heap header, set at every construction, so `length()` is a field read and `slice` validates its
+  bounds without scanning. Strand has no room for a count and scans, bounded by its 31 payload bytes.
+  Neither is indexable: reaching the
   nth Rune of UTF-8 walks from the start, so a positional loop would be quadratic behind O(1)
   syntax. `rune_cursor` walks Runes in one pass and `bytes` gives indexed byte access.
 - String slice uses Rune bounds and returns the corresponding zero-copy UTF-8 bytes. `from_bytes`

@@ -20,6 +20,7 @@ func TestStringLiteralBinding(t *testing.T) {
 		"typedef struct hex_string {",
 		"const uint8_t *data;",
 		"size_t byte_length;",
+		"size_t rune_length;",
 		"extern const uint8_t hex_lit_0_bytes[6];",
 		"extern const hex_string hex_lit_0;",
 	} {
@@ -29,7 +30,7 @@ func TestStringLiteralBinding(t *testing.T) {
 	}
 	for _, want := range []string{
 		"const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };",
-		"const hex_string hex_lit_0 = { hex_lit_0_bytes, 5 };",
+		"const hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 5, .rune_length = 5 };",
 	} {
 		if !strings.Contains(stringC(t, result), want) {
 			t.Fatalf("hexal/string.c = %q, want %q", stringC(t, result), want)

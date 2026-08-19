@@ -102,10 +102,6 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
 				return unknownExpressionDiagnostic("text length call has invalid checked metadata")
 			}
-		case "is_empty":
-			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
-				return unknownExpressionDiagnostic("text is_empty call has invalid checked metadata")
-			}
 		case "bytes":
 			if strand || len(node.Arguments) != 0 || node.ResultType.View == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
 				return unknownExpressionDiagnostic("string bytes call has invalid checked metadata")
@@ -283,11 +279,6 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 				return "hex_strand_rune_length(" + receiver + ")", nil
 			}
 			return "hex_string_rune_length(" + receiver + ")", nil
-		case "is_empty":
-			if compilerTypes.IsStrand(node.OperandType) {
-				return "hex_strand_is_empty(" + receiver + ")", nil
-			}
-			return "hex_string_is_empty(" + receiver + ")", nil
 		case "rune_cursor":
 			return "hex_string_rune_cursor(" + receiver + ")", nil
 		case "bytes":

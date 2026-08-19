@@ -8,6 +8,7 @@
 typedef struct hex_string {
     const uint8_t *data;
     size_t byte_length;
+    size_t rune_length;
 } hex_string;
 
 typedef struct hex_string_storage {
@@ -30,8 +31,6 @@ const hex_string *hex_string_from_runes(hex_heap h, const uint32_t *data, size_t
 const hex_string *hex_string_to_string(hex_heap h, const hex_string *text);
 const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const hex_string *right);
 void hex_string_free(hex_heap h, const hex_string *text);
-size_t hex_string_rune_length(const hex_string *text);
-bool hex_string_is_empty(const hex_string *text);
 
 typedef struct hex_rune_cursor {
     const uint8_t *data;
@@ -43,23 +42,21 @@ hex_rune_cursor hex_string_rune_cursor(const hex_string *text);
 bool hex_rune_cursor_has_next(hex_rune_cursor cursor);
 uint32_t hex_rune_cursor_next(hex_rune_cursor *cursor);
 
+static inline size_t hex_string_rune_length(const hex_string *text) {
+    return text->rune_length;
+}
+
 static inline hex_view_UInt8 hex_string_bytes(const hex_string *text) {
     return (hex_view_UInt8){ text->data, text->byte_length };
 }
 
 static inline hex_view_UInt8 hex_string_slice(const hex_string *text, size_t start, size_t end) {
-    size_t index = 0;
-    size_t runes = 0;
-    while (index < text->byte_length) {
-        hex_utf8_next(text->data, text->byte_length, &index);
-        runes++;
-    }
-    if (!(start <= end && end <= runes)) {
+    if (!(start <= end && end <= text->rune_length)) {
         hex_runtime_trap("[Runtime Error] string slice bounds out of range\n");
     }
     size_t byteStart = 0;
     size_t byteEnd = 0;
-    index = 0;
+    size_t index = 0;
     for (size_t rune = 0; rune < end; rune++) {
         hex_utf8_next(text->data, text->byte_length, &index);
         if (rune + 1 == start) {
@@ -71,7 +68,6 @@ static inline hex_view_UInt8 hex_string_slice(const hex_string *text, size_t sta
 }
 {{if .NeedStrand}}
 size_t hex_strand_rune_length(hex_strand text);
-bool hex_strand_is_empty(hex_strand text);
 const hex_string *hex_strand_to_string(hex_heap h, hex_strand text);
 {{end}}
 #endif

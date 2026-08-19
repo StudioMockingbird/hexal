@@ -1,6 +1,6 @@
 #include "hexal/string.h"
 {{range .Literals}}const uint8_t {{.Name}}_bytes[{{.ArraySize}}] = { {{- range .Payload}} {{.}},{{end}} 0 };
-const hex_string {{.Name}} = { {{.Name}}_bytes, {{.PayloadLength}} };
+const hex_string {{.Name}} = { .data = {{.Name}}_bytes, .byte_length = {{.PayloadLength}}, .rune_length = {{.RuneLength}} };
 {{end}}
 uint64_t hex_utf8_next(const uint8_t *data, size_t length, size_t *index) {
     uint8_t lead = data[*index];
@@ -89,8 +89,10 @@ size_t hex_utf8_encode(uint8_t *out, uint32_t value) {
 const hex_string *hex_string_from_bytes(hex_heap h, const uint8_t *data, size_t length) {
     // The complete sequence validates before any allocation.
     size_t index = 0;
+    size_t runes = 0;
     while (index < length) {
         hex_utf8_next(data, length, &index);
+        runes++;
     }
     // The header, payload, and terminator chain is checked with ckd_add
     // before the raw allocator sees any sum; every stage traps with the
@@ -101,8 +103,7 @@ const hex_string *hex_string_from_bytes(hex_heap h, const uint8_t *data, size_t 
         hex_runtime_trap("[Runtime Error] string allocation size overflow\n");
     }
     hex_string_storage *storage = hex_heap_raw_allocate(h.identity, total, _Alignof(hex_string_storage));
-    storage->header.data = storage->bytes;
-    storage->header.byte_length = length;
+    storage->header = (hex_string){ .data = storage->bytes, .byte_length = length, .rune_length = runes };
     // A zero-length payload skips the guarded memcpy so a possibly invalid
     // source pointer is never passed to a standard memory function.
     if (length != 0) {
@@ -147,8 +148,7 @@ const hex_string *hex_string_from_runes(hex_heap h, const uint32_t *data, size_t
     for (size_t index = 0; index < length; index++) {
         out += hex_utf8_encode(storage->bytes + out, data[index]);
     }
-    storage->header.data = storage->bytes;
-    storage->header.byte_length = bytes;
+    storage->header = (hex_string){ .data = storage->bytes, .byte_length = bytes, .rune_length = length };
     storage->bytes[bytes] = 0;
     return &storage->header;
 }
@@ -171,8 +171,7 @@ const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const he
         hex_runtime_trap("[Runtime Error] string concatenation length overflow\n");
     }
     hex_string_storage *storage = hex_heap_raw_allocate(h.identity, total, _Alignof(hex_string_storage));
-    storage->header.data = storage->bytes;
-    storage->header.byte_length = length;
+    storage->header = (hex_string){ .data = storage->bytes, .byte_length = length, .rune_length = left->rune_length + right->rune_length };
     // Each input copies with a guarded memcpy; the freshly allocated
     // destination cannot overlap the immutable inputs.
     if (left->byte_length != 0) {
@@ -201,20 +200,6 @@ void hex_string_free(hex_heap h, const hex_string *text) {
     free(header);
 }
 
-size_t hex_string_rune_length(const hex_string *text) {
-    size_t index = 0;
-    size_t runes = 0;
-    while (index < text->byte_length) {
-        hex_utf8_next(text->data, text->byte_length, &index);
-        runes++;
-    }
-    return runes;
-}
-
-bool hex_string_is_empty(const hex_string *text) {
-    return text->byte_length == 0;
-}
-
 hex_rune_cursor hex_string_rune_cursor(const hex_string *text) {
     return (hex_rune_cursor){ text->data, text->byte_length, 0 };
 }
@@ -238,10 +223,6 @@ size_t hex_strand_rune_length(hex_strand text) {
         runes++;
     }
     return runes;
-}
-
-bool hex_strand_is_empty(hex_strand text) {
-    return text.data[0] == 0;
 }
 
 const hex_string *hex_strand_to_string(hex_heap h, hex_strand text) {
