@@ -447,6 +447,18 @@ func (parser *Parser) condition(keyword string) (Expression, error) {
 }
 
 func (parser *Parser) declaration(name lexer.Token, mutable bool) (Declaration, error) {
+	// RFC 0090: `:=` is one token, so the annotation and the `=` are both
+	// absent and the initializer follows directly. `x : = 5` never reaches
+	// here as a declaration — the lexer produces Colon then Equal, and the
+	// annotation parse below rejects it.
+	if parser.check(lexer.ColonEqual) {
+		operator := parser.advance()
+		initializer, err := parser.expression()
+		if err != nil {
+			return Declaration{}, err
+		}
+		return Declaration{Name: name, Mutable: mutable, Initializer: initializer, Infer: operator}, nil
+	}
 	if _, err := parser.consume(lexer.Colon, "':'"); err != nil {
 		return Declaration{}, err
 	}

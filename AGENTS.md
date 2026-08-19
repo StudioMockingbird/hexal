@@ -186,8 +186,11 @@ secondarily a lookup document for humans. Optimize it for precise retrieval:
   over explanatory prose while preserving every semantic edge case.
 
 Closed specs are historical records, superseded wherever they disagree with
-`docs/reference.md`. Some contain syntax the language never had — `:=`
-inference (RFCs 0016, 0017, 0029, 0036); do not reintroduce it. Others
+`docs/reference.md`. Some contain syntax the language never had — blanket `:=`
+inference (RFCs 0016, 0017, 0029, 0036); do not reintroduce it. RFC 0090 admits
+`:=` only where the initializer already determines the type, and rejects it in
+exactly the cases those four proposed, so they stay superseded rather than
+becoming authority again. Others
 predate RFC 0061 and show the old delimiter-free forms (`fun f()` or
 `if cond` without the mandatory `do`/`then`); the language now requires those
 block openers, so treat their absence in a closed spec as superseded, not as

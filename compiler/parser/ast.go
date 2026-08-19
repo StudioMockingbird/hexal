@@ -86,6 +86,11 @@ type Declaration struct {
 	Mutable     bool
 	Type        TypeExpression
 	Initializer Expression
+	// Infer is the `:=` token when the declaration omits its annotation and
+	// takes its type from the initializer (RFC 0090); it is the zero Token
+	// otherwise, so Type == nil and Infer set are the same condition. The
+	// token is retained because the rejection diagnostic points at it.
+	Infer lexer.Token
 }
 
 func (Declaration) topLevelItemNode() {}

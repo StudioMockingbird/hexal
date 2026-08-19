@@ -1,7 +1,7 @@
 # RFC 0090: Inferred Binding Declarations
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready. The narrow rule is decided: a declaration
+- Status: Closed; implemented. The narrow rule is decided: a declaration
   must state its type on one side or the other, and stating it on neither is an
   error.
 - Created: 2026-08-19
@@ -296,8 +296,16 @@ Both edits land with the implementation.
   one and fails under the other.
 - `sum := count + 1` with `count: Int32` is accepted and yields Int32.
 - **`x := match ready | true then 1 | false then 0 end` is rejected**, and the
-  same match with a typed arm is accepted. This is the silent-acceptance case;
-  without it the predicate passes its other tests while defaulting to Int32 here.
+  same match with *every* arm typed and agreeing is accepted. This is the
+  silent-acceptance case; without it the predicate passes its other tests while
+  defaulting to Int32 here.
+
+  Corrected while implementing: this bullet originally said "with a typed arm",
+  singular. One typed arm beside a bare literal is also rejected — with no
+  expected type the literal defaults to Int32 and disagrees with the other arm,
+  so `match arm result types do not agree` fires instead of the `:=`
+  diagnostic. Both are rejections and the second is more precise, but the
+  original wording claimed acceptance.
 - Every form that threads `context.expected` inward is covered. Derive the list
   by grepping `context.expected` in `compiler/checker/` rather than trusting the
   enumeration in Mechanism — a form added later must fail this test, not slip

@@ -272,13 +272,19 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvi
 
 func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironment *compilerTypes.Environment) (Declaration, binding, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	declaredUse, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, names.generics)
-	declaredType := declaredUse.Type
-	if typeDiagnostic != nil {
-		diagnostics = append(diagnostics, *typeDiagnostic)
-	} else if diagnostic := valueTypeDiagnostic(declaration.Type, declaration.Name, declaredType); diagnostic != nil {
-		diagnostics = append(diagnostics, *diagnostic)
+	// RFC 0090: a `:=` declaration has no type expression to resolve. Its
+	// type comes from the initializer, below.
+	var declaredUse compilerTypes.TypeUse
+	if declaration.Type != nil {
+		resolved, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, names.generics)
+		declaredUse = resolved
+		if typeDiagnostic != nil {
+			diagnostics = append(diagnostics, *typeDiagnostic)
+		} else if diagnostic := valueTypeDiagnostic(declaration.Type, declaration.Name, resolved.Type); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
 	}
+	declaredType := declaredUse.Type
 	if declaration.Name.Lexeme == "print" {
 		// The protected builtin name cannot be bound by a local or
 		// module declaration.
@@ -302,9 +308,28 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "variable "+declaration.Name.Lexeme+" is already declared; reassignment must omit the type annotation"))
 	}
 
+	// RFC 0090: `:=` says the initializer determines the type. A contextual
+	// initializer determines none, and the literal defaults would silently
+	// supply one — Int32 for `total := 0` — so the form is rejected before
+	// any type work, on the source shape alone.
+	inferred := declaration.Type == nil
+	if inferred && isContextualForInference(declaration.Initializer) {
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Infer,
+			"`:=` requires an initializer whose type does not depend on context; annotate the binding instead"))
+	}
+
 	initializer := checkInitializer(declaration.Initializer, declaredUse, declaration.Name, names, typeEnvironment)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
+	}
+	if inferred && len(diagnostics) == 0 {
+		// The binding takes the initializer's resolved type and use, which is
+		// exactly what an annotation would have produced for the same source.
+		declaredUse = initializer.use
+		declaredType = initializer.typ
+		if declaredUse.Type.Name == "" {
+			declaredUse = compilerTypes.NewTypeUse(declaredType)
+		}
 	}
 	if len(diagnostics) == 0 {
 		if diagnostic := atomicCopyDiagnostic(initializer.source, declaration.Name); diagnostic != nil {

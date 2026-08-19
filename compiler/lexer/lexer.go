@@ -196,6 +196,10 @@ const (
 	Import
 	Export
 	ModulePathLiteral
+	// ColonEqual is RFC 0090's inferred-binding operator. It is one token,
+	// not Colon followed by Equal, so `x : = 5` stays a syntax error: the
+	// feature has exactly one spelling.
+	ColonEqual
 	EOF
 )
 
@@ -245,6 +249,8 @@ func (kind TokenKind) String() string {
 		return "identifier"
 	case Colon:
 		return ":"
+	case ColonEqual:
+		return ":="
 	case Equal:
 		return "="
 	case Less:
@@ -552,9 +558,13 @@ func Lex(source string) ([]Token, error) {
 			column += end - index
 			index = end
 		case ch == ':':
-			tokens = append(tokens, Token{Kind: Colon, Lexeme: ":", Line: line, Column: column})
-			index++
-			column++
+			kind, lexeme := Colon, ":"
+			if index+1 < len(source) && source[index+1] == '=' {
+				kind, lexeme = ColonEqual, ":="
+			}
+			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+			index += len(lexeme)
+			column += len(lexeme)
 		case ch == '!':
 			kind, lexeme := Bang, "!"
 			if index+1 < len(source) && source[index+1] == '=' {

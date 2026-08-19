@@ -592,3 +592,35 @@ func TestLexClosedMultilineStringReportsOneDiagnostic(t *testing.T) {
 		t.Fatalf("want exactly one raw-newline diagnostic; got %d", n)
 	}
 }
+
+// RFC 0090's `:=` is one token, produced only when the two characters are
+// adjacent. Separated, they stay Colon then Equal, which is what makes
+// `x : = 5` a syntax error rather than a second spelling of the feature.
+func TestLexColonEqualRequiresAdjacency(t *testing.T) {
+	joined, err := Lex("x := 13")
+	if err != nil {
+		t.Fatalf("Lex returned an error: %v", err)
+	}
+	want := []Token{
+		{Kind: Identifier, Lexeme: "x", Line: 1, Column: 1},
+		{Kind: ColonEqual, Lexeme: ":=", Line: 1, Column: 3},
+		{Kind: Integer, Lexeme: "13", Line: 1, Column: 6},
+		{Kind: EOF, Line: 1, Column: 8},
+	}
+	if len(joined) != len(want) {
+		t.Fatalf("Lex(\"x := 13\") returned %d tokens, want %d: %#v", len(joined), len(want), joined)
+	}
+	for index := range want {
+		if joined[index] != want[index] {
+			t.Fatalf("token %d = %#v, want %#v", index, joined[index], want[index])
+		}
+	}
+
+	spaced, err := Lex("x : = 13")
+	if err != nil {
+		t.Fatalf("Lex returned an error: %v", err)
+	}
+	if spaced[1].Kind != Colon || spaced[2].Kind != Equal {
+		t.Fatalf("\"x : = 13\" lexed as %#v, want a separate Colon and Equal", spaced)
+	}
+}

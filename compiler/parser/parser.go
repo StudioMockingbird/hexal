@@ -316,7 +316,7 @@ func (parser *Parser) statement() (Statement, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !parser.check(lexer.Colon) {
+		if !parser.check(lexer.Colon) && !parser.check(lexer.ColonEqual) {
 			return nil, parser.errorAt(mutable, "'mut' at statement start must introduce a declaration")
 		}
 		return parser.declaration(name, true)
@@ -326,7 +326,7 @@ func (parser *Parser) statement() (Statement, error) {
 	if err != nil {
 		return nil, err
 	}
-	if parser.check(lexer.Colon) {
+	if parser.check(lexer.Colon) || parser.check(lexer.ColonEqual) {
 		return parser.declaration(name, false)
 	}
 	return parser.postfixStatement(VariableExpression{Name: name})
@@ -459,7 +459,8 @@ func (parser *Parser) atStatementStart() bool {
 			return false
 		}
 		return parser.tokens[parser.current+1].Kind == lexer.Identifier &&
-			parser.tokens[parser.current+2].Kind == lexer.Colon
+			(parser.tokens[parser.current+2].Kind == lexer.Colon ||
+				parser.tokens[parser.current+2].Kind == lexer.ColonEqual)
 	}
 	if !parser.check(lexer.Identifier) {
 		return false
@@ -468,7 +469,7 @@ func (parser *Parser) atStatementStart() bool {
 		return false
 	}
 	next := parser.tokens[parser.current+1].Kind
-	if next == lexer.Colon || next == lexer.Equal {
+	if next == lexer.Colon || next == lexer.ColonEqual || next == lexer.Equal {
 		return true
 	}
 	// A call statement resumes parsing only when its '(' obeys the same-line

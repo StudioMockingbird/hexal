@@ -8,15 +8,65 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+// isContextualExpression reports whether a form takes its type from the
+// expected type reaching it, for contextual union injection.
 func isContextualExpression(expression parser.Expression) bool {
+	return contextualExpression(expression, false)
+}
+
+// isContextualForInference is the same question asked by RFC 0090's `:=`,
+// which must reject an initializer that determines no type of its own.
+//
+// It is deliberately the same function. Two predicates answering "does this
+// form take its type from context" would drift apart silently, and the drift
+// is not symmetric: a missing case is *accepted* and quietly defaulted, which
+// is how `match` was nearly shipped taking Int32 from nowhere.
+//
+// The flag exists because the two callers ask over different sets. Union
+// injection reaches only the arithmetic-and-numeric-literal forms, and
+// widening it would change which contextual unions compile today. Inference
+// must additionally reject every form that consumes context.expected — string
+// literals, nil, array literals, and match — none of which the union path
+// ever offers.
+func isContextualForInference(expression parser.Expression) bool {
+	return contextualExpression(expression, true)
+}
+
+// contextualExpression is the shared recursion. The general rule: a form is
+// contextual if it forwards the expected type to sub-expressions and all of
+// those are contextual. Any construct added later that threads
+// context.expected inward belongs here — grep for it.
+func contextualExpression(expression parser.Expression, forInference bool) bool {
 	switch expression := expression.(type) {
 	case parser.IntegerLiteral, parser.DecimalLiteral, parser.NegatedNumericLiteral:
 		return true
 	case parser.UnaryExpression:
-		return expression.Operator.Lexeme == "-" || isContextualExpression(expression.Operand)
+		return expression.Operator.Lexeme == "-" || contextualExpression(expression.Operand, forInference)
 	case parser.BinaryExpression:
 		return isArithmeticToken(expression.Operator.Lexeme) &&
-			isContextualExpression(expression.Left) && isContextualExpression(expression.Right)
+			contextualExpression(expression.Left, forInference) && contextualExpression(expression.Right, forInference)
+	case parser.StringLiteral:
+		// A string literal is valid as String and as Strand.
+		return forInference
+	case parser.NilLiteral:
+		// nil needs an expected union containing Nil.
+		return forInference
+	case parser.ArrayLiteralExpression:
+		// An array literal needs an element type and a length.
+		return forInference
+	case parser.MatchExpression:
+		// A match forwards the expected type into every arm, so it is
+		// contextual exactly when every arm's expression is. The scrutinee
+		// has its own type and never receives the expected one.
+		if !forInference {
+			return false
+		}
+		for _, arm := range expression.Arms {
+			if !contextualExpression(arm.Expression, forInference) {
+				return false
+			}
+		}
+		return len(expression.Arms) > 0
 	default:
 		return false
 	}
