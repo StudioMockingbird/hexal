@@ -24,7 +24,7 @@ other.
 | Work | Spec |
 |---|---|
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
-| Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
+| Byte stream I/O — scope settled; blocked on the unowned blocking-syscall boundary | [0065](specs/0065-typed-io.md) |
 
 ### Implementation-ready
 
@@ -49,6 +49,20 @@ deleted:
   scattered classification. It shares no code with the literal table and is not
   covered by RFC 0074. Recorded here rather than left implied-homed. Assign it a
   spec or delete it.
+- **The scheduler's contract with a blocking call is unspecified.** Unlike the
+  two entries above, its meaning is entirely determined — what it lacks is a
+  home. The scheduler frees a worker only when a task yields, parks, or
+  finishes; a blocking syscall parks the OS thread instead, so N workers blocked
+  in `read` stall it completely, and no language construct prevents that.
+
+  It must answer twice, because the classes do not behave alike: sockets, pipes,
+  and terminals are pollable and can park a task on readiness, while **regular
+  files are not pollable at all** — `epoll` rejects them and `select` always
+  reports them ready — so they need thread hand-off or an accepted block.
+
+  It gates RFC 0065 and any sockets specification: both their operation
+  signatures and their handle representation follow from the answer. Give it a
+  spec before either.
 
 ## Open bugs
 
