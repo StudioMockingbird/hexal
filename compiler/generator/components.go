@@ -86,8 +86,9 @@ func componentTemplateNames() []string {
 
 // renderComponentArtifacts renders the selected support components of one
 // compilation. An optional artifact is omitted when its rendered content is
-// empty, so no empty placeholder file is ever emitted.
-func renderComponentArtifacts(merged *programEmission) (map[string]string, error) {
+// empty, so no empty placeholder file is ever emitted. config reaches the
+// concurrency runtime core, the one family with build-time settings.
+func renderComponentArtifacts(merged *programEmission, config Config) (map[string]string, error) {
 	artifacts := make(map[string]string)
 	var components []componentArtifact
 	if merged.requirements != nil && merged.requirements.trap {
@@ -108,7 +109,9 @@ func renderComponentArtifacts(merged *programEmission) (map[string]string, error
 		listComponents,
 		dictComponents,
 		arrayComponents,
-		concurrencyComponents,
+		func(merged *programEmission) ([]componentArtifact, error) {
+			return concurrencyComponents(merged, config)
+		},
 	}
 	for _, family := range families {
 		familyArtifacts, err := family(merged)

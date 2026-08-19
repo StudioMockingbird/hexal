@@ -34,7 +34,6 @@ other.
 | Demand-driven component dependencies — no hollow `hexal/*.h` artifacts | [0082](specs/0082-demand-driven-component-dependencies.md) |
 | Text and collection surface — drop `List.set`, add `Dict.length`/`Dict.find`, remove text indexing | [0083](specs/0083-text-and-collection-surface.md) |
 | Fiber stack sizing — 1 MiB reserve, 8 KiB commit, overflow trap | [0085](specs/0085-fiber-stack-sizing.md) |
-| Project configuration struct — build-time settings into `Compile` | [0086](specs/0086-project-configuration.md) |
 
 ## Unowned
 

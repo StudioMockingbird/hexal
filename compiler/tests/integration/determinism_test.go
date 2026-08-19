@@ -32,12 +32,12 @@ func TestCompilationIsDeterministic(t *testing.T) {
 			"total: Int32 = run(h)\n",
 		"shapes.hex": "export fun corners(): Int32 do\n    return 4\nend\n",
 	}
-	first := compiler.Compile(sources, "app.hex")
+	first := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if first.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("first compile failed: %v", first.Stderr)
 	}
 	for attempt := range 8 {
-		next := compiler.Compile(sources, "app.hex")
+		next := compiler.Compile(sources, "app.hex", compiler.Project{})
 		if next.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("compile %d failed: %v", attempt+2, next.Stderr)
 		}

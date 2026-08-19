@@ -883,7 +883,8 @@ Task.yield() -> no value
   point in one cooperative M:N scheduler over C23 worker threads.
 - Targets are Windows x64 and POSIX x86-64 with verified C23 `<threads.h>`; otherwise Task features
   produce Unsupported Error. Root is pinned to worker zero; root return does not join tasks. Stacks
-  reserve 1 MiB including guard page.
+  reserve 1 MiB including guard page by default; `Project.TaskStackReserve` and
+  `Project.TaskStackCommit` are the build-time overrides.
 - Every repeating path through task-reachable literal `while true` visibly executes `Task.yield()` or
   compilation fails.
 - Spawn, join, Mutex, Channel, and sequentially consistent Atomic operations provide their specified
@@ -1040,9 +1041,11 @@ MutPtr<T>.write_volatile(value: T) -> no value
 
 ### Generated artifact split
 
-- The in-memory compiler entrypoint is `Compile(sources map[string]string, entrypoint string)
-  CompilationResult`: `sources` maps logical `.hex` filenames to complete source strings and
-  `entrypoint` names the selected root module. The compiler performs no filesystem operations.
+- The in-memory compiler entrypoint is `Compile(sources map[string]string, entrypoint string,
+  project Project) CompilationResult`: `sources` maps logical `.hex` filenames to complete source
+  strings and `entrypoint` names the selected root module. `project` carries build-time settings
+  that are not part of the language; its zero value selects every default. The compiler performs
+  no filesystem operations.
 - The result's `Files` map is the sole generated-artifact surface: `CompilationResult` has no
   `MainC`/`MainH` or other mirrored root-file fields, and `Files` is non-nil on every result.
 - `CompilationResult.Stats` is one project-level summary per compilation call. It aggregates only

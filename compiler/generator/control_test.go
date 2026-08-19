@@ -14,7 +14,7 @@ import (
 
 func TestGenerateTryStatementLowering(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun fail(): Nil | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    try fail()\n    return 1\nend\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestGenerateTryStatementLowering(t *testing.T) {
 
 func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun read_count(): Int32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    count: Int32 = try read_count()\n    return count\nend\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	}
 	// A union with several success members needs a normalization temporary.
 	multiple := checkedGeneratorSource(t, "fun read_number(): Int32 | Float32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend\nfun demo(): Int32 | Error do\n    value: Int32 | Float32 = try read_number()\n    return 1\nend\n")
-	files, err = GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": multiple})
+	files, err = GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": multiple}, Config{})
 	multiC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 // inside the block, so an untaken branch performs no call.
 func TestGenerateTryInNestedBlockEmitsSinglePrologue(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun mk(): Int32 | Error do\n    return 1\nend\nfun run(): Int32 | Error do\n    if true then\n        v: Int32 = try mk()\n        print(v)\n    end\n    return 0\nend\n")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

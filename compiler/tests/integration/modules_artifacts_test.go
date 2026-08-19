@@ -244,7 +244,7 @@ func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 		"app.hex":   "module Files = import \"./files\"\nfun run(): Int32 do\n    return 1\nend\n",
 		"files.hex": "export fun helper(): Bool do\n    end_marker: EoS = eos\n    return true\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("multi-module EoS generation failed: %#v", result.Stderr)
 	}

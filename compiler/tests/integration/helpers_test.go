@@ -16,7 +16,7 @@ const rootSourceKey = "app.hex"
 
 // compileSource compiles one test source string as the root module.
 func compileSource(source string) compiler.CompilationResult {
-	return compiler.Compile(map[string]string{rootSourceKey: source}, rootSourceKey)
+	return compiler.Compile(map[string]string{rootSourceKey: source}, rootSourceKey, compiler.Project{})
 }
 
 // assertCompiles requires the source to compile and returns the result.

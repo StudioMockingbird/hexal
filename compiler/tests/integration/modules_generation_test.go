@@ -12,7 +12,7 @@ func TestModuleGenerationEmitsOnePairPerModule(t *testing.T) {
 		"math.hex":            "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 		"graphics/shapes.hex": "export fun area(): Int32 do\n    return 1\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("multi-module generation failed: %#v", result.Stderr)
 	}
@@ -45,7 +45,7 @@ func TestModuleGenerationSymbolsAndGuards(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
 		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
@@ -80,7 +80,7 @@ func TestModuleGenerationPrivateStaysStatic(t *testing.T) {
 		"math.hex": "fun secret(a: Int32): Int32 do\n    return a\nend\n",
 	}
 	// The private call fails at checking before generation.
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "declaration secret is private to module math")
 }
 
@@ -91,7 +91,7 @@ func TestModuleGenerationDiamondEmittedOnce(t *testing.T) {
 		"shapes.hex":    "module Constants = import \"./constants\"\nexport fun area(): Int32 do\n    return Constants.value()\nend\n",
 		"constants.hex": "export fun value(): Int32 do\n    return 10\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("diamond generation failed: %#v", result.Stderr)
 	}
@@ -116,7 +116,7 @@ func TestModuleGenerationLineDirectivesPerModule(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\n",
 		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
@@ -131,8 +131,8 @@ func TestModuleGenerationDeterministic(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
 		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 	}
-	first := compiler.Compile(sources, "app.hex")
-	second := compiler.Compile(sources, "app.hex")
+	first := compiler.Compile(sources, "app.hex", compiler.Project{})
+	second := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if first.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", first.Stderr)
 	}
@@ -149,7 +149,7 @@ func TestModuleGenerationUnreachableModulesProduceNoArtifacts(t *testing.T) {
 		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 		"junk.hex": "broken executable\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
@@ -172,7 +172,7 @@ func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.add(2, 3)\n",
 		"math.hex": "export fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
@@ -218,7 +218,7 @@ func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 = Math.compute()\n",
 		"math.hex": "export fun compute(): Int32 do\n    items: List<Int32> = List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
@@ -256,7 +256,7 @@ func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nx: Int32 | Error = Math.compute()\n",
 		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nexport fun compute(): Int32 | Error do\n    task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("generation failed: %#v", result.Stderr)
 	}
@@ -300,7 +300,7 @@ func TestModuleGenerationLiteralOrder(t *testing.T) {
 		"app.hex":  "module Math = import \"./math\"\nroot: String = \"root\"\nshared: String = \"shared\"\nresult: String = Math.text()\n",
 		"math.hex": "export fun text(): String do\n    imported: String = \"imported\"\n    shared: String = \"shared\"\n    return shared\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("literal-order generation failed: %#v", result.Stderr)
 	}
@@ -350,7 +350,7 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 		"root.hex": "export fun text(): String do\n    root: String = \"root\"\n    return root\nend\n",
 		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nexport fun compute(): Int32 | Error do\n    task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\n",
 	}
-	result := compiler.Compile(sources, "app.hex")
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("concurrency literal generation failed: %#v", result.Stderr)
 	}

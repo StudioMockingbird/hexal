@@ -151,12 +151,13 @@ func (object *ObjectType) Member(name string) (*ObjectMember, bool) {
 type ErrorCategory string
 
 const (
-	SemanticError ErrorCategory = "Semantic Error"
-	TypeError     ErrorCategory = "Type Error"
-	NameError     ErrorCategory = "Name Error"
-	ModuleError   ErrorCategory = "Module Error"
-	UnknownError  ErrorCategory = "Unknown Error"
-	SyntaxError   ErrorCategory = "Syntax Error"
+	SemanticError      ErrorCategory = "Semantic Error"
+	TypeError          ErrorCategory = "Type Error"
+	NameError          ErrorCategory = "Name Error"
+	ModuleError        ErrorCategory = "Module Error"
+	ConfigurationError ErrorCategory = "Configuration Error"
+	UnknownError       ErrorCategory = "Unknown Error"
+	SyntaxError        ErrorCategory = "Syntax Error"
 )
 
 // Diagnostic is one structured compilation error.

@@ -51,7 +51,7 @@ func TestGenerateTaggedUnionDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestSupportedGeneratedUnionTypeRejectsForgedMetadata(t *testing.T) {
 
 func TestGenerateUnionOperations(t *testing.T) {
 	program := checkedGeneratorSource(t, "value: Int32 | Float64 = 1 active: Bool = value is Int32 maybe: Int32 | Float64 | Nil = nil present: Bool = maybe != nil left: Int32 | Bool = true right: Bool | Int32 = false same: Bool = left == right small: Int32 | Bool = true wide: Int32 | Bool | Nil = small")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestGenerateUnionOperations(t *testing.T) {
 
 func TestGenerateUnionTruthiness(t *testing.T) {
 	program := checkedGeneratorSource(t, "value: Int32 | Bool | Nil = true if value then noop: Int32 = 0 end")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestGenerateUnionTruthiness(t *testing.T) {
 
 func TestGenerateNarrowedUnionPayloadRead(t *testing.T) {
 	program := checkedGeneratorSource(t, "value: Int32 | Float64 = 1 if value is Int32 then result: Int32 = value end")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestGenerateBoolDeclaration(t *testing.T) {
 	}
 
 	want := "#include \"modules/app.h\"\n\nint main(void) {\n    const bool hex_v_enabled = true;\n    return 0;\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestGenerateHexadecimalInt32Declaration(t *testing.T) {
 	}
 
 	want := "#include \"modules/app.h\"\n\nint main(void) {\n    const int32_t hex_v_mask = 0xFF;\n    return 0;\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +217,7 @@ func TestGenerateStatementsInOrder(t *testing.T) {
 	}
 
 	want := "#include \"modules/app.h\"\n\nint main(void) {\n    int32_t hex_v_x = 13;\n    hex_v_x = 14;\n    return 0;\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +256,7 @@ func TestGeneratePointerDeclarationAndAssignments(t *testing.T) {
 		"    hex_v_p = &hex_v_x;\n" +
 		"    return 0;\n" +
 		"}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -275,7 +275,7 @@ func TestGenerateNestedPointerExpressions(t *testing.T) {
 		checker.Declaration{Name: "pp", Type: ptrMutPtrInt32, Source: checker.Operand{Kind: checker.VariableOperand, Type: ptrMutPtrInt32, Node: addressNode("p")}},
 		checker.Declaration{Name: "y", Type: compilerTypes.Int32, Source: checker.Operand{Kind: checker.VariableOperand, Type: compilerTypes.Int32, Node: nestedDereferenceNode("pp")}},
 	}}
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ func TestGenerateCheckedRejectsForgedAssignmentTargetType(t *testing.T) {
 		},
 	}}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	assertGeneratorUnknownError(t, err)
 	if rootC != "" || rootH != "" {
@@ -326,7 +326,7 @@ func TestGenerateCheckedRejectsDuplicateDeclarationNames(t *testing.T) {
 		checker.Declaration{Name: "value", Type: compilerTypes.Int32, Source: intSource(compilerTypes.Int32, 2, "2")},
 	}}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	assertGeneratorUnknownError(t, err)
 	if rootC != "" || rootH != "" {
@@ -346,7 +346,7 @@ func TestGenerateCheckedRejectsDuplicateGeneratedObjectCNames(t *testing.T) {
 		{Name: "Point", Type: second},
 	}}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	assertGeneratorUnknownError(t, err)
 	if rootC != "" || rootH != "" {
@@ -362,7 +362,7 @@ func TestGenerateCheckedRejectsForgedDeclarationNames(t *testing.T) {
 				Type:   compilerTypes.Int32,
 				Source: intSource(compilerTypes.Int32, 1, "1"),
 			}}}
-			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 			assertGeneratorUnknownError(t, err)
 		})
 	}
@@ -371,7 +371,7 @@ func TestGenerateCheckedRejectsForgedDeclarationNames(t *testing.T) {
 func TestGenerateCheckedRejectsForgedTypeAndMemberNames(t *testing.T) {
 	for _, name := range []string{"Type-name", "1Type", "café"} {
 		t.Run("type "+name, func(t *testing.T) {
-			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: name, Type: compilerTypes.Int32}}}})
+			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: name, Type: compilerTypes.Int32}}}}, Config{})
 			assertGeneratorUnknownError(t, err)
 		})
 
@@ -379,7 +379,7 @@ func TestGenerateCheckedRejectsForgedTypeAndMemberNames(t *testing.T) {
 			environment := compilerTypes.NewEnvironment()
 			point := environment.BeginObject("Point", 1, 1)
 			point = environment.CompleteObject("Point", []compilerTypes.ObjectMember{{Name: name, Type: compilerTypes.Int32}})
-			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: point}}}})
+			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: point}}}}, Config{})
 			assertGeneratorUnknownError(t, err)
 		})
 	}
@@ -421,7 +421,7 @@ func TestGenerateLineDirectives(t *testing.T) {
 	program := checker.Program{Statements: []checker.Statement{
 		checker.Declaration{Name: "x", Type: compilerTypes.Int32, Source: intSource(compilerTypes.Int32, 13, "13"), SourceLine: 4, SourceColumn: 1},
 	}}
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -467,7 +467,7 @@ func TestGenerateCheckedFailsClosedForUnknownExpression(t *testing.T) {
 			},
 		},
 	}}
-	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
 		t.Fatalf("GenerateChecked error = %v, want structured Unknown Error", err)
 	}
@@ -490,7 +490,7 @@ func TestGenerateCheckedRejectsLoopControlOutsideGeneratedLoop(t *testing.T) {
 		{name: "continue under if", statement: checker.IfStatement{Condition: condition, Then: []checker.Statement{checker.ContinueStatement{}}}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{Statements: []checker.Statement{testCase.statement}}})
+			files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{Statements: []checker.Statement{testCase.statement}}}, Config{})
 			assertGeneratorUnknownError(t, err)
 			rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 			if rootC != "" || rootH != "" {
@@ -540,7 +540,7 @@ func TestGenerateCheckedPreservesNestedLoopContext(t *testing.T) {
 		},
 	}}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -560,7 +560,7 @@ func TestGenerateCheckedRestoresLoopContextAfterLoop(t *testing.T) {
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{Statements: []checker.Statement{
 		checker.WhileStatement{Condition: condition, Body: []checker.Statement{checker.ContinueStatement{}}},
 		checker.BreakStatement{},
-	}}})
+	}}}, Config{})
 	assertGeneratorUnknownError(t, err)
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if rootC != "" || rootH != "" {
@@ -597,7 +597,7 @@ func TestGenerateCheckedRejectsForgedReturningDeclarationWithoutReturn(t *testin
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			testCase.program.Statements = []checker.Statement{testCase.statement}
-			files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": testCase.program})
+			files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": testCase.program}, Config{})
 			assertGeneratorUnknownError(t, err)
 			rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 			if rootC != "" || rootH != "" {
@@ -639,7 +639,7 @@ func TestGenerateCheckedRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 				files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{
 					TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: point}},
 					Statements:       []checker.Statement{block.statement},
-				}})
+				}}, Config{})
 				assertGeneratorUnknownError(t, err)
 				rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 				if rootC != "" || rootH != "" {
@@ -668,7 +668,7 @@ func TestWriteStatementsRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 
 func TestGenerateCheckedFailsClosedForUnknownTypeDeclaration(t *testing.T) {
 	program := checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Alias"}}}
-	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
 		t.Fatalf("GenerateChecked error = %v, want structured Unknown Error", err)
 	}
@@ -698,7 +698,7 @@ func TestGenerateCheckedRejectsForgedTopLevelScalarMetadata(t *testing.T) {
 		}}},
 	}
 	for index, program := range testCases {
-		files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+		files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 		rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 		diagnostic, ok := err.(compilerTypes.Diagnostic)
 		if !ok {
@@ -749,7 +749,7 @@ func TestGenerateCheckedUsesCanonicalTypes(t *testing.T) {
 		{name: "forged pointer", typ: forgedPointer, valid: false, declName: "ForgedPointer"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: testCase.declName, Type: testCase.typ}}}})
+			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: testCase.declName, Type: testCase.typ}}}}, Config{})
 			if testCase.valid {
 				if err != nil {
 					t.Fatalf("GenerateChecked() error = %v", err)
@@ -777,7 +777,7 @@ func TestGenerateCheckedRejectsForgedPointerElementMetadata(t *testing.T) {
 			forged.Name = testCase.name + "<UInt8>"
 			forged.CName = compilerTypes.UInt8.CName + "*"
 
-			files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Forged", Type: forged}}}})
+			files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Forged", Type: forged}}}}, Config{})
 			assertGeneratorUnknownError(t, err)
 			rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 			if rootC != "" || rootH != "" {
@@ -831,7 +831,7 @@ func TestGenerateCheckedRejectsMalformedGeneratedTypes(t *testing.T) {
 		{name: "invalid object member type", typ: malformedMemberObject},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Type: testCase.typ}}}})
+			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Type: testCase.typ}}}}, Config{})
 			assertGeneratorUnknownError(t, err)
 		})
 	}
@@ -1497,7 +1497,7 @@ func TestGenerateCheckedValidatesPlaceMetadata(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": testCase.program})
+			files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": testCase.program}, Config{})
 			rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 			if testCase.wantError {
 				assertGeneratorUnknownError(t, err)
@@ -1555,7 +1555,7 @@ func TestGenerateCheckedValidatesNestedPlaceMetadataAndIgnoresOperandFlags(t *te
 		},
 	}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -1597,7 +1597,7 @@ func TestGenerateCheckedRejectsMismatchedObjectIdentity(t *testing.T) {
 	foreignPoint = foreignEnvironment.CompleteObject("Point", []compilerTypes.ObjectMember{{Name: "x", Type: compilerTypes.Int32}})
 	forged := point
 	forged.Object = foreignPoint.Object
-	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: forged}}}})
+	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Point", Type: forged}}}}, Config{})
 	assertGeneratorUnknownError(t, err)
 }
 
@@ -1966,7 +1966,7 @@ func TestGenerateFunctionDefinition(t *testing.T) {
 		"    return hex_v_x;\n" +
 		"}\n\n" +
 		"int main(void) {\n    return 0;\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -1987,7 +1987,7 @@ func TestGenerateNoReturnFunctionLowersToVoid(t *testing.T) {
 	}}}
 
 	want := "static void hex_f_m3_app_reset(const int32_t hex_v_x) {\n    return;\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2013,7 +2013,7 @@ func TestGenerateZeroParameterFunction(t *testing.T) {
 	}}}
 
 	want := "static int32_t hex_f_m3_app_zero(void) {\n    return 0;\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2036,7 +2036,7 @@ func TestGenerateFunctionPointerObjects(t *testing.T) {
 		checker.Declaration{Name: "selected", Type: fun, Mutable: true, Source: reference},
 	}}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2074,7 +2074,7 @@ func TestGenerateFunctionPointerParameter(t *testing.T) {
 
 	want := "static int32_t hex_f_m3_app_apply(int32_t (*const hex_v_callback)(int32_t), const int32_t hex_v_value) {\n" +
 		"    return hex_v_callback(hex_v_value);\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2097,7 +2097,7 @@ func TestGenerateCallExpression(t *testing.T) {
 	}}
 
 	want := "    const int32_t hex_v_total = hex_f_m3_app_identity(13);\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2121,7 +2121,7 @@ func TestGenerateCallStatement(t *testing.T) {
 	}}
 
 	want := "    hex_f_m3_app_reset(13);\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2147,7 +2147,7 @@ func TestGenerateSelfRecursiveFunction(t *testing.T) {
 	}}}
 
 	want := "static int32_t hex_f_m3_app_loop(const int32_t hex_v_n) {\n    return hex_f_m3_app_loop(hex_v_n);\n}\n"
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2201,7 +2201,7 @@ func TestGenerateFunctionBodyLineDirectives(t *testing.T) {
 	}}
 	program := checker.Program{Statements: []checker.Statement{declaration}}
 
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	gotC := files["modules/app.c"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
@@ -2243,7 +2243,7 @@ func moduleGraphOf(root string, order []string, parsed map[string]parser.Program
 // error check that appeared verbatim at over a hundred sites (RFC 0074 R17).
 func generateOne(t *testing.T, program checker.Program) map[string]string {
 	t.Helper()
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

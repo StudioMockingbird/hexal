@@ -3,7 +3,26 @@ package generator
 import (
 	"maps"
 	"slices"
+	"strconv"
 )
+
+// DefaultTaskStackReserve and DefaultTaskStackCommit are the per-Task stack
+// sizes a zero Config selects: 1 MiB of address space and 8 KiB committed at
+// spawn. The POSIX backend lazily maps the whole reserve and never pre-commits;
+// the Windows backend passes both to CreateFiberEx.
+const (
+	DefaultTaskStackReserve = 1 << 20
+	DefaultTaskStackCommit  = 8 << 10
+)
+
+// Config carries the build-time settings that reach the generated runtime.
+// The zero value selects the defaults, so a caller without settings gets
+// the historical behavior. The compiler package's Project mirrors this
+// struct and validates its values before forwarding them.
+type Config struct {
+	TaskStackReserve uint64
+	TaskStackCommit  uint64
+}
 
 // concurrencyComponents returns the generated hexal/concurrency.h and
 // hexal/concurrency.c artifacts when Task, Channel, Mutex, or Atomic support
@@ -11,7 +30,7 @@ import (
 // declarations, runtime definitions, and process-wide state migrate here
 // from hexal.h and the root module C file; typed inline helpers, argument
 // frames, and spawn entry adapters remain module-owned.
-func concurrencyComponents(merged *programEmission) ([]componentArtifact, error) {
+func concurrencyComponents(merged *programEmission, config Config) ([]componentArtifact, error) {
 	state := merged.concurrencyState
 	if state == nil || !state.used && len(state.atomics) == 0 {
 		return nil, nil
@@ -19,7 +38,7 @@ func concurrencyComponents(merged *programEmission) ([]componentArtifact, error)
 	artifacts := []componentArtifact{
 		{key: "hexal/concurrency.h", template: "concurrency.h", model: concurrencyHeaderModelFrom(state)},
 	}
-	source := concurrencySourceModelFrom(state)
+	source := concurrencySourceModelFrom(state, config)
 	if source.Scheduler || source.Channels || source.Mutex {
 		// The source artifact is emitted only when it contains at least one
 		// runtime core definition; an atomic-only program gets
@@ -50,11 +69,20 @@ type concurrencyAtomicModel struct {
 
 // concurrencySourceModel is the render model for packages/concurrency.c: one
 // flag per runtime core family, so a program renders exactly the cores it
-// selected.
+// selected, plus the spelled stack-size expressions the configured Task
+// stack values render to.
 type concurrencySourceModel struct {
 	Scheduler bool
 	Channels  bool
 	Mutex     bool
+	// StackSizeExpression is the POSIX usable stack size; the historical
+	// "1u << 20" for the default reserve, a decimal literal otherwise, so a
+	// zero Config renders the runtime text byte-for-byte as before.
+	StackSizeExpression string
+	// FiberCommit and FiberReserve are the CreateFiberEx commit and reserve
+	// arguments; "0" asks for the PE-header defaults.
+	FiberCommit  string
+	FiberReserve string
 }
 
 // concurrencyHeaderModelFrom builds the header model from the program-wide
@@ -89,13 +117,37 @@ func concurrencyHeaderModelFrom(state *generatedConcurrencyState) concurrencyHea
 // concurrencySourceModelFrom maps the program-wide operation flags onto the
 // runtime core sections: the scheduler platform layer and Task machinery
 // follow the scheduler requirement, the Channel core its handle use, and the
-// Mutex core any selected Mutex operation.
-func concurrencySourceModelFrom(state *generatedConcurrencyState) concurrencySourceModel {
+// Mutex core any selected Mutex operation. The config's stack sizes are
+// spelled for the two platform allocation sites.
+func concurrencySourceModelFrom(state *generatedConcurrencyState, config Config) concurrencySourceModel {
 	return concurrencySourceModel{
-		Scheduler: state.used,
-		Channels:  len(state.channels) > 0,
-		Mutex:     state.mutexNew || state.mutexLock || state.mutexUnlock || state.mutexFree,
+		Scheduler:           state.used,
+		Channels:            len(state.channels) > 0,
+		Mutex:               state.mutexNew || state.mutexLock || state.mutexUnlock || state.mutexFree,
+		StackSizeExpression: stackSizeExpression(config.TaskStackReserve),
+		FiberCommit:         fiberArgument(config.TaskStackCommit),
+		FiberReserve:        fiberArgument(config.TaskStackReserve),
 	}
+}
+
+// stackSizeExpression spells the POSIX usable stack size: the historical
+// "1u << 20" for the default reserve, a u-suffixed decimal literal otherwise,
+// so a zero Config keeps the runtime text byte-identical.
+func stackSizeExpression(reserve uint64) string {
+	if reserve == 0 || reserve == DefaultTaskStackReserve {
+		return "1u << 20"
+	}
+	return strconv.FormatUint(reserve, 10) + "u"
+}
+
+// fiberArgument spells one CreateFiberEx size argument: "0" asks for the
+// PE-header default, a u-suffixed decimal literal otherwise. The suffix keeps
+// a value above int64 range a valid size_t literal.
+func fiberArgument(value uint64) string {
+	if value == 0 {
+		return "0"
+	}
+	return strconv.FormatUint(value, 10) + "u"
 }
 
 // moduleConcurrencyComponent selects hexal/concurrency.h for a module whose

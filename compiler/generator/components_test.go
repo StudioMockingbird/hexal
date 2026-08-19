@@ -67,7 +67,7 @@ func TestComponentRenderDeterministic(t *testing.T) {
 // its definition is the one trap body.
 func TestRuntimeComponentSelectedByTrap(t *testing.T) {
 	withoutTrap := &programEmission{requirements: &cHeaderRequirements{}}
-	artifacts, err := renderComponentArtifacts(withoutTrap)
+	artifacts, err := renderComponentArtifacts(withoutTrap, Config{})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}
@@ -76,7 +76,7 @@ func TestRuntimeComponentSelectedByTrap(t *testing.T) {
 	}
 
 	withTrap := &programEmission{requirements: &cHeaderRequirements{trap: true}}
-	artifacts, err = renderComponentArtifacts(withTrap)
+	artifacts, err = renderComponentArtifacts(withTrap, Config{})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}

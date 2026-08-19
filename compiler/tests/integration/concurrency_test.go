@@ -31,6 +31,36 @@ func TestSpawnLoopEmitsOneSiteInsideBody(t *testing.T) {
 	}
 }
 
+// A non-default TaskStackReserve must reach the generated runtime and appear
+// in the emitted C: the POSIX usable-stack expression and the CreateFiberEx
+// reserve argument both spell the configured bytes, while a zero Project
+// keeps the historical "1u << 20" text byte-identical.
+func TestTaskStackReserveReachesGeneratedRuntime(t *testing.T) {
+	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"
+	configured := compiler.Compile(map[string]string{rootSourceKey: source}, rootSourceKey, compiler.Project{TaskStackReserve: 2 << 20})
+	if configured.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", configured.Stderr)
+	}
+	concurrencyC := moduleFile(t, configured, "hexal/concurrency.c")
+	if !strings.Contains(concurrencyC, "const size_t stack_size = 2097152u;") {
+		t.Fatalf("generated runtime lacks the configured POSIX stack size:\n%s", concurrencyC)
+	}
+	if !strings.Contains(concurrencyC, "CreateFiberEx(0, 2097152u, FIBER_FLAG_FLOAT_SWITCH") {
+		t.Fatalf("generated runtime lacks the configured fiber reserve:\n%s", concurrencyC)
+	}
+	zero := compileSource(source)
+	if zero.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", zero.Stderr)
+	}
+	zeroConcurrencyC := moduleFile(t, zero, "hexal/concurrency.c")
+	if !strings.Contains(zeroConcurrencyC, "const size_t stack_size = 1u << 20;") {
+		t.Fatalf("zero Project must keep the default stack expression:\n%s", zeroConcurrencyC)
+	}
+	if !strings.Contains(zeroConcurrencyC, "CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH") {
+		t.Fatalf("zero Project must keep the default fiber arguments:\n%s", zeroConcurrencyC)
+	}
+}
+
 func TestSpawnAndJoinCompile(t *testing.T) {
 	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"
 	result := compileSource(source)

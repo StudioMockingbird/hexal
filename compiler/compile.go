@@ -72,12 +72,19 @@ type CompilationStats struct {
 // entrypoint is the logical .hex filename of the selected root module and
 // must name exactly one entry in sources. Every module transitively imported
 // from the entrypoint is resolved against sources, so the compilation covers
-// the whole reachable module graph. The compiler is exclusively an in-memory
-// string transformation: it performs no filesystem reads, writes, discovery,
-// or working-directory lookup.
-func Compile(sources map[string]string, entrypoint string) CompilationResult {
+// the whole reachable module graph. project carries build-time settings
+// that are not part of the language; its zero value selects every default.
+// The compiler is exclusively an in-memory string transformation: it performs
+// no filesystem reads, writes, discovery, or working-directory lookup.
+func Compile(sources map[string]string, entrypoint string, project Project) CompilationResult {
 	compileStarted := time.Now()
 	stats := CompilationStats{}
+
+	// Configuration is validated before any stage runs and fails closed: an
+	// invalid Project is a compiler input like any other.
+	if err := validateProject(project); err != nil {
+		return failureResult(err, stats, compileStarted)
+	}
 
 	if _, ok := sources[entrypoint]; !ok {
 		err := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1,
@@ -110,7 +117,10 @@ func Compile(sources map[string]string, entrypoint string) CompilationResult {
 	}
 
 	started = time.Now()
-	files, generateErr := generator.GenerateChecked(graph, checked)
+	files, generateErr := generator.GenerateChecked(graph, checked, generator.Config{
+		TaskStackReserve: project.TaskStackReserve,
+		TaskStackCommit:  project.TaskStackCommit,
+	})
 	stats.GenerateDuration = time.Since(started)
 	if generateErr != nil {
 		return failureResult(generateErr, stats, compileStarted)

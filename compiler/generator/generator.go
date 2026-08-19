@@ -19,8 +19,9 @@ import (
 // specialization is emitted exactly once where external identity or state is
 // required. Deterministic: the order slice is the canonical dependency-first
 // order from the resolver, and every merged collection is deduplicated by
-// canonical identity in that order.
-func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program) (map[string]string, error) {
+// canonical identity in that order. config carries the build-time settings
+// that reach the generated runtime; its zero value selects the defaults.
+func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program, config Config) (map[string]string, error) {
 	files := make(map[string]string, 1+2*len(graph.Order))
 	modules := make([]*moduleEmission, 0, len(graph.Order))
 	literals := newLiteralRegistry()
@@ -75,7 +76,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 	// The demand-driven runtime components render after every
 	// module pair; a component key colliding with an existing artifact is an
 	// internal error, never a silent overwrite.
-	components, componentErr := renderComponentArtifacts(merged)
+	components, componentErr := renderComponentArtifacts(merged, config)
 	if componentErr != nil {
 		return nil, componentErr
 	}

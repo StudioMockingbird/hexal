@@ -38,7 +38,7 @@ static int hex_logical_processors(void) {
     return count > 0 ? (int)count : 1;
 }
 static hex_context hex_context_create(void (*entry)(void *), void *param) {
-    return CreateFiberEx(0, 0, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)entry, param);
+    return CreateFiberEx({{.FiberCommit}}, {{.FiberReserve}}, FIBER_FLAG_FLOAT_SWITCH, (LPFIBER_START_ROUTINE)entry, param);
 }
 static hex_context hex_context_current(void) {
     // The calling thread must already be a fiber; the scheduler establishes
@@ -71,7 +71,7 @@ static int hex_logical_processors(void) {
     return count > 0 ? (int)count : 1;
 }
 static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) {
-    const size_t stack_size = 1u << 20;
+    const size_t stack_size = {{.StackSizeExpression}};
     const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
     hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
     if (context == nullptr) {

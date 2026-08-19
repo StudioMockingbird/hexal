@@ -113,7 +113,7 @@ func compileHandler(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	writeJSON(response, http.StatusOK, toResponse(compiler.Compile(input.Sources, input.Entrypoint)))
+	writeJSON(response, http.StatusOK, toResponse(compiler.Compile(input.Sources, input.Entrypoint, compiler.Project{})))
 }
 
 func toResponse(result compiler.CompilationResult) compileResponse {

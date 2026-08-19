@@ -53,7 +53,7 @@ func TestCatalogProgramsCompile(t *testing.T) {
 	for _, category := range catalog {
 		for _, snippet := range category.Snippets {
 			t.Run(category.ID+"/"+snippet.ID, func(t *testing.T) {
-				result := compiler.Compile(snippet.Sources, snippet.Entrypoint)
+				result := compiler.Compile(snippet.Sources, snippet.Entrypoint, compiler.Project{})
 				if result.ExitCode != compiler.ExitSuccess {
 					t.Fatalf("snippet did not compile:\n%s", result.Stderr)
 				}

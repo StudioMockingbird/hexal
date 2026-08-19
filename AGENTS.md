@@ -18,8 +18,9 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   the request was analysis, exploration, a spec, or a plan, or when an
   unresolved design decision would change semantics.
 - **In-memory compiler boundary.** The core compiler is string-in/string-out.
-  It accepts all Hexal source contents as `map[string]string` plus one logical
-  entrypoint name and returns all generated C/header contents as strings. It
+  It accepts all Hexal source contents as `map[string]string`, one logical
+  entrypoint name, and a `Project` value of build-time settings whose zero value
+  selects defaults, and returns all generated C/header contents as strings. It
   must not read, write, discover, validate, or otherwise inspect host files,
   directories, symlinks, or the working directory. Filesystem drivers, project
   discovery, file watching, caching, and incremental compilation are separate

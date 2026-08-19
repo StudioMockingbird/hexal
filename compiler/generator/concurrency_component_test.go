@@ -167,7 +167,7 @@ func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckModules() error = %v", err)
 	}
-	files, err := GenerateChecked(graph, programs)
+	files, err := GenerateChecked(graph, programs, Config{})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

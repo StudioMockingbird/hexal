@@ -22,7 +22,7 @@ import (
 // independent of the active suite.
 func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 	t.Helper()
-	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex")
+	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("expected success; got %d diagnostic(s):\n%s\n--- source ---\n%s", len(result.Stderr), strings.Join(result.Stderr, "\n"), source)
 	}
