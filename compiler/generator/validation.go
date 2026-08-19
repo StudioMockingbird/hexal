@@ -330,6 +330,14 @@ type generatedTypeValidation struct {
 	activeObjects   map[*compilerTypes.ObjectType]bool
 	validObjects    map[*compilerTypes.ObjectType]bool
 	declaredObjects map[*compilerTypes.ObjectType]bool
+	// arrays is the module's array state, carried here because it is the
+	// one per-module channel already threaded into every expression render.
+	// RFC 0088's accessor demand is recorded from the render site, which is
+	// the only place that knows which accessor a surviving access names —
+	// deriving it a second time from the checked tree would be two sources
+	// of truth for one fact, and a disagreement would emit generated C
+	// naming an undeclared function.
+	arrays *generatedArrayState
 }
 
 // IsCanonical owns identity and recursive type metadata. This pass keeps only

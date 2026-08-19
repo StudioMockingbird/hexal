@@ -1,7 +1,7 @@
 # RFC 0088: Provably Dead Bounds Checks
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Closed; implemented
 - Created: 2026-08-19
 - Scope: do not emit an `Array<T,N>` bounds check the compiler has already
   proven cannot fire, and do not emit an accessor nothing calls

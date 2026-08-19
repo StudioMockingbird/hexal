@@ -210,7 +210,7 @@ func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
 	}
 	for _, want := range []string{
 		"const hex_array_String_2 hex_v_copy = hex_v_texts;",
-		"const hex_string *const hex_v_first = *hex_array_at_String_2",
+		"const hex_string *const hex_v_first = hex_v_texts.data[0];",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)

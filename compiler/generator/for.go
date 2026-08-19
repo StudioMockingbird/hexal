@@ -87,7 +87,15 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, lo
 			fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
 		}
 		length = fmt.Sprintf("(size_t)(%d)", sourceType.Array.Length)
-		elementAccess = fmt.Sprintf("*hex_array_at_%s(%s, (size_t)(%s_index))", arrayAccessorSuffix(sourceType), loop, loop)
+		// RFC 0088: the counter runs over [0, N) for the same literal N the
+		// accessor would test, the binder is fresh and immutable, and an
+		// Array cannot be resized — so the check is dead by construction and
+		// the access is a direct member read.
+		if statement.Source.Addressable {
+			elementAccess = fmt.Sprintf("%s->data[%s_index]", loop, loop)
+		} else {
+			elementAccess = fmt.Sprintf("%s.data[%s_index]", loop, loop)
+		}
 	case sourceType.View != nil:
 		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
 		length = fmt.Sprintf("%s.length", loop)

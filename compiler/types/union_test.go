@@ -132,4 +132,3 @@ func TestNestedUnionEncoding(t *testing.T) {
 		t.Fatalf("nested union CName = %q, want hex_union_21_union_4_bool7_int32_t9_nullptr_t", name)
 	}
 }
-

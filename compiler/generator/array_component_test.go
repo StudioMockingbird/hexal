@@ -43,11 +43,16 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 
 // hexal.h owns none of the array family: an array-using program leaves
 // hexal.h free of hex_array_ text, and the rendered array.h matches the
-// previous Go-written definitions byte for byte (struct, at/at_mut accessors,
-// UINT64_C bounds guards, the slice helper returning the reachable view type,
+// expected definitions byte for byte (struct, the surviving accessor, its
+// UINT64_C bounds guard, the slice helper returning the reachable view type,
 // and trap messages).
+//
+// The index is a runtime parameter, so its check survives and hex_array_at_
+// is emitted. The binding is immutable, so hex_array_at_mut_ has no surviving
+// access and RFC 0088 filters it out — the golden covers both directions of
+// the demand rule at once.
 func TestArrayComponentHexalHeaderOwnsNoArrayText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    view: View<Int32> = fixed.slice(0, 2)\n    first: Int32 = fixed[0]\nend")
+	program := checkedGeneratorSource(t, "fun demo(i: Size) do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    view: View<Int32> = fixed.slice(0, 2)\n    first: Int32 = fixed[i]\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_array_") {
 		t.Fatalf("hexal.h = %q, array definitions must live in hexal/array.h", files["hexal.h"])
@@ -62,12 +67,6 @@ typedef struct hex_array_Int32_3 {
     int32_t data[3];
 } hex_array_Int32_3;
 static inline const int32_t *hex_array_at_Int32_3(const hex_array_Int32_3 *array, size_t index) {
-    if (index >= UINT64_C(3)) {
-        hex_runtime_trap("[Runtime Error] array index out of bounds\n");
-    }
-    return &array->data[index];
-}
-static inline int32_t *hex_array_at_mut_Int32_3(hex_array_Int32_3 *array, size_t index) {
     if (index >= UINT64_C(3)) {
         hex_runtime_trap("[Runtime Error] array index out of bounds\n");
     }

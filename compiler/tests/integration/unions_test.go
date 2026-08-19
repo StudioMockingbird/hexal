@@ -146,4 +146,3 @@ func TestNestedUnionEncodingIntegration(t *testing.T) {
 		t.Fatalf("flattened union name not found in header:\n%s", rootH(t, result))
 	}
 }
-

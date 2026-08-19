@@ -14,7 +14,7 @@ func TestForInSequenceLoops(t *testing.T) {
 	for _, want := range []string{
 		"hex_array_Int32_3 *const hex_for_1 = &(hex_v_fixed);",
 		"for (size_t hex_for_1_index = 0; hex_for_1_index < (size_t)(3); hex_for_1_index++) {",
-		"const int32_t hex_v_value = *hex_array_at_Int32_3(hex_for_1, (size_t)(hex_for_1_index));",
+		"const int32_t hex_v_value = hex_for_1->data[hex_for_1_index];",
 		"const size_t hex_v_i = hex_for_2_index;",
 		"const hex_view_Int32 hex_for_3 = hex_v_view;",
 		"const hex_list_Int32 *const hex_for_1 = hex_v_values;",

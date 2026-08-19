@@ -174,7 +174,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// but its include guard.
 		viewState.required = true
 	}
-	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
+	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program), arrays: arrayState}
 	return emission, nil
 }
 
@@ -217,7 +217,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		stringState: literals,
 		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool)},
 		dictState:   &generatedDictState{seen: make(map[*compilerTypes.DictInfo]bool)},
-		arrayState:  &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool)},
+		arrayState:  &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool), demand: make(map[*compilerTypes.ArrayInfo]arrayAccessorDemand)},
 		concurrencyState: &generatedConcurrencyState{
 			taskTypes:            make(map[string]compilerTypes.Type),
 			joinTypes:            make(map[string]compilerTypes.Type),
@@ -243,6 +243,11 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		mergeWrapState(merged.wrapState, module.wrapState)
 		if module.arrayState != nil {
 			arrayOrders = append(arrayOrders, module.arrayState.order)
+			// RFC 0088 demand is recorded while a module body renders, which
+			// happens after this merge. Every module state therefore shares
+			// the merged map, so a write from any renderer is visible to the
+			// component builders that run once every module has rendered.
+			module.arrayState.demand = merged.arrayState.demand
 		}
 		if module.viewState != nil {
 			viewOrders = append(viewOrders, module.viewState.views)

@@ -32,7 +32,6 @@ other.
 | Work | Spec |
 |---|---|
 | Dict.find — one-lookup optional get; blocked on union-in-component layering (RFC 0083 A3) | [0083](specs/0083-text-and-collection-surface.md) |
-| Provably dead bounds checks — elide Array checks the compiler already proved | [0088](specs/0088-provably-dead-bounds-checks.md) |
 | Inferred binding declarations — `:=` where the initializer states the type | [0090](specs/0090-inferred-binding-declarations.md) |
 
 ## Unowned

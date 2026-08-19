@@ -3,19 +3,19 @@
 typedef struct {{.CName}} {
     {{.ElementSpelling}} data[{{.Length}}];
 } {{.CName}};
-static inline const {{.ElementSpelling}} *hex_array_at_{{.Suffix}}(const {{.CName}} *array, size_t index) {
+{{if .NeedsAt}}static inline const {{.ElementSpelling}} *hex_array_at_{{.Suffix}}(const {{.CName}} *array, size_t index) {
     if (index >= UINT64_C({{.Length}})) {
         hex_runtime_trap("[Runtime Error] array index out of bounds\n");
     }
     return &array->data[index];
 }
-static inline {{.ElementSpelling}} *hex_array_at_mut_{{.Suffix}}({{.CName}} *array, size_t index) {
+{{end}}{{if .NeedsAtMut}}static inline {{.ElementSpelling}} *hex_array_at_mut_{{.Suffix}}({{.CName}} *array, size_t index) {
     if (index >= UINT64_C({{.Length}})) {
         hex_runtime_trap("[Runtime Error] array index out of bounds\n");
     }
     return &array->data[index];
 }
-{{if .ViewCName}}
+{{end}}{{if .ViewCName}}
 static inline {{.ViewCName}} hex_array_slice_{{.Suffix}}(const {{.CName}} *array, uint64_t start, uint64_t end) {
     if (!(start <= end && end <= UINT64_C({{.Length}}))) {
         hex_runtime_trap("[Runtime Error] array slice bounds out of range\n");

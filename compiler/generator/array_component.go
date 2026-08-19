@@ -26,12 +26,19 @@ type arrayComponentRecord struct {
 	ElementSpelling string
 	Length          uint64
 	ViewCName       string
+	// NeedsAt and NeedsAtMut are RFC 0088's demand filter: an accessor is
+	// emitted only where some access whose bounds check survived reaches it.
+	// A program that only iterates arrays and indexes them with literals
+	// reaches neither and gets the typedef alone.
+	NeedsAt    bool
+	NeedsAtMut bool
 }
 
 // arrayComponentRecordFor builds the spelling record of one Array
 // specialization.
-func arrayComponentRecordFor(array compilerTypes.Type, viewState *generatedViewState) arrayComponentRecord {
+func arrayComponentRecordFor(array compilerTypes.Type, viewState *generatedViewState, arrayState *generatedArrayState) arrayComponentRecord {
 	element := array.Array.Element
+	demand := arrayState.accessorDemandFor(array)
 	viewCName := ""
 	if view := matchingView(viewState, element); view != (compilerTypes.Type{}) {
 		viewCName = view.CName
@@ -42,6 +49,8 @@ func arrayComponentRecordFor(array compilerTypes.Type, viewState *generatedViewS
 		ElementSpelling: pointerSpelling(element),
 		Length:          array.Array.Length,
 		ViewCName:       viewCName,
+		NeedsAt:         demand.read,
+		NeedsAtMut:      demand.write,
 	}
 }
 
@@ -59,7 +68,7 @@ func arrayComponents(merged *programEmission) ([]componentArtifact, error) {
 		if collectionElementModuleTyped(array) {
 			continue
 		}
-		records = append(records, arrayComponentRecordFor(array, merged.viewState))
+		records = append(records, arrayComponentRecordFor(array, merged.viewState, merged.arrayState))
 	}
 	if len(records) == 0 {
 		return nil, nil

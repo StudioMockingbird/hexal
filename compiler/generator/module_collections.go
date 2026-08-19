@@ -193,7 +193,7 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 		case typ.View != nil:
 			artifact = componentArtifact{key: "hexal/view.h", template: "view.h", block: "viewbody", model: viewComponentModel{Views: []viewComponentRecord{viewComponentRecordFor(typ)}}}
 		case typ.Array != nil:
-			artifact = componentArtifact{key: "hexal/array.h", template: "array.h", block: "arraybody", model: arrayComponentModel{Arrays: []arrayComponentRecord{arrayComponentRecordFor(typ, input.views)}}}
+			artifact = componentArtifact{key: "hexal/array.h", template: "array.h", block: "arraybody", model: arrayComponentModel{Arrays: []arrayComponentRecord{arrayComponentRecordFor(typ, input.views, input.arrays)}}}
 		case typ.List != nil:
 			artifact = componentArtifact{key: "hexal/list.h", template: "list.h", block: "listbody", model: listComponentModel{Lists: []listComponentRecord{listComponentRecordFor(typ, input.views)}}}
 		case typ.Dict != nil:

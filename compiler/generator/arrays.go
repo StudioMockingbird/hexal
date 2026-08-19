@@ -14,6 +14,63 @@ import (
 type generatedArrayState struct {
 	order []compilerTypes.Type
 	seen  map[*compilerTypes.ArrayInfo]bool
+	// demand records, per specialization, which accessor directions some
+	// access actually reaches after RFC 0088's elision. An Array whose only
+	// uses are for-in and constant indices reaches neither and gets no
+	// accessor at all.
+	demand map[*compilerTypes.ArrayInfo]arrayAccessorDemand
+}
+
+// arrayAccessorDemand is one specialization's surviving accessor need. read
+// selects hex_array_at_, write selects hex_array_at_mut_; the renderer picks
+// between them by receiver mutability, not by whether the access writes, so
+// a read through a mut binding still demands the mutable accessor.
+type arrayAccessorDemand struct {
+	read  bool
+	write bool
+}
+
+// arrayIndexCheckSurvives reports whether an index access still needs a
+// bounds check, and therefore an accessor. A constant index is one the
+// checker already proved in range — it rejects the failing half outright — so
+// the check is dead by construction.
+//
+// This is deliberately narrower than the checker's proof: the checker
+// resolves constants through immutable bindings, so `n: Size = 0` followed by
+// `a[n]` is proven at check time but arrives here as a variable reference.
+// Emitting a check that cannot fire is always correct, so the narrow rule is
+// safe; RFC 0088 promises only the literal case.
+func arrayIndexCheckSurvives(node checker.Expression) bool {
+	if node.Kind != checker.IndexExpression || node.OperandType.Array == nil || len(node.Arguments) != 1 {
+		return false
+	}
+	return node.Arguments[0].Kind != checker.ConstantOperand
+}
+
+// recordArrayAccessorDemand marks the accessor direction one surviving access
+// needs. Callers filter with arrayIndexCheckSurvives first.
+func (state *generatedArrayState) recordArrayAccessorDemand(array *compilerTypes.ArrayInfo, writable bool) {
+	if state == nil || array == nil {
+		return
+	}
+	if state.demand == nil {
+		state.demand = make(map[*compilerTypes.ArrayInfo]arrayAccessorDemand)
+	}
+	entry := state.demand[array]
+	if writable {
+		entry.write = true
+	} else {
+		entry.read = true
+	}
+	state.demand[array] = entry
+}
+
+// accessorDemandFor returns one specialization's surviving accessor need.
+func (state *generatedArrayState) accessorDemandFor(array compilerTypes.Type) arrayAccessorDemand {
+	if state == nil || state.demand == nil || array.Array == nil {
+		return arrayAccessorDemand{}
+	}
+	return state.demand[array.Array]
 }
 
 // discoverGeneratedArrays walks every type reachable from the program and
@@ -317,6 +374,16 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return "*hex_list_at_mut_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
 			}
 			return "*hex_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
+		}
+		// RFC 0088: an index the checker already proved in range needs no
+		// check, so it needs no accessor call either.
+		if !arrayIndexCheckSurvives(node) {
+			return receiver + ".data[" + index + "]", nil
+		}
+		// This call is the accessor's only demand, so it is recorded here
+		// rather than derived again from the checked tree.
+		if state != nil && state.generatedTypes != nil {
+			state.generatedTypes.arrays.recordArrayAccessorDemand(node.OperandType.Array, place.writable)
 		}
 		return "*" + arrayAccessorCName(node.OperandType, place.writable) + "(&" + receiver + ", (size_t)(" + index + "))", nil
 	case checker.ArrayLiteralExpression:
