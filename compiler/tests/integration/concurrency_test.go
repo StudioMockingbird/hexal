@@ -34,7 +34,9 @@ func TestSpawnLoopEmitsOneSiteInsideBody(t *testing.T) {
 // A non-default TaskStackReserve must reach the generated runtime and appear
 // in the emitted C: the POSIX usable-stack expression and the CreateFiberEx
 // reserve argument both spell the configured bytes, while a zero Project
-// keeps the historical "1u << 20" text byte-identical.
+// keeps the historical "1u << 20" text byte-identical. TaskStackCommit
+// reaches the CreateFiberEx commit argument; its POSIX inertness is
+// documented at the allocation site.
 func TestTaskStackReserveReachesGeneratedRuntime(t *testing.T) {
 	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"
 	configured := compiler.Compile(map[string]string{rootSourceKey: source}, rootSourceKey, compiler.Project{TaskStackReserve: 2 << 20})
@@ -47,6 +49,17 @@ func TestTaskStackReserveReachesGeneratedRuntime(t *testing.T) {
 	}
 	if !strings.Contains(concurrencyC, "CreateFiberEx(0, 2097152u, FIBER_FLAG_FLOAT_SWITCH") {
 		t.Fatalf("generated runtime lacks the configured fiber reserve:\n%s", concurrencyC)
+	}
+	committed := compiler.Compile(map[string]string{rootSourceKey: source}, rootSourceKey, compiler.Project{TaskStackCommit: 16 << 10})
+	if committed.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", committed.Stderr)
+	}
+	committedC := moduleFile(t, committed, "hexal/concurrency.c")
+	if !strings.Contains(committedC, "CreateFiberEx(16384u, 0, FIBER_FLAG_FLOAT_SWITCH") {
+		t.Fatalf("generated runtime lacks the configured fiber commit:\n%s", committedC)
+	}
+	if !strings.Contains(committedC, "Windows-only knob") {
+		t.Fatalf("the POSIX allocation site must document the commit as inert:\n%s", committedC)
 	}
 	zero := compileSource(source)
 	if zero.ExitCode != compiler.ExitSuccess {
@@ -76,10 +89,10 @@ func TestSpawnAndJoinCompile(t *testing.T) {
 	// The scheduler runtime owns the concurrency component; the root module
 	// C keeps the init/complete call sites and no runtime definitions.
 	concurrencyC := moduleFile(t, result, "hexal/concurrency.c")
-	if !strings.Contains(concurrencyC, "static void hex_scheduler_init(void) {") {
+	if !strings.Contains(concurrencyC, "void hex_scheduler_init(void) {") {
 		t.Fatalf("hexal/concurrency.c lacks the scheduler runtime:\n%s", concurrencyC)
 	}
-	if strings.Contains(rootC(t, result), "static void hex_scheduler_init(void) {") {
+	if strings.Contains(rootC(t, result), "void hex_scheduler_init(void) {") {
 		t.Fatalf("root module C retains the scheduler runtime:\n%s", rootC(t, result))
 	}
 	if !strings.Contains(rootC(t, result), "hex_scheduler_init();") {

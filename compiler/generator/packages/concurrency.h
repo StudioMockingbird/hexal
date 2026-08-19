@@ -36,6 +36,8 @@ void hex_task_yield(void);
 void hex_task_detach(hex_task *task);
 void hex_task_release(hex_task *task);
 void hex_task_complete(hex_task *task);
+extern hex_task *hex_root_task;
+void hex_scheduler_init(void);
 hex_chan *hex_chan_new(size_t capacity, size_t element_size);
 bool hex_chan_send(hex_chan *channel, const void *value);
 bool hex_chan_receive(hex_chan *channel, void *out);

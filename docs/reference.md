@@ -883,8 +883,10 @@ Task.yield() -> no value
   point in one cooperative M:N scheduler over C23 worker threads.
 - Targets are Windows x64 and POSIX x86-64 with verified C23 `<threads.h>`; otherwise Task features
   produce Unsupported Error. Root is pinned to worker zero; root return does not join tasks. Stacks
-  reserve 1 MiB including guard page by default; `Project.TaskStackReserve` and
-  `Project.TaskStackCommit` are the build-time overrides.
+  reserve 1 MiB by default with an 8 KiB initial commit, both `Project` build-time settings; the
+  initial commit is a Windows-only knob, and the usable region is the reserve less one guard page.
+  Exceeding the reserve traps with `[Runtime Error] task stack overflow` rather than corrupting
+  memory.
 - Every repeating path through task-reachable literal `while true` visibly executes `Task.yield()` or
   compilation fails.
 - Spawn, join, Mutex, Channel, and sequentially consistent Atomic operations provide their specified
@@ -1011,8 +1013,10 @@ MutPtr<T>.write_volatile(value: T) -> no value
   null pointer is never passed with a zero count (RFC 0069 Amendment 2).
 - Every generated diagnostic trap reports through one program-wide `hex_runtime_trap` (declared in
   `hexal.h`, defined once in the root module's C file, `[[noreturn]]`, owning `<stdio.h>`/`<stdlib.h>`
-  selection). No per-family trap function exists. An impossible compiler-internal union tag guard may
-  retain a direct `abort()` (RFC 0069 Amendment 2).
+  selection). No per-family trap function exists. The one exception is the Task stack-overflow trap,
+  which a signal handler (POSIX) or vectored exception handler (Windows) emits directly because the
+  faulted stack cannot run `hex_runtime_trap`; it keeps the same `[Runtime Error]` message shape. An
+  impossible compiler-internal union tag guard may retain a direct `abort()` (RFC 0069 Amendment 2).
 - Nil renders the C23 `nullptr` keyword, no generated C spells `NULL`, and `nullptr_t` never appears
   as a type spelling (it may appear inside union identifier encodings such as
   `hex_union_7_int32_t9_nullptr_t`, which are names, not spellings). Nil alone

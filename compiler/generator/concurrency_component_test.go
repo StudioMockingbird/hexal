@@ -51,6 +51,8 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 		"void hex_task_entry_hex_f_m3_app_square(hex_task *task);",
 		"hex_task *hex_task_spawn(void (*entry)(hex_task *), size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align);",
 		"void hex_task_complete(hex_task *task);",
+		"extern hex_task *hex_root_task;",
+		"void hex_scheduler_init(void);",
 		"hex_mutex *hex_mutex_new(void);",
 	} {
 		if !strings.Contains(header, fragment) {
@@ -58,7 +60,7 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 		}
 	}
 	for _, fragment := range []string{
-		"static void hex_scheduler_init(void) {",
+		"void hex_scheduler_init(void) {",
 		"hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align) {",
 		"void *hex_task_join(hex_task *task) {",
 		"static _Thread_local hex_task *hex_current_task;",
@@ -78,7 +80,7 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 	// definitions, state, or platform layer.
 	rootC := files["modules/app.c"]
 	for _, fragment := range []string{
-		"static void hex_scheduler_init(void) {",
+		"void hex_scheduler_init(void) {",
 		"static _Thread_local hex_task *hex_current_task;",
 		"hex_ready_push",
 		"hex_context_switch(",
@@ -218,7 +220,7 @@ func TestConcurrencyTemplatesRenderModel(t *testing.T) {
 		t.Fatalf("concurrency.c render error = %v", err)
 	}
 	for _, fragment := range []string{
-		"static void hex_scheduler_init(void) {",
+		"void hex_scheduler_init(void) {",
 		"typedef struct hex_chan {",
 		"struct hex_mutex_control {",
 		"void hex_chan_free(hex_chan *channel) {",
@@ -290,23 +292,79 @@ func TestGenerateSpawnNestingShapesEmitOneSite(t *testing.T) {
 	}
 }
 
-// The POSIX fiber stack maps the usable region plus one PROT_NONE guard
-// page at its low end: the runtime mprotects the guard, names only the
-// usable region above it in ss_sp/ss_size, and tears the whole mapping
-// down with munmap.
+// The POSIX fiber stack maps the whole reserve read-write with one PROT_NONE
+// guard page at its low end: ss_sp/ss_size name the usable region above the
+// guard (the reserve less one page), the mapping is demand-zero paged and
+// torn down with munmap, and the initial commit is documented as a
+// Windows-only knob.
 func TestConcurrencyPosixStackHasGuardPage(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	for _, fragment := range []string{
-		"mmap(nullptr, stack_size + page_size, PROT_READ | PROT_WRITE,",
+		"mmap(nullptr, stack_size, PROT_READ | PROT_WRITE,",
+		"MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE",
 		"mprotect(region, page_size, PROT_NONE)",
+		"context->guard_end = (char *)region + page_size;",
 		"context->context.uc_stack.ss_sp = (char *)region + page_size;",
-		"context->context.uc_stack.ss_size = stack_size;",
+		"context->context.uc_stack.ss_size = stack_size - page_size;",
+		"deliberately unused",
 		"munmap(context->stack, context->stack_mapping_size);",
 	} {
 		if !strings.Contains(source, fragment) {
 			t.Fatalf("hexal/concurrency.c lacks %q:\n%s", fragment, source)
 		}
+	}
+}
+
+// The overflow trap reaches the generated runtime on both platforms: a
+// per-worker alternate signal stack, a process-wide SIGSEGV/SIGBUS handler
+// that names the current Task's guard range through one thread-local read,
+// the structured message and clean exit on a guard fault, an unchanged
+// re-raise for every other fault, and the Windows vectored exception handler
+// on EXCEPTION_STACK_OVERFLOW. Every worker installs its setup.
+func TestConcurrencyOverflowTrapReachesRuntime(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
+	files := generateOne(t, program)
+	source := files["hexal/concurrency.c"]
+	posix := []string{
+		"typedef struct hex_guard_range {",
+		"static _Thread_local hex_guard_range hex_current_guard;",
+		"hex_current_guard.base = to->stack;",
+		"hex_current_guard.end = to->guard_end;",
+		"#define HEX_GUARD_HANDLER_STACK (64 << 10)",
+		"stack_t alt = {0};",
+		"sigaltstack(&alt, nullptr)",
+		"action.sa_sigaction = hex_guard_handler;",
+		"action.sa_flags = SA_SIGINFO | SA_ONSTACK;",
+		"sigaction(SIGSEGV, &action, nullptr) != 0 || sigaction(SIGBUS, &action, nullptr) != 0",
+		"hex_stack_overflow_message, sizeof(hex_stack_overflow_message) - 1);",
+		"_exit(1);",
+		"signal(sig, SIG_DFL);",
+		"raise(sig);",
+		"hex_worker_guard_setup();",
+	}
+	win32 := []string{
+		"EXCEPTION_STACK_OVERFLOW",
+		"WriteFile(stderr_handle, hex_stack_overflow_message",
+		"ExitProcess(1);",
+		"return EXCEPTION_CONTINUE_SEARCH;",
+		"AddVectoredExceptionHandler(1, hex_stack_overflow_handler)",
+	}
+	for _, fragment := range append(posix, win32...) {
+		if !strings.Contains(source, fragment) {
+			t.Fatalf("hexal/concurrency.c lacks %q:\n%s", fragment, source)
+		}
+	}
+	if strings.Count(source, "hex_worker_guard_setup();") != 2 {
+		t.Fatalf("worker guard setup must run once for worker zero and once for each spawned worker, count = %d:\n%s", strings.Count(source, "hex_worker_guard_setup();"), source)
+	}
+	// The faulting context cannot run hex_runtime_trap; the handler must
+	// write the structured message itself.
+	if !strings.Contains(source, "hex_stack_overflow_message") {
+		t.Fatalf("hexal/concurrency.c lacks the shared overflow message: %s", source)
+	}
+	if strings.Contains(files["hexal.h"], "hex_stack_overflow_message") {
+		t.Fatalf("hexal.h must not own the handler message: %s", files["hexal.h"])
 	}
 }

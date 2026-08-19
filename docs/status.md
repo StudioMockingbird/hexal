@@ -33,8 +33,6 @@ other.
 | Module-typed collection elements — emit specializations where the element type is available | [0081](specs/0081-module-typed-collection-elements.md) |
 | Demand-driven component dependencies — no hollow `hexal/*.h` artifacts | [0082](specs/0082-demand-driven-component-dependencies.md) |
 | Text and collection surface — drop `List.set`, add `Dict.length`/`Dict.find`, remove text indexing | [0083](specs/0083-text-and-collection-surface.md) |
-| Fiber stack sizing — 1 MiB reserve, 8 KiB commit, overflow trap | [0085](specs/0085-fiber-stack-sizing.md) |
-
 ## Unowned
 
 Items without a determinable meaning, staged here until each gets a spec or is
@@ -69,11 +67,13 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
 - Runtime traps are unverifiable. The trap rules in `reference.md` (empty `pop`,
   missing Dict key, out-of-bounds index, zero divisor, shift count, float
   overflow, allocation failure, malformed UTF-8, close failure, Mutex misuse,
-  and others) and `print`'s exact output forms fire only in an executed
-  generated binary. The runtime templates carry **32 distinct
-  `[Runtime Error]` messages**; an earlier revision of this entry said thirteen,
-  which was never sourced and is wrong. Do not re-introduce a count without
-  deriving it. Per policy, no test may execute one: the retained
+  task stack overflow, and others) and `print`'s exact output forms fire only
+  in an executed generated binary. The runtime templates carry **36 distinct
+  `[Runtime Error]` messages**, derived by regex over every
+  `compiler/generator/packages/*.c` and `*.h` template (62 occurrences total).
+  An earlier revision of this entry said thirteen, which was never sourced and
+  is wrong. Do not re-introduce a count without deriving it. Per policy, no
+  test may execute one: the retained
   `compiler/tests/c23validation/c23_*_test.go`
   files are pure Go and have no runnable entry points, so trap firing and
   exact runtime output stay unverified.
@@ -94,6 +94,19 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   stays open. The guard-page fault itself remains unverified: no test
   executes generated C, so nothing observes a fiber overflow hitting the
   `PROT_NONE` page.
+
+  RFC 0085's runnable validation also remains unverified for the same reason:
+  resident cost per Task before and after the stack rework, 10,000
+  concurrently live Tasks, the `[Runtime Error] task stack overflow` trap
+  firing and process exit on both platforms, the unchanged re-raise of a
+  fault outside any Task guard page, a 64 KiB reserve overflowing sooner than
+  1 MiB, and a POSIX Task using more than the 8 KiB initial commit without
+  faulting. What is verified without execution: the whole generated
+  concurrency runtime compiles and links under a strict `-std=c23` glibc
+  x86-64 toolchain (zig cc) at both the default and a 64 KiB reserve, the
+  reserve and commit spellings reach both platform allocation sites, the
+  POSIX site documents the commit as unused there, and the snippet manifest
+  moved only the ten task-spawning snippets.
 
   The second kind is the worse one: a textual assertion can catch an undeclared
   identifier, but nothing short of running the binary catches a task that is

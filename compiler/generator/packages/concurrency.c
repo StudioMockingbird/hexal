@@ -2,12 +2,19 @@
    Task/join/yield machinery, and the Channel and Mutex cores. Process-wide
    state and the externally linked core definitions live here exactly once;
    the program-wide declarations are in the matching header. */
+{{if .Scheduler}}
+// The platform layer uses POSIX extensions (ucontext, mmap, sigaltstack)
+// whose declarations glibc and musl hide in strict C23 mode; _GNU_SOURCE
+// must precede every system include.
+#define _GNU_SOURCE
+{{end}}
 #include "hexal/concurrency.h"
 {{if .Scheduler}}
 #if defined(_WIN32)
 #include <windows.h>
 #else
 #include <ucontext.h>
+#include <signal.h>
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
@@ -24,6 +31,11 @@
 #define HEX_TASK_DONE 4
 #define HEX_TASK_ROOT 1u
 #define HEX_TASK_DETACH 2u
+
+// hex_stack_overflow_message is the one structured diagnostic emitted from a
+// signal or exception context: the handler cannot call hex_runtime_trap,
+// whose fputs and abort are not async-signal-safe.
+static const char hex_stack_overflow_message[] = "[Runtime Error] task stack overflow\n";
 
 #if defined(_WIN32)
 typedef LPVOID hex_context;
@@ -55,13 +67,91 @@ static void hex_context_switch(hex_context from, hex_context to) {
 static void hex_context_destroy(hex_context context) {
     DeleteFiber(context);
 }
+// hex_stack_overflow_handler turns the fiber stack overflow into the
+// structured trap. The exception code identifies the fault, so no guard-range
+// bookkeeping exists here; the handler runs on a reserved system stack and
+// must not call into the CRT.
+static LONG WINAPI hex_stack_overflow_handler(EXCEPTION_POINTERS *exception) {
+    if (exception->ExceptionRecord->ExceptionCode == EXCEPTION_STACK_OVERFLOW) {
+        HANDLE stderr_handle = GetStdHandle(STD_ERROR_HANDLE);
+        DWORD written = 0;
+        (void)WriteFile(stderr_handle, hex_stack_overflow_message, (DWORD)(sizeof(hex_stack_overflow_message) - 1), &written, nullptr);
+        ExitProcess(1);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+static void hex_worker_guard_setup(void) {
+    static _Atomic int installed;
+    if (atomic_exchange(&installed, 1)) {
+        return;
+    }
+    if (AddVectoredExceptionHandler(1, hex_stack_overflow_handler) == nullptr) {
+        hex_runtime_trap("[Runtime Error] stack overflow handler installation failed\n");
+    }
+}
 #else
 typedef struct hex_context_impl hex_context_impl;
 struct hex_context_impl {
     ucontext_t context;
     void *stack;
     size_t stack_mapping_size;
+    void *guard_end;
 };
+
+// The signal handler runs on an alternate stack of this size: it only reads
+// a TLS range, compares, writes, and exits, so a handful of pages suffices.
+#define HEX_GUARD_HANDLER_STACK (64 << 10)
+
+// The guard range of the context the worker is currently running: a task
+// fiber's guard page, or nothing while the worker is on its own stack. The
+// signal handler reads this instead of a locked global registry, which would
+// not be async-signal-safe; the scheduler updates it on every switch.
+typedef struct hex_guard_range {
+    const void *base;
+    const void *end;
+} hex_guard_range;
+static _Thread_local hex_guard_range hex_current_guard;
+
+// hex_guard_handler turns a fault inside the current Task's guard page into
+// the structured stack-overflow trap and re-raises every other fault
+// unchanged, so unrelated memory bugs keep their ordinary fatal behavior. It
+// is async-signal-safe: one TLS read, one range comparison, write, _exit.
+static void hex_guard_handler(int sig, siginfo_t *info, void *unused) {
+    (void)unused;
+    hex_guard_range guard = hex_current_guard;
+    if (guard.base != nullptr && info->si_addr >= guard.base && info->si_addr < guard.end) {
+        (void)write(STDERR_FILENO, hex_stack_overflow_message, sizeof(hex_stack_overflow_message) - 1);
+        _exit(1);
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+static void hex_worker_guard_setup(void) {
+    // The handler is process-wide, the alt stack per-thread: every worker
+    // installs its own stack, one installs the handler. The alt stack is
+    // never freed because workers run until the process exits on root
+    // completion.
+    stack_t alt = {0};
+    alt.ss_sp = malloc(HEX_GUARD_HANDLER_STACK);
+    if (alt.ss_sp == nullptr) {
+        hex_runtime_trap("[Runtime Error] stack overflow handler stack allocation failed\n");
+    }
+    alt.ss_size = HEX_GUARD_HANDLER_STACK;
+    if (sigaltstack(&alt, nullptr) != 0) {
+        hex_runtime_trap("[Runtime Error] stack overflow handler stack installation failed\n");
+    }
+    static _Atomic int installed;
+    if (atomic_exchange(&installed, 1)) {
+        return;
+    }
+    struct sigaction action = {0};
+    action.sa_sigaction = hex_guard_handler;
+    action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&action.sa_mask);
+    if (sigaction(SIGSEGV, &action, nullptr) != 0 || sigaction(SIGBUS, &action, nullptr) != 0) {
+        hex_runtime_trap("[Runtime Error] stack overflow handler installation failed\n");
+    }
+}
 
 // The POSIX backend uses System V ucontext with one caller-allocated stack
 // per Task. The scheduler thread's own context is captured once and reused
@@ -77,30 +167,35 @@ static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) 
     if (context == nullptr) {
         return nullptr;
     }
-    // The fiber stack is an anonymous mmap with one PROT_NONE guard page at
-    // the low end: an overflow faults instead of corrupting adjacent heap.
-    // ss_sp/ss_size name the usable region above the guard, and the whole
-    // mapping is torn down with munmap.
-    void *region = mmap(nullptr, stack_size + page_size, PROT_READ | PROT_WRITE,
-                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    // The fiber stack maps the whole reserve read-write with one PROT_NONE
+    // guard page at its low end: demand-zero paging grows it, an overflow
+    // faults instead of corrupting adjacent heap, and untouched pages hold no
+    // physical memory. The initial commit (the TaskStackCommit project
+    // setting) is a Windows-only knob and is deliberately unused here;
+    // nothing on POSIX needs pre-committing. ss_sp/ss_size name the usable
+    // region above the guard, and the whole mapping is torn down with
+    // munmap.
+    void *region = mmap(nullptr, stack_size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (region == MAP_FAILED) {
         free(context);
         return nullptr;
     }
     if (mprotect(region, page_size, PROT_NONE) != 0) {
-        munmap(region, stack_size + page_size);
+        munmap(region, stack_size);
         free(context);
         return nullptr;
     }
     context->stack = region;
-    context->stack_mapping_size = stack_size + page_size;
+    context->stack_mapping_size = stack_size;
+    context->guard_end = (char *)region + page_size;
     if (getcontext(&context->context) != 0) {
         munmap(context->stack, context->stack_mapping_size);
         free(context);
         return nullptr;
     }
     context->context.uc_stack.ss_sp = (char *)region + page_size;
-    context->context.uc_stack.ss_size = stack_size;
+    context->context.uc_stack.ss_size = stack_size - page_size;
     context->context.uc_link = nullptr;
     makecontext(&context->context, (void (*)(void))entry, 1, param);
     return context;
@@ -109,6 +204,7 @@ static hex_context_impl *hex_context_current(void) {
     hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
     if (context != nullptr) {
         context->stack = nullptr;
+        context->guard_end = nullptr;
         if (getcontext(&context->context) != 0) {
             free(context);
             return nullptr;
@@ -124,6 +220,11 @@ static void hex_context_switch(hex_context_impl *from, hex_context_impl *to) {
     if (from == nullptr || to == nullptr) {
         abort();
     }
+    // The worker is about to run `to`: name its guard range so a fault is
+    // attributed to the right Task. Loop and thread contexts carry no guard,
+    // so switching back to the worker's own stack clears the range.
+    hex_current_guard.base = to->stack;
+    hex_current_guard.end = to->guard_end;
     if (swapcontext(&from->context, &to->context) != 0) {
         abort();
     }
@@ -146,7 +247,7 @@ static mtx_t hex_ready_mutex;
 static cnd_t hex_ready_cond;
 static _Atomic int hex_shutdown;
 static _Atomic int64_t hex_next_task_id;
-static hex_task *hex_root_task;
+hex_task *hex_root_task;
 
 static void hex_ready_push(hex_task *task) {
     mtx_lock(&hex_ready_mutex);
@@ -247,6 +348,7 @@ static void hex_worker_loop(void *param) {
 static int hex_worker_thread(void *unused) {
     (void)unused;
     hex_current_task = nullptr;
+    hex_worker_guard_setup();
     (void)hex_context_thread();
     hex_worker_loop(nullptr);
     return 0;
@@ -256,7 +358,10 @@ static int hex_worker_thread(void *unused) {
 // (worker zero), creates the remaining workers, and starts dispatch. The
 // root fiber is the converted main thread context; its statements run as the
 // Hexal entry point.
-static void hex_scheduler_init(void) {
+void hex_scheduler_init(void) {
+    // Worker zero is the initial process thread; its overflow handler and
+    // alternate signal stack are established before any Task runs.
+    hex_worker_guard_setup();
     if (mtx_init(&hex_ready_mutex, mtx_plain) != thrd_success) {
         hex_runtime_trap("[Runtime Error] scheduler mutex initialization failed\n");
     }
