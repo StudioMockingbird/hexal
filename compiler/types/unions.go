@@ -121,9 +121,10 @@ func unionCName(members []Type) string {
 	var builder strings.Builder
 	builder.WriteString("hex_union_")
 	for _, member := range members {
-		builder.WriteString(strconv.Itoa(len(member.CName)))
+		embedded := strings.TrimPrefix(member.CName, "hex_")
+		builder.WriteString(strconv.Itoa(len(embedded)))
 		builder.WriteString("_")
-		builder.WriteString(member.CName)
+		builder.WriteString(embedded)
 	}
 	return builder.String()
 }

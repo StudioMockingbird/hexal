@@ -1,7 +1,7 @@
 # RFC 0089: Composed Name Encoding
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Closed; implemented
 - Created: 2026-08-19
 - Scope: stop re-embedding the `hex_` prefix inside composed union C names
 - Depends on: nothing

@@ -34,7 +34,6 @@ other.
 | Dict.find — one-lookup optional get; blocked on union-in-component layering (RFC 0083 A3) | [0083](specs/0083-text-and-collection-surface.md) |
 | Cached rune length — O(1) `String.length()`; supersedes 0083 Part B rename | [0087](specs/0087-cached-rune-length.md) |
 | Provably dead bounds checks — elide Array checks the compiler already proved | [0088](specs/0088-provably-dead-bounds-checks.md) |
-| Composed name encoding — stop re-embedding `hex_` inside union names | [0089](specs/0089-composed-name-encoding.md) |
 | Inferred binding declarations — `:=` where the initializer states the type | [0090](specs/0090-inferred-binding-declarations.md) |
 
 ## Unowned

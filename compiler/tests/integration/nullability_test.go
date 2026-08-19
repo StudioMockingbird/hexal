@@ -52,8 +52,8 @@ func TestNullableHandleUnionDoesNotUseTheNullNiche(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const hex_union_10_hex_string9_nullptr_t hex_v_text",
-		".tag = hex_union_10_hex_string9_nullptr_t_tag_member_1",
+		"const hex_union_6_string9_nullptr_t hex_v_text",
+		".tag = hex_union_6_string9_nullptr_t_tag_member_1",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)

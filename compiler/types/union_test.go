@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestUnionTypeNormalizesIdentity(t *testing.T) {
 	environment := NewEnvironment()
@@ -63,3 +66,49 @@ func TestTypeUsePreservesCandidatesAndNestedElement(t *testing.T) {
 		t.Fatalf("type use = %#v, want nested UInt16 then UInt8 candidates", use)
 	}
 }
+
+// Stripping the leading hex_ from member CNames preserves injectivity only if
+// all stripped forms are pairwise distinct across constructible member types.
+func TestStrippedUnionMemberFormsArePairwiseDistinct(t *testing.T) {
+	environment := NewEnvironment()
+	userObject := environment.BeginObject("Point", 1, 1)
+	userAdt := environment.BeginADT("Option", 1, 1)
+
+	constructibleTypes := []Type{
+		Int8, Int16, Int32, Int64,
+		UInt8, UInt16, UInt32, UInt64,
+		Float32, Float64,
+		Bool, SizeType,
+		Nil, EoS, Unknown, Heap,
+		StringType, StrandType, ErrorType, MutexType, RuneCursorType,
+		userObject, userAdt,
+		environment.ArrayType(Int32, 4),
+		environment.ViewType(Int32),
+		environment.ListType(Int32),
+		environment.DictType(Int32, StringType),
+		environment.TaskType(Int32),
+		environment.ChannelType(Int32),
+		environment.AtomicType(Int32),
+		environment.PtrType(Int32),
+	}
+
+	seen := make(map[string]Type)
+	for _, member := range constructibleTypes {
+		stripped := strings.TrimPrefix(member.CName, "hex_")
+		if previous, exists := seen[stripped]; exists {
+			t.Fatalf("collision in stripped union member form %q: between %s (CName: %s) and %s (CName: %s)",
+				stripped, member.Name, member.CName, previous.Name, previous.CName)
+		}
+		seen[stripped] = member
+	}
+}
+
+func TestNestedUnionEncoding(t *testing.T) {
+	environment := NewEnvironment()
+	inner := environment.UnionType([]Type{Int32, Bool})
+	name := unionCName([]Type{inner, Nil})
+	if name != "hex_union_21_union_4_bool7_int32_t9_nullptr_t" {
+		t.Fatalf("nested union CName = %q, want hex_union_21_union_4_bool7_int32_t9_nullptr_t", name)
+	}
+}
+

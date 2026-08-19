@@ -103,3 +103,47 @@ func TestGeneratedUnionNamesAreDeterministic(t *testing.T) {
 		t.Fatalf("repeated union output differs: first=%q/%q second=%q/%q", rootC(t, first), rootH(t, first), rootC(t, second), rootH(t, second))
 	}
 }
+
+func TestSameUnionAcrossModulesProducesOneName(t *testing.T) {
+	sources := map[string]string{
+		"app.hex": "module A = import \"./a\"\nmodule B = import \"./b\"\na_val: A.Result = true\nb_val: B.Result = 1\n",
+		"a.hex":   "export type Result = Int32 | Bool\n",
+		"b.hex":   "export type Result = Int32 | Bool\n",
+	}
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile rejected identical union across modules: %v", result.Stderr)
+	}
+	// The union name hex_union_4_bool7_int32_t is shared across both module imports.
+	if strings.Count(result.Files["modules/app.h"], "typedef struct hex_union_4_bool7_int32_t") != 1 {
+		t.Fatalf("app.h must define shared union exactly once; got:\n%s", result.Files["modules/app.h"])
+	}
+}
+
+func TestStructurallyDifferentModuleUnionsProduceDistinctNames(t *testing.T) {
+	sources := map[string]string{
+		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nm_val: M.Point | Bool = true\ns_val: S.Point | Bool = true\n",
+		"m.hex":   "export type Point = { x: Int32, }\n",
+		"s.hex":   "export type Point = { x: Int32, }\n",
+	}
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile rejected module distinct union source: %v", result.Stderr)
+	}
+	mCName := "hex_union_4_bool12_t_m1_m_Point"
+	sCName := "hex_union_4_bool12_t_m1_s_Point"
+	if !strings.Contains(result.Files["modules/app.h"], mCName) || !strings.Contains(result.Files["modules/app.h"], sCName) {
+		t.Fatalf("distinct module unions must have distinct names in app.h:\n%s", result.Files["modules/app.h"])
+	}
+}
+
+func TestNestedUnionEncodingIntegration(t *testing.T) {
+	result := compileSource("type Inner = Int32 | Bool\ntype Outer = Inner | Nil\nval: Outer = nil\n")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile rejected nested union source: %v", result.Stderr)
+	}
+	if !strings.Contains(rootH(t, result), "hex_union_4_bool7_int32_t9_nullptr_t") {
+		t.Fatalf("flattened union name not found in header:\n%s", rootH(t, result))
+	}
+}
+

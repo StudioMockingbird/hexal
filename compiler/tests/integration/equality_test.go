@@ -248,7 +248,7 @@ func TestUnionEqualityWithObjectMember(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "static bool hex_union_4_bool18_hex_t_m3_app_Point_equal(hex_union_4_bool18_hex_t_m3_app_Point left, hex_union_4_bool18_hex_t_m3_app_Point right) {") {
+	if !strings.Contains(rootH(t, result), "static bool hex_union_4_bool14_t_m3_app_Point_equal(hex_union_4_bool14_t_m3_app_Point left, hex_union_4_bool14_t_m3_app_Point right) {") {
 		t.Fatalf("modules/app.h = %q, want recursive union equality helper", rootH(t, result))
 	}
 }
