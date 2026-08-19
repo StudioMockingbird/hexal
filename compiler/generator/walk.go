@@ -154,10 +154,10 @@ func walkTypeTreeSeen(typ compilerTypes.Type, visit func(compilerTypes.Type) err
 // walkStatementExpressions visits every expression reachable directly from
 // one statement in pre-order: the statement's operands and their nested
 // sub-expressions (Operand, Left, Right, Arguments), in written operand and
-// argument order. It does not descend into nested statement bodies; statement
-// walkers recurse into those themselves so a nested statement's hoisted
-// prologue stays at that statement's indentation. An unknown statement shape
-// is a generator error, never a silent skip.
+// argument order. It does not descend into nested statement bodies; each
+// statement list's own render hoists its prologues, so a nested statement's
+// hoisted prologue stays at that statement's indentation. An unknown
+// statement shape is a generator error, never a silent skip.
 func walkStatementExpressions(statement checker.Statement, visit func(*checker.Expression) error) error {
 	if visit == nil {
 		return nil
@@ -250,6 +250,7 @@ func walkStatementOperand(source *checker.Operand, visit func(*checker.Expressio
 // expressions need no shape dispatch: the structural descent visits Operand,
 // Left, Right, and Arguments regardless of kind.
 func walkProgram(program checker.Program, visitor *programVisitor) {
+	countTraversal()
 	if visitor == nil {
 		// A nil visitor collects nothing; the walk is a pure traversal.
 		return
@@ -337,6 +338,7 @@ func walkProgram(program checker.Program, visitor *programVisitor) {
 	}
 
 	walkExpression = func(node checker.Expression) {
+		countNode()
 		if visitor.Expression != nil {
 			visitor.Expression(node)
 		}

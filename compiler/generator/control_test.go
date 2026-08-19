@@ -61,6 +61,31 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 	}
 }
 
+// A try inside a nested block emits exactly one prologue, at the block's own
+// statement position: the operand call appears once and the prologue sits
+// inside the block, so an untaken branch performs no call.
+func TestGenerateTryInNestedBlockEmitsSinglePrologue(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun mk(): Int32 | Error do\n    return 1\nend\nfun run(): Int32 | Error do\n    if true then\n        v: Int32 = try mk()\n        print(v)\n    end\n    return 0\nend\n")
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootC := files["modules/app.c"]
+	if count := strings.Count(rootC, "hex_f_m3_app_mk()"); count != 1 {
+		t.Fatalf("try operand must evaluate exactly once; got %d calls:\n%s", count, rootC)
+	}
+	// The prologue follows the if header, inside the block that contains
+	// the try; the function-scope copy that ran unconditionally must not
+	// exist.
+	ifIdx := strings.Index(rootC, "if (true) {")
+	if ifIdx < 0 {
+		t.Fatalf("generated C lacks the if header:\n%s", rootC)
+	}
+	if !strings.Contains(rootC[ifIdx:], "const hex_union_7_int32_t11_hex_t_Error hex_try_1 = hex_f_m3_app_mk();") {
+		t.Fatalf("try prologue must appear inside the block that contains the try:\n%s", rootC)
+	}
+}
+
 // The Atomic helpers emit the C23 <stdatomic.h> operations directly at
 // sequential consistency; no delegating generic forwarder over the handle
 // typedef exists.

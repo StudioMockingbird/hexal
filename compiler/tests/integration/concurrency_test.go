@@ -9,6 +9,28 @@ import (
 // These tests compile concurrency programs only; build-and-run coverage
 // against a C23 toolchain lives behind the c23 build tag.
 
+// A loop that spawns N workers emits exactly one spawn site inside the loop
+// body: the hoisted function-scope copy would have created one extra task
+// per loop, never joined or detached, so N iterations must produce exactly
+// N sites' worth of tasks.
+func TestSpawnLoopEmitsOneSiteInsideBody(t *testing.T) {
+	source := "fun burn(value: Int64): Int64 do\n    return value\nend\nfun run(): Int64 | Error do\n    mut total: Int64 = 0\n    mut n: Int64 = 0\n    while n < 8 do\n        w: Task<Int64> = try spawn burn(n)\n        total = total + w.join()\n        n = n + 1\n    end\n    return total\nend\n"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	rootC := rootC(t, result)
+	if count := strings.Count(rootC, "hex_task_spawn("); count != 1 {
+		t.Fatalf("loop of 8 spawns emits %d spawn sites, want exactly one per iteration:\n%s", count, rootC)
+	}
+	if !strings.Contains(rootC, "while ((hex_v_n < INT64_C(8))) {\n") {
+		t.Fatalf("generated C lacks the loop header:\n%s", rootC)
+	}
+	if !strings.Contains(rootC[strings.Index(rootC, "while ((hex_v_n < INT64_C(8))) {"):], "hex_spawn_task_1 = hex_task_spawn(") {
+		t.Fatalf("the one spawn site must live inside the loop body:\n%s", rootC)
+	}
+}
+
 func TestSpawnAndJoinCompile(t *testing.T) {
 	source := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"
 	result := compileSource(source)

@@ -262,3 +262,51 @@ func TestConcurrencyTemplateMissingFieldFailsClosed(t *testing.T) {
 		t.Fatal("concurrency.h render with a model missing the template field must fail")
 	}
 }
+
+// Every nesting shape — top level, if, while, nested if inside while, and
+// the for-in body — emits exactly one hex_task_spawn site in the module C:
+// the hoisted function-scope copy that spawned an extra task and leaked it
+// must not exist.
+func TestGenerateSpawnNestingShapesEmitOneSite(t *testing.T) {
+	spawned := "fun square(value: Int32): Int32 do\n    return value * value\nend\n"
+	for _, testCase := range []struct {
+		name   string
+		source string
+	}{
+		{"top level", spawned + "fun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"},
+		{"if", spawned + "fun run(): Int32 | Error do\n    if true then\n        task: Task<Int32> = try spawn square(6)\n        task.join()\n    end\n    return 0\nend\n"},
+		{"while", spawned + "fun run(): Int32 | Error do\n    mut n: Int32 = 1\n    while n > 0 do\n        task: Task<Int32> = try spawn square(6)\n        task.join()\n        n = n - 1\n    end\n    return 0\nend\n"},
+		{"nested if inside while", spawned + "fun run(): Int32 | Error do\n    mut n: Int32 = 1\n    while n > 0 do\n        if n > 0 then\n            task: Task<Int32> = try spawn square(6)\n            task.join()\n        end\n        n = n - 1\n    end\n    return 0\nend\n"},
+		{"for", "fun burn(value: Int64): Int64 do\n    return value\nend\nfun run(): Int64 | Error do\n    a: Array<Int64, 3> = [1, 2, 3]\n    for v in a do\n        w: Task<Int64> = try spawn burn(v)\n        w.join()\n    end\n    return 0\nend\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			program := checkedGeneratorSource(t, testCase.source)
+			files := generateOne(t, program)
+			rootC := files["modules/app.c"]
+			if count := strings.Count(rootC, "hex_task_spawn("); count != 1 {
+				t.Fatalf("spawn site count = %d, want 1:\n%s", count, rootC)
+			}
+		})
+	}
+}
+
+// The POSIX fiber stack maps the usable region plus one PROT_NONE guard
+// page at its low end: the runtime mprotects the guard, names only the
+// usable region above it in ss_sp/ss_size, and tears the whole mapping
+// down with munmap.
+func TestConcurrencyPosixStackHasGuardPage(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
+	files := generateOne(t, program)
+	source := files["hexal/concurrency.c"]
+	for _, fragment := range []string{
+		"mmap(nullptr, stack_size + page_size, PROT_READ | PROT_WRITE,",
+		"mprotect(region, page_size, PROT_NONE)",
+		"context->context.uc_stack.ss_sp = (char *)region + page_size;",
+		"context->context.uc_stack.ss_size = stack_size;",
+		"munmap(context->stack, context->stack_mapping_size);",
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Fatalf("hexal/concurrency.c lacks %q:\n%s", fragment, source)
+		}
+	}
+}

@@ -75,9 +75,10 @@ func returnErrorExit(valueType compilerTypes.Type, valueName string) string {
 // the Error-return branch) before the statement renders. Each try node is
 // then replaced by its hoisted success value.
 func hoistTryInStatement(statement checker.Statement, body *strings.Builder, state *expressionValidation, result *compilerTypes.Type, indent string) error {
-	// Expression traversal lives in the shared walkStatementExpressions;
-	// this hoister only acts on try nodes and recurses into nested statement
-	// bodies itself.
+	// Expression traversal lives in the shared walkStatementExpressions,
+	// which visits only this statement's own expressions: a try inside a
+	// nested statement body is hoisted when that body's own statement list
+	// renders, so the prologue lands inside the block that contains it.
 	if err := walkStatementExpressions(statement, func(node *checker.Expression) error {
 		if node.Kind == checker.TryExpression && node.Operand != nil {
 			return hoistTry(node, body, state, result, indent)
@@ -86,45 +87,15 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 	}); err != nil {
 		return err
 	}
-	switch statement := statement.(type) {
-	case checker.IfStatement:
-		for _, nested := range statement.Then {
-			if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
-				return err
-			}
-		}
-		for _, branch := range statement.ElseIf {
-			for _, nested := range branch.Body {
-				if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
-					return err
-				}
-			}
-		}
-		if statement.Else != nil {
-			for _, nested := range statement.Else {
-				if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
-					return err
-				}
-			}
-		}
-	case checker.ForStatement:
-		for _, nested := range statement.Body {
-			if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
-				return err
-			}
-		}
-	case checker.WhileStatement:
-		for _, nested := range statement.Body {
-			if err := hoistTryInStatement(nested, body, state, result, indent); err != nil {
-				return err
-			}
-		}
-	case checker.Declaration, checker.Assignment, checker.CallStatement, checker.TryStatement,
+	switch statement.(type) {
+	case checker.IfStatement, checker.ForStatement, checker.WhileStatement,
+		checker.Declaration, checker.Assignment, checker.CallStatement, checker.TryStatement,
 		checker.ReturnStatement, checker.BreakStatement, checker.ContinueStatement,
 		checker.DeferStatement, checker.ErrdeferStatement, checker.FunctionDeclaration,
 		checker.MethodDeclaration:
-		// Leaf statements carry no nested body to recurse into; the expression
-		// walk above already visited their operands.
+		// Block statements carry no expressions beyond their own operands,
+		// and leaf statements none; nested bodies hoist at their own
+		// statement list.
 	default:
 		return unknownExpressionDiagnostic("unsupported checked statement")
 	}

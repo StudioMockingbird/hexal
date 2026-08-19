@@ -26,6 +26,16 @@ other.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
 
+### Implementation-ready
+
+| Work | Spec |
+|---|---|
+| Module-typed collection elements — emit specializations where the element type is available | [0081](specs/0081-module-typed-collection-elements.md) |
+| Demand-driven component dependencies — no hollow `hexal/*.h` artifacts | [0082](specs/0082-demand-driven-component-dependencies.md) |
+| Text and collection surface — drop `List.set`, add `Dict.length`/`Dict.find`, remove text indexing | [0083](specs/0083-text-and-collection-surface.md) |
+| Fiber stack sizing — 1 MiB reserve, 8 KiB commit, overflow trap | [0085](specs/0085-fiber-stack-sizing.md) |
+| Project configuration struct — build-time settings into `Compile` | [0086](specs/0086-project-configuration.md) |
+
 ## Unowned
 
 Items without a determinable meaning, staged here until each gets a spec or is
@@ -43,35 +53,53 @@ deleted:
 ## Open bugs
 
 - **Module-owned object elements in List/Dict/Array/View specializations
-  generate uncompilable C.** A specialization whose element is a module
-  object (e.g. `List<Point>`) spells the module's C typedef name inside the
-  program-wide component header, before the module header defines it. This
-  defect is pre-existing (the pre-split `hexal.h` had the same include-order
-  failure) and predates ADR 0071's component split; no test, c23 canary, or
-  snippet exercises it. Needs a representation RFC (e.g. handle-based
-  collection storage) before module objects can be collection elements. Formerly
-  owned by 0071, which was archived and removed; it needs a new owner RFC.
+  generate uncompilable C.** `List<M.Point>` compiles clean and emits C
+  referencing an undeclared type: the program-wide component header
+  `hexal/list.h` spells `hex_t_m1_m_Point` but never includes the module that
+  defines it, and module headers never include one another. Direct use of the
+  same type is correct — a consuming module re-emits the definitions it needs —
+  so this is a layering inversion specific to shared component artifacts, not
+  the include-order failure previously recorded here. No test, c23 canary, or
+  snippet exercises it. Owned by
+  [0081](specs/0081-module-typed-collection-elements.md).
 
 ## Known coverage gaps
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
-- Runtime traps are unverifiable. Thirteen trap rules in `reference.md` (empty
-  `pop`, missing Dict key, out-of-bounds index, zero divisor, shift count,
-  float overflow, allocation failure, malformed UTF-8, close failure, Mutex
-  misuse) and `print`'s exact output forms fire only in an executed generated
-  binary. Per policy, no test may execute one: the retained
+- Runtime traps are unverifiable. The trap rules in `reference.md` (empty `pop`,
+  missing Dict key, out-of-bounds index, zero divisor, shift count, float
+  overflow, allocation failure, malformed UTF-8, close failure, Mutex misuse,
+  and others) and `print`'s exact output forms fire only in an executed
+  generated binary. The runtime templates carry **32 distinct
+  `[Runtime Error]` messages**; an earlier revision of this entry said thirteen,
+  which was never sourced and is wrong. Do not re-introduce a count without
+  deriving it. Per policy, no test may execute one: the retained
   `compiler/tests/c23validation/c23_*_test.go`
   files are pure Go and have no runnable entry points, so trap firing and
   exact runtime output stay unverified.
-- **Undeclared identifiers in generated C are invisible to the whole suite.** No
-  test invokes a toolchain and the c23 canaries are dormant, so generated C that
-  references a type no header declares passes `go test ./...`, `go vet ./...`,
-  and `go vet -tags c23` alike. Two instances are known — 0073 D2 (handle types
-  reachable only through a declaration) and D33 (`uint64_t` in a Size-only
-  program) — each found by a different external review rather than by the suite.
-  Both are fixed narrowly with textual include/reference assertions; the class
-  stays open until generated C is compiled.
+- **Defects in generated C are invisible to the whole suite.** No test invokes a
+  toolchain and the c23 canaries are dormant, so generated C that is wrong — in
+  either of two ways — passes `go test ./...`, `go vet ./...`, and
+  `go vet -tags c23` alike.
+
+  *Does not compile:* 0073 D2 (handle types reachable only through a
+  declaration) and D33 (`uint64_t` in a Size-only program), each found by a
+  different external review.
+
+  *Compiles and behaves wrongly:* RFC 0084's C1 (a `try` in a nested block
+  ran its operand twice, and `try spawn` in a loop spawned one task too many
+  and leaked it) and C3 (POSIX fiber stacks lacked the guard page
+  `reference.md` promises, so an overflow corrupted the heap silently). Both
+  were found while hand-writing one example program and are fixed; the class
+  stays open. The guard-page fault itself remains unverified: no test
+  executes generated C, so nothing observes a fiber overflow hitting the
+  `PROT_NONE` page.
+
+  The second kind is the worse one: a textual assertion can catch an undeclared
+  identifier, but nothing short of running the binary catches a task that is
+  spawned twice. Each instance is fixed narrowly; the class stays open until
+  generated C is compiled and executed.
 - The generator emits helper families wholesale — equality, print, union,
   heap, io — so a small program's C contains many unused `static` helpers.
   Demand-driven helper emission would remove the dead code. (The old C23

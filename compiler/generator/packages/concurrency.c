@@ -8,6 +8,8 @@
 #include <windows.h>
 #else
 #include <ucontext.h>
+#include <sys/mman.h>
+#include <unistd.h>
 #endif
 #if defined(__STDC_NO_THREADS__)
 #error "Hexal Task runtime requires C23 threads (<threads.h>); this toolchain defines __STDC_NO_THREADS__"
@@ -58,6 +60,7 @@ typedef struct hex_context_impl hex_context_impl;
 struct hex_context_impl {
     ucontext_t context;
     void *stack;
+    size_t stack_mapping_size;
 };
 
 // The POSIX backend uses System V ucontext with one caller-allocated stack
@@ -69,21 +72,34 @@ static int hex_logical_processors(void) {
 }
 static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) {
     const size_t stack_size = 1u << 20;
+    const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
     hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
     if (context == nullptr) {
         return nullptr;
     }
-    context->stack = malloc(stack_size);
-    if (context->stack == nullptr) {
+    // The fiber stack is an anonymous mmap with one PROT_NONE guard page at
+    // the low end: an overflow faults instead of corrupting adjacent heap.
+    // ss_sp/ss_size name the usable region above the guard, and the whole
+    // mapping is torn down with munmap.
+    void *region = mmap(nullptr, stack_size + page_size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (region == MAP_FAILED) {
         free(context);
         return nullptr;
     }
+    if (mprotect(region, page_size, PROT_NONE) != 0) {
+        munmap(region, stack_size + page_size);
+        free(context);
+        return nullptr;
+    }
+    context->stack = region;
+    context->stack_mapping_size = stack_size + page_size;
     if (getcontext(&context->context) != 0) {
-        free(context->stack);
+        munmap(context->stack, context->stack_mapping_size);
         free(context);
         return nullptr;
     }
-    context->context.uc_stack.ss_sp = context->stack;
+    context->context.uc_stack.ss_sp = (char *)region + page_size;
     context->context.uc_stack.ss_size = stack_size;
     context->context.uc_link = nullptr;
     makecontext(&context->context, (void (*)(void))entry, 1, param);
@@ -114,7 +130,9 @@ static void hex_context_switch(hex_context_impl *from, hex_context_impl *to) {
 }
 static void hex_context_destroy(hex_context_impl *context) {
     if (context != nullptr) {
-        free(context->stack);
+        if (context->stack != nullptr) {
+            munmap(context->stack, context->stack_mapping_size);
+        }
         free(context);
     }
 }
