@@ -16,7 +16,9 @@ func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	if listH == "" {
 		t.Fatalf("generated files %v lack hexal/list.h", files)
 	}
-	if !strings.HasPrefix(listH, "#ifndef HEXAL_LIST_H\n#define HEXAL_LIST_H\n\n#include \"hexal.h\"\n#include \"hexal/heap.h\"\n#include \"hexal/view.h\"\n") {
+	// No specialization here has a slice helper, so the header declares no
+	// view dependency: a declared include is always a used one.
+	if !strings.HasPrefix(listH, "#ifndef HEXAL_LIST_H\n#define HEXAL_LIST_H\n\n#include \"hexal.h\"\n#include \"hexal/heap.h\"\n") {
 		t.Fatalf("hexal/list.h lost its guard or one of its declared includes: %q", listH)
 	}
 	if !strings.HasSuffix(listH, "\n#endif\n") {

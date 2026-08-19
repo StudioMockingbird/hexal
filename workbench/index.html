@@ -42,7 +42,14 @@
       border-radius: 8px;
       padding: 16px;
     }
-    .editor-panel { margin-bottom: 16px; }
+    /* Program and Generated files sit side by side on a wide screen. auto-fit
+       collapses the empty track, so before the first compile — when the files
+       panel is hidden — the editor takes the full width on its own. */
+    .workspace {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr));
+      gap: 16px; align-items: start; margin-bottom: 16px;
+    }
+    .workspace > * { min-width: 0; }
     .snippet-selectors { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
     select, input[type="text"], textarea, pre {
       width: 100%; border: 1px solid var(--border); border-radius: 5px;
@@ -57,18 +64,30 @@
     .source-name { max-width: 440px; margin-right: auto; }
     .entrypoint-label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
     input[type="radio"], input[type="checkbox"] { accent-color: var(--accent); }
-    .source-editor { position: relative; min-height: 150px; margin-top: 10px; }
-    .source-highlight, .source-editor textarea {
+    /* One code editor serves both the Hexal source and the generated C: a
+       highlighted pre underneath a transparent textarea. The textarea owns the
+       height — autoGrow sets it from scrollHeight — so the box always fits its
+       content exactly. Nothing here scrolls or clips: an editor grows to whatever
+       its content needs and the page scrolls instead, which is what makes a drag
+       or a Ctrl+A reach every line. */
+    .code-editor { position: relative; margin-top: 10px; }
+    .code-highlight, .code-editor textarea {
       min-height: 150px; margin: 0; padding: 12px; line-height: 1.45;
       white-space: pre-wrap; overflow-wrap: break-word;
+      font: inherit; tab-size: 4;
     }
-    .source-highlight { position: absolute; inset: 0; overflow: auto; pointer-events: none; }
-    .source-editor textarea {
-      position: relative; z-index: 1; resize: vertical; outline: none;
+    .code-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+    .code-editor textarea {
+      /* display: block matters — a default inline-block textarea sits on a text
+         baseline and leaves a few pixels of descender space below it, so the
+         container would be taller than the textarea and the highlight, pinned to
+         the container with inset: 0, would not line up with the text. */
+      display: block;
+      position: relative; z-index: 1; resize: none; outline: none; overflow: hidden;
       background: transparent; color: transparent; caret-color: var(--text);
       -webkit-text-fill-color: transparent;
     }
-    .source-editor textarea::selection { background: rgba(132, 169, 255, .25); }
+    .code-editor textarea::selection { background: rgba(132, 169, 255, .25); }
 
     .syntax-keyword { color: var(--syntax-keyword); }
     .syntax-type { color: var(--syntax-type); }
@@ -95,7 +114,8 @@
     .generated-files { display: grid; gap: 10px; margin-top: 12px; }
     details { border: 1px solid var(--border); border-radius: 6px; background: var(--panel-alt); overflow: hidden; }
     summary { padding: 10px 12px; cursor: pointer; color: var(--accent); font-weight: 700; }
-    details pre { min-height: 140px; margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; padding: 12px; overflow: auto; white-space: pre-wrap; }
+    details .code-editor { margin-top: 0; border-top: 1px solid var(--border); }
+    details .code-editor textarea, details .code-editor .code-highlight { border: 0; border-radius: 0; }
     .error-panel { border-color: #6a3038; background: #24181c; }
     .error-panel pre { min-height: 100px; margin: 12px 0 0; padding: 12px; color: var(--bad); white-space: pre-wrap; }
     .stats-panel { margin-top: 16px; }
@@ -118,6 +138,7 @@
       <span class="hint">Ctrl+Enter to compile</span>
     </header>
 
+    <div class="workspace">
     <section class="editor-panel">
       <div class="section-heading">
         <h2>Program</h2>
@@ -153,6 +174,7 @@
       </div>
       <div id="generated-files" class="generated-files"></div>
     </section>
+    </div>
 
     <section id="errors" class="output-panel error-panel" hidden>
       <h2>std.err</h2>
@@ -243,6 +265,47 @@
       return `module${index}.hex`;
     }
 
+    // codeEditor builds the highlighted-pre-under-transparent-textarea pair used
+    // for both Hexal source and generated C. The textarea holds the real text, so
+    // a click plus Ctrl+A selects exactly one file and nothing else on the page.
+    //
+    // The editor always grows to fit its content, however long. Nothing is capped
+    // and nothing scrolls inside: the page scrolls instead, so a drag-select can
+    // reach the last line of a thousand-line generated file.
+    function codeEditor({content, highlighter, readOnly = false, label}) {
+      const editor = document.createElement('div');
+      editor.className = 'code-editor';
+      const highlight = document.createElement('pre');
+      highlight.className = 'code-highlight';
+      highlight.setAttribute('aria-hidden', 'true');
+      const textarea = document.createElement('textarea');
+      textarea.spellcheck = false;
+      textarea.setAttribute('aria-label', label);
+      textarea.readOnly = readOnly;
+      textarea.value = content;
+      editor.append(highlight, textarea);
+
+      // Height comes from scrollHeight, which needs the element laid out; reset
+      // to auto first so shrinking works as well as growing.
+      //
+      // The border has to be added back. Everything here is box-sizing:
+      // border-box, so assigning scrollHeight — a content-plus-padding
+      // measurement — leaves the content box two pixels short of what it needs
+      // and the textarea scrolls by exactly its border width.
+      //
+      const autoGrow = () => {
+        textarea.style.height = 'auto';
+        const borderY = textarea.offsetHeight - textarea.clientHeight;
+        textarea.style.height = `${textarea.scrollHeight + borderY}px`;
+      };
+      const update = () => {
+        highlight.innerHTML = highlighter(textarea.value) || ' ';
+        autoGrow();
+      };
+      textarea.addEventListener('input', update);
+      return {editor, textarea, update};
+    }
+
     function addSource(filename = '', content = '', entrypoint = false) {
       const card = document.createElement('section');
       card.className = 'source-card';
@@ -251,21 +314,11 @@
           <input class="source-name" type="text" aria-label="Logical source filename" value="${escapeHTML(filename || nextSourceName())}">
           <label class="entrypoint-label"><input class="entrypoint" type="radio" name="entrypoint" ${entrypoint ? 'checked' : ''}> Entrypoint</label>
           <button class="remove" type="button" aria-label="Remove source file">Remove</button>
-        </div>
-        <div class="source-editor">
-          <pre class="source-highlight" aria-hidden="true"></pre>
-          <textarea spellcheck="false" aria-label="Hexal source"></textarea>
         </div>`;
-      const textarea = card.querySelector('textarea');
-      const highlight = card.querySelector('.source-highlight');
-      textarea.value = content;
-      const update = () => {
-        highlight.innerHTML = highlightHexal(textarea.value) || ' ';
-        highlight.scrollTop = textarea.scrollTop;
-        highlight.scrollLeft = textarea.scrollLeft;
-      };
-      textarea.addEventListener('input', update);
-      textarea.addEventListener('scroll', update);
+      const {editor, textarea, update} = codeEditor({
+        content, highlighter: highlightHexal, label: 'Hexal source',
+      });
+      card.append(editor);
       card.querySelector('.remove').addEventListener('click', () => {
         const wasEntrypoint = card.querySelector('.entrypoint').checked;
         card.remove();
@@ -387,14 +440,24 @@
         details.open = openGeneratedFiles.has(name);
         const summary = document.createElement('summary');
         summary.textContent = name;
-        const output = document.createElement('pre');
         const raw = generatedFiles[name] || '';
-        output.innerHTML = highlightC(showLineMappings.checked ? raw : withoutLineMappings(raw));
-        details.append(summary, output);
-        details.addEventListener('toggle', () => {
-          if (details.open) openGeneratedFiles.add(name);
-          else openGeneratedFiles.delete(name);
+        const {editor, update} = codeEditor({
+          content: showLineMappings.checked ? raw : withoutLineMappings(raw),
+          highlighter: highlightC, readOnly: true,
+          label: `Generated ${name}`,
         });
+        details.append(summary, editor);
+        details.addEventListener('toggle', () => {
+          if (details.open) {
+            openGeneratedFiles.add(name);
+            // A closed details subtree has no layout, so the highlight can only
+            // be measured and painted once it opens.
+            update();
+          } else {
+            openGeneratedFiles.delete(name);
+          }
+        });
+        if (details.open) update();
         generatedFilesElement.append(details);
       }
     }

@@ -92,6 +92,6 @@ static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
 
 #include "hexal.h"
 #include "hexal/heap.h"
-#include "hexal/view.h"
-{{template "listbody" .}}
+{{if .NeedsView}}#include "hexal/view.h"
+{{end}}{{template "listbody" .}}
 #endif

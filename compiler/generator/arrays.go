@@ -490,3 +490,30 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 	}
 	return "", unknownExpressionDiagnostic("unsupported collection expression")
 }
+
+// collectionsNeedView reports whether any reachable Array or List
+// specialization has a matching View, which is the only reason either
+// component header names the view component. A program with arrays but no
+// slicing needs no view artifact and must not declare a dependency on one:
+// a component's declared dependencies are exactly what its emitted content
+// uses.
+func collectionsNeedView(arrays *generatedArrayState, lists *generatedListState, views *generatedViewState) bool {
+	if views == nil {
+		return false
+	}
+	if arrays != nil {
+		for _, array := range arrays.order {
+			if matchingView(views, array.Array.Element) != (compilerTypes.Type{}) {
+				return true
+			}
+		}
+	}
+	if lists != nil {
+		for _, list := range lists.order {
+			if matchingView(views, list.List.Element) != (compilerTypes.Type{}) {
+				return true
+			}
+		}
+	}
+	return false
+}

@@ -77,21 +77,21 @@ static inline hex_view_Int32 hex_view_slice_Int32(hex_view_Int32 view, uint64_t 
 	}
 }
 
-// Arrays alone select no view records, but the array component declares
-// view.h as a dependency, so the header exists as a dependency artifact while
-// no module includes it directly.
+// An array that is never sliced reaches no view, and the array component
+// renders no slice helper — so nothing names the view component and no
+// artifact is emitted for it. A component that declared the dependency
+// anyway would ship a header holding only its include guard.
 func TestViewComponentAbsentWithoutReachableViews(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> = [1, 2, 3]\n    first: Int32 = fixed[0]\nend")
 	files := generateOne(t, program)
-	viewH, exists := files["hexal/view.h"]
-	if !exists {
-		t.Fatalf("array-only program emitted no hexal/view.h dependency artifact: %v", files)
+	if viewH, exists := files["hexal/view.h"]; exists {
+		t.Fatalf("array-only program emitted hexal/view.h with nothing to declare: %q", viewH)
 	}
-	if strings.Contains(viewH, "hex_view_Int32") {
-		t.Fatalf("array-only hexal/view.h carries view records: %q", viewH)
+	if strings.Contains(files["hexal/array.h"], "hexal/view.h") {
+		t.Fatalf("hexal/array.h = %q, want no view include: no specialization has a slice helper", files["hexal/array.h"])
 	}
 	if strings.Contains(files["modules/app.h"], "hexal/view.h") {
-		t.Fatalf("modules/app.h = %q, the array component supplies view.h transitively", files["modules/app.h"])
+		t.Fatalf("modules/app.h = %q, want no view include", files["modules/app.h"])
 	}
 }
 

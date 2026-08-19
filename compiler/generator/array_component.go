@@ -8,6 +8,10 @@ import (
 // pre-sorted record per reachable Array specialization.
 type arrayComponentModel struct {
 	Arrays []arrayComponentRecord
+	// NeedsView is true when some specialization has a slice helper, which
+	// is the only content naming the view component. The include is guarded
+	// on it so a declared dependency is always a used one.
+	NeedsView bool
 }
 
 // arrayComponentRecord is one reachable Array specialization's spelling
@@ -63,7 +67,7 @@ func arrayComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/array.h",
 		template: "array.h",
-		model:    arrayComponentModel{Arrays: records},
+		model:    arrayComponentModel{Arrays: records, NeedsView: recordsNeedView(records)},
 	}}, nil
 }
 
@@ -80,4 +84,16 @@ func moduleArrayComponent(emission *moduleEmission) []string {
 		}
 	}
 	return nil
+}
+
+// recordsNeedView reports whether any array record renders a slice helper,
+// which is the only content in packages/array.h that names the view
+// component.
+func recordsNeedView(records []arrayComponentRecord) bool {
+	for _, record := range records {
+		if record.ViewCName != "" {
+			return true
+		}
+	}
+	return false
 }

@@ -27,7 +27,6 @@ func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
 	for _, want := range []string{
 		"#ifndef HEXAL_ARRAY_H",
 		"#include \"hexal.h\"",
-		"#include \"hexal/view.h\"",
 		"typedef struct hex_array_Int32_3 {",
 		"int32_t data[3];",
 		"static inline const int32_t *hex_array_at_Int32_3(const hex_array_Int32_3 *array, size_t index) {",

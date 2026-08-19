@@ -16,8 +16,13 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	if arrayH == "" {
 		t.Fatalf("generated files %v lack hexal/array.h", files)
 	}
-	if !strings.HasPrefix(arrayH, "#ifndef HEXAL_ARRAY_H\n#define HEXAL_ARRAY_H\n\n#include \"hexal.h\"\n#include \"hexal/view.h\"\n") {
+	// No specialization here has a slice helper, so the header declares no
+	// view dependency: a declared include is always a used one.
+	if !strings.HasPrefix(arrayH, "#ifndef HEXAL_ARRAY_H\n#define HEXAL_ARRAY_H\n\n#include \"hexal.h\"\n") {
 		t.Fatalf("hexal/array.h lost its guard or one of its declared includes: %q", arrayH)
+	}
+	if strings.Contains(arrayH, "#include \"hexal/view.h\"") {
+		t.Fatalf("hexal/array.h declares a view dependency it does not use: %q", arrayH)
 	}
 	if !strings.HasSuffix(arrayH, "\n#endif\n") {
 		t.Fatalf("hexal/array.h must close its guard with exactly one trailing newline: %q", arrayH)

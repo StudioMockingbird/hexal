@@ -10,6 +10,9 @@ import (
 // pre-sorted record per reachable List specialization.
 type listComponentModel struct {
 	Lists []listComponentRecord
+	// NeedsView is true when some specialization has a slice helper, which
+	// is the only content naming the view component.
+	NeedsView bool
 }
 
 // listComponentRecord is one reachable List specialization's spelling facts:
@@ -71,7 +74,7 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/list.h",
 		template: "list.h",
-		model:    listComponentModel{Lists: records},
+		model:    listComponentModel{Lists: records, NeedsView: listRecordsNeedView(records)},
 	}}, nil
 }
 
@@ -88,4 +91,16 @@ func moduleListComponent(emission *moduleEmission) []string {
 		}
 	}
 	return nil
+}
+
+// listRecordsNeedView reports whether any list record renders a slice
+// helper, which is the only content in packages/list.h that names the view
+// component.
+func listRecordsNeedView(records []listComponentRecord) bool {
+	for _, record := range records {
+		if record.ViewCName != "" {
+			return true
+		}
+	}
+	return false
 }

@@ -28,6 +28,6 @@ static inline {{.ViewCName}} hex_array_slice_{{.Suffix}}(const {{.CName}} *array
 #define HEXAL_ARRAY_H
 
 #include "hexal.h"
-#include "hexal/view.h"
-{{template "arraybody" .}}
+{{if .NeedsView}}#include "hexal/view.h"
+{{end}}{{template "arraybody" .}}
 #endif

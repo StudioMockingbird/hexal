@@ -167,9 +167,11 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// machinery and the shared runtime trap.
 		heapState.required = true
 	}
-	if len(listState.order) > 0 || len(arrayState.order) > 0 {
-		// The list and array component headers declare their View
-		// dependency, so the view component must exist.
+	if collectionsNeedView(arrayState, listState, viewState) {
+		// Only a slice helper names the view component, and the templates
+		// guard those on the same fact. Selecting View for every program
+		// that merely has an array would emit a component holding nothing
+		// but its include guard.
 		viewState.required = true
 	}
 	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
