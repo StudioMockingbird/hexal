@@ -1,7 +1,4 @@
-#ifndef HEXAL_VIEW_H
-#define HEXAL_VIEW_H
-
-#include "hexal.h"
+{{- define "viewbody" -}}
 {{range .Views}}
 typedef struct {{.CName}} {
     const {{.ElementSpelling}} *data;
@@ -20,4 +17,10 @@ static inline {{.CName}} hex_view_slice_{{.Suffix}}({{.CName}} view, uint64_t st
     return ({{.CName}}){view.data == nullptr ? nullptr : &view.data[start], end - start};
 }
 {{end}}
+{{- end -}}
+#ifndef HEXAL_VIEW_H
+#define HEXAL_VIEW_H
+
+#include "hexal.h"
+{{template "viewbody" .}}
 #endif

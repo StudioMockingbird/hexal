@@ -1,9 +1,4 @@
-#ifndef HEXAL_DICT_H
-#define HEXAL_DICT_H
-
-#include "hexal.h"
-#include "hexal/heap.h"
-#include "hexal/string.h"
+{{- define "dictbody" -}}
 {{range .Dicts}}
 typedef struct {{.EntryName}} {
     bool active;
@@ -145,4 +140,12 @@ static inline void hex_dict_free_{{.Suffix}}(hex_heap h, {{.CName}} *dict) {
     hex_heap_free(dict, h.identity);
 }
 {{end}}
+{{- end -}}
+#ifndef HEXAL_DICT_H
+#define HEXAL_DICT_H
+
+#include "hexal.h"
+#include "hexal/heap.h"
+#include "hexal/string.h"
+{{template "dictbody" .}}
 #endif

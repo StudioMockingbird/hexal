@@ -97,36 +97,33 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "m", "s")
-	list := result.Files["hexal/list.h"]
-	if strings.Count(list, "typedef struct hex_list_Point") != 2 {
-		t.Fatalf("hexal/list.h has %d List<Point> typedefs, want 2", strings.Count(list, "typedef struct hex_list_Point"))
+	header := result.Files["modules/app.h"]
+	if strings.Count(header, "typedef struct hex_list_Point") != 2 {
+		t.Fatalf("modules/app.h has %d List<Point> typedefs, want 2", strings.Count(header, "typedef struct hex_list_Point"))
 	}
-	if !strings.Contains(list, "hex_list_Point_m1_") {
-		t.Fatalf("hexal/list.h %v, want a module-qualified List typedef alongside the base name", list)
+	if !strings.Contains(header, "hex_list_Point_m1_") {
+		t.Fatalf("modules/app.h %v, want a module-qualified List typedef alongside the base name", header)
 	}
-	if !strings.Contains(list, "sizeof(hex_t_m1_m_Point)") || !strings.Contains(list, "sizeof(hex_t_m1_s_Point)") {
-		t.Fatalf("hexal/list.h sizes %v, want one sizeof per element layout", list)
+	if !strings.Contains(header, "sizeof(hex_t_m1_m_Point)") || !strings.Contains(header, "sizeof(hex_t_m1_s_Point)") {
+		t.Fatalf("modules/app.h sizes %v, want one sizeof per element layout", header)
 	}
-	dict := result.Files["hexal/dict.h"]
-	if strings.Count(dict, "typedef struct hex_dict_Int32_Point") != 2 {
-		t.Fatalf("hexal/dict.h has %d Dict<Int32, Point> typedefs, want 2", strings.Count(dict, "typedef struct hex_dict_Int32_Point"))
+	if strings.Count(header, "typedef struct hex_dict_Int32_Point") != 2 {
+		t.Fatalf("modules/app.h has %d Dict<Int32, Point> typedefs, want 2", strings.Count(header, "typedef struct hex_dict_Int32_Point"))
 	}
-	if !strings.Contains(dict, "hex_dict_Int32_Point_m1_") {
-		t.Fatalf("hexal/dict.h %v, want a module-qualified Dict typedef alongside the base name", dict)
+	if !strings.Contains(header, "hex_dict_Int32_Point_m1_") {
+		t.Fatalf("modules/app.h %v, want a module-qualified Dict typedef alongside the base name", header)
 	}
-	array := result.Files["hexal/array.h"]
-	if strings.Count(array, "typedef struct hex_array_Point_2") != 2 {
-		t.Fatalf("hexal/array.h has %d Array<Point, 2> typedefs, want 2", strings.Count(array, "typedef struct hex_array_Point_2"))
+	if strings.Count(header, "typedef struct hex_array_Point_2") != 2 {
+		t.Fatalf("modules/app.h has %d Array<Point, 2> typedefs, want 2", strings.Count(header, "typedef struct hex_array_Point_2"))
 	}
-	if !strings.Contains(array, "hex_array_Point_2_m1_") {
-		t.Fatalf("hexal/array.h %v, want a module-qualified Array typedef alongside the base name", array)
+	if !strings.Contains(header, "hex_array_Point_2_m1_") {
+		t.Fatalf("modules/app.h %v, want a module-qualified Array typedef alongside the base name", header)
 	}
-	view := result.Files["hexal/view.h"]
-	if strings.Count(view, "typedef struct hex_view_Point") != 2 {
-		t.Fatalf("hexal/view.h has %d View<Point> typedefs, want 2", strings.Count(view, "typedef struct hex_view_Point"))
+	if strings.Count(header, "typedef struct hex_view_Point") != 2 {
+		t.Fatalf("modules/app.h has %d View<Point> typedefs, want 2", strings.Count(header, "typedef struct hex_view_Point"))
 	}
-	if !strings.Contains(view, "hex_view_Point_m1_") {
-		t.Fatalf("hexal/view.h %v, want a module-qualified View typedef alongside the base name", view)
+	if !strings.Contains(header, "hex_view_Point_m1_") {
+		t.Fatalf("modules/app.h %v, want a module-qualified View typedef alongside the base name", header)
 	}
 }
 
@@ -141,9 +138,9 @@ func TestIdenticalLayoutStillNominalDistinctAcrossModules(t *testing.T) {
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "m", "s")
-	list := result.Files["hexal/list.h"]
+	list := result.Files["modules/app.h"]
 	if strings.Count(list, "typedef struct hex_list_Point") != 2 {
-		t.Fatalf("hexal/list.h has %d List<Point> typedefs, want 2 (identical layouts still nominal)", strings.Count(list, "typedef struct hex_list_Point"))
+		t.Fatalf("modules/app.h has %d List<Point> typedefs, want 2 (identical layouts still nominal)", strings.Count(list, "typedef struct hex_list_Point"))
 	}
 }
 
@@ -174,12 +171,12 @@ func TestSingleModuleProducesSingleSpecialization(t *testing.T) {
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app")
-	list := result.Files["hexal/list.h"]
+	list := result.Files["modules/app.h"]
 	if strings.Count(list, "typedef struct hex_list_Point") != 1 {
-		t.Fatalf("hexal/list.h has %d List<Point> typedefs, want exactly 1", strings.Count(list, "typedef struct hex_list_Point"))
+		t.Fatalf("modules/app.h has %d List<Point> typedefs, want exactly 1", strings.Count(list, "typedef struct hex_list_Point"))
 	}
 	if strings.Contains(list, "_m1_") {
-		t.Fatalf("hexal/list.h %v, single-module control must carry no qualifier", list)
+		t.Fatalf("modules/app.h %v, single-module control must carry no qualifier", list)
 	}
 }
 
@@ -220,10 +217,76 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "lib", "m", "s")
-	if strings.Count(result.Files["hexal/list.h"], "typedef struct hex_list_Int32") != 1 {
-		t.Fatalf("hexal/list.h %v, want exactly one List<Int32> typedef shared across modules", result.Files["hexal/list.h"])
+	// A builtin element has no owning module, so its specialization stays in
+	// the program-wide component and is shared by every module that uses it.
+	component := result.Files["hexal/list.h"]
+	if strings.Count(component, "typedef struct hex_list_Int32") != 1 {
+		t.Fatalf("hexal/list.h %v, want exactly one List<Int32> typedef shared across modules", component)
 	}
-	if strings.Count(result.Files["hexal/list.h"], "typedef struct hex_list_Point") != 2 {
-		t.Fatalf("hexal/list.h %v, want two List<Point> typedefs in the same run", result.Files["hexal/list.h"])
+	if strings.Contains(component, "typedef struct hex_list_Point") {
+		t.Fatalf("hexal/list.h %v, want no module-typed specialization: the component cannot declare a per-module type", component)
+	}
+	// Module-owned elements move to the consuming module's header, where
+	// their element typedefs are available.
+	header := result.Files["modules/app.h"]
+	if strings.Count(header, "typedef struct hex_list_Point") != 2 {
+		t.Fatalf("modules/app.h %v, want two List<Point> typedefs in the same run", header)
+	}
+}
+
+// A specialization over a module-owned element is emitted into the consuming
+// module's header, after the element's own typedef. Module headers never
+// include one another, so a program-wide component cannot carry a per-module
+// type; placing the specialization beside its element is what keeps every
+// spelled type declared before use.
+//
+// No test compiles generated C, so ordering is asserted on the text.
+func TestModuleOwnedCollectionElementsDeclareBeforeUse(t *testing.T) {
+	point := "export type Point = { x: Int32, y: Int32 }\n"
+	color := "export type Color = { r: Int32 }\n"
+	prelude := "module M = import \"./m\"\nmodule S = import \"./s\"\nh: Heap = Heap.new()\n"
+
+	cases := []struct {
+		name           string
+		body           string
+		specialization string
+		element        string
+	}{
+		{"List", "l: List<M.Point> = List<M.Point>.new(h)\n",
+			"typedef struct hex_list_Point", "struct hex_t_m1_m_Point {"},
+		{"Dict value", "d: Dict<Int32, M.Point> = Dict<Int32, M.Point>.new(h)\n",
+			"typedef struct hex_dict_Int32_Point", "struct hex_t_m1_m_Point {"},
+		// Two owning modules contributing elements to one header is the shape
+		// that would break placement if re-emission order did not follow
+		// dependency order.
+		{"two owning modules",
+			"d: Dict<Int32, M.Point> = Dict<Int32, M.Point>.new(h)\ne: Dict<Int32, S.Color> = Dict<Int32, S.Color>.new(h)\n",
+			"typedef struct hex_dict_Int32_Color", "struct hex_t_m1_s_Color {"},
+		{"nested List", "l: List<List<M.Point>> = List<List<M.Point>>.new(h)\n",
+			"typedef struct hex_list_List_Point_", "struct hex_t_m1_m_Point {"},
+		{"Array", "fun f(p: M.Point) do\n    a: Array<M.Point, 2> = [p, p]\n    q: M.Point = a[0]\nend\n",
+			"typedef struct hex_array_Point_2", "struct hex_t_m1_m_Point {"},
+	}
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			result := compiler.Compile(map[string]string{
+				"m.hex": point, "s.hex": color, "app.hex": prelude + item.body,
+			}, "app.hex", compiler.Project{})
+			assertMultiModuleSuccess(t, result, "app", "m", "s")
+			header := result.Files["modules/app.h"]
+			specialization := strings.Index(header, item.specialization)
+			if specialization < 0 {
+				t.Fatalf("modules/app.h %v, want the %s specialization", header, item.name)
+			}
+			element := strings.Index(header, item.element)
+			if element < 0 {
+				t.Fatalf("modules/app.h spells %s without declaring %s", item.specialization, item.element)
+			}
+			if element > specialization {
+				t.Fatalf("modules/app.h declares %s at %d before its element at %d; the element must precede it",
+					item.specialization, specialization, element)
+			}
+		})
 	}
 }

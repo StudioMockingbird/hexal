@@ -2,6 +2,8 @@ package generator
 
 import (
 	"strings"
+
+	compilerTypes "hexal/compiler/types"
 )
 
 // viewComponentModel is the typed render model for packages/view.h: one
@@ -20,20 +22,33 @@ type viewComponentRecord struct {
 	ElementSpelling string
 }
 
-// viewComponents returns the generated hexal/view.h artifact when View
-// specializations are reachable or another component declares view.h as a
-// dependency.
+// viewComponentRecordFor builds the spelling record of one View
+// specialization.
+func viewComponentRecordFor(view compilerTypes.Type) viewComponentRecord {
+	return viewComponentRecord{
+		CName:           view.CName,
+		Suffix:          strings.TrimPrefix(view.CName, "hex_view_"),
+		ElementSpelling: pointerSpelling(view.View.Element),
+	}
+}
+
+// viewComponents returns the generated hexal/view.h artifact when builtin-
+// element View specializations are reachable or another component declares
+// view.h as a dependency. Module-owned element views emit into the consuming
+// module headers instead.
 func viewComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil || merged.viewState == nil || len(merged.viewState.views) == 0 && !merged.viewState.required {
 		return nil, nil
 	}
 	records := make([]viewComponentRecord, 0, len(merged.viewState.views))
 	for _, view := range merged.viewState.views {
-		records = append(records, viewComponentRecord{
-			CName:           view.CName,
-			Suffix:          strings.TrimPrefix(view.CName, "hex_view_"),
-			ElementSpelling: pointerSpelling(view.View.Element),
-		})
+		if collectionElementModuleTyped(view) {
+			continue
+		}
+		records = append(records, viewComponentRecordFor(view))
+	}
+	if len(records) == 0 && !merged.viewState.required {
+		return nil, nil
 	}
 	return []componentArtifact{{
 		key:      "hexal/view.h",
@@ -42,11 +57,17 @@ func viewComponents(merged *programEmission) ([]componentArtifact, error) {
 	}}, nil
 }
 
-// moduleViewComponent selects hexal/view.h for a module with reachable View
-// specializations.
+// moduleViewComponent selects hexal/view.h for a module with reachable
+// builtin-element View specializations; a module whose only views are
+// module-owned re-emits them in its own header and includes nothing.
 func moduleViewComponent(emission *moduleEmission) []string {
 	if emission == nil || emission.viewState == nil || len(emission.viewState.views) == 0 {
 		return nil
 	}
-	return []string{"hexal/view.h"}
+	for _, view := range emission.viewState.views {
+		if !collectionElementModuleTyped(view) {
+			return []string{"hexal/view.h"}
+		}
+	}
+	return nil
 }

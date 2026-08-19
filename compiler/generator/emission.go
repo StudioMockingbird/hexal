@@ -689,6 +689,10 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		printState:    emission.printState,
 		concurrency:   emission.concurrencyState,
 		stringState:   stringState,
+		views:         emission.viewState,
+		arrays:        emission.arrayState,
+		lists:         emission.listState,
+		dicts:         emission.dictState,
 		canonicalID:   canonicalID,
 		prototypes:    headerPrototypes.String(),
 		extraFrames:   extraFrames.String(),
@@ -764,6 +768,12 @@ type moduleHeaderInput struct {
 	concurrency   *generatedConcurrencyState
 	stringState   *literalRegistry
 	canonicalID   string
+	// Collection states feed the module-owned specialization region; the
+	// program-wide component partition keeps the builtin-element records.
+	views  *generatedViewState
+	arrays *generatedArrayState
+	lists  *generatedListState
+	dicts  *generatedDictState
 
 	prototypes  string
 	extraFrames string
@@ -820,6 +830,13 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	writeAdtDefinitions(&result, input.adts)
 	writeUnionDefinitions(&result, input.unions)
 	writeObjectDefinitions(&result, input.objects, input.filename)
+	// Module-owned collection specializations follow their element
+	// definitions: component artifacts are program-wide and cannot declare
+	// per-module types, so each consuming module re-emits the specializations
+	// it needs into its own header.
+	if err := writeModuleCollectionSpecializations(&result, &input); err != nil {
+		return "", err
+	}
 	// The typed heap allocation helpers reference module-owned element
 	// types, so they follow the object definitions.
 	writeHeapAllocateHelpers(&result, input.heaps)

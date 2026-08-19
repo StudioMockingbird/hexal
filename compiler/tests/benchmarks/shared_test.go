@@ -1,17 +1,60 @@
-package compiler
+// Package benchmarks is the compiler's measurement harness: the committed
+// benchmark suite (RFC 0075) and the complexity report over the compiler's own
+// Go source (RFC 0080).
+//
+// Every file here is a _test.go file, deliberately. This package sits under
+// compiler/, so `go build ./compiler/...` matches it; with test files only the
+// package is empty to `go build` and the third-party complexity libraries are
+// never compiled on the ordinary build path.
+//
+// It imports hexal/compiler and hexal/workbench/snippets. That is not the
+// layering inversion RFC 0075 guarded against: 0075's constraint was that
+// `package compiler`'s own test binary must not import the workbench, and
+// `go test ./compiler` does not build this package. Directory nesting carries
+// no dependency meaning in Go.
+package benchmarks
 
-import "testing"
+import (
+	"hexal/compiler"
+	"testing"
+)
 
-// compilerBenchmarkProgram is one fixed in-memory compilation. Sources are
-// exact Hexal literals kept in this file so a benchmark is stable when the
-// workbench catalog changes for unrelated reasons.
-type compilerBenchmarkProgram struct {
+// benchmarkProgram is one fixed in-memory compilation. Sources are exact Hexal
+// literals kept in this file so a benchmark is stable when the workbench
+// catalog changes for unrelated reasons.
+type benchmarkProgram struct {
 	name       string
 	sources    map[string]string
 	entrypoint string
 }
 
-var benchmarkPrograms = []compilerBenchmarkProgram{
+// sourceBytes totals the program's source length, which each benchmark hands
+// to b.SetBytes so Go reports MB/s and differently sized shapes become
+// comparable (RFC 0080 Part 1).
+func (program benchmarkProgram) sourceBytes() int64 {
+	total := 0
+	for _, source := range program.sources {
+		total += len(source)
+	}
+	return int64(total)
+}
+
+// benchmarkCompileSink receives every benchmark result so the Compile call is
+// not eliminated.
+var benchmarkCompileSink compiler.CompilationResult
+
+// runBenchmarkProgram compiles one program b.N times. The source map is built
+// once at package initialization, so nothing but Compile is inside the loop.
+func runBenchmarkProgram(b *testing.B, program benchmarkProgram) {
+	b.ReportAllocs()
+	b.SetBytes(program.sourceBytes())
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		benchmarkCompileSink = compiler.Compile(program.sources, program.entrypoint, compiler.Project{})
+	}
+}
+
+var benchmarkPrograms = []benchmarkProgram{
 	{
 		name: "scalar",
 		sources: map[string]string{
@@ -229,56 +272,4 @@ result: Int32 | Error = level1()`,
 		},
 		entrypoint: "app.hex",
 	},
-}
-
-// benchmarkFailureProgram is the one member of the suite that must fail with
-// diagnostics; every other program must compile cleanly.
-var benchmarkFailureProgram = compilerBenchmarkProgram{
-	name: "failure",
-	sources: map[string]string{
-		"app.hex": `fun demo(): Int32 do
-    value: Bool = 42
-    return value + "text"
-end`,
-	},
-	entrypoint: "app.hex",
-}
-
-// benchmarkCompileSink receives every benchmark result so the Compile call is
-// not eliminated.
-var benchmarkCompileSink CompilationResult
-
-func runBenchmarkProgram(b *testing.B, program compilerBenchmarkProgram) {
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		benchmarkCompileSink = Compile(program.sources, program.entrypoint)
-	}
-}
-
-func BenchmarkScalar(b *testing.B)        { runBenchmarkProgram(b, benchmarkPrograms[0]) }
-func BenchmarkGenericsHeavy(b *testing.B) { runBenchmarkProgram(b, benchmarkPrograms[1]) }
-func BenchmarkMultiModule(b *testing.B)   { runBenchmarkProgram(b, benchmarkPrograms[2]) }
-func BenchmarkCollections(b *testing.B)   { runBenchmarkProgram(b, benchmarkPrograms[3]) }
-func BenchmarkText(b *testing.B)          { runBenchmarkProgram(b, benchmarkPrograms[4]) }
-func BenchmarkConcurrency(b *testing.B)   { runBenchmarkProgram(b, benchmarkPrograms[5]) }
-func BenchmarkErrorPaths(b *testing.B)    { runBenchmarkProgram(b, benchmarkPrograms[6]) }
-func BenchmarkFailure(b *testing.B)       { runBenchmarkProgram(b, benchmarkFailureProgram) }
-
-// TestBenchmarkProgramsCompile guards the suite's contract: every program
-// above compiles cleanly, and the failure program fails with a diagnostic
-// rather than silently succeeding.
-func TestBenchmarkProgramsCompile(t *testing.T) {
-	for _, program := range benchmarkPrograms {
-		result := Compile(program.sources, program.entrypoint)
-		if result.ExitCode != ExitSuccess {
-			t.Errorf("%s: benchmark program failed to compile:\n%s", program.name, result.Stderr)
-		}
-	}
-	result := Compile(benchmarkFailureProgram.sources, benchmarkFailureProgram.entrypoint)
-	if result.ExitCode != ExitFailure {
-		t.Errorf("failure program compiled successfully; BenchmarkFailure is not exercising diagnostics")
-	}
-	if len(result.Stderr) == 0 {
-		t.Errorf("failure program produced no diagnostics")
-	}
 }

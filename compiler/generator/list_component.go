@@ -27,31 +27,46 @@ type listComponentRecord struct {
 	ViewCName       string
 }
 
-// listComponents returns the generated hexal/list.h artifact when List
-// specializations are reachable.
+// listComponentRecordFor builds the spelling record of one List
+// specialization. The matching view of a builtin element is a component view;
+// the matching view of a module element is a module-header view, and the
+// record is only built for the artifact that owns the list.
+func listComponentRecordFor(list compilerTypes.Type, viewState *generatedViewState) listComponentRecord {
+	element := list.List.Element
+	elementSpelling := typeSpelling(element)
+	atReadReturn := "const " + elementSpelling + " *"
+	if strings.Contains(elementSpelling, "*") {
+		atReadReturn = elementSpelling + " *"
+	}
+	viewCName := ""
+	if view := matchingView(viewState, element); view != (compilerTypes.Type{}) {
+		viewCName = view.CName
+	}
+	return listComponentRecord{
+		CName:           list.CName,
+		Suffix:          listSuffix(list),
+		ElementSpelling: elementSpelling,
+		AtReadReturn:    atReadReturn,
+		ViewCName:       viewCName,
+	}
+}
+
+// listComponents returns the generated hexal/list.h artifact when builtin-
+// element List specializations are reachable; module-owned element
+// specializations emit into the consuming module headers instead.
 func listComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil || merged.listState == nil || len(merged.listState.order) == 0 {
 		return nil, nil
 	}
 	records := make([]listComponentRecord, 0, len(merged.listState.order))
 	for _, list := range merged.listState.order {
-		element := list.List.Element
-		elementSpelling := typeSpelling(element)
-		atReadReturn := "const " + elementSpelling + " *"
-		if strings.Contains(elementSpelling, "*") {
-			atReadReturn = elementSpelling + " *"
+		if collectionElementModuleTyped(list) {
+			continue
 		}
-		viewCName := ""
-		if view := matchingView(merged.viewState, element); view != (compilerTypes.Type{}) {
-			viewCName = view.CName
-		}
-		records = append(records, listComponentRecord{
-			CName:           list.CName,
-			Suffix:          listSuffix(list),
-			ElementSpelling: elementSpelling,
-			AtReadReturn:    atReadReturn,
-			ViewCName:       viewCName,
-		})
+		records = append(records, listComponentRecordFor(list, merged.viewState))
+	}
+	if len(records) == 0 {
+		return nil, nil
 	}
 	return []componentArtifact{{
 		key:      "hexal/list.h",
@@ -60,11 +75,17 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 	}}, nil
 }
 
-// moduleListComponent selects hexal/list.h for a module with reachable List
-// specializations.
+// moduleListComponent selects hexal/list.h for a module with reachable
+// builtin-element List specializations; a module whose only lists are
+// module-owned re-emits them in its own header and includes nothing.
 func moduleListComponent(emission *moduleEmission) []string {
 	if emission == nil || emission.listState == nil || len(emission.listState.order) == 0 {
 		return nil
 	}
-	return []string{"hexal/list.h"}
+	for _, list := range emission.listState.order {
+		if !collectionElementModuleTyped(list) {
+			return []string{"hexal/list.h"}
+		}
+	}
+	return nil
 }

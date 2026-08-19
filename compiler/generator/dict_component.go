@@ -29,8 +29,32 @@ type dictComponentRecord struct {
 	EmitHash      bool
 }
 
-// dictComponents returns the generated hexal/dict.h artifact when Dict
-// specializations are reachable.
+// dictComponentRecordFor builds the spelling record of one Dict
+// specialization. hashEmitted is per rendered header: the first Strand-key
+// dict of the header emits the shared hash helper.
+func dictComponentRecordFor(dict compilerTypes.Type, hashEmitted map[string]bool) dictComponentRecord {
+	key := dict.Dict.Key
+	strandKey := compilerTypes.IsStrand(key)
+	hashHelper := "hex_hash_Int32"
+	if strandKey {
+		hashHelper = "hex_hash_Strand"
+	}
+	suffix := dictSuffix(dict)
+	return dictComponentRecord{
+		CName:         dict.CName,
+		Suffix:        suffix,
+		EntryName:     "hex_dict_entry_" + suffix,
+		KeySpelling:   typeSpelling(key),
+		ValueSpelling: typeSpelling(dict.Dict.Value),
+		HashHelper:    hashHelper,
+		StrandKey:     strandKey,
+		EmitHash:      !hashEmitted[hashHelper],
+	}
+}
+
+// dictComponents returns the generated hexal/dict.h artifact when builtin-
+// value Dict specializations are reachable; module-owned value
+// specializations emit into the consuming module headers instead.
 func dictComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil || merged.dictState == nil || len(merged.dictState.order) == 0 {
 		return nil, nil
@@ -38,24 +62,15 @@ func dictComponents(merged *programEmission) ([]componentArtifact, error) {
 	records := make([]dictComponentRecord, 0, len(merged.dictState.order))
 	hashEmitted := make(map[string]bool)
 	for _, dict := range merged.dictState.order {
-		key := dict.Dict.Key
-		strandKey := compilerTypes.IsStrand(key)
-		hashHelper := "hex_hash_Int32"
-		if strandKey {
-			hashHelper = "hex_hash_Strand"
+		if collectionElementModuleTyped(dict) {
+			continue
 		}
-		suffix := dictSuffix(dict)
-		records = append(records, dictComponentRecord{
-			CName:         dict.CName,
-			Suffix:        suffix,
-			EntryName:     "hex_dict_entry_" + suffix,
-			KeySpelling:   typeSpelling(key),
-			ValueSpelling: typeSpelling(dict.Dict.Value),
-			HashHelper:    hashHelper,
-			StrandKey:     strandKey,
-			EmitHash:      !hashEmitted[hashHelper],
-		})
-		hashEmitted[hashHelper] = true
+		record := dictComponentRecordFor(dict, hashEmitted)
+		hashEmitted[record.HashHelper] = true
+		records = append(records, record)
+	}
+	if len(records) == 0 {
+		return nil, nil
 	}
 	return []componentArtifact{{
 		key:      "hexal/dict.h",
@@ -64,11 +79,17 @@ func dictComponents(merged *programEmission) ([]componentArtifact, error) {
 	}}, nil
 }
 
-// moduleDictComponent selects hexal/dict.h for a module with reachable Dict
-// specializations.
+// moduleDictComponent selects hexal/dict.h for a module with reachable
+// builtin-value Dict specializations; a module whose only dicts are
+// module-owned re-emits them in its own header and includes nothing.
 func moduleDictComponent(emission *moduleEmission) []string {
 	if emission == nil || emission.dictState == nil || len(emission.dictState.order) == 0 {
 		return nil
 	}
-	return []string{"hexal/dict.h"}
+	for _, dict := range emission.dictState.order {
+		if !collectionElementModuleTyped(dict) {
+			return []string{"hexal/dict.h"}
+		}
+	}
+	return nil
 }

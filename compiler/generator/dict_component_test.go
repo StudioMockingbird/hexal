@@ -329,17 +329,23 @@ static inline void hex_dict_free_Strand_Int32(hex_heap h, hex_dict_Strand_Int32 
 	}
 }
 
-// A module-owned object value is not special-cased: the specialization is
-// still emitted with whatever spelling Go passes for the value type, exactly
-// as the pre-migration writer did inside hexal.h. The module-object case is
-// a recorded pre-existing defect (the CName resolves only in the module
-// header); migration neither repairs nor worsens it.
-func TestDictComponentModuleObjectValueRendersAsSpelled(t *testing.T) {
+// A Dict whose value is a module-owned object emits its entry struct and
+// specialization into the consuming module's header, after the value type's
+// typedef. The program-wide component cannot spell a per-module type.
+func TestDictModuleObjectValueSpecializationLivesInModuleHeader(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo(h: Heap) do\n    points: Dict<Int32, Point> = Dict<Int32, Point>.new(h)\n    defer points.free(h)\n    points.insert(1, Point { x = 1 })\nend")
 	files := generateOne(t, program)
-	dictH := files["hexal/dict.h"]
-	if !strings.Contains(dictH, "typedef struct hex_dict_entry_Int32_Point {") || !strings.Contains(dictH, "hex_t_m3_app_Point value;") {
-		t.Fatalf("hexal/dict.h = %q, want the entry struct spelling the module object by value", dictH)
+	if got := files["hexal/dict.h"]; got != "" {
+		t.Fatalf("hexal/dict.h = %q, want no component artifact: its only specialization is module-typed", got)
+	}
+	header := files["modules/app.h"]
+	entry := strings.Index(header, "typedef struct hex_dict_entry_Int32_Point {")
+	if entry < 0 || !strings.Contains(header, "hex_t_m3_app_Point value;") {
+		t.Fatalf("modules/app.h = %q, want the entry struct spelling the module object by value", header)
+	}
+	element := strings.Index(header, "struct hex_t_m3_app_Point {")
+	if element < 0 || element > entry {
+		t.Fatalf("modules/app.h declares the entry struct at %d before its value type at %d; the value type must precede it", entry, element)
 	}
 }
 

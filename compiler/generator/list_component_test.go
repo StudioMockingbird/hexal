@@ -153,18 +153,22 @@ static inline hex_view_Int32 hex_list_slice_Int32(const hex_list_Int32 *list, ui
 // A program without reachable List types emits no list artifact and no
 // module includes it.
 // Equivalent compilations render identical list.h bytes.
-// A specialization over a module-owned object element is a pre-existing
-// representation limitation (the module typedef completes only after
-// hexal.h's include), not a migration blocker: the list family still
-// migrates, the artifact is emitted with that specialization, and the owning
-// module includes it.
-func TestListComponentMigratesForModuleOwnedObjectElements(t *testing.T) {
+// A specialization whose element is a module-owned object is emitted into the
+// consuming module's header, after that element's typedef, because the
+// program-wide component cannot declare a per-module type.
+func TestListModuleOwnedElementSpecializationLivesInModuleHeader(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo(h: Heap) do\n    points: List<Point> = List<Point>.new(h)\n    defer points.free(h)\n    points.push(Point { x = 1, })\nend")
 	files := generateOne(t, program)
-	if !strings.Contains(files["hexal/list.h"], "typedef struct hex_list_Point {") {
-		t.Fatalf("hexal/list.h = %q, want the Point specialization", files["hexal/list.h"])
+	if got := files["hexal/list.h"]; got != "" {
+		t.Fatalf("hexal/list.h = %q, want no component artifact: its only specialization is module-typed", got)
 	}
-	if !strings.Contains(files["modules/app.h"], "#include \"hexal/list.h\"") {
-		t.Fatalf("modules/app.h = %q, want the hexal/list.h component include", files["modules/app.h"])
+	header := files["modules/app.h"]
+	specialization := strings.Index(header, "typedef struct hex_list_Point {")
+	if specialization < 0 {
+		t.Fatalf("modules/app.h = %q, want the Point specialization", header)
+	}
+	element := strings.Index(header, "struct hex_t_m3_app_Point {")
+	if element < 0 || element > specialization {
+		t.Fatalf("modules/app.h declares hex_list_Point at %d before its element type at %d; the element must precede it", specialization, element)
 	}
 }

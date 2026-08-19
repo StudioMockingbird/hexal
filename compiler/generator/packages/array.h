@@ -1,8 +1,4 @@
-#ifndef HEXAL_ARRAY_H
-#define HEXAL_ARRAY_H
-
-#include "hexal.h"
-#include "hexal/view.h"
+{{- define "arraybody" -}}
 {{range .Arrays}}
 typedef struct {{.CName}} {
     {{.ElementSpelling}} data[{{.Length}}];
@@ -27,4 +23,11 @@ static inline {{.ViewCName}} hex_array_slice_{{.Suffix}}(const {{.CName}} *array
     return ({{.ViewCName}}){&array->data[start], end - start};
 }
 {{end}}{{end}}
+{{- end -}}
+#ifndef HEXAL_ARRAY_H
+#define HEXAL_ARRAY_H
+
+#include "hexal.h"
+#include "hexal/view.h"
+{{template "arraybody" .}}
 #endif

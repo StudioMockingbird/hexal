@@ -89,18 +89,28 @@ static inline hex_view_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *ar
 // A program without reachable Array types emits no array artifact and no
 // module includes it.
 // Equivalent compilations render identical array.h bytes.
-// A specialization over a module-owned object element is a pre-existing
-// representation limitation (the module typedef completes only after
-// hexal.h's include), not a migration blocker: the array family still
-// migrates, the artifact is emitted with that specialization, and the owning
-// module includes it.
-func TestArrayComponentMigratesForModuleOwnedObjectElements(t *testing.T) {
+// A specialization whose element is a module-owned object is emitted into the
+// consuming module's header, after that element's typedef. The program-wide
+// component cannot carry it: components are shared across modules and cannot
+// declare a per-module type, and module headers never include one another.
+// A program whose only specializations are module-typed therefore emits no
+// component artifact and no include for one.
+func TestArrayModuleOwnedElementSpecializationLivesInModuleHeader(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo() do\n    fixed: Array<Point, 2> = [Point { x = 1, }, Point { x = 2, }]\n    first: Int32 = fixed[0].x\nend")
 	files := generateOne(t, program)
-	if !strings.Contains(files["hexal/array.h"], "typedef struct hex_array_Point_2 {") {
-		t.Fatalf("hexal/array.h = %q, want the Point specialization", files["hexal/array.h"])
+	if got := files["hexal/array.h"]; got != "" {
+		t.Fatalf("hexal/array.h = %q, want no component artifact: its only specialization is module-typed", got)
 	}
-	if !strings.Contains(files["modules/app.h"], "#include \"hexal/array.h\"") {
-		t.Fatalf("modules/app.h = %q, want the hexal/array.h component include", files["modules/app.h"])
+	header := files["modules/app.h"]
+	specialization := strings.Index(header, "typedef struct hex_array_Point_2 {")
+	if specialization < 0 {
+		t.Fatalf("modules/app.h = %q, want the Point specialization", header)
+	}
+	element := strings.Index(header, "struct hex_t_m3_app_Point {")
+	if element < 0 || element > specialization {
+		t.Fatalf("modules/app.h declares hex_array_Point_2 at %d before its element type at %d; the element must precede it", specialization, element)
+	}
+	if strings.Contains(header, "#include \"hexal/array.h\"") {
+		t.Fatalf("modules/app.h includes hexal/array.h, which is not emitted")
 	}
 }

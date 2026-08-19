@@ -1,9 +1,4 @@
-#ifndef HEXAL_LIST_H
-#define HEXAL_LIST_H
-
-#include "hexal.h"
-#include "hexal/heap.h"
-#include "hexal/view.h"
+{{- define "listbody" -}}
 {{range .Lists}}
 typedef struct {{.CName}} {
     {{.ElementSpelling}} *data;
@@ -91,4 +86,12 @@ static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
     return ({{.ViewCName}}){list->data == nullptr ? nullptr : &list->data[start], end - start};
 }
 {{end}}{{end}}
+{{- end -}}
+#ifndef HEXAL_LIST_H
+#define HEXAL_LIST_H
+
+#include "hexal.h"
+#include "hexal/heap.h"
+#include "hexal/view.h"
+{{template "listbody" .}}
 #endif
