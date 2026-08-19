@@ -25,7 +25,6 @@ other.
 |---|---|
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Typed runtime I/O over `FILE *` | [0065](specs/0065-typed-io.md) |
-| Inferred binding declarations — narrow `:=` for context-independent initializers | [0090](specs/0090-inferred-binding-declarations.md) |
 
 ### Implementation-ready
 
@@ -35,6 +34,7 @@ other.
 | Cached rune length — O(1) `String.length()`; supersedes 0083 Part B rename | [0087](specs/0087-cached-rune-length.md) |
 | Provably dead bounds checks — elide Array checks the compiler already proved | [0088](specs/0088-provably-dead-bounds-checks.md) |
 | Composed name encoding — stop re-embedding `hex_` inside union names | [0089](specs/0089-composed-name-encoding.md) |
+| Inferred binding declarations — `:=` where the initializer states the type | [0090](specs/0090-inferred-binding-declarations.md) |
 
 ## Unowned
 

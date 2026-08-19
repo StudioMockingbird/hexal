@@ -1,7 +1,9 @@
 # RFC 0090: Inferred Binding Declarations
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; design decision required
+- Status: Draft; implementation-ready. The narrow rule is decided: a declaration
+  must state its type on one side or the other, and stating it on neither is an
+  error.
 - Created: 2026-08-19
 - Scope: `name := initializer` — omitting a binding's type annotation exactly
   when the initializer already determines it
@@ -22,10 +24,17 @@ values: List<Int32> = List<Int32>.new(h)
 entry: Entry = Entry { x = 1, y = 2 }
 ```
 
-Introduce `:=`, which omits the annotation **only when the initializer has a
-type independent of context**. A bare literal keeps its annotation, because in a
-language with eight integer widths the annotation is the only thing pinning the
-width.
+**The governing rule is unchanged from today: a declaration must state its type
+exactly once.** What changes is *which side* may state it. Today it is always
+the left. With `:=` the right may state it instead, when the right already does.
+
+If **neither** side states the type, that is an error — the same error it is
+today, arriving from the other direction. `total := 0` is rejected because
+nothing in the declaration says whether it is an Int8 or an Int64.
+
+So this is not a second way to declare. It is one requirement — the type appears
+once — with the annotation becoming redundant exactly where the initializer
+already carries it.
 
 ## Evidence
 
@@ -43,13 +52,20 @@ forty-four characters where twenty-two carry the same information.
 
 ## Three facts that make this a smaller change than it appears
 
+**A declaration still states its type exactly once.** `:=` moves which side
+may state it, and rejects a declaration where neither does. That is the same
+requirement the language has today, not a relaxation of it.
+
 **Hexal already infers.** `docs/reference.md:279` names `self` and `for` binders
 as compiler-typed exceptions. Inference where the type is unambiguous is
 already the language's position; this extends the existing principle rather
 than introducing one.
 
-**The defaults already exist.** `:412` — integer literals default to Int32 and
-floats to Float64 without context. No new inference machinery is required.
+**The defaults already exist** — `:412`, integer literals to Int32 and floats to
+Float64 — so no new *inference* is required. But they are also why the one new
+piece of machinery is needed: the defaults make a bare literal succeed where it
+should fail, so something must reject it before the defaults apply. See
+Mechanism.
 
 **`:=` was never removed.** `AGENTS.md` records it as "syntax the language never
 had", proposed in RFCs 0016, 0017, 0029, and 0036 and dropped. This revisits a
@@ -57,14 +73,17 @@ rejected proposal, not an implemented decision.
 
 ## The rule
 
-`name := initializer` declares a binding whose type is the initializer's type.
-It is accepted **only when the initializer is a typed value**, and rejected when
-the initializer is an untyped literal or a contextual form.
+**A binding declaration must determine its type. `:=` says the initializer
+does; an annotation says the left side does. Neither is an error.**
 
-The distinction is not new. `docs/reference.md:416` already separates the two:
-*"Expected types reach untyped literals transitively through arithmetic and
-never retype a typed value."* `:=` requires the right-hand side of that
-sentence.
+`name := initializer` declares a binding whose type is the initializer's. It is
+rejected when the initializer is a *contextual* form — one that takes its type
+from its surroundings and so has none of its own.
+
+`docs/reference.md:416` already draws that line: *"Expected types reach untyped
+literals transitively through arithmetic and never retype a typed value."* A
+contextual form is one that expected types reach; everything else determines
+itself.
 
 ### Accepted — the initializer determines its own type
 
@@ -102,6 +121,42 @@ mut total := compute()
 ```
 
 `mut` governs rebinding, not the annotation. Both forms accept it.
+
+## Mechanism — a syntactic predicate, not a checker flag
+
+**An earlier revision of this RFC claimed no new machinery was needed. That was
+wrong**, and the correction matters because it is the whole feasibility question.
+
+`checkInitializer` threads the *expected* type **into** the expression; the
+annotation is the context, not something compared afterwards. Remove it and the
+checker runs with no expected type — and with no context `reference.md:412` says
+an integer literal **defaults to Int32**. So `total := 0` would not fail. It
+would quietly succeed as Int32, which is the exact outcome this RFC exists to
+prevent.
+
+Rejecting it needs the compiler to distinguish *determined* from *defaulted*.
+Nothing records that today: `checkedExpression` carries ten fields and none is
+an untyped marker.
+
+**The cheap answer is a syntactic predicate on the initializer's parse node,
+decided before checking rather than after.** A form is contextual when it is:
+
+- an integer, float, or string literal;
+- `nil`;
+- an array literal; or
+- an operation **all** of whose operands are contextual.
+
+Everything else — a constructor, a named object literal, a call, a binding read,
+a member or index read, `try`, `spawn` — determines itself. The recursion in the
+last case is what makes `1 + 2` reject and `count + 1` accept, and it needs no
+type information at all: one operand being a name is enough.
+
+This is preferable to threading an `untyped` flag through the checker. It is
+local, it runs before any type work, and it cannot drift out of agreement with
+the type rules because it never consults them — it only asks whether the source
+named anything.
+
+The predicate is the one new piece of machinery, and it is perhaps thirty lines.
 
 ## Why literals are excluded
 
@@ -190,6 +245,12 @@ Both edits land with the implementation.
   worth it.
 - An author must learn which initializers qualify. The diagnostic teaches it at
   the point of failure, but it is a rule where there was none.
+- The contextual predicate is a **second** place that decides what a form's type
+  depends on, beside the checker's own expected-type threading. They must agree,
+  and nothing enforces that they do. The mitigation is that the predicate is
+  deliberately coarser — it asks only whether the source named anything — so it
+  can be wrong in one direction only: rejecting a declaration the checker could
+  have typed. That failure is visible and annotatable, never silent.
 - It reverses a documented instruction in `AGENTS.md`, which is a cost to the
   credibility of such instructions. Reversing it explicitly and narrowly, rather
   than quietly, is the mitigation.

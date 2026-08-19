@@ -6,9 +6,9 @@
 - Scope: store the rune count in the String header so `length()` is O(1), and
   the text-surface consequences that follow
 - Depends on: nothing
-- Supersedes: RFC 0083 Part B, which removed `String[index]` **and** renamed
-  `length()` to `rune_length()`. The rename is no longer warranted; the removal
-  still is. RFC 0083 Part A is unaffected.
+- Supersedes: RFC 0083 Part B's **unimplemented half** — the rename of
+  `length()` to `rune_length()` and the retention of `is_empty`. Part B's index
+  removal has already landed and is unaffected, as is Part A.
 - Coordinates with: `docs/reference.md`, RFC 0039 (C interop pins struct
   layouts), `docs/status.md`
 - Does not change: String immutability, ownership, allocation count, or the
@@ -33,6 +33,32 @@ removal instead of a removal plus a rename plus a permanent asymmetry.
 | literals | **zero** — computed at compile time, emitted as a constant |
 | `to_string` | **zero** — copies the field |
 
+**Literals are the sixth site and the only one outside the C templates.** They
+do not use `hex_string_storage`; the Go emitter writes two objects, and the
+header with a **positional** initializer:
+
+```c
+const uint8_t hex_lit_0_bytes[5] = { 99, 97, 102, 101, 0 };
+const hex_string hex_lit_0 = { hex_lit_0_bytes, 4 };
+```
+
+Adding a third field to a positional initializer that is not updated does not
+fail to compile — C zero-fills the remainder, so every literal would silently
+report a rune length of zero. That is exactly the "wrong length rather than a
+crash" failure this RFC's Drawbacks warns about, arriving at the one
+construction site the templates do not own.
+
+**Emit literals with designated initializers instead:**
+
+```c
+const hex_string hex_lit_0 = {
+    .data = hex_lit_0_bytes, .byte_length = 4, .rune_length = 4 };
+```
+
+C23 has them, they cost nothing, and a future field added without updating this
+site becomes a visible omission rather than a silent zero. Do the same at the
+three `storage->header.…` assignments in `string.c` for the same reason.
+
 `from_bytes` is the decisive case:
 
 ```c
@@ -55,8 +81,10 @@ typedef struct hex_string {
 } hex_string;
 ```
 
-`hex_string_rune_length` becomes a field read. `hex_string_at_rune` is
-**unchanged** — it still walks, because a count gives no random access.
+`hex_string_rune_length` becomes a field read. Nothing else consumes a rune
+position: `hex_string_at_rune` and `hex_strand_at_rune` were deleted when RFC
+0083 removed text indexing, and `rune_cursor` walks incrementally from its own
+stored offset. With the count cached, no O(n) rune path remains.
 
 Space cost is 8 bytes on the header, which is heap-allocated once per string and
 shares one allocation with the bytes (`hex_string_storage`). **String values stay
@@ -85,12 +113,12 @@ none has `is_empty`.
 Strand follows String for uniformity, as decided in RFC 0083 — `t.length() == 0`
 is a comparison against a bounded scan of at most 31 bytes.
 
-### `String[index]` and `Strand[index]` are still removed
+### Indexing stays removed
 
-Unchanged from RFC 0083 Part B. Indexing is O(n) with or without a cached
-count — reaching the *i*th rune still walks — so the argument for removal
-stands untouched. `bytes()` remains the O(1) byte path and `rune_cursor()` the
-O(n)-total iteration path.
+RFC 0083 Part B already removed `String[index]` and `Strand[index]`, and a
+cached count does not argue for their return: reaching the nth rune still
+walks. `bytes()` remains the O(1) byte path and `rune_cursor()` the O(n)-total
+iteration path.
 
 ## Strand keeps its scan
 
@@ -118,11 +146,10 @@ layout today. The same change after bindings exist is a breaking ABI change.
 2. `rune_length` is always the exact count of Unicode scalars in `data`. Every
    path that produces a `hex_string` sets it; there is no path that leaves it
    stale or unset.
-3. `hex_string_at_rune` still walks. This RFC makes counting cheap, not
-   indexing.
-4. No language surface gains an operation. Two are removed (`is_empty` on String
-   and Strand) and two more under RFC 0083 Part B's retained half (`[index]` on
-   both).
+3. `rune_cursor` is unchanged. It walks incrementally and does not consult the
+   cached count.
+4. No language surface gains an operation. Two are removed: `is_empty` on
+   String and on Strand. Indexing is already gone.
 5. Strand's representation is unchanged.
 
 ## Validation
@@ -135,7 +162,8 @@ layout today. The same change after bindings exist is a breaking ABI change.
 - `concat` produces a count equal to the sum of its operands' counts, verified
   against an independent scan of the result.
 - `s.is_empty()` and `t.is_empty()` are rejected; `s.length() == 0` is accepted.
-- `s[0]` and `t[0]` remain rejected per RFC 0083 Part B.
+- `s[0]` and `t[0]` remain rejected — a regression check on landed behaviour,
+  since nothing here should reopen indexing.
 - `List<String>` element size is unchanged: the generated C still declares
   `const hex_string **data`.
 - `go test ./...`, `go vet ./...`; the snippet manifest moves for text snippets
@@ -143,9 +171,9 @@ layout today. The same change after bindings exist is a breaking ABI change.
 
 ## Non-goals
 
-- Making `String[index]` O(1). It cannot be done with a count; it would need a
-  rune-offset index, which is a per-string allocation this RFC explicitly does
-  not add.
+- Reinstating `String[index]`. RFC 0083 removed it and a cached count does not
+  argue for its return: reaching the nth rune still walks. Random rune access
+  would need a rune-offset index, a per-string allocation this RFC does not add.
 - Caching anything else — grapheme counts, normalization state, hashes.
 - Changing Strand's representation.
 - Mutable strings, a builder type, or a rope representation.
