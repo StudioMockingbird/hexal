@@ -226,6 +226,34 @@ authority. Do not copy a rule out of a spec without checking it against
   the emitted C — that a required declaration precedes its use, that a helper is
   emitted once, that an include is present or absent. A test that only checks
   the compiler returned success proves nothing about the artifact.
+- **The snippet manifest is the generator's regression net.**
+  `workbench/snippets/testdata/generated-c-sha256.json` holds a SHA-256 per
+  generated artifact for every catalog snippet;
+  `TestCatalogProgramsCompile` recompiles them all and fails naming the exact
+  snippet and file. Treat a failure as a real finding until you have shown
+  otherwise.
+
+  Rebuild the baseline only for a change that legitimately alters generated
+  output, never to make a failure go away, and never by hand-editing hashes or
+  weakening the assertion. To rebuild: write a temporary test in package
+  `snippets_test` that walks `snippets.Load()`, compiles each snippet with
+  `compiler.Compile(snippet.Sources, snippet.Entrypoint, compiler.Project{})`,
+  SHA-256s every entry of `result.Files`, and writes
+  `json.MarshalIndent(manifest, "", "  ")` plus a trailing newline to that
+  path. The manifest nests category, then snippet, then artifact. Delete the
+  temporary test afterwards.
+
+  Then review what moved, and say so in the commit message. The artifact
+  breakdown comes straight from the diff:
+
+  ```
+  git diff workbench/snippets/testdata/generated-c-sha256.json |
+      grep '^+' | grep -oE '"[^"]+\.(c|h)"' | sort | uniq -c
+  ```
+
+  A change that claims to touch one family and moves another's artifact has
+  either a wider blast radius than its spec says or a defect. Find out which
+  before committing.
 - `go test ./compiler` does not run the full-pipeline suite (that package
   declares only the module-graph tests in `modulegraph_test.go`); use
   `go test ./...` or target `./compiler/tests/integration`.
