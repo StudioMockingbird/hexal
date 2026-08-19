@@ -374,6 +374,16 @@ pipeline.
 
 - Restoring the current File/FileMode/Stdio API unchanged.
 - Reintroducing lazy `Stream<T>`.
+- **Element iteration, at any level.** I/O moves bytes across a boundary; a
+  lazy sequence is control flow over values, and the two only look alike
+  because standard libraries put them next to each other. A line iterator over
+  a handle is not I/O with a nicer surface — it is a separate layer that
+  happens to pull from one, and it belongs to whatever specification owns
+  iteration. This is why the operation set here is bytes-in-a-caller-buffer and
+  nothing else: an I/O contract that grows `each_line` has stopped being an I/O
+  contract. Recorded as a distinct entry from the one above, which is about a
+  removed type; this one is about a boundary that holds however iteration is
+  eventually spelled.
 - Giving the core compiler filesystem access.
 - Defining project discovery, artifact writing, compilation, or linking.
 - Committing to async I/O, sockets, networking, or filesystem path types in the
