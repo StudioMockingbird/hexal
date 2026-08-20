@@ -64,6 +64,61 @@ attribution:
 **Deleting the sentence loses the reason. That is the failure mode to avoid,
 and it is why this is a rewrite rather than a regex.**
 
+## Direction — the code becomes the source of truth
+
+The intent behind removing citations is larger than tidiness: over time the code
+should be the only place a rule is stated, and `docs/reference.md` should stop
+being a second one. This RFC takes the first bounded step and records the
+direction so later work has a stated target.
+
+**The mechanism is move, not copy.** Copying a rule into code produces two
+statements of it with nothing keeping them in sync, which is the drift
+`AGENTS.md:185` forbids — *"Keep each rule in one authoritative location"* — and
+which this repository has already suffered: `reference.md`'s declaration grammar
+and its prose rule disagreed about `:=` for a day because one was updated and
+the other was not. Two copies are strictly worse than one document, because a
+reader cannot tell which is stale.
+
+So the target state is: a rule that lives in code is **deleted from
+`reference.md`**, not duplicated there. Until a rule makes that move,
+`reference.md` remains authoritative for it, exactly as `AGENTS.md:156` says.
+
+**The strongest form of a rule in code is not a comment.** A rule expressed as a
+test or an assertion cannot drift, because it fails when the code stops obeying
+it. A rule expressed as a comment can drift silently. Migration should prefer,
+in order: an assertion or guard test that enforces the rule; a type or name that
+makes it unstatable; and only then a comment. A rule that can only be a comment
+is the weakest case, not the default one.
+
+**This RFC's bounded step.** The 43 comments being rewritten already sit at the
+place their rule applies. Each rewrite replaces the citation with **the rule
+itself, in present tense**, taken from `reference.md` where one applies:
+
+```go
+// safe; RFC 0088 promises only the literal case.
+```
+
+becomes
+
+```go
+// Only a literal index is elided. The checker's constant proof resolves
+// through immutable bindings and is wider than the generator's view, so a
+// named constant still emits its check. Emitting a check that cannot fire is
+// always correct; eliding one that can is not.
+```
+
+That is bounded at 43 comments, is checkable, and moves the codebase toward the
+target without creating a second copy of anything: these comments state a local
+rule at its enforcement point, which `reference.md` does not do.
+
+**The full migration is not this RFC.** Auditing 1161 lines of normative rules,
+deciding for each whether it can become an assertion, a name, or a comment, and
+deleting it from `reference.md` as it moves, is a multi-pass architectural
+change with its own risks — chiefly that `reference.md` stops being readable as
+a whole before the code is readable in its place. It needs its own spec, and
+this one should not absorb it: an unbounded item would make this Validation
+section non-exhaustive, and therefore unfinishable.
+
 ## The guard
 
 One test, parsing the Go AST and inspecting `*ast.Comment` text:
@@ -114,6 +169,12 @@ This section is exhaustive.
   literal, or assertion changes.
 - No comment is left as a bare restatement of the line below it; a comment whose
   only content was provenance is gone rather than emptied.
+- Every rewritten comment that replaced a citation states a rule in present
+  tense at the point the rule applies, or is deleted. None cites where the rule
+  came from, and none is a paraphrase of the line below it.
+- No rule is duplicated: the rewrite adds no statement that `docs/reference.md`
+  already makes, and removes nothing from `docs/reference.md` either. Moving
+  rules out of that document is a later spec, not this one.
 - `go build ./...`, `go vet ./...`, `gofmt -l` silent.
 - `go test ./...` passes, and the snippet manifest is byte-identical — this RFC
   changes no generated output.
@@ -125,6 +186,9 @@ This section is exhaustive.
   deliberately; the rule is about code.
 - Rewriting comments that comply with CARE but could be better. Only the two
   measured violation classes are in scope.
+- Migrating `docs/reference.md`'s rules into code. The direction is recorded
+  above and the first bounded step is taken; the audit of 1161 lines, and the
+  deletions from `reference.md` that must accompany it, need their own spec.
 - Enforcing the rest of CARE — that every comment carries a Contract,
   Architecture, Rationale, or Edge fact. That is a judgement no test can make,
   and attempting it would turn a mechanical cleanup into a review of every
