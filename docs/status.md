@@ -60,6 +60,14 @@ deleted:
   pairs; not observed by any test, because none compiles generated C. Owned by
   [0095](specs/0095-generated-c-naming.md).
 
+- **Two modules declaring the same ADT name produce one C struct tag for two
+  distinct types.** An ADT C name carries no module owner — object types are
+  `hex_t_m3_app_Point`, ADTs are bare `hex_Shape` — so a program where `app.hex`
+  and an imported module each declare a `Shape` emits
+  `typedef struct hex_Shape { ... } hex_Shape;` twice into `modules/app.h`.
+  Needs no unusual type: two modules and a common type name. Owned by
+  [0095](specs/0095-generated-c-naming.md).
+
 ## Known coverage gaps
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
