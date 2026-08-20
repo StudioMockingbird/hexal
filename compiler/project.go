@@ -27,7 +27,7 @@ const configPageSize = 4096
 
 // validateProject checks the effective settings before any stage runs: the
 // zero value selects a default before the rules apply, so a caller is never
-// rejected for a field it did not set — except where the default itself
+// rejected for a field it did not set, except where the default itself
 // violates a rule the caller's other field created, e.g. a 4 KiB reserve
 // below the default 8 KiB commit. TaskStackReserve is non-zero after
 // defaulting by construction.

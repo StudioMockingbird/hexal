@@ -1,10 +1,10 @@
 package integration
 
-// RFC 0074 R18: two gaps the suite carried without a committed test —
+// Two gaps the suite carried without a committed test:
 // generated output was verified byte-identical across repeated compiles but
 // nothing asserted it, and CompilationStats was covered only for SourceLines
-// and a non-zero TokenCount, which is how RFC 0073's D7 (a permanently zero
-// ParseDuration) survived.
+// and a non-zero TokenCount, which is how a permanently zero
+// ParseDuration survived.
 
 import (
 	"testing"

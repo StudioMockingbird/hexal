@@ -7,10 +7,10 @@ import (
 	"hexal/compiler"
 )
 
-// RFC 0087 caches the rune count in the String header. These are the textual
-// halves of its Validation section; the runtime halves — that a slice over
+// The cached rune count lives in the String header. These are the textual
+// halves of the acceptance cases; the runtime halves (that a slice over
 // multi-byte input yields identical bytes, that a concatenated count matches an
-// independent scan — need an executed binary and stay unverified, as
+// independent scan) need an executed binary and stay unverified, as
 // docs/status.md records for every generated artifact.
 
 // The count reaches every construction path. Each assertion names the
@@ -44,8 +44,9 @@ func TestCachedRuneLengthSetAtEveryConstructionPath(t *testing.T) {
 }
 
 // A literal's count is computed at compile time, so it is the one path where a
-// byte count substituted for a rune count would go unnoticed. "café 🦀" is 6
-// runes across 10 bytes, which makes the two numbers impossible to confuse.
+// byte count substituted for a rune count would go unnoticed. "cafe" plus a
+// crab emoji is 6 runes across 10 bytes, which makes the two numbers impossible
+// to confuse.
 func TestCachedRuneLengthCountsRunesNotBytesInLiterals(t *testing.T) {
 	result := assertCompiles(t, "fun demo(): Size do\n    text: String := \"caf\\u{00E9} \\u{1F980}\"\n    return text.length()\nend\n")
 	const want = "const hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 10, .rune_length = 6 };"
@@ -93,7 +94,7 @@ func TestCachedRuneLengthLeavesStringHandleSizeUnchanged(t *testing.T) {
 }
 
 // Invariant 4 and the Non-goals: a cached count is not an argument for
-// reinstating indexing, which RFC 0083 removed. Nothing here reopens it.
+// reinstating indexing, which was removed. Nothing here reopens it.
 func TestCachedRuneLengthDoesNotReopenTextIndexing(t *testing.T) {
 	for _, testCase := range []struct{ source, want string }{
 		{"text: String := \"hi\" first: Rune := text[0]", "cannot index String"},

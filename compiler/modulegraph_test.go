@@ -2,9 +2,9 @@ package compiler
 
 import "testing"
 
-// The graph is the single authority for module resolution (RFC 0076). These
+// The graph is the single authority for module resolution. These
 // tests assert its structural invariants and that its edges carry exactly the
-// path arithmetic resolveImportPath performs — the coverage the checker's
+// path arithmetic resolveImportPath performs: the coverage the checker's
 // deleted mirror used to hold, now driven through the resolver that survives.
 
 // resolvedEdgeTarget compiles sources and returns the target the graph
@@ -28,7 +28,7 @@ func resolvedEdgeTarget(t *testing.T, sources map[string]string, entrypoint, fro
 // The six path shapes the checker's mirror used to assert, each now checked
 // through the graph edge the resolver produced. The bare "math/vec3" case is
 // the one that differs in kind: the mirror silently accepted it, while the
-// resolver — the only implementation left — rejects a non-relative path.
+// resolver (the only implementation left) rejects a non-relative path.
 func TestModuleGraphEdgesCarryResolvedPaths(t *testing.T) {
 	dependency := "export fun value(): Int32 do\n    return 1\nend\n"
 	for _, testCase := range []struct {
@@ -88,7 +88,7 @@ func TestModuleGraphEdgesCarryResolvedPaths(t *testing.T) {
 
 // Order and Modules are one structure with one membership, every edge names a
 // node that exists, and every LogicalKey is a key the caller actually
-// supplied — never a reconstruction.
+// supplied: never a reconstruction.
 func TestModuleGraphInvariants(t *testing.T) {
 	sources := map[string]string{
 		"graphics/app.hex": "module Shapes = import \"./shapes\"\nmodule Tools = import \"../shared/tools\"\n" +

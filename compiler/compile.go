@@ -1,6 +1,6 @@
 // Package compiler is the Hexal compiler entry point: it lexes, parses,
 // resolves the module graph, checks, and generates C from an in-memory source
-// map. It performs no filesystem access — Compile takes logical source keys and
+// map. It performs no filesystem access: Compile takes logical source keys and
 // returns generated artifacts as strings.
 package compiler
 
@@ -48,7 +48,7 @@ type CompilationResult struct {
 // wall-clock and measured per stage; they are diagnostics for a human reading a
 // build, never an input to compilation.
 type CompilationStats struct {
-	// TokenCount and SourceLines sum over the reachable module set only —
+	// TokenCount and SourceLines sum over the reachable module set only:
 	// a source in the map that no import reaches contributes nothing.
 	TokenCount  int
 	SourceLines int
@@ -444,7 +444,7 @@ func mergeDiagnostics(stageErrors ...error) error {
 	}
 	// Position only: every caller passes one module's diagnostics, and each
 	// stage already emits modules in dependency order. Sorting on the module
-	// here would reorder them alphabetically for no gain — see RFC 0074 R11.
+	// here would reorder them alphabetically for no gain.
 	slices.SortStableFunc(diagnostics, func(left, right compilerTypes.Diagnostic) int {
 		if left.Line != right.Line {
 			if left.Line < right.Line {
@@ -492,7 +492,7 @@ func sourceLineCount(source string) int {
 
 // stampModule attributes a stage error to one module's logical source key.
 // Lexing and parsing report positions without knowing which module they were
-// handed; the reachability walk is where that is known (RFC 0074 R11).
+// handed; the reachability walk is the only pass that knows both.
 func stampModule(err error, logicalKey string) error {
 	if err == nil {
 		return nil

@@ -2,12 +2,13 @@
 
 package generator
 
-// Traversal instrumentation, compiled only under the benchmetrics tag. RFC 0074
-// deferred fusing the 21 discovery walks "pending data"; this is that data.
+// Traversal instrumentation, compiled only under the benchmetrics tag.
+// The discovery walks were deferred "pending data" when the walker fused;
+// this is that data.
 //
 // The counters are plain package-level variables rather than atomics because
 // compilation is sequential and the benchmark reads them between iterations. If
-// generation ever becomes concurrent this must become atomic — the untagged
+// generation ever becomes concurrent this must become atomic: the untagged
 // build has no counter at all, so nothing production-facing depends on it.
 var (
 	traversalWalks uint64

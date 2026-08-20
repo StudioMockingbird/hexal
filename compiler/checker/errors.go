@@ -12,10 +12,6 @@ import (
 // Ordinary Error values, `T | Error` results, `try` propagation, and
 // error-only deferred cleanup.
 
-// sourceFilename is the logical source-unit name used by diagnostics and C
-// #line output; Error.file records the same name.
-const sourceFilename = "main.hex"
-
 func freeLocalStorageDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
 	return typeErrorAt(token, "free does not accept a pointer into this function's local storage")
 }
@@ -76,7 +72,7 @@ func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, names *sc
 		found, _ := object.Member(name)
 		return found
 	}
-	fileNode := Expression{Kind: StringLiteralExpression, Name: sourceFilename, ResultType: compilerTypes.StringType}
+	fileNode := Expression{Kind: StringLiteralExpression, Name: names.logicalKey, ResultType: compilerTypes.StringType}
 	fileOperand := Operand{Kind: ExpressionOperand, Type: compilerTypes.StringType, Node: fileNode}
 	lineOperand := constantOperand(compilerTypes.SizeType, constant.MakeUint64(uint64(callee.Line)), "")
 	lineOperand.Node = constantNode(lineOperand)

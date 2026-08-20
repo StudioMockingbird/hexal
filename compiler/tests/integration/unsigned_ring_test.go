@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-// RFC 0072: a maximal unsigned +, -, * tree evaluates in one uintmax_t domain
+// A maximal unsigned +, -, * tree evaluates in one uintmax_t domain
 // and narrows once at its result boundary. These tests assert the generated C
 // for the shapes where the tree ends and a boundary begins.
 
 // The motivating packet-header expression: one seed, one narrowing, and the
-// explicit conversions preserved — not one widening/narrowing pair per
+// explicit conversions preserved: not one widening/narrowing pair per
 // addition.
 func TestUnsignedRingPacketHeaderLowersToOneSeedAndOneNarrowing(t *testing.T) {
 	source := "fun header(version: UInt8, low: UInt8, high: UInt8, mode: UInt8, port: UInt8): UInt32 do\n" +
@@ -115,8 +115,8 @@ func TestUnsignedRingRendersEachCallExactlyOnce(t *testing.T) {
 // Every covered type lowers its wrapping shapes to one narrowing at the tree's
 // result boundary, whatever the shape does inside. The suite invokes no
 // toolchain, so the checkable claim is structural: exactly one narrowing cast
-// per maximal tree and at least one uintmax_t seed feeding it — a right-nested
-// subtree adds its own seed but no second narrowing — which is the structure
+// per maximal tree and at least one uintmax_t seed feeding it (a right-nested
+// subtree adds its own seed but no second narrowing), which is the structure
 // that makes the runtime result reduce modulo the type width exactly once.
 func TestUnsignedRingWidthBoundaries(t *testing.T) {
 	for _, typ := range []struct{ hexal, cName string }{

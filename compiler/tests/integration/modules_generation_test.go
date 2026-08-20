@@ -357,7 +357,7 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 	stringOutput := result.Files["hexal/string.c"]
 	definitions := []string{
 		"const uint8_t hex_lit_0_bytes[5] = { 114, 111, 111, 116, 0 };\nconst hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 4, .rune_length = 4 };",
-		"const uint8_t hex_lit_1_bytes[9] = { 109, 97, 105, 110, 46, 104, 101, 120, 0 };\nconst hex_string hex_lit_1 = { .data = hex_lit_1_bytes, .byte_length = 8, .rune_length = 8 };",
+		"const uint8_t hex_lit_1_bytes[9] = { 109, 97, 116, 104, 46, 104, 101, 120, 0 };\nconst hex_string hex_lit_1 = { .data = hex_lit_1_bytes, .byte_length = 8, .rune_length = 8 };",
 		"const uint8_t hex_lit_2_bytes[10] = { 83, 99, 104, 101, 100, 117, 108, 101, 114, 0 };\nconst hex_string hex_lit_2 = { .data = hex_lit_2_bytes, .byte_length = 9, .rune_length = 9 };",
 		"const uint8_t hex_lit_3_bytes[21] = { 116, 97, 115, 107, 32, 99, 114, 101, 97, 116, 105, 111, 110, 32, 102, 97, 105, 108, 101, 100, 0 };\nconst hex_string hex_lit_3 = { .data = hex_lit_3_bytes, .byte_length = 20, .rune_length = 20 };",
 	}
@@ -369,7 +369,7 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 	mathC := result.Files["modules/math.c"]
 	mathH := result.Files["modules/math.h"]
 	if !strings.Contains(mathH, ".hex_m_file = &hex_lit_1") {
-		t.Fatalf("math.h does not use the shifted program-wide source filename literal:\n%s", mathH)
+		t.Fatalf("math.h does not use the math module's own source filename literal:\n%s", mathH)
 	}
 	if !strings.Contains(mathH, ".hex_m_header = (hex_strand){{ 83, 99, 104, 101, 100, 117, 108, 101, 114, 0 }}") {
 		t.Fatalf("math.h does not use the exact Scheduler header literal:\n%s", mathH)

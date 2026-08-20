@@ -28,6 +28,7 @@ type scope struct {
 	local        map[string]binding // nil only at module level
 	parent       *scope
 	moduleID     string // the enclosing module's canonical identity
+	logicalKey   string // the enclosing module's source-map filename
 	owner        string // enclosing function or method name, for diagnostics
 	result       *compilerTypes.Type
 	resultUse    *compilerTypes.TypeUse
@@ -49,7 +50,7 @@ type scope struct {
 
 // moduleScope builds the root frame of one module. Import aliases are read
 // from the registry through importTarget; the scope keeps no copy of its own.
-func moduleScope(moduleID string, registry *ModuleRegistry) *scope {
+func moduleScope(moduleID string, logicalKey string, registry *ModuleRegistry) *scope {
 	next := BindingID(0)
 	generics := newGenericTable()
 	if registry != nil {
@@ -58,7 +59,7 @@ func moduleScope(moduleID string, registry *ModuleRegistry) *scope {
 		generics.registry = registry
 		generics.moduleID = moduleID
 	}
-	return &scope{module: make(map[string]binding), moduleID: moduleID, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
+	return &scope{module: make(map[string]binding), moduleID: moduleID, logicalKey: logicalKey, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
 }
 
 // flowFact records the branch-local treatment of one binding. Narrowing and
@@ -639,20 +640,21 @@ func (names *scope) define(name string, bound binding) bool {
 
 func (names *scope) child() *scope {
 	return &scope{
-		module:   names.module,
-		local:    make(map[string]binding),
-		parent:   names,
-		owner:    names.owner,
-		result:   names.result,
-		methods:  names.methods,
-		self:     names.self,
-		selfID:   names.selfID,
-		function: names.function,
-		nextID:   names.nextID,
-		flow:     names.flow,
-		generics: names.generics,
-		registry: names.registry,
-		moduleID: names.moduleID,
+		module:     names.module,
+		local:      make(map[string]binding),
+		parent:     names,
+		owner:      names.owner,
+		result:     names.result,
+		methods:    names.methods,
+		self:       names.self,
+		selfID:     names.selfID,
+		function:   names.function,
+		nextID:     names.nextID,
+		flow:       names.flow,
+		generics:   names.generics,
+		registry:   names.registry,
+		moduleID:   names.moduleID,
+		logicalKey: names.logicalKey,
 	}
 }
 

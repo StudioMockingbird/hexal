@@ -1,14 +1,14 @@
 // Package benchmarks is the compiler's measurement harness: the committed
-// benchmark suite (RFC 0075) and the complexity report over the compiler's own
-// Go source (RFC 0080).
+// benchmark suite and the complexity report over the compiler's own
+// Go source.
 //
 // Every file here is a _test.go file, deliberately. This package sits under
 // compiler/, so `go build ./compiler/...` matches it; with test files only the
 // package is empty to `go build` and the third-party complexity libraries are
 // never compiled on the ordinary build path.
 //
-// It imports hexal/compiler and hexal/workbench/snippets. That is not the
-// layering inversion RFC 0075 guarded against: 0075's constraint was that
+// It imports hexal/compiler and hexal/workbench/snippets. That is not a
+// layering inversion: the original constraint was that
 // `package compiler`'s own test binary must not import the workbench, and
 // `go test ./compiler` does not build this package. Directory nesting carries
 // no dependency meaning in Go.
@@ -30,7 +30,7 @@ type benchmarkProgram struct {
 
 // sourceBytes totals the program's source length, which each benchmark hands
 // to b.SetBytes so Go reports MB/s and differently sized shapes become
-// comparable (RFC 0080 Part 1).
+// comparable.
 func (program benchmarkProgram) sourceBytes() int64 {
 	total := 0
 	for _, source := range program.sources {

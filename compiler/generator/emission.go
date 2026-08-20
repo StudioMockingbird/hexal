@@ -13,7 +13,6 @@ import (
 )
 
 const hexalHeaderPrefix = "#ifndef HEXAL_H\n#define HEXAL_H\n\n"
-const sourceFilename = "main.hex"
 
 // cHeaderRequirements is the program-wide demand-driven standard-header set,
 // EoS representation requirement, and runtime-trap requirement. Standard
@@ -129,7 +128,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.endianSpecs = discoverGeneratedEndian(program)
 	emission.printState = discoverGeneratedPrint(program)
 	emission.wrapState = discoverGeneratedWraps(program)
-	concurrencyState := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner)
+	concurrencyState := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
 	emission.concurrencyState = concurrencyState
 	if concurrencyState.used {
 		// The task runtime needs the String and Strand typedefs and the
@@ -243,7 +242,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		mergeWrapState(merged.wrapState, module.wrapState)
 		if module.arrayState != nil {
 			arrayOrders = append(arrayOrders, module.arrayState.order)
-			// RFC 0088 demand is recorded while a module body renders, which
+			// Accessor demand is recorded while a module body renders, which
 			// happens after this merge. Every module state therefore shares
 			// the merged map, so a write from any renderer is visible to the
 			// component builders that run once every module has rendered.

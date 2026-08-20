@@ -159,20 +159,21 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 	selfID := names.newBindingID()
 	checked.SelfBinding = selfID
 	body := &scope{
-		module:    names.module,
-		local:     make(map[string]binding, len(parameters)),
-		owner:     name,
-		result:    result,
-		resultUse: resultUse,
-		methods:   names.methods,
-		self:      &checked.SelfType,
-		selfID:    selfID,
-		function:  true,
-		nextID:    names.nextID,
-		flow:      newFlowState(),
-		generics:  names.generics,
-		registry:  names.registry,
-		moduleID:  names.moduleID,
+		module:     names.module,
+		local:      make(map[string]binding, len(parameters)),
+		owner:      name,
+		result:     result,
+		resultUse:  resultUse,
+		methods:    names.methods,
+		self:       &checked.SelfType,
+		selfID:     selfID,
+		function:   true,
+		nextID:     names.nextID,
+		flow:       newFlowState(),
+		generics:   names.generics,
+		registry:   names.registry,
+		moduleID:   names.moduleID,
+		logicalKey: names.logicalKey,
 	}
 	for index := range parameters {
 		// No nested scope may shadow an import alias; a conflicting

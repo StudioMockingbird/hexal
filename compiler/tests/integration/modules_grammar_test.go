@@ -14,7 +14,7 @@ import (
 func TestModuleImportResolvesToNotFound(t *testing.T) {
 	// "./math" is a valid module-path literal that resolves; no source
 	// provides it, so the build fails with the resolution diagnostic rather
-	// than a grammar error — the grammar itself parsed.
+	// than a grammar error: the grammar itself parsed.
 	result := compileSource("module Math = import \"./math\"\nresult: Int32 := Math.add(2, 3)\n")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want failure until ./math exists; got %#v", result)

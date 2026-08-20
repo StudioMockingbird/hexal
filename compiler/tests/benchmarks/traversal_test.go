@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// Traversal counts, compiled only under the benchmetrics tag (RFC 0080 Part 3).
-// RFC 0074 deferred fusing the 21 generator discovery walks "pending data" and
-// named this suite as the data; these two numbers are it.
+// Traversal counts, compiled only under the benchmetrics tag.
+// Fusing the 21 generator discovery walks was deferred "pending data" and
+// this suite was named as the data; these two numbers are it.
 //
 // Run with:
 //

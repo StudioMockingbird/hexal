@@ -26,7 +26,7 @@ type arrayComponentRecord struct {
 	ElementSpelling string
 	Length          uint64
 	ViewCName       string
-	// NeedsAt and NeedsAtMut are RFC 0088's demand filter: an accessor is
+	// NeedsAt and NeedsAtMut form the demand filter: an accessor is
 	// emitted only where some access whose bounds check survived reaches it.
 	// A program that only iterates arrays and indexes them with literals
 	// reaches neither and gets the typedef alone.

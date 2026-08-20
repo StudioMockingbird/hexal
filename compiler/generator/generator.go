@@ -91,7 +91,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 
 // stampModule attributes a generation error to the module being emitted.
 // Discovery and emission construct diagnostics without knowing which module
-// they are in; the per-module loops are where that is known (RFC 0074 R11).
+// they are in; the per-module loops are the only passes that know both.
 func stampModule(err error, logicalKey string) error {
 	if err == nil {
 		return nil

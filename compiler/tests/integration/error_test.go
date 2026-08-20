@@ -242,6 +242,48 @@ func TestTryAndSpawnInsideErrdeferRejected(t *testing.T) {
 	}
 }
 
+func TestErrorFileRecordsLogicalSourceKey(t *testing.T) {
+	single := compileSource("fun demo() do\n    err: Error := Error.new(\"x\", \"y\")\n    again: Error := Error.new(\"x\", \"y\")\nend")
+	if single.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("single-module compile failed: %v", single.Stderr)
+	}
+	pool := single.Files["hexal/string.c"]
+	if !strings.Contains(pool, "97, 112, 112, 46, 104, 101, 120") {
+		t.Fatalf("single-module literal pool must intern the app.hex file key:\n%s", pool)
+	}
+	if strings.Contains(pool, "109, 97, 105, 110, 46, 104, 101, 120") {
+		t.Fatalf("single-module literal pool must not intern main.hex:\n%s", pool)
+	}
+	if count := strings.Count(pool, "97, 112, 112, 46, 104, 101, 120"); count != 1 {
+		t.Fatalf("repeated Error.new must intern the file literal once; got %d app.hex literals", count)
+	}
+
+	multi := compiler.Compile(map[string]string{
+		"a.hex":   "export fun fa(): Error do\n    return Error.new(\"a\", \"x\")\nend\n",
+		"b.hex":   "export fun fb(): Error do\n    return Error.new(\"b\", \"y\")\nend\n",
+		"app.hex": "module A = import \"./a\"\nmodule B = import \"./b\"\nfun demo() do\n    ea: Error := A.fa()\n    eb: Error := B.fb()\nend\n",
+	}, "app.hex", compiler.Project{})
+	if multi.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("multi-module compile failed: %v", multi.Stderr)
+	}
+	multiPool := multi.Files["hexal/string.c"]
+	if !strings.Contains(multiPool, "97, 46, 104, 101, 120") || !strings.Contains(multiPool, "98, 46, 104, 101, 120") {
+		t.Fatalf("multi-module pool must intern each module's own key:\n%s", multiPool)
+	}
+	if strings.Contains(multiPool, "109, 97, 105, 110, 46, 104, 101, 120") {
+		t.Fatalf("multi-module pool must not intern main.hex:\n%s", multiPool)
+	}
+	for module, want := range map[string]string{"a.c": "a.hex", "b.c": "b.hex"} {
+		artifact := multi.Files["modules/"+module]
+		if !strings.Contains(artifact, ".hex_m_file = &hex_lit_") {
+			t.Fatalf("%s must reference the shared pool's file literal:\n%s", module, artifact)
+		}
+		if strings.Contains(artifact, want) && !strings.Contains(artifact, "#line") {
+			t.Fatalf("%s must not embed the file name outside #line directives:\n%s", module, artifact)
+		}
+	}
+}
+
 func TestErrorReservedName(t *testing.T) {
 	result := compileSource("type Error = { value: Int32, }")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {

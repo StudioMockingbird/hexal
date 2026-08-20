@@ -501,10 +501,11 @@ HeapAllocation
 - A union holds exactly one active member; injection is implicit and allocation-free. Unions are
   flattened, duplicate-free, structural, and order-independent. Written order only chooses among
   contextual initializer candidates.
-- A union contains at least two distinct canonical members. Flattening and duplicate removal run
-  first; a written union that yields fewer than two distinct members is an error, never an alias for
-  the surviving member. Alias resolution and generic substitution happen before the count, so
-  `Int32 | Int32` and `A | Int32` where `type A = Int32` are both invalid. Nil is valid only as one
+- A union contains at least two distinct canonical members. A written union must name each canonical
+  member exactly once: a member repeated after alias resolution and generic substitution is an error
+  naming the later member, so `Int32 | Int32` and `A | Int32` where `type A = Int32` are both
+  invalid, and a written union is never an alias for a surviving member. Distinct members are then
+  flattened, canonically ordered, and interned as one structural identity. Nil is valid only as one
   member of a union satisfying this rule.
 - Widening is allowed only when every source member fits the destination; implicit narrowing and
   declaration-time union inference do not exist.

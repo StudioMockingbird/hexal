@@ -3,10 +3,10 @@ package generator
 // Module-owned collection specializations: a list, dict, view, or array over
 // a module-emitted element type is emitted into each consuming module header
 // immediately after that module's type definitions. A component artifact is
-// program-wide — it cannot re-emit a per-module type and has no include path
-// to the module that owns one — so module headers are the only translation
+// program-wide: it cannot re-emit a per-module type and has no include path
+// to the module that owns one, so module headers are the only translation
 // unit where the element type is available. Builtin-element specializations
-// keep their component artifacts byte-identical (RFC 0081 Option A).
+// keep their component artifacts byte-identical.
 
 import (
 	"strings"
@@ -113,7 +113,7 @@ func moduleCollectionDependencyOrder(views, arrays, lists, dicts []compilerTypes
 // spelledCollectionNames returns the C names of every collection type typ's
 // body spells beyond typ itself: the collection types inside its element (or
 // dict value) and the element's matching view. Object, ADT, and union member
-// types are not collection dependencies — their definitions live in earlier
+// types are not collection dependencies: their definitions live in earlier
 // module-header regions.
 func spelledCollectionNames(typ compilerTypes.Type, viewState *generatedViewState) []string {
 	names := make([]string, 0, 4)

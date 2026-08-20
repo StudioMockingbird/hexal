@@ -21,7 +21,7 @@ func TestArrayDeclarationLiteralAndIndexing(t *testing.T) {
 		}
 	}
 	// The specialization struct is owned by the array component, not hexal.h.
-	// Every index here is a literal, so RFC 0088 leaves the component with the
+	// Every index here is a literal, so elision leaves the component with the
 	// typedef alone: no accessor survives to be emitted.
 	arrayHeader := arrayH(t, result)
 	for _, want := range []string{

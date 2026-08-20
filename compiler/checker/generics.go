@@ -440,18 +440,19 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	generics.active[key] = true
 	generics.open = false
 	body := &scope{
-		module:    names.module,
-		local:     make(map[string]binding, len(parameters)),
-		owner:     specialized.Name,
-		result:    result,
-		resultUse: resultUse,
-		methods:   names.methods,
-		function:  true,
-		nextID:    names.nextID,
-		flow:      newFlowState(),
-		generics:  generics,
-		registry:  names.registry,
-		moduleID:  names.moduleID,
+		module:     names.module,
+		local:      make(map[string]binding, len(parameters)),
+		owner:      specialized.Name,
+		result:     result,
+		resultUse:  resultUse,
+		methods:    names.methods,
+		function:   true,
+		nextID:     names.nextID,
+		flow:       newFlowState(),
+		generics:   generics,
+		registry:   names.registry,
+		moduleID:   names.moduleID,
+		logicalKey: names.logicalKey,
 	}
 	for index := range parameters {
 		parameters[index].Binding = names.newBindingID()
@@ -518,20 +519,21 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 	selfID := names.newBindingID()
 	specialized.SelfBinding = selfID
 	body := &scope{
-		module:    names.module,
-		local:     make(map[string]binding, len(parameters)),
-		owner:     methodName,
-		result:    result,
-		resultUse: resultUse,
-		methods:   names.methods,
-		self:      &specialized.SelfType,
-		selfID:    selfID,
-		function:  true,
-		nextID:    names.nextID,
-		flow:      newFlowState(),
-		generics:  generics,
-		registry:  names.registry,
-		moduleID:  names.moduleID,
+		module:     names.module,
+		local:      make(map[string]binding, len(parameters)),
+		owner:      methodName,
+		result:     result,
+		resultUse:  resultUse,
+		methods:    names.methods,
+		self:       &specialized.SelfType,
+		selfID:     selfID,
+		function:   true,
+		nextID:     names.nextID,
+		flow:       newFlowState(),
+		generics:   generics,
+		registry:   names.registry,
+		moduleID:   names.moduleID,
+		logicalKey: names.logicalKey,
 	}
 	for index := range parameters {
 		parameters[index].Binding = names.newBindingID()

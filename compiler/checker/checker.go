@@ -265,10 +265,11 @@ func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
 	for _, moduleID := range graph.Order {
 		node := graph.Modules[moduleID]
 		key := node.LogicalKey
-		moduleChecked, moduleDiagnostics := checkModule(node.Program, moduleID, entrypointCanonical, registry, arena)
-		// One stamping point for the whole stage: checkModule and everything
-		// under it construct diagnostics without knowing which module they
-		// are in, and the loop is where that is known (RFC 0074 R11).
+		moduleChecked, moduleDiagnostics := checkModule(node.Program, moduleID, key, entrypointCanonical, registry, arena)
+		// One stamping point for the whole stage: module diagnostics are
+		// stamped here, where the module identity is known. checkModule
+		// receives the logical key only for Error.file provenance, never
+		// for diagnostics.
 		moduleDiagnostics = moduleDiagnostics.InModule(key)
 		diagnostics = append(diagnostics, moduleDiagnostics...)
 		checked[key] = moduleChecked
@@ -298,16 +299,16 @@ func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
 }
 
 // checkModule checks one module in its own scope. moduleID is the module's
-// canonical identity; entrypointCanonical is the root module's canonical
-// identity, the only module allowed to execute statements. registry carries
-// the import aliases every module scope sees.
-func checkModule(program parser.Program, moduleID string, entrypointCanonical string, registry *ModuleRegistry, arena *compilerTypes.Arena) (Program, compilerTypes.Diagnostics) {
+// canonical identity; logicalKey is its source-map filename; entrypointCanonical
+// is the root module's canonical identity, the only module allowed to execute
+// statements. registry carries the import aliases every module scope sees.
+func checkModule(program parser.Program, moduleID string, logicalKey string, entrypointCanonical string, registry *ModuleRegistry, arena *compilerTypes.Arena) (Program, compilerTypes.Diagnostics) {
 	checked := Program{
 		TypeDeclarations: make([]TypeDeclaration, 0),
 		Statements:       make([]Statement, 0, len(program.Statements)),
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	environment := moduleScope(moduleID, registry)
+	environment := moduleScope(moduleID, logicalKey, registry)
 	typeEnvironment := compilerTypes.NewCompilationEnvironment(arena, moduleID)
 
 	items := program.Items

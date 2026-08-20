@@ -3,7 +3,7 @@ package generator
 // Component artifacts: the demand-driven runtime support files under
 // generated hexal/. Their source of truth is the embedded C/header
 // templates in packages/; Go builds typed render models and selects which
-// components a compilation emits. Templates contain presentation only — every
+// components a compilation emits. Templates contain presentation only: every
 // semantic and selection decision stays in Go.
 
 import (

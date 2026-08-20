@@ -265,8 +265,8 @@ func TestConcurrencyTemplateMissingFieldFailsClosed(t *testing.T) {
 	}
 }
 
-// Every nesting shape — top level, if, while, nested if inside while, and
-// the for-in body — emits exactly one hex_task_spawn site in the module C:
+// Every nesting shape (top level, if, while, nested if inside while, and
+// the for-in body) emits exactly one hex_task_spawn site in the module C:
 // the hoisted function-scope copy that spawned an extra task and leaked it
 // must not exist.
 func TestGenerateSpawnNestingShapesEmitOneSite(t *testing.T) {

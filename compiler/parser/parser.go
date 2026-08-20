@@ -507,7 +507,7 @@ func (parser *Parser) atStatementStart() bool {
 
 // diagnosticsFrom renders any parser error as structured diagnostics. It
 // traverses wrappers with errors.As rather than a hand-rolled type-assertion
-// ladder, so a diagnostic stays reachable however deeply it is wrapped —
+// ladder, so a diagnostic stays reachable however deeply it is wrapped:
 // blockFailure included, through its Unwrap.
 func diagnosticsFrom(err error) compilerTypes.Diagnostics {
 	var diagnostics compilerTypes.Diagnostics

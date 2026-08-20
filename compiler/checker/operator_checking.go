@@ -643,7 +643,7 @@ func knownTruthinessMetadata(expression checkedExpression) (bool, bool) {
 // knownTruthiness reports whether the operand's truthiness is decided at
 // compile time: a constant Bool carries its value, nil is falsey,
 // and a constant of an always-truthy type is truthy. Non-constant operands
-// are never folded here — their evaluation must survive in the checked AST.
+// are never folded here: their evaluation must survive in the checked AST.
 func knownTruthiness(expression checkedExpression) (bool, bool) {
 	if expression.source.Kind != ConstantOperand {
 		return false, false

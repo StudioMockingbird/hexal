@@ -115,18 +115,19 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 	names.module[name] = binding{typ: functionType, use: functionUse, kind: functionBinding}
 
 	body := &scope{
-		module:    names.module,
-		local:     make(map[string]binding, len(parameters)),
-		owner:     name,
-		result:    result,
-		resultUse: resultUse,
-		methods:   names.methods,
-		function:  true,
-		nextID:    names.nextID,
-		flow:      newFlowState(),
-		generics:  names.generics,
-		registry:  names.registry,
-		moduleID:  names.moduleID,
+		module:     names.module,
+		local:      make(map[string]binding, len(parameters)),
+		owner:      name,
+		result:     result,
+		resultUse:  resultUse,
+		methods:    names.methods,
+		function:   true,
+		nextID:     names.nextID,
+		flow:       newFlowState(),
+		generics:   names.generics,
+		registry:   names.registry,
+		moduleID:   names.moduleID,
+		logicalKey: names.logicalKey,
 	}
 	for index := range parameters {
 		// No nested scope may shadow an import alias; a conflicting

@@ -9,8 +9,8 @@ import (
 )
 
 // A component artifact declares only the dependencies its emitted content
-// uses, so an emitted component always carries content. A hollow one — guard,
-// includes, and nothing else — means some template declared a dependency it
+// uses, so an emitted component always carries content. A hollow one (guard,
+// includes, and nothing else) means some template declared a dependency it
 // does not use, which is how a program with an Array but no slicing once
 // emitted a 70-byte hexal/view.h.
 //

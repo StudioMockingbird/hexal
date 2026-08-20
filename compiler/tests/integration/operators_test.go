@@ -320,7 +320,7 @@ func TestRuneBinaryArithmeticRejected(t *testing.T) {
 // <stdint.h> even though no written type spells an exact-width integer:
 // Size selects <stddef.h> alone. The assertion is textual because the suite
 // never invokes a toolchain, so an undeclared uintmax_t is otherwise
-// invisible to it (RFC 0073 D33, RFC 0072).
+// invisible to it.
 func TestSizeOnlyArithmeticSelectsStdint(t *testing.T) {
 	source := "a: Size := 1\nb: Size := 2\nc: Size := a + b\nd: Size := c * a\n"
 	result := assertCompiles(t, source)

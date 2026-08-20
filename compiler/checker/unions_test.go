@@ -108,6 +108,46 @@ func TestCheckUnionIsTest(t *testing.T) {
 	}
 }
 
+func TestCheckUnionRejectsDuplicateMembers(t *testing.T) {
+	for _, testCase := range []struct {
+		source string
+		want   string
+	}{
+		{"x: Int32 | Nil | Int32 := 0", "union member Int32 appears more than once"},
+		{"y: Int32 | Nil | Nil := nil", "union member Nil appears more than once"},
+		{"type Bad = Ptr<Int32> | Nil | Nil value: Bad := nil", "union member Nil appears more than once"},
+		{"x: Int32 | Float64 | Int32 | Nil := 1", "union member Int32 appears more than once"},
+		{"type Score = Int32 x: Int32 | Nil | Score := 0", "union member Int32 appears more than once"},
+		{"type MaybeScore = Int32 | Nil x: Bool | MaybeScore | Int32 := true", "union member Int32 appears more than once"},
+		{"type M<T> = T | Int32 x: M<Int32> := 0", "union member Int32 appears more than once"},
+	} {
+		_, err := Check(parseProgram(t, testCase.source))
+		if err == nil || !strings.Contains(err.Error(), testCase.want) {
+			t.Fatalf("Check(%q) error = %v, want %q", testCase.source, err, testCase.want)
+		}
+	}
+}
+
+func TestCheckUnionDuplicateDoesNotAlsoReportMemberCount(t *testing.T) {
+	_, err := Check(parseProgram(t, "x: Int32 | Int32 := 0"))
+	if err == nil {
+		t.Fatal("Check accepted a union with a repeated member")
+	}
+	if !strings.Contains(err.Error(), "union member Int32 appears more than once") {
+		t.Fatalf("error = %v, want duplicate-member diagnostic", err)
+	}
+	if strings.Contains(err.Error(), "at least two distinct members") {
+		t.Fatalf("error = %v, must not also report the member-count diagnostic", err)
+	}
+}
+
+func TestCheckUnionAcceptsDistinctEquivalentWritings(t *testing.T) {
+	_, err := Check(parseProgram(t, "x: Int32 | Nil := 0 y: Int32 | Nil := nil z: Nil | Int32 := 0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCheckUnionRejectsInvalidIsQueries(t *testing.T) {
 	for _, testCase := range []struct {
 		source string

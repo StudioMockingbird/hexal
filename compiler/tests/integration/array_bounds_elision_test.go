@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// RFC 0088 removes bounds checks the compiler has already proven dead, and
-// with them the accessors that existed only to carry those checks. These are
-// its Validation cases.
+// Bounds-check elision removes checks the compiler has already proven dead,
+// and with them the accessors that existed only to carry those checks.
+// These are the acceptance cases.
 
 // The spec's Evidence case. A nested for-in indexes nothing: both loops emit
 // their own counter over a literal bound, so neither level keeps a check, and
@@ -80,7 +80,7 @@ func TestAccessorDemandIsPerDirection(t *testing.T) {
 // Non-goals: List and View length is a runtime field, so nothing about their
 // output changes. This is the regression guard for that promise. The List read
 // spells at_mut because every live List reference permits mutation without a
-// mut binding — pre-existing behaviour this RFC does not touch.
+// mut binding, pre-existing behaviour this change does not touch.
 func TestListAndViewAccessorsAreUntouched(t *testing.T) {
 	result := assertCompiles(t, "fun demo(h: Heap): Int32 do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    window: View<Int32> := fixed.slice(0, 2)\n    values: List<Int32> := List<Int32>.new(h)\n    values.push(1)\n    total: Int32 := window[0] + values[0]\n    values.free(h)\n    return total\nend\n")
 	body := rootC(t, result)
@@ -97,7 +97,7 @@ func TestListAndViewAccessorsAreUntouched(t *testing.T) {
 // The class guard for the whole change: eliding an accessor that is still
 // called would name an undeclared identifier in the generated C, which no
 // test in this repository executes a compiler to catch. Assert it structurally
-// instead — every hex_array_at* the module body calls must be defined in some
+// instead: every hex_array_at* the module body calls must be defined in some
 // generated artifact.
 func TestEveryCalledArrayAccessorIsDefined(t *testing.T) {
 	for _, source := range []string{

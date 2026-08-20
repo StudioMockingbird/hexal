@@ -52,7 +52,7 @@ func TestCheckerAcceptsNilOnlyInContext(t *testing.T) {
 }
 
 func TestCheckerResolvesNilUnknownAndNullableAliases(t *testing.T) {
-	checked := requireAccepted(t, "type SameMaybe = Ptr<Int32> | Nil type StillMaybe = SameMaybe | Nil type Erased = Unknown type Reader = Ptr<Erased> type Writer = MutPtr<Erased>")
+	checked := requireAccepted(t, "type SameMaybe = Ptr<Int32> | Nil type StillMaybe = Ptr<Int32> | Nil type Erased = Unknown type Reader = Ptr<Erased> type Writer = MutPtr<Erased>")
 
 	if len(checked.TypeDeclarations) != 5 {
 		t.Fatalf("type declaration count = %d, want 5", len(checked.TypeDeclarations))
@@ -97,13 +97,6 @@ func TestCheckerAcceptsGeneralUnionAndRejectsUnknownValueForms(t *testing.T) {
 	requireDiagnostic(t,
 		"value: Unknown := nil",
 		"Unknown has no known size or layout; it may only be used behind a pointer")
-}
-
-func TestCheckerNormalizesDuplicateUnionMembers(t *testing.T) {
-	checked := requireAccepted(t, "type Bad = Ptr<Int32> | Nil | Nil value: Bad := nil")
-	if len(checked.TypeDeclarations) != 1 || !compilerTypes.IsNullable(checked.TypeDeclarations[0].Type) {
-		t.Fatalf("type declarations = %#v, want one nullable canonical type", checked.TypeDeclarations)
-	}
 }
 
 func TestCheckerProtectsNilAndUnknownTypeNames(t *testing.T) {

@@ -138,7 +138,7 @@ func TestPtrAndMutPtrInterningIsCompilationScoped(t *testing.T) {
 	}
 }
 
-// Fun<…> identity is the ordered parameter types plus the presence and type
+// Fun identity is the ordered parameter types plus the presence and type
 // of a result.
 func TestFunTypeIsInterned(t *testing.T) {
 	environment := NewEnvironment()

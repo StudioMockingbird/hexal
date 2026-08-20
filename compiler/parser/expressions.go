@@ -571,7 +571,7 @@ func (parser *Parser) genericObjectFollows() bool {
 }
 
 // genericConstructorFollows reports whether a balanced type-argument list at
-// the current '<' is immediately followed by ".name(" — the collection
+// the current '<' is immediately followed by ".name(", the collection
 // constructor form List<T>.new(h). It must be recognized before the
 // qualified-variant form, which also matches "<...>.name".
 func (parser *Parser) genericConstructorFollows() bool {

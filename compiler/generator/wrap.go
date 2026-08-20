@@ -4,7 +4,7 @@ package generator
 // contract is modulo-width wrapping with defined two's-complement results;
 // the overflow flag is intentionally discarded. The stored result is
 // guaranteed by the pinned GCC/Clang overflow-builtin behavior, not by C23
-// §7.20.1 paragraph 5 alone, which WG14 issue 1063 leaves defect-affected
+// 7.20.1 paragraph 5 alone, which WG14 issue 1063 leaves defect-affected
 // for out-of-range signed results.
 
 import (

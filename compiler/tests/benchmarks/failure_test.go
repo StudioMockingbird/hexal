@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Failure-path benchmarks, one per failing stage (RFC 0080 Part 2). RFC 0075
-// carried a single BenchmarkFailure, which measured one checker error and left
+// Failure-path benchmarks, one per failing stage. The original
+// BenchmarkFailure measured one checker error and left
 // the lexer's, the parser's, the resolver's, and the at-volume diagnostic
 // paths unmeasured across a diagnostic surface of roughly 978 construction
 // sites.

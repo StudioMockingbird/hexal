@@ -78,7 +78,7 @@ static inline hex_view_Int32 hex_view_slice_Int32(hex_view_Int32 view, uint64_t 
 }
 
 // An array that is never sliced reaches no view, and the array component
-// renders no slice helper — so nothing names the view component and no
+// renders no slice helper: nothing names the view component and no
 // artifact is emitted for it. A component that declared the dependency
 // anyway would ship a header holding only its include guard.
 func TestViewComponentAbsentWithoutReachableViews(t *testing.T) {

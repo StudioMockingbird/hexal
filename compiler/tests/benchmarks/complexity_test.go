@@ -16,9 +16,9 @@ import (
 	"github.com/uudashr/gocognit"
 )
 
-// Complexity of the compiler's own Go source (RFC 0080 Part 4). Two metrics:
+// Complexity of the compiler's own Go source. Two metrics:
 // cyclomatic is the actual branching a test would have to cover, cognitive is
-// the perceived difficulty of reading it. Neither substitutes for the other —
+// the perceived difficulty of reading it. Neither substitutes for the other:
 // a flat switch returning a string per case scores high on the first and 1 on
 // the second, and is genuinely trivial.
 //
@@ -26,8 +26,9 @@ import (
 // volume correlated with line count at r = 0.957, and MI is a formula over
 // volume, cyclomatic, and lines, so it carried nothing of its own.
 //
-// The report asserts nothing about the numbers. RFC 0075's policy governs: no
-// threshold, no gate; a measurement is compared deliberately by a human.
+// The report asserts nothing about the numbers. The benchmarking policy
+// governs: no threshold, no gate; a measurement is compared deliberately by a
+// human.
 //
 //	go test -run TestComplexityReport -v ./compiler/tests/benchmarks
 
@@ -151,10 +152,10 @@ func TestComplexityReport(t *testing.T) {
 	}
 }
 
-// TestNoThirdPartyImportsOutsideBenchmarks is RFC 0080 invariant 2: the
+// TestNoThirdPartyImportsOutsideBenchmarks is a layering invariant: the
 // complexity libraries are confined to this package's test files, so nothing
 // the compiler or the workbench builds or links changes. Phrased on non-test
-// files because this package lives under compiler/ — `go build ./compiler/...`
+// files because this package lives under compiler/: `go build ./compiler/...`
 // matches it, and only test files keep it empty to the build.
 func TestNoThirdPartyImportsOutsideBenchmarks(t *testing.T) {
 	fset := token.NewFileSet()

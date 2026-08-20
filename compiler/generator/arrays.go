@@ -15,7 +15,7 @@ type generatedArrayState struct {
 	order []compilerTypes.Type
 	seen  map[*compilerTypes.ArrayInfo]bool
 	// demand records, per specialization, which accessor directions some
-	// access actually reaches after RFC 0088's elision. An Array whose only
+	// access actually reaches after bounds-check elision. An Array whose only
 	// uses are for-in and constant indices reaches neither and gets no
 	// accessor at all.
 	demand map[*compilerTypes.ArrayInfo]arrayAccessorDemand
@@ -32,14 +32,14 @@ type arrayAccessorDemand struct {
 
 // arrayIndexCheckSurvives reports whether an index access still needs a
 // bounds check, and therefore an accessor. A constant index is one the
-// checker already proved in range — it rejects the failing half outright — so
+// checker already proved in range: it rejects the failing half outright, so
 // the check is dead by construction.
 //
 // This is deliberately narrower than the checker's proof: the checker
 // resolves constants through immutable bindings, so `n: Size := 0` followed by
 // `a[n]` is proven at check time but arrives here as a variable reference.
-// Emitting a check that cannot fire is always correct, so the narrow rule is
-// safe; RFC 0088 promises only the literal case.
+// Emitting a check that cannot fire is always correct, so only the literal
+// case is elided here.
 func arrayIndexCheckSurvives(node checker.Expression) bool {
 	if node.Kind != checker.IndexExpression || node.OperandType.Array == nil || len(node.Arguments) != 1 {
 		return false
@@ -394,7 +394,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			}
 			return "*hex_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
 		}
-		// RFC 0088: an index the checker already proved in range needs no
+		// An index the checker already proved in range needs no
 		// check, so it needs no accessor call either.
 		if !arrayIndexCheckSurvives(node) {
 			return receiver + ".data[" + index + "]", nil

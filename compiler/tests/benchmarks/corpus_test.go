@@ -18,7 +18,7 @@ type corpusCompilation struct {
 var corpusBenchmarkSink compiler.CompilationResult
 
 // BenchmarkCorpus compiles every catalog snippet once per iteration; it is the
-// only end-to-end aggregate in the suite (RFC 0075). Loading the catalog and
+// only end-to-end aggregate in the suite. Loading the catalog and
 // totalling its source bytes happen before ResetTimer, so only compilation is
 // measured.
 func BenchmarkCorpus(b *testing.B) {

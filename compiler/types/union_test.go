@@ -71,8 +71,8 @@ func TestTypeUsePreservesCandidatesAndNestedElement(t *testing.T) {
 // encoding stays injective exactly as long as stripping never merges two
 // distinct C spellings into one. That is the property, and it is not the same
 // as "every member's stripped form is unique": several builtins deliberately
-// share a spelling — Byte and UInt8 are both uint8_t, Rune and UInt32 are both
-// uint32_t — and a union of two of those has one member, not two.
+// share a spelling (Byte and UInt8 are both uint8_t, Rune and UInt32 are both
+// uint32_t), and a union of two of those has one member, not two.
 //
 // The builtin half enumerates types.builtinTypes rather than a list written
 // here, so a builtin added without a distinct spelling fails this test instead
@@ -121,7 +121,7 @@ func TestStrippingHexPrefixNeverMergesTwoCSpellings(t *testing.T) {
 
 // unionCName is exercised directly here on a member that is itself a union.
 // UnionType flattens, so this shape never reaches the encoder through normal
-// construction — TestNestedUnionEncodingIntegration covers what a source-level
+// construction: TestNestedUnionEncodingIntegration covers what a source-level
 // nested union actually produces. This pins the encoder's own behaviour so the
 // length prefix stays correct if flattening ever changes.
 func TestNestedUnionEncoding(t *testing.T) {

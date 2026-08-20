@@ -258,7 +258,7 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 
 // String.bytes is retained because its replacement would be asymptotically
 // worse; it still lowers to its constant-time helper (positive test, not an
-// absence check). RFC 0087 removed is_empty from String and Strand once the
+// absence check). is_empty was removed from String and Strand once the
 // cached rune count made length() == 0 the identical O(1) test.
 func TestRetainedTextOperationsKeepConstantTimeHelpers(t *testing.T) {
 	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    text: String := \"hello\"\n    raw: View<UInt8> := text.bytes()\n    label: Strand := \"hexal\"\n    return text.length() == 0 and label.length() == 0\nend\n")

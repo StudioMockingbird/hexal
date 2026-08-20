@@ -531,7 +531,7 @@ func (environment *Environment) pointerType(element Type, writable bool) Type {
 // The environment must be fresh per call, never shared across calls. An
 // arena interns by CanonicalKey, which is module-qualified but not
 // identity-qualified, so a shared arena hands a second compilation the first
-// compilation's ObjectType for a same-named type — and generation then
+// compilation's ObjectType for a same-named type, and generation then
 // rejects it as undeclared.
 func PtrType(element Type) Type {
 	return NewEnvironment().PtrType(element)
@@ -690,7 +690,7 @@ func IsRuneCursor(typ Type) bool {
 }
 
 // IsPointerLike reports whether typ is a pointer, a function pointer, or a
-// nullable form of either — the values that can hold Nil.
+// nullable form of either: the values that can hold Nil.
 func IsPointerLike(typ Type) bool {
 	return typ.Element != nil || typ.Signature != nil
 }

@@ -19,7 +19,7 @@ func assertChecked(t *testing.T, source string) {
 // assertRejectsAnyDiagnostic requires the source to fail with want in ANY
 // diagnostic. assertRejects is the stricter form, requiring it in the first;
 // the two are deliberately separate names because merging them would weaken
-// one set of tests or break the other (RFC 0074 R17).
+// one set of tests or break the other.
 func assertRejectsAnyDiagnostic(t *testing.T, source, want string) {
 	t.Helper()
 	result := compileSource(source)

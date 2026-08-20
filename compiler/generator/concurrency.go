@@ -86,8 +86,9 @@ const (
 // concrete Task, Channel, Mutex, and Atomic operations, plus the spawn
 // entries. Literals needed by the failure-Error helper are registered in the
 // string literal registry so the Error object's String members lower through
-// the ordinary literal machinery.
-func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, literals *literalRegistry, moduleID, owner string) *generatedConcurrencyState {
+// the ordinary literal machinery. logicalKey is the module's source-map
+// filename, recorded as the failure Errors' file.
+func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, literals *literalRegistry, moduleID, owner, logicalKey string) *generatedConcurrencyState {
 	state := &generatedConcurrencyState{
 		taskTypes:            make(map[string]compilerTypes.Type),
 		joinTypes:            make(map[string]compilerTypes.Type),
@@ -202,7 +203,7 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 	if state.used {
 		literals.used = true
 		literals.strand = true
-		state.fileLiteral = literals.Intern(sourceFilename)
+		state.fileLiteral = literals.Intern(logicalKey)
 		state.headerLiteral = literals.Intern("Scheduler")
 		if state.spawnFail {
 			state.taskCreationFailed = literals.Intern(taskCreationFailed)

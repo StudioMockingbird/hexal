@@ -104,7 +104,7 @@ func TestGenerateCheckedRejectsDuplicateArtifactKey(t *testing.T) {
 
 // Every demand-driven component renders identically for equivalent programs.
 // The per-family copies of this test differed only in their source and
-// artifact keys, so they are one table (RFC 0074 R17). The Error component is
+// artifact keys, so they are one table. The Error component is
 // not here: it renders from a synthetic emission rather than a source program,
 // which is a different shape, not a different row.
 func TestComponentRenderingIsDeterministic(t *testing.T) {
@@ -164,8 +164,8 @@ func TestComponentRenderingIsDeterministic(t *testing.T) {
 }
 
 // A scalar-only program selects no collection component and its module header
-// includes none. Array and List were byte-identical copies of this check
-// (RFC 0074 R17); View is deliberately not here — view.h is emitted
+// includes none. Array and List were byte-identical copies of this check;
+// View is deliberately not here: view.h is emitted
 // transitively by the array component, so its absence has a different
 // precondition and keeps its own test.
 func TestUnselectedCollectionComponentsAreAbsent(t *testing.T) {

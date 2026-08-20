@@ -1295,7 +1295,7 @@ var ringKeepEveryGrouping = false
 // unsigned +, -, or * whose operand and result type are the same unsigned
 // integer type. Reduction modulo 2^N after arithmetic modulo 2^M is the same
 // value as reducing after every node, so a connected tree of these evaluates
-// in one uintmax_t domain and narrows once (RFC 0072). Division, remainder,
+// in one uintmax_t domain and narrows once. Division, remainder,
 // shifts, bitwise operations, comparisons, and conversions are not ring
 // operations and terminate a tree.
 func isUnsignedRingOperation(node checker.Expression) bool {

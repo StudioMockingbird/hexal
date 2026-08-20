@@ -2,7 +2,6 @@ package checker
 
 import (
 	"fmt"
-	"strings"
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
@@ -108,36 +107,20 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 			if diagnostic != nil {
 				return compilerTypes.TypeUse{}, diagnostic
 			}
+			// Alias resolution and generic substitution run
+			// before the candidate loop, so a written union that collapses
+			// fewer than two distinct canonical members is a duplicate, never
+			// an alias for the survivor.
 			for _, candidate := range typeUseCandidates(member) {
-				duplicate := false
-				for _, existing := range members {
-					if compilerTypes.Equal(existing.Type, candidate.Type) {
-						duplicate = true
-						break
+				for _, existing := range canonical {
+					if compilerTypes.Equal(existing, candidate.Type) {
+						diagnostic := typeErrorAt(typeExpressionToken(memberExpression, fallback), fmt.Sprintf("union member %s appears more than once", candidate.Type.Name))
+						return compilerTypes.TypeUse{}, &diagnostic
 					}
-				}
-				if duplicate {
-					continue
 				}
 				members = append(members, candidate)
 				canonical = append(canonical, candidate.Type)
 			}
-		}
-		// Alias resolution and generic substitution run
-		// before the member count, so a written union that collapses to fewer
-		// than two distinct canonical members is an error, never an alias for
-		// the survivor.
-		if len(canonical) < 2 {
-			names := make([]string, 0, len(expression.Members))
-			for _, memberExpression := range expression.Members {
-				use, memberDiagnostic := resolveUnionMemberUse(memberExpression, fallback, typeEnvironment, generics)
-				if memberDiagnostic != nil {
-					return compilerTypes.TypeUse{}, memberDiagnostic
-				}
-				names = append(names, use.Type.Name)
-			}
-			diagnostic := typeErrorAt(typeExpressionToken(expression, fallback), fmt.Sprintf("a union requires at least two distinct members; %s has one", strings.Join(names, " | ")))
-			return compilerTypes.TypeUse{}, &diagnostic
 		}
 		union := typeEnvironment.UnionType(canonical)
 		if union == (compilerTypes.Type{}) {
@@ -149,9 +132,6 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 			}
 			diagnostic := typeErrorAt(typeExpressionToken(expression, fallback), "could not construct union type")
 			return compilerTypes.TypeUse{}, &diagnostic
-		}
-		if len(members) == 1 {
-			return members[0], nil
 		}
 		return compilerTypes.UnionTypeUse(union, members), nil
 	default:

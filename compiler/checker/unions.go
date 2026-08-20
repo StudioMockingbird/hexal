@@ -25,8 +25,8 @@ func isContextualExpression(expression parser.Expression) bool {
 // The flag exists because the two callers ask over different sets. Union
 // injection reaches only the arithmetic-and-numeric-literal forms, and
 // widening it would change which contextual unions compile today. Inference
-// must additionally reject every form that consumes context.expected — string
-// literals, nil, array literals, and match — none of which the union path
+// must additionally reject every form that consumes context.expected: string
+// literals, nil, array literals, and match, none of which the union path
 // ever offers.
 func isContextualForInference(expression parser.Expression) bool {
 	return contextualExpression(expression, true)
@@ -35,7 +35,7 @@ func isContextualForInference(expression parser.Expression) bool {
 // contextualExpression is the shared recursion. The general rule: a form is
 // contextual if it forwards the expected type to sub-expressions and all of
 // those are contextual. Any construct added later that threads
-// context.expected inward belongs here — grep for it.
+// context.expected inward belongs here; grep for it.
 func contextualExpression(expression parser.Expression, forInference bool) bool {
 	switch expression := expression.(type) {
 	case parser.IntegerLiteral, parser.DecimalLiteral, parser.NegatedNumericLiteral:

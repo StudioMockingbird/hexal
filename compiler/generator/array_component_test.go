@@ -49,7 +49,7 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 //
 // The index is a runtime parameter, so its check survives and hex_array_at_
 // is emitted. The binding is immutable, so hex_array_at_mut_ has no surviving
-// access and RFC 0088 filters it out — the golden covers both directions of
+// access and the demand filter drops it: the golden covers both directions of
 // the demand rule at once.
 func TestArrayComponentHexalHeaderOwnsNoArrayText(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(i: Size) do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    view: View<Int32> := fixed.slice(0, 2)\n    first: Int32 := fixed[i]\nend")

@@ -935,8 +935,8 @@ func TestRenderSignedArithmeticUsesWrapHelpers(t *testing.T) {
 }
 
 // Every covered unsigned type lowers one binary operation to one uintmax_t
-// seed on the left operand and one narrowing cast at the result boundary
-// (RFC 0072) — no per-node widening/narrowing pair, and no width-picked
+// seed on the left operand and one narrowing cast at the result boundary:
+// no per-node widening/narrowing pair, and no width-picked
 // intermediate.
 func TestRenderUnsignedRingOperationSeedsOnceAndNarrowsOnce(t *testing.T) {
 	for _, typ := range unsignedRingTypes() {
@@ -1041,7 +1041,8 @@ func TestRenderUnsignedRingTreesPreserveGrouping(t *testing.T) {
 	}
 }
 
-// unsignedRingTypes lists every type RFC 0072 covers. Byte is UInt8's alias
+// unsignedRingTypes lists every unsigned type the ring lowering covers.
+// Byte is UInt8's alias
 // and Size is the only one whose C name is not exact-width.
 func unsignedRingTypes() []compilerTypes.Type {
 	return []compilerTypes.Type{
@@ -2240,7 +2241,7 @@ func moduleGraphOf(root string, order []string, parsed map[string]parser.Program
 
 // generateOne generates the single-module program these unit tests are built
 // from and fails the test on any error. It replaces the call-plus-three-line
-// error check that appeared verbatim at over a hundred sites (RFC 0074 R17).
+// error check that appeared verbatim at over a hundred sites.
 func generateOne(t *testing.T, program checker.Program) map[string]string {
 	t.Helper()
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})

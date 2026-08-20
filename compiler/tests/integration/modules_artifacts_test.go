@@ -172,8 +172,8 @@ func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 }
 
 // Every generated diagnostic trap reports through one program-wide
-// hex_runtime_trap — declared once in hexal.h, defined once in
-// hexal/runtime.c, [[noreturn]], owning <stdio.h>/<stdlib.h> — and no
+// hex_runtime_trap, declared once in hexal.h, defined once in
+// hexal/runtime.c, [[noreturn]], owning <stdio.h>/<stdlib.h>, and no
 // per-family trap or raw fputs/abort pair remains in generated C.
 func TestSingleRuntimeTrapContract(t *testing.T) {
 	source := "mut h: Heap := Heap.new()\nitems: List<Int32> := List<Int32>.new(h)\nitems.push(7)\nvalues: Array<Int32, 2> := [1, 2]\nview: View<Int32> := values.slice(0, 1)\ntext: String := \"hello\"\nmut count: Int32 := 0\nmut shift: Int32 := 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"

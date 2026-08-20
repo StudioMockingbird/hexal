@@ -1,6 +1,6 @@
 package generator
 
-// walk.go — the single fail-closed program walker shared by every discovery
+// walk.go is the single fail-closed program walker shared by every discovery
 // pass. Adding a new checked statement or expression shape requires updating
 // only this file; collectors stay focused on what they collect and never
 // re-implement traversal.
