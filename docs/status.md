@@ -34,10 +34,7 @@ other.
 |---|---|
 | Anonymous function literals | [0094](specs/0094-anonymous-function-literals.md) |
 | Injective generated structural-union and ADT type names | [0095](specs/0095-generated-c-naming.md) |
-| Comment provenance cleanup — strip spec citations and non-ASCII from comments, add the guard | [0097](specs/0097-comment-provenance-cleanup.md) |
-| Reject duplicate union members | [0098](specs/0098-reject-duplicate-union-members.md) |
 | Program-wide stateless numeric, print-core, and String comparison helpers | [0100](specs/0100-program-wide-stateless-helpers.md) |
-| Correct compiler-constructed Error source provenance | [0102](specs/0102-error-source-provenance.md) |
 
 ### Design settled; implementation blocked
 
@@ -60,20 +57,6 @@ deleted:
   spec or delete it.
 
 ## Open bugs
-
-- **Compiler-constructed Errors record `main.hex` instead of their logical
-  source key.** A probe constructing `Error.new` in `lib.hex` produced literal
-  bytes for `main.hex`, while the same generated function's `#line` directive
-  correctly named `lib.hex`. The checker and concurrency generator each own a
-  fixed `sourceFilename` constant. Owned by
-  [0102](specs/0102-error-source-provenance.md).
-
-- **A written union silently accepts repeated canonical members.**
-  `x: Int32 | Nil | Int32 := 0` compiles with exit code 0 and no diagnostics;
-  source union resolution removes the later `Int32` before interning the
-  canonical type. Equivalent unions in separate declarations should still
-  share one type, but one written union must not repeat a member. Owned by
-  [0098](specs/0098-reject-duplicate-union-members.md).
 
 - **Two distinct union types can share one generated C name, producing a
   duplicate definition that does not compile.** `Rune` and `UInt32` are

@@ -1,7 +1,7 @@
 # RFC 0098: Reject Duplicate Union Members
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Closed; implemented
 - Created: 2026-08-20
 - Scope: reject source union expressions that repeat one canonical member
 - Coordinates with: the checker, `docs/reference.md`, `docs/status.md`

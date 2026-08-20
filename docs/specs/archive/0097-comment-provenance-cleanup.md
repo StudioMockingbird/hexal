@@ -1,7 +1,7 @@
 # RFC 0097: Comment Provenance Cleanup
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Closed; implemented
 - Created: 2026-08-20
 - Scope: bring existing Go comments into line with the CARE rule, and add the
   guard that keeps them there

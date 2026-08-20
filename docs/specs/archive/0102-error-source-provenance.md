@@ -1,7 +1,7 @@
 # RFC 0102: Error Source Provenance
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Closed; implemented
 - Created: 2026-08-20
 - Scope: make every compiler-constructed Error record the current logical
   source-map key instead of the fixed string `main.hex`
