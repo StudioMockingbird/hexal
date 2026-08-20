@@ -33,6 +33,7 @@ other.
 |---|---|
 | Dict.find — one-lookup optional get; blocked on union-in-component layering (RFC 0083 A3) | [0083](specs/0083-text-and-collection-surface.md) |
 | Anonymous function literals | [0094](specs/0094-anonymous-function-literals.md) |
+| Generated C naming — union names injective on type identity, and shorter | [0095](specs/0095-generated-c-naming.md) |
 
 ## Unowned
 
@@ -50,9 +51,14 @@ deleted:
 
 ## Open bugs
 
-None. RFC 0081 closed the last one — module-owned collection elements now
-emit their specialization beside the element typedef in the consuming module
-header, so every spelled type is declared before use.
+- **Two distinct union types can share one generated C name, producing a
+  duplicate definition that does not compile.** `Rune` and `UInt32` are
+  distinct Hexal types sharing the C spelling `uint32_t`, and the union encoder
+  names members by C spelling, so `Rune | Nil` and `UInt32 | Nil` both render as
+  `hex_union_8_uint32_t9_nullptr_t`. A program using both emits the struct, tag
+  enum, and payload union twice into one header. Found by enumerating type
+  pairs; not observed by any test, because none compiles generated C. Owned by
+  [0095](specs/0095-generated-c-naming.md).
 
 ## Known coverage gaps
 
@@ -78,7 +84,9 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
 
   *Does not compile:* 0073 D2 (handle types reachable only through a
   declaration) and D33 (`uint64_t` in a Size-only program), each found by a
-  different external review.
+  different external review, and the union-name collision under Open bugs,
+  found by enumerating type pairs after a report that union names read as
+  noise.
 
   *Compiles and behaves wrongly:* RFC 0084's C1 (a `try` in a nested block
   ran its operand twice, and `try spawn` in a loop spawned one task too many
