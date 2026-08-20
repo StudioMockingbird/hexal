@@ -32,7 +32,7 @@ Both fall out of the same cause: the union encoder is the only one in the
 compiler that builds a name from **C spellings** and guarantees uniqueness by
 **encoding**. Every other constructed family builds from the **Hexal name** and
 guarantees uniqueness by **asking the arena**. Adopting the established
-mechanism fixes the defect and shortens the name from 30 characters to 19.
+mechanism fixes the defect and shortens the name from 30 characters to 15.
 
 ## Evidence — the collision
 
@@ -131,15 +131,31 @@ except that the registry was there all along.
 Build the union name the way every other constructed family builds one:
 
 ```
-hex_union_Int32_Nil              (19, was 30)
-hex_union_Rune_Nil               distinct from
-hex_union_UInt32_Nil
-hex_union_List_Int32__Nil        composed member, sanitized
+hex_t_Int32_Nil                  (15, was 30)
+hex_t_Rune_Nil                   distinct from
+hex_t_UInt32_Nil
+hex_t_List_Int32__Nil            composed member, sanitized
 ```
 
+- Prefix `hex_t_`. A union is a type, and `reference.md`'s naming table already
+  assigns `hex_t_` to types. This is safe against the nominal types sharing that
+  prefix: a module-owned type encodes its owner as `m` followed by
+  length-prefixed path components, so every user type is `hex_t_m3_app_Point` —
+  always `hex_t_m<digit>` — and a union name cannot take that shape. A
+  module-free nominal such as `hex_t_Error` is also unreachable, because a union
+  has at least two members and therefore at least one joining `_`.
 - Join `SanitizeIdentifier(member.Name)` for each member with `_`.
-- Pass the result through `uniqueCollectionCName` against `arena.unionTypes`.
+- Pass the result through `uniqueCollectionCName` against `arena.unionTypes`,
+  **and against the nominal type names**, since `hex_t_` is now a shared
+  namespace. The argument above says a collision is unreachable; the check makes
+  it guaranteed rather than argued, and costs one lookup.
 - No length prefixes. Uniqueness comes from the registry, not the encoding.
+- **Case is preserved.** Lowercasing to `hex_t_int32_nil` reads better and
+  reintroduces this RFC's own defect by another route: `Foo` and `foo` are both
+  legal, distinct Hexal type names — verified by compiling a program declaring
+  both, with `Foo | Nil` and `foo | Nil` beside each other — so a case fold
+  collapses two distinct unions onto one name. Preserving case also keeps
+  unions consistent with `hex_list_Int32`, which preserves it today.
 
 `Int32_Nil_Foo` is reachable from both `Int32 | Nil | Foo` and a two-member
 union whose first member is a user type named `Int32_Nil`. That is exactly the
@@ -152,14 +168,14 @@ exists only to keep an enum constant unique in the ordinary identifier
 namespace; `_mN` does that identically:
 
 ```c
-hex_union_Int32_Nil_m1           (22, was 43)
+hex_t_Int32_Nil_m1               (18, was 43)
 ```
 
 ## Options considered
 
 | Option | `Int32 \| Nil` | Fixes the defect | Verdict |
 |---|---|---|---|
-| **Hexal names + arena uniqueness** | `hex_union_Int32_Nil` (19) | yes | **taken** |
+| **Hexal names + arena uniqueness** | `hex_t_Int32_Nil` (15) | yes | **taken** |
 | Hexal names + length prefixes | `hex_union_5_Int32_3_Nil` (22) | yes | rejected — encodes what the registry can check |
 | Compilation-wide counter, `hex_t_1` | `hex_t_1` (7) | yes | rejected — see below |
 | Give `Rune` its own C spelling | 30, unchanged | yes, at the root | deferred — see below |
@@ -217,12 +233,17 @@ This section is exhaustive.
   constructed family. `Ptr` is excluded with the reason recorded in the test.
 - The test fires: constructing two distinct types with one definition-keying
   `CName` fails it.
-- `Int32 | Nil` generates `hex_union_Int32_Nil` with tag constants
-  `hex_union_Int32_Nil_m0` and `_m1`.
+- `Int32 | Nil` generates `hex_t_Int32_Nil` with tag constants
+  `hex_t_Int32_Nil_m0` and `_m1`.
 - A union whose member is a composed type — `List<Int32> | Nil` — generates a
   valid C identifier containing no `<`, `>`, `,`, `|`, or space.
 - Two distinct unions whose sanitized member names would produce one string
   both compile, receive distinct names, and each is defined once.
+- `Foo | Nil` and `foo | Nil`, over two type names differing only in case,
+  produce two distinct union types each defined once. This is the case a
+  lowercased scheme would break.
+- A union name never collides with a nominal type sharing the `hex_t_` prefix:
+  the uniqueness check consults nominal names, and a test asserts it does.
 - The same union written in two modules still produces one C type with one
   name, and a union crossing a module boundary as a function result is spelled
   identically in both headers.
@@ -249,9 +270,10 @@ This section is exhaustive.
 - Renaming bindings, members, functions, or types. `hex_v_`, `hex_m_`, `hex_f_`,
   and `hex_t_` are unchanged: they are one prefix on a source spelling and carry
   no redundancy.
-- Shortening `hex_union_` itself, or the `hex_` namespace claim. The family
-  prefix is what makes `hex_list_`, `hex_array_`, `hex_view_`, and `hex_dict_`
-  legible, and unions should match rather than move to a bare `hex_t_`.
+- Renaming the other constructed families. `hex_list_`, `hex_array_`,
+  `hex_view_`, and `hex_dict_` keep their family prefixes: those encode a
+  structure the reader benefits from seeing, whereas a union is just a type and
+  the naming table already spells types `hex_t_`.
 - Compiler-generated counters (`hex_for_N`, `hex_try_N`, `hex_lit_N`), which are
   already minimal.
 
