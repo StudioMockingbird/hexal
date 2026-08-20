@@ -1,7 +1,7 @@
 # RFC 0096: Capitalized Type Names
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Discarded; low ROI and excessive generated-artifact churn
 - Created: 2026-08-20
 - Scope: require an uppercase initial on Hexal type names, and capitalize the
   `Hex` prefix on every generated C identifier that names a type
@@ -104,6 +104,60 @@ builders. There is no third source.
 5. C is case-sensitive, so the rename is total: no generated identifier keeps a
    lowercase `hex_` prefix while naming a type, and none gains `Hex_` while
    naming a value.
+
+## Open questions
+
+These questions must be resolved before implementation.
+
+### 1. What is the complete generated-type inventory?
+
+The stated closed inventory omits generated and template-owned types including
+`hex_context`, `hex_mutex`, `hex_task_<R>`, `hex_atomic_<T>`,
+`hex_task_args_<function>`, and `hex_dict_entry_<K>_<V>`. Recommendation: derive
+the inventory from every `typedef struct`, `typedef union`, and `typedef enum`
+emission site and runtime package template, then make that audited inventory
+the exhaustive migration set. Do not rely on the current count of twelve
+templates or six builders until the audit reproduces it.
+
+### 2. How are helpers derived from capitalized type names?
+
+The RFC says no generated function is capitalized, but does not define the
+lowercase helper stem for a type such as `Hex_t_Int32_Nil`.
+
+```c
+Hex_t_Int32_Nil                    /* type */
+hex_union_Int32_Nil_truthy(...)    /* recommended helper */
+hex_union_Int32_Nil_equal(...)
+```
+
+Recommendation: derive type identifiers and function identifiers separately
+from the same canonical type identity. Never obtain a helper name by appending
+to the already-capitalized C type name.
+
+### 3. In which order do RFC 0095 and RFC 0096 land?
+
+The two RFCs edit the same union and ADT naming paths and the same manifest
+entries. RFC 0095 is implementation-ready and changes generated type identity
+spellings while preserving union representation and member labels. Implement
+0095 first, then apply the mechanical type-case rule from 0096 to those settled
+names. RFC 0099 then consumes the results when it creates the program-wide
+`Hex_Tag` discriminant registry and lowercase `hex_tag_` constants for
+union-member types and ADT variants.
+
+### 4. Is `_t_` still useful after `Hex_` identifies a type?
+
+Both of these are injective conventions:
+
+```c
+Hex_t_Int32_Nil
+Hex_Int32_Nil
+```
+
+Once `Hex_` is reserved for generated types, `_t_` may carry no additional
+information. Removing it later would force another whole-manifest rename.
+Recommendation: decide this before implementation. If `_t_` remains, state
+the distinction it communicates; otherwise remove it coherently from nominal
+and structural type families in this RFC.
 
 ## Validation
 

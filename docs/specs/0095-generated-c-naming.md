@@ -4,13 +4,18 @@
 - Status: Draft; implementation-ready
 - Created: 2026-08-20
 - Updated: 2026-08-20
-- Scope: make generated type names injective on type identity, and stop
-  spending characters that carry no information
+- Scope: make generated structural-union and ADT type names injective on type
+  identity, remove redundant structural-union encoding, and restore
+  order-independent structural-union interning for same-named nominal members
 - Depends on: nothing. Replaces RFC 0089's encoder entirely — both its basis
   and its length-prefix scheme
 - Coordinates with: `docs/reference.md`, `docs/status.md`, the snippet manifest
-- Does not change: union representation, tag layout, payload layout, the
-  `hex_` prefix scheme, or any language surface
+- Does not change: Hexal syntax or program acceptance, the general union
+  representation, discriminant or payload-member naming schemes, payload
+  storage, or the `hex_` prefix scheme. It restores the existing documented
+  order-independent union-identity contract and therefore changes canonical
+  member/tag order only where the current comparator incorrectly treats two
+  distinct nominal members as equal
 
 ## Summary
 
@@ -30,14 +35,21 @@ C that does not compile.** Both were found while looking into the verbosity:
   because `Rune` and `UInt32` share the C spelling `uint32_t`.
 - Two modules each declaring a `Shape` ADT produce one name for two distinct
   types, because an ADT name carries no module owner.
+- `M.Point | S.Point` and `S.Point | M.Point` can intern as two types because
+  the member comparator omits module identity when source coordinates and short
+  names are equal.
 
-Each emits its struct twice into one header.
+The first two defects emit conflicting definitions with one C name. The third
+emits two wrapper types and a conversion helper for one structural Hexal type.
 
 One cause underlies all three problems. **List, View, Array, and Dict build
 their names from the Hexal name and establish uniqueness by asking the shared
 arena. Unions encode uniqueness into the name instead, and ADTs assume it.**
 Adopting the established mechanism for both fixes the defects, and drops the
-union name from 30 characters to 15 as a side effect.
+union wrapper name from 30 characters to 15 as a side effect. This RFC changes
+generated identity spelling and repairs the already-required structural
+identity normalization. RFC 0099 separately owns discriminants, payload field
+names, and union/ADT representation.
 
 ## Evidence — the collision
 
@@ -155,6 +167,34 @@ readable, and uniqueness is *checked* rather than *encoded*.
 because it must be injective by construction, having no registry to consult —
 except that the registry was there all along.
 
+## Evidence — union identity is not fully order-independent
+
+`compareUnionMembers` can return equality for distinct canonical types in three
+branches of `unionDisplayKey`:
+
+- objects use source line, source column, and short name, but omit module
+  identity;
+- pointers use `Ptr`/`MutPtr` plus the element's short name, but omit the
+  element's canonical identity;
+- the default branch, including ADTs, uses only the short type name.
+
+The stable sort therefore preserves source-written order for each tie, and
+`unionKey` then joins differently ordered, module-qualified `CanonicalKey`
+values.
+
+Verified with two imported `Point` types:
+
+```hexal
+a: M.Point | S.Point := M.make()
+b: S.Point | M.Point := a
+```
+
+The compiler currently emits two wrapper types and lowers `b := a` through
+`hex_internal_widen_...`. Focused probes reproduced the same two-wrapper and
+widening output for reversed unions of same-named ADTs and of pointers to
+same-named objects. Each pair denotes one structural union under
+`reference.md`; no widening exists between a type and itself.
+
 ## The change
 
 Build the union name the way every other constructed family builds one:
@@ -167,17 +207,32 @@ hex_t_List_Int32__Nil            composed member, sanitized
 ```
 
 - Prefix `hex_t_`. A union is a type, and `reference.md`'s naming table already
-  assigns `hex_t_` to types. This is safe against the nominal types sharing that
-  prefix: a module-owned type encodes its owner as `m` followed by
-  length-prefixed path components, so every user type is `hex_t_m3_app_Point` —
-  always `hex_t_m<digit>` — and a union name cannot take that shape. A
-  module-free nominal such as `hex_t_Error` is also unreachable, because a union
-  has at least two members and therefore at least one joining `_`.
+  assigns `hex_t_` to types. This shares a C namespace with nominal types;
+  lowercase source type names can deliberately form a nominal-looking union
+  base, so the program-wide reservation mechanism below is the guarantee. No
+  spelling-shape argument substitutes for that check.
 - Join `SanitizeIdentifier(member.Name)` for each member with `_`.
-- Pass the result through `uniqueCollectionCName` against `arena.unionTypes`,
-  **and against the nominal type names**, since `hex_t_` is now a shared
-  namespace. The argument above says a collision is unreachable; the check makes
-  it guaranteed rather than argued, and costs one lookup.
+- Reserve definition-keying C names in one program-wide arena registry. The
+  registry maps a generated C name to its canonical type key and covers fixed
+  compiler-owned types, every reachable nominal object/ADT, and every
+  constructed type whose C name introduces a definition.
+- Before resolving bodies or constructing unions, `CheckModules` reserves the
+  module-qualified object and ADT names from every reachable module. Nominal
+  names remain fixed; a later union can never claim or rename one.
+- Reserve the union candidate against that registry. Reuse the stored name for
+  the same canonical key. If another canonical key owns the candidate, try the
+  structural-union base followed by `_0`, `_1`, and so on until reservation
+  succeeds. Do not append a module-owner segment: a structural union has no
+  declaring module. This is the counter phase of the existing constructed-type
+  convention, stated explicitly for unions.
+- Keep the existing family maps as the type interners. The definition-name
+  registry owns only cross-family generated-C uniqueness; it is not a Hexal
+  symbol table and performs no source name resolution.
+- Make `compareUnionMembers` a total order: retain its existing display rank
+  and display key, then compare `CanonicalKey` when those are equal. Use that
+  one ordered member list for the interning key, display name, C name, and
+  representation. Do not derive the final tie-break from source order, module
+  traversal order, `CName`, or process-global identity.
 - No length prefixes. Uniqueness comes from the registry, not the encoding.
 - **Case is preserved.** Lowercasing to `hex_t_int32_nil` reads better and
   reintroduces this RFC's own defect by another route: `Foo` and `foo` are both
@@ -187,31 +242,16 @@ hex_t_List_Int32__Nil            composed member, sanitized
   unions consistent with `hex_list_Int32`, which preserves it today.
 
 `Int32_Nil_Foo` is reachable from both `Int32 | Nil | Foo` and a two-member
-union whose first member is a user type named `Int32_Nil`. That is exactly the
-case `uniqueCollectionCName` exists to resolve, and it resolves it the same way
-it already does for `List<T>`: the second type to intern gets the module owner
-appended, then a counter if that is still taken.
+union whose first member is a user type named `Int32_Nil`. The shared registry
+resolves that ambiguity by retaining the base for its first canonical owner and
+adding a numeric suffix to the other. All reachable nominal names are reserved
+first, so traversal order can never make a union steal a nominal name.
 
-**And the tag names its member instead of numbering it, as ADTs already do.**
-Today the two families disagree:
-
-```c
-ADT:    .tag = hex_Shape_Circle          .payload.Circle
-union:  .tag = ..._tag_member_0          .payload.member_0
-```
-
-`_tag_member_1` says nothing without counting the member list; `hex_Shape_Circle`
-says what it is. Union members are distinct types, so their sanitized names are
-a valid unique key, exactly as variant names are for ADTs. Both the tag constant
-and the payload field follow:
-
-```c
-hex_t_Int32_Nil_Nil              (19, was 43)      .payload.Int32
-```
-
-Naming costs one character against `_m1` and removes the indirection. Where a
-member is a composed type the name is longer, but it is the same name the type
-already carries elsewhere in the file.
+The existing union-local tag enum, payload-union typedef, ordinal
+`_tag_member_N` constants, and `member_N` fields remain unchanged apart from
+deriving their helper-type stems from the corrected wrapper name. RFC 0099
+removes or replaces those constructs; changing them here would create an
+intermediate naming scheme that is immediately discarded.
 
 ### ADTs gain the module owner they already lack
 
@@ -232,8 +272,6 @@ correct trade when the alternative is two distinct types sharing one struct tag.
 | Hexal names + length prefixes | `hex_union_5_Int32_3_Nil` (22) | yes | rejected — encodes what the registry can check |
 | Compilation-wide counter, `hex_t_1` | `hex_t_1` (7) | yes | rejected — see below |
 | Give `Rune` its own C spelling | 30, unchanged | yes, at the root | deferred — see below |
-| Tag suffix `_tag_member_N` → `_mN` | tag 43 → 33 | no | **taken**, orthogonal |
-| Drop the tag enum, use integer literals | `.tag = 0` | no | rejected |
 | Module-local `typedef … hex_u1;` alias | short at every use | no | rejected |
 
 **A bare compilation-wide counter is correct and is still rejected**, on two
@@ -255,23 +293,42 @@ the one harmful one. Deferred because this RFC closes the harmful case, and
 respelling every `Rune` in every generated program is a larger change than the
 remaining benign row justifies. Recorded because the question recurs.
 
-**Dropping the tag enum** trades a real readability property for characters:
-`tag != 1` does not say what 1 is.
-
 **A module-local alias** puts two names on one type in output meant to be read
 directly, and the reader must chase the alias to learn anything.
 
 ## Invariants
 
-1. Union representation, tag ordering, payload layout, and `sizeof` are
-   unchanged. This RFC changes spellings only.
+1. Union representation shape, tag/payload member naming, and `sizeof` are
+   unchanged. Member/tag order changes only for distinct canonical members that
+   the old comparator incorrectly treated as equal; the new order is total and
+   canonical.
 2. Two distinct Hexal types never share a generated C name that keys a
    definition. `Ptr` is exempt because it names no definition.
 3. Uniqueness is established by the shared arena, not by the encoding. The
    member list need not be recoverable from the name.
 4. One interned type has one name across every module of a compilation, because
    every module reads it from the shared arena.
-5. No language surface changes; no program's acceptance changes.
+5. Union identity and representation order are independent of source-written
+   member order. Display rank/key may group members, but `CanonicalKey` is the
+   mandatory final tie-breaker.
+6. Nominal names are reserved before constructed names; no construction order
+   can rename or collide with a nominal type.
+7. Hexal syntax and program acceptance do not change. The union-identity repair
+   restores the existing order-independent structural-type contract rather than
+   introducing a new one.
+
+## Coordination with RFC 0099
+
+RFC 0099 consumes the injective wrapper and ADT identities established here,
+then separately changes their representation:
+
+- one program-wide `Hex_Tag` replaces union-local and ADT-local tag enums;
+- canonical discriminant and payload labels replace ordinal union labels;
+- Nil, EoS, and payload-free ADT variants remain tag-only;
+- union payload storage becomes an unnamed union inside the wrapper.
+
+Those changes are intentionally excluded from this RFC. Its implementation
+therefore remains valid whether RFC 0099 lands immediately afterward or later.
 
 ## Validation
 
@@ -286,9 +343,10 @@ This section is exhaustive.
   constructed family. `Ptr` is excluded with the reason recorded in the test.
 - The test fires: constructing two distinct types with one definition-keying
   `CName` fails it.
-- `Int32 | Nil` generates `hex_t_Int32_Nil` with tag constants
-  `hex_t_Int32_Nil_Int32` and `hex_t_Int32_Nil_Nil`, and payload fields
-  `.payload.Int32` and `.payload.Nil`.
+- `Int32 | Nil` generates wrapper type `hex_t_Int32_Nil`. Its union-local tag
+  and payload helper types derive from that corrected stem, while ordinal
+  `_tag_member_N` constants and `member_N` payload fields retain their existing
+  order and meaning. Nil has no payload field.
 - Two modules each declaring a `Shape` ADT produce two distinct C types, each
   defined once, named `hex_t_<owner>_Shape` with the owner encoded as the
   object family encodes it.
@@ -298,6 +356,9 @@ This section is exhaustive.
   valid C identifier containing no `<`, `>`, `,`, `|`, or space.
 - Two distinct unions whose sanitized member names would produce one string
   both compile, receive distinct names, and each is defined once.
+- A deliberately constructed union base that equals a reachable nominal C name
+  receives a suffixed union name; the nominal name remains unchanged regardless
+  of module traversal or source-map insertion order.
 - `Foo | Nil` and `foo | Nil`, over two type names differing only in case,
   produce two distinct union types each defined once. This is the case a
   lowercased scheme would break.
@@ -306,17 +367,47 @@ This section is exhaustive.
 - The same union written in two modules still produces one C type with one
   name, and a union crossing a module boundary as a function result is spelled
   identically in both headers.
+- `Math.Point | Shapes.Point` and `Shapes.Point | Math.Point` share one interned
+  type and one C name even when the two nominal declarations have identical
+  source coordinates and short display names.
+- Assigning a value between those two spellings lowers as an ordinary same-type
+  assignment and emits no `hex_internal_widen_` helper or call.
+- Repeat the preceding identity, assignment, and no-widening assertions for
+  `Math.Shape | Shapes.Shape` versus its reverse, where both same-named members
+  are ADTs. Module-qualifying each ADT's C name does not satisfy this case:
+  ADTs use the separate default `unionDisplayKey` branch, which currently reads
+  `Type.Name` rather than `CName`.
+- Repeat them for `Ptr<Math.Point> | Ptr<Shapes.Point>` versus its reverse,
+  covering the pointer `unionDisplayKey` branch whose current key uses only the
+  element's short name.
 - Two structurally different unions still produce two names, including
   `M.Point | Bool` versus `S.Point | Bool`.
 - Nested and widened unions, union equality helpers, truthiness helpers, and
   `try` results all name the same type consistently after the change.
 - Two compilations of the same sources produce byte-identical files.
-- `docs/reference.md` records that generated names are injective on type
-  identity and that union members are named by Hexal name.
+- `docs/reference.md` records that generated definition-keying names are
+  injective on canonical type identity; this RFC adds no discriminant or
+  payload-member naming contract.
 - The snippet manifest moves for every snippet containing a union — expect wide
   movement, since `try` produces one on most non-trivial programs — and for no
   snippet without one.
 - `go test ./...`, `go vet ./...`.
+
+## Required sweep
+
+- Replace `TestStrippingHexPrefixNeverMergesTwoCSpellings`; it guards the
+  deleted length-delimited encoder but excludes the identity collision this RFC
+  fixes. The new definition-keying `CName` property test supersedes it.
+- Replace the literal old-encoder assertion in `TestNestedUnionEncoding` with
+  the canonical-name and registry invariants. Preserve the source-level nested
+  union coverage in `TestNestedUnionEncodingIntegration`, updating only its
+  generated-name expectations.
+- Update every generated-C text assertion containing the old `hex_union_`
+  encoding. Do not weaken behavioral assertions around injection, widening,
+  equality, truthiness, `try`, or nesting.
+- Remove encoder-only helpers and imports that have no caller after
+  `unionCName` is replaced. Preserve ordinal tag/payload emission until RFC
+  0099; it is not part of this sweep.
 
 ## Non-goals
 
@@ -338,15 +429,19 @@ This section is exhaustive.
   four collection families. That is a wide, purely cosmetic change with a real
   benefit — types become visible at a glance beside `hex_v_` values — and it
   deserves its own spec rather than riding along with a defect fix.
-- Renaming bindings, members, functions, or types. `hex_v_`, `hex_m_`, `hex_f_`,
-  and `hex_t_` are unchanged: they are one prefix on a source spelling and carry
-  no redundancy.
+- Renaming Hexal declarations or generated value, member, and function
+  identifiers. `hex_v_`, `hex_m_`, and `hex_f_` are unchanged.
 - Renaming the other constructed families. `hex_list_`, `hex_array_`,
   `hex_view_`, and `hex_dict_` keep their family prefixes: those encode a
   structure the reader benefits from seeing, whereas a union is just a type and
   the naming table already spells types `hex_t_`.
 - Compiler-generated counters (`hex_for_N`, `hex_try_N`, `hex_lit_N`), which are
   already minimal.
+- Escaping C keywords in source-derived ADT variant or member identifiers. A
+  variant such as `double` already produces invalid C; this RFC neither creates
+  nor expands that defect because union tags and payloads retain ordinal
+  `member_N` names. It requires a separate language-wide generated-identifier
+  decision rather than a union-type naming exception.
 
 ## Drawbacks
 
