@@ -4,7 +4,7 @@
 - Status: Draft; implementation-ready
 - Created: 2026-08-20
 - Updated: 2026-08-20
-- Scope: make generated union names injective on type identity, and stop
+- Scope: make generated type names injective on type identity, and stop
   spending characters that carry no information
 - Depends on: nothing. Replaces RFC 0089's encoder entirely — both its basis
   and its length-prefix scheme
@@ -23,16 +23,21 @@ hex_union_7_int32_t9_nullptr_t_tag_member_1
 
 **It is too long**, and 13 of its 43 characters carry no information.
 
-**It is also not injective on type identity, which is a defect.** `Rune | Nil`
-and `UInt32 | Nil` are distinct Hexal types that produce the same C name,
-because `Rune` and `UInt32` share the C spelling `uint32_t`. A program using
-both emits the struct twice into one header, which does not compile.
+**And two families are not injective on type identity, which produces generated
+C that does not compile.** Both were found while looking into the verbosity:
 
-Both fall out of the same cause: the union encoder is the only one in the
-compiler that builds a name from **C spellings** and guarantees uniqueness by
-**encoding**. Every other constructed family builds from the **Hexal name** and
-guarantees uniqueness by **asking the arena**. Adopting the established
-mechanism fixes the defect and shortens the name from 30 characters to 15.
+- `Rune | Nil` and `UInt32 | Nil` are distinct types sharing one union name,
+  because `Rune` and `UInt32` share the C spelling `uint32_t`.
+- Two modules each declaring a `Shape` ADT produce one name for two distinct
+  types, because an ADT name carries no module owner.
+
+Each emits its struct twice into one header.
+
+One cause underlies all three problems. **List, View, Array, and Dict build
+their names from the Hexal name and establish uniqueness by asking the shared
+arena. Unions encode uniqueness into the name instead, and ADTs assume it.**
+Adopting the established mechanism for both fixes the defects, and drops the
+union name from 30 characters to 15 as a side effect.
 
 ## Evidence — the collision
 
@@ -74,6 +79,30 @@ member. That is true and irrelevant: the failure is not two members inside one
 union, it is two *different* unions landing on one name. The test proved the
 `hex_` stripping is injective over its inputs and never asked whether the
 inputs were injective over type identity.
+
+## Evidence — the second collision, in ADTs
+
+An ADT's C name carries no module segment. Object types do — `hex_t_m3_app_Point`
+— but an ADT is spelled `hex_Shape`. Two modules each declaring a `Shape` is an
+ordinary program, and `reference.md:432` makes those distinct types. Probed:
+
+```hexal
+-- m.hex
+export type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }
+export fun make(): Shape do ... end
+
+-- app.hex
+type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }
+b: M.Shape := M.make()
+```
+
+`modules/app.h` contains `typedef struct hex_Shape { … } hex_Shape;` **twice**,
+once for each distinct type. Same failure as the union case and reachable
+without any exotic type: two modules, one common type name.
+
+The fix is the same shape — route the name through the arena and give it the
+module owner the object family already carries — so this RFC covers both rather
+than leaving a known duplicate for a later one.
 
 ## Evidence — the scope a union name must be unique over
 
@@ -163,13 +192,37 @@ case `uniqueCollectionCName` exists to resolve, and it resolves it the same way
 it already does for `List<T>`: the second type to intern gets the module owner
 appended, then a counter if that is still taken.
 
-**And the tag suffix loses 10 characters it does not need.** `_tag_member_N`
-exists only to keep an enum constant unique in the ordinary identifier
-namespace; `_mN` does that identically:
+**And the tag names its member instead of numbering it, as ADTs already do.**
+Today the two families disagree:
 
 ```c
-hex_t_Int32_Nil_m1               (18, was 43)
+ADT:    .tag = hex_Shape_Circle          .payload.Circle
+union:  .tag = ..._tag_member_0          .payload.member_0
 ```
+
+`_tag_member_1` says nothing without counting the member list; `hex_Shape_Circle`
+says what it is. Union members are distinct types, so their sanitized names are
+a valid unique key, exactly as variant names are for ADTs. Both the tag constant
+and the payload field follow:
+
+```c
+hex_t_Int32_Nil_Nil              (19, was 43)      .payload.Int32
+```
+
+Naming costs one character against `_m1` and removes the indirection. Where a
+member is a composed type the name is longer, but it is the same name the type
+already carries elsewhere in the file.
+
+### ADTs gain the module owner they already lack
+
+An ADT becomes `hex_t_<encoded-owner>_<Name>`, matching the object family
+exactly — `hex_t_m3_app_Shape`. Variant tags and payload fields keep their
+current variant-name spelling; only the type stem changes, so
+`hex_t_m3_app_Shape_Circle` and `.payload.Circle`.
+
+This is the object family's rule applied to the one nominal family that does
+not follow it. It costs characters rather than saving them, which is the
+correct trade when the alternative is two distinct types sharing one struct tag.
 
 ## Options considered
 
@@ -234,7 +287,13 @@ This section is exhaustive.
 - The test fires: constructing two distinct types with one definition-keying
   `CName` fails it.
 - `Int32 | Nil` generates `hex_t_Int32_Nil` with tag constants
-  `hex_t_Int32_Nil_m0` and `_m1`.
+  `hex_t_Int32_Nil_Int32` and `hex_t_Int32_Nil_Nil`, and payload fields
+  `.payload.Int32` and `.payload.Nil`.
+- Two modules each declaring a `Shape` ADT produce two distinct C types, each
+  defined once, named `hex_t_<owner>_Shape` with the owner encoded as the
+  object family encodes it.
+- An ADT variant tag and payload keep their variant-name spelling:
+  `hex_t_m3_app_Shape_Circle` and `.payload.Circle`.
 - A union whose member is a composed type — `List<Int32> | Nil` — generates a
   valid C identifier containing no `<`, `>`, `,`, `|`, or space.
 - Two distinct unions whose sanitized member names would produce one string
@@ -267,6 +326,18 @@ This section is exhaustive.
   the distinction. Recorded so the enumeration's third row is not read as an
   open defect.
 - Changing `Rune`'s C spelling. See Options.
+- **Capitalizing generated type names** to `Hex_t_Int32_Nil`. Raised as a
+  convention that a type name should start with a capital. Two facts argue
+  against doing it here. Hexal does not require capitalized type names — `type
+  foo = { b: Int32, }` compiles — so the convention is a generated-C choice,
+  not a reflection of the source. And `hex_` is a single uniform namespace claim
+  across every generated identifier: capitalizing only unions would make them
+  the odd family out, which is the exact problem this RFC exists to remove.
+  Doing it coherently means every generated type name, including the runtime
+  templates (`hex_string`, `hex_heap`, `hex_mutex`, `hex_rune_cursor`) and the
+  four collection families. That is a wide, purely cosmetic change with a real
+  benefit — types become visible at a glance beside `hex_v_` values — and it
+  deserves its own spec rather than riding along with a defect fix.
 - Renaming bindings, members, functions, or types. `hex_v_`, `hex_m_`, `hex_f_`,
   and `hex_t_` are unchanged: they are one prefix on a source spelling and carry
   no redundancy.
@@ -280,7 +351,10 @@ This section is exhaustive.
 ## Drawbacks
 
 - Wide manifest movement for a change that alters no behaviour. Unavoidable:
-  the name appears in every union construction, narrowing test, and helper.
+  the name appears in every union construction, narrowing test, and helper, and
+  the ADT rename touches every program declaring one.
+- ADT names get longer, not shorter. A module owner is the price of two modules
+  being allowed to declare the same type name, which they are.
 - A name disambiguated by the arena depends on which of two colliding types
   interned first. That is discovery-order dependent, exactly as it already is
   for collections — but it now applies to a family where collisions are more
