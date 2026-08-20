@@ -31,7 +31,6 @@ other.
 
 | Work | Spec |
 |---|---|
-| Dict.find — one-lookup optional get; blocked on union-in-component layering (RFC 0083 A3) | [0083](specs/0083-text-and-collection-surface.md) |
 | Anonymous function literals | [0094](specs/0094-anonymous-function-literals.md) |
 | Generated C naming — union and ADT names injective on type identity, and shorter | [0095](specs/0095-generated-c-naming.md) |
 | Capitalized type names — uppercase initial in Hexal source, `Hex_` prefix in generated C | [0096](specs/0096-capitalized-type-names.md) |

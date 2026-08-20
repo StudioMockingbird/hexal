@@ -791,6 +791,7 @@ List<T>.free(heap: Heap) -> no value
 Dict<K,V>.new(heap: Heap) -> Dict<K,V>
 Dict<K,V>.insert(key: K, value: V) -> no value
 Dict<K,V>.get(key: K) -> V
+Dict<K,V>.find(key: K) -> V | Nil
 Dict<K,V>.contains(key: K) -> Bool
 Dict<K,V>.remove(key: K) -> V
 Dict<K,V>.length() -> Size
@@ -798,7 +799,7 @@ Dict<K,V>.free(heap: Heap) -> no value
 ```
 
 - Open-addressing allocated dictionary. K is exactly Int32 or Strand; V follows List eligibility.
-  Missing get/remove trap; insert replaces.
+  Missing get/remove trap; find returns Nil for a missing key; insert replaces.
 - Keys and values copy shallowly. Reads/removal return aliases; replacement/free drop entries without
   freeing referents. Free releases only buckets/header. Overwriting the final reachable handle leaks
   its referent.

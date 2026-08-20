@@ -65,7 +65,7 @@ func checkDictTypeCall(call parser.CallExpression, callee lexer.Token, names *sc
 	return checkedExpression{source: source, typ: dictUse.Type, token: callee}
 }
 
-// checkDictMethodCall dispatches the built-in Dict methods: insert, get,
+// checkDictMethodCall dispatches the built-in Dict methods: insert, get, find,
 // contains, remove, and free.
 func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	name := callee.Property.Lexeme
@@ -99,7 +99,7 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{key, value}, OperandType: dictType, ResultType: compilerTypes.Type{}, Element: valueType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
-	case "get", "remove":
+	case "get", "find", "remove":
 		if len(call.Arguments) != 1 {
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s expects 1 argument; got %d", name, len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
@@ -108,9 +108,17 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{key}, OperandType: dictType, ResultType: valueType, Element: valueType}
-		source := Operand{Kind: ExpressionOperand, Type: valueType, Name: name, Node: node}
-		return checkedExpression{source: source, typ: valueType, token: callee.Property}
+		resultType := valueType
+		if name == "find" {
+			resultType = typeEnvironment.UnionType([]compilerTypes.Type{valueType, compilerTypes.Nil})
+			if resultType == (compilerTypes.Type{}) {
+				diagnostic := typeErrorAt(callee.Property, valueType.Name+" cannot be combined with Nil")
+				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+			}
+		}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{key}, OperandType: dictType, ResultType: resultType, Element: valueType}
+		source := Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node}
+		return checkedExpression{source: source, typ: resultType, token: callee.Property}
 	case "contains":
 		if len(call.Arguments) != 1 {
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("contains expects 1 argument; got %d", len(call.Arguments)))

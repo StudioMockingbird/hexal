@@ -1,10 +1,45 @@
 package integration
 
 import (
-	"hexal/compiler"
 	"strings"
 	"testing"
+
+	"hexal/compiler"
 )
+
+func TestDictFindReturnsOptionalAndProbesOnce(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    hit: Int32 | Nil := scores.find(1)\n    if hit != nil then\n        value: Int32 := hit\n    end\n    miss: Int32 | Nil := scores.find(2)\n    if miss == nil then\n        absent: Int32 := 0\n    end\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	root := rootC(t, result)
+	if strings.Count(root, "hex_dict_find_Int32_Int32(hex_v_scores") != 2 {
+		t.Fatalf("generated modules/app.c = %q, want one find helper call per source find", root)
+	}
+	if strings.Contains(root, "hex_dict_contains_Int32_Int32(hex_v_scores") {
+		t.Fatalf("generated modules/app.c = %q, find must not lower to contains", root)
+	}
+	if !strings.Contains(dictH(t, result), "static inline const int32_t *hex_dict_find_Int32_Int32") {
+		t.Fatalf("generated hexal/dict.h = %q, want pointer-returning find helper", dictH(t, result))
+	}
+	if !strings.Contains(root, "hex_dict_find_1 == nullptr") || !strings.Contains(root, "hex_dict_find_2 == nullptr") {
+		t.Fatalf("generated modules/app.c = %q, want Nil construction from hoisted find results", root)
+	}
+}
+
+func TestDictFindRequiresNarrowing(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    bad: Int32 := scores.find(1)\nend")
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "expected Int32 initializer; got Int32 | Nil") {
+		t.Fatalf("Compile stderr = %#v, want narrowing diagnostic", result.Stderr)
+	}
+}
+
+func TestDictFindPreservesUnionValues(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32 | Bool> := Dict<Int32, Int32 | Bool>.new(h)\n    defer scores.free(h)\n    value: Int32 | Bool := 10\n    scores.insert(1, value)\n    found: Int32 | Bool | Nil := scores.find(1)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+}
 
 func TestDictInt32Lifecycle(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool := scores.contains(1)\n    first: Int32 := scores.get(1)\n    removed: Int32 := scores.remove(2)\nend")
@@ -122,6 +157,16 @@ func TestDictStringValues(t *testing.T) {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
+	}
+}
+
+func TestDictFindSupportsNullableHandleValues(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    maybe: String | Nil := people.find(1)\n    if maybe != nil then\n        name: String := maybe\n    end\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	if !strings.Contains(rootC(t, result), "hex_dict_find_Int32_String(hex_v_people, 1)") {
+		t.Fatalf("generated modules/app.c = %q, want String find helper call", rootC(t, result))
 	}
 }
 

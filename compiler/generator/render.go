@@ -49,6 +49,9 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		if err := hoistConcurrencyInStatement(statement, body, state, indent); err != nil {
 			return err
 		}
+		if err := hoistDictFindInStatement(statement, body, state, indent); err != nil {
+			return err
+		}
 		// Try prologues for this statement emit before it renders, in
 		// evaluation order, so nested and repeated operands evaluate once.
 		if err := hoistTryInStatement(statement, body, state, result, indent); err != nil {
@@ -414,17 +417,19 @@ type expressionValidation struct {
 	// filename is its logical source key for #line directives; moduleID is
 	// the module's canonical identity, used to distinguish foreign method
 	// calls from local ones.
-	owner          string
-	filename       string
-	moduleID       string
-	loopDepths     []int
-	captureCounter int
-	returnCounter  int
-	captures       map[*checker.Operand][]string
-	matchCounter   int
-	loopCounter    int // unique hex_for_N stem for for-in lowering
-	tryCounter     int // unique hex_try_N stems for try prologue hoisting
-	hoistedTries   map[*checker.Expression]string
+	owner            string
+	filename         string
+	moduleID         string
+	loopDepths       []int
+	captureCounter   int
+	returnCounter    int
+	captures         map[*checker.Operand][]string
+	matchCounter     int
+	loopCounter      int // unique hex_for_N stem for for-in lowering
+	tryCounter       int // unique hex_try_N stems for try prologue hoisting
+	hoistedTries     map[*checker.Expression]string
+	findCounter      int
+	hoistedDictFinds map[*checker.Expression]string
 	// spawnCounter and hoistedSpawns carry spawn prologues: each spawn's
 	// argument frame and task handle are declared before the statement
 	// renders, and the expression renders as the task handle.

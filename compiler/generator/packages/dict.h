@@ -110,6 +110,16 @@ static inline {{.ValueSpelling}} hex_dict_get_{{.Suffix}}(const {{.CName}} *dict
     }
     return dict->buckets[index].value;
 }
+static inline const {{.ValueSpelling}} *hex_dict_find_{{.Suffix}}(const {{.CName}} *dict, {{.KeySpelling}} key) {
+    if (dict->capacity == 0) {
+        return nullptr;
+    }
+    size_t index = hex_dict_probe_{{.Suffix}}(dict, key);
+    if (!dict->buckets[index].active) {
+        return nullptr;
+    }
+    return &dict->buckets[index].value;
+}
 static inline bool hex_dict_contains_{{.Suffix}}(const {{.CName}} *dict, {{.KeySpelling}} key) {
     if (dict->capacity == 0) {
         return false;

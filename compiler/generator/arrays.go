@@ -282,6 +282,13 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
+		case "find":
+			if node.OperandType.Dict == nil || len(node.Arguments) != 1 || !compilerTypes.IsUnion(node.ResultType) || !compilerTypes.ContainsUnionMember(node.ResultType, compilerTypes.Nil) || !findValueFitsResult(element, node.ResultType) {
+				return unknownExpressionDiagnostic("dictionary find call has invalid checked metadata")
+			}
+			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
+				return err
+			}
 		case "contains":
 			if node.OperandType.Dict == nil || len(node.Arguments) != 1 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
 				return unknownExpressionDiagnostic("dictionary contains call has invalid checked metadata")
@@ -325,6 +332,18 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		return nil
 	}
 	return unknownExpressionDiagnostic("unsupported collection expression")
+}
+
+func findValueFitsResult(value, result compilerTypes.Type) bool {
+	if value.Union == nil {
+		return compilerTypes.ContainsUnionMember(result, value)
+	}
+	for _, member := range compilerTypes.UnionMembers(value) {
+		if !compilerTypes.ContainsUnionMember(result, member) {
+			return false
+		}
+	}
+	return true
 }
 
 func renderCollectionConstructor(node checker.Expression, state *expressionValidation) (string, error) {
@@ -459,7 +478,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return "hex_dict_free_" + dictSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
 			}
 			return "", unknownExpressionDiagnostic("collection free without a list or dictionary receiver")
-		case "insert", "get", "contains", "remove":
+		case "insert", "get", "find", "contains", "remove":
 			if node.Operand == nil || node.OperandType.Dict == nil {
 				return "", unknownExpressionDiagnostic("dictionary operation without a checked dictionary receiver")
 			}
@@ -491,6 +510,8 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 					return "", keyErr
 				}
 				return "hex_dict_" + node.Name + "_" + suffix + "(" + receiver + ", " + key + ")", nil
+			case "find":
+				return renderDictFindExpression(node, state)
 			case "contains":
 				if len(node.Arguments) != 1 {
 					return "", unknownExpressionDiagnostic("dictionary contains without a checked key")

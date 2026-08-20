@@ -27,7 +27,7 @@
     },
     "collections-dictionary-length-history": {
       "hexal.h": "48162c935c448b6a7aa2e25a315d8b8cd75b3eb4dbcd03cd013f30d627014b22",
-      "hexal/dict.h": "a1e997c1cb90de60c59e6f2a508f029a26131571eed0fc7be2b4b847107f3f9d",
+      "hexal/dict.h": "53f1260cdbe642c6ad9c7aa2abaa366db2ffb9726c717d57153fb3e625951ef6",
       "hexal/heap.c": "3a4900b072292dced1deeed84b5177940f1c6d693bd2780c00c64f4f8cb267ad",
       "hexal/heap.h": "93c438c42dbabedece94df73d88b6b8ed7528bf4a7fa3d39c84a7fc52ca4eca5",
       "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
@@ -39,7 +39,7 @@
     },
     "collections-dictionary-lookup": {
       "hexal.h": "48162c935c448b6a7aa2e25a315d8b8cd75b3eb4dbcd03cd013f30d627014b22",
-      "hexal/dict.h": "a1e997c1cb90de60c59e6f2a508f029a26131571eed0fc7be2b4b847107f3f9d",
+      "hexal/dict.h": "53f1260cdbe642c6ad9c7aa2abaa366db2ffb9726c717d57153fb3e625951ef6",
       "hexal/heap.c": "3a4900b072292dced1deeed84b5177940f1c6d693bd2780c00c64f4f8cb267ad",
       "hexal/heap.h": "93c438c42dbabedece94df73d88b6b8ed7528bf4a7fa3d39c84a7fc52ca4eca5",
       "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
@@ -52,7 +52,7 @@
     },
     "collections-dictionary-remove": {
       "hexal.h": "48162c935c448b6a7aa2e25a315d8b8cd75b3eb4dbcd03cd013f30d627014b22",
-      "hexal/dict.h": "7eb71938292dbd09788bb3c7aea887aee091f18345b163c15eab7622c3d315e9",
+      "hexal/dict.h": "1c75bc13408016ef7bd0bb5f3707f1af09c3403915b76432fc40b3c5752fa535",
       "hexal/heap.c": "3a4900b072292dced1deeed84b5177940f1c6d693bd2780c00c64f4f8cb267ad",
       "hexal/heap.h": "93c438c42dbabedece94df73d88b6b8ed7528bf4a7fa3d39c84a7fc52ca4eca5",
       "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
@@ -84,7 +84,7 @@
     "collections-frequency-table": {
       "hexal.h": "48162c935c448b6a7aa2e25a315d8b8cd75b3eb4dbcd03cd013f30d627014b22",
       "hexal/array.h": "6183ff551d2e5538e0ab98f995fdfd0b3f5eafe0def54f046cb87f4b128feb35",
-      "hexal/dict.h": "a1e997c1cb90de60c59e6f2a508f029a26131571eed0fc7be2b4b847107f3f9d",
+      "hexal/dict.h": "53f1260cdbe642c6ad9c7aa2abaa366db2ffb9726c717d57153fb3e625951ef6",
       "hexal/heap.c": "3a4900b072292dced1deeed84b5177940f1c6d693bd2780c00c64f4f8cb267ad",
       "hexal/heap.h": "93c438c42dbabedece94df73d88b6b8ed7528bf4a7fa3d39c84a7fc52ca4eca5",
       "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
@@ -235,7 +235,7 @@
     },
     "control-three-value-iteration": {
       "hexal.h": "48162c935c448b6a7aa2e25a315d8b8cd75b3eb4dbcd03cd013f30d627014b22",
-      "hexal/dict.h": "a4a19747a5905e4ce7d604ecfee3a68fc45bab7553836904c11068d9eabc3b7b",
+      "hexal/dict.h": "c5139605cc8cf93c9a12a66d7bf29b2209e4daa8963ab49dfe0edd7a38463906",
       "hexal/heap.c": "3a4900b072292dced1deeed84b5177940f1c6d693bd2780c00c64f4f8cb267ad",
       "hexal/heap.h": "93c438c42dbabedece94df73d88b6b8ed7528bf4a7fa3d39c84a7fc52ca4eca5",
       "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
@@ -506,7 +506,7 @@
       "hexal/string.h": "f6d2958c9a16383fcb63a31fbc58aacdd3d6c05172a86de7cd7bc7744a6ead5d",
       "hexal/view.h": "8b2aeb8d038091e4b776999a1b1c24772b688f68cb5b6487242014e4e165f08f",
       "modules/app.c": "ef9efe756f45ab84757260f3260fd69e013d1891ba125f28c25b8ad8e11dfc84",
-      "modules/app.h": "81f46bd34e793b0d3c55298f0c06cf8591da84249c1d8e6b3d9b335ac00f551d",
+      "modules/app.h": "87d80e56b6d61f2089b8126de1732ea46ca48f1b8be4c59c7d40df23299f47ba",
       "modules/types.c": "19aafc6f9cce38f697b9b7ad84e029c80f971a7a096aa59353f1076978f45058",
       "modules/types.h": "87b1a87d3de0ea63e9fcfcd11b83c4ba6e6438e4fc4ff4be71a7053876e6752c"
     },

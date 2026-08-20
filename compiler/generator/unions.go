@@ -36,6 +36,30 @@ func (state *generatedUnionState) addWidening(node checker.Expression) {
 	})
 }
 
+func (state *generatedUnionState) addWideningTypes(source, destination compilerTypes.Type) {
+	for _, existing := range state.widenings {
+		if compilerTypes.Equal(existing.source, source) && compilerTypes.Equal(existing.destination, destination) {
+			return
+		}
+	}
+	memberMap := make([]int, 0, len(compilerTypes.UnionMembers(source)))
+	for _, sourceMember := range compilerTypes.UnionMembers(source) {
+		destinationIndex := -1
+		for index, destinationMember := range compilerTypes.UnionMembers(destination) {
+			if compilerTypes.Equal(destinationMember, sourceMember) || compilerTypes.Assignable(destinationMember, sourceMember) {
+				destinationIndex = index
+				break
+			}
+		}
+		memberMap = append(memberMap, destinationIndex)
+	}
+	state.widenings = append(state.widenings, unionWidening{
+		source:      source,
+		destination: destination,
+		memberMap:   memberMap,
+	})
+}
+
 func discoverGeneratedUnions(program checker.Program) *generatedUnionState {
 	state := &generatedUnionState{names: make(map[*compilerTypes.UnionInfo]string)}
 	visitor := &programVisitor{
@@ -54,6 +78,9 @@ func discoverGeneratedUnions(program checker.Program) *generatedUnionState {
 		Expression: func(node checker.Expression) {
 			if node.Kind == checker.UnionWidenExpression {
 				state.addWidening(node)
+			}
+			if node.Kind == checker.CollectionMethodCallExpression && node.Name == "find" && node.Element.Union != nil && node.ResultType.Union != nil {
+				state.addWideningTypes(node.Element, node.ResultType)
 			}
 		},
 	}

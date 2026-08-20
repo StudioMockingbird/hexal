@@ -156,6 +156,16 @@ static inline int32_t hex_dict_get_Int32_Int32(const hex_dict_Int32_Int32 *dict,
     }
     return dict->buckets[index].value;
 }
+static inline const int32_t *hex_dict_find_Int32_Int32(const hex_dict_Int32_Int32 *dict, int32_t key) {
+    if (dict->capacity == 0) {
+        return nullptr;
+    }
+    size_t index = hex_dict_probe_Int32_Int32(dict, key);
+    if (!dict->buckets[index].active) {
+        return nullptr;
+    }
+    return &dict->buckets[index].value;
+}
 static inline bool hex_dict_contains_Int32_Int32(const hex_dict_Int32_Int32 *dict, int32_t key) {
     if (dict->capacity == 0) {
         return false;
@@ -288,6 +298,16 @@ static inline int32_t hex_dict_get_Strand_Int32(const hex_dict_Strand_Int32 *dic
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
     return dict->buckets[index].value;
+}
+static inline const int32_t *hex_dict_find_Strand_Int32(const hex_dict_Strand_Int32 *dict, hex_strand key) {
+    if (dict->capacity == 0) {
+        return nullptr;
+    }
+    size_t index = hex_dict_probe_Strand_Int32(dict, key);
+    if (!dict->buckets[index].active) {
+        return nullptr;
+    }
+    return &dict->buckets[index].value;
 }
 static inline bool hex_dict_contains_Strand_Int32(const hex_dict_Strand_Int32 *dict, hex_strand key) {
     if (dict->capacity == 0) {

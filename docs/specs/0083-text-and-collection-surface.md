@@ -1,21 +1,14 @@
 # RFC 0083: Text and Collection Surface Corrections
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Partially implemented; verified 2026-08-19. Landed: A1 `List.set`
+- Status: Closed; implemented. Verified 2026-08-20. Landed: A1 `List.set`
   deleted, A2 `Dict.length` added, and Part B index removal for both String
   and Strand.
 
-  Open, tracked here until each is closed:
-
-  - **A3 `Dict.find(key) -> V | Nil`** is deferred. Returning a union from a
-    component helper hits the layering constraint RFC 0081 addressed: a
-    program-wide component cannot name a union declared in a module header.
-    The workable lowering returns `const V *` from the runtime and builds the
-    union at the call site, which needs prologue hoisting — the machinery RFC
-    0084 had just repaired. It needs its own design pass, not a rushed one.
-  - **Part B `length()` rename and `is_empty` removal** are withdrawn, not
-    pending: RFC 0087 caches the rune count, which makes `length()` O(1) and
-    removes the reason for both.
+  A3 `Dict.find(key) -> V | Nil` is implemented with a component helper that
+  returns `const V *`; the module call site hoists that one lookup and builds
+  the union. Part B `length()` rename and `is_empty` removal remain withdrawn:
+  RFC 0087 caches the rune count, which removes the reason for both.
 - Created: 2026-08-19
 - Scope: redundant and missing collection operations; the cost model of text
   indexing
@@ -209,26 +202,24 @@ explicitly O(n) `rune_length`.
 - `d.length()` returns the entry count, is O(1), and matches insert/remove
   history across a sequence of operations.
 - `d.find(k)` returns `Nil` for a missing key and requires narrowing before use;
-  a program that dereferences without narrowing is rejected.
+  a program that uses the result without narrowing is rejected. The generated
+  module performs one `hex_dict_find_*` call per source `find`, while the
+  component helper performs one probe.
 - `d.get(k)` and `d.remove(k)` still trap on a missing key — unchanged.
-- Part B: `s[0]` is rejected; `s.rune_length()` is accepted; `s.bytes()`,
-  `s.rune_cursor()`, `s.is_empty()`, and `s.slice(a, b)` are unchanged.
-- Part B, Strand: `t[0]` is rejected and `t.rune_length()` is accepted, so the
-  two text types expose the same shape. `t.is_empty()` and `t.to_string(h)` are
-  unchanged.
+- Part B: `s[0]` and `t[0]` are rejected. `s.length()`, `s.bytes()`,
+  `s.rune_cursor()`, `s.is_empty()`, and `s.slice(a, b)` remain available;
+  `t.length()`, `t.is_empty()`, and `t.to_string(h)` remain available.
 - Every affected catalog snippet is updated, and the manifest moves for exactly
-  those. Source-level survey of the 98-snippet catalog, to be re-derived and
-  confirmed at implementation:
+  those. Source-level survey of the current 129-snippet catalog confirms:
 
   | Change | Snippets |
   |---|---|
-  | text indexing removed | `text-strand-inline`, `text-text-inspection`, `values-text-record` |
-  | `length()` → `rune_length()` | `text-escaped-message`, `text-strand-inline`, `text-string-building` |
+  | text indexing removed | none remain; zero String or Strand index expressions |
+  | `length()` → `rune_length()` | withdrawn by RFC 0087; zero `rune_length` uses |
   | `List.set` removed | none — no snippet calls it |
 
-  Five distinct snippets, one appearing in both text rows. `List.set` has zero
-  catalog users, which is corroborating evidence for A1: an operation nothing in
-  the catalog reaches, duplicating one that everything does.
+  `List.set` has zero catalog users, and text `length()` remains the current
+  surface after RFC 0087.
 
 ### Do not enumerate by grepping generated C
 
