@@ -66,10 +66,14 @@ and it is why this is a rewrite rather than a regex.**
 
 ## Direction — the code becomes the source of truth
 
-The intent behind removing citations is larger than tidiness: over time the code
-should be the only place a rule is stated, and `docs/reference.md` should stop
-being a second one. This RFC takes the first bounded step and records the
-direction so later work has a stated target.
+**`docs/reference.md` is the source of truth and this RFC does not change that.**
+It remains the sole normative syntax and semantic contract, exactly as
+`AGENTS.md:156` states. Nothing below is a licence to treat a comment as
+authoritative over it.
+
+What follows is a direction for later work, recorded here so it has a stated
+target: over time the code should become the only place a rule is stated. This
+RFC takes one bounded step toward that and nothing more.
 
 **The mechanism is move, not copy.** Copying a rule into code produces two
 statements of it with nothing keeping them in sync, which is the drift
