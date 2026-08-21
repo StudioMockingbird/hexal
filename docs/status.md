@@ -26,6 +26,7 @@ other.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Blocking-syscall boundary — what the scheduler does at a blocking call; gates all I/O | [0091](specs/0091-blocking-syscall-boundary.md) |
 | Byte stream I/O — scope settled; blocked on RFC 0091 | [0065](specs/0065-typed-io.md) |
+| I/O surface — three competing proposals; pick one and close the others | [0106](specs/0106-io-streams.md) |
 | Language surface audit dispositions — 34 findings; promote/reject/accept per finding | [0103](specs/0103-language-surface-audit.md) |
 | Codebase refactoring audit dispositions — 42 findings; contract breaches, dead code, diagnostics, perf | [0104](specs/0104-codebase-refactoring-audit.md) |
 
@@ -55,6 +56,29 @@ deleted:
   spec or delete it.
 
 ## Open bugs
+
+- **A narrowed union binding cannot be injected into a union containing
+  `Error`.** Minimal reproducer:
+
+  ```hexal
+  fun s(): Size | EoS do
+      return eos
+  end
+  fun demo(): Size | Error do
+      r: Size | EoS := s()
+      if r is EoS then
+          return 0
+      end
+      return r
+  end
+  ```
+
+  Fails with `[Unknown Error] union injection has invalid checked metadata`,
+  which by the fail-closed rule is a compiler defect rather than a user error.
+  Narrowed into a plain `Size` compiles; narrowed into `Size | Bool` compiles;
+  an un-narrowed `Size` into `Size | Error` compiles. Only the combination
+  fails. Found while probing the canonical `Size | EoS | Error` consumption
+  shape for an I/O surface. Unowned.
 
 ## Known coverage gaps
 
