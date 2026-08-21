@@ -166,6 +166,9 @@ func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityS
 		return
 	}
 	for _, typ := range state.order {
+		if isProgramOwnedEqualityType(typ) {
+			continue
+		}
 		if typ.Union != nil {
 			if unionSupportsEquality(typ) {
 				writeUnionEquality(result, typ, tags)

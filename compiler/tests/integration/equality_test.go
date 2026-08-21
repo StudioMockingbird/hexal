@@ -219,14 +219,88 @@ func TestSequenceEquality(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
+	equalityH := moduleFile(t, result, "hexal/equality.h")
 	for _, want := range []string{
-		"static bool hex_equal_hex_array_Int32_2(const hex_array_Int32_2 *left, const hex_array_Int32_2 *right) {",
 		"if (!((*left).data[0] == (*right).data[0])) return false;",
-		"hex_v_same = hex_equal_hex_array_Int32_2(&(hex_v_fixed), &(hex_v_other));",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(equalityH, want) {
+			t.Fatalf("hexal/equality.h = %q, want %q", equalityH, want)
 		}
+	}
+	if !strings.Contains(rootC(t, result), "hex_v_same = hex_equal_hex_array_Int32_2(&(hex_v_fixed), &(hex_v_other));") {
+		t.Fatalf("modules/app.c = %q, want the component equality call", rootC(t, result))
+	}
+	if strings.Contains(rootH(t, result), "static bool hex_equal_hex_array_Int32_2") {
+		t.Fatalf("modules/app.h re-emits the program-owned Array equality helper")
+	}
+}
+
+func TestProgramOwnedEqualitySharedAcrossModules(t *testing.T) {
+	compare := `fun compare(h: Heap): Bool do
+    left: Array<Int32, 2> := [1, 2]
+    right: Array<Int32, 2> := [1, 2]
+    leftView: View<Int32> := left.slice(0, 2)
+    rightView: View<Int32> := right.slice(0, 2)
+    leftList: List<Int32> := List<Int32>.new(h)
+    rightList: List<Int32> := List<Int32>.new(h)
+    leftList.push(1)
+    rightList.push(1)
+    leftError: Error := Error.new("x", "y")
+    rightError: Error := Error.new("x", "y")
+    return left == right and leftView == rightView and leftList == rightList and leftError == rightError
+end
+`
+	result := compiler.Compile(map[string]string{
+		"app.hex":  "module Math = import \"./math\"\n" + compare + "root: Bool := compare(Heap.new())\nother: Bool := Math.compare(Heap.new())\n",
+		"math.hex": "export " + compare,
+	}, "app.hex", compiler.Project{})
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v)", result.ExitCode, result.Stderr)
+	}
+	equality := result.Files["hexal/equality.h"]
+	for _, helper := range []string{
+		"hex_equal_hex_array_Int32_2",
+		"hex_equal_hex_view_Int32",
+		"hex_equal_hex_list_Int32",
+		"hex_equal_hex_t_Error",
+	} {
+		if count := strings.Count(equality, "static bool "+helper+"("); count != 1 {
+			t.Fatalf("hexal/equality.h defines %s %d times, want once:\n%s", helper, count, equality)
+		}
+		for _, module := range []string{"modules/app.h", "modules/math.h"} {
+			if strings.Contains(result.Files[module], "static bool "+helper+"(") {
+				t.Fatalf("%s re-emits program-owned helper %s:\n%s", module, helper, result.Files[module])
+			}
+		}
+	}
+	if !strings.Contains(equality, "#include <string.h>") {
+		t.Fatalf("hexal/equality.h omits <string.h> for Error's Strand comparison:\n%s", equality)
+	}
+	for _, module := range []string{"modules/app.h", "modules/math.h"} {
+		if !strings.Contains(result.Files[module], `#include "hexal/equality.h"`) {
+			t.Fatalf("%s does not include hexal/equality.h:\n%s", module, result.Files[module])
+		}
+	}
+}
+
+func TestModuleOwnedEqualityCallsProgramOwnedHelper(t *testing.T) {
+	result := compileSource(`fun demo(h: Heap): Bool do
+    leftList: List<Int32> := List<Int32>.new(h)
+    rightList: List<Int32> := List<Int32>.new(h)
+    left: List<Int32> | Bool := leftList
+    right: List<Int32> | Bool := rightList
+    return left == right
+end
+`)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v)", result.ExitCode, result.Stderr)
+	}
+	header := rootH(t, result)
+	if !strings.Contains(header, `#include "hexal/equality.h"`) {
+		t.Fatalf("modules/app.h does not include hexal/equality.h:\n%s", header)
+	}
+	if !strings.Contains(header, "hex_equal_hex_list_Int32") {
+		t.Fatalf("modules/app.h does not call the program-owned List helper:\n%s", header)
 	}
 }
 
@@ -312,8 +386,8 @@ func TestListEqualityAccepted(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "static bool hex_equal_hex_list_Int32(const hex_list_Int32 *left, const hex_list_Int32 *right) {") {
-		t.Fatalf("modules/app.h = %q, want List equality helper", rootH(t, result))
+	if strings.Contains(rootH(t, result), "static bool hex_equal_hex_list_Int32(const hex_list_Int32 *left, const hex_list_Int32 *right) {") {
+		t.Fatalf("modules/app.h re-emits the program-owned List equality helper")
 	}
 }
 

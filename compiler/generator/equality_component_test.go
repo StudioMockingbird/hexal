@@ -110,4 +110,23 @@ func TestEqualityComponentIncludesCollectionDependencies(t *testing.T) {
 	if !strings.Contains(header, "hex_equal_hex_array_Int32_2") {
 		t.Fatalf("hexal/equality.h = %q, want the Array equality helper", header)
 	}
+	for _, standardHeader := range []string{"stddef.h", "string.h", "stdlib.h"} {
+		if strings.Contains(header, "#include <"+standardHeader+">") {
+			t.Fatalf("Array<Int32, 2>-only equality.h includes unused <%s>:\n%s", standardHeader, header)
+		}
+	}
+}
+
+func TestModuleEqualityWriterSkipsProgramOwnedHelpers(t *testing.T) {
+	typ := compilerTypes.Type{
+		Name:         "Array<Int32, 2>",
+		CName:        "hex_array_Int32_2",
+		CanonicalKey: "array:Int32:2",
+		Array:        &compilerTypes.ArrayInfo{Element: compilerTypes.Int32, Length: 2},
+	}
+	var output strings.Builder
+	writeEqualityDefinitions(&output, &generatedEqualityState{order: []compilerTypes.Type{typ}}, nil)
+	if output.Len() != 0 {
+		t.Fatalf("module equality output = %q, program-owned helper must be component-owned", output.String())
+	}
 }

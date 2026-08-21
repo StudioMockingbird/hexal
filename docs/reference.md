@@ -1104,6 +1104,24 @@ MutPtr<T>.write_volatile(value: T) -> no value
   equality, concurrency follow the acyclic component graph), and are emitted once per compilation.
   Component `.c` files include their matching header first and own the externally linked definitions
   and mutable state of that component; no module header or C file defines them.
+- `hexal/numeric.h` is selected only when a reachable checked conversion, guarded integer division
+  or remainder, guarded shift, same-width `bit_cast`, or endian conversion needs a helper. Direct
+  and identity conversions select none. The header contains the merged canonical-key-sorted helper
+  set once; endian helpers include the Array component they name.
+- `hexal/print.h` and `hexal/print.c` are selected atomically when any reachable `print` call exists.
+  Primitive `hex_print_*` declarations and definitions have one program-wide owner in that pair;
+  module-owned aggregate print adapters remain in the consuming module header and include
+  `hexal/print.h`.
+- String comparison demand is independent: `hex_equal_hex_string` is emitted in the String
+  component only for a String equality expression or a reachable recursive equality helper that
+  compares a String member; `hex_compare_hex_string` is emitted only for String ordering.
+  Strand equality and ordering use direct fixed-width byte comparison and select neither helper.
+- `hexal/equality.h` owns one helper per canonical program-owned equality aggregate: builtin-element
+  Array, View, and List specializations and the compiler-owned Error object, including recursively
+  composed program-owned forms. User objects, ADTs, structural unions, and collections whose
+  definitions are module-owned retain helpers in module headers. A program-owned helper is never
+  duplicated in a module header; the component includes every required type-family header and
+  standard header for its emitted bodies.
 - `modules/<canonical>.h` is one module's header: it includes `hexal.h` first, then exactly the
   component headers that module's generated content requires (in dependency order), holds the
   module's types (ADTs, unions, objects) and stateless inline helpers (module-owned equality,

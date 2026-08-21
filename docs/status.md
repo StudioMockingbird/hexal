@@ -26,6 +26,8 @@ other.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Blocking-syscall boundary — what the scheduler does at a blocking call; gates all I/O | [0091](specs/0091-blocking-syscall-boundary.md) |
 | Byte stream I/O — scope settled; blocked on RFC 0091 | [0065](specs/0065-typed-io.md) |
+| Language surface audit dispositions — 34 findings; promote/reject/accept per finding | [0103](specs/0103-language-surface-audit.md) |
+| Codebase refactoring audit dispositions — 42 findings; contract breaches, dead code, diagnostics, perf | [0104](specs/0104-codebase-refactoring-audit.md) |
 
 ### Implementation-ready
 

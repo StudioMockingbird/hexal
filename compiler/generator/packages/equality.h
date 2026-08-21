@@ -4,8 +4,10 @@
 #include "hexal.h"
 {{range .Includes}}#include "{{.}}"
 {{end}}
-#include <string.h>
-#include <stdlib.h>
+{{if .NeedStddef}}#include <stddef.h>
+{{end}}{{if .NeedString}}#include <string.h>
+{{end}}{{if .NeedStdlib}}#include <stdlib.h>
+{{end}}
 
 {{range .Helpers}}
 {{.Body}}

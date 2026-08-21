@@ -15,8 +15,11 @@ type equalityHelperModel struct {
 
 // equalityComponentModel is the render model for packages/equality.h.
 type equalityComponentModel struct {
-	Includes []string
-	Helpers  []equalityHelperModel
+	Includes   []string
+	NeedStddef bool
+	NeedString bool
+	NeedStdlib bool
+	Helpers    []equalityHelperModel
 }
 
 // equalityComponents returns the generated hexal/equality.h artifact when
@@ -74,17 +77,24 @@ func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalit
 	switch {
 	case compilerTypes.IsString(typ), compilerTypes.IsStrand(typ):
 		model.Includes = appendUnique(model.Includes, "hexal/string.h")
+		if compilerTypes.IsStrand(typ) {
+			model.NeedString = true
+		}
 	case compilerTypes.IsError(typ):
 		model.Includes = appendUnique(model.Includes, "hexal/error.h")
 		model.Includes = appendUnique(model.Includes, "hexal/string.h")
+		model.NeedStddef = true
+		model.NeedString = true
 	case typ.Array != nil:
 		model.Includes = appendUnique(model.Includes, "hexal/array.h")
 		collectEqualityComponentDependencies(typ.Array.Element, model, seen)
 	case typ.View != nil:
 		model.Includes = appendUnique(model.Includes, "hexal/view.h")
+		model.NeedStddef = true
 		collectEqualityComponentDependencies(typ.View.Element, model, seen)
 	case typ.List != nil:
 		model.Includes = appendUnique(model.Includes, "hexal/list.h")
+		model.NeedStddef = true
 		collectEqualityComponentDependencies(typ.List.Element, model, seen)
 	case typ.Object != nil:
 		for _, member := range typ.Object.Members {
@@ -97,6 +107,7 @@ func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalit
 			}
 		}
 	case typ.Union != nil:
+		model.NeedStdlib = true
 		for _, member := range typ.Union.Members {
 			collectEqualityComponentDependencies(member, model, seen)
 		}

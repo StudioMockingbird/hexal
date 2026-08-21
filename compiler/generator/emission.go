@@ -725,29 +725,24 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	writeSpawnArgFrames(&extraFrames, routedFrames(emission, merged.adapterSites[canonicalID]))
 
 	moduleHeader, headerErr := moduleHeader(moduleHeaderInput{
-		unions:        emission.unionState,
-		adts:          emission.adtState,
-		equality:      emission.equalityState,
-		conversions:   emission.conversionSpecs,
-		divisionTypes: emission.divisionTypes,
-		shiftSpecs:    emission.shiftSpecs,
-		bitCastSpecs:  emission.bitCastSpecs,
-		endianSpecs:   emission.endianSpecs,
-		objects:       emission.objects,
-		heaps:         emission.heapState,
-		printState:    emission.printState,
-		concurrency:   emission.concurrencyState,
-		stringState:   stringState,
-		tags:          merged.tags,
-		views:         emission.viewState,
-		arrays:        emission.arrayState,
-		lists:         emission.listState,
-		dicts:         emission.dictState,
-		canonicalID:   canonicalID,
-		prototypes:    headerPrototypes.String(),
-		extraFrames:   extraFrames.String(),
-		filename:      logicalKey,
-		components:    moduleComponentHeaders(emission),
+		unions:      emission.unionState,
+		adts:        emission.adtState,
+		equality:    emission.equalityState,
+		objects:     emission.objects,
+		heaps:       emission.heapState,
+		printState:  emission.printState,
+		concurrency: emission.concurrencyState,
+		stringState: stringState,
+		tags:        merged.tags,
+		views:       emission.viewState,
+		arrays:      emission.arrayState,
+		lists:       emission.listState,
+		dicts:       emission.dictState,
+		canonicalID: canonicalID,
+		prototypes:  headerPrototypes.String(),
+		extraFrames: extraFrames.String(),
+		filename:    logicalKey,
+		components:  moduleComponentHeaders(emission),
 	})
 	if headerErr != nil {
 		return "", "", headerErr
@@ -810,21 +805,16 @@ type hexalHeaderInput struct {
 // moduleHeaderInput carries every value the module-header builder consumes.
 // One field per argument, no derived or cached state.
 type moduleHeaderInput struct {
-	unions        *generatedUnionState
-	adts          *generatedAdtState
-	equality      *generatedEqualityState
-	conversions   []conversionSpec
-	divisionTypes []compilerTypes.Type
-	shiftSpecs    []shiftSpec
-	bitCastSpecs  []bitCastSpec
-	endianSpecs   []endianSpec
-	objects       []*compilerTypes.ObjectType
-	heaps         *heapHelpers
-	printState    *generatedPrintState
-	concurrency   *generatedConcurrencyState
-	stringState   *literalRegistry
-	tags          *tagRegistry
-	canonicalID   string
+	unions      *generatedUnionState
+	adts        *generatedAdtState
+	equality    *generatedEqualityState
+	objects     []*compilerTypes.ObjectType
+	heaps       *heapHelpers
+	printState  *generatedPrintState
+	concurrency *generatedConcurrencyState
+	stringState *literalRegistry
+	tags        *tagRegistry
+	canonicalID string
 	// Collection states feed the module-owned specialization region; the
 	// program-wide component partition keeps the builtin-element records.
 	views  *generatedViewState
