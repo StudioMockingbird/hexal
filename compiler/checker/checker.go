@@ -262,6 +262,7 @@ func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
 	// One arena per compilation: every module shares it so constructed
 	// types intern once across module boundaries.
 	arena := compilerTypes.NewArena()
+	reserveNominalDefinitionNames(graph, arena)
 	for _, moduleID := range graph.Order {
 		node := graph.Modules[moduleID]
 		key := node.LogicalKey
@@ -296,6 +297,35 @@ func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
 		return checked, diagnostics
 	}
 	return checked, nil
+}
+
+// reserveNominalDefinitionNames pre-reserves the definition-keying C name of
+// every concrete nominal declaration in the graph before any module checks,
+// so a structural union constructed anywhere can never claim one: a nominal
+// name is fixed by its declaring module's owner, while a union's name derives
+// from member spellings, so the overlap is real only when a member spells
+// exactly the owner-qualified name of another nominal. Concrete means
+// non-generic; aliases introduce no C typedef and reserve nothing.
+// BeginObject and BeginADT re-reserve the same name with the completed type,
+// which is idempotent.
+func reserveNominalDefinitionNames(graph *ModuleGraph, arena *compilerTypes.Arena) {
+	for _, moduleID := range graph.Order {
+		node := graph.Modules[moduleID]
+		for _, item := range node.Program.Items {
+			declaration, ok := item.(parser.TypeDeclaration)
+			if !ok || len(declaration.Parameters) > 0 {
+				continue
+			}
+			switch declaration.Target.(type) {
+			case parser.AdtDefinitionExpression, parser.ObjectTypeExpression:
+				name := "hex_t_" + compilerTypes.EncodeModuleOwner(moduleID) + "_" + compilerTypes.SanitizeIdentifier(declaration.Name.Lexeme)
+				arena.ReserveDefinitionName(name, compilerTypes.Type{
+					Name:         declaration.Name.Lexeme,
+					CanonicalKey: compilerTypes.CanonicalNominalKey(declaration.Name.Lexeme, moduleID),
+				})
+			}
+		}
+	}
 }
 
 // checkModule checks one module in its own scope. moduleID is the module's

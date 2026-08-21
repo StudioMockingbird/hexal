@@ -1,7 +1,7 @@
 # RFC 0100: Program-Wide Stateless Helper Components
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Closed
 - Created: 2026-08-20
 - Scope: emit module-independent numeric, print-core, and String comparison
   helpers once as demand-generated program components
@@ -82,7 +82,12 @@ Rules:
 - A module includes `hexal/numeric.h` exactly when that module calls at least
   one numeric helper. The header contains the complete program-wide helper set.
 - Emit no `numeric.h` when the merged set is empty.
-- Remove the five helper-definition regions from module-header emission.
+- Remove the five numeric helper-definition regions from module-header
+  emission: `writeConversionDefinitions`, `writeDivisionDefinitions`,
+  `writeShiftDefinitions`, `writeBitCastDefinitions`, and
+  `writeEndianDefinitions`. Their semantic body builders may be reused by the
+  program component; their definitions and module-header call sites do not
+  remain duplicated.
 
 Header-only ownership preserves the current inline opportunity and introduces
 no external call boundary.
@@ -105,6 +110,15 @@ Rules:
 - Emit the pair when any reachable module uses `print`.
 - `print.h` declares the internal `hex_print_*` functions; `print.c` defines
   them once with external linkage inside the generated program.
+- The selected generated project contains exactly one `hexal/print.h` and one
+  `hexal/print.c`. Selection is atomic: neither artifact is emitted without the
+  other, and no module can include `print.h` in a successful result whose
+  `Files` map lacks the matching `print.c`.
+- `print.c` includes `print.h`; every externally linked definition has exactly
+  one matching declaration, and no module header defines the same symbol.
+- `hex_print_*` is a compiler-reserved internal symbol family. External
+  linkage permits calls across generated translation units but does not make
+  the functions a supported foreign ABI.
 - A module using `print`, or emitting a module-owned aggregate print adapter,
   includes `hexal/print.h`.
 - Keep adapters for module-owned objects, ADTs, structural unions, and
@@ -143,6 +157,23 @@ The helpers currently named `hex_equal_hex_string` and
   aggregate adapters.
 - Existing artifact-key collision checks apply unchanged.
 
+## Required sweep
+
+- Route the outputs of `writeConversionDefinitions`,
+  `writeDivisionDefinitions`, `writeShiftDefinitions`,
+  `writeBitCastDefinitions`, and `writeEndianDefinitions` exclusively through
+  `hexal/numeric.h`; delete their module-header emission calls and state fields
+  that become unused.
+- Split `writePrintDefinitions` by ownership: primitive `hex_print_*` core
+  definitions move to `hexal/print.c`; module-owned aggregate adapters remain
+  after their complete types. Delete no adapter merely because its primitive
+  callees moved.
+- Move `writeStringEqualityHelper` and `writeStringCompare` into the demanded
+  String component model and remove their module-header definitions.
+- Remove imports, local demand flags, and helper-writing branches left with no
+  production caller. Do not retain delegating wrappers around the component
+  builders.
+
 ## Invariants
 
 1. A module-independent helper specialization has one generated owner.
@@ -168,6 +199,9 @@ This section is exhaustive.
 - No numeric helper definition survives in any module header.
 - Two modules using `print` emit one `print.h/.c` pair; neither module header
   contains a primitive print-core definition.
+- Every `hex_print_*` declaration has exactly one definition in `print.c`;
+  `print.c` includes `print.h`, and no successful artifact set contains only
+  one member of the pair.
 - A module-owned object/ADT aggregate print adapter remains after the complete
   type definition and calls declarations from `print.h`.
 - A program without `print` emits no print component.
@@ -198,6 +232,6 @@ This section is exhaustive.
 
 - Adds two component families and more typed render models.
 - `numeric.h` contains the program-wide superset when included by one module.
-- Print primitives gain internal external linkage instead of module-local
-  `static` linkage; names remain compiler-reserved and are not public C ABI.
-
+- Print primitives gain external linkage within the generated program instead
+  of module-local `static` linkage; names remain compiler-reserved and are not
+  public C ABI.

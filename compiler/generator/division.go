@@ -31,23 +31,6 @@ func discoverGeneratedDivisions(program checker.Program) []compilerTypes.Type {
 	return types
 }
 
-// writeDivisionDefinitions emits the guarded division and remainder helpers
-// for every collected integer type.
-func writeDivisionDefinitions(result *strings.Builder, types []compilerTypes.Type) error {
-	if len(types) == 0 {
-		return nil
-	}
-	for _, typ := range types {
-		if err := writeDivisionHelper(result, typ, checker.DivideOperator, "div"); err != nil {
-			return err
-		}
-		if err := writeDivisionHelper(result, typ, checker.RemainderOperator, "rem"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func writeDivisionHelper(result *strings.Builder, typ compilerTypes.Type, operator checker.Operator, suffix string) error {
 	cName := typ.CName
 	fmt.Fprintf(result, "\nstatic inline %s hex_%s_%s(%s left, %s right) {\n", cName, suffix, cName, cName, cName)

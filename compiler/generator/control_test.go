@@ -20,9 +20,9 @@ func TestGenerateTryStatementLowering(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"const hex_union_7_t_Error9_nullptr_t hex_try_1 = hex_f_m3_app_fail();",
-		"if (hex_try_1.tag == hex_union_7_t_Error9_nullptr_t_tag_member_",
-		"return (hex_union_7_int32_t7_t_Error){ .tag = hex_union_7_int32_t7_t_Error_tag_member_1, .payload.member_1 = hex_try_1.payload.member_",
+		"const hex_t_Error_Nil hex_try_1 = hex_f_m3_app_fail();",
+		"if (hex_try_1.tag == hex_tag_Error)",
+		"return (hex_t_Int32_Error){ .tag = hex_tag_Error, .payload.hex_m_Error = hex_try_1.payload.hex_m_Error",
 	} {
 		if !strings.Contains(rootC, want) {
 			t.Fatalf("generated C = %q, want %q", rootC, want)
@@ -41,9 +41,9 @@ func TestGenerateTryExpressionNormalizesSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"const hex_union_7_int32_t7_t_Error hex_try_1 = hex_f_m3_app_read_count();",
-		"if (hex_try_1.tag == hex_union_7_int32_t7_t_Error_tag_member_1) {",
-		"hex_v_count = hex_try_1.payload.member_0;",
+		"const hex_t_Int32_Error hex_try_1 = hex_f_m3_app_read_count();",
+		"if (hex_try_1.tag == hex_tag_Error) {",
+		"hex_v_count = hex_try_1.payload.hex_m_Int32;",
 	} {
 		if !strings.Contains(rootC, want) {
 			t.Fatalf("generated C = %q, want %q", rootC, want)
@@ -81,7 +81,7 @@ func TestGenerateTryInNestedBlockEmitsSinglePrologue(t *testing.T) {
 	if ifIdx < 0 {
 		t.Fatalf("generated C lacks the if header:\n%s", rootC)
 	}
-	if !strings.Contains(rootC[ifIdx:], "const hex_union_7_int32_t7_t_Error hex_try_1 = hex_f_m3_app_mk();") {
+	if !strings.Contains(rootC[ifIdx:], "const hex_t_Int32_Error hex_try_1 = hex_f_m3_app_mk();") {
 		t.Fatalf("try prologue must appear inside the block that contains the try:\n%s", rootC)
 	}
 }

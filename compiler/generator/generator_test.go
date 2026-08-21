@@ -56,7 +56,7 @@ func TestGenerateTaggedUnionDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootH, "hex_union_7_int32_t6_double") || !strings.Contains(rootC, ".tag") {
+	if !strings.Contains(rootH, "hex_t_Int32_Float64") || !strings.Contains(rootC, ".tag") {
 		t.Fatalf("generated union output = C:%q H:%q, want tagged representation", rootC, rootH)
 	}
 }
@@ -75,7 +75,7 @@ func TestDiscoverGeneratedUnionHelpers(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := discoverGeneratedUnions(program)
-	if len(state.order) != 1 || state.order[0].CName != "hex_union_7_int32_t6_double" {
+	if len(state.order) != 1 || state.order[0].CName != "hex_t_Int32_Float64" {
 		t.Fatalf("union state = %#v, want one deterministic helper", state)
 	}
 }
@@ -87,7 +87,7 @@ func TestSupportedGeneratedUnionTypeRejectsForgedMetadata(t *testing.T) {
 		t.Fatal("canonical tagged union was rejected")
 	}
 	forged := union
-	forged.CName = "hex_union_forged"
+	forged.CName = "hex_t_forged"
 	if supportedGeneratedType(forged) {
 		t.Fatal("forged tagged union metadata was accepted")
 	}
@@ -101,11 +101,10 @@ func TestGenerateUnionOperations(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"typedef enum hex_union_7_int32_t6_double_tag",
-		"typedef struct hex_union_7_int32_t6_double",
-		".tag == hex_union_7_int32_t6_double_tag_member_0",
-		"hex_union_4_bool7_int32_t_equal",
-		"hex_internal_widen_hex_union_4_bool7_int32_t_to_hex_union_4_bool7_int32_t9_nullptr_t",
+		"typedef struct hex_t_Int32_Float64",
+		".tag == hex_tag_Int32",
+		"hex_t_Bool_Int32_equal",
+		"hex_internal_widen_hex_t_Bool_Int32_to_hex_t_Bool_Int32_Nil",
 	} {
 		if !strings.Contains(rootC, want) && !strings.Contains(rootH, want) {
 			t.Fatalf("generated output does not contain %q: C := %q H=%q", want, rootC, rootH)
@@ -120,7 +119,7 @@ func TestGenerateUnionTruthiness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootC, "hex_union_4_bool7_int32_t9_nullptr_t_truthy") || !strings.Contains(rootH, "static bool hex_union_4_bool7_int32_t9_nullptr_t_truthy") {
+	if !strings.Contains(rootC, "hex_t_Bool_Int32_Nil_truthy") || !strings.Contains(rootH, "static bool hex_t_Bool_Int32_Nil_truthy") {
 		t.Fatalf("truthiness output = C:%q H:%q, want tagged truthiness helper", rootC, rootH)
 	}
 }
@@ -132,7 +131,7 @@ func TestGenerateNarrowedUnionPayloadRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootC, "hex_v_value.payload.member_0") {
+	if !strings.Contains(rootC, "hex_v_value.payload.hex_m_Int32") {
 		t.Fatalf("generated C = %q, want narrowed payload read", rootC)
 	}
 }

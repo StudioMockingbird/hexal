@@ -26,21 +26,17 @@ other.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Blocking-syscall boundary — what the scheduler does at a blocking call; gates all I/O | [0091](specs/0091-blocking-syscall-boundary.md) |
 | Byte stream I/O — scope settled; blocked on RFC 0091 | [0065](specs/0065-typed-io.md) |
-| Program-wide union/ADT discriminants — generated type naming convention must be reopened | [0099](specs/0099-program-wide-discriminants.md) |
 
 ### Implementation-ready
 
 | Work | Spec |
 |---|---|
 | Anonymous function literals | [0094](specs/0094-anonymous-function-literals.md) |
-| Injective generated structural-union and ADT type names | [0095](specs/0095-generated-c-naming.md) |
-| Program-wide stateless numeric, print-core, and String comparison helpers | [0100](specs/0100-program-wide-stateless-helpers.md) |
 
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
 |---|---|---|
-| Program-wide equality helpers for component-owned types | RFC 0100 | [0101](specs/0101-program-wide-equality-helpers.md) |
 
 ## Unowned
 
@@ -57,32 +53,6 @@ deleted:
   spec or delete it.
 
 ## Open bugs
-
-- **Two distinct union types can share one generated C name, producing a
-  duplicate definition that does not compile.** `Rune` and `UInt32` are
-  distinct Hexal types sharing the C spelling `uint32_t`, and the union encoder
-  names members by C spelling, so `Rune | Nil` and `UInt32 | Nil` both render as
-  `hex_union_8_uint32_t9_nullptr_t`. A program using both emits the struct, tag
-  enum, and payload union twice into one header. Found by enumerating type
-  pairs; not observed by any test, because none compiles generated C. Owned by
-  [0095](specs/0095-generated-c-naming.md).
-
-- **Two modules declaring the same ADT name produce one C struct tag for two
-  distinct types.** An ADT C name carries no module owner — object types are
-  `hex_t_m3_app_Point`, ADTs are bare `hex_Shape` — so a program where `app.hex`
-  and an imported module each declare a `Shape` emits
-  `typedef struct hex_Shape { ... } hex_Shape;` twice into `modules/app.h`.
-  Needs no unusual type: two modules and a common type name. Owned by
-  [0095](specs/0095-generated-c-naming.md).
-
-- **Reversed spellings of one structural union can intern as different types.**
-  Focused probes produced two wrappers and a `hex_internal_widen_...` helper for
-  each of `M.Point | S.Point`, `M.Shape | S.Shape`, and
-  `Ptr<M.Point> | Ptr<S.Point>` when written again in reverse. Object, default
-  (including ADT), and pointer ordering keys can all tie because they omit
-  canonical identity; stable sorting then preserves written order and
-  `unionKey` receives opposite canonical-key sequences. Owned by
-  [0095](specs/0095-generated-c-naming.md).
 
 ## Known coverage gaps
 
@@ -108,9 +78,7 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
 
   *Does not compile:* 0073 D2 (handle types reachable only through a
   declaration) and D33 (`uint64_t` in a Size-only program), each found by a
-  different external review, and the union-name collision under Open bugs,
-  found by enumerating type pairs after a report that union names read as
-  noise.
+  different external review.
 
   *Compiles and behaves wrongly:* RFC 0084's C1 (a `try` in a nested block
   ran its operand twice, and `try spawn` in a loop spawned one task too many

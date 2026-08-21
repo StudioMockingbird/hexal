@@ -87,58 +87,47 @@ func discoverGeneratedUnions(program checker.Program) *generatedUnionState {
 	walkProgram(program, visitor)
 	return state
 }
-func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState) {
+func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, tags *tagRegistry) {
 	if state == nil {
 		return
 	}
 	for _, union := range state.order {
-		writeUnionDefinition(result, union)
+		writeUnionDefinition(result, union, tags)
 	}
 	for _, widening := range state.widenings {
-		writeUnionWidening(result, widening)
+		writeUnionWidening(result, widening, tags)
 	}
 	for _, union := range state.order {
-		writeUnionTruthiness(result, union)
+		writeUnionTruthiness(result, union, tags)
 		// Equality helpers are emitted by writeEqualityDefinitions after
 		// every struct definition, so recursive member compares resolve.
 	}
 }
 
-// writeUnionDefinition emits one union's tag enum, payload union, and struct
-// typedef.
-func writeUnionDefinition(result *strings.Builder, union compilerTypes.Type) {
+// writeUnionDefinition emits one union's wrapper struct: the shared hex_tag
+// discriminant and an unnamed payload-union type. Nil and EoS are tag-only
+// alternatives and spell no payload field.
+func writeUnionDefinition(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
 	name := union.CName
-	fmt.Fprintf(result, "\ntypedef enum %s_tag {\n", name)
-	for index := range union.Union.Members {
-		fmt.Fprintf(result, "    %s_tag_member_%d,\n", name, index)
-	}
-	fmt.Fprintf(result, "} %s_tag;\n", name)
-	fmt.Fprintf(result, "typedef union %s_payload {\n", name)
-	for index, member := range union.Union.Members {
+	fmt.Fprintf(result, "\ntypedef struct %s {\n    hex_tag tag;\n    union {\n", name)
+	for _, member := range union.Union.Members {
 		if compilerTypes.IsNil(member) || compilerTypes.IsEoS(member) {
-			// Nil and EoS are tag-only alternatives: Nil is a nullable
-			// niche and EoS has no payload of its own.
 			continue
 		}
 		if member.Signature != nil {
-			fmt.Fprintf(result, "    %s;\n", funDeclaration(member, fmt.Sprintf("member_%d", index), true))
+			fmt.Fprintf(result, "        %s;\n", funDeclaration(member, tags.unionPayloadField(member), true))
 			continue
 		}
-		fmt.Fprintf(result, "    %s member_%d;\n", typeSpelling(member), index)
+		fmt.Fprintf(result, "        %s %s;\n", typeSpelling(member), tags.unionPayloadField(member))
 	}
-	fmt.Fprintf(result, "} %s_payload;\n", name)
-	fmt.Fprintf(result, "typedef struct %s {\n    %s_tag tag;\n    %s_payload payload;\n} %s;\n", name, name, name, name)
-}
-
-func unionTagName(union compilerTypes.Type, memberIndex int) string {
-	return fmt.Sprintf("%s_tag_member_%d", union.CName, memberIndex)
+	fmt.Fprintf(result, "    } payload;\n} %s;\n", name)
 }
 
 func unionWidenHelperName(source, destination compilerTypes.Type) string {
 	return "hex_internal_widen_" + source.CName + "_to_" + destination.CName
 }
 
-func writeUnionWidening(result *strings.Builder, widening unionWidening) {
+func writeUnionWidening(result *strings.Builder, widening unionWidening, tags *tagRegistry) {
 	name := unionWidenHelperName(widening.source, widening.destination)
 	fmt.Fprintf(result, "\nstatic %s %s(%s value) {\n    switch (value.tag) {\n", widening.destination.CName, name, widening.source.CName)
 	sourceMembers := compilerTypes.UnionMembers(widening.source)
@@ -147,12 +136,12 @@ func writeUnionWidening(result *strings.Builder, widening unionWidening) {
 		if sourceIndex >= len(sourceMembers) || destinationIndex < 0 || destinationIndex >= len(destinationMembers) {
 			continue
 		}
-		fmt.Fprintf(result, "    case %s:\n", unionTagName(widening.source, sourceIndex))
+		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(sourceMembers[sourceIndex]))
 		if compilerTypes.IsNil(sourceMembers[sourceIndex]) || compilerTypes.IsEoS(sourceMembers[sourceIndex]) {
-			fmt.Fprintf(result, "        return (%s){ .tag = %s };\n", widening.destination.CName, unionTagName(widening.destination, destinationIndex))
+			fmt.Fprintf(result, "        return (%s){ .tag = value.tag };\n", widening.destination.CName)
 			continue
 		}
-		fmt.Fprintf(result, "        return (%s){ .tag = %s, .payload.member_%d = value.payload.member_%d };\n", widening.destination.CName, unionTagName(widening.destination, destinationIndex), destinationIndex, sourceIndex)
+		fmt.Fprintf(result, "        return (%s){ .tag = value.tag, .payload.%s = value.payload.%s };\n", widening.destination.CName, tags.unionPayloadField(destinationMembers[destinationIndex]), tags.unionPayloadField(sourceMembers[sourceIndex]))
 	}
 	fmt.Fprintf(result, "    default:\n        abort();\n    }\n}\n")
 }
@@ -205,11 +194,12 @@ func unionMemberEqualityAvailable(typ compilerTypes.Type) bool {
 	return false
 }
 
-func writeUnionEquality(result *strings.Builder, union compilerTypes.Type) {
+func writeUnionEquality(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
 	name := union.CName + "_equal"
 	fmt.Fprintf(result, "\nstatic bool %s(%s left, %s right) {\n    if (left.tag != right.tag) return false;\n    switch (left.tag) {\n", name, union.CName, union.CName)
-	for index, member := range compilerTypes.UnionMembers(union) {
-		fmt.Fprintf(result, "    case %s:\n", unionTagName(union, index))
+	for _, member := range compilerTypes.UnionMembers(union) {
+		field := tags.unionPayloadField(member)
+		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(member))
 		if compilerTypes.IsNil(member) {
 			fmt.Fprintln(result, "        return true;")
 			continue
@@ -217,11 +207,11 @@ func writeUnionEquality(result *strings.Builder, union compilerTypes.Type) {
 		if member.List != nil {
 			// A List union member is a pointer-sized handle; the per-type
 			// deep helper compares through the handle directly.
-			fmt.Fprintf(result, "        if (!%s(left.payload.member_%d, right.payload.member_%d)) return false;\n", equalityHelperName(member), index, index)
+			fmt.Fprintf(result, "        if (!%s(left.payload.%s, right.payload.%s)) return false;\n", equalityHelperName(member), field, field)
 			fmt.Fprintln(result, "        return true;")
 			continue
 		}
-		writeEqualityComparisons(result, "left.payload.member_"+fmt.Sprint(index), "right.payload.member_"+fmt.Sprint(index), member, "        ")
+		writeEqualityComparisons(result, "left.payload."+field, "right.payload."+field, member, "        ", tags)
 		fmt.Fprintln(result, "        return true;")
 	}
 	fmt.Fprintln(result, "    default:")
@@ -230,14 +220,14 @@ func writeUnionEquality(result *strings.Builder, union compilerTypes.Type) {
 	fmt.Fprintln(result, "}")
 }
 
-func writeUnionTruthiness(result *strings.Builder, union compilerTypes.Type) {
+func writeUnionTruthiness(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
 	fmt.Fprintf(result, "\nstatic bool %s_truthy(%s value) {\n    switch (value.tag) {\n", union.CName, union.CName)
-	for index, member := range compilerTypes.UnionMembers(union) {
-		fmt.Fprintf(result, "    case %s:\n", unionTagName(union, index))
+	for _, member := range compilerTypes.UnionMembers(union) {
+		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(member))
 		if compilerTypes.IsNil(member) {
 			fmt.Fprintln(result, "        return false;")
 		} else if compilerTypes.Equal(member, compilerTypes.Bool) {
-			fmt.Fprintf(result, "        return value.payload.member_%d;\n", index)
+			fmt.Fprintf(result, "        return value.payload.%s;\n", tags.unionPayloadField(member))
 		} else {
 			fmt.Fprintln(result, "        return true;")
 		}
@@ -351,11 +341,11 @@ func renderUnionInjection(node checker.Expression, state *expressionValidation) 
 		return child, nil
 	}
 	member := compilerTypes.UnionMembers(node.ResultType)[node.MemberIndex]
-	tag := unionTagName(node.ResultType, node.MemberIndex)
+	tag := state.tags.unionMemberTag(member)
 	if compilerTypes.IsNil(member) || compilerTypes.IsEoS(member) {
 		return fmt.Sprintf("(%s){ .tag = %s }", node.ResultType.CName, tag), nil
 	}
-	return fmt.Sprintf("(%s){ .tag = %s, .payload.member_%d = %s }", node.ResultType.CName, tag, node.MemberIndex, child), nil
+	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = %s }", node.ResultType.CName, tag, state.tags.unionPayloadField(member), child), nil
 }
 
 func renderUnionWiden(node checker.Expression, state *expressionValidation) (string, error) {
@@ -378,7 +368,7 @@ func renderUnionTest(node checker.Expression, state *expressionValidation) (stri
 	if !ok {
 		representation, index = node.OperandType, node.MemberIndex
 	}
-	return child + ".tag == " + unionTagName(representation, index), nil
+	return child + ".tag == " + state.tags.unionMemberTag(compilerTypes.UnionMembers(representation)[index]), nil
 }
 
 func renderUnionPayload(node checker.Expression, state *expressionValidation) (string, error) {
@@ -392,11 +382,11 @@ func renderUnionPayload(node checker.Expression, state *expressionValidation) (s
 	if !atomic {
 		child = "(" + child + ")"
 	}
-	_, index, ok := remapUnionMember(node.Operand, node.OperandType, node.MemberIndex, state)
+	representation, index, ok := remapUnionMember(node.Operand, node.OperandType, node.MemberIndex, state)
 	if !ok {
-		index = node.MemberIndex
+		representation, index = node.OperandType, node.MemberIndex
 	}
-	return child + ".payload.member_" + fmt.Sprint(index), nil
+	return child + ".payload." + state.tags.unionPayloadField(compilerTypes.UnionMembers(representation)[index]), nil
 }
 
 // remapUnionMember maps a member index in the operand's (possibly narrowed)

@@ -19,22 +19,68 @@ type Arena struct {
 	channelTypes  map[string]Type
 	atomicTypes   map[string]Type
 	unionTypes    map[string]Type
+	// definitionNames owns cross-family uniqueness for definition-keying
+	// generated C names: a name that a typedef introduces a type under. The
+	// map resolves a name to the canonical type that owns it, so two distinct
+	// Hexal types never share one C definition name. Fixed compiler-owned
+	// types, every reachable nominal object/ADT, and every constructed type
+	// with a definition reserve through it; union reservations suffix instead
+	// of displacing.
+	definitionNames map[string]Type
 }
 
-// NewArena returns an empty per-compilation constructed-type arena.
+// NewArena returns an empty per-compilation constructed-type arena. Builtin
+// C spellings are reserved up front: no constructed type may claim one, even
+// though their prefixes make a collision unreachable today.
 func NewArena() *Arena {
-	return &Arena{
-		pointerTypes:  make(map[string]Type),
-		nullableTypes: make(map[string]Type),
-		funTypes:      make(map[string]Type),
-		arrayTypes:    make(map[string]Type),
-		viewTypes:     make(map[string]Type),
-		listTypes:     make(map[string]Type),
-		dictTypes:     make(map[string]Type),
-		taskTypes:     make(map[string]Type),
-		channelTypes:  make(map[string]Type),
-		atomicTypes:   make(map[string]Type),
-		unionTypes:    make(map[string]Type),
+	arena := &Arena{
+		pointerTypes:    make(map[string]Type),
+		nullableTypes:   make(map[string]Type),
+		funTypes:        make(map[string]Type),
+		arrayTypes:      make(map[string]Type),
+		viewTypes:       make(map[string]Type),
+		listTypes:       make(map[string]Type),
+		dictTypes:       make(map[string]Type),
+		taskTypes:       make(map[string]Type),
+		channelTypes:    make(map[string]Type),
+		atomicTypes:     make(map[string]Type),
+		unionTypes:      make(map[string]Type),
+		definitionNames: make(map[string]Type),
+	}
+	for _, builtin := range builtinTypes {
+		arena.ReserveDefinitionName(builtin.CName, builtin)
+	}
+	return arena
+}
+
+// ReserveDefinitionName claims a fixed definition-keying name for its owning
+// canonical type. A nominal reservation always wins: the checker reserves
+// every concrete declaration's name before any union is constructed, so a
+// union can never claim a nominal name, and re-reservation of the same
+// canonical type is idempotent.
+func (arena *Arena) ReserveDefinitionName(name string, typ Type) {
+	if arena == nil || name == "" {
+		return
+	}
+	arena.definitionNames[name] = typ
+}
+
+// ReserveUnionName claims a definition-keying name for a structural union:
+// base when free, otherwise base_0, base_1, and so on until one is free.
+// Nominal names are reserved first, so a suffix means another distinct type
+// genuinely wanted the same base. The same canonical union re-reserves its
+// stored name through the Equal check.
+func (arena *Arena) ReserveUnionName(base string, typ Type) string {
+	if arena == nil || base == "" {
+		return base
+	}
+	candidate := base
+	for counter := 0; ; counter++ {
+		if existing, ok := arena.definitionNames[candidate]; !ok || Equal(existing, typ) {
+			arena.definitionNames[candidate] = typ
+			return candidate
+		}
+		candidate = base + "_" + strconv.Itoa(counter)
 	}
 }
 

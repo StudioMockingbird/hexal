@@ -70,4 +70,10 @@ static inline hex_view_UInt8 hex_string_slice(const hex_string *text, size_t sta
 size_t hex_strand_rune_length(hex_strand text);
 const hex_string *hex_strand_to_string(hex_heap h, hex_strand text);
 {{end}}
+{{if .NeedEquality}}
+bool hex_equal_hex_string(const hex_string *left, const hex_string *right);
+{{end}}
+{{if .NeedOrdering}}
+int hex_compare_hex_string(const hex_string *left, const hex_string *right);
+{{end}}
 #endif

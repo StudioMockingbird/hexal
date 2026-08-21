@@ -68,6 +68,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 	header, headerErr := hexalHeader(hexalHeaderInput{
 		sizeLiterals: merged.sizeLiterals,
 		requirements: merged.requirements,
+		tags:         merged.tags,
 	})
 	if headerErr != nil {
 		return nil, headerErr

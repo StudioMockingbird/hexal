@@ -52,8 +52,8 @@ func TestShiftInt64SignFillMaskUsesExactWidth(t *testing.T) {
 		"(uint64_t)(0 - ((uint64_t)1 << (uint64_t)(64 - (uint64_t)count)))",
 		"hex_v_halved64 = hex_shr_int64_t(hex_v_negative64, (uint64_t)(INT64_C(1)));",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(numericH(t, result), want) {
+			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), numericH(t, result), want)
 		}
 	}
 	for _, forbidden := range []string{
@@ -61,7 +61,7 @@ func TestShiftInt64SignFillMaskUsesExactWidth(t *testing.T) {
 		"(uint32_t)(0u - (1u <<",
 		"0 - (uint64_t)1 << (uint64_t)(64",
 	} {
-		if strings.Contains(rootC(t, result), forbidden) || strings.Contains(rootH(t, result), forbidden) {
+		if strings.Contains(rootC(t, result), forbidden) || strings.Contains(rootH(t, result), forbidden) || strings.Contains(numericH(t, result), forbidden) {
 			t.Fatalf("generated output contains the removed 32-bit sign-fill mask %q", forbidden)
 		}
 	}
@@ -81,8 +81,8 @@ func TestShiftOperators(t *testing.T) {
 		"if (!(count < 8ULL)) {",
 		"static inline int8_t hex_shr_int8_t(int8_t left, uint64_t count) {",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(numericH(t, result), want) {
+			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), numericH(t, result), want)
 		}
 	}
 }
@@ -133,8 +133,8 @@ func TestBitCast(t *testing.T) {
 		"hex_v_unsigned = hex_bitcast_int32_t_uint32_t(hex_v_signed);",
 		"static inline uint32_t hex_bitcast_float_uint32_t(float value) {",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(numericH(t, result), want) {
+			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), numericH(t, result), want)
 		}
 	}
 	// Bit-cast helpers must contain no unsigned source cast or signed
@@ -144,7 +144,7 @@ func TestBitCast(t *testing.T) {
 		"(uint32_t)value",
 		"INT32_MIN + (int32_t)",
 	} {
-		if strings.Contains(rootC(t, result), forbidden) || strings.Contains(rootH(t, result), forbidden) {
+		if strings.Contains(rootC(t, result), forbidden) || strings.Contains(rootH(t, result), forbidden) || strings.Contains(numericH(t, result), forbidden) {
 			t.Fatalf("generated output contains the removed bit-cast form %q", forbidden)
 		}
 	}
@@ -182,8 +182,8 @@ func TestEndianByteConversion(t *testing.T) {
 		"hex_v_from_big = hex_from_be_bytes_uint32_t(&(hex_v_big));",
 		"static inline int16_t hex_from_le_bytes_int16_t(const hex_array_UInt8_2 *bytes) {",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(numericH(t, result), want) {
+			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), numericH(t, result), want)
 		}
 	}
 }

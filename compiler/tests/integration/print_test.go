@@ -12,7 +12,6 @@ func TestPrintScalars(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"static void hex_print_bytes(const uint8_t *data, size_t length) {",
 		"hex_print_int32(hex_print_arg_2);",
 		"hex_print_bool(hex_print_arg_4);",
 		"hex_print_bool(hex_print_arg_5);",

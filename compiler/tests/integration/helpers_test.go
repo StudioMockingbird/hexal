@@ -115,3 +115,13 @@ func stringC(t *testing.T, result compiler.CompilationResult) string {
 	t.Helper()
 	return moduleFile(t, result, "hexal/string.c")
 }
+
+func numericH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/numeric.h")
+}
+
+func printH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/print.h")
+}

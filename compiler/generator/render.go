@@ -309,7 +309,7 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 		if hasPendingErrDefers(state) {
 			state.returnCounter++
 			errorName := fmt.Sprintf("hex_err_%d", state.returnCounter)
-			fmt.Fprintf(&builder, "%sconst bool %s = %s;\n", indent, errorName, returnErrorExit(statement.Value.Type, name))
+			fmt.Fprintf(&builder, "%sconst bool %s = %s;\n", indent, errorName, returnErrorExit(statement.Value.Type, name, state.tags))
 			if err := unwindAllDefers(&builder, state, indent, errorName); err != nil {
 				return "", err
 			}
@@ -441,6 +441,7 @@ type expressionValidation struct {
 	registeredDefers []checker.DeferredAction
 	printCounter     int              // unique hex_print_arg_N stems for print temporaries
 	strings          *literalRegistry // payload lookup for checked string rendering
+	tags             *tagRegistry     // program-wide discriminant lookups
 }
 
 type generatedBinding struct {
@@ -924,7 +925,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if !ok {
 			representation, index = node.OperandType, unionMemberIndex(node.OperandType, compilerTypes.Nil)
 		}
-		return operand + ".tag " + operator + " " + unionTagName(representation, index), nil
+		return operand + ".tag " + operator + " " + state.tags.unionMemberTag(compilerTypes.UnionMembers(representation)[index]), nil
 	case checker.UnionInjectionExpression:
 		return renderUnionInjection(node, state)
 	case checker.UnionWidenExpression:

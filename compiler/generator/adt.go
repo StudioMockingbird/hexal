@@ -30,9 +30,6 @@ func discoverGeneratedADTs(program checker.Program) *generatedAdtState {
 
 	return state
 }
-func adtTagName(adt *compilerTypes.AdtType, index int) string {
-	return "hex_" + compilerTypes.SanitizeIdentifier(adt.Name) + "_" + compilerTypes.SanitizeIdentifier(adt.Variants[index].Name)
-}
 
 func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
 	if state == nil || len(state.order) == 0 {
@@ -40,15 +37,10 @@ func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
 	}
 	for _, adtType := range state.order {
 		adt := adtType.Adt
-		name := compilerTypes.SanitizeIdentifier(adt.Name)
+		name := adt.CName
 		result.WriteString("\n")
-		fmt.Fprintf(result, "typedef enum {\n")
-		for index := range adt.Variants {
-			fmt.Fprintf(result, "    %s,\n", adtTagName(adt, index))
-		}
-		fmt.Fprintf(result, "} hex_%s_tag;\n", name)
-		fmt.Fprintf(result, "typedef struct hex_%s {\n", name)
-		fmt.Fprintf(result, "    hex_%s_tag tag;\n", name)
+		fmt.Fprintf(result, "typedef struct %s {\n", name)
+		fmt.Fprintf(result, "    hex_tag tag;\n")
 		hasPayload := false
 		for _, variant := range adt.Variants {
 			if len(variant.Payload) > 0 {
@@ -70,19 +62,20 @@ func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
 			}
 			fmt.Fprintf(result, "    } payload;\n")
 		}
-		fmt.Fprintf(result, "} hex_%s;\n", name)
+		fmt.Fprintf(result, "} %s;\n", name)
 	}
 }
 
+// renderAdtConstruct lowers an ADT construction to a compound literal whose
+// tag is the shared variant discriminant.
 func renderAdtConstruct(node checker.Expression, state *expressionValidation) (string, error) {
 	adt := node.ResultType.Adt
 	if adt == nil || node.VariantIndex < 0 || node.VariantIndex >= len(adt.Variants) {
 		return "", unknownExpressionDiagnostic("ADT construction has invalid checked metadata")
 	}
 	variant := &adt.Variants[node.VariantIndex]
-	base := compilerTypes.SanitizeIdentifier(adt.Name)
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "(hex_%s){ .tag = %s", base, adtTagName(adt, node.VariantIndex))
+	fmt.Fprintf(&builder, "(%s){ .tag = %s", adt.CName, state.tags.adtVariantTag(adt, node.VariantIndex))
 	if len(variant.Payload) > 0 {
 		if len(node.Arguments) != len(variant.Payload) {
 			return "", unknownExpressionDiagnostic("ADT construction payload count does not match its variant")
@@ -152,9 +145,9 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 			emittedIf = true
 			switch {
 			case node.OperandType.Adt != nil:
-				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, adtTagName(node.OperandType.Adt, tag))
+				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.adtVariantTag(node.OperandType.Adt, tag))
 			case node.OperandType.Union != nil:
-				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, unionTagName(node.OperandType, tag))
+				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(compilerTypes.UnionMembers(node.OperandType)[tag]))
 			case tag == 1:
 				fmt.Fprintf(body, "%sif (%s) {\n", indent, temp)
 			default:

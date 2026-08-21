@@ -23,8 +23,8 @@ func TestConversionMethods(t *testing.T) {
 		"hex_v_letter = hex_convert_int64_t_rune(hex_v_wide);",
 		"(uint32_t)hex_v_letter",
 	} {
-		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
-			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
+		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(numericH(t, result), want) {
+			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), numericH(t, result), want)
 		}
 	}
 	// Rune to UInt32 is same width: it lowers directly and never emits the
@@ -266,36 +266,36 @@ func TestDirectConversionLowering(t *testing.T) {
 func TestCheckedConversionLowering(t *testing.T) {
 	// Int64 to Int8 keeps one range-checking helper for repeated uses.
 	result := assertCompiles(t, "fun demo() do\n    wide: Int64 := 9_000_000_000\n    a: Int8 := wide.to<Int8>()\n    b: Int8 := wide.to<Int8>()\nend")
-	if strings.Count(rootH(t, result), "static inline int8_t hex_convert_int64_t_int8_t") != 1 {
-		t.Fatalf("modules/app.h = %q, want one deduplicated helper", rootH(t, result))
+	if strings.Count(numericH(t, result), "static inline int8_t hex_convert_int64_t_int8_t") != 1 {
+		t.Fatalf("hexal/numeric.h = %q, want one deduplicated helper", numericH(t, result))
 	}
 	// Signed to unsigned retains lower and upper checks.
 	result = assertCompiles(t, "fun demo() do\n    value: Int32 := -3\n    code: UInt32 := value.to<UInt32>()\nend")
-	headerText := rootH(t, result)
+headerText := numericH(t, result)
 	for _, want := range []string{"static inline uint32_t hex_convert_int32_t_uint32_t(int32_t value) {", "if (!(value >= 0 && value <= UINT32_MAX)) {"} {
 		if !strings.Contains(headerText, want) {
-			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+			t.Fatalf("hexal/numeric.h = %q, want %q", headerText, want)
 		}
 	}
 	// Integer to Rune retains Unicode scalar validation.
 	result = assertCompiles(t, "fun demo() do\n    value: UInt32 := 0x1F600\n    letter: Rune := value.to<Rune>()\nend")
-	headerText = rootH(t, result)
+	headerText = numericH(t, result)
 	for _, want := range []string{"static inline uint32_t hex_convert_uint32_t_rune(uint32_t value) {", "value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)"} {
 		if !strings.Contains(headerText, want) {
-			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+			t.Fatalf("hexal/numeric.h = %q, want %q", headerText, want)
 		}
 	}
 	// Float64 to Float32 retains the finite-overflow validation.
 	result = assertCompiles(t, "fun demo() do\n    value: Float64 := 1.5\n    small: Float32 := value.to<Float32>()\nend")
-	headerText = rootH(t, result)
+	headerText = numericH(t, result)
 	for _, want := range []string{"static inline float hex_convert_double_float(double value) {", "if (isfinite(value) && isinf(result)) {"} {
 		if !strings.Contains(headerText, want) {
-			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+			t.Fatalf("hexal/numeric.h = %q, want %q", headerText, want)
 		}
 	}
 	// Mixed safe and checked emit helpers only for the checked pair.
 	result = assertCompiles(t, "fun demo() do\n    value: UInt8 := 12\n    wide: Float64 := value.to<Float64>()\n    big: Int64 := 9_000_000_000\n    narrow: Int8 := big.to<Int8>()\nend")
-	headerText = rootH(t, result)
+	headerText = numericH(t, result)
 	if !strings.Contains(headerText, "hex_convert_int64_t_int8_t") || strings.Contains(headerText, "hex_convert_uint8_t_double") {
 		t.Fatalf("modules/app.h = %q, want only the checked helper", headerText)
 	}
@@ -305,7 +305,7 @@ func TestCheckedConversionLowering(t *testing.T) {
 // and cast the truncated temporary.
 func TestFloatToIntegerHelperBounds(t *testing.T) {
 	result := assertCompiles(t, "fun demo() do\n    value: Float64 := 3.75\n    signed: Int64 := value.to<Int64>()\n    code: UInt64 := value.to<UInt64>()\n    count: Size := value.to<Size>()\nend")
-	headerText := rootH(t, result)
+	headerText := numericH(t, result)
 	for _, want := range []string{
 		"static inline int64_t hex_convert_double_int64_t(double value) {",
 		"double truncated = trunc(value);",
@@ -317,24 +317,24 @@ func TestFloatToIntegerHelperBounds(t *testing.T) {
 		"return (size_t)truncated;",
 	} {
 		if !strings.Contains(headerText, want) {
-			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+			t.Fatalf("hexal/numeric.h = %q, want %q", headerText, want)
 		}
 	}
 	for _, forbidden := range []string{"INT64_MAX", "UINT64_MAX", "truncated <= SIZE_MAX", "fromfp", "ufromfp", "errno", "truncated >= -9223372036854775808.0"} {
 		if strings.Contains(headerText, forbidden) {
-			t.Fatalf("modules/app.h = %q, must not contain %q", headerText, forbidden)
+			t.Fatalf("hexal/numeric.h = %q, must not contain %q", headerText, forbidden)
 		}
 	}
 	// Float32 sources truncate with truncf and check exact bounds.
 	result = assertCompiles(t, "fun demo() do\n    value: Float32 := 3.75\n    whole: Int16 := value.to<Int16>()\n    count: Size := value.to<Size>()\nend")
-	headerText = rootH(t, result)
+	headerText = numericH(t, result)
 	for _, want := range []string{
 		"float truncated = truncf(value);",
 		"if (!(truncated >= -0x1p15 && truncated < 0x1p15)) {",
 		"if (!(truncated >= 0.0 && truncated < (float)SIZE_MAX + 1.0f)) {",
 	} {
 		if !strings.Contains(headerText, want) {
-			t.Fatalf("modules/app.h = %q, want %q", headerText, want)
+			t.Fatalf("hexal/numeric.h = %q, want %q", headerText, want)
 		}
 	}
 }

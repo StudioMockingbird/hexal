@@ -233,3 +233,30 @@ const hex_string *hex_strand_to_string(hex_heap h, hex_strand text) {
     return hex_string_from_bytes(h, text.data, length);
 }
 {{end}}
+{{if .NeedEquality}}
+bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {
+    if (left->byte_length != right->byte_length) {
+        return false;
+    }
+    if (left->byte_length != 0) {
+        if (memcmp(left->data, right->data, left->byte_length) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+{{end}}
+{{if .NeedOrdering}}
+int hex_compare_hex_string(const hex_string *left, const hex_string *right) {
+    size_t limit = left->byte_length < right->byte_length ? left->byte_length : right->byte_length;
+    if (limit != 0) {
+        int result = memcmp(left->data, right->data, limit);
+        if (result != 0) {
+            return result;
+        }
+    }
+    if (left->byte_length < right->byte_length) return -1;
+    if (left->byte_length > right->byte_length) return 1;
+    return 0;
+}
+{{end}}

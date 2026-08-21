@@ -1040,8 +1040,7 @@ MutPtr<T>.write_volatile(value: T) -> no value
   faulted stack cannot run `hex_runtime_trap`; it keeps the same `[Runtime Error]` message shape. An
   impossible compiler-internal union tag guard may retain a direct `abort()` (RFC 0069 Amendment 2).
 - Nil renders the C23 `nullptr` keyword, no generated C spells `NULL`, and `nullptr_t` never appears
-  as a type spelling (it may appear inside union identifier encodings such as
-  `hex_union_7_int32_t9_nullptr_t`, which are names, not spellings). Nil alone
+  as a type spelling. Nil alone
   selects no standard header; `<stddef.h>` is selected only by a real declaration consumer such as
   `size_t` (RFC 0069 Amendment 2).
 - Objects/ADTs lower to source-ordered structs; unions to checked tagged values except pointer-null
@@ -1096,18 +1095,19 @@ MutPtr<T>.write_volatile(value: T) -> no value
 - The component artifacts under `hexal/` own the generated runtime support, one family per file,
   emitted only when that family is reachable: `hexal/runtime.c` (the `hex_runtime_trap`
   definition), `hexal/wrap.h`, `hexal/heap.h`/`hexal/heap.c`, `hexal/view.h`, `hexal/string.h`/
-  `hexal/string.c`, `hexal/error.h`, `hexal/list.h`, `hexal/dict.h`, `hexal/array.h`, and
+  `hexal/string.c`, `hexal/error.h`, `hexal/list.h`, `hexal/dict.h`, `hexal/array.h`,
+  `hexal/numeric.h`, `hexal/print.h`/`hexal/print.c`, `hexal/equality.h`, and
   `hexal/concurrency.h`/`hexal/concurrency.c`. Their source of truth is the compiler's embedded C/
   header templates; a `.c` artifact is emitted only when it contains at least one definition.
   Component headers have stable `HEXAL_<COMPONENT>_H` guards, include `hexal.h` first and then only
-  their declared dependencies (heap, view, string, error, list, dict, array, concurrency follow the
-  acyclic component graph), and are emitted once per compilation. Component `.c` files include their
-  matching header first and own the externally linked definitions and mutable state of that
-  component; no module header or C file defines them.
+  their declared dependencies (heap, view, string, error, list, dict, array, numeric, print,
+  equality, concurrency follow the acyclic component graph), and are emitted once per compilation.
+  Component `.c` files include their matching header first and own the externally linked definitions
+  and mutable state of that component; no module header or C file defines them.
 - `modules/<canonical>.h` is one module's header: it includes `hexal.h` first, then exactly the
   component headers that module's generated content requires (in dependency order), holds the
-  module's types (ADTs, unions, objects) and stateless inline helpers (print, equality,
-  conversions, shifts, bitcasts, endian, typed heap allocation helpers, typed atomic and
+  module's types (ADTs, unions, objects) and stateless inline helpers (module-owned equality,
+  module-owned print adapters, typed heap allocation helpers, typed atomic and
   channel/mutex/task inline helpers), the entry-adapter argument frames of its spawn sites,
   referenced complete type definitions, and its exported and referenced cross-module prototypes.
   Root selection adds nothing to this header. Its guard is
@@ -1130,15 +1130,32 @@ MutPtr<T>.write_volatile(value: T) -> no value
   source key; compiler-generated runtime machinery has no user-source mapping.
 - A module owner encodes as `m` followed, for each canonical path component, by its decimal UTF-8
   byte length, `_`, and case-preserved source spelling. Module-owned symbols are
-  `hex_<kind>_<encoded-owner>_<name>`; guards are `HEX_MODULE_<encoded-owner>_H`. Unions apply the
-  same length-delimited encoding to canonical member C names, so identical unions in every module
-  spell one C type.
+  `hex_<kind>_<encoded-owner>_<name>`; guards are `HEX_MODULE_<encoded-owner>_H`.
+- Generated definition-keying type names are injective on canonical type identity: two distinct
+  Hexal types never share a generated C name that introduces a definition. Nominal objects and
+  ADTs spell `hex_t_<encoded-owner>_<Name>`; structural unions spell `hex_t_` plus each canonical
+  member's sanitized display name joined with `_`. Uniqueness is established once per compilation
+  by the shared constructed-type arena: every concrete nominal name is reserved before any union
+  is constructed and never moves, while a union whose base name another distinct type already owns
+  appends `_0`, `_1`, and so on. The same union written in any module spells one C type (RFC 0095).
+- General tagged unions and concrete ADTs share one program-wide discriminant enum `hex_tag`
+  (RFC 0099), emitted once in `hexal.h` before every module-header use and omitted when no
+  reachable general union or ADT exists. Each canonical union-member type and each canonical ADT
+  variant resolves to exactly one `hex_tag_<label>` constant, deduplicated by canonical identity
+  and sorted by it; labels are the encoded module owner plus the sanitized name for nominal types
+  (`hex_tag_m3_app_Shape_Circle`) and the bare sanitized name for compiler-owned builtins
+  (`hex_tag_Int32`, `hex_tag_Nil`). Colliding labels resolve in identity order: the first keeps
+  the base, later ones append `_0`, `_1`, and so on. A union's payload member is an inline
+  anonymous union with one `hex_m_<label>` field per member; Nil, EoS, and payload-free ADT
+  variants have a discriminant and no payload field. Every union and ADT struct carries
+  `hex_tag tag`; widening copies the source tag. Generated tag spellings flow only through the
+  registry: a lookup for an identity that was never collected is a compiler error, never a
+  locally reconstructed name or ordinal.
 - Collection C names derive from the element's display name (`hex_list_`, `hex_dict_`, `hex_view_`,
   `hex_array_`, `hex_task_`, `hex_channel_`, `hex_atomic_`). When same-named elements from distinct
   modules would derive one C name, the later interned specialization appends `_` plus the encoded
   owner of its element's defining module; resolution happens once at interning, so a typedef and
-  every helper suffix derived from its name stay paired. Unions encode their members directly and
-  never need this rule.
+  every helper suffix derived from its name stay paired.
 - The artifact set contains no top-level `main.c`, `main.h`, or compatibility header; the
   entrypoint's canonical module C file supplies `main()`.
 - Invalid or unsupported source produces a structured diagnostic and is never silently omitted or

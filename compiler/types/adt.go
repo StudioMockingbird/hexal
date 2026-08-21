@@ -26,15 +26,22 @@ func IsADT(typ Type) bool { return typ.Adt != nil }
 
 // BeginADT publishes a provisional nominal ADT identity and binds the source
 // name before variants are resolved, so payload fields may reach the ADT
-// behind a pointer layer.
+// behind a pointer layer. The ADT is stamped with the declaring module's
+// canonical id, like the object family, so the C name is owner-qualified and
+// two ADTs named alike in different modules never collide; the name is
+// reserved as definition-keying.
 func (environment *Environment) BeginADT(name string, sourceLine, sourceColumn int) Type {
 	if environment == nil {
 		return Type{}
 	}
 	identity := newTypeIdentity(environment.identity)
+	cName := "hex_t_" + SanitizeIdentifier(name)
+	if environment.owner != "" {
+		cName = "hex_t_" + environment.owner + "_" + SanitizeIdentifier(name)
+	}
 	adt := &AdtType{
 		Name:         name,
-		CName:        "hex_" + SanitizeIdentifier(name),
+		CName:        cName,
 		SourceLine:   sourceLine,
 		SourceColumn: sourceColumn,
 		identity:     identity,
@@ -47,6 +54,7 @@ func (environment *Environment) BeginADT(name string, sourceLine, sourceColumn i
 		Adt:          adt,
 		identity:     identity,
 	}
+	environment.arena.ReserveDefinitionName(cName, typ)
 	environment.names[name] = typ
 	return typ
 }

@@ -90,45 +90,10 @@ func discoverGeneratedPrint(program checker.Program) *generatedPrintState {
 
 // writePrintDefinitions emits the shared print runtime and the per-concrete
 // nested aggregate helpers.
-func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) {
+func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, tags *tagRegistry) {
 	if state == nil || !state.used {
 		return
 	}
-	result.WriteString("static void hex_print_bytes(const uint8_t *data, size_t length) {\n")
-	result.WriteString("    if (fwrite(data, 1, length, stdout) != length) {\n        hex_runtime_trap(\"[Runtime Error] standard output write failed\\n\");\n    }\n}\n")
-	result.WriteString("static void hex_print_text(const uint8_t *data, size_t length) {\n    hex_print_bytes(data, length);\n}\n")
-	result.WriteString("static void hex_print_bool(bool value) {\n")
-	result.WriteString("    if (value) { hex_print_bytes((const uint8_t *)\"true\", 4); } else { hex_print_bytes((const uint8_t *)\"false\", 5); }\n}\n")
-	result.WriteString("static void hex_print_nil(void) {\n    hex_print_bytes((const uint8_t *)\"nil\", 3);\n}\n")
-	for _, width := range []string{"8", "16", "32", "64"} {
-		fmt.Fprintf(result, "static void hex_print_int%s(int%s_t value) {\n    char buffer[32];\n    int n = snprintf(buffer, sizeof buffer, \"%%\" PRId%s, value);\n    hex_print_bytes((const uint8_t *)buffer, (size_t)n);\n}\n", width, width, width)
-		fmt.Fprintf(result, "static void hex_print_uint%s(uint%s_t value) {\n    char buffer[32];\n    int n = snprintf(buffer, sizeof buffer, \"%%\" PRIu%s, value);\n    hex_print_bytes((const uint8_t *)buffer, (size_t)n);\n}\n", width, width, width)
-	}
-	result.WriteString("static void hex_print_size(size_t value) {\n    char buffer[32];\n    int n = snprintf(buffer, sizeof buffer, \"%zu\", value);\n    hex_print_bytes((const uint8_t *)buffer, (size_t)n);\n}\n")
-	result.WriteString("static void hex_print_float64(double value) {\n")
-	result.WriteString("    if (isnan(value)) { hex_print_text((const uint8_t *)\"nan\", 3); return; }\n")
-	result.WriteString("    if (isinf(value)) { hex_print_text((const uint8_t *)\"inf\", 3); return; }\n")
-	result.WriteString("    if (signbit(value)) { hex_print_text((const uint8_t *)\"-\", 1); value = -value; }\n")
-	result.WriteString("    if (value == 0.0) { hex_print_text((const uint8_t *)\"0\", 1); return; }\n")
-	result.WriteString("    char buffer[64];\n    int n = snprintf(buffer, sizeof buffer, \"%.17g\", value);\n    hex_print_bytes((const uint8_t *)buffer, (size_t)n);\n}\n")
-	result.WriteString("static void hex_print_float32(float value) {\n")
-	result.WriteString("    if (isnan(value)) { hex_print_text((const uint8_t *)\"nan\", 3); return; }\n")
-	result.WriteString("    if (isinf(value)) { hex_print_text((const uint8_t *)\"inf\", 3); return; }\n")
-	result.WriteString("    if (signbit(value)) { hex_print_text((const uint8_t *)\"-\", 1); value = -value; }\n")
-	result.WriteString("    if (value == 0.0f) { hex_print_text((const uint8_t *)\"0\", 1); return; }\n")
-	result.WriteString("    char buffer[64];\n    int n = snprintf(buffer, sizeof buffer, \"%.9g\", value);\n    hex_print_bytes((const uint8_t *)buffer, (size_t)n);\n}\n")
-	result.WriteString("static void hex_print_rune(uint32_t value) {\n")
-	result.WriteString("    uint8_t bytes[4];\n    size_t length = 0;\n    if (value < 0x80) { bytes[0] = (uint8_t)value; length = 1; }\n")
-	result.WriteString("    else if (value < 0x800) { bytes[0] = (uint8_t)(0xC0 | (value >> 6)); bytes[1] = (uint8_t)(0x80 | (value & 0x3F)); length = 2; }\n")
-	result.WriteString("    else if (value < 0x10000) { bytes[0] = (uint8_t)(0xE0 | (value >> 12)); bytes[1] = (uint8_t)(0x80 | ((value >> 6) & 0x3F)); bytes[2] = (uint8_t)(0x80 | (value & 0x3F)); length = 3; }\n")
-	result.WriteString("    else { bytes[0] = (uint8_t)(0xF0 | (value >> 18)); bytes[1] = (uint8_t)(0x80 | ((value >> 12) & 0x3F)); bytes[2] = (uint8_t)(0x80 | ((value >> 6) & 0x3F)); bytes[3] = (uint8_t)(0x80 | (value & 0x3F)); length = 4; }\n")
-	result.WriteString("    hex_print_bytes(bytes, length);\n}\n")
-	result.WriteString("static void hex_print_quoted_text(const uint8_t *data, size_t length) {\n")
-	result.WriteString("    hex_print_text((const uint8_t *)\"\\\"\", 1);\n    for (size_t index = 0; index < length; index++) {\n        uint8_t c = data[index];\n        switch (c) {\n        case '\"': hex_print_text((const uint8_t *)\"\\\\\\\"\", 2); break;\n        case '\\\\': hex_print_text((const uint8_t *)\"\\\\\\\\\", 2); break;\n        case 0: hex_print_text((const uint8_t *)\"\\\\0\", 2); break;\n        case '\\n': hex_print_text((const uint8_t *)\"\\\\n\", 2); break;\n        case '\\r': hex_print_text((const uint8_t *)\"\\\\r\", 2); break;\n        case '\\t': hex_print_text((const uint8_t *)\"\\\\t\", 2); break;\n        default:\n            if (c < 0x20 || c == 0x7F) {\n                char escape[6];\n                int n = snprintf(escape, sizeof escape, \"\\\\x%02X\", c);\n                hex_print_bytes((const uint8_t *)escape, (size_t)n);\n            } else {\n                hex_print_bytes((const uint8_t *)&c, 1);\n            }\n        }\n    }\n    hex_print_text((const uint8_t *)\"\\\"\", 1);\n}\n")
-	result.WriteString("static void hex_print_quoted_rune(uint32_t value) {\n")
-	result.WriteString("    hex_print_text((const uint8_t *)\"'\", 1);\n")
-	result.WriteString("    switch (value) {\n    case '\\\\': hex_print_text((const uint8_t *)\"\\\\\\\\\", 2); break;\n    case 0: hex_print_text((const uint8_t *)\"\\\\0\", 2); break;\n    case '\\n': hex_print_text((const uint8_t *)\"\\\\n\", 2); break;\n    case '\\r': hex_print_text((const uint8_t *)\"\\\\r\", 2); break;\n    case '\\t': hex_print_text((const uint8_t *)\"\\\\t\", 2); break;\n    default:\n        if (value < 0x20 || value == 0x7F) {\n            char escape[16];\n            int n = snprintf(escape, sizeof escape, \"\\\\u{%X}\", value);\n            hex_print_bytes((const uint8_t *)escape, (size_t)n);\n        } else {\n            hex_print_rune(value);\n        }\n    }\n")
-	result.WriteString("    hex_print_text((const uint8_t *)\"'\", 1);\n}\n")
 	errorUsedByPrint := false
 	for _, typ := range state.types {
 		if compilerTypes.IsError(typ) {
@@ -161,7 +126,7 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState) 
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value);\n", typ.CName)
 	}
 	for _, typ := range state.types {
-		writePrintNestedHelper(result, typ)
+		writePrintNestedHelper(result, typ, tags)
 	}
 }
 
@@ -179,7 +144,7 @@ func printNestedAddress(typ compilerTypes.Type, expression string) string {
 	return "&(" + expression + ")"
 }
 
-func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type) {
+func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type, tags *tagRegistry) {
 	switch {
 	case compilerTypes.IsString(typ):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const hex_string *text = value;\n    hex_print_quoted_text(text->data, text->byte_length);\n}\n", typ.CName)
@@ -220,7 +185,7 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type) {
 		adt := typ.Adt
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    switch (v->tag) {\n", typ.CName, typ.CName)
 		for variantIndex, variant := range adt.Variants {
-			fmt.Fprintf(result, "    case %d:\n", variantIndex)
+			fmt.Fprintf(result, "    case %s:\n", tags.adtVariantTag(adt, variantIndex))
 			fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\"%s.%s\", %d);\n", adt.Name, variant.Name, len(adt.Name)+1+len(variant.Name))
 			if len(variant.Payload) > 0 {
 				fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\" { \", 3);\n")

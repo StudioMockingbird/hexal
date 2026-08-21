@@ -11,7 +11,7 @@ func TestADTDeclarationWithRecordVariants(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_Shape_tag") || !strings.Contains(rootC(t, result), ".payload.Circle") {
+	if !strings.Contains(rootH(t, result), "hex_tag_m3_app_Shape_Circle") || !strings.Contains(rootC(t, result), ".payload.Circle") {
 		t.Fatalf("generated output = H:%q C:%q, want ADT tag and payload", rootH(t, result), rootC(t, result))
 	}
 }
@@ -21,7 +21,7 @@ func TestADTUnitVariantEnumBehavior(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_Direction_North") || strings.Contains(rootH(t, result), "payload") {
+	if !strings.Contains(rootH(t, result), "hex_tag_m3_app_Direction_North") || strings.Contains(rootH(t, result), "payload") {
 		t.Fatalf("generated header = %q, want tag-only unit variants", rootH(t, result))
 	}
 }
@@ -69,7 +69,7 @@ func TestMatchTypeModeVariantArmsNarrowPayload(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), ".tag == hex_Shape_Circle") || !strings.Contains(rootC(t, result), ".payload.Circle.hex_m_r") {
+	if !strings.Contains(rootC(t, result), ".tag == hex_tag_m3_app_Shape_Circle") || !strings.Contains(rootC(t, result), ".payload.Circle.hex_m_r") {
 		t.Fatalf("generated C = %q, want narrowed variant payload", rootC(t, result))
 	}
 }
@@ -110,7 +110,7 @@ func TestGeneratedADTTagLayoutAndInvalidTagTrap(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_Shape_tag") || !strings.Contains(rootH(t, result), "typedef struct hex_Shape") {
+	if !strings.Contains(rootH(t, result), "hex_tag_m3_app_Shape_Circle") || !strings.Contains(rootH(t, result), "typedef struct hex_t_m3_app_Shape") {
 		t.Fatalf("generated header = %q, want deterministic tag-and-payload layout", rootH(t, result))
 	}
 }
@@ -127,7 +127,7 @@ func TestGenericADTSpecializesAndMatches(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_Result_Int32__Bool__tag") || !strings.Contains(rootC(t, result), ".payload.Ok.hex_m_value") {
+	if !strings.Contains(rootH(t, result), "hex_tag_m3_app_Result_Int32__Bool__Ok") || !strings.Contains(rootC(t, result), ".payload.Ok.hex_m_value") {
 		t.Fatalf("generated output = H:%q C:%q, want specialized ADT and match", rootH(t, result), rootC(t, result))
 	}
 }
@@ -137,8 +137,26 @@ func TestGenericADTUnitVariantNoPayload(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_Maybe_Int32_") {
+	if !strings.Contains(rootH(t, result), "hex_t_m3_app_Maybe_Int32_") {
 		t.Fatalf("generated header = %q, want specialized unit variant ADT", rootH(t, result))
+	}
+}
+
+// Two modules may each declare a Shape ADT; the owner segment in the C name
+// keeps the distinct types apart, each defined once.
+func TestTwoModulesDeclaringSameADTStayDistinct(t *testing.T) {
+	sources := map[string]string{
+		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nb: M.Shape := M.make()\nc: S.Shape := S.make()\n",
+		"m.hex":   "export type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
+		"s.hex":   "export type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
+	}
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile rejected same-named ADTs across modules: %v", result.Stderr)
+	}
+	rootH := result.Files["modules/app.h"]
+	if strings.Count(rootH, "typedef struct hex_t_m1_m_Shape") != 1 || strings.Count(rootH, "typedef struct hex_t_m1_s_Shape") != 1 {
+		t.Fatalf("same-named ADTs must be distinct and defined once:\n%s", rootH)
 	}
 }
 

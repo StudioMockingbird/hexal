@@ -38,18 +38,6 @@ func discoverGeneratedShifts(program checker.Program) []shiftSpec {
 	return specs
 }
 
-// writeShiftDefinitions emits one guarded helper per (operator, type) pair.
-// The count is validated against the left operand's width before any C
-// shift executes.
-func writeShiftDefinitions(result *strings.Builder, specs []shiftSpec) {
-	if len(specs) == 0 {
-		return
-	}
-	for _, spec := range specs {
-		writeShiftHelper(result, spec)
-	}
-}
-
 func shiftHelperName(spec shiftSpec) string {
 	prefix := "hex_shl_"
 	if spec.operator == checker.ShiftRightOperator {
@@ -213,17 +201,6 @@ func discoverGeneratedEndian(program checker.Program) []endianSpec {
 	}
 	walkProgram(program, visitor)
 	return specs
-}
-
-// writeEndianDefinitions emits the byte-order conversion helpers. Byte order
-// is defined by significance, independent of host endianness.
-func writeEndianDefinitions(result *strings.Builder, specs []endianSpec) {
-	if len(specs) == 0 {
-		return
-	}
-	for _, spec := range specs {
-		writeEndianHelper(result, spec)
-	}
 }
 
 func writeEndianHelper(result *strings.Builder, spec endianSpec) {

@@ -154,7 +154,7 @@ func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
 // bindings, so their declarators carry top-level const. external is true for
 // functions the generated spawn adapters must call; those keep external
 // linkage, everything else is static to its module C file.
-func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string, external bool) error {
+func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string, external bool, tags *tagRegistry) error {
 	signature := declared.Type.Signature
 	if signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
 		return unknownExpressionDiagnostic("function declaration without a checked Fun type")
@@ -192,6 +192,7 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 		strings:        stringState,
 		owner:          owner,
 		filename:       filename,
+		tags:           tags,
 	}
 	state.pushScope()
 	parameters := make([]string, len(declared.Parameters))
@@ -231,7 +232,7 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 // function. The implicit receiver is the first fixed parameter; its written
 // receiver type determines whether C receives a structure copy, a read-only
 // pointer, or a writable pointer.
-func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string) error {
+func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string, tags *tagRegistry) error {
 	if declared.Object == nil || declared.SelfBinding == 0 || !validSourceName(declared.Name) {
 		return unknownExpressionDiagnostic("method declaration is missing checked receiver metadata")
 	}
@@ -263,6 +264,7 @@ func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclara
 		strings:        stringState,
 		owner:          owner,
 		filename:       filename,
+		tags:           tags,
 	}
 	state.pushScope()
 	selfName, selfErr := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, false)
@@ -447,14 +449,14 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 
 // writeSpecializedDefinitions emits the concrete bodies of every
 // specialization in cache order.
-func writeSpecializedDefinitions(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, functionsTable map[string]compilerTypes.Type, methodsTable map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string) error {
+func writeSpecializedDefinitions(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, functionsTable map[string]compilerTypes.Type, methodsTable map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string, tags *tagRegistry) error {
 	for _, declared := range functions {
-		if definitionErr := writeFunctionDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, owner, filename, false); definitionErr != nil {
+		if definitionErr := writeFunctionDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, owner, filename, false, tags); definitionErr != nil {
 			return definitionErr
 		}
 	}
 	for _, declared := range methods {
-		if definitionErr := writeMethodDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, owner, filename); definitionErr != nil {
+		if definitionErr := writeMethodDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, owner, filename, tags); definitionErr != nil {
 			return definitionErr
 		}
 	}

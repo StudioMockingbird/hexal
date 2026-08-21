@@ -316,7 +316,8 @@ func TestGenerateDirectConversionEmitsCastOnly(t *testing.T) {
 func TestGenerateCheckedConversionSelectsHelperAndTrap(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: Float64 := 3.75\n    whole: Int32 := value.to<Int32>()\nend")
 	files := generateOne(t, program)
-	rootC, rootH, header := files["modules/app.c"], files["modules/app.h"], files["hexal.h"]
+	rootC, header := files["modules/app.c"], files["hexal.h"]
+	numericH := files["hexal/numeric.h"]
 	for _, want := range []string{
 		"static inline int32_t hex_convert_double_int32_t(double value) {",
 		"if (isnan(value) || isinf(value)) {",
@@ -324,8 +325,8 @@ func TestGenerateCheckedConversionSelectsHelperAndTrap(t *testing.T) {
 		"if (!(truncated >= -0x1p31 && truncated < 0x1p31)) {",
 		"return (int32_t)truncated;",
 	} {
-		if !strings.Contains(rootH, want) {
-			t.Fatalf("modules/app.h = %q, want %q", rootH, want)
+		if !strings.Contains(numericH, want) {
+			t.Fatalf("hexal/numeric.h = %q, want %q", numericH, want)
 		}
 	}
 	if !strings.Contains(header, "[[noreturn]] void hex_runtime_trap(const char *message);") || !strings.Contains(header, "#include <math.h>") {
@@ -342,10 +343,10 @@ func TestGenerateCheckedConversionSelectsHelperAndTrap(t *testing.T) {
 func TestGenerateRepeatedCheckedPairEmitsOneHelper(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    big: Int64 := 9000000000\n    a: Int8 := big.to<Int8>()\n    b: Int8 := big.to<Int8>()\nend")
 	files := generateOne(t, program)
-	rootH := files["modules/app.h"]
+	numericH := files["hexal/numeric.h"]
 	rootC := files["modules/app.c"]
-	if strings.Count(rootH, "static inline int8_t hex_convert_int64_t_int8_t") != 1 {
-		t.Fatalf("modules/app.h = %q, want one deduplicated helper", rootH)
+	if strings.Count(numericH, "static inline int8_t hex_convert_int64_t_int8_t") != 1 {
+		t.Fatalf("hexal/numeric.h = %q, want one deduplicated helper", numericH)
 	}
 	if strings.Count(rootC, "hex_convert_int64_t_int8_t(hex_v_big)") != 2 {
 		t.Fatalf("modules/app.c = %q, want both call sites routed through the helper", rootC)
@@ -355,14 +356,14 @@ func TestGenerateRepeatedCheckedPairEmitsOneHelper(t *testing.T) {
 func TestGenerateMixedSafeAndCheckedEmitsOnlyCheckedHelpers(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    value: UInt8 := 12\n    wide: Float64 := value.to<Float64>()\n    big: Int64 := 9000000000\n    narrow: Int8 := big.to<Int8>()\n    other: Float64 := value.to<Float64>()\nend")
 	files := generateOne(t, program)
-	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
+	rootC, numericH := files["modules/app.c"], files["hexal/numeric.h"]
 	if strings.Count(rootC, "(double)hex_v_value") != 2 {
 		t.Fatalf("modules/app.c = %q, want both safe casts inline", rootC)
 	}
-	if strings.Contains(rootH, "hex_convert_uint8_t_double") || strings.Contains(rootH, "hex_convert_uint8_t_double") {
-		t.Fatalf("modules/app.h = %q, safe pair must not enter the helper set", rootH)
+	if strings.Contains(numericH, "hex_convert_uint8_t_double") {
+		t.Fatalf("hexal/numeric.h = %q, safe pair must not enter the helper set", numericH)
 	}
-	if !strings.Contains(rootH, "static inline int8_t hex_convert_int64_t_int8_t") {
-		t.Fatalf("modules/app.h = %q, want the checked helper", rootH)
+	if !strings.Contains(numericH, "static inline int8_t hex_convert_int64_t_int8_t") {
+		t.Fatalf("hexal/numeric.h = %q, want the checked helper", numericH)
 	}
 }

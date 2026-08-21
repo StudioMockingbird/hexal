@@ -1,7 +1,7 @@
 # RFC 0095: Generated C Naming
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; implementation-ready
+- Status: Closed
 - Created: 2026-08-20
 - Updated: 2026-08-20
 - Scope: make generated structural-union and ADT type names injective on type
@@ -96,7 +96,8 @@ inputs were injective over type identity.
 
 An ADT's C name carries no module segment. Object types do — `hex_t_m3_app_Point`
 — but an ADT is spelled `hex_Shape`. Two modules each declaring a `Shape` is an
-ordinary program, and `reference.md:432` makes those distinct types. Probed:
+ordinary program, and the reference's nominal-identity rule makes those
+distinct types. Probed:
 
 ```hexal
 -- m.hex
@@ -322,7 +323,7 @@ directly, and the reader must chase the alias to learn anything.
 RFC 0099 consumes the injective wrapper and ADT identities established here,
 then separately changes their representation:
 
-- one program-wide `Hex_Tag` replaces union-local and ADT-local tag enums;
+- one program-wide `hex_tag` replaces union-local and ADT-local tag enums;
 - canonical discriminant and payload labels replace ordinal union labels;
 - Nil, EoS, and payload-free ADT variants remain tag-only;
 - union payload storage becomes an unnamed union inside the wrapper.
@@ -388,9 +389,9 @@ This section is exhaustive.
 - `docs/reference.md` records that generated definition-keying names are
   injective on canonical type identity; this RFC adds no discriminant or
   payload-member naming contract.
-- The snippet manifest moves for every snippet containing a union — expect wide
-  movement, since `try` produces one on most non-trivial programs — and for no
-  snippet without one.
+- The snippet manifest moves for every snippet containing a union or ADT —
+  expect wide union movement, since `try` produces one on most non-trivial
+  programs — and for no snippet containing neither.
 - `go test ./...`, `go vet ./...`.
 
 ## Required sweep
@@ -408,6 +409,10 @@ This section is exhaustive.
 - Remove encoder-only helpers and imports that have no caller after
   `unionCName` is replaced. Preserve ordinal tag/payload emission until RFC
   0099; it is not part of this sweep.
+- Replace `unionCName`'s false comment that calls the current member-C-name
+  encoding injective. The replacement comment states the arena reservation and
+  canonical-key contract implemented by this RFC; it must not claim that C
+  spellings alone distinguish Hexal type identities.
 
 ## Non-goals
 

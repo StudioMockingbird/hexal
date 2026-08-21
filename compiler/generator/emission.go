@@ -185,6 +185,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 // never on the requesting module.
 type programEmission struct {
 	errorUsed        bool
+	printUsed        bool
 	heapState        *heapHelpers
 	viewState        *generatedViewState
 	stringState      *literalRegistry
@@ -194,10 +195,29 @@ type programEmission struct {
 	concurrencyState *generatedConcurrencyState
 	wrapState        *generatedWrapState
 	sizeLiterals     []string
+	conversionSpecs  []conversionSpec
+	divisionTypes    []compilerTypes.Type
+	shiftSpecs       []shiftSpec
+	bitCastSpecs     []bitCastSpec
+	endianSpecs      []endianSpec
+	// equalityNeed is true when any module's equality state requires the
+	// shared String equality helper.
+	equalityNeed bool
+	// orderingNeed is true when any module's equality state requires the
+	// shared String ordering helper.
+	orderingNeed bool
+	// equalityTypes collects the program-owned types needing equality
+	// helpers, merged from every module's equality state for the component
+	// builder.
+	equalityTypes []compilerTypes.Type
 	// requirements is the demand-driven standard-header and hex_eos set built
 	// from every reachable module's checked types and selected helper
 	// families.
 	requirements *cHeaderRequirements
+	// tags is the program-wide discriminant registry, finalized before any
+	// file text renders; hexal.h carries the enum, and every tag spelling in
+	// module headers and bodies resolves through it.
+	tags *tagRegistry
 	// adapterSites routes every spawn site to the canonical id of the module
 	// that owns the spawned function, so the entry adapter is emitted beside
 	// the function definition it calls (the adapter never leaves its
@@ -233,13 +253,28 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 	arrayOrders := make([][]compilerTypes.Type, 0, len(modules))
 	listOrders := make([][]compilerTypes.Type, 0, len(modules))
 	dictOrders := make([][]compilerTypes.Type, 0, len(modules))
+	unionOrders := make([][]compilerTypes.Type, 0, len(modules))
+	adtOrders := make([][]compilerTypes.Type, 0, len(modules))
 	sizeSeen := make(map[string]bool)
 	spawnedSites := make(map[string]bool)
 	for _, module := range modules {
 		merged.errorUsed = merged.errorUsed || module.errorUsed
+		if module.equalityState != nil {
+			merged.equalityNeed = merged.equalityNeed || module.equalityState.needString
+			merged.orderingNeed = merged.orderingNeed || module.equalityState.compareNeed
+		}
+		if module.printState != nil && module.printState.used {
+			merged.printUsed = true
+		}
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
 		mergeWrapState(merged.wrapState, module.wrapState)
+		if module.unionState != nil {
+			unionOrders = append(unionOrders, module.unionState.order)
+		}
+		if module.adtState != nil {
+			adtOrders = append(adtOrders, module.adtState.order)
+		}
 		if module.arrayState != nil {
 			arrayOrders = append(arrayOrders, module.arrayState.order)
 			// Accessor demand is recorded while a module body renders, which
@@ -264,12 +299,19 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 				merged.sizeLiterals = append(merged.sizeLiterals, digits)
 			}
 		}
+		mergeNumericSpecs(merged, module)
+		mergeEqualityTypes(merged, module)
 	}
+	sortMergedNumericSpecs(merged)
+	sortMergedEqualityTypes(merged)
 	merged.viewState.views = mergeTypeOrders(viewOrders)
 	merged.arrayState.order = mergeTypeOrders(arrayOrders)
 	merged.listState.order = mergeTypeOrders(listOrders)
 	merged.dictState.order = mergeTypeOrders(dictOrders)
 	merged.adapterSites = routeSpawnSites(merged.concurrencyState)
+	// The discriminant registry finalizes before any file text renders, from
+	// the program-wide union and ADT reachability.
+	merged.tags = buildTagRegistry(unionOrders, adtOrders)
 	// The standard-header and hex_eos requirements aggregate after every
 	// family state is merged, so the umbrella set covers the complete
 	// reachable generated program.
@@ -599,11 +641,11 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
-			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, spawned[privateCName(functionNameKind, declared.Name, owner)]); definitionErr != nil {
+			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, spawned[privateCName(functionNameKind, declared.Name, owner)], merged.tags); definitionErr != nil {
 				return "", "", definitionErr
 			}
 		case checker.MethodDeclaration:
-			if definitionErr := writeMethodDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey); definitionErr != nil {
+			if definitionErr := writeMethodDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, merged.tags); definitionErr != nil {
 				return "", "", definitionErr
 			}
 		}
@@ -616,7 +658,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	if err := writeSpecializedPrototypes(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, typeState, owner); err != nil {
 		return "", "", err
 	}
-	if err := writeSpecializedDefinitions(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, functions, methods, typeState, stringState, owner, logicalKey); err != nil {
+	if err := writeSpecializedDefinitions(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, functions, methods, typeState, stringState, owner, logicalKey, merged.tags); err != nil {
 		return "", "", err
 	}
 
@@ -635,6 +677,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		methods:        methods,
 		generatedTypes: typeState,
 		strings:        stringState,
+		tags:           merged.tags,
 		owner:          owner,
 		filename:       logicalKey,
 		moduleID:       canonicalID,
@@ -695,6 +738,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		printState:    emission.printState,
 		concurrency:   emission.concurrencyState,
 		stringState:   stringState,
+		tags:          merged.tags,
 		views:         emission.viewState,
 		arrays:        emission.arrayState,
 		lists:         emission.listState,
@@ -745,6 +789,9 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, moduleListComponent(emission)...)
 	components = append(components, moduleDictComponent(emission)...)
 	components = append(components, moduleArrayComponent(emission)...)
+	components = append(components, moduleNumericComponent(emission)...)
+	components = append(components, modulePrintComponent(emission)...)
+	components = append(components, moduleEqualityComponent(emission)...)
 	components = append(components, moduleConcurrencyComponent(emission)...)
 	return components
 }
@@ -755,6 +802,9 @@ type hexalHeaderInput struct {
 	sizeLiterals []string
 	// requirements is the demand-driven standard-header and hex_eos set.
 	requirements *cHeaderRequirements
+	// tags carries the finalized program-wide discriminants for the hex_tag
+	// enum block.
+	tags *tagRegistry
 }
 
 // moduleHeaderInput carries every value the module-header builder consumes.
@@ -773,6 +823,7 @@ type moduleHeaderInput struct {
 	printState    *generatedPrintState
 	concurrency   *generatedConcurrencyState
 	stringState   *literalRegistry
+	tags          *tagRegistry
 	canonicalID   string
 	// Collection states feed the module-owned specialization region; the
 	// program-wide component partition keeps the builtin-element records.
@@ -799,6 +850,9 @@ type hexalHeaderModel struct {
 	SizeAsserts  []string
 	Eos          bool
 	TrapDeclared bool
+	// Tags are the finalized program-wide discriminant constants, in enum
+	// order; empty when no reachable general union or ADT exists.
+	Tags []string
 }
 
 // hexalHeader emits hexal.h. Everything here is included by every translation
@@ -809,7 +863,7 @@ type hexalHeaderModel struct {
 // are emitted. The source of truth for the shell is packages/hexal.h; the
 // state data is the program-wide aggregate.
 func hexalHeader(input hexalHeaderInput) (string, error) {
-	model := hexalHeaderModel{SizeAsserts: input.sizeLiterals}
+	model := hexalHeaderModel{SizeAsserts: input.sizeLiterals, Tags: input.tags.constantNames()}
 	if input.requirements != nil {
 		headers := slices.Sorted(maps.Keys(input.requirements.headers))
 		model.Includes = headers
@@ -834,7 +888,7 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 		fmt.Fprintf(&result, "#include \"%s\"\n", component)
 	}
 	writeAdtDefinitions(&result, input.adts)
-	writeUnionDefinitions(&result, input.unions)
+	writeUnionDefinitions(&result, input.unions, input.tags)
 	writeObjectDefinitions(&result, input.objects, input.filename)
 	// Module-owned collection specializations follow their element
 	// definitions: component artifacts are program-wide and cannot declare
@@ -846,18 +900,9 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	// The typed heap allocation helpers reference module-owned element
 	// types, so they follow the object definitions.
 	writeHeapAllocateHelpers(&result, input.heaps)
-	writeShiftDefinitions(&result, input.shiftSpecs)
-	writeBitCastDefinitions(&result, input.bitCastSpecs)
-	writeEndianDefinitions(&result, input.endianSpecs)
-	writePrintDefinitions(&result, input.printState)
-	writeEqualityDefinitions(&result, input.equality)
-	if err := writeDivisionDefinitions(&result, input.divisionTypes); err != nil {
-		return "", err
-	}
-	if err := writeConversionDefinitions(&result, input.conversions); err != nil {
-		return "", err
-	}
-	if err := writeConcurrencyInlineHelpers(&result, input.concurrency, input.stringState); err != nil {
+	writePrintDefinitions(&result, input.printState, input.tags)
+	writeEqualityDefinitions(&result, input.equality, input.tags)
+	if err := writeConcurrencyInlineHelpers(&result, input.concurrency, input.stringState, input.tags); err != nil {
 		return "", err
 	}
 	if input.prototypes != "" {

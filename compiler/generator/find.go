@@ -65,8 +65,8 @@ func renderDictFindExpression(node checker.Expression, state *expressionValidati
 		if valueIndex < 0 {
 			return "", unknownExpressionDiagnostic("dictionary find result has no value member")
 		}
-		present = fmt.Sprintf("(%s){ .tag = %s, .payload.member_%d = *%s }", node.ResultType.CName, unionTagName(node.ResultType, valueIndex), valueIndex, temp)
+		present = fmt.Sprintf("(%s){ .tag = %s, .payload.%s = *%s }", node.ResultType.CName, state.tags.unionMemberTag(compilerTypes.UnionMembers(node.ResultType)[valueIndex]), state.tags.unionPayloadField(compilerTypes.UnionMembers(node.ResultType)[valueIndex]), temp)
 	}
-	missing := fmt.Sprintf("(%s){ .tag = %s }", node.ResultType.CName, unionTagName(node.ResultType, nilIndex))
+	missing := fmt.Sprintf("(%s){ .tag = %s }", node.ResultType.CName, state.tags.unionMemberTag(compilerTypes.UnionMembers(node.ResultType)[nilIndex]))
 	return fmt.Sprintf("(%s == nullptr ? %s : %s)", temp, missing, present), nil
 }

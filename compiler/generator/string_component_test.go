@@ -216,8 +216,60 @@ func TestStringTemplatesRenderModel(t *testing.T) {
 	if strings.Contains(source, "hex_strand_") {
 		t.Fatalf("hexal/string.c = %q, must not spell the strand surface", source)
 	}
-	if !strings.HasSuffix(source, "}\n") {
-		t.Fatalf("hexal/string.c must end with exactly one trailing newline: %q", source)
+	if !strings.HasSuffix(strings.TrimRight(source, "\n"), "}") {
+		t.Fatalf("hexal/string.c must end with a closing brace: %q", source)
+	}
+}
+
+// Equality and ordering render into the string component when the model
+// requires them; without those flags the helpers are absent.
+func TestStringTemplatesEqualityAndOrdering(t *testing.T) {
+	model := stringRenderModel{
+		NeedEquality: true,
+		NeedOrdering: true,
+	}
+	header, err := renderComponent(componentArtifact{key: "hexal/string.h", template: "string.h", model: model})
+	if err != nil {
+		t.Fatalf("string.h render error = %v", err)
+	}
+	if !strings.Contains(header, "bool hex_equal_hex_string(const hex_string *left, const hex_string *right);") {
+		t.Fatalf("hexal/string.h = %q, want the equality declaration", header)
+	}
+	if !strings.Contains(header, "int hex_compare_hex_string(const hex_string *left, const hex_string *right);") {
+		t.Fatalf("hexal/string.h = %q, want the ordering declaration", header)
+	}
+	source, err := renderComponent(componentArtifact{key: "hexal/string.c", template: "string.c", model: model})
+	if err != nil {
+		t.Fatalf("string.c render error = %v", err)
+	}
+	if !strings.Contains(source, "bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {") {
+		t.Fatalf("hexal/string.c = %q, want the equality body", source)
+	}
+	if !strings.Contains(source, "int hex_compare_hex_string(const hex_string *left, const hex_string *right) {") {
+		t.Fatalf("hexal/string.c = %q, want the ordering body", source)
+	}
+
+	// Without the flags, neither helper appears.
+	without := stringRenderModel{}
+	header, err = renderComponent(componentArtifact{key: "hexal/string.h", template: "string.h", model: without})
+	if err != nil {
+		t.Fatalf("string.h render error = %v", err)
+	}
+	if strings.Contains(header, "hex_equal_hex_string") {
+		t.Fatalf("hexal/string.h = %q, must not contain the equality helper", header)
+	}
+	if strings.Contains(header, "hex_compare_hex_string") {
+		t.Fatalf("hexal/string.h = %q, must not contain the ordering helper", header)
+	}
+	source, err = renderComponent(componentArtifact{key: "hexal/string.c", template: "string.c", model: without})
+	if err != nil {
+		t.Fatalf("string.c render error = %v", err)
+	}
+	if strings.Contains(source, "hex_equal_hex_string") {
+		t.Fatalf("hexal/string.c = %q, must not contain the equality body", source)
+	}
+	if strings.Contains(source, "hex_compare_hex_string") {
+		t.Fatalf("hexal/string.c = %q, must not contain the ordering body", source)
 	}
 }
 
@@ -231,5 +283,73 @@ func TestStringTemplateMissingFieldFailsClosed(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("string.h render with a model missing the template field must fail")
+	}
+}
+
+// A program using String equality emits the equality helper in string.h and
+// string.c with external linkage.
+func TestStringComponentEqualityEmittedForComparison(t *testing.T) {
+	program := checkedGeneratorSource(t, "a: String := \"hello\"\nb: String := \"world\"\nc: Bool := a == b\n")
+	files := generateOne(t, program)
+	header := files["hexal/string.h"]
+	source := files["hexal/string.c"]
+	if !strings.Contains(header, "bool hex_equal_hex_string(const hex_string *left, const hex_string *right);") {
+		t.Fatalf("hexal/string.h = %q, want the equality declaration", header)
+	}
+	if !strings.Contains(source, "bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {") {
+		t.Fatalf("hexal/string.c = %q, want the equality body", source)
+	}
+	// The equality helper must not appear as static in the module header.
+	if strings.Contains(files["modules/app.h"], "static bool hex_equal_hex_string") {
+		t.Fatalf("modules/app.h = %q, must not contain a static equality helper", files["modules/app.h"])
+	}
+}
+
+// A program using String ordering emits the ordering helper in string.h and
+// string.c with external linkage.
+func TestStringComponentOrderingEmittedForComparison(t *testing.T) {
+	program := checkedGeneratorSource(t, "a: String := \"hello\"\nb: String := \"world\"\nc: Bool := a < b\n")
+	files := generateOne(t, program)
+	header := files["hexal/string.h"]
+	source := files["hexal/string.c"]
+	if !strings.Contains(header, "int hex_compare_hex_string(const hex_string *left, const hex_string *right);") {
+		t.Fatalf("hexal/string.h = %q, want the ordering declaration", header)
+	}
+	if !strings.Contains(source, "int hex_compare_hex_string(const hex_string *left, const hex_string *right) {") {
+		t.Fatalf("hexal/string.c = %q, want the ordering body", source)
+	}
+	// The ordering helper must not appear as static in the module header.
+	if strings.Contains(files["modules/app.h"], "static int hex_compare_hex_string") {
+		t.Fatalf("modules/app.h = %q, must not contain a static ordering helper", files["modules/app.h"])
+	}
+}
+
+// String use without equality or ordering comparison emits neither comparison
+// helper.
+func TestStringComponentNoOrderingWithoutComparison(t *testing.T) {
+	program := checkedGeneratorSource(t, "text: String := \"hello\"\n")
+	files := generateOne(t, program)
+	header := files["hexal/string.h"]
+	source := files["hexal/string.c"]
+	if strings.Contains(header, "hex_equal_hex_string") {
+		t.Fatalf("hexal/string.h = %q, must not contain the equality helper", header)
+	}
+	if strings.Contains(header, "hex_compare_hex_string") {
+		t.Fatalf("hexal/string.h = %q, must not contain the ordering helper", header)
+	}
+	if strings.Contains(source, "hex_compare_hex_string") {
+		t.Fatalf("hexal/string.c = %q, must not contain the ordering body", source)
+	}
+}
+
+// Strand ordering is lowered directly through memcmp and does not select the
+// String component's ordering helper.
+func TestStringComponentOrderingIndependentOfEquality(t *testing.T) {
+	program := checkedGeneratorSource(t, "a: Strand := \"hello\"\nb: Strand := \"world\"\nc: Bool := a < b\n")
+	files := generateOne(t, program)
+	header := files["hexal/string.h"]
+	source := files["hexal/string.c"]
+	if strings.Contains(header, "hex_compare_hex_string") || strings.Contains(source, "hex_compare_hex_string") {
+		t.Fatalf("Strand ordering must not select the String ordering helper")
 	}
 }

@@ -27,13 +27,11 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 	if typ.Adt != nil {
 		return typ.Adt.ModuleID != ""
 	}
-	if typ.Union != nil || typ.NullableBase != nil {
-		for _, member := range compilerTypes.UnionMembers(typ) {
-			if typeIsModuleEmitted(member) {
-				return true
-			}
-		}
-		return false
+	if typ.Union != nil {
+		return true
+	}
+	if typ.NullableBase != nil {
+		return typeIsModuleEmitted(*typ.NullableBase)
 	}
 	if typ.Element != nil {
 		return typeIsModuleEmitted(*typ.Element)

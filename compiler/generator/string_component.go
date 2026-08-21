@@ -11,8 +11,10 @@ func stringComponents(merged *programEmission) ([]componentArtifact, error) {
 		return nil, nil
 	}
 	model := stringRenderModel{
-		NeedStrand: merged.stringState.strand,
-		Literals:   buildStringLiteralModels(merged.stringState.All()),
+		NeedStrand:   merged.stringState.strand,
+		NeedEquality: merged.equalityNeed,
+		NeedOrdering: merged.orderingNeed,
+		Literals:     buildStringLiteralModels(merged.stringState.All()),
 	}
 	return []componentArtifact{
 		{key: "hexal/string.h", template: "string.h", model: model},
@@ -45,8 +47,10 @@ type stringLiteralModel struct {
 // templates: the Strand requirement and the canonical program-wide literal
 // records in first-use order.
 type stringRenderModel struct {
-	NeedStrand bool
-	Literals   []stringLiteralModel
+	NeedStrand   bool
+	NeedEquality bool
+	NeedOrdering bool
+	Literals     []stringLiteralModel
 }
 
 // buildStringLiteralModels converts the program-wide literal payloads into

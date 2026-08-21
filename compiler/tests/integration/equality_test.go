@@ -93,12 +93,29 @@ func TestStringEqualityAndOrdering(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	// The per-type equality and ordering helpers are module-owned; the
-	// module files spell the comparisons.
+	// The string equality and ordering helpers live in hexal/string.h and
+	// hexal/string.c with external linkage.
+	stringH := moduleFile(t, result, "hexal/string.h")
+	stringC := moduleFile(t, result, "hexal/string.c")
+	for _, want := range []string{
+		"bool hex_equal_hex_string(const hex_string *left, const hex_string *right);",
+		"int hex_compare_hex_string(const hex_string *left, const hex_string *right);",
+	} {
+		if !strings.Contains(stringH, want) {
+			t.Fatalf("hexal/string.h = %q, want %q", stringH, want)
+		}
+	}
+	for _, want := range []string{
+		"bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {",
+		"int hex_compare_hex_string(const hex_string *left, const hex_string *right) {",
+	} {
+		if !strings.Contains(stringC, want) {
+			t.Fatalf("hexal/string.c = %q, want %q", stringC, want)
+		}
+	}
+	// The module file spells the comparisons calling the extern helpers.
 	output := rootC(t, result) + rootH(t, result)
 	for _, want := range []string{
-		"static bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {",
-		"static int hex_compare_hex_string(const hex_string *left, const hex_string *right) {",
 		"hex_v_same = hex_equal_hex_string(hex_v_left, hex_v_right);",
 		"(hex_compare_hex_string(hex_v_left, hex_v_right) < 0)",
 		"(hex_compare_hex_string(hex_v_left, hex_v_right) <= 0)",
@@ -118,12 +135,12 @@ func TestStringEqualityAndOrdering(t *testing.T) {
 		"memcmp(left->data, right->data, left->byte_length)",
 		"memcmp(left->data, right->data, limit)",
 	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("generated output lacks %q: %q %q", want, rootC(t, result), rootH(t, result))
+		if !strings.Contains(stringC, want) {
+			t.Fatalf("hexal/string.c lacks %q: %q", want, stringC)
 		}
 	}
 	for _, forbidden := range []string{"static bool hex_equal_hex_strand(", "static int hex_compare_hex_strand("} {
-		if strings.Contains(output, forbidden) {
+		if strings.Contains(stringC, forbidden) || strings.Contains(stringH, forbidden) {
 			t.Fatalf("generated output retains deleted helper %q", forbidden)
 		}
 	}
@@ -233,7 +250,7 @@ func TestAdtEquality(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"static bool hex_equal_hex_Shape(const hex_Shape *left, const hex_Shape *right) {",
+		"static bool hex_equal_hex_t_m3_app_Shape(const hex_t_m3_app_Shape *left, const hex_t_m3_app_Shape *right) {",
 		"if ((*left).tag != (*right).tag) return false;",
 		"if (!((*left).payload.Circle.hex_m_r == (*right).payload.Circle.hex_m_r)) return false;",
 	} {
@@ -248,7 +265,7 @@ func TestUnionEqualityWithObjectMember(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "static bool hex_union_4_bool14_t_m3_app_Point_equal(hex_union_4_bool14_t_m3_app_Point left, hex_union_4_bool14_t_m3_app_Point right) {") {
+	if !strings.Contains(rootH(t, result), "static bool hex_t_Bool_Point_equal(hex_t_Bool_Point left, hex_t_Bool_Point right) {") {
 		t.Fatalf("modules/app.h = %q, want recursive union equality helper", rootH(t, result))
 	}
 }
@@ -274,8 +291,10 @@ func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_equal_hex_string") {
-		t.Fatalf("modules/app.h = %q, want specialized String equality helper", rootH(t, result))
+	// The specialized String equality calls the extern helper from
+	// hexal/string.h; the module header includes string.h.
+	if !strings.Contains(rootH(t, result), "hex_equal_hex_string") && !strings.Contains(moduleFile(t, result, "hexal/string.h"), "hex_equal_hex_string") {
+		t.Fatalf("no hex_equal_hex_string in module header or string.h: modules/app.h = %q, hexal/string.h = %q", rootH(t, result), moduleFile(t, result, "hexal/string.h"))
 	}
 }
 

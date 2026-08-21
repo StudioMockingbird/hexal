@@ -3,7 +3,6 @@ package types
 import (
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -104,29 +103,25 @@ func (environment *Environment) UnionType(members []Type) Type {
 	info := &UnionInfo{Members: append([]Type(nil), unique...)}
 	union := Type{
 		Name:         unionName(unique),
-		CName:        unionCName(unique),
 		CanonicalKey: key,
 		Union:        info,
 		identity:     newTypeIdentity(environment.identity),
 	}
+	union.CName = environment.arena.ReserveUnionName(unionBaseName(unique), union)
 	environment.arena.unionTypes[key] = union
 	return union
 }
 
-// unionCName derives one union's C name from its canonical members: a
-// deterministic, injective, length-delimited encoding of the member C names.
-// The name depends only on the members, so the same union written in any
-// module spells the same C type and different unions never collide.
-func unionCName(members []Type) string {
-	var builder strings.Builder
-	builder.WriteString("hex_union_")
-	for _, member := range members {
-		embedded := strings.TrimPrefix(member.CName, "hex_")
-		builder.WriteString(strconv.Itoa(len(embedded)))
-		builder.WriteString("_")
-		builder.WriteString(embedded)
+// unionBaseName derives a union's definition-keying C-name candidate from its
+// canonical members: the hex_t_ prefix plus each member's sanitized Hexal
+// name joined by underscore. Uniqueness is established by the arena registry,
+// not by the encoding, so the same base may be shared and suffixed.
+func unionBaseName(members []Type) string {
+	parts := make([]string, len(members))
+	for index, member := range members {
+		parts[index] = SanitizeIdentifier(member.Name)
 	}
-	return builder.String()
+	return "hex_t_" + strings.Join(parts, "_")
 }
 
 func unionMembers(typ Type) []Type {
@@ -182,6 +177,16 @@ func compareUnionMembers(left, right Type) int {
 		return -1
 	}
 	if leftKey > rightKey {
+		return 1
+	}
+	// Nominal members may share a display key (same short name, same source
+	// coordinates, no module identity), so order must fall back to the
+	// canonical key: the same union written in any module then sorts its
+	// members identically.
+	if left.CanonicalKey < right.CanonicalKey {
+		return -1
+	}
+	if left.CanonicalKey > right.CanonicalKey {
 		return 1
 	}
 	return 0

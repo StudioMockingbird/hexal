@@ -158,7 +158,7 @@ func TestSameNamedTypeUnionMembersStayDistinct(t *testing.T) {
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "m", "s")
 	app := result.Files["modules/app.h"]
-	if !strings.Contains(app, "hex_t_m1_m_Point member_0;") || !strings.Contains(app, "hex_t_m1_s_Point member_1;") {
+	if !strings.Contains(app, "hex_t_m1_m_Point hex_m_m1_m_Point;") || !strings.Contains(app, "hex_t_m1_s_Point hex_m_m1_s_Point;") {
 		t.Fatalf("modules/app.h %v, want both same-named Point payload spellings in the union", app)
 	}
 }

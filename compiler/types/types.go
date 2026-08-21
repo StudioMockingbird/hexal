@@ -428,6 +428,7 @@ func (environment *Environment) BeginObject(name string, sourceLine, sourceColum
 		identity:     identity,
 	}
 	object.Incomplete = true
+	environment.arena.ReserveDefinitionName(cName, typ)
 	environment.names[name] = typ
 	return typ
 }
@@ -1007,10 +1008,23 @@ func isCanonicalUnion(environment *Environment, typ Type, state *canonicalTypeSt
 	if typ.Union == nil || len(typ.Union.Members) < 2 {
 		return false
 	}
-	// The C name is the deterministic length-delimited encoding of the
-	// member C names; a forged name cannot match it.
-	if typ.CName != unionCName(typ.Union.Members) {
-		return false
+	// The C name is the registry-shaped spelling of the canonical members:
+	// the base name, or the base followed by a numeric suffix when another
+	// type already owns the base. A forged name cannot match that shape.
+	base := unionBaseName(typ.Union.Members)
+	if typ.CName != base {
+		suffix := strings.TrimPrefix(typ.CName, base+"_")
+		if suffix == typ.CName || !isNumericSuffix(suffix) {
+			return false
+		}
+	}
+	// With an environment the registry is reachable, so membership is the
+	// stronger check: the name must be owned by this exact canonical union.
+	if environment != nil {
+		registered, ok := environment.arena.definitionNames[typ.CName]
+		if !ok || !Equal(registered, typ) {
+			return false
+		}
 	}
 	// Nil is a legitimate canonical union member, so member validation
 	// admits it; the parent union is what makes it valid.
@@ -1018,6 +1032,20 @@ func isCanonicalUnion(environment *Environment, typ Type, state *canonicalTypeSt
 	memberState.allowNilMember = true
 	for _, member := range typ.Union.Members {
 		if !isCanonicalForEnvironment(environment, member, &memberState, false) || !IsCompleteValue(member) {
+			return false
+		}
+	}
+	return true
+}
+
+// isNumericSuffix reports whether suffix is a decimal counter of at least one
+// digit, the registry's disambiguator appended to a union base.
+func isNumericSuffix(suffix string) bool {
+	if suffix == "" {
+		return false
+	}
+	for index := 0; index < len(suffix); index++ {
+		if suffix[index] < '0' || suffix[index] > '9' {
 			return false
 		}
 	}

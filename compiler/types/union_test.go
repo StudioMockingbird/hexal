@@ -67,68 +67,75 @@ func TestTypeUsePreservesCandidatesAndNestedElement(t *testing.T) {
 	}
 }
 
-// unionCName embeds each member's CName with its leading hex_ stripped, so the
-// encoding stays injective exactly as long as stripping never merges two
-// distinct C spellings into one. That is the property, and it is not the same
-// as "every member's stripped form is unique": several builtins deliberately
-// share a spelling (Byte and UInt8 are both uint8_t, Rune and UInt32 are both
-// uint32_t), and a union of two of those has one member, not two.
-//
-// The builtin half enumerates types.builtinTypes rather than a list written
-// here, so a builtin added without a distinct spelling fails this test instead
-// of silently escaping it. The parameterized half must stay written out: those
-// types are constructed, not registered.
-func TestStrippingHexPrefixNeverMergesTwoCSpellings(t *testing.T) {
+// Definition-keying generated C names are unique per distinct canonical type.
+// The deleted encoder was injective over its own encoding but not over type
+// identity: Rune and UInt32 share the C spelling uint32_t, so Rune | Nil and
+// UInt32 | Nil receives one shared hex_t_ wrapper name and one program-wide tag.
+// defined the same struct tag twice. The arena registry must keep distinct
+// types on distinct names. Builtins are enumerated from the package registry,
+// not a list written here, plus one specialization of every constructed
+// family and every binary union of the two; the pair construction is what
+// makes this test fire on the historical collision. Ptr is excluded: a
+// pointer names no definition, and Ptr<Rune> and Ptr<UInt32> legitimately
+// share the spelling uint32_t*.
+func TestDefinitionKeyingCNamesNeverCollide(t *testing.T) {
 	environment := NewEnvironment()
-	spellings := map[string]string{}
-	record := func(name, cName string) {
-		if previous, exists := spellings[cName]; exists && previous != name {
-			return // one C spelling reached by two Hexal names is fine and pre-existing
+	bases := make([]Type, 0, len(builtinTypes)+9)
+	for _, typ := range builtinTypes {
+		bases = append(bases, typ)
+	}
+	bases = append(bases,
+		environment.BeginObject("Shape", 1, 1),
+		environment.BeginADT("Option", 1, 1),
+		environment.ListType(Int32),
+		environment.ViewType(Int32),
+		environment.ArrayType(Int32, 4),
+		environment.DictType(Int32, StringType),
+		environment.TaskType(Int32),
+		environment.ChannelType(Int32),
+		environment.AtomicType(Int32),
+	)
+	types := make([]Type, 0, len(bases)+len(bases)*len(bases))
+	types = append(types, bases...)
+	for index := 0; index < len(bases); index++ {
+		for other := index + 1; other < len(bases); other++ {
+			if union := environment.UnionType([]Type{bases[index], bases[other]}); union != (Type{}) {
+				types = append(types, union)
+			}
 		}
-		spellings[cName] = name
 	}
-	for name, member := range builtinTypes {
-		record(name, member.CName)
-	}
-	for name, member := range map[string]Type{
-		"Point":          environment.BeginObject("Point", 1, 1),
-		"Option":         environment.BeginADT("Option", 1, 1),
-		"Array<Int32,4>": environment.ArrayType(Int32, 4),
-		"View<Int32>":    environment.ViewType(Int32),
-		"List<Int32>":    environment.ListType(Int32),
-		"Dict<Int32,S>":  environment.DictType(Int32, StringType),
-		"Task<Int32>":    environment.TaskType(Int32),
-		"Channel<Int32>": environment.ChannelType(Int32),
-		"Atomic<Int32>":  environment.AtomicType(Int32),
-		"Ptr<Int32>":     environment.PtrType(Int32),
-	} {
-		record(name, member.CName)
-	}
-
-	stripped := map[string]string{}
-	for cName := range spellings {
-		form := strings.TrimPrefix(cName, "hex_")
-		if previous, exists := stripped[form]; exists {
-			t.Fatalf("stripping hex_ merges two distinct C spellings into %q: %q (%s) and %q (%s)",
-				form, cName, spellings[cName], previous, spellings[previous])
+	seen := make(map[string]Type, len(types))
+	for _, typ := range types {
+		// Only definition-keying names participate: a scalar builtin such as
+		// Rune and UInt32 legitimately shares the C spelling uint32_t, which
+		// introduces no typedef and starts no hex_ name, exactly like Ptr.
+		if !strings.HasPrefix(typ.CName, "hex_") {
+			continue
 		}
-		stripped[form] = cName
-	}
-	if len(stripped) != len(spellings) {
-		t.Fatalf("stripped forms = %d, distinct C spellings = %d", len(stripped), len(spellings))
+		if previous, ok := seen[typ.CName]; ok && !Equal(previous, typ) {
+			t.Fatalf("distinct types %s and %s share definition-keying C name %q", previous.Name, typ.Name, typ.CName)
+		}
+		seen[typ.CName] = typ
 	}
 }
 
-// unionCName is exercised directly here on a member that is itself a union.
-// UnionType flattens, so this shape never reaches the encoder through normal
-// construction: TestNestedUnionEncodingIntegration covers what a source-level
-// nested union actually produces. This pins the encoder's own behaviour so the
-// length prefix stays correct if flattening ever changes.
+// UnionType collapses a written nested union to the flat member set, so the
+// nested spelling and the flat spelling are one canonical type even though
+// only the flat spelling is reachable from source. The registry-derived name
+// is recorded per canonical union; this pins that the arena owns the name of
+// the nested spelling too and that the name is C-identifier-safe.
 func TestNestedUnionEncoding(t *testing.T) {
 	environment := NewEnvironment()
 	inner := environment.UnionType([]Type{Int32, Bool})
-	name := unionCName([]Type{inner, Nil})
-	if name != "hex_union_21_union_4_bool7_int32_t9_nullptr_t" {
-		t.Fatalf("nested union CName = %q, want hex_union_21_union_4_bool7_int32_t9_nullptr_t", name)
+	nested := environment.UnionType([]Type{inner, Nil})
+	flat := environment.UnionType([]Type{Int32, Bool, Nil})
+	if !Equal(nested, flat) {
+		t.Fatalf("nested union %#v and flat union %#v are not one canonical type", nested, flat)
+	}
+	if registered, ok := environment.arena.definitionNames[nested.CName]; !ok || !Equal(registered, nested) {
+		t.Fatalf("nested union CName %q is not owned by the arena registry", nested.CName)
+	}
+	if strings.ContainsAny(nested.CName, "<>,| ") {
+		t.Fatalf("nested union CName %q contains a non-identifier character", nested.CName)
 	}
 }

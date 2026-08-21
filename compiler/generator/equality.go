@@ -78,18 +78,81 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 				}
 				state.seenUnions[typ.Union] = true
 				state.order = append(state.order, typ)
-			case compilerTypes.IsString(typ):
-				state.needString = true
 			}
 		},
 		Expression: func(node checker.Expression) {
-			if node.Kind == checker.StringCompareExpression {
-				state.compareNeed = true
+			switch node.Kind {
+			case checker.DeepEqualityExpression:
+				if compilerTypes.IsString(node.OperandType) {
+					state.needString = true
+				}
+			case checker.StringCompareExpression:
+				if compilerTypes.IsString(node.OperandType) {
+					state.compareNeed = true
+				}
 			}
 		},
 	}
 	walkProgram(program, visitor)
+	for _, typ := range state.order {
+		if equalityTypeContainsString(typ, make(map[string]bool)) {
+			state.needString = true
+			break
+		}
+	}
 	return state
+}
+
+// equalityTypeContainsString reports whether a generated equality helper for
+// typ recursively needs the String component. Pointer identity and
+// non-equality-capable aggregates stop the walk because their pointees are not
+// compared.
+func equalityTypeContainsString(typ compilerTypes.Type, seen map[string]bool) bool {
+	if compilerTypes.IsString(typ) {
+		return true
+	}
+	if typ.Element != nil || typ.Dict != nil {
+		return false
+	}
+	key := typ.CanonicalKey
+	if key == "" {
+		key = typ.CName + "|" + typ.Name
+	}
+	if seen[key] {
+		return false
+	}
+	seen[key] = true
+	switch {
+	case typ.Object != nil:
+		for _, member := range typ.Object.Members {
+			if equalityTypeContainsString(member.Type, seen) {
+				return true
+			}
+		}
+	case typ.Adt != nil:
+		for _, variant := range typ.Adt.Variants {
+			for _, member := range variant.Payload {
+				if equalityTypeContainsString(member.Type, seen) {
+					return true
+				}
+			}
+		}
+	case typ.Union != nil:
+		for _, member := range typ.Union.Members {
+			if equalityTypeContainsString(member, seen) {
+				return true
+			}
+		}
+	case typ.NullableBase != nil:
+		return false
+	case typ.Array != nil:
+		return equalityTypeContainsString(typ.Array.Element, seen)
+	case typ.View != nil:
+		return equalityTypeContainsString(typ.View.Element, seen)
+	case typ.List != nil:
+		return equalityTypeContainsString(typ.List.Element, seen)
+	}
+	return false
 }
 func equalityHelperName(typ compilerTypes.Type) string {
 	return "hex_equal_" + typ.CName
@@ -98,70 +161,28 @@ func equalityHelperName(typ compilerTypes.Type) string {
 // writeEqualityDefinitions emits one equality helper per collected type. It
 // must run after every struct definition because the helper bodies reference
 // the concrete C types.
-func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityState) {
+func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityState, tags *tagRegistry) {
 	if state == nil {
 		return
-	}
-	// The String equality helper comes first: per-type helpers reference it
-	// for String members. Strand members compare directly with memcmp.
-	if state.needString {
-		writeStringEqualityHelper(result)
 	}
 	for _, typ := range state.order {
 		if typ.Union != nil {
 			if unionSupportsEquality(typ) {
-				writeUnionEquality(result, typ)
+				writeUnionEquality(result, typ, tags)
 			}
 			continue
 		}
-		writeEqualityHelper(result, typ)
+		writeEqualityHelper(result, typ, tags)
 	}
-	if state.compareNeed {
-		writeOrderingHelpers(result, state)
-	}
-}
-
-// writeStringEqualityHelper emits the String equality helper: equal byte
-// lengths first, then one memcmp over the shared length. A zero-length
-// String returns equal without calling memcmp on a possibly invalid pointer.
-func writeStringEqualityHelper(result *strings.Builder) {
-	result.WriteString("\nstatic bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {\n")
-	result.WriteString("    if (left->byte_length != right->byte_length) {\n        return false;\n    }\n")
-	result.WriteString("    if (left->byte_length != 0) {\n")
-	result.WriteString("        if (memcmp(left->data, right->data, left->byte_length) != 0) {\n            return false;\n        }\n")
-	result.WriteString("    }\n")
-	result.WriteString("    return true;\n}\n")
-}
-
-func writeOrderingHelpers(result *strings.Builder, state *generatedEqualityState) {
-	if state.needString {
-		writeStringCompare(result)
-	}
-}
-
-// writeStringCompare emits the lexicographic unsigned-byte compare for
-// String handles: memcmp over the shorter nonzero byte length, then the
-// length comparison when the byte sequences are equal. The sign of the
-// memcmp result is the ordering result.
-func writeStringCompare(result *strings.Builder) {
-	result.WriteString("\nstatic int hex_compare_hex_string(const hex_string *left, const hex_string *right) {\n")
-	result.WriteString("    size_t limit = left->byte_length < right->byte_length ? left->byte_length : right->byte_length;\n")
-	result.WriteString("    if (limit != 0) {\n")
-	result.WriteString("        int result = memcmp(left->data, right->data, limit);\n")
-	result.WriteString("        if (result != 0) {\n            return result;\n        }\n")
-	result.WriteString("    }\n")
-	result.WriteString("    if (left->byte_length < right->byte_length) return -1;\n")
-	result.WriteString("    if (left->byte_length > right->byte_length) return 1;\n")
-	result.WriteString("    return 0;\n}\n")
 }
 
 // writeEqualityHelper emits the equality helper body for one compared type.
 // The body compares declared structure in order and returns false at the
 // first unequal component; nothing reads padding, capacity, or backing
 // addresses.
-func writeEqualityHelper(result *strings.Builder, typ compilerTypes.Type) {
+func writeEqualityHelper(result *strings.Builder, typ compilerTypes.Type, tags *tagRegistry) {
 	var body strings.Builder
-	writeEqualityComparisons(&body, "(*left)", "(*right)", typ, "    ")
+	writeEqualityComparisons(&body, "(*left)", "(*right)", typ, "    ", tags)
 	// The helper never mutates its operands, so the parameters carry const;
 	// call sites pass const-qualified bindings and a non-const parameter
 	// would discard the qualifier under -Werror.
@@ -175,53 +196,54 @@ func writeEqualityHelper(result *strings.Builder, typ compilerTypes.Type) {
 
 // writeEqualityComparisons emits statements comparing the value spelled left
 // against right of the given type, returning false at the first inequality.
-func writeEqualityComparisons(body *strings.Builder, left, right string, typ compilerTypes.Type, indent string) {
+func writeEqualityComparisons(body *strings.Builder, left, right string, typ compilerTypes.Type, indent string, tags *tagRegistry) {
 	switch {
 	case typ.Union != nil:
 		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
 		fmt.Fprintf(body, "%sswitch (%s.tag) {\n", indent, left)
-		for index, member := range typ.Union.Members {
-			fmt.Fprintf(body, "%scase %s:\n", indent, unionTagName(typ, index))
+		for _, member := range typ.Union.Members {
+			field := tags.unionPayloadField(member)
+			fmt.Fprintf(body, "%scase %s:\n", indent, tags.unionMemberTag(member))
 			if compilerTypes.IsNil(member) {
 				fmt.Fprintf(body, "%s    return true;\n", indent)
 				continue
 			}
-			writeEqualityComparisons(body, left+".payload.member_"+fmt.Sprint(index), right+".payload.member_"+fmt.Sprint(index), member, indent+"    ")
+			writeEqualityComparisons(body, left+".payload."+field, right+".payload."+field, member, indent+"    ", tags)
 			fmt.Fprintf(body, "%s    return true;\n", indent)
 		}
 		fmt.Fprintf(body, "%s}\n", indent)
 	case typ.Object != nil:
 		for _, member := range typ.Object.Members {
-			writeEqualityComparisons(body, left+"."+privateCName(memberName, member.Name, ""), right+"."+privateCName(memberName, member.Name, ""), member.Type, indent)
+			writeEqualityComparisons(body, left+"."+privateCName(memberName, member.Name, ""), right+"."+privateCName(memberName, member.Name, ""), member.Type, indent, tags)
 		}
 	case typ.Adt != nil:
 		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
 		fmt.Fprintf(body, "%sswitch (%s.tag) {\n", indent, left)
 		for index, variant := range typ.Adt.Variants {
-			fmt.Fprintf(body, "%scase %s:\n", indent, adtTagName(typ.Adt, index))
+			fmt.Fprintf(body, "%scase %s:\n", indent, tags.adtVariantTag(typ.Adt, index))
 			if len(variant.Payload) == 0 {
 				fmt.Fprintf(body, "%s    return true;\n", indent)
 				continue
 			}
 			for _, member := range variant.Payload {
-				writeEqualityComparisons(body, left+".payload."+compilerTypes.SanitizeIdentifier(variant.Name)+"."+privateCName(memberName, member.Name, ""), right+".payload."+compilerTypes.SanitizeIdentifier(variant.Name)+"."+privateCName(memberName, member.Name, ""), member.Type, indent+"    ")
+				writeEqualityComparisons(body, left+".payload."+compilerTypes.SanitizeIdentifier(variant.Name)+"."+privateCName(memberName, member.Name, ""), right+".payload."+compilerTypes.SanitizeIdentifier(variant.Name)+"."+privateCName(memberName, member.Name, ""), member.Type, indent+"    ", tags)
 			}
 			fmt.Fprintf(body, "%s    return true;\n", indent)
 		}
 		fmt.Fprintf(body, "%s}\n", indent)
 	case typ.Array != nil:
 		for index := uint64(0); index < typ.Array.Length; index++ {
-			writeEqualityComparisons(body, left+".data["+fmt.Sprint(index)+"]", right+".data["+fmt.Sprint(index)+"]", typ.Array.Element, indent)
+			writeEqualityComparisons(body, left+".data["+fmt.Sprint(index)+"]", right+".data["+fmt.Sprint(index)+"]", typ.Array.Element, indent, tags)
 		}
 	case typ.View != nil:
 		fmt.Fprintf(body, "%sif (%s.length != %s.length) return false;\n", indent, left, right)
 		fmt.Fprintf(body, "%sfor (size_t index = 0; index < %s.length; index++) {\n", indent, left)
-		writeEqualityComparisons(body, left+".data[index]", right+".data[index]", typ.View.Element, indent+"    ")
+		writeEqualityComparisons(body, left+".data[index]", right+".data[index]", typ.View.Element, indent+"    ", tags)
 		fmt.Fprintf(body, "%s}\n", indent)
 	case typ.List != nil:
 		fmt.Fprintf(body, "%sif (%s.length != %s.length) return false;\n", indent, left, right)
 		fmt.Fprintf(body, "%sfor (size_t index = 0; index < %s.length; index++) {\n", indent, left)
-		writeEqualityComparisons(body, left+".data[index]", right+".data[index]", typ.List.Element, indent+"    ")
+		writeEqualityComparisons(body, left+".data[index]", right+".data[index]", typ.List.Element, indent+"    ", tags)
 		fmt.Fprintf(body, "%s}\n", indent)
 	case compilerTypes.IsString(typ):
 		fmt.Fprintf(body, "%sif (!hex_equal_hex_string(%s, %s)) return false;\n", indent, left, right)

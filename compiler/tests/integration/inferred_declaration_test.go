@@ -39,7 +39,7 @@ func TestInferredDeclarationTakesTheInitializersType(t *testing.T) {
 		{
 			"qualified variant",
 			"type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\nfun demo() do\n    s := Shape.Circle { r = 10 }\nend",
-			"const hex_Shape hex_v_s =",
+			"const hex_t_m3_app_Shape hex_v_s =",
 		},
 		{
 			"function reference",

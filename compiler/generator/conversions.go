@@ -107,21 +107,6 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 	return specs, sizeLiterals
 }
 
-// writeConversionDefinitions emits one helper per checked conversion spec.
-// Guards run before any C conversion that could be invalid; the shared
-// runtime trap never executes the invalid operation.
-func writeConversionDefinitions(result *strings.Builder, specs []conversionSpec) error {
-	if len(specs) == 0 {
-		return nil
-	}
-	for _, spec := range specs {
-		if err := writeConversionHelper(result, spec); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // containsSizeConversion reports whether any generated conversion targets
 // Size, which requires the 64-bit size_t target profile assertion.
 

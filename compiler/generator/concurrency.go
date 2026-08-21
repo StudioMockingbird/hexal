@@ -292,7 +292,7 @@ func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder
 // parameter types), the Task join helpers, the Channel and Mutex operation
 // families, and the Atomic family. They are state-free and only call the
 // runtime core through the hexal/concurrency.h declarations.
-func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry) error {
+func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry, tags *tagRegistry) error {
 	if state == nil || !state.used && len(state.atomics) == 0 {
 		return nil
 	}
@@ -306,10 +306,10 @@ func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConc
 		}
 		writeSpawnArgFrames(result, state.spawns)
 		writeTaskTypeHelpers(result, state)
-		if err := writeChannelInlineHelpers(result, state, literals); err != nil {
+		if err := writeChannelInlineHelpers(result, state, literals, tags); err != nil {
 			return err
 		}
-		if err := writeMutexInlineHelpers(result, state, literals); err != nil {
+		if err := writeMutexInlineHelpers(result, state, literals, tags); err != nil {
 			return err
 		}
 	}
@@ -401,7 +401,7 @@ func writeSpawnArgFrames(result *strings.Builder, sites []spawnSite) {
 // (Channel | Error, Nil | Error, and T | EoS) around the shared core, and
 // free adapts the checked Heap identity argument. close, length, capacity,
 // and is_closed lower directly to the core and need no inline wrapper.
-func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry) error {
+func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry, tags *tagRegistry) error {
 	if len(state.channels) == 0 {
 		return nil
 	}
@@ -417,8 +417,8 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 				channelIndex := unionMemberIndex(union, channel)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 				message := state.messageLiteral(literals, state.channelCreationFailed)
-				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.member_%d = channel };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
-					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, channelIndex), channelIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
+				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = channel };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
+					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[channelIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[channelIndex]), union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[errorIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[errorIndex]), message)
 			}
 		}
 		if state.channelSend {
@@ -427,8 +427,8 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 				nilIndex := unionMemberIndex(union, compilerTypes.Nil)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 				message := state.messageLiteral(literals, state.channelSendFailed)
-				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
-					union.CName, suffix, elementSpelling, union.CName, unionTagName(union, nilIndex), union.CName, unionTagName(union, errorIndex), errorIndex, message)
+				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
+					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[nilIndex]), union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[errorIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[errorIndex]), message)
 			}
 		}
 		// The receive union is emitted for every used Channel<T>: receive
@@ -439,8 +439,8 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 		if receiveUnion != (compilerTypes.Type{}) {
 			elementIndex := unionMemberIndex(receiveUnion, element)
 			eosIndex := unionMemberIndex(receiveUnion, compilerTypes.EoS)
-			fmt.Fprintf(result, "\nstatic inline %s hex_chan_recv_%s(hex_chan *channel) {\n    %s value;\n    if (hex_chan_receive(channel, &value)) {\n        return (%s){ .tag = %s, .payload.member_%d = value };\n    }\n    return (%s){ .tag = %s };\n}\n",
-				receiveUnion.CName, suffix, elementSpelling, receiveUnion.CName, unionTagName(receiveUnion, elementIndex), elementIndex, receiveUnion.CName, unionTagName(receiveUnion, eosIndex))
+			fmt.Fprintf(result, "\nstatic inline %s hex_chan_recv_%s(hex_chan *channel) {\n    %s value;\n    if (hex_chan_receive(channel, &value)) {\n        return (%s){ .tag = %s, .payload.%s = value };\n    }\n    return (%s){ .tag = %s };\n}\n",
+				receiveUnion.CName, suffix, elementSpelling, receiveUnion.CName, tags.unionMemberTag(compilerTypes.UnionMembers(receiveUnion)[elementIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(receiveUnion)[elementIndex]), receiveUnion.CName, tags.unionMemberTag(compilerTypes.UnionMembers(receiveUnion)[eosIndex]))
 		}
 		fmt.Fprintf(result, "\nstatic inline void hex_chan_free_%s(uintptr_t heap_identity, hex_chan *channel) {\n    (void)heap_identity;\n    hex_chan_free(channel);\n}\n", suffix)
 	}
@@ -452,7 +452,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 // and accepts the checked Heap identity even though the current runtime
 // ignores it. lock and unlock lower directly to the core and need no inline
 // wrapper.
-func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry) error {
+func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry, tags *tagRegistry) error {
 	if !state.mutexNew && !state.mutexLock && !state.mutexUnlock && !state.mutexFree {
 		return nil
 	}
@@ -462,8 +462,8 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 			mutexIndex := unionMemberIndex(union, compilerTypes.MutexType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 			message := state.messageLiteral(literals, state.mutexCreationFailed)
-			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.member_%d = mutex };\n    }\n    return (%s){ .tag = %s, .payload.member_%d = hex_sched_error(line, column, &%s) };\n}\n",
-				union.CName, union.CName, unionTagName(union, mutexIndex), mutexIndex, union.CName, unionTagName(union, errorIndex), errorIndex, message)
+			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = mutex };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
+				union.CName, union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[mutexIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[mutexIndex]), union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[errorIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[errorIndex]), message)
 		}
 	}
 	fmt.Fprintf(result, "\nstatic inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex) {\n    (void)heap_identity;\n    hex_mutex_free(mutex);\n}\n")
@@ -604,9 +604,11 @@ func renderSpawnExpression(node checker.Expression, state *expressionValidation)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("(%s ? (%s){ .tag = %s, .payload.member_%d = %s } : (%s){ .tag = %s, .payload.member_%d = hex_sched_error(%d, %d, &%s) })",
-		taskTemp, union.CName, unionTagName(union, taskIndex), taskIndex, taskTemp,
-		union.CName, unionTagName(union, errorIndex), errorIndex, node.SourceLine, node.SourceColumn, message), nil
+	taskMember := compilerTypes.UnionMembers(union)[taskIndex]
+	errorMember := compilerTypes.UnionMembers(union)[errorIndex]
+	return fmt.Sprintf("(%s ? (%s){ .tag = %s, .payload.%s = %s } : (%s){ .tag = %s, .payload.%s = hex_sched_error(%d, %d, &%s) })",
+		taskTemp, union.CName, state.tags.unionMemberTag(taskMember), state.tags.unionPayloadField(taskMember), taskTemp,
+		union.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(errorMember), node.SourceLine, node.SourceColumn, message), nil
 }
 
 // errorMessageLiteral resolves one failure message literal registered during
