@@ -26,7 +26,6 @@ other.
 | Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
 | Blocking-syscall boundary — what the scheduler does at a blocking call; gates sockets and readiness-based I/O | [0091](specs/0091-blocking-syscall-boundary.md) |
 | Language surface audit dispositions — 34 findings; promote/reject/accept per finding | [0103](specs/0103-language-surface-audit.md) |
-| Codebase refactoring audit dispositions — 42 findings; contract breaches, dead code, diagnostics, perf | [0104](specs/0104-codebase-refactoring-audit.md) |
 | Affine ownership and Arena/Pool lifetimes | [0110](specs/0110-affine-ownership-and-arenas.md) |
 | Deterministic evaluation order | [0111](specs/0111-deterministic-evaluation-order.md) |
 | Order-independent function visibility and mutual recursion | [0112](specs/0112-order-independent-function-visibility.md) |
@@ -43,6 +42,7 @@ other.
 |---|---|
 | Anonymous function literals | [0094](specs/0094-anonymous-function-literals.md) |
 | Explicit dispatch tables | [0109](specs/0109-explicit-dispatch-tables.md) |
+| Codebase refactoring audit — 33 accepted findings in eight stages; 6 deferred, 11 rejected | [0104](specs/0104-codebase-refactoring-audit.md) |
 
 ### Design settled; implementation blocked
 
