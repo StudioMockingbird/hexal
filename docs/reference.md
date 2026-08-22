@@ -975,6 +975,72 @@ Atomic<T>.compare_exchange(expected: T, desired: T) -> Bool
   is non-copyable but may be shared through Ptr/MutPtr. `ref` of Atomic or an Atomic member is
   independently invalid. Pointers to enclosing Atomic-containing objects remain valid.
 
+## Byte streams
+
+```text
+IO.stdin()  -> IO | Error
+IO.stdout() -> IO | Error
+IO.stderr() -> IO | Error
+Bytes.over(buffer: List<Byte>) -> Bytes
+
+IO.read(into: List<Byte>, max: Size)            -> Size | EoS | Error
+IO.write(from: View<Byte>)                       -> Size | Error
+IO.seek(to: Seek)                                -> Size | Error
+IO.close()                                       -> Nil | Error
+MutPtr<Bytes>.read(into: List<Byte>, max: Size)  -> Size | EoS | Error
+MutPtr<Bytes>.write(from: View<Byte>)             -> Size | Error
+MutPtr<Bytes>.seek(to: Seek)                      -> Size | Error
+
+type Seek = | Start(Size) | Current(Int64) | End(Int64)
+```
+
+- `IO`, `Bytes`, and `Seek` are reserved protected type names; redeclaration is a Type Error.
+  `Start`, `Current`, and `End` remain available as unqualified names. Seek variants construct as
+  qualified record variants with payload fields `position` (Start) and `offset` (Current, End).
+- IO lowers to `{ intptr_t desc, uint8_t access, bool owned }`; Bytes lowers to a borrowed
+  `List<Byte>` header pointer plus an inline cursor. Copies of IO alias one external resource;
+  copying Bytes copies the cursor, so copies advance independently.
+- Constructors are fallible because the process may lack the requested standard handle. They return
+  borrowed handles with `owned = false`; stdin carries readable access, stdout and stderr writable.
+- Capability checking has two tiers: constructor/flow facts proving absence reject at the call;
+  otherwise the operation checks the access mask and returns Error before any platform call or
+  allocation. Facts seed from constructors, copy on assignment from a tracked binding, intersect on
+  branch merge, and drop to unknown on escape through parameters, results, members, unions, or other
+  untracked aliases.
+- A positive count is ordinary success including short transfers. `eos` is returned only when no
+  byte was transferred and the source is drained. Each read/write issues at most one platform call,
+  clamped per target (`SSIZE_MAX` POSIX, `UINT32_MAX` Windows); `max == 0` and an empty View return
+  `Size(0)` touching nothing. POSIX `EINTR` before transfer returns Error and is never retried by
+  the primitive.
+- Read appends at most `max` bytes to the destination list, preserving prior contents; destination
+  capacity grows once through the internal List reserve helper before one platform call.
+- Bytes write overwrites at the cursor and extends the list past its end; Bytes seek resolves within
+  `[0, buffer.length]` only — sparse holes do not exist. Self-read (destination identity equal to
+  the backing list) and writes from a View overlapping the backing allocation return Error before
+  any mutation, with messages `memory stream cannot read into its backing list` and `memory stream
+  cannot write from its backing list`.
+- Close on an owned handle invalidates every copy even when it reports failure; POSIX close is never
+  retried after `EINTR`. Closing a borrowed standard or foreign handle traps. Locally proved
+  use-after-close and repeated close are rejected; escaped aliases follow the external-state
+  envelope. Only `IO.close()` may appear in defer/errdefer.
+- Bytes borrows its source List: a locally proved free of that list rejects later construction and
+  operations; deferred frees and escaped aliases take the undecidable envelope.
+- Placement bootstrap: both types are valid in bindings, parameters, results, direct union members,
+  and pointer pointees; IO additionally in Task arguments and results; Bytes is excluded there.
+  Both are rejected in object members, ADT payloads, collections, Channels, and heap allocation,
+  recursively through aggregates.
+- Concurrent use of one stream requires external synchronization; no cross-task ordering or
+  compound-write atomicity is promised. Descriptor operations may block their OS worker.
+- Failures carry a bounded ASCII Strand header `IO <operation> errno=<code>` (POSIX) or
+  `winerr=<code>` (Windows), zero-filled with one NUL, plus a static message such as `read failed`
+  or `stream is not writable`; no Heap is required on a failure path. Native codes are diagnostic
+  data; portable source must not depend on their values.
+- `print` shares the descriptor write-all backend of stdout: one buffering domain, short-write and
+  EINTR retries inside print's private sink, trap only when a complete print cannot finish.
+- Generated C confines all platform branches to `hexal/io.c`; no signature contains `#ifdef`,
+  `FILE *`, or a platform type. Selecting IO, Bytes, or print selects the pair plus the
+  `List<UInt8>` specialization once; programs using none emit no IO artifact.
+
 ## Layout intrinsics
 
 ```text

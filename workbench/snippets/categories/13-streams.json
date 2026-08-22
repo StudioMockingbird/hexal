@@ -1,0 +1,114 @@
+{
+  "id": "streams",
+  "name": "Byte Streams",
+  "snippets": [
+    {
+      "id": "streams-standard-handles",
+      "name": "Standard handle write and close",
+      "description": "Write bytes to stdout through IO, clean up with errdefer, and close explicitly.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun announce(text: String): Nil | Error do",
+          "    out: IO := try IO.stdout()",
+          "    errdefer out.close()",
+          "    wrote: Size | Error := out.write(text.bytes())",
+          "    newline: Size | Error := out.write(\"\\n\".bytes())",
+          "    closed: Nil | Error := out.close()",
+          "    return nil",
+          "end",
+          "started: Nil | Error := announce(\"streams online\")"
+        ]
+      },
+      "features": ["streams", "errors", "try-errdefer", "text"],
+      "reservedWords": ["fun", "do", "end", "try", "errdefer", "return", "nil"]
+    },
+    {
+      "id": "streams-bytes-memory",
+      "name": "Memory stream cursors",
+      "description": "Mutate a memory stream through its mutable binding and show that copied streams advance independent cursors.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun roundtrip(h: Heap): Nil | Error do",
+          "    data: List<Byte> := List<Byte>.new(h)",
+          "    defer data.free(h)",
+          "    dst: List<Byte> := List<Byte>.new(h)",
+          "    defer dst.free(h)",
+          "    mut stream: Bytes := Bytes.over(data)",
+          "    wrote: Size | Error := stream.write(\"abc\".bytes())",
+          "    mut copy: Bytes := stream",
+          "    rewind: Size | Error := stream.seek(Seek.Start { position = 0 })",
+          "    first: Size | EoS | Error := stream.read(dst, 1)",
+          "    alsoFirst: Size | EoS | Error := copy.read(dst, 1)",
+          "    return nil",
+          "end",
+          "done: Nil | Error := roundtrip(Heap.new())"
+        ]
+      },
+      "features": ["streams", "lists", "generics"],
+      "reservedWords": ["fun", "do", "end", "mut", "defer", "return"]
+    },
+    {
+      "id": "streams-generic-drain",
+      "name": "One algorithm, two backends",
+      "description": "A single generic drain runs unchanged over an OS-backed IO stream and a MutPtr<Bytes> memory stream.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun drain<S>(source: S, h: Heap): Size | Error do",
+          "    buf: List<Byte> := List<Byte>.new(h)",
+          "    defer buf.free(h)",
+          "    n: Size | EoS | Error := source.read(buf, 64)",
+          "    if n is EoS then",
+          "        return 0",
+          "    end",
+          "    return n",
+          "end",
+          "fun run(h: Heap): Nil | Error do",
+          "    data: List<Byte> := List<Byte>.new(h)",
+          "    defer data.free(h)",
+          "    mut live: Bytes := Bytes.over(data)",
+          "    out: IO := try IO.stdout()",
+          "    fromOS: Size | Error := drain<IO>(out, h)",
+          "    fromMemory: Size | Error := drain<MutPtr<Bytes>>(ref live, h)",
+          "    return nil",
+          "end",
+          "done: Nil | Error := run(Heap.new())"
+        ]
+      },
+      "features": ["streams", "generics", "lists"],
+      "reservedWords": ["fun", "do", "end", "if", "then", "is", "mut", "ref", "defer", "return"]
+    },
+    {
+      "id": "streams-seek-and-eos",
+      "name": "Seek positions and end of input",
+      "description": "Move a memory stream with Start, Current, and End seeks, then observe eos when the source drains.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun sample(h: Heap): Nil | Error do",
+          "    data: List<Byte> := List<Byte>.new(h)",
+          "    defer data.free(h)",
+          "    dst: List<Byte> := List<Byte>.new(h)",
+          "    defer dst.free(h)",
+          "    mut stream: Bytes := Bytes.over(data)",
+          "    wrote: Size | Error := stream.write(\"abcd\".bytes())",
+          "    home: Size | Error := stream.seek(Seek.Start { position = 0 })",
+          "    ahead: Size | Error := stream.seek(Seek.Current { offset = 2 })",
+          "    back: Size | Error := stream.seek(Seek.End { offset = -4 })",
+          "    drained: Size | EoS | Error := stream.read(dst, 99)",
+          "    if drained is EoS then",
+          "        return nil",
+          "    end",
+          "    leftover: Size := try drained",
+          "    return nil",
+          "end",
+          "sampled: Nil | Error := sample(Heap.new())"
+        ]
+      },
+      "features": ["streams", "adts", "unions", "errors"],
+      "reservedWords": ["fun", "do", "end", "if", "then", "is", "mut", "defer", "try", "return", "nil"]
+    }
+  ]
+}

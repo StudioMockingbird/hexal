@@ -271,7 +271,7 @@ func TestCheckedConversionLowering(t *testing.T) {
 	}
 	// Signed to unsigned retains lower and upper checks.
 	result = assertCompiles(t, "fun demo() do\n    value: Int32 := -3\n    code: UInt32 := value.to<UInt32>()\nend")
-headerText := numericH(t, result)
+	headerText := numericH(t, result)
 	for _, want := range []string{"static inline uint32_t hex_convert_int32_t_uint32_t(int32_t value) {", "if (!(value >= 0 && value <= UINT32_MAX)) {"} {
 		if !strings.Contains(headerText, want) {
 			t.Fatalf("hexal/numeric.h = %q, want %q", headerText, want)

@@ -1,7 +1,10 @@
 #include "hexal/print.h"
+#include "hexal/io.h"
 
 void hex_print_bytes(const uint8_t *data, size_t length) {
-    if (fwrite(data, 1, length, stdout) != length) {
+    // The shared descriptor transfer core: print and raw IO writes use one
+    // buffering domain on the standard output descriptor.
+    if (!hex_io_write_all(hex_io_stdout_desc(), data, length)) {
         hex_runtime_trap("[Runtime Error] standard output write failed\n");
     }
 }

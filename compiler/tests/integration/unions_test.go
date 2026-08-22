@@ -374,3 +374,67 @@ func TestCrossModuleUnionResultSpelledIdentically(t *testing.T) {
 		}
 	}
 }
+
+// The canonical Size | EoS narrowing and injection path into a fallible
+// Size | Error function compiles, and a contextual integer literal returned
+// from inside if, elseif, else, while, for, and match-arm scopes selects the
+// Size member through the enclosing function's result use.
+func TestContextualReturnsInsideBlocksInjectSize(t *testing.T) {
+	prefix := "fun source(): Size | EoS do\n    return eos\nend\n"
+	cases := map[string]string{
+		"if": prefix + "fun demo(flag: Bool): Size | Error do\n" +
+			"    outcome: Size | EoS := source()\n" +
+			"    if outcome is EoS then\n        return 0\n    end\n" +
+			"    return outcome\nend\n",
+		"elseif-else": "fun demo(flag: Bool, other: Bool): Size | Error do\n" +
+			"    if flag then\n        return 0\n" +
+			"    elseif other then\n        return 1\n" +
+			"    else\n        return 2\n    end\nend\n",
+		"while": "fun demo(): Size | Error do\n" +
+			"    mut guard: Bool := true\n" +
+			"    while guard do\n        return 0\n    end\n" +
+			"    return 1\nend\n",
+		"for": "fun demo(): Size | Error do\n" +
+			"    flags: Array<Bool, 2> := [true, false]\n" +
+			"    for flag in flags do\n        return 0\n    end\n" +
+			"    return 1\nend\n",
+		"match-arm": "fun demo(flag: Bool): Size | Error do\n" +
+			"    return match flag | true then 0 | false then 1 end\nend\n",
+	}
+	for name, source := range cases {
+		caller := "called: Size | Error := demo(true)\n"
+		if name == "while" || name == "for" {
+			caller = "called: Size | Error := demo()\n"
+		}
+		if name == "elseif-else" {
+			caller = "called: Size | Error := demo(true, true)\n"
+		}
+		result := compileSource(source + caller)
+		if result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("%s case rejected: %v", name, result.Stderr)
+		}
+		if strings.Contains(strings.Join(result.Stderr, "\n"), "Unknown Error") {
+			t.Fatalf("%s case produced an Unknown Error: %v", name, result.Stderr)
+		}
+		if !strings.Contains(rootC(t, result), ".tag = hex_tag_Size") {
+			t.Fatalf("%s case must inject the literal as Size:\n%s", name, rootC(t, result))
+		}
+	}
+}
+
+// The recorded narrowed-union defect shape stays fixed: a narrowed Size read
+// returned into Size | Error carries valid injection metadata.
+func TestNarrowedEoSReturnPathProducesValidInjection(t *testing.T) {
+	result := compileSource("fun source(): Size | EoS do\n    return eos\nend\n" +
+		"fun demo(): Size | Error do\n" +
+		"    outcome: Size | EoS := source()\n" +
+		"    if outcome is EoS then\n        return 0\n    end\n" +
+		"    return outcome\nend\n" +
+		"called: Size | Error := demo()\n")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("narrowed return path rejected: %v", result.Stderr)
+	}
+	if !strings.Contains(rootC(t, result), "hex_t_Error_Size") || !strings.Contains(rootC(t, result), ".tag = hex_tag_Size") {
+		t.Fatalf("generated C must carry the Size member of the result union:\n%s", rootC(t, result))
+	}
+}

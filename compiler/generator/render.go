@@ -850,6 +850,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderAtomicConstructor(node, state)
 	case checker.AtomicMethodCallExpression:
 		return renderAtomicMethod(node, state)
+	case checker.StreamConstructorExpression:
+		return renderStreamConstructor(node, state)
+	case checker.BytesOverExpression:
+		return renderBytesOver(node, state)
+	case checker.StreamMethodCallExpression:
+		return renderStreamMethod(node, state)
 	case checker.LayoutExpression:
 		// The C23 compiler is the final authority for the selected target
 		// layout; the checker already proved T complete.

@@ -27,6 +27,33 @@ static inline void hex_list_grow_{{.Suffix}}({{.CName}} *list) {
     list->data = region;
     list->capacity = next;
 }
+static inline void hex_list_reserve_at_least_{{.Suffix}}({{.CName}} *list, size_t minimum) {
+    // The stream backends' internal reservation: one allocation grown by the
+    // same checked doubling formula and allocator path as push growth, never
+    // exposed as a source-visible method.
+    if (minimum == 0 || minimum <= list->capacity) {
+        return;
+    }
+    size_t next = list->capacity == 0 ? 1 : list->capacity;
+    while (next < minimum) {
+        if (ckd_mul(&next, next, 2)) {
+            hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
+        }
+    }
+    size_t bytes;
+    if (ckd_mul(&bytes, next, sizeof({{.ElementSpelling}}))) {
+        hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
+    }
+    {{.ElementSpelling}} *region = hex_heap_raw_allocate(list->allocator, bytes, _Alignof({{.ElementSpelling}}));
+    if (list->length != 0) {
+        memcpy(region, list->data, list->length * sizeof({{.ElementSpelling}}));
+    }
+    if (list->data != nullptr) {
+        hex_heap_free(list->data, list->allocator);
+    }
+    list->data = region;
+    list->capacity = next;
+}
 static inline {{.CName}} *hex_list_new_{{.Suffix}}(hex_heap h) {
     {{.CName}} *header = hex_heap_raw_allocate(h.identity, sizeof({{.CName}}), _Alignof({{.CName}}));
     header->data = nullptr;

@@ -2,7 +2,7 @@
 /bin/
 /.vscode/
 /.oven/
-/.shards/
+/.tmp/
 *.dwarf
 *.lock
 .claude/
@@ -10,3 +10,5 @@
 shard.lock
 .env
 *.exe
+/.tmp/*
+!/.tmp/.keep

@@ -395,11 +395,15 @@ func startsExpression(kind lexer.TokenKind) bool {
 
 // valueOnlyToken reports whether a token can begin an expression but can never
 // begin a statement. '(' is excluded: it is owned by the same-line call rule.
+// Match is value-only: every match lives in expression position, so a match
+// after return belongs to the return's own line rather than opening a
+// statement.
 func valueOnlyToken(kind lexer.TokenKind) bool {
 	switch kind {
 	case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger,
 		lexer.DecimalFloat, lexer.True, lexer.False, lexer.NilLiteral, lexer.Eos,
-		lexer.Minus, lexer.Bang, lexer.Ref, lexer.LeftBracket, lexer.StringLiteral:
+		lexer.Minus, lexer.Bang, lexer.Ref, lexer.LeftBracket, lexer.StringLiteral,
+		lexer.Match:
 		return true
 	default:
 		return false

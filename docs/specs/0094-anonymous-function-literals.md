@@ -6,8 +6,11 @@
 - Updated: 2026-08-19
 - Scope: add non-capturing anonymous function literals that produce concrete `Fun<...>` values
 - Depends on: implemented RFC 0093, the existing `Fun<...>` rules, and `docs/reference.md`
-- Coordinates with: lexer, parser, checker, generator, integration tests, workbench snippets, the snippet manifest, and `docs/status.md`
-- Does not change: function-value placement, function-pointer representation, source-order visibility, or the no-closures rule
+- Coordinates with: RFC 0112 (order-independent function visibility), lexer,
+  parser, checker, generator, integration tests, workbench snippets, the
+  snippet manifest, and `docs/status.md`
+- Does not change: function-pointer representation, source-order visibility,
+  or the no-closures rule
 
 ## Summary
 
@@ -31,11 +34,19 @@ fun square(value: Int32): Int32 do
 end
 ```
 
-The declaration layer additionally owns `export` and the named spelling. A named function remains code, not mutable storage: it cannot be assigned or addressed. Its declaration name and the receiving name of a direct fixed function-literal binding are both bound before the body and receive the same scope, source-order visibility, and direct self-recursion semantics.
+The declaration layer additionally owns `export` and the named spelling. A
+named function remains code rather than mutable storage, but its name is a
+first-class non-capturing function value when used in value position. Its
+declaration name and the receiving name of a direct fixed function-literal
+binding are both bound before the body and receive the same scope,
+source-order visibility, and direct self-recursion semantics.
 
 A fixed declaration whose initializer is directly a function literal is semantically a function declaration, not executable data initialization. It emits the helper function and no function-pointer storage. At module scope it is therefore valid in an imported declaration-only module. It remains private because `export` prefixes the named function-declaration form; use `export fun name(...)` for an exported function. A mutable binding or a binding initialized from an existing function value remains ordinary runtime data and does not gain declaration semantics.
 
-No current built-in accepts a `Fun<...>` callback. The immediate use is with user-defined higher-order functions; callback collection operations are not part of this RFC.
+`Fun<...>` is an ordinary non-capturing function-pointer value. Named
+functions can be used in value position, and anonymous literals can be stored,
+passed, returned, and placed in copyable aggregates. No current built-in
+requires a callback; callback collection operations are not part of this RFC.
 
 ## Syntax
 
@@ -131,10 +142,16 @@ The example is rejected because `factor` belongs to the enclosing function. No e
 
 Anonymous functions use the existing `Fun<...>` position matrix:
 
-- Valid: binding, function parameter, parameter inside another `Fun`, and union member.
-- Invalid: function result, object member, ADT payload, Array/View/List element, Dict key or value, Task argument or result, Channel element, Ptr/MutPtr pointee, heap allocation, and `ref` target.
+- Valid: binding, function parameter, function result, parameter inside another
+  `Fun`, object member, ADT payload, Array element, View element, List element,
+  Dict value, Task argument or result, Channel element, and union member.
+- `Fun<...>` remains invalid as a `Ptr`/`MutPtr` pointee and `ref` target. A
+  function value is copied as a function pointer; it never becomes an owned
+  allocation and cannot be used as an allocator element requiring destruction.
+- A named function identifier in value position produces its exact `Fun<...>`
+  value. A direct call remains a call, so no address-taking operator is needed.
 - Calls require exact arity and assignable arguments. No-result calls are statements only.
-- Function values have no equality, ordering, addressability, member access, or index operation.
+- Function values have no equality, ordering, member access, or index operation.
 
 A literal may inject into a union containing its exact `Fun<...>` type. A nullable function value must be narrowed before calling it, as today.
 
@@ -156,7 +173,7 @@ identity := fun<T>(value: T): T do
 end
 ```
 
-An unspecialized generic literal is a compile-time function template, not a runtime `Fun<...>` pointer. A direct inferred declaration whose initializer is that literal creates the same open generic-function binding used by a named generic declaration. This is the named-function sugar boundary, not an ordinary runtime value binding. It is fixed, non-addressable, non-assignable, and emits no C storage. Calls infer or accept explicit type arguments exactly like named generic calls:
+An unspecialized generic literal is a compile-time function template, not a runtime `Fun<...>` pointer. A direct inferred declaration whose initializer is that literal creates the same open generic-function binding used by a named generic declaration. This is the named-function sugar boundary, not an ordinary runtime value binding. It is fixed and non-assignable and emits no C storage. Calls infer or accept explicit type arguments exactly like named generic calls:
 
 ```hexal
 integer := identity(10)
@@ -265,14 +282,13 @@ Diagnostics may display `anonymous function` instead of the generated C name. Ge
 8. Generalize open generic-function registration so scope bindings, caches, and recursion guards use compiler-owned template identities. Route named and anonymous generics through that one path.
 9. Emit prototypes, definitions, function pointers, and source mappings as specified.
 10. Replace `emitModulePair`'s CARE comment claiming that no prototype region is needed. State the new contract: anonymous-helper prototypes precede ordinary definitions; function source visibility remains checker-owned and unchanged.
-11. Update `docs/reference.md` after behavior stabilizes: grammar, named-function sugar, closed scope, module classification, placement, generics, and generated-C contract.
+11. Update `docs/reference.md` after behavior stabilizes: grammar, named-function sugar, closed scope, module classification, ordinary function-value placement, generics, and generated-C contract.
 12. Add the four positive workbench snippets required by Validation.
 13. Record the post-0093 snippet manifest before implementation. Existing entries must not change; add entries only for new 0094 snippets.
 
 ## Non-goals
 
-- Lexical closures or captured values.
-- Returning or aggregating `Fun<...>` values.
+- Lexical closures, captured values, or closure environments.
 - Runtime function allocation or environment management.
 - Built-in map/filter/fold/sort callback APIs.
 - Async functions, coroutines, overloading, default arguments, named arguments, or variadic parameters.
@@ -281,7 +297,9 @@ Diagnostics may display `anonymous function` instead of the generated C name. Ge
 
 This section is exhaustive. RFC 0094 is complete only when every item below passes:
 
-- Named functions retain source-order visibility, named self-recursion, export, generic specialization, non-addressability, and non-assignability.
+- Named functions retain source-order visibility, named self-recursion, export,
+  generic specialization, and non-assignability. Their identifiers produce
+  non-capturing `Fun<...>` values in value position.
 - Stored, directly passed, no-result, multi-parameter, mutable-reassigned, and nested anonymous literals compile with exact `Fun<...>` types.
 - Result-producing and no-result literals can be invoked directly. A fixed binding containing a literal cannot be reassigned.
 - Literal parameters are fixed; missing parameter types, malformed result forms, invalid returns, fall-through results, wrong call arity, incompatible signatures, and incompatible arguments are rejected with the specified diagnostics.
@@ -291,10 +309,20 @@ This section is exhaustive. RFC 0094 is complete only when every item below pass
 - A local fixed literal binding is callable only by following statements in its lexical scope. Its body sees itself but cannot see any other binding from the containing function scope.
 - A mutable literal binding and a fixed binding initialized from an existing function value remain runtime data; they do not gain module function visibility or declaration-only classification.
 - A literal can call a visible named function, its own Fun parameter, and a Fun binding declared inside its own body.
-- A literal injects into `Fun<...> | Nil`; calling the nullable value still requires narrowing.
-- Literal use is rejected separately as a function result, object member, ADT payload, Array element, View element, List element, Dict key, Dict value, Task argument, Task result, Channel element, Ptr pointee, MutPtr pointee, heap-allocation type, and `ref` target.
+- Literals and named function values inject into `Fun<...> | Nil`; calling the
+  nullable value still requires narrowing.
+- Literal and named-function values are accepted as function results, object
+  members, ADT payloads, Array/View/List elements, Dict values, Task arguments
+  and results, Channel elements, and union members. They remain rejected as
+  Dict keys (function values have no equality/hash contract), Ptr/MutPtr
+  pointees, heap-allocation types, and `ref` targets.
+- Function values in every accepted position lower to ordinary C function
+  pointers; no environment object, ownership operation, or allocation is
+  emitted.
 - A generic named function containing one literal is instantiated with two concrete types; helpers have distinct identities and correct signatures. Named generic function values retain current behavior.
-- `identity := fun<T>(value: T): T do ... end` creates a fixed, non-addressable, non-assignable template binding and emits no C storage before specialization.
+- `identity := fun<T>(value: T): T do ... end` creates a fixed,
+  non-assignable template binding and emits no C storage before
+  specialization.
 - The named and anonymous spellings of the same generic function produce equivalent open-template behavior; `alias := identity` remains rejected without an exact expected `Fun<...>` type.
 - Two local generic literal bindings with the same source name in disjoint scopes have distinct template identities, specialization caches, generated helpers, and diagnostics.
 - Generic literals support inferred calls, explicit type-argument calls, expected-result inference, and direct invocation.

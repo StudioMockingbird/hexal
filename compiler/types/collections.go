@@ -195,6 +195,30 @@ func Storable(typ Type, position Position) bool {
 	if typ.Atomic != nil && !isConstructionPosition(position) {
 		return false
 	}
+	// Stream bootstrap restriction: IO may cross a Task boundary as a
+	// shallow copy; Bytes borrows its List and cannot. Neither survives in
+	// long-lived aggregate storage while the shallow-copy alias model is
+	// the only lifetime rule. Pointer receivers stay formable because the
+	// Bytes operation surface is defined on MutPtr<Bytes>.
+	if IsIO(typ) {
+		switch position {
+		case PositionBinding, PositionUnionMember, PositionFunctionParam,
+			PositionFunctionResult, PositionTaskArgument, PositionTaskResult,
+			PositionPointee:
+			return true
+		default:
+			return false
+		}
+	}
+	if IsBytes(typ) {
+		switch position {
+		case PositionBinding, PositionUnionMember, PositionFunctionParam,
+			PositionFunctionResult, PositionPointee:
+			return true
+		default:
+			return false
+		}
+	}
 	return true
 }
 

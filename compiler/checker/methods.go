@@ -294,6 +294,14 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Mutex" {
 		return checkMutexTypeCall(call, variable.Name, names, typeEnvironment)
 	}
+	// IO.stdin()/stdout()/stderr() name the built-in IO type.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "IO" {
+		return checkIOTypeCall(call, variable, names, typeEnvironment)
+	}
+	// Bytes.over(buffer) names the built-in Bytes type.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Bytes" {
+		return checkBytesTypeCall(call, variable, names, typeEnvironment)
+	}
 	// Atomic<T>.new() names the built-in generic Atomic type, not an Atomic
 	// value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Atomic" {
@@ -382,6 +390,18 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	}
 	if receiver.typ.Atomic != nil {
 		return checkAtomicMethodCall(call, callee, receiver, names, typeEnvironment)
+	}
+	// Stream operations dispatch on the built-in stream receivers: IO
+	// methods take the value; Bytes state-changing methods reach MutPtr<Bytes>
+	// either through a pointer value or through the mutable-binding rule.
+	if compilerTypes.IsIO(receiver.typ) {
+		return checkIOStreamMethodCall(call, callee, receiver, names, typeEnvironment)
+	}
+	if receiver.typ.Element != nil && compilerTypes.IsBytes(*receiver.typ.Element) {
+		return checkBytesStreamMethodCall(call, callee, receiver, names, typeEnvironment)
+	}
+	if compilerTypes.IsBytes(receiver.typ) {
+		return checkBytesStreamMethodCall(call, callee, receiver, names, typeEnvironment)
 	}
 	// String methods dispatch on the built-in String receiver type.
 	if compilerTypes.IsString(receiver.typ) {

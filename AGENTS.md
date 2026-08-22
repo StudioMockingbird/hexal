@@ -41,6 +41,25 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   reproduce get recorded as excluded with the evidence, not silently dropped;
   that record is what stops the same wrong claim returning. This applies to
   your own conclusions as forcefully as to someone else's.
+- **Scratch files live in `.tmp/`.** Every probe, throwaway script, captured
+  output, or experiment goes under `.tmp/` in this repo — never in the system
+  temp directory, never loose in a package. Go tooling skips dot-directories,
+  so `go test ./...` and `go vet ./...` do not see `.tmp/`; a probe there can
+  import `hexal/compiler` and run as its own package
+  (`go test ./.tmp/probe`) without ever joining the gate. Delete the scratch
+  when the question is answered; `.tmp/` is expected to be empty between tasks.
+- **Files are read and edited with tools, not the shell.** Read, edit, and
+  search through the harness's own tools; the shell runs programs — `go build`,
+  `go test`, `gofmt`, `git` — and reads their output. Never mutate a tracked
+  file with `-replace`, `Set-Content`, `Out-File`, `sed -i`, `>`/`>>`, or a
+  heredoc; shell reads for orientation (`wc -l`, `head`, `git diff`) are fine.
+  An exact-match edit fails loudly when its target is missing or ambiguous,
+  while a regex replace succeeds identically whether it matched zero sites or
+  forty — this repo lost `parser.go` to a heredoc and shipped self-recursive
+  functions three times from regex rewrites. On Windows,
+  `(Get-Content -Raw) | Set-Content` also silently rewrites LF as CRLF. For a
+  change too broad for exact-match edits, write the transformation as a Go
+  program under `.tmp/` and run it — never `sed`.
 - **Workbench validation.** Once code implementation is complete, rebuild the workbench
   binary into `bin/` and restart the running workbench before handoff.
 - **Pushback.** When a request is wrong or a poor fit for Hexal, push back with

@@ -162,6 +162,15 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			Element:     element,
 		}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
+		// A locally proved free releases the allocation every Bytes stream
+		// borrowed from this exact binding; borrowers consult the mark. A
+		// deferred free releases at scope exit, outside local proof, so it
+		// takes the documented unknown-state envelope instead.
+		if names.flow != nil && names.cleanupDepth == 0 {
+			if binding := baseBindingID(&receiver.source.Node); binding != 0 {
+				names.flow.releaseSource(binding)
+			}
+		}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
 		diagnostic := typeErrorAt(callee.Property, listType.Name+" has no method "+name)

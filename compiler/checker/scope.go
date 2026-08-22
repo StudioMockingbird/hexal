@@ -66,11 +66,12 @@ func moduleScope(moduleID string, logicalKey string, registry *ModuleRegistry) *
 // freed facts survive only while the binding remains trackable; escape clears
 // both because a write through the escaped address can change the slot.
 type flowFact struct {
-	typ     compilerTypes.Type // effective read type; zero Type when not narrowed
-	escaped bool
-	variant *compilerTypes.AdtVariant // active ADT variant when variant-narrowed
-	freed   bool                      // the tracked pointer's pointee was released on every path here
-	version uint64                    // identity of the pointer value currently in the binding
+	typ        compilerTypes.Type // effective read type; zero Type when not narrowed
+	escaped    bool
+	variant    *compilerTypes.AdtVariant // active ADT variant when variant-narrowed
+	freed      bool                      // the tracked pointer's pointee was released on every path here
+	version    uint64                    // identity of the pointer value currently in the binding
+	capability uint8                     // compilerTypes.StreamCapability of an IO binding; zero is unknown
 }
 
 // returnFlow carries one reachable return state and the actions registered
@@ -84,17 +85,23 @@ type returnFlow struct {
 // scope. tracked distinguishes a known cleanup state from an intentionally
 // unknown state after a copy or escape. released retains proven cleanup of
 // older pointer values so deferred captures survive later rebinding.
+// provenance records which List binding each Bytes stream borrows, and
+// releasedSources marks lists the local facts prove already freed.
 type flowState struct {
-	facts    map[BindingID]flowFact
-	tracked  map[BindingID]bool
-	released map[BindingID]map[uint64]bool
+	facts           map[BindingID]flowFact
+	tracked         map[BindingID]bool
+	released        map[BindingID]map[uint64]bool
+	provenance      map[BindingID]BindingID
+	releasedSources map[BindingID]bool
 }
 
 func newFlowState() *flowState {
 	return &flowState{
-		facts:    make(map[BindingID]flowFact),
-		tracked:  make(map[BindingID]bool),
-		released: make(map[BindingID]map[uint64]bool),
+		facts:           make(map[BindingID]flowFact),
+		tracked:         make(map[BindingID]bool),
+		released:        make(map[BindingID]map[uint64]bool),
+		provenance:      make(map[BindingID]BindingID),
+		releasedSources: make(map[BindingID]bool),
 	}
 }
 
@@ -111,6 +118,12 @@ func (state *flowState) clone() *flowState {
 		for version := range versions {
 			cloned.released[id][version] = true
 		}
+	}
+	for id, source := range state.provenance {
+		cloned.provenance[id] = source
+	}
+	for id := range state.releasedSources {
+		cloned.releasedSources[id] = true
 	}
 	return cloned
 }
@@ -270,6 +283,63 @@ func (state *flowState) freed(id BindingID) bool {
 	return ok && fact.freed
 }
 
+// capabilityOf reports the IO capability the local facts prove. Zero means
+// unknown and selects the runtime access-mask check.
+func (state *flowState) capabilityOf(id BindingID) uint8 {
+	if state == nil {
+		return 0
+	}
+	return state.facts[id].capability
+}
+
+// setCapability overwrites one binding's proven IO capability. Assignment
+// seeding calls this with the new initializer's fact, so a rebinding replaces
+// rather than intersects.
+func (state *flowState) setCapability(id BindingID, capability uint8) {
+	if state == nil || id == 0 {
+		return
+	}
+	fact := state.facts[id]
+	fact.capability = capability
+	state.facts[id] = fact
+}
+
+// setProvenance records which List binding a Bytes stream borrows; zero
+// clears the edge, selecting the unknown envelope.
+func (state *flowState) setProvenance(id BindingID, source BindingID) {
+	if state == nil || id == 0 {
+		return
+	}
+	if source == 0 {
+		delete(state.provenance, id)
+		return
+	}
+	if state.provenance == nil {
+		state.provenance = make(map[BindingID]BindingID)
+	}
+	state.provenance[id] = source
+}
+
+// releaseSource marks a List binding locally freed through list.free so its
+// borrowers reject further use.
+func (state *flowState) releaseSource(id BindingID) {
+	if state == nil || id == 0 {
+		return
+	}
+	if state.releasedSources == nil {
+		state.releasedSources = make(map[BindingID]bool)
+	}
+	state.releasedSources[id] = true
+}
+
+// sourceReleased reports whether the local facts prove the list freed.
+func (state *flowState) sourceReleased(id BindingID) bool {
+	if state == nil {
+		return false
+	}
+	return state.releasedSources[id]
+}
+
 func (state *flowState) trackedVersion(id BindingID) (uint64, bool) {
 	if state == nil || !state.tracked[id] {
 		return 0, false
@@ -352,12 +422,20 @@ func (state *flowState) nextFreedVersion(id BindingID, current uint64) uint64 {
 
 // escape records that a writable address of the binding escaped. It clears
 // narrowing and cleanup tracking because the slot can now change unseen.
+// Stream facts ride the same wipe: capability and borrow provenance fall to
+// the unknown envelope.
 func (state *flowState) escape(id BindingID) {
 	if state == nil {
 		return
 	}
 	state.dropFreed(id)
 	state.facts[id] = flowFact{escaped: true}
+	for borrowed, source := range state.provenance {
+		if borrowed == id || source == id {
+			delete(state.provenance, borrowed)
+		}
+	}
+	delete(state.releasedSources, id)
 }
 
 // mergeBranch merges one branch's invalidation effects. New control-flow code
@@ -487,6 +565,75 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 		}
 	}
 	state.released = mergedReleased
+
+	// Stream facts merge conservatively in the same direction as freed: a
+	// capability survives only when every continuing branch proves it, a
+	// borrow edge only when every branch names the same source list, and a
+	// released source only when every branch proves it.
+	streamIDs := make(map[BindingID]bool)
+	for _, branch := range branches {
+		if branch == nil {
+			continue
+		}
+		for id, fact := range branch.facts {
+			if fact.capability != 0 {
+				streamIDs[id] = true
+			}
+		}
+		for id := range branch.provenance {
+			streamIDs[id] = true
+		}
+	}
+	for id := range streamIDs {
+		capability := uint8(compilerTypes.StreamReadWrite)
+		for _, branch := range branches {
+			fact, ok := branch.facts[id]
+			if branch == nil || !ok || fact.escaped {
+				capability = 0
+				break
+			}
+			capability &= fact.capability
+		}
+		current := state.facts[id]
+		current.capability = capability
+		state.facts[id] = current
+
+		source := BindingID(0)
+		sameSource := len(branches) > 0
+		firstBranch := true
+		for _, branch := range branches {
+			borrowed, ok := branch.provenance[id]
+			if branch == nil || !ok {
+				sameSource = false
+				break
+			}
+			if firstBranch {
+				source = borrowed
+				firstBranch = false
+			} else if borrowed != source {
+				sameSource = false
+				break
+			}
+		}
+		if sameSource && !firstBranch && !state.facts[id].escaped {
+			state.provenance[id] = source
+		} else {
+			delete(state.provenance, id)
+		}
+
+		allReleased := true
+		for _, branch := range branches {
+			if branch == nil || !branch.releasedSources[id] {
+				allReleased = false
+				break
+			}
+		}
+		if allReleased {
+			state.releasedSources[id] = true
+		} else {
+			delete(state.releasedSources, id)
+		}
+	}
 }
 
 // adopt replaces the continuing state with one continuing branch's facts
@@ -510,6 +657,14 @@ func (state *flowState) adopt(branch *flowState) {
 		for version := range versions {
 			state.released[id][version] = true
 		}
+	}
+	state.provenance = make(map[BindingID]BindingID, len(branch.provenance))
+	for id, source := range branch.provenance {
+		state.provenance[id] = source
+	}
+	state.releasedSources = make(map[BindingID]bool, len(branch.releasedSources))
+	for id := range branch.releasedSources {
+		state.releasedSources[id] = true
 	}
 }
 
@@ -645,6 +800,7 @@ func (names *scope) child() *scope {
 		parent:     names,
 		owner:      names.owner,
 		result:     names.result,
+		resultUse:  names.resultUse,
 		methods:    names.methods,
 		self:       names.self,
 		selfID:     names.selfID,

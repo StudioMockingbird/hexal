@@ -9,7 +9,10 @@ import (
 )
 
 func trackablePointerBinding(bound binding) bool {
-	return bound.kind == dataBinding && !bound.parameter && !bound.loopBinder && bound.typ.Element != nil
+	// IO bindings ride the freed machinery so close records a versioned
+	// closed state with the same rebinding and branch-merge semantics as
+	// Heap.free.
+	return bound.kind == dataBinding && !bound.parameter && !bound.loopBinder && (bound.typ.Element != nil || compilerTypes.IsIO(bound.typ))
 }
 
 func directPointerBinding(source Operand, target compilerTypes.Type) BindingID {
@@ -38,11 +41,12 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 
 	if len(declaration.Parameters) > 0 {
 		genericDiagnostics := registerGenericTypeDeclaration(declaration, typeEnvironment, names)
-		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, genericDiagnostics
+		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, append(diagnostics, genericDiagnostics...)
 	}
 
 	if adt, isADT := declaration.Target.(parser.AdtDefinitionExpression); isADT {
-		return checkADTDeclaration(declaration, adt, typeEnvironment, names)
+		checked, adtDiagnostics := checkADTDeclaration(declaration, adt, typeEnvironment, names)
+		return checked, append(diagnostics, adtDiagnostics...)
 	}
 
 	if object, ok := declaration.Target.(parser.ObjectTypeExpression); ok {
@@ -368,6 +372,9 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 			names.flow.dropFreed(declaredBinding.id)
 		}
 	}
+	if len(diagnostics) == 0 && names.flow != nil {
+		seedStreamBindingFacts(names.flow, declaredBinding.id, declaredType, initializer.source)
+	}
 	return Declaration{
 		Name:         declaration.Name.Lexeme,
 		Binding:      declaredBinding.id,
@@ -440,6 +447,7 @@ func checkAssignment(assignment parser.Assignment, names *scope, typeEnvironment
 		} else {
 			names.flow.clearFreed(targetBinding)
 		}
+		seedStreamBindingFacts(names.flow, targetBinding, targetType, initializer.source)
 	}
 	if len(diagnostics) == 0 && targetBinding != 0 {
 		// Assignment re-sources the slot: the binding now holds the ref-derived

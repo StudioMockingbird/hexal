@@ -4,12 +4,12 @@
 - Status: Draft; design decision required
 - Created: 2026-08-19
 - Scope: what the scheduler does when generated code calls something that blocks
-- Depends on: nothing
+- Depends on: RFC 0118 (concurrency safety)
 - Gates: RFC 0065 (byte stream I/O), a future sockets specification, a future
   filesystem specification, and any pipe or process-spawn surface
 - Coordinates with: `docs/reference.md` (Tasks and synchronization),
   `docs/status.md`, RFC 0039 (C interop is how a blocking call first becomes
-  reachable)
+  reachable), RFC 0118 (safe-task and foreign-thread contract)
 - Does not change: the M:N model, worker count, `spawn`/`join`/`detach`, or
   `Task.yield()`
 
@@ -28,6 +28,12 @@ readiness.
 
 Nothing here is designed yet. What follows is what is already determined, so
 the design pass starts from it rather than re-deriving it.
+
+RFC 0118 owns the safety rule around this mechanism: an undeclared blocking
+foreign call is unsafe, a safe blocking operation must be scheduler-classified,
+and it must not silently convert all scheduler progress into an unspecified
+stall. This RFC chooses the implementation for that contract; it does not
+redefine data-race or task-lifetime rules.
 
 ## What is already determined
 
@@ -195,3 +201,10 @@ when deciding how much machinery to take on.
 - Choosing F2 to move quickly means a documented parallelism limit that is
   invisible in source, which is the kind of hidden cost this language otherwise
   refuses.
+
+## Reference synchronization
+
+After implementation stabilizes, update `docs/reference.md` with the selected
+blocking-call classification, safe-task behavior, unsupported-target failure,
+and any source-visible I/O annotation. RFC 0118 remains the authority for the
+data-race, task-lifetime, and foreign-thread safety rules.

@@ -1,11 +1,11 @@
 # RFC 0052: Target Profiles and Representation Evidence
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; design not started
+- Status: Draft; design proposed, implementation not started
 - Features: a named target profile, representation evidence beyond C constant
   expressions, and the trusted-metadata boundary for cross-compilation
 - Created: 2026-08-13
-- Updated: 2026-08-15
+- Updated: 2026-08-22
 - Depends on: RFC 0003 (scalar layouts), RFC 0036 (`Size`), RFC 0037 (task
   runtime targets), RFC 0042 (layout queries), and RFC 0062 (supported
   toolchain contract; generated probes removed)
@@ -106,6 +106,63 @@ other side.
 Neither RFC should answer it alone. Whichever is designed first should settle
 the evidence model and the other should cite it.
 
+## 4A. Minimum C/ABI profile contract
+
+The profile is the evidence boundary for both native lowering and C
+interoperability. A profile must identify a concrete target/ABI/toolchain
+combination, not merely an operating-system name or CPU family.
+
+At minimum, a usable C-interoperability profile carries:
+
+- pointer size, alignment, and representation assumptions;
+- `size_t` size, alignment, and maximum value;
+- alignment and layout rules for every directly representable scalar;
+- byte order;
+- representation and calling rules for `bool`, fixed-width integers,
+  floating-point values, pointers, enums, and function pointers;
+- struct padding, alignment, bit-field, flexible-array, and union rules;
+- supported calling conventions and symbol/linkage rules;
+- atomic widths, lock-free guarantees where promised, and memory-order
+  support;
+- volatile/device-memory semantics;
+- thread, TLS, signal, and process-entry capabilities;
+- available C23 headers and builtins relied on by generated code; and
+- the operating-system facilities required by selected runtime components.
+
+Unsupported or unverified facts are not silently assigned a host default. A
+profile either supplies the fact or the compiler rejects the feature that needs
+it. This is especially important for foreign records, foreign function
+pointers, external variables, atomics, inline assembly, and raw unsafe layout.
+
+The profile is selected by build-time configuration and is not visible as a
+source-language value. The in-memory compiler consumes the selected profile's
+trusted metadata through `Project`; filesystem discovery, compiler probing,
+and profile installation belong to the driver. A zero-value `Project` may
+select a documented native default, but cross-compilation must select a named
+profile explicitly.
+
+Generated C assertions are corroboration, not a substitute for checker input.
+The checker must have every fact required to type-check and lower a program
+before generation. A generated `_Static_assert` may detect that the selected
+toolchain contradicts the profile, but it cannot make an unknown fact safe.
+
+Profiles are immutable, versioned inputs. A generated artifact records the
+profile identity used to produce it so that a driver cannot accidentally link
+objects produced under incompatible layout or ABI evidence.
+
+## 4B. Profile and unsafe-boundary interaction
+
+Safe native code may use only representations whose profile contract is
+complete. Unsafe foreign declarations may use additional target-specific
+facts, but those facts must still be present in the profile; `unsafe` relaxes
+the native checker, not the target ABI requirement.
+
+Raw unions, bit fields, flexible array members, address integers, pointer
+arithmetic, pointer casts, foreign globals, inline assembly, and compiler
+extensions are therefore profile-qualified unsafe features. A profile that
+does not describe one of them causes an Unsupported or ABI diagnostic before
+generation.
+
 ## 5. Resolution so far (RFC 0062)
 
 RFC 0062 settled the generated-assertion side of sections 1 and 2:
@@ -163,12 +220,16 @@ reporting these facts.
 
 ## Readiness
 
-Not ready for design, and deliberately so. RFC 0049 item 6 will show what a
-minimal profile actually needs; designing the general mechanism first would be
-speculative. Revisit once that lands, or when RFC 0039 forces the evidence
-question.
+The minimum evidence set is proposed above. Implementation remains blocked
+until RFC 0039 settles the foreign declaration grammar and RFC 0055 settles how
+the driver selects, validates, and records profile identities. Do not add
+host-probing fallback code to the core compiler while those boundaries remain
+open.
 
 ## Open questions
 
-Everything in sections 1 through 4. This RFC records the problem and its owner,
-not a solution.
+The exact profile record schema, profile registry format, trust/signature
+mechanism, native default selection, and the complete per-target capability
+matrix remain open. This RFC now fixes the minimum evidence categories and the
+core/driver trust boundary; the successor design must not remove those
+categories without coordinating with RFC 0039.

@@ -125,3 +125,18 @@ func printH(t *testing.T, result compiler.CompilationResult) string {
 	t.Helper()
 	return moduleFile(t, result, "hexal/print.h")
 }
+
+func printC(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/print.c")
+}
+
+func ioH(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/io.h")
+}
+
+func ioC(t *testing.T, result compiler.CompilationResult) string {
+	t.Helper()
+	return moduleFile(t, result, "hexal/io.c")
+}

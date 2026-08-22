@@ -1,7 +1,7 @@
 # RFC 0106: IO — Two Stream Types and Duck-Typed Generics
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; submitted for discussion
+- Status: Closed; discarded in favor of RFC 0108
 - Created: 2026-08-21
 - Scope: byte streams for the compiled program — an OS descriptor stream and an
   in-memory stream, with the operation set they share

@@ -547,3 +547,52 @@ func TestMethodCallProducesCheckedIR(t *testing.T) {
 		t.Fatalf("call node = %#v, want a MutPtr<Point> receiver and one argument", node)
 	}
 }
+
+// A return nested inside a block scope must keep the enclosing function's
+// exact result TypeUse, so a literal selects the Size member of Size | Error
+// and a narrowed Size | EoS binding injects without invalid metadata.
+func TestContextualReturnInsideBlockKeepsResultUse(t *testing.T) {
+	checked := requireAccepted(t,
+		"fun source(): Size | EoS do\n    return eos\nend\n"+
+			"fun demo(): Size | Error do\n"+
+			"    outcome: Size | EoS := source()\n"+
+			"    if outcome is EoS then\n        return 0\n    end\n"+
+			"    return outcome\nend\n")
+	var demo FunctionDeclaration
+	for _, statement := range checked.Statements {
+		if function, ok := statement.(FunctionDeclaration); ok && function.Name == "demo" {
+			demo = function
+		}
+	}
+	if demo.Name != "demo" || len(demo.Body) != 3 {
+		t.Fatalf("demo body = %#v, want three statements", demo.Body)
+	}
+	branch, ok := demo.Body[1].(IfStatement)
+	if !ok || len(branch.Then) != 1 {
+		t.Fatalf("second statement = %#v, want one if with one then statement", demo.Body[1])
+	}
+	nested, ok := branch.Then[0].(ReturnStatement)
+	if !ok || nested.Value == nil {
+		t.Fatalf("then block = %#v, want one valued return", branch.Then)
+	}
+	injection := nested.Value.Node
+	if injection.Kind != UnionInjectionExpression || injection.OperandType != compilerTypes.SizeType {
+		t.Fatalf("nested return node = %#v, want the literal converted to Size before injection", injection)
+	}
+	sizeIndex := -1
+	for index, member := range compilerTypes.UnionMembers(injection.ResultType) {
+		if compilerTypes.Equal(member, compilerTypes.SizeType) {
+			sizeIndex = index
+		}
+	}
+	if sizeIndex < 0 || injection.MemberIndex != sizeIndex {
+		t.Fatalf("nested return member index = %d, want the Size member index %d", injection.MemberIndex, sizeIndex)
+	}
+	final, ok := demo.Body[2].(ReturnStatement)
+	if !ok || final.Value == nil {
+		t.Fatalf("final statement = %#v, want a valued return", demo.Body[2])
+	}
+	if final.Value.Node.Kind != UnionInjectionExpression || final.Value.Node.OperandType != compilerTypes.SizeType {
+		t.Fatalf("final return node = %#v, want the narrowed Size injected into the result union", final.Value.Node)
+	}
+}

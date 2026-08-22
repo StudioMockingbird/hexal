@@ -853,6 +853,12 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.UnionInjectionExpression:
 		return validateUnionInjection(node, expected, state)
+	case checker.StreamConstructorExpression:
+		return validateStreamConstructor(node, expected, state)
+	case checker.BytesOverExpression:
+		return validateBytesOverExpression(node, expected, state)
+	case checker.StreamMethodCallExpression:
+		return validateStreamMethodCall(node, expected, state)
 	case checker.UnionWidenExpression:
 		return validateUnionWiden(node, expected, state)
 	case checker.UnionTestExpression:

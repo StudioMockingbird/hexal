@@ -83,6 +83,33 @@ static inline void hex_list_grow_Int32(hex_list_Int32 *list) {
     list->data = region;
     list->capacity = next;
 }
+static inline void hex_list_reserve_at_least_Int32(hex_list_Int32 *list, size_t minimum) {
+    // The stream backends' internal reservation: one allocation grown by the
+    // same checked doubling formula and allocator path as push growth, never
+    // exposed as a source-visible method.
+    if (minimum == 0 || minimum <= list->capacity) {
+        return;
+    }
+    size_t next = list->capacity == 0 ? 1 : list->capacity;
+    while (next < minimum) {
+        if (ckd_mul(&next, next, 2)) {
+            hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
+        }
+    }
+    size_t bytes;
+    if (ckd_mul(&bytes, next, sizeof(int32_t))) {
+        hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
+    }
+    int32_t *region = hex_heap_raw_allocate(list->allocator, bytes, _Alignof(int32_t));
+    if (list->length != 0) {
+        memcpy(region, list->data, list->length * sizeof(int32_t));
+    }
+    if (list->data != nullptr) {
+        hex_heap_free(list->data, list->allocator);
+    }
+    list->data = region;
+    list->capacity = next;
+}
 static inline hex_list_Int32 *hex_list_new_Int32(hex_heap h) {
     hex_list_Int32 *header = hex_heap_raw_allocate(h.identity, sizeof(hex_list_Int32), _Alignof(hex_list_Int32));
     header->data = nullptr;

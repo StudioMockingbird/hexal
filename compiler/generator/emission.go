@@ -64,6 +64,7 @@ type moduleEmission struct {
 	bitCastSpecs     []bitCastSpec
 	endianSpecs      []endianSpec
 	printState       *generatedPrintState
+	ioState          *generatedStreamState
 	concurrencyState *generatedConcurrencyState
 	wrapState        *generatedWrapState
 	objects          []*compilerTypes.ObjectType
@@ -127,6 +128,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.bitCastSpecs = discoverGeneratedBitCasts(program)
 	emission.endianSpecs = discoverGeneratedEndian(program)
 	emission.printState = discoverGeneratedPrint(program)
+	emission.ioState = discoverGeneratedStreams(program, logicalKey, literals)
 	emission.wrapState = discoverGeneratedWraps(program)
 	concurrencyState := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
 	emission.concurrencyState = concurrencyState
@@ -153,6 +155,19 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// string component must exist.
 		literals.used = true
 		emission.stringUsed = true
+	}
+	if emission.ioState != nil && emission.ioState.used {
+		// The stream component names the Byte list, the byte View, the Error
+		// object with its String and Strand fields, heap allocation through
+		// List growth, and the shared trap.
+		ensureByteList(listState)
+		ensureViewUInt8(viewState)
+		literals.used = true
+		literals.strand = true
+		emission.stringUsed = true
+		emission.errorUsed = true
+		viewState.required = true
+		heapState.required = true
 	}
 	if emission.stringUsed {
 		ensureViewUInt8(viewState)
@@ -210,6 +225,9 @@ type programEmission struct {
 	// helpers, merged from every module's equality state for the component
 	// builder.
 	equalityTypes []compilerTypes.Type
+	// ioState merges every module's stream families; selecting IO, Bytes, or
+	// print emits the component pair once program-wide.
+	ioState *generatedStreamState
 	// requirements is the demand-driven standard-header and hex_eos set built
 	// from every reachable module's checked types and selected helper
 	// families.
@@ -247,6 +265,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 			channelReceiveUnions: make(map[string]compilerTypes.Type),
 		},
 		wrapState:    &generatedWrapState{seen: make(map[string]bool)},
+		ioState:      &generatedStreamState{},
 		adapterSites: make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -265,6 +284,9 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		}
 		if module.printState != nil && module.printState.used {
 			merged.printUsed = true
+		}
+		if module.ioState != nil && module.ioState.used {
+			merged.ioState.used = true
 		}
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
@@ -404,10 +426,19 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		}
 		if module.printState != nil && module.printState.used {
 			// The print family formats with PRI* macros (<inttypes.h>) and
-			// snprintf/fwrite on stdout, classifies floats through
-			// <math.h>, and uses uint8_t/size_t/bool; its write-failure trap
-			// reports through hex_runtime_trap.
+			// snprintf, classifies floats through <math.h>, and uses
+			// uint8_t/size_t/bool; its write-failure trap reports through the
+			// shared hex_runtime_trap.
 			requirements.add("stddef.h", "stdint.h", "stdio.h", "inttypes.h", "math.h")
+			requirements.trap = true
+		}
+		if module.ioState != nil && module.ioState.used {
+			// The stream core spells descriptors as intptr_t and transfers
+			// uint8_t bytes, reserves destination capacity with ckd_add, and
+			// traps on borrowed closes; the memory backend interval-checks
+			// flat uintptr_t addresses. Direct selection, not reliance on
+			// the forced List specialization, keeps the demand honest.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h")
 			requirements.trap = true
 		}
 		concurrency := module.concurrencyState
@@ -731,6 +762,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		objects:     emission.objects,
 		heaps:       emission.heapState,
 		printState:  emission.printState,
+		streams:     emission.ioState,
 		concurrency: emission.concurrencyState,
 		stringState: stringState,
 		tags:        merged.tags,
@@ -786,6 +818,7 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, moduleArrayComponent(emission)...)
 	components = append(components, moduleNumericComponent(emission)...)
 	components = append(components, modulePrintComponent(emission)...)
+	components = append(components, moduleStreamComponent(emission)...)
 	components = append(components, moduleEqualityComponent(emission)...)
 	components = append(components, moduleConcurrencyComponent(emission)...)
 	return components
@@ -811,6 +844,7 @@ type moduleHeaderInput struct {
 	objects     []*compilerTypes.ObjectType
 	heaps       *heapHelpers
 	printState  *generatedPrintState
+	streams     *generatedStreamState
 	concurrency *generatedConcurrencyState
 	stringState *literalRegistry
 	tags        *tagRegistry
@@ -893,6 +927,9 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	writePrintDefinitions(&result, input.printState, input.tags)
 	writeEqualityDefinitions(&result, input.equality, input.tags)
 	if err := writeConcurrencyInlineHelpers(&result, input.concurrency, input.stringState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeStreamInlineHelpers(&result, input.streams, input.stringState, input.tags); err != nil {
 		return "", err
 	}
 	if input.prototypes != "" {

@@ -4,7 +4,7 @@
 > The number is the identity; the parameter is now expected to be dropped.
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; direction and scope settled, surface not yet designed
+- Status: Closed; discarded in favor of RFC 0108
 - Created: 2026-08-15
 - Scope: byte streams over an open handle for the compiled program
 - Depends on: RFC 0039 (C interop compiler core) and **RFC 0091**

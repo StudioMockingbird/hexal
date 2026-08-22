@@ -1072,6 +1072,17 @@ func TestParseReturnForms(t *testing.T) {
 	if !ok || bare.Value != nil {
 		t.Fatalf("body[0] = %#v, want a bare return", function.Body[0])
 	}
+
+	// Match is value-only: on return's own line it is the return value,
+	// never the next statement.
+	function = parseOneItem(t, "fun f() : Int32 do\nreturn match true | true then 1 | false then 0 end\nend").(FunctionDeclaration)
+	matched, ok := function.Body[0].(ReturnStatement)
+	if !ok || matched.Value == nil {
+		t.Fatalf("body[0] = %#v, want a valued return", function.Body[0])
+	}
+	if _, ok := matched.Value.(MatchExpression); !ok {
+		t.Fatalf("return value = %#v, want a match expression", matched.Value)
+	}
 }
 
 func TestParseReturnNil(t *testing.T) {

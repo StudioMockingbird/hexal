@@ -5,15 +5,15 @@
 - Features: foreign binding modules, qualified C declarations, ABI checking,
   direct C calls, callbacks, explicit pointer/text boundaries, and C exports
 - Created: 2026-08-11
-- Updated: 2026-08-14
+- Updated: 2026-08-22
 - Depends on: RFC 0003 (scalars), RFC 0007 (pointer mutability), RFC 0008
   (functions and function pointers), RFC 0010 (nullability), RFC 0018 (text),
   RFC 0020 (Array and View), RFC 0026 (allocation and cleanup), RFC 0033 (no
   source pointer arithmetic), RFC 0034 (modules), RFC 0035 (copying and manual
   lifetimes), RFC 0036 (`Size`), RFC 0038 (conversion), RFC 0043
   (pointer-length View bridge), and RFC 0044 (String/Byte conformance)
-- Coordinates with: RFC 0052 (target profiles) and ADR 0055 (filesystem and
-  build driver)
+- Coordinates with: RFC 0052 (target profiles), RFC 0110 (affine ownership and
+  arenas), and ADR 0055 (filesystem and build driver)
 
 ## Author note for the detailed design pass
 
@@ -51,9 +51,49 @@ This RFC defines only behavior implemented directly in the in-memory compiler.
 - Keep nullability, ownership, text conversion, and cleanup explicit.
 - Support callbacks with no hidden closure environment.
 - Export ABI-safe Hexal functions and declarations to C.
+- Make the C boundary an explicit unsafe/foreign boundary rather than implying
+  that imported C operations inherit safe Hexal guarantees.
+- Preserve a controlled escape hatch for raw layouts, pointer arithmetic,
+  pointer casts, foreign globals, and target-specific instructions.
 - Fail closed for every unsupported or unverified foreign operation.
-- Make the foreign trust boundary visible without adding a general `unsafe`
-  language feature.
+- Keep unsafe capabilities explicit and local; do not make the safe native
+  language model grow C's unrestricted object model.
+
+## Foreign trust boundary and unsafe capabilities
+
+C interoperability is the first explicit unsafe boundary in Hexal. A foreign
+declaration is not a proof that the foreign implementation is memory-safe,
+data-race-free, ABI-correct, or valid for every target. It is a typed contract
+that permits selected operations to cross into code whose implementation the
+Hexal checker cannot inspect.
+
+The boundary has three levels:
+
+1. **Checked foreign calls.** A binding supplies a complete signature, ABI,
+   nullability, layout, and ownership contract. Hexal performs every check it
+   can prove from that contract, but foreign behavior remains outside the
+   native safety guarantee.
+2. **Explicit unsafe representations.** Raw C unions, bit fields, flexible
+   array members, address integers, pointer arithmetic, pointer casts, foreign
+   globals, and target-specific layout may be represented only by an explicit
+   unsafe declaration or unsafe operation. They never become ordinary native
+   types by import alone.
+3. **Backend escape hatches.** Inline assembly and compiler-specific
+   extensions are target-qualified foreign operations. They require an
+   explicit target/profile contract and are never portable Hexal expressions.
+
+The exact spelling of `unsafe` remains a grammar question, but the semantic
+boundary is settled by this RFC: a checked foreign binding may expose only the
+contracted operations; anything requiring facts not represented by that
+contract fails closed or requires an unsafe declaration. Unsafe code may call
+safe code, but safe code cannot silently acquire an unsafe pointer, layout, or
+ownership capability.
+
+Foreign ownership annotations must compose with the affine ownership and arena
+rules introduced by RFC 0110. A foreign allocator may transfer ownership only
+through a declared deallocator contract; Hexal `Heap`, `Arena`, and `Pool`
+never reclaim foreign storage by accident, and foreign deallocators never
+receive Hexal-managed storage without an explicit compatibility contract.
 
 ## Required compiler additions
 
@@ -108,6 +148,13 @@ Before generation, the checker must verify:
 - callbacks carry no captured environment;
 - required target and layout evidence is present and consistent; and
 - C `void` produces no Hexal result and never becomes `Nil`.
+
+ABI checking must also classify each declaration by trust level. A checked
+foreign declaration may expose only representation and ownership facts that
+its contract states. A declaration using raw union layout, bit fields,
+flexible array members, address integers, pointer arithmetic, pointer casts,
+foreign globals, inline assembly, or compiler-specific extensions is unsafe
+and must carry the explicit unsafe marker required by the final grammar.
 
 ### 4. C lowering
 
@@ -296,6 +343,9 @@ Default mapping without a trusted non-null contract:
   trusted contract.
 - Imported pointers retain RFC 0033 restrictions: no arithmetic, indexing,
   subtraction, ordering, integer conversion, or bit-cast.
+- An unsafe foreign binding may expose pointer arithmetic, address conversion,
+  or raw casts only through an explicit unsafe operation. Such an operation
+  does not make the resulting value safe or infer ownership.
 - Pointer-plus-length buffers require the explicit RFC 0043 View bridge or
   deliberate copying.
 - No pointer gains ownership from its type alone.
@@ -310,11 +360,16 @@ Default mapping without a trusted non-null contract:
 - An opaque type may appear behind Ptr/MutPtr but cannot be constructed, stored
   by value, sized, copied by value, or dereferenced to fields.
 - C unions, bit fields, flexible array members, vector types, complex types,
-  and compiler-specific layout attributes are unsupported initially.
+  and compiler-specific layout attributes are unsafe foreign representations.
+  They are not valid checked native values, but an explicit unsafe binding may
+  describe them when the selected target profile supplies the required layout
+  evidence.
 - C enums remain foreign nominal integer types or canonical mapped integers
   plus qualified constants; the exact choice is open.
 - External variables require explicit foreign declarations. Thread-local
-  variables, volatile globals, and C atomics require separate settled rules.
+  variables, volatile globals, and C atomics require explicit target/profile
+  and unsafe-boundary rules. A foreign global is never a native mutable global
+  merely because it is imported.
 - Imported object-like constants must already be reduced by the binding
   generator to an exact typed value; the core compiler does not evaluate C
   preprocessor expressions.
@@ -334,6 +389,8 @@ Default mapping without a trusted non-null contract:
 - Calls from foreign threads require a settled runtime-entry contract.
 - C variadic functions are unsupported until every promoted argument has a
   statically representable contract.
+- C inline assembly and compiler-specific builtins are target-qualified unsafe
+  foreign operations; the core compiler does not interpret their bodies.
 - `setjmp`/`longjmp`, foreign exceptions, signals, and asynchronous re-entry do
   not map to Hexal Error.
 
@@ -359,7 +416,9 @@ Default mapping without a trusted non-null contract:
 - Heap, Arena, Pool, and collection cleanup never release foreign allocations
   unless a future explicit allocator-compatibility contract permits it.
 - Imported C deallocators never receive Hexal-managed storage by default.
-- Foreign pointers and records follow Hexal's settled shallow-copy rules.
+- Foreign pointers and records follow the affine ownership rules once RFC 0110
+  lands. Until then, this RFC's implementation must reject ownership claims it
+  cannot represent rather than silently applying shallow-copy semantics.
 - C status returns, nullable results, `errno`, and out-parameters retain their
   declared shapes; the compiler does not synthesize Error values.
 - Native wrapper functions may translate a foreign convention into `T | Error`.
@@ -439,10 +498,11 @@ failures belong to ADR 0055's driver. They are not compiler diagnostics.
 - Building C projects.
 - Parsing or linking `.o`, `.obj`, `.a`, `.lib`, `.so`, `.dll`, or `.dylib`.
 - Resolving include roots, library paths, packages, or system frameworks.
-- C++, Objective-C, variadic calls, arbitrary macros, unions, bit fields, or
-  compiler extensions in the initial implementation.
-- Adding source pointer arithmetic, address integers, unchecked casts, or a
-  general `unsafe` block.
+- C++, Objective-C, variadic calls, arbitrary macros, or unchecked foreign
+  operations in the initial implementation.
+- Adding unrestricted source pointer arithmetic, address integers, unchecked
+  casts, or implicit unsafe operations. Explicit unsafe foreign declarations
+  and operations are in scope; their exact syntax is a readiness question.
 
 ## Driver handoff
 
@@ -470,12 +530,14 @@ Before implementation, settle:
 3. C symbol spelling and alias syntax;
 4. plain C integer, `char`, `wchar_t`, and enum identities;
 5. trusted target/layout evidence supplied by generated bindings;
-6. complete foreign-record field and array representation;
+6. complete foreign-record field, union, bit-field, flexible-array, and array
+   representation, including which cases remain unsafe-only;
 7. trusted non-null, ownership, retention, and deallocator annotations;
 8. call-scoped String/Strand-to-`const char *` borrowing syntax;
 9. callback calling conventions, retention, context recovery, and foreign
    thread entry;
-10. external variables, TLS, volatile values, `errno`, and C atomics;
+10. external variables, TLS, volatile values, `errno`, C atomics, inline
+    assembly, and target-specific builtins;
 11. exact C-export syntax, stable symbol rules, supported types, and generated
     header paths; and
 12. whether generated binding modules are the final compiler/driver boundary
@@ -493,4 +555,6 @@ this RFC closes:
   error contracts;
 - add C export and generated-header contracts;
 - add foreign diagnostics and C23 lowering rules; and
+- add the explicit unsafe-boundary contract and its interaction with affine
+  ownership, arenas, foreign globals, raw layouts, and target-specific code;
 - remove only implemented C-interoperability items from Excluded features.

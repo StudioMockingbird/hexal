@@ -101,10 +101,10 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 			return err
 		}
 		captured = append(captured, name)
-	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression:
-		// defer ch.free(h), mutex.unlock(), or task.join() captures the
-		// handle at registration so the cleanup always targets the exact
-		// handle the defer saw.
+	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression, checker.StreamMethodCallExpression:
+		// defer ch.free(h), mutex.unlock(), task.join(), or stream.close()
+		// captures the handle at registration so the cleanup always targets
+		// the exact handle the defer saw.
 		if node.Operand == nil {
 			return unknownExpressionDiagnostic("deferred handle method without a receiver")
 		}
@@ -301,6 +301,14 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return "hex_task_detach(" + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred task method without a captured receiver")
+	case checker.StreamMethodCallExpression:
+		// The checker admits only close as a deferred stream operation; the
+		// captured receiver feeds the module-owned result-union adapter.
+		if node.Name != "close" || len(arguments) != 1 {
+			return "", unknownExpressionDiagnostic("deferred stream call without a captured stream")
+		}
+		return fmt.Sprintf("hex_io_close_%s(%s, %d, %d)",
+			streamAdapterSuffix(node.ResultType), arguments[0], node.SourceLine, node.SourceColumn), nil
 	default:
 		return "", unknownExpressionDiagnostic("unsupported deferred call node")
 	}

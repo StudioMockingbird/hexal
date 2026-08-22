@@ -205,6 +205,21 @@ const (
 	// next. Operand is the cursor descriptor; OperandType is the
 	// RuneCursor type.
 	RuneCursorMethodCallExpression
+	// StreamConstructorExpression is one standard-handle constructor:
+	// IO.stdin(), IO.stdout(), or IO.stderr(). Name selects the handle;
+	// OperandType is IO; ResultType is IO | Error. The capability the
+	// result provably carries is recovered from Name at fact-seeding time.
+	StreamConstructorExpression
+	// BytesOverExpression is Bytes.over(buffer), which borrows a
+	// List<Byte>. Arguments holds the list; OperandType is the List type;
+	// ResultType is Bytes.
+	BytesOverExpression
+	// StreamMethodCallExpression is one byte-stream operation: read, write,
+	// seek, or close. Operand is the receiver already adapted to its C form:
+	// an IO value for IO methods, a MutPtr<Bytes> value for Bytes methods.
+	// OperandType is that adapted receiver type; ResultType is the
+	// operation's structural result union.
+	StreamMethodCallExpression
 )
 
 // Operator is the resolved semantic operator carried by a checked operation.
