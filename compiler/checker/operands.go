@@ -304,15 +304,19 @@ func (operator Operator) String() string {
 // Expression is a structured checked expression. Composite C fragments are
 // never stored here, which keeps naming and C syntax in one backend.
 type Expression struct {
-	Kind     ExpressionKind
-	Name     string
-	Binding  BindingID
-	Member   *compilerTypes.ObjectMember
-	Operand  *Expression
-	Left     *Expression
-	Right    *Expression
-	Object   *ObjectValue
-	Constant *Operand
+	Kind    ExpressionKind
+	Name    string
+	Binding BindingID
+	// CollectionRoot identifies the copied List or Dict state represented by
+	// this expression. Zero means the expression is not a tracked collection
+	// place or its identity cannot be established statically.
+	CollectionRoot BindingID
+	Member         *compilerTypes.ObjectMember
+	Operand        *Expression
+	Left           *Expression
+	Right          *Expression
+	Object         *ObjectValue
+	Constant       *Operand
 	// Owner is the nominal object a MethodCallExpression's method belongs to.
 	Owner        *compilerTypes.ObjectType
 	Arguments    []Operand // call expressions only, in written order

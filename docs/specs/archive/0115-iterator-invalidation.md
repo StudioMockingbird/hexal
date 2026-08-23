@@ -1,8 +1,10 @@
 # RFC 0115: Iterator Invalidation
 
 - Kind: Language Semantics (ISO/IEC Language Standard Format)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented and verified 2026-08-23
 - Updated: 2026-08-23
+- Implemented: 2026-08-23
+- Closed: 2026-08-23
 - Features: defined mutation behavior during built-in collection traversal
 - Created: 2026-08-22
 - Depends on: RFC 0020 (collections), RFC 0063 (collection surface), RFC 0087

@@ -450,6 +450,20 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 		names.recordChildReturnFlows(bodyScope.returnFlows)
 	}
 	checked.Source = source.source
+	// Iterator invalidation: direct structural mutations and frees through any
+	// copied handle are rejected when the active traversal can identify them;
+	// other copied-handle mutations remain defined by the generated version
+	// check. Every checked expression in the body is scanned, not only calls in
+	// statement position.
+	if len(bodyDiagnostics) == 0 && (source.typ.List != nil || source.typ.Dict != nil) {
+		if binding := baseBindingID(&source.source.Node); binding != 0 {
+			root := collectionRootForOperand(source.source, names, binding)
+			if mutationDiagnostics := checkForIterationMutations(binding, root, source.typ, body); len(mutationDiagnostics) > 0 {
+				diagnostics = append(diagnostics, mutationDiagnostics...)
+				return checked, diagnostics
+			}
+		}
+	}
 	if len(bodyDiagnostics) == 0 && parentState != nil && bodyState != nil {
 		parentState.mergeBranches(parentState.clone(), bodyState)
 	}
@@ -503,6 +517,133 @@ func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compile
 		diagnostic := typeErrorAt(binders[0], "value of type "+source.Name+" is not iterable")
 		return nil, &diagnostic
 	}
+}
+
+// checkForIterationMutations walks every checked statement and expression in
+// a traversal body. A free through any copied handle is rejected because a
+// later version check would itself dereference freed storage. Other direct
+// structural mutations are rejected when they use the loop source binding;
+// copied-handle mutations remain defined by the generated version check.
+func checkForIterationMutations(sourceBinding, sourceRoot BindingID, collectionType compilerTypes.Type, body []Statement) compilerTypes.Diagnostics {
+	scanner := iterationMutationScanner{
+		sourceBinding:  sourceBinding,
+		sourceRoot:     sourceRoot,
+		collectionType: collectionType,
+	}
+	scanner.walkStatements(body)
+	return scanner.diagnostics
+}
+
+type iterationMutationScanner struct {
+	sourceBinding  BindingID
+	sourceRoot     BindingID
+	collectionType compilerTypes.Type
+	diagnostics    compilerTypes.Diagnostics
+}
+
+func (scanner *iterationMutationScanner) report(line, column int, message string) {
+	scanner.diagnostics = append(scanner.diagnostics, typeErrorAt(lexer.Token{Line: line, Column: column}, message))
+}
+
+func (scanner *iterationMutationScanner) walkStatements(statements []Statement) {
+	for _, statement := range statements {
+		switch node := statement.(type) {
+		case Declaration:
+			scanner.walkOperand(node.Source, node.SourceLine, node.SourceColumn)
+		case Assignment:
+			scanner.walkOperand(node.Target, node.SourceLine, node.SourceColumn)
+			scanner.walkOperand(node.Source, node.SourceLine, node.SourceColumn)
+		case CallStatement:
+			scanner.walkOperand(node.Call, node.SourceLine, node.SourceColumn)
+		case ReturnStatement:
+			if node.Value != nil {
+				scanner.walkOperand(*node.Value, node.SourceLine, node.SourceColumn)
+			}
+		case TryStatement:
+			scanner.walkOperand(node.Expression, node.SourceLine, node.SourceColumn)
+		case DeferStatement:
+			scanner.walkOperand(node.Expression, node.SourceLine, node.SourceColumn)
+		case ErrdeferStatement:
+			scanner.walkOperand(node.Expression, node.SourceLine, node.SourceColumn)
+		case IfStatement:
+			scanner.walkOperand(node.Condition, node.ConditionLine, node.ConditionColumn)
+			scanner.walkStatements(node.Then)
+			for _, branch := range node.ElseIf {
+				scanner.walkOperand(branch.Condition, branch.SourceLine, branch.SourceColumn)
+				scanner.walkStatements(branch.Body)
+			}
+			scanner.walkStatements(node.Else)
+		case WhileStatement:
+			scanner.walkOperand(node.Condition, node.ConditionLine, node.ConditionColumn)
+			scanner.walkStatements(node.Body)
+		case ForStatement:
+			scanner.walkOperand(node.Source, node.SourceLine, node.SourceColumn)
+			scanner.walkStatements(node.Body)
+		case FunctionDeclaration:
+			scanner.walkStatements(node.Body)
+		case MethodDeclaration:
+			scanner.walkStatements(node.Body)
+		}
+	}
+}
+
+func (scanner *iterationMutationScanner) walkOperand(operand Operand, line, column int) {
+	scanner.walkExpression(&operand.Node, line, column)
+	if operand.Object != nil {
+		for _, member := range operand.Object.Initializers {
+			scanner.walkOperand(member.Source, line, column)
+		}
+	}
+}
+
+func (scanner *iterationMutationScanner) walkExpression(node *Expression, line, column int) {
+	if node == nil {
+		return
+	}
+	switch node.Kind {
+	case CollectionMethodCallExpression:
+		receiverRoot := collectionRootOfNode(node.Operand)
+		if receiverRoot == scanner.sourceRoot && node.OperandType == scanner.collectionType {
+			switch node.Name {
+			case "free":
+				scanner.report(line, column, "cannot free collection during iteration")
+			case "push", "pop", "clear", "insert", "remove":
+				if baseBindingID(node.Operand) == scanner.sourceBinding {
+					scanner.report(line, column, "cannot mutate collection during iteration")
+				}
+			}
+		}
+	case CallExpression, MethodCallExpression:
+		if scanner.callReceivesSource(node) {
+			scanner.report(line, column, "cannot pass traversed collection to call during iteration")
+		}
+	}
+
+	scanner.walkExpression(node.Operand, line, column)
+	scanner.walkExpression(node.Left, line, column)
+	scanner.walkExpression(node.Right, line, column)
+	for _, argument := range node.Arguments {
+		scanner.walkOperand(argument, line, column)
+	}
+	if node.Constant != nil {
+		scanner.walkOperand(*node.Constant, line, column)
+	}
+}
+
+func (scanner *iterationMutationScanner) callReceivesSource(node *Expression) bool {
+	if node.Operand != nil && node.Kind == MethodCallExpression && scanner.collectionOperand(node.Operand, node.OperandType) {
+		return true
+	}
+	for _, argument := range node.Arguments {
+		if scanner.collectionOperand(&argument.Node, argument.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+func (scanner *iterationMutationScanner) collectionOperand(node *Expression, typ compilerTypes.Type) bool {
+	return isTrackedCollection(typ) && collectionRootOfNode(node) == scanner.sourceRoot
 }
 
 func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) (WhileStatement, compilerTypes.Diagnostics) {

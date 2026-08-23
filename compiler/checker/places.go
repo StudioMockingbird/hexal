@@ -61,6 +61,7 @@ func checkPlace(expression parser.Expression, names *scope, typeEnvironment *com
 			narrowedVariant = variant
 		}
 		node := variableNodeWithBinding(expression.Name.Lexeme, binding.id)
+		node.CollectionRoot = bindingCollectionRoot(binding)
 		if binding.viewRootKind != ViewRootNone {
 			node.ViewRoots = binding.viewRoots
 			node.RootKind = binding.viewRootKind
@@ -399,4 +400,48 @@ func baseBindingID(node *Expression) BindingID {
 		}
 	}
 	return 0
+}
+
+func collectionRootOfNode(node *Expression) BindingID {
+	if node == nil {
+		return 0
+	}
+	if node.CollectionRoot != 0 {
+		return node.CollectionRoot
+	}
+	switch node.Kind {
+	case VariableExpression:
+		return node.Binding
+	case MemberExpression, DereferenceExpression, IndexExpression:
+		return collectionRootOfNode(node.Operand)
+	default:
+		return 0
+	}
+}
+
+func bindingCollectionRoot(bound binding) BindingID {
+	if bound.collectionRoot != 0 {
+		return bound.collectionRoot
+	}
+	if isTrackedCollection(bound.typ) {
+		return bound.id
+	}
+	return 0
+}
+
+func collectionRootForOperand(source Operand, names *scope, fallback BindingID) BindingID {
+	if !isTrackedCollection(source.Type) {
+		return 0
+	}
+	if root := collectionRootOfNode(&source.Node); root != 0 {
+		if bound, ok := names.lookupBinding(root); ok && bound.collectionRoot != 0 {
+			return bound.collectionRoot
+		}
+		return root
+	}
+	return fallback
+}
+
+func isTrackedCollection(typ compilerTypes.Type) bool {
+	return typ.List != nil || typ.Dict != nil
 }

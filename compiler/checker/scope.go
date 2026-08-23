@@ -182,6 +182,29 @@ func (names *scope) setFromRef(id BindingID, fromRef bool) bool {
 	return false
 }
 
+// setCollectionRoot records the shared List or Dict state for one binding.
+// The binding is updated in its owning lexical frame so later reads and
+// nested loop checks see the same copied-handle identity.
+func (names *scope) setCollectionRoot(id BindingID, root BindingID) bool {
+	for frame := names; frame != nil; frame = frame.parent {
+		for name, bound := range frame.local {
+			if bound.id == id {
+				bound.collectionRoot = root
+				frame.local[name] = bound
+				return true
+			}
+		}
+		for name, bound := range frame.module {
+			if bound.id == id {
+				bound.collectionRoot = root
+				frame.module[name] = bound
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // narrowedType returns the branch-local effective read type of a binding, if
 // a narrowing covers it. An escaped binding has no narrowing.
 func (state *flowState) narrowedType(id BindingID) (compilerTypes.Type, bool) {

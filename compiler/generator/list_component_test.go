@@ -61,6 +61,7 @@ typedef struct hex_list_Int32 {
     size_t length;
     size_t capacity;
     uintptr_t allocator;
+    size_t version;
 } hex_list_Int32;
 static inline void hex_list_grow_Int32(hex_list_Int32 *list) {
     size_t next = 1;
@@ -116,6 +117,7 @@ static inline hex_list_Int32 *hex_list_new_Int32(hex_heap h) {
     header->length = 0;
     header->capacity = 0;
     header->allocator = h.identity;
+    header->version = 0;
     return header;
 }
 static inline void hex_list_push_Int32(hex_list_Int32 *list, int32_t value) {
@@ -123,6 +125,7 @@ static inline void hex_list_push_Int32(hex_list_Int32 *list, int32_t value) {
         hex_list_grow_Int32(list);
     }
     list->data[list->length++] = value;
+    list->version++;
 }
 static inline int32_t hex_list_pop_Int32(hex_list_Int32 *list) {
     if (list->length == 0) {
@@ -130,10 +133,12 @@ static inline int32_t hex_list_pop_Int32(hex_list_Int32 *list) {
     }
     int32_t value = list->data[list->length - 1];
     list->length--;
+    list->version++;
     return value;
 }
 static inline void hex_list_clear_Int32(hex_list_Int32 *list) {
     list->length = 0;
+    list->version++;
 }
 static inline const int32_t * hex_list_at_Int32(const hex_list_Int32 *list, size_t index) {
     if (index >= list->length) {

@@ -658,8 +658,14 @@ Every other source/arity combination is invalid.
   Arrays and Strands materialize once; handles copy shallowly.
 - Binders are fresh immutable copies each iteration and names in one header are distinct. Nullable or
   union sources must first narrow to one iterable type.
-- Array/List element replacement during iteration is allowed. Structural List changes and every Dict
-  mutation invalidate traversal; this is programmer responsibility.
+- Array and View traversal has a fixed boundary. Element replacement is valid; there is no structural resize operation.
+- List traversal captures the source's structural version. `push`, `pop`, `clear`, `free`, and any operation that changes storage or length invalidate the traversal. A `push` that would extend the traversal traps with `collection modified during iteration` rather than extending or terminating.
+- Dict traversal captures the source's structural version. `insert`, replacement, `remove`, `free`, and any bucket/topology change invalidate the traversal.
+- Mutation through any alias observes and updates the same version because copied handles refer to the same collection state.
+- A traversal checks its version immediately before each iteration body with `if (version != captured) hex_runtime_trap("[Runtime Error] collection modified during iteration\\n")`. No check is required at the loop increment; the next body's check covers the transition. When the checker proves that no operation in the traversing scope or any reachable call can mutate the source (proven-safe elision), the check may be omitted.
+- The version is a monotonic `Size` (`size_t`) counter incremented on every structural change; it wraps modulo `2^N` and a wrapped version that coincides with a live traversal's captured token is an accepted false negative.
+- Freeing the traversed List or Dict, or an alias that refers to it, is always rejected while the traversal is active. Passing the traversed collection or an alias to an unproven call is rejected; the checker must not rely on a post-call version check after a possible free.
+- A mutation after `break` or after the traversal's scope exits is valid when no separate lifetime rule rejects it. Nested traversals capture independent versions. Array/List element replacement remains valid.
 
 ## Errors
 

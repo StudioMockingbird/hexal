@@ -113,6 +113,7 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 		elementAccess = fmt.Sprintf("*hex_view_at_%s(%s, (size_t)(%s_index))", strings.TrimPrefix(sourceType.CName, "hex_view_"), loop, loop)
 	case sourceType.List != nil:
 		fmt.Fprintf(body, "%sconst %s *const %s = %s;\n", indent, sourceType.CName, loop, source)
+		fmt.Fprintf(body, "%sconst size_t %s_version = %s->version;\n", indent, loop, loop)
 		length = fmt.Sprintf("%s->length", loop)
 		elementAccess = fmt.Sprintf("*hex_list_at_%s(%s, (size_t)(%s_index))", listSuffix(sourceType), loop, loop)
 	default:
@@ -121,6 +122,11 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 
 	indexVariable := loop + "_index"
 	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s; %s++) {\n", indent, indexVariable, indexVariable, length, indexVariable)
+	if sourceType.List != nil {
+		fmt.Fprintf(body, "%s    if (%s->version != %s_version) {\n", indent, loop, loop)
+		fmt.Fprintf(body, "%s        hex_runtime_trap(\"[Runtime Error] collection modified during iteration\\n\");\n", indent)
+		fmt.Fprintf(body, "%s    }\n", indent)
+	}
 	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
 	valueBinder := statement.Binders[len(statement.Binders)-1]
 	if len(statement.Binders) == 2 {
@@ -197,10 +203,14 @@ func renderForDict(body *strings.Builder, statement checker.ForStatement, render
 	valueType := statement.Binders[len(statement.Binders)-1].Type
 
 	fmt.Fprintf(body, "%sconst %s *const %s = %s;\n", indent, sourceType.CName, loop, source)
+	fmt.Fprintf(body, "%sconst size_t %s_version = %s->version;\n", indent, loop, loop)
 	if hasIndex {
 		fmt.Fprintf(body, "%ssize_t %s = (size_t)-1;\n", indent, ordinalVariable)
 	}
 	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s->capacity; %s++) {\n", indent, bucketVariable, bucketVariable, loop, bucketVariable)
+	fmt.Fprintf(body, "%s    if (%s->version != %s_version) {\n", indent, loop, loop)
+	fmt.Fprintf(body, "%s        hex_runtime_trap(\"[Runtime Error] collection modified during iteration\\n\");\n", indent)
+	fmt.Fprintf(body, "%s    }\n", indent)
 	fmt.Fprintf(body, "%s    if (!%s->buckets[%s].active) {\n", indent, loop, bucketVariable)
 	fmt.Fprintf(body, "%s        continue;\n", indent)
 	fmt.Fprintf(body, "%s    }\n", indent)

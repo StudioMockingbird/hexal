@@ -219,6 +219,9 @@ type binding struct {
 	parameter  bool // fixed function parameter: readable, never assignable
 	loopBinder bool // a for-in binder: fresh and immutable
 	id         BindingID
+	// collectionRoot identifies the shared List or Dict state for copied
+	// handles. A fresh collection uses its own binding ID as the root.
+	collectionRoot BindingID
 	// viewRoots and viewRootKind record a View binding's root so a later
 	// return of the binding can classify it.
 	viewRoots    []BindingID

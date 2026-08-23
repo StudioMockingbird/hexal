@@ -343,6 +343,9 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 		mutable: declaration.Mutable,
 		id:      names.newBindingID(),
 	}
+	if isTrackedCollection(declaredType) {
+		declaredBinding.collectionRoot = collectionRootForOperand(initializer.source, names, declaredBinding.id)
+	}
 	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, names) {
 		declaredBinding.fromRef = true
 	}
@@ -448,6 +451,9 @@ func checkAssignment(assignment parser.Assignment, names *scope, typeEnvironment
 		// value exactly when the assigned initializer traces to a ref, so the
 		// flag is both set and cleared by the same check.
 		names.setFromRef(targetBinding, nodeTracesToRef(&initializer.source.Node, names))
+	}
+	if len(diagnostics) == 0 && targetBinding != 0 && isTrackedCollection(targetType) {
+		names.setCollectionRoot(targetBinding, collectionRootForOperand(initializer.source, names, targetBinding))
 	}
 
 	return Assignment{

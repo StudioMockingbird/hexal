@@ -10,6 +10,7 @@ typedef struct {{.CName}} {
     size_t length;
     size_t capacity;
     uintptr_t allocator;
+    size_t version;
 } {{.CName}};
 {{if .EmitHash}}{{if .StrandKey}}
 static inline uint64_t hex_hash_Strand(hex_strand key) {
@@ -49,6 +50,7 @@ static inline {{.CName}} *hex_dict_new_{{.Suffix}}(hex_heap h) {
     header->length = 0;
     header->capacity = 0;
     header->allocator = h.identity;
+    header->version = 0;
     return header;
 }
 static inline void hex_dict_grow_{{.Suffix}}({{.CName}} *dict) {
@@ -93,12 +95,14 @@ static inline void hex_dict_insert_{{.Suffix}}({{.CName}} *dict, {{.KeySpelling}
     size_t index = hex_dict_probe_{{.Suffix}}(dict, key);
     if (dict->buckets[index].active) {
         dict->buckets[index].value = value;
+        dict->version++;
         return;
     }
     dict->buckets[index].active = true;
     dict->buckets[index].key = key;
     dict->buckets[index].value = value;
     dict->length++;
+    dict->version++;
 }
 static inline {{.ValueSpelling}} hex_dict_get_{{.Suffix}}(const {{.CName}} *dict, {{.KeySpelling}} key) {
     if (dict->capacity == 0) {
@@ -138,6 +142,7 @@ static inline {{.ValueSpelling}} hex_dict_remove_{{.Suffix}}({{.CName}} *dict, {
     {{.ValueSpelling}} value = dict->buckets[index].value;
     dict->buckets[index].active = false;
     dict->length--;
+    dict->version++;
     return value;
 }
 static inline void hex_dict_free_{{.Suffix}}(hex_heap h, {{.CName}} *dict) {

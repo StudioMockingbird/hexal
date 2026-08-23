@@ -1,3 +1,4 @@
+{{- /* pi-lens-ignore: clang */ -}}
 {{- define "listbody" -}}
 {{range .Lists}}
 typedef struct {{.CName}} {
@@ -5,6 +6,7 @@ typedef struct {{.CName}} {
     size_t length;
     size_t capacity;
     uintptr_t allocator;
+    size_t version;
 } {{.CName}};
 static inline void hex_list_grow_{{.Suffix}}({{.CName}} *list) {
     size_t next = 1;
@@ -60,6 +62,7 @@ static inline {{.CName}} *hex_list_new_{{.Suffix}}(hex_heap h) {
     header->length = 0;
     header->capacity = 0;
     header->allocator = h.identity;
+    header->version = 0;
     return header;
 }
 static inline void hex_list_push_{{.Suffix}}({{.CName}} *list, {{.ElementSpelling}} value) {
@@ -67,6 +70,7 @@ static inline void hex_list_push_{{.Suffix}}({{.CName}} *list, {{.ElementSpellin
         hex_list_grow_{{.Suffix}}(list);
     }
     list->data[list->length++] = value;
+    list->version++;
 }
 static inline {{.ElementSpelling}} hex_list_pop_{{.Suffix}}({{.CName}} *list) {
     if (list->length == 0) {
@@ -74,10 +78,12 @@ static inline {{.ElementSpelling}} hex_list_pop_{{.Suffix}}({{.CName}} *list) {
     }
     {{.ElementSpelling}} value = list->data[list->length - 1];
     list->length--;
+    list->version++;
     return value;
 }
 static inline void hex_list_clear_{{.Suffix}}({{.CName}} *list) {
     list->length = 0;
+    list->version++;
 }
 static inline {{.AtReadReturn}} hex_list_at_{{.Suffix}}(const {{.CName}} *list, size_t index) {
     if (index >= list->length) {

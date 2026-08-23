@@ -65,6 +65,7 @@ typedef struct hex_dict_Int32_Int32 {
     size_t length;
     size_t capacity;
     uintptr_t allocator;
+    size_t version;
 } hex_dict_Int32_Int32;
 
 static inline uint64_t hex_hash_Int32(int32_t key) {
@@ -95,6 +96,7 @@ static inline hex_dict_Int32_Int32 *hex_dict_new_Int32_Int32(hex_heap h) {
     header->length = 0;
     header->capacity = 0;
     header->allocator = h.identity;
+    header->version = 0;
     return header;
 }
 static inline void hex_dict_grow_Int32_Int32(hex_dict_Int32_Int32 *dict) {
@@ -139,12 +141,14 @@ static inline void hex_dict_insert_Int32_Int32(hex_dict_Int32_Int32 *dict, int32
     size_t index = hex_dict_probe_Int32_Int32(dict, key);
     if (dict->buckets[index].active) {
         dict->buckets[index].value = value;
+        dict->version++;
         return;
     }
     dict->buckets[index].active = true;
     dict->buckets[index].key = key;
     dict->buckets[index].value = value;
     dict->length++;
+    dict->version++;
 }
 static inline int32_t hex_dict_get_Int32_Int32(const hex_dict_Int32_Int32 *dict, int32_t key) {
     if (dict->capacity == 0) {
@@ -184,6 +188,7 @@ static inline int32_t hex_dict_remove_Int32_Int32(hex_dict_Int32_Int32 *dict, in
     int32_t value = dict->buckets[index].value;
     dict->buckets[index].active = false;
     dict->length--;
+    dict->version++;
     return value;
 }
 static inline void hex_dict_free_Int32_Int32(hex_heap h, hex_dict_Int32_Int32 *dict) {
@@ -206,6 +211,7 @@ typedef struct hex_dict_Strand_Int32 {
     size_t length;
     size_t capacity;
     uintptr_t allocator;
+    size_t version;
 } hex_dict_Strand_Int32;
 
 static inline uint64_t hex_hash_Strand(hex_strand key) {
@@ -238,6 +244,7 @@ static inline hex_dict_Strand_Int32 *hex_dict_new_Strand_Int32(hex_heap h) {
     header->length = 0;
     header->capacity = 0;
     header->allocator = h.identity;
+    header->version = 0;
     return header;
 }
 static inline void hex_dict_grow_Strand_Int32(hex_dict_Strand_Int32 *dict) {
@@ -282,12 +289,14 @@ static inline void hex_dict_insert_Strand_Int32(hex_dict_Strand_Int32 *dict, hex
     size_t index = hex_dict_probe_Strand_Int32(dict, key);
     if (dict->buckets[index].active) {
         dict->buckets[index].value = value;
+        dict->version++;
         return;
     }
     dict->buckets[index].active = true;
     dict->buckets[index].key = key;
     dict->buckets[index].value = value;
     dict->length++;
+    dict->version++;
 }
 static inline int32_t hex_dict_get_Strand_Int32(const hex_dict_Strand_Int32 *dict, hex_strand key) {
     if (dict->capacity == 0) {
@@ -327,6 +336,7 @@ static inline int32_t hex_dict_remove_Strand_Int32(hex_dict_Strand_Int32 *dict, 
     int32_t value = dict->buckets[index].value;
     dict->buckets[index].active = false;
     dict->length--;
+    dict->version++;
     return value;
 }
 static inline void hex_dict_free_Strand_Int32(hex_heap h, hex_dict_Strand_Int32 *dict) {

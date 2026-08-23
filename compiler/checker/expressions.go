@@ -284,5 +284,9 @@ func unaryNode(kind ExpressionKind, operand Expression) Expression {
 }
 
 func memberNode(operand Expression, member *compilerTypes.ObjectMember) Expression {
-	return Expression{Kind: MemberExpression, Operand: &operand, Member: member}
+	node := Expression{Kind: MemberExpression, Operand: &operand, Member: member}
+	if member != nil && isTrackedCollection(member.Type) {
+		node.CollectionRoot = collectionRootOfNode(&operand)
+	}
+	return node
 }

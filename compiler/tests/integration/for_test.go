@@ -127,3 +127,117 @@ func TestForInSourceEvaluatedOnce(t *testing.T) {
 		t.Fatalf("modules/app.c = %q, want exactly one source evaluation", rootC(t, result))
 	}
 }
+
+func TestForInRejectsKnownCollectionMutations(t *testing.T) {
+	testCases := []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name: "list push",
+			source: "fun demo(h: Heap) do\n" +
+				"    values: List<Int32> := List<Int32>.new(h)\n" +
+				"    values.push(1)\n" +
+				"    for value in values do\n" +
+				"        values.push(value)\n" +
+				"    end\n" +
+				"end",
+			want: "cannot mutate collection during iteration",
+		},
+		{
+			name: "list free",
+			source: "fun demo(h: Heap) do\n" +
+				"    values: List<Int32> := List<Int32>.new(h)\n" +
+				"    values.push(1)\n" +
+				"    for value in values do\n" +
+				"        values.free(h)\n" +
+				"    end\n" +
+				"end",
+			want: "cannot free collection during iteration",
+		},
+		{
+			name: "dict insert",
+			source: "fun demo(h: Heap) do\n" +
+				"    values: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n" +
+				"    values.insert(1, 10)\n" +
+				"    for key, value in values do\n" +
+				"        values.insert(key, value)\n" +
+				"    end\n" +
+				"end",
+			want: "cannot mutate collection during iteration",
+		},
+		{
+			name: "dict free",
+			source: "fun demo(h: Heap) do\n" +
+				"    values: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n" +
+				"    values.insert(1, 10)\n" +
+				"    for key, value in values do\n" +
+				"        values.free(h)\n" +
+				"    end\n" +
+				"end",
+			want: "cannot free collection during iteration",
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, testCase.source, testCase.want)
+		})
+	}
+}
+
+func TestForInRejectsAliasedFreeAndUnprovenCalls(t *testing.T) {
+	source := "fun release(values: List<Int32>, h: Heap): Int32 do\n" +
+		"    values.free(h)\n" +
+		"    return 0\n" +
+		"end\n" +
+		"fun demo(h: Heap) do\n" +
+		"    values: List<Int32> := List<Int32>.new(h)\n" +
+		"    alias: List<Int32> := values\n" +
+		"    values.push(1)\n" +
+		"    for value in values do\n" +
+		"        ignored: Int32 := release(alias, h)\n" +
+		"    end\n" +
+		"end"
+	assertRejects(t, source, "cannot pass traversed collection to call during iteration")
+
+	freeSource := "fun demo(h: Heap) do\n" +
+		"    values: List<Int32> := List<Int32>.new(h)\n" +
+		"    alias: List<Int32> := values\n" +
+		"    values.push(1)\n" +
+		"    for value in values do\n" +
+		"        alias.free(h)\n" +
+		"    end\n" +
+		"end"
+	assertRejects(t, freeSource, "cannot free collection during iteration")
+}
+
+func TestForInCopiedMutationUsesVersionCheck(t *testing.T) {
+	result := assertCompiles(t, "fun demo(h: Heap) do\n"+"    values: List<Int32> := List<Int32>.new(h)\n"+"    alias: List<Int32> := values\n"+"    values.push(1)\n"+"    for value in values do\n"+"        alias.push(value)\n"+"    end\n"+"end")
+	c := rootC(t, result)
+	version := strings.Index(c, "if (hex_for_1->version != hex_for_1_version)")
+	access := strings.Index(c, "hex_list_at_Int32(hex_for_1")
+	mutation := strings.Index(c, "hex_list_push_Int32(hex_v_alias")
+	if version < 0 || access < 0 || mutation < 0 || version > access || mutation < access {
+		t.Fatalf("modules/app.c = %q, want version check before access and copied mutation in the loop", c)
+	}
+}
+
+func TestForInDictChecksVersionBeforeBuckets(t *testing.T) {
+	result := assertCompiles(t, "fun demo(h: Heap) do\n"+"    values: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n"+"    values.insert(1, 10)\n"+"    for key, value in values do\n"+"        total: Int32 := key + value\n"+"    end\n"+"end")
+	c := rootC(t, result)
+	version := strings.Index(c, "if (hex_for_1->version != hex_for_1_version)")
+	active := strings.Index(c, "if (!hex_for_1->buckets[hex_for_1_bucket].active)")
+	if version < 0 || active < 0 || version > active {
+		t.Fatalf("modules/app.c = %q, want version check before bucket access", c)
+	}
+}
+
+func TestForInNestedTraversalsCaptureIndependentVersions(t *testing.T) {
+	result := assertCompiles(t, "fun demo(h: Heap) do\n"+
+		"    outer: List<Int32> := List<Int32>.new(h)\n"+"    inner: List<Int32> := List<Int32>.new(h)\n"+"    outer.push(1)\n"+"    inner.push(2)\n"+"    for a in outer do\n"+"        for b in inner do\n"+"            total: Int32 := a + b\n"+"        end\n"+"    end\n"+"end")
+	c := rootC(t, result)
+	if !strings.Contains(c, "hex_for_1_version") || !strings.Contains(c, "hex_for_2_version") {
+		t.Fatalf("modules/app.c = %q, want independent List traversal versions", c)
+	}
+}
