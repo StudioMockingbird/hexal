@@ -18,13 +18,14 @@ func discoverGeneratedDivisions(program checker.Program) []compilerTypes.Type {
 	seen := make(map[string]bool)
 	var types []compilerTypes.Type
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.BinaryOperationExpression &&
 				(node.Operator == checker.DivideOperator || node.Operator == checker.RemainderOperator) &&
 				compilerTypes.IsInteger(node.OperandType) && !seen[node.OperandType.Name] {
 				seen[node.OperandType.Name] = true
 				types = append(types, node.OperandType)
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)

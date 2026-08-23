@@ -21,13 +21,14 @@ type generatedListState struct {
 func discoverGeneratedLists(program checker.Program) *generatedListState {
 	state := &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			if typ.List != nil {
 				if !state.seen[typ.List] {
 					state.seen[typ.List] = true
 					state.order = append(state.order, typ)
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)

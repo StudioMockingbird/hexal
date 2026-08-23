@@ -338,7 +338,8 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 		seenObjects := make(map[*compilerTypes.ObjectType]bool)
 		seenADTs := make(map[*compilerTypes.AdtType]bool)
 		if private := registry.privateTypeInUse(declaration.TypeUse.Type, seenObjects, seenADTs); private != "" {
-			diagnostics = append(diagnostics, exportedClosureDiagnostic(declaration.Name, private, declaration.SourceLine, declaration.SourceColumn))
+			token := lexer.Token{Line: declaration.SourceLine, Column: declaration.SourceColumn, Lexeme: declaration.Name}
+			diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
 		}
 	}
 	for _, statement := range checked.Statements {
@@ -352,7 +353,8 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 				continue
 			}
 			if private := registry.privateTypeInUse(declaration.Type, seenObjects, seenADTs); private != "" {
-				diagnostics = append(diagnostics, exportedClosureDiagnostic(declaration.Name, private, declaration.SourceLine, declaration.SourceColumn))
+				token := lexer.Token{Line: declaration.SourceLine, Column: declaration.SourceColumn, Lexeme: declaration.Name}
+				diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
 			}
 		case MethodDeclaration:
 			if !entry.exports[declaration.Name] {
@@ -370,23 +372,12 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 				private = registry.privateTypeInUse(declaration.ResultUse.Type, seenObjects, seenADTs)
 			}
 			if private != "" {
-				diagnostics = append(diagnostics, exportedClosureDiagnostic(declaration.Name, private, declaration.SourceLine, declaration.SourceColumn))
+				token := lexer.Token{Line: declaration.SourceLine, Column: declaration.SourceColumn, Lexeme: declaration.Name}
+				diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
 			}
 		}
 	}
 	return diagnostics
-}
-
-// exportedClosureDiagnostic is the interface-closure failure, located at the
-// offending exported declaration.
-func exportedClosureDiagnostic(name, private string, line, column int) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Line:     line,
-		Column:   column,
-		Message:  "exported function " + name + " exposes private type " + private,
-	}
 }
 
 // privateTypeInUse reports the name of the first private nominal type

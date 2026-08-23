@@ -242,21 +242,7 @@ func reachableModules(sources map[string]string, entrypoint string) (*checker.Mo
 	merged := make(compilerTypes.Diagnostics, 0)
 	for _, moduleID := range state.order {
 		diagnostics := state.byModule[moduleID]
-		slices.SortStableFunc(diagnostics, func(left, right compilerTypes.Diagnostic) int {
-			if left.Line != right.Line {
-				if left.Line < right.Line {
-					return -1
-				}
-				return 1
-			}
-			if left.Column < right.Column {
-				return -1
-			}
-			if left.Column > right.Column {
-				return 1
-			}
-			return 0
-		})
+		slices.SortStableFunc(diagnostics, compilerTypes.CompareDiagnostic)
 		merged = append(merged, diagnostics...)
 	}
 	if len(merged) > 0 {
@@ -356,7 +342,7 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportDe
 		return nil
 	}
 	imported[target] = true
-	if at := indexIn(s.stack, target); at >= 0 {
+	if at := slices.Index(s.stack, target); at >= 0 {
 		cycle := append(append([]string{}, s.stack[at:]...), target)
 		s.record(fromModule, line, column, "import cycle: "+strings.Join(cycle, " -> "))
 		return nil
@@ -405,10 +391,6 @@ func (s *reachState) record(moduleID string, line, column int, message string) {
 	})
 }
 
-func indexIn(haystack []string, needle string) int {
-	return slices.Index(haystack, needle)
-}
-
 // mergeDiagnostics folds every stage error into one sorted diagnostic set. It
 // traverses wrappers with errors.As rather than asserting concrete types, so a
 // wrapped diagnostic sorts by its own position instead of degrading to an
@@ -440,21 +422,7 @@ func mergeDiagnostics(stageErrors ...error) error {
 	// Position only: every caller passes one module's diagnostics, and each
 	// stage already emits modules in dependency order. Sorting on the module
 	// here would reorder them alphabetically for no gain.
-	slices.SortStableFunc(diagnostics, func(left, right compilerTypes.Diagnostic) int {
-		if left.Line != right.Line {
-			if left.Line < right.Line {
-				return -1
-			}
-			return 1
-		}
-		if left.Column < right.Column {
-			return -1
-		}
-		if left.Column > right.Column {
-			return 1
-		}
-		return 0
-	})
+	slices.SortStableFunc(diagnostics, compilerTypes.CompareDiagnostic)
 	return diagnostics
 }
 
@@ -487,6 +455,7 @@ func sourceLineCount(source string) int {
 
 // stampModule attributes a stage error to one module's logical source key.
 // Lexing and parsing report positions without knowing which module they were
+// handed; the reachability walk is the only pass that knows both.
 func stampModule(err error, logicalKey string) error {
 	return compilerTypes.StampModule(err, logicalKey)
 }

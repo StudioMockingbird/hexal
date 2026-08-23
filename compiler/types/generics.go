@@ -55,7 +55,7 @@ func (environment *Environment) TypeParameter(declaration *GenericDeclaration, i
 			Incomplete:   true,
 			Generic:      declaration,
 			GenericIndex: index,
-			identity:     newTypeIdentity(environment.identity),
+			identity:     newTypeIdentity(),
 		}
 	}
 	return declaration.placeholders[index]

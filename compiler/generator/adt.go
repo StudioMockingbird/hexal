@@ -17,13 +17,14 @@ type generatedAdtState struct {
 func discoverGeneratedADTs(program checker.Program) *generatedAdtState {
 	state := &generatedAdtState{seen: make(map[*compilerTypes.AdtType]bool)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			if typ.Adt != nil {
 				if !state.seen[typ.Adt] {
 					state.seen[typ.Adt] = true
 					state.order = append(state.order, typ)
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -127,6 +128,7 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 	}
 	fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(node.OperandType, temp, false), scrutinee)
 	fmt.Fprintf(body, "%s%s;\n", indent, declaration(node.ResultType, result, true))
+	scrutineeMembers := compilerTypes.UnionMembers(node.OperandType)
 	emittedIf := false
 	for armIndex, arm := range node.Arguments {
 		armValue, err := renderOperandWithState(arm, state)
@@ -147,7 +149,8 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 			case node.OperandType.Adt != nil:
 				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.adtVariantTag(node.OperandType.Adt, tag))
 			case node.OperandType.Union != nil:
-				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(compilerTypes.UnionMembers(node.OperandType)[tag]))
+				member, _ := scrutineeMembers.At(tag)
+				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(member))
 			case tag == 1:
 				fmt.Fprintf(body, "%sif (%s) {\n", indent, temp)
 			default:

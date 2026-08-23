@@ -30,9 +30,9 @@ func checkADTDeclaration(declaration parser.TypeDeclaration, target parser.AdtDe
 	}
 
 	// Like object declarations, an ADT is stamped with the declaring
-	// module's canonical id: that id owns its canonical key.
-	provisional := typeEnvironment.BeginADT(name, declaration.Name.Line, declaration.Name.Column)
-	provisional.Adt.ModuleID = names.moduleID
+	// module's canonical id: that id owns its canonical key. BeginADT
+	// applies the stamp.
+	typeEnvironment.BeginADT(name, declaration.Name.Line, declaration.Name.Column)
 	variants := make([]compilerTypes.AdtVariant, 0, len(target.Variants))
 	for _, variant := range target.Variants {
 		resolved := compilerTypes.AdtVariant{Name: variant.Name.Lexeme}
@@ -295,8 +295,9 @@ func adtUnitVariant(adtType compilerTypes.Type, variant *compilerTypes.AdtVarian
 
 // unionMemberIndex returns the canonical index of member within union.
 func unionMemberIndex(union, member compilerTypes.Type) int {
-	for index, candidate := range compilerTypes.UnionMembers(union) {
-		if compilerTypes.Equal(candidate, member) {
+	members := compilerTypes.UnionMembers(union)
+	for index := 0; index < members.Len(); index++ {
+		if candidate, _ := members.At(index); compilerTypes.Equal(candidate, member) {
 			return index
 		}
 	}
@@ -356,7 +357,9 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 			remaining[variant.Name] = true
 		}
 	} else if isUnion {
-		for _, member := range compilerTypes.UnionMembers(scrutineeType) {
+		members := compilerTypes.UnionMembers(scrutineeType)
+		for index := 0; index < members.Len(); index++ {
+			member, _ := members.At(index)
 			remaining[member.Name] = true
 		}
 	} else if isBool && !expression.TypeMode {
@@ -493,8 +496,9 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 		missing := ""
 		// Report the first missing member in canonical declaration order so
 		// the diagnostic is deterministic; map iteration order is not.
-		for _, member := range compilerTypes.UnionMembers(scrutineeType) {
-			if remaining[member.Name] {
+		members := compilerTypes.UnionMembers(scrutineeType)
+		for index := 0; index < members.Len(); index++ {
+			if member, _ := members.At(index); remaining[member.Name] {
 				missing = member.Name
 				break
 			}

@@ -33,8 +33,9 @@ func resultAcceptsError(result compilerTypes.Type) bool {
 	if !compilerTypes.IsUnion(result) {
 		return false
 	}
-	for _, member := range compilerTypes.UnionMembers(result) {
-		if compilerTypes.IsError(member) {
+	members := compilerTypes.UnionMembers(result)
+	for index := 0; index < members.Len(); index++ {
+		if member, _ := members.At(index); compilerTypes.IsError(member) {
 			return true
 		}
 	}
@@ -108,12 +109,13 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 	if diagnostics := initializerDiagnostics(operand); len(diagnostics) > 0 {
 		return checkedExpression{token: expression.Keyword, diagnostics: diagnostics}
 	}
-	if !compilerTypes.IsUnion(operand.typ) || len(compilerTypes.UnionMembers(operand.typ)) < 2 {
+	operandMembers := compilerTypes.UnionMembers(operand.typ)
+	if !compilerTypes.IsUnion(operand.typ) || operandMembers.Len() < 2 {
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires a union containing Error and a success member; got "+operand.typ.Name))}
 	}
 	memberIndex := -1
-	for index, member := range compilerTypes.UnionMembers(operand.typ) {
-		if compilerTypes.IsError(member) {
+	for index := 0; index < operandMembers.Len(); index++ {
+		if member, _ := operandMembers.At(index); compilerTypes.IsError(member) {
 			memberIndex = index
 			break
 		}

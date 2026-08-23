@@ -40,47 +40,48 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 		seenUnions:  make(map[*compilerTypes.UnionInfo]bool),
 	}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			switch {
 			case typ.Object != nil:
 				if state.seenObjects[typ.Object] {
-					return
+					return nil
 				}
 				state.seenObjects[typ.Object] = true
 				state.order = append(state.order, typ)
 			case typ.Adt != nil:
 				if state.seenADTs[typ.Adt] {
-					return
+					return nil
 				}
 				state.seenADTs[typ.Adt] = true
 				state.order = append(state.order, typ)
 			case typ.Array != nil:
 				if state.seenArrays[typ.Array] {
-					return
+					return nil
 				}
 				state.seenArrays[typ.Array] = true
 				state.order = append(state.order, typ)
 			case typ.View != nil:
 				if state.seenViews[typ.View] {
-					return
+					return nil
 				}
 				state.seenViews[typ.View] = true
 				state.order = append(state.order, typ)
 			case typ.List != nil:
 				if state.seenLists[typ.List] {
-					return
+					return nil
 				}
 				state.seenLists[typ.List] = true
 				state.order = append(state.order, typ)
 			case typ.Union != nil:
 				if state.seenUnions[typ.Union] {
-					return
+					return nil
 				}
 				state.seenUnions[typ.Union] = true
 				state.order = append(state.order, typ)
 			}
+			return nil
 		},
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			switch node.Kind {
 			case checker.DeepEqualityExpression:
 				if compilerTypes.IsString(node.OperandType) {
@@ -91,6 +92,7 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 					state.compareNeed = true
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)

@@ -79,13 +79,14 @@ func (state *generatedArrayState) accessorDemandFor(array compilerTypes.Type) ar
 func discoverGeneratedArrays(program checker.Program) *generatedArrayState {
 	state := &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			if typ.Array != nil {
 				if !state.seen[typ.Array] {
 					state.seen[typ.Array] = true
 					state.order = append(state.order, typ)
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -338,8 +339,9 @@ func findValueFitsResult(value, result compilerTypes.Type) bool {
 	if value.Union == nil {
 		return compilerTypes.ContainsUnionMember(result, value)
 	}
-	for _, member := range compilerTypes.UnionMembers(value) {
-		if !compilerTypes.ContainsUnionMember(result, member) {
+	members := compilerTypes.UnionMembers(value)
+	for index := 0; index < members.Len(); index++ {
+		if member, _ := members.At(index); !compilerTypes.ContainsUnionMember(result, member) {
 			return false
 		}
 	}

@@ -40,7 +40,7 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 	previousLoopDepth := state.loopDepth
 	state.loopDepth++
 	state.loopDepths = append(state.loopDepths, len(state.deferStack))
-	err := writeStatementsAt(&bodyText, statement.Body, state, result, inFunction, indent+"    ", statement.BodyDefers)
+	err := writeStatementsAt(&bodyText, statement.Body, state, statementFrame{result: result, inFunction: inFunction, defers: statement.BodyDefers}, indent+"    ")
 	state.loopDepths = state.loopDepths[:len(state.loopDepths)-1]
 	state.loopDepth = previousLoopDepth
 	state.popScope()
@@ -48,27 +48,38 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 		return err
 	}
 
+	loopRender := forLoopRender{loop: loop, binderNames: binderNames, bodyText: &bodyText}
 	switch {
 	case sourceType.Array != nil:
-		return renderForSequence(body, statement, loop, binderNames, &bodyText, state, indent)
+		return renderForSequence(body, statement, loopRender, state, indent)
 	case sourceType.View != nil:
-		return renderForSequence(body, statement, loop, binderNames, &bodyText, state, indent)
+		return renderForSequence(body, statement, loopRender, state, indent)
 	case sourceType.List != nil:
-		return renderForSequence(body, statement, loop, binderNames, &bodyText, state, indent)
+		return renderForSequence(body, statement, loopRender, state, indent)
 	case compilerTypes.IsString(sourceType):
-		return renderForText(body, statement, loop, binderNames, &bodyText, state, indent)
+		return renderForText(body, statement, loopRender, state, indent)
 	case compilerTypes.IsStrand(sourceType):
-		return renderForText(body, statement, loop, binderNames, &bodyText, state, indent)
+		return renderForText(body, statement, loopRender, state, indent)
 	case sourceType.Dict != nil:
-		return renderForDict(body, statement, loop, binderNames, &bodyText, state, indent)
+		return renderForDict(body, statement, loopRender, state, indent)
 	default:
 		return unknownExpressionDiagnostic("unsupported for-in source type " + sourceType.Name)
 	}
 }
 
+// forLoopRender is one for-in statement's loop scaffolding: the C loop
+// variable name, the allocated binder names in written order, and the
+// accumulated body text the renderer wraps in its iteration form.
+type forLoopRender struct {
+	loop        string
+	binderNames []string
+	bodyText    *strings.Builder
+}
+
 // renderForSequence lowers Array, View, and List iteration to a plain index
 // loop over the captured source.
-func renderForSequence(body *strings.Builder, statement checker.ForStatement, loop string, binderNames []string, bodyText *strings.Builder, state *expressionValidation, indent string) error {
+func renderForSequence(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
+	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
 	source, err := renderOperandWithState(statement.Source, state)
 	if err != nil {
 		return err
@@ -124,7 +135,8 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, lo
 // renderForText lowers String and Strand iteration to a sequential UTF-8
 // cursor loop producing decoded Rune values. The produced-entry ordinal is
 // pre-incremented so a body `continue` never skips it.
-func renderForText(body *strings.Builder, statement checker.ForStatement, loop string, binderNames []string, bodyText *strings.Builder, state *expressionValidation, indent string) error {
+func renderForText(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
+	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
 	source, err := renderOperandWithState(statement.Source, state)
 	if err != nil {
 		return err
@@ -170,7 +182,8 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, loop s
 // renderForDict lowers Dict iteration to a bucket scan plus a separate
 // produced-entry ordinal. The ordinal is pre-incremented so a body
 // `continue` never skips it, and the public index never exposes the bucket.
-func renderForDict(body *strings.Builder, statement checker.ForStatement, loop string, binderNames []string, bodyText *strings.Builder, state *expressionValidation, indent string) error {
+func renderForDict(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
+	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
 	source, err := renderOperandWithState(statement.Source, state)
 	if err != nil {
 		return err

@@ -103,14 +103,14 @@ func Load() ([]Category, error) {
 		}
 		categories = append(categories, category)
 	}
-	if err := Validate(categories); err != nil {
+	if err := validate(categories); err != nil {
 		return nil, err
 	}
 	return categories, nil
 }
 
-// Validate enforces identity, source, feature, and reserved-word coverage.
-func Validate(categories []Category) error {
+// validate enforces identity, source, feature, and reserved-word coverage.
+func validate(categories []Category) error {
 	categoryIDs := map[string]bool{}
 	snippetIDs := map[string]bool{}
 	features := map[string]bool{}
@@ -159,10 +159,10 @@ func Validate(categories []Category) error {
 	return nil
 }
 
-// LineLimitWarnings reports snippets longer than the 20-non-empty-line
+// lineLimitWarnings reports snippets longer than the 20-non-empty-line
 // catalog target. The limit is a soft upper bound: longer
 // snippets are reported, never rejected.
-func LineLimitWarnings(categories []Category) []string {
+func lineLimitWarnings(categories []Category) []string {
 	warnings := make([]string, 0)
 	for _, category := range categories {
 		for _, snippet := range category.Snippets {

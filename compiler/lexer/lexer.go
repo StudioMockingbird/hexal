@@ -439,13 +439,7 @@ func Lex(source string) ([]Token, error) {
 					column++
 				}
 				if !closed {
-					diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-						Category: compilerTypes.SyntaxError,
-						Stage:    "lexer",
-						Line:     commentLine,
-						Column:   commentColumn,
-						Message:  "unterminated multiline comment",
-					})
+					diagnostics = append(diagnostics, *literalDiagnostic(commentLine, commentColumn, "unterminated multiline comment"))
 				}
 				continue
 			}
@@ -466,26 +460,14 @@ func Lex(source string) ([]Token, error) {
 			column += 2
 			end, closed := scanQuotedBody(source, index, line, column)
 			if !closed {
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.SyntaxError,
-					Stage:    "lexer",
-					Line:     line,
-					Column:   startColumn,
-					Message:  "unterminated Byte literal",
-				})
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Byte literal"))
 			}
 			bodyEnd := end
 			if closed {
 				bodyEnd = end - 1
 			}
 			if _, message := DecodeLiteralBody(source[index:bodyEnd], ByteEscapes); message != "" {
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.SyntaxError,
-					Stage:    "lexer",
-					Line:     line,
-					Column:   startColumn,
-					Message:  message,
-				})
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
 				tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
 			} else {
 				tokens = append(tokens, Token{Kind: ByteLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
@@ -498,26 +480,14 @@ func Lex(source string) ([]Token, error) {
 			column++
 			end, closed := scanQuotedBody(source, index, line, column)
 			if !closed {
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.SyntaxError,
-					Stage:    "lexer",
-					Line:     line,
-					Column:   startColumn,
-					Message:  "unterminated Rune literal",
-				})
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Rune literal"))
 			}
 			bodyEnd := end
 			if closed {
 				bodyEnd = end - 1
 			}
 			if _, message := DecodeLiteralBody(source[index:bodyEnd], RuneEscapes); message != "" {
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.SyntaxError,
-					Stage:    "lexer",
-					Line:     line,
-					Column:   startColumn,
-					Message:  message,
-				})
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
 				tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
 			} else {
 				tokens = append(tokens, Token{Kind: RuneLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
@@ -665,22 +635,10 @@ func Lex(source string) ([]Token, error) {
 					}
 				}
 				if !terminated {
-					diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-						Category: compilerTypes.SyntaxError,
-						Stage:    "lexer",
-						Line:     line,
-						Column:   column,
-						Message:  "unterminated module path literal",
-					})
+					diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated module path literal"))
 				}
 				if strings.ContainsRune(source[pathPayloadStart:index-1], '\\') {
-					diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-						Category: compilerTypes.SyntaxError,
-						Stage:    "lexer",
-						Line:     line,
-						Column:   startColumn,
-						Message:  "invalid module-path literal",
-					})
+					diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid module-path literal"))
 				}
 				// Keep a recovery token even when the path is malformed so
 				// the parser can synchronize on a real token sequence.
@@ -736,22 +694,10 @@ func Lex(source string) ([]Token, error) {
 				// A raw newline is a Syntax Error and produces no
 				// StringLiteral token; consume through the closing quote or
 				// EOF for recovery and never emit a second diagnostic.
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.SyntaxError,
-					Stage:    "lexer",
-					Line:     newlineLine,
-					Column:   newlineColumn,
-					Message:  `String literal cannot contain a raw newline; use \n`,
-				})
+				diagnostics = append(diagnostics, *literalDiagnostic(newlineLine, newlineColumn, `String literal cannot contain a raw newline; use \n`))
 			} else {
 				if !terminated {
-					diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-						Category: compilerTypes.SyntaxError,
-						Stage:    "lexer",
-						Line:     line,
-						Column:   column,
-						Message:  "unterminated string literal",
-					})
+					diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated string literal"))
 				}
 				tokens = append(tokens, Token{Kind: StringLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
 			}
@@ -788,13 +734,7 @@ func Lex(source string) ([]Token, error) {
 			index++
 			column++
 		default:
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.SyntaxError,
-				Stage:    "lexer",
-				Line:     line,
-				Column:   column,
-				Message:  fmt.Sprintf("unexpected character %q", ch),
-			})
+			diagnostics = append(diagnostics, *literalDiagnostic(line, column, fmt.Sprintf("unexpected character %q", ch)))
 			index++
 			column++
 		}

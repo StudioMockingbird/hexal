@@ -42,12 +42,15 @@ func (state *generatedUnionState) addWideningTypes(source, destination compilerT
 			return
 		}
 	}
-	memberMap := make([]int, 0, len(compilerTypes.UnionMembers(source)))
-	for _, sourceMember := range compilerTypes.UnionMembers(source) {
+	sourceMembers := compilerTypes.UnionMembers(source)
+	destinationMembers := compilerTypes.UnionMembers(destination)
+	memberMap := make([]int, 0, sourceMembers.Len())
+	for index := 0; index < sourceMembers.Len(); index++ {
+		sourceMember, _ := sourceMembers.At(index)
 		destinationIndex := -1
-		for index, destinationMember := range compilerTypes.UnionMembers(destination) {
-			if compilerTypes.Equal(destinationMember, sourceMember) || compilerTypes.Assignable(destinationMember, sourceMember) {
-				destinationIndex = index
+		for candidateIndex := 0; candidateIndex < destinationMembers.Len(); candidateIndex++ {
+			if destinationMember, _ := destinationMembers.At(candidateIndex); compilerTypes.Equal(destinationMember, sourceMember) || compilerTypes.Assignable(destinationMember, sourceMember) {
+				destinationIndex = candidateIndex
 				break
 			}
 		}
@@ -60,32 +63,36 @@ func (state *generatedUnionState) addWideningTypes(source, destination compilerT
 	})
 }
 
-func discoverGeneratedUnions(program checker.Program) *generatedUnionState {
+func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, error) {
 	state := &generatedUnionState{names: make(map[*compilerTypes.UnionInfo]string)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			if typ.Union != nil {
 				if _, seen := state.names[typ.Union]; seen {
-					return
+					return nil
 				}
 				if typ.CName == "" {
-					panic(unknownExpressionDiagnostic("union has no generated C name"))
+					return unknownExpressionDiagnostic("union has no generated C name")
 				}
 				state.names[typ.Union] = typ.CName
 				state.order = append(state.order, typ)
 			}
+			return nil
 		},
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.UnionWidenExpression {
 				state.addWidening(node)
 			}
 			if node.Kind == checker.CollectionMethodCallExpression && node.Name == "find" && node.Element.Union != nil && node.ResultType.Union != nil {
 				state.addWideningTypes(node.Element, node.ResultType)
 			}
+			return nil
 		},
 	}
-	walkProgram(program, visitor)
-	return state
+	if err := walkProgram(program, visitor); err != nil {
+		return nil, err
+	}
+	return state, nil
 }
 func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, tags *tagRegistry) {
 	if state == nil {
@@ -133,22 +140,25 @@ func writeUnionWidening(result *strings.Builder, widening unionWidening, tags *t
 	sourceMembers := compilerTypes.UnionMembers(widening.source)
 	destinationMembers := compilerTypes.UnionMembers(widening.destination)
 	for sourceIndex, destinationIndex := range widening.memberMap {
-		if sourceIndex >= len(sourceMembers) || destinationIndex < 0 || destinationIndex >= len(destinationMembers) {
+		if sourceIndex >= sourceMembers.Len() || destinationIndex < 0 || destinationIndex >= destinationMembers.Len() {
 			continue
 		}
-		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(sourceMembers[sourceIndex]))
-		if compilerTypes.IsNil(sourceMembers[sourceIndex]) || compilerTypes.IsEoS(sourceMembers[sourceIndex]) {
+		sourceMember, _ := sourceMembers.At(sourceIndex)
+		destinationMember, _ := destinationMembers.At(destinationIndex)
+		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(sourceMember))
+		if compilerTypes.IsNil(sourceMember) || compilerTypes.IsEoS(sourceMember) {
 			fmt.Fprintf(result, "        return (%s){ .tag = value.tag };\n", widening.destination.CName)
 			continue
 		}
-		fmt.Fprintf(result, "        return (%s){ .tag = value.tag, .payload.%s = value.payload.%s };\n", widening.destination.CName, tags.unionPayloadField(destinationMembers[destinationIndex]), tags.unionPayloadField(sourceMembers[sourceIndex]))
+		fmt.Fprintf(result, "        return (%s){ .tag = value.tag, .payload.%s = value.payload.%s };\n", widening.destination.CName, tags.unionPayloadField(destinationMember), tags.unionPayloadField(sourceMember))
 	}
 	fmt.Fprintf(result, "    default:\n        abort();\n    }\n}\n")
 }
 
 func unionSupportsEquality(union compilerTypes.Type) bool {
-	for _, member := range compilerTypes.UnionMembers(union) {
-		if !compilerTypes.IsNil(member) && !unionMemberEqualityAvailable(member) {
+	members := compilerTypes.UnionMembers(union)
+	for index := 0; index < members.Len(); index++ {
+		if member, _ := members.At(index); !compilerTypes.IsNil(member) && !unionMemberEqualityAvailable(member) {
 			return false
 		}
 	}
@@ -197,7 +207,9 @@ func unionMemberEqualityAvailable(typ compilerTypes.Type) bool {
 func writeUnionEquality(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
 	name := union.CName + "_equal"
 	fmt.Fprintf(result, "\nstatic bool %s(%s left, %s right) {\n    if (left.tag != right.tag) return false;\n    switch (left.tag) {\n", name, union.CName, union.CName)
-	for _, member := range compilerTypes.UnionMembers(union) {
+	members := compilerTypes.UnionMembers(union)
+	for index := 0; index < members.Len(); index++ {
+		member, _ := members.At(index)
 		field := tags.unionPayloadField(member)
 		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(member))
 		if compilerTypes.IsNil(member) {
@@ -222,7 +234,9 @@ func writeUnionEquality(result *strings.Builder, union compilerTypes.Type, tags 
 
 func writeUnionTruthiness(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
 	fmt.Fprintf(result, "\nstatic bool %s_truthy(%s value) {\n    switch (value.tag) {\n", union.CName, union.CName)
-	for _, member := range compilerTypes.UnionMembers(union) {
+	members := compilerTypes.UnionMembers(union)
+	for index := 0; index < members.Len(); index++ {
+		member, _ := members.At(index)
 		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(member))
 		if compilerTypes.IsNil(member) {
 			fmt.Fprintln(result, "        return false;")
@@ -239,8 +253,9 @@ func writeUnionTruthiness(result *strings.Builder, union compilerTypes.Type, tag
 }
 
 func unionMemberIndex(union, member compilerTypes.Type) int {
-	for index, candidate := range compilerTypes.UnionMembers(union) {
-		if compilerTypes.Equal(candidate, member) {
+	members := compilerTypes.UnionMembers(union)
+	for index := 0; index < members.Len(); index++ {
+		if candidate, _ := members.At(index); compilerTypes.Equal(candidate, member) {
 			return index
 		}
 	}
@@ -248,13 +263,14 @@ func unionMemberIndex(union, member compilerTypes.Type) int {
 }
 
 func validateUnionInjection(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
-	if node.Operand == nil || !compilerTypes.IsUnion(node.ResultType) || !supportedGeneratedTypeWithState(node.ResultType, state) || node.MemberIndex < 0 || node.MemberIndex >= len(compilerTypes.UnionMembers(node.ResultType)) {
+	resultMembers := compilerTypes.UnionMembers(node.ResultType)
+	if node.Operand == nil || !compilerTypes.IsUnion(node.ResultType) || !supportedGeneratedTypeWithState(node.ResultType, state) || node.MemberIndex < 0 || node.MemberIndex >= resultMembers.Len() {
 		return unknownExpressionDiagnostic("union injection has invalid checked metadata")
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
 		return unknownExpressionDiagnostic("union injection result does not match its expected type")
 	}
-	member := compilerTypes.UnionMembers(node.ResultType)[node.MemberIndex]
+	member, _ := resultMembers.At(node.MemberIndex)
 	if !compilerTypes.Assignable(member, node.OperandType) {
 		return unknownExpressionDiagnostic("union injection member does not match its checked source")
 	}
@@ -270,11 +286,16 @@ func validateUnionWiden(node checker.Expression, expected *compilerTypes.Type, s
 	}
 	sourceMembers := compilerTypes.UnionMembers(node.OperandType)
 	destinationMembers := compilerTypes.UnionMembers(node.ResultType)
-	if len(node.MemberMap) != len(sourceMembers) {
+	if len(node.MemberMap) != sourceMembers.Len() {
 		return unknownExpressionDiagnostic("union widening map does not match its source members")
 	}
 	for index, destinationIndex := range node.MemberMap {
-		if destinationIndex < 0 || destinationIndex >= len(destinationMembers) || !compilerTypes.Assignable(destinationMembers[destinationIndex], sourceMembers[index]) {
+		sourceMember, _ := sourceMembers.At(index)
+		if destinationIndex < 0 || destinationIndex >= destinationMembers.Len() {
+			return unknownExpressionDiagnostic("union widening map contains an invalid member conversion")
+		}
+		destinationMember, _ := destinationMembers.At(destinationIndex)
+		if !compilerTypes.Assignable(destinationMember, sourceMember) {
 			return unknownExpressionDiagnostic("union widening map contains an invalid member conversion")
 		}
 	}
@@ -295,10 +316,11 @@ func validateUnionTest(node checker.Expression, expected *compilerTypes.Type, st
 }
 
 func validateUnionPayload(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
-	if node.Operand == nil || !compilerTypes.IsUnion(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) || node.MemberIndex < 0 || node.MemberIndex >= len(compilerTypes.UnionMembers(node.OperandType)) {
+	operandMembers := compilerTypes.UnionMembers(node.OperandType)
+	if node.Operand == nil || !compilerTypes.IsUnion(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) || node.MemberIndex < 0 || node.MemberIndex >= operandMembers.Len() {
 		return unknownExpressionDiagnostic("union payload has invalid checked metadata")
 	}
-	member := compilerTypes.UnionMembers(node.OperandType)[node.MemberIndex]
+	member, _ := operandMembers.At(node.MemberIndex)
 	if !compilerTypes.Equal(node.ResultType, member) || expected != nil && !compilerTypes.Equal(*expected, member) {
 		return unknownExpressionDiagnostic("union payload result does not match its checked member")
 	}
@@ -309,8 +331,9 @@ func validateUnionEquality(node checker.Expression, expected *compilerTypes.Type
 	if node.Left == nil || node.Right == nil || !compilerTypes.IsUnion(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || expected != nil && !compilerTypes.Equal(*expected, compilerTypes.Bool) {
 		return unknownExpressionDiagnostic("union equality has invalid checked metadata")
 	}
-	for _, member := range compilerTypes.UnionMembers(node.OperandType) {
-		if !compilerTypes.IsNil(member) && !unionMemberEqualityAvailable(member) {
+	operandMembers := compilerTypes.UnionMembers(node.OperandType)
+	for index := 0; index < operandMembers.Len(); index++ {
+		if member, _ := operandMembers.At(index); !compilerTypes.IsNil(member) && !unionMemberEqualityAvailable(member) {
 			return unknownExpressionDiagnostic("union equality contains an unsupported member")
 		}
 	}
@@ -340,7 +363,8 @@ func renderUnionInjection(node checker.Expression, state *expressionValidation) 
 	if compilerTypes.IsNullable(node.ResultType) {
 		return child, nil
 	}
-	member := compilerTypes.UnionMembers(node.ResultType)[node.MemberIndex]
+	injectionMembers := compilerTypes.UnionMembers(node.ResultType)
+	member, _ := injectionMembers.At(node.MemberIndex)
 	tag := state.tags.unionMemberTag(member)
 	if compilerTypes.IsNil(member) || compilerTypes.IsEoS(member) {
 		return fmt.Sprintf("(%s){ .tag = %s }", node.ResultType.CName, tag), nil
@@ -368,11 +392,13 @@ func renderUnionTest(node checker.Expression, state *expressionValidation) (stri
 	if !ok {
 		representation, index = node.OperandType, node.MemberIndex
 	}
-	return child + ".tag == " + state.tags.unionMemberTag(compilerTypes.UnionMembers(representation)[index]), nil
+	testMember, _ := compilerTypes.UnionMembers(representation).At(index)
+	return child + ".tag == " + state.tags.unionMemberTag(testMember), nil
 }
 
 func renderUnionPayload(node checker.Expression, state *expressionValidation) (string, error) {
-	if compilerTypes.IsNil(compilerTypes.UnionMembers(node.OperandType)[node.MemberIndex]) {
+	payloadOperandMembers := compilerTypes.UnionMembers(node.OperandType)
+	if nilCheckMember, _ := payloadOperandMembers.At(node.MemberIndex); compilerTypes.IsNil(nilCheckMember) {
 		return "nullptr", nil
 	}
 	child, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
@@ -386,7 +412,8 @@ func renderUnionPayload(node checker.Expression, state *expressionValidation) (s
 	if !ok {
 		representation, index = node.OperandType, node.MemberIndex
 	}
-	return child + ".payload." + state.tags.unionPayloadField(compilerTypes.UnionMembers(representation)[index]), nil
+	payloadRepresentationMember, _ := compilerTypes.UnionMembers(representation).At(index)
+	return child + ".payload." + state.tags.unionPayloadField(payloadRepresentationMember), nil
 }
 
 // remapUnionMember maps a member index in the operand's (possibly narrowed)
@@ -409,11 +436,13 @@ func remapUnionMember(operand *checker.Expression, operandType compilerTypes.Typ
 		return binding.typ, memberIndex, true
 	}
 	members := compilerTypes.UnionMembers(operandType)
-	if memberIndex < 0 || memberIndex >= len(members) {
+	if memberIndex < 0 || memberIndex >= members.Len() {
 		return compilerTypes.Type{}, 0, false
 	}
-	for index, member := range compilerTypes.UnionMembers(binding.typ) {
-		if compilerTypes.Equal(member, members[memberIndex]) {
+	narrowedMember, _ := members.At(memberIndex)
+	bindingMembers := compilerTypes.UnionMembers(binding.typ)
+	for index := 0; index < bindingMembers.Len(); index++ {
+		if member, _ := bindingMembers.At(index); compilerTypes.Equal(member, narrowedMember) {
 			return binding.typ, index, true
 		}
 	}

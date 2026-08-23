@@ -105,7 +105,7 @@ func (environment *Environment) UnionType(members []Type) Type {
 		Name:         unionName(unique),
 		CanonicalKey: key,
 		Union:        info,
-		identity:     newTypeIdentity(environment.identity),
+		identity:     newTypeIdentity(),
 	}
 	union.CName = environment.arena.ReserveUnionName(unionBaseName(unique), union)
 	environment.arena.unionTypes[key] = union
@@ -122,6 +122,49 @@ func unionBaseName(members []Type) string {
 		parts[index] = SanitizeIdentifier(member.Name)
 	}
 	return "hex_t_" + strings.Join(parts, "_")
+}
+
+// UnionMemberView is the read-only member surface of one union value. A view
+// never hands out the canonical member slice: ordinary unions reference it
+// privately, the nullable-pointer niche derives base/Nil without storage, and
+// every access is bounds-checked, so no caller can mutate interned state.
+type UnionMemberView struct {
+	members []Type // canonical member slice of a tagged union
+	base    Type   // nullable-pointer-niche base; valid when niche
+	niche   bool   // true when the union is the specialized P | Nil form
+}
+
+// Len reports the member count of the viewed union.
+func (view UnionMemberView) Len() int {
+	if view.niche {
+		return 2
+	}
+	return len(view.members)
+}
+
+// At returns member index and reports whether the index is in bounds.
+func (view UnionMemberView) At(index int) (Type, bool) {
+	if index < 0 || index >= view.Len() {
+		return Type{}, false
+	}
+	if view.niche {
+		if index == 0 {
+			return view.base, true
+		}
+		return Nil, true
+	}
+	return view.members[index], true
+}
+
+// unionMemberView builds the read-only view of typ's canonical members.
+func unionMemberView(typ Type) UnionMemberView {
+	if typ.Union != nil {
+		return UnionMemberView{members: typ.Union.Members}
+	}
+	if base, ok := NullableBase(typ); ok {
+		return UnionMemberView{base: base, niche: true}
+	}
+	return UnionMemberView{members: []Type{typ}}
 }
 
 func unionMembers(typ Type) []Type {
@@ -219,7 +262,9 @@ func unionDisplayKey(typ Type) (int, string) {
 // is an ordinary union with a specialized representation.
 func IsUnion(typ Type) bool { return typ.Union != nil || IsNullable(typ) }
 
-func UnionMembers(typ Type) []Type { return unionMembers(typ) }
+// UnionMembers exposes typ's canonical members as a read-only view: no
+// caller receives a mutable member slice.
+func UnionMembers(typ Type) UnionMemberView { return unionMemberView(typ) }
 
 func ContainsUnionMember(union, member Type) bool {
 	if !IsUnion(union) {

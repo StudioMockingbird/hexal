@@ -21,13 +21,14 @@ type generatedDictState struct {
 func discoverGeneratedDicts(program checker.Program) *generatedDictState {
 	state := &generatedDictState{seen: make(map[*compilerTypes.DictInfo]bool)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			if typ.Dict != nil {
 				if !state.seen[typ.Dict] {
 					state.seen[typ.Dict] = true
 					state.order = append(state.order, typ)
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)

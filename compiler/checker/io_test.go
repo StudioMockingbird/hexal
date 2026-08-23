@@ -197,7 +197,9 @@ func TestCheckStreamResultUnionsAreCanonical(t *testing.T) {
 		t.Fatalf("initializer node = %#v, want a stream read call", node)
 	}
 	hasSize, hasEoS, hasError := false, false, false
-	for _, member := range compilerTypes.UnionMembers(node.ResultType) {
+	readMembers := compilerTypes.UnionMembers(node.ResultType)
+	for index := 0; index < readMembers.Len(); index++ {
+		member, _ := readMembers.At(index)
 		switch {
 		case compilerTypes.Equal(member, compilerTypes.SizeType):
 			hasSize = true
@@ -207,7 +209,7 @@ func TestCheckStreamResultUnionsAreCanonical(t *testing.T) {
 			hasError = true
 		}
 	}
-	if len(compilerTypes.UnionMembers(node.ResultType)) != 3 || !hasSize || !hasEoS || !hasError {
+	if readMembers.Len() != 3 || !hasSize || !hasEoS || !hasError {
 		t.Fatalf("read union = %s, want exactly Size, EoS, and Error", node.ResultType.Name)
 	}
 }

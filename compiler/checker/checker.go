@@ -475,20 +475,22 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			// the target module's names instead.
 			// The target is the graph's resolved edge, recorded in the
 			// registry: the checker reads resolution, it never repeats it.
-			target, _ := registry.importTarget(moduleID, statement.Alias.Lexeme)
+			target, ok := registry.importTarget(moduleID, statement.Alias.Lexeme)
+			if !ok {
+				// A resolved graph always publishes every edge's target; a
+				// missing entry is an internal inconsistency, so it fails
+				// closed instead of binding an empty module id.
+				diagnostics = append(diagnostics, unknownAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" has no resolved module target"))
+				continue
+			}
 			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
 				diagnostics = append(diagnostics, nameErrorAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" conflicts with an existing name"))
 			}
 		default:
-			if token, ok := topLevelItemToken(item); ok {
-				diagnostics = append(diagnostics, unknownAt(token, "unsupported top-level item"))
-			} else {
-				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.UnknownError,
-					Stage:    "checker",
-					Message:  "unsupported top-level item",
-				})
-			}
+			// Exhaustive over parser.TopLevelItem today; a new item form
+			// reaching this default is a compiler inconsistency and reports
+			// [Unknown Error], never a user category.
+			diagnostics = append(diagnostics, unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported top-level item"))
 		}
 	}
 	diagnostics = append(diagnostics, validateDeferredActions(environment, !sequenceTerminates(checked.Statements))...)

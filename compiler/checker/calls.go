@@ -140,11 +140,8 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 	}
 	signature := function.Type.Signature
 	if signature == nil {
-		return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "exported function record without a signature",
-		}}
+		diagnostic := unknownAt(property, "exported function record without a signature")
+		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	if len(call.Arguments) != len(signature.Parameters) {
 		diagnostic := typeErrorAt(property,
@@ -223,11 +220,8 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 	}
 	signature := specialized.Type.Signature
 	if signature == nil {
-		return checkedExpression{token: property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "specialized function record without a signature",
-		}}
+		diagnostic := unknownAt(property, "specialized function record without a signature")
+		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	if len(call.Arguments) != len(signature.Parameters) {
 		diagnostic := typeErrorAt(property,

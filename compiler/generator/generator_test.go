@@ -74,7 +74,10 @@ func TestDiscoverGeneratedUnionHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := discoverGeneratedUnions(program)
+	state, err := discoverGeneratedUnions(program)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(state.order) != 1 || state.order[0].CName != "hex_t_Int32_Float64" {
 		t.Fatalf("union state = %#v, want one deterministic helper", state)
 	}
@@ -144,9 +147,46 @@ func TestGenerateRejectsForgedUnionMemberIndex(t *testing.T) {
 		OperandType: compilerTypes.Int32,
 		ResultType:  union,
 		MemberIndex: -1,
-	})
+	}, newLiteralRegistry())
 	if err == nil || !strings.Contains(err.Error(), "Unknown Error") {
 		t.Fatalf("render error = %v, want fail-closed Unknown Error", err)
+	}
+}
+
+// An induced checked-tree inconsistency surfaces as a fail-closed
+// [Unknown Error] return from GenerateChecked, never as a panic and never as
+// a user-facing category.
+func TestGenerateCheckedReportsInvariantBreakAsUnknownError(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun answer(value: Int32): Int32 do\n    return value * 3\nend\nstarted: Int32 := answer(6)\n")
+	tampered := false
+	for index, statement := range program.Statements {
+		function, ok := statement.(checker.FunctionDeclaration)
+		if !ok || function.Name != "answer" {
+			continue
+		}
+		returnStatement, ok := function.Body[0].(checker.ReturnStatement)
+		if !ok || returnStatement.Value == nil {
+			continue
+		}
+		returnStatement.Value.Node.Kind = checker.ExpressionKind(250)
+		function.Body[0] = returnStatement
+		program.Statements[index] = function
+		tampered = true
+	}
+	if !tampered {
+		t.Fatal("no function found to tamper")
+	}
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
+	if err == nil {
+		t.Fatalf("tampered program generated %d artifacts; want an invariant-break error", len(files))
+	}
+	if files != nil {
+		t.Fatalf("files = %v, want nil on failure", files)
+	}
+	messages := compilerTypes.ErrorMessages(err)
+	joined := strings.Join(messages, "\n")
+	if !strings.Contains(joined, "[Unknown Error]") {
+		t.Fatalf("error messages = %q, want an [Unknown Error] entry", joined)
 	}
 }
 
@@ -353,8 +393,21 @@ func TestGenerateCheckedRejectsDuplicateGeneratedObjectCNames(t *testing.T) {
 	}
 }
 
+// Forged-name rejection is table-driven over (name kind, spelling) so every
+// kind exercises every invalid shape; value spellings are lowercase-first and
+// type spellings uppercase-first because the kinds carry distinct rules.
+var invalidIdentifierCases = []struct {
+	kind      string
+	spellings []string
+}{
+	{"declaration", []string{"value-name", "1value", "café"}},
+	{"type", []string{"Type-name", "1Type", "café"}},
+	{"member", []string{"Type-name", "1Type", "café"}},
+	{"value", []string{"value-name", "1value", "café"}},
+}
+
 func TestGenerateCheckedRejectsForgedDeclarationNames(t *testing.T) {
-	for _, name := range []string{"value-name", "1value", "café"} {
+	for _, name := range invalidIdentifierCases[0].spellings {
 		t.Run(name, func(t *testing.T) {
 			program := checker.Program{Statements: []checker.Statement{checker.Declaration{
 				Name:   name,
@@ -368,7 +421,7 @@ func TestGenerateCheckedRejectsForgedDeclarationNames(t *testing.T) {
 }
 
 func TestGenerateCheckedRejectsForgedTypeAndMemberNames(t *testing.T) {
-	for _, name := range []string{"Type-name", "1Type", "café"} {
+	for _, name := range invalidIdentifierCases[1].spellings {
 		t.Run("type "+name, func(t *testing.T) {
 			_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: name, Type: compilerTypes.Int32}}}}, Config{})
 			assertGeneratorUnknownError(t, err)
@@ -385,9 +438,9 @@ func TestGenerateCheckedRejectsForgedTypeAndMemberNames(t *testing.T) {
 }
 
 func TestRenderRejectsForgedValueNames(t *testing.T) {
-	for _, name := range []string{"value-name", "1value", "café"} {
+	for _, name := range invalidIdentifierCases[3].spellings {
 		t.Run(name, func(t *testing.T) {
-			_, err := renderExpression(variableNode(name))
+			_, err := renderExpression(variableNode(name), newLiteralRegistry())
 			assertGeneratorUnknownError(t, err)
 		})
 	}
@@ -509,7 +562,7 @@ func TestWriteStatementsRejectsLoopControlOutsideGeneratedLoop(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var body strings.Builder
-			err := writeStatementsAt(&body, []checker.Statement{testCase.statement}, &expressionValidation{}, nil, false, "    ", nil)
+			err := writeStatementsAt(&body, []checker.Statement{testCase.statement}, &expressionValidation{}, statementFrame{}, "    ")
 			assertGeneratorUnknownError(t, err)
 			if body.Len() != 0 {
 				t.Fatalf("rendered loop control outside a loop: %q", body.String())
@@ -661,7 +714,7 @@ func TestWriteStatementsRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 	var body strings.Builder
 	err := writeStatementsAt(&body, []checker.Statement{
 		checker.IfStatement{Condition: condition, Then: []checker.Statement{function}},
-	}, &expressionValidation{}, nil, false, "    ", nil)
+	}, &expressionValidation{}, statementFrame{}, "    ")
 	assertGeneratorUnknownError(t, err)
 }
 
@@ -848,7 +901,7 @@ func TestRenderRejectsForgedMemberType(t *testing.T) {
 		Operand: expressionPointer(variableNode("point")),
 		Member:  &forgedMember,
 	}
-	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int32, Node: node})
+	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int32, Node: node}, newLiteralRegistry())
 	assertGeneratorUnknownError(t, err)
 }
 
@@ -858,7 +911,7 @@ func TestRenderExpressionOperand(t *testing.T) {
 		Type: compilerTypes.Int32,
 		Node: variableNode("value"),
 	}
-	got, err := renderOperand(source)
+	got, err := renderOperand(source, newLiteralRegistry())
 	if err != nil {
 		t.Fatalf("renderOperand() error = %v", err)
 	}
@@ -874,7 +927,7 @@ func TestRenderConstantExpression(t *testing.T) {
 		Constant:   &source,
 		ResultType: compilerTypes.Int32,
 	}
-	got, err := renderExpression(node)
+	got, err := renderExpression(node, newLiteralRegistry())
 	if err != nil {
 		t.Fatalf("renderExpression() error = %v", err)
 	}
@@ -885,7 +938,7 @@ func TestRenderConstantExpression(t *testing.T) {
 
 func TestRenderSignedInt8Addition(t *testing.T) {
 	node := binaryExpression(checker.AddOperator, compilerTypes.Int8, compilerTypes.Int8, variableNode("left"), variableNode("right"))
-	got, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int8, Node: node})
+	got, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int8, Node: node}, newLiteralRegistry())
 	if err != nil {
 		t.Fatalf("renderOperand() error = %v", err)
 	}
@@ -910,7 +963,7 @@ func TestRenderSignedArithmeticUsesWrapHelpers(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		node := binaryExpression(testCase.operator, testCase.typ, testCase.typ, variableNode("left"), variableNode("right"))
-		got, err := renderExpression(node)
+		got, err := renderExpression(node, newLiteralRegistry())
 		if err != nil {
 			t.Fatalf("renderExpression(%s, %s) error = %v", testCase.typ.Name, testCase.operator, err)
 		}
@@ -922,7 +975,7 @@ func TestRenderSignedArithmeticUsesWrapHelpers(t *testing.T) {
 
 	for _, typ := range []compilerTypes.Type{compilerTypes.Int8, compilerTypes.Int16, compilerTypes.Int32, compilerTypes.Int64} {
 		node := unaryExpression(checker.NegateOperator, typ, typ, variableNode("value"))
-		got, err := renderExpression(node)
+		got, err := renderExpression(node, newLiteralRegistry())
 		if err != nil {
 			t.Fatalf("renderExpression(%s unary -) error = %v", typ.Name, err)
 		}
@@ -943,7 +996,7 @@ func TestRenderUnsignedRingOperationSeedsOnceAndNarrowsOnce(t *testing.T) {
 			checker.AddOperator: "+", checker.SubtractOperator: "-", checker.MultiplyOperator: "*",
 		} {
 			node := binaryExpression(operator, typ, typ, variableNode("left"), variableNode("right"))
-			got, err := renderExpression(node)
+			got, err := renderExpression(node, newLiteralRegistry())
 			if err != nil {
 				t.Fatalf("renderExpression(%s %s) error = %v", typ.Name, text, err)
 			}
@@ -962,7 +1015,7 @@ func TestRenderUnsignedRingChainSeedsOnlyItsLeftmostOperand(t *testing.T) {
 		inner := binaryExpression(checker.AddOperator, typ, typ, variableNode("a"), variableNode("b"))
 		outer := binaryExpression(checker.AddOperator, typ, typ, inner, variableNode("c"))
 		node := binaryExpression(checker.AddOperator, typ, typ, outer, variableNode("d"))
-		got, err := renderExpression(node)
+		got, err := renderExpression(node, newLiteralRegistry())
 		if err != nil {
 			t.Fatalf("renderExpression(%s chain) error = %v", typ.Name, err)
 		}
@@ -982,7 +1035,7 @@ func TestRenderUnsignedRingRightSubtreeCarriesItsOwnSeed(t *testing.T) {
 	typ := compilerTypes.UInt32
 	inner := binaryExpression(checker.MultiplyOperator, typ, typ, variableNode("b"), variableNode("c"))
 	node := binaryExpression(checker.AddOperator, typ, typ, variableNode("a"), inner)
-	got, err := renderExpression(node)
+	got, err := renderExpression(node, newLiteralRegistry())
 	if err != nil {
 		t.Fatalf("renderExpression(right subtree) error = %v", err)
 	}
@@ -1029,7 +1082,7 @@ func TestRenderUnsignedRingTreesPreserveGrouping(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			got, err := renderExpression(testCase.node)
+			got, err := renderExpression(testCase.node, newLiteralRegistry())
 			if err != nil {
 				t.Fatalf("renderExpression error = %v", err)
 			}
@@ -1114,7 +1167,7 @@ func TestRenderEveryOperationOperator(t *testing.T) {
 		{"logical or", binaryExpression(checker.LogicalOrOperator, compilerTypes.Bool, compilerTypes.Bool, left, right), "(hex_v_left || hex_v_right)"},
 	}
 	for _, testCase := range testCases {
-		got, err := renderExpression(testCase.node)
+		got, err := renderExpression(testCase.node, newLiteralRegistry())
 		if err != nil {
 			t.Errorf("%s error = %v", testCase.name, err)
 			continue
@@ -1128,7 +1181,7 @@ func TestRenderEveryOperationOperator(t *testing.T) {
 func TestRenderOperationsAlwaysParenthesizeNestedExpressions(t *testing.T) {
 	inner := binaryExpression(checker.AddOperator, compilerTypes.Float64, compilerTypes.Float64, variableNode("left"), variableNode("right"))
 	outer := binaryExpression(checker.MultiplyOperator, compilerTypes.Float64, compilerTypes.Float64, inner, variableNode("scale"))
-	got, err := renderExpression(outer)
+	got, err := renderExpression(outer, newLiteralRegistry())
 	if err != nil {
 		t.Fatalf("renderExpression() error = %v", err)
 	}
@@ -1146,7 +1199,7 @@ func TestRenderOperationsRejectMismatchedNestedChildTypes(t *testing.T) {
 		binaryExpression(checker.EqualOperator, compilerTypes.Int64, compilerTypes.Bool, inner, variableNode("right")),
 	}
 	for index, node := range testCases {
-		_, err := renderExpression(node)
+		_, err := renderExpression(node, newLiteralRegistry())
 		diagnostic, ok := err.(compilerTypes.Diagnostic)
 		if !ok {
 			t.Errorf("case %d error = %T %v, want compilerTypes.Diagnostic", index, err, err)
@@ -1160,7 +1213,7 @@ func TestRenderOperationsRejectMismatchedNestedChildTypes(t *testing.T) {
 
 func TestRenderOperandRejectsMismatchedRootExpressionType(t *testing.T) {
 	node := binaryExpression(checker.AddOperator, compilerTypes.Int32, compilerTypes.Int32, variableNode("left"), variableNode("right"))
-	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int64, Node: node})
+	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int64, Node: node}, newLiteralRegistry())
 	diagnostic, ok := err.(compilerTypes.Diagnostic)
 	if !ok {
 		t.Fatalf("error = %T %v, want compilerTypes.Diagnostic", err, err)
@@ -1185,7 +1238,7 @@ func TestRenderMalformedIntegerConstantsFailsClosed(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := renderOperand(testCase.source)
+			_, err := renderOperand(testCase.source, newLiteralRegistry())
 			diagnostic, ok := err.(compilerTypes.Diagnostic)
 			if !ok {
 				t.Fatalf("error = %T %v, want compilerTypes.Diagnostic", err, err)
@@ -1215,7 +1268,7 @@ func TestRenderRejectsInconsistentIntegerMetadata(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := renderOperand(testCase.source)
+			_, err := renderOperand(testCase.source, newLiteralRegistry())
 			assertGeneratorUnknownError(t, err)
 		})
 	}
@@ -1300,7 +1353,7 @@ func TestRenderRejectsMalformedFloatConstants(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := renderOperand(testCase.source)
+			_, err := renderOperand(testCase.source, newLiteralRegistry())
 			assertGeneratorUnknownError(t, err)
 		})
 	}
@@ -1324,7 +1377,7 @@ func TestRenderSupportsValidFoldedFloatSpecialValues(t *testing.T) {
 				Constant:  constant.MakeUnknown(),
 				FloatBits: testCase.bits,
 				Negative:  testCase.want == "-INFINITY",
-			})
+			}, newLiteralRegistry())
 			if err != nil {
 				t.Fatalf("renderOperand() error = %v", err)
 			}
@@ -1365,7 +1418,7 @@ func TestRenderFiniteFloatLiteralsRoundTripDecimal(t *testing.T) {
 				Constant:  testCase.value,
 				FloatBits: testCase.bits,
 				Negative:  testCase.negative,
-			})
+			}, newLiteralRegistry())
 			if err != nil {
 				t.Fatalf("renderOperand() error = %v", err)
 			}
@@ -1409,7 +1462,7 @@ func TestRenderRejectsInvalidAddressDereferenceChildren(t *testing.T) {
 		{name: "dereference scalar metadata", source: invalidDereferenceMetadata},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := renderOperand(testCase.source)
+			_, err := renderOperand(testCase.source, newLiteralRegistry())
 			assertGeneratorUnknownError(t, err)
 		})
 	}
@@ -1571,7 +1624,7 @@ func TestRenderRejectsScalarDereferenceReceiver(t *testing.T) {
 		Operand:    expressionPointer(variableNode("value")),
 		ResultType: compilerTypes.Int32,
 	}
-	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int32, Node: node})
+	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int32, Node: node}, newLiteralRegistry())
 	assertGeneratorUnknownError(t, err)
 }
 
@@ -1584,7 +1637,7 @@ func TestRenderRejectsForeignMemberReceiver(t *testing.T) {
 		Operand: expressionPointer(variableNode("point")),
 		Member:  &foreignPoint.Object.Members[0],
 	}
-	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int32, Node: node})
+	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int32, Node: node}, newLiteralRegistry())
 	assertGeneratorUnknownError(t, err)
 }
 
@@ -1630,7 +1683,7 @@ func TestGenerateCheckedAcceptsReachableObjectReferenceWithoutTypeDeclaration(t 
 func TestRenderRejectsNestedMalformedOperation(t *testing.T) {
 	inner := unaryExpression(checker.NegateOperator, compilerTypes.Int32, compilerTypes.Int32, addressNode("value"))
 	outer := binaryExpression(checker.AddOperator, compilerTypes.Int32, compilerTypes.Int32, inner, variableNode("other"))
-	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int32, Node: outer})
+	_, err := renderOperand(checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Int32, Node: outer}, newLiteralRegistry())
 	assertGeneratorUnknownError(t, err)
 }
 
@@ -1657,7 +1710,7 @@ func TestRenderMalformedOperationFailsClosed(t *testing.T) {
 		binaryExpression(checker.InvalidOperator, compilerTypes.Int32, compilerTypes.Int32, variableNode("left"), variableNode("right")),
 	}
 	for index, node := range testCases {
-		_, err := renderExpression(node)
+		_, err := renderExpression(node, newLiteralRegistry())
 		if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
 			t.Errorf("malformed operation %d error = %v, want structured Unknown Error", index, err)
 		}
@@ -1684,7 +1737,7 @@ func TestRenderBinaryOperationRejectsInvalidMetadata(t *testing.T) {
 		},
 	}
 	for _, testCase := range testCases {
-		_, err := renderExpression(testCase.node)
+		_, err := renderExpression(testCase.node, newLiteralRegistry())
 		if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
 			t.Errorf("%s error = %v, want structured Unknown Error", testCase.name, err)
 		}
@@ -1729,7 +1782,7 @@ func TestRenderOperationsRejectMalformedScalarMetadata(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := renderExpression(testCase.node)
+			_, err := renderExpression(testCase.node, newLiteralRegistry())
 			diagnostic, ok := err.(compilerTypes.Diagnostic)
 			if !ok {
 				t.Fatalf("error = %T %v, want compilerTypes.Diagnostic", err, err)
@@ -1774,7 +1827,7 @@ func TestRenderTruthinessConditions(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var body strings.Builder
-			err := writeStatementsAt(&body, []checker.Statement{checker.IfStatement{SourceLine: 1, ConditionLine: 1, Condition: testCase.condition, Then: []checker.Statement{}}}, &expressionValidation{}, nil, false, "", nil)
+			err := writeStatementsAt(&body, []checker.Statement{checker.IfStatement{SourceLine: 1, ConditionLine: 1, Condition: testCase.condition, Then: []checker.Statement{}}}, &expressionValidation{}, statementFrame{}, "")
 			if err != nil {
 				t.Fatalf("writeStatementsAt() error = %v", err)
 			}
@@ -1796,7 +1849,7 @@ func TestRenderTruthinessConditions(t *testing.T) {
 		Node: checker.Expression{Kind: checker.VariableExpression, Name: "maybe", Binding: 1, ResultType: nullable},
 	}
 	var body strings.Builder
-	err := writeStatementsAt(&body, []checker.Statement{checker.IfStatement{SourceLine: 1, ConditionLine: 1, Condition: condition, Then: []checker.Statement{}}}, state, nil, false, "", nil)
+	err := writeStatementsAt(&body, []checker.Statement{checker.IfStatement{SourceLine: 1, ConditionLine: 1, Condition: condition, Then: []checker.Statement{}}}, state, statementFrame{}, "")
 	if err != nil {
 		t.Fatalf("writeStatementsAt() error = %v", err)
 	}
@@ -1840,7 +1893,7 @@ func TestRenderLogicalOperationWithMixedOperands(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			got, err := renderExpression(testCase.node)
+			got, err := renderExpression(testCase.node, newLiteralRegistry())
 			if err != nil {
 				t.Fatalf("renderExpression() error = %v", err)
 			}

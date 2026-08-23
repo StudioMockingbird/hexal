@@ -17,8 +17,20 @@ type AdtType struct {
 	// ModuleID is the canonical identity of the module that declared the
 	// ADT; it is empty for compiler-owned builtins. The checker stamps it
 	// on every ADT it creates in a module scope.
+	// Owner caches EncodeModuleOwner(ModuleID): the encoded spelling that
+	// generated C names embed. Write it only through SetModuleOwner so the
+	// cached spelling can never disagree with ModuleID.
 	ModuleID string
+	Owner    string
 	identity *typeIdentity
+}
+
+// SetModuleOwner stamps the declaring module's canonical id and its derived
+// encoded owner as one operation, so generation can read the spelling without
+// re-encoding it at every derivation site.
+func (adt *AdtType) SetModuleOwner(moduleID string) {
+	adt.ModuleID = moduleID
+	adt.Owner = EncodeModuleOwner(moduleID)
 }
 
 // IsADT reports whether typ is a nominal ADT type.
@@ -34,7 +46,7 @@ func (environment *Environment) BeginADT(name string, sourceLine, sourceColumn i
 	if environment == nil {
 		return Type{}
 	}
-	identity := newTypeIdentity(environment.identity)
+	identity := newTypeIdentity()
 	cName := "hex_t_" + SanitizeIdentifier(name)
 	if environment.owner != "" {
 		cName = "hex_t_" + environment.owner + "_" + SanitizeIdentifier(name)
@@ -46,6 +58,7 @@ func (environment *Environment) BeginADT(name string, sourceLine, sourceColumn i
 		SourceColumn: sourceColumn,
 		identity:     identity,
 	}
+	adt.SetModuleOwner(environment.moduleID)
 	identity.object = nil
 	typ := Type{
 		Name:         name,

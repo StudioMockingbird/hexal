@@ -13,7 +13,7 @@ var (
 		Name:         "IO",
 		CName:        "hex_io",
 		CanonicalKey: "IO",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	// BytesType is the memory-backed byte stream: one borrowed
 	// List<Byte> header pointer and an inline cursor. Copying copies the
@@ -22,7 +22,7 @@ var (
 		Name:         "Bytes",
 		CName:        "hex_bytes",
 		CanonicalKey: "Bytes",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 )
 
@@ -44,7 +44,7 @@ func seekType() Type {
 		Name:     "Seek",
 		CName:    "hex_t_Seek",
 		Variants: variants,
-		identity: newTypeIdentity(nil),
+		identity: newTypeIdentity(),
 	}
 	return Type{
 		Name:         "Seek",

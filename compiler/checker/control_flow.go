@@ -57,10 +57,19 @@ func checkStatements(statements []parser.Statement, names *scope, typeEnvironmen
 	reachable := true
 	for _, statement := range statements {
 		returnFlowCount := len(names.returnFlows)
+		// A statement that fails mid-check may already have mutated flow
+		// facts (narrowing, escapes, freed marks). Restore the pre-statement
+		// snapshot so a failed statement contributes no fact to a later
+		// diagnostic; the successful statement's resulting state is kept.
+		var flowSnapshot *flowState
+		if names.flow != nil {
+			flowSnapshot = names.flow.clone()
+		}
 		checkedStatement, declaredBinding, define, statementDiagnostics := checkStatement(statement, names, typeEnvironment, loopDepth)
 		diagnostics = append(diagnostics, statementDiagnostics...)
 		if len(statementDiagnostics) != 0 {
 			names.returnFlows = names.returnFlows[:returnFlowCount]
+			names.flow = flowSnapshot
 			continue
 		}
 		if define {
@@ -137,11 +146,12 @@ func checkStatement(statement parser.Statement, names *scope, typeEnvironment *c
 			SourceColumn: statement.Keyword.Column,
 		}, binding{}, false, nil
 	default:
-		return nil, binding{}, false, compilerTypes.Diagnostics{{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "unsupported checked control-flow statement",
-		}}
+		// Exhaustive over parser.Statement today; a new statement form
+		// reaching this default is a compiler inconsistency and reports
+		// [Unknown Error], never a user category.
+		return nil, binding{}, false, compilerTypes.Diagnostics{
+			unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported checked control-flow statement"),
+		}
 	}
 }
 

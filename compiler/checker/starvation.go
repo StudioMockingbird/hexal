@@ -3,6 +3,7 @@ package checker
 import (
 	"go/constant"
 
+	"hexal/compiler/lexer"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -162,13 +163,8 @@ func (scanner *starvationScanner) diagnoseStatements(statements []Statement) {
 		switch statement := statement.(type) {
 		case WhileStatement:
 			if isLiteralTrue(statement.Condition, statement.ConditionKnown) && loopMayRepeatWithoutYield(statement.Body) {
-				scanner.diagnostics = append(scanner.diagnostics, compilerTypes.Diagnostic{
-					Category: compilerTypes.SemanticError,
-					Stage:    "checker",
-					Line:     statement.SourceLine,
-					Column:   statement.SourceColumn,
-					Message:  "while true loop must execute Task.yield() on every repeating path",
-				})
+				token := lexer.Token{Line: statement.SourceLine, Column: statement.SourceColumn}
+				scanner.diagnostics = append(scanner.diagnostics, semanticErrorAt(token, "while true loop must execute Task.yield() on every repeating path"))
 			}
 			scanner.diagnoseStatements(statement.Body)
 		case IfStatement:

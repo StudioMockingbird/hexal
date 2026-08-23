@@ -24,13 +24,14 @@ type generatedViewState struct {
 func discoverGeneratedViews(program checker.Program) *generatedViewState {
 	state := &generatedViewState{seen: make(map[*compilerTypes.ViewInfo]bool)}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			if typ.View != nil {
 				if !state.seen[typ.View] {
 					state.seen[typ.View] = true
 					state.views = append(state.views, typ)
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)

@@ -505,11 +505,8 @@ func foldWidenedArithmetic(operator Operator, left, right checkedExpression, com
 	}
 	operation, ok := integerConstantOperator(operator)
 	if !ok || left.source.Constant == nil || right.source.Constant == nil {
-		return checkedExpression{typ: common, token: token, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "unfoldable widened arithmetic",
-		}}
+		diagnostic := unknownAt(token, "unfoldable widened arithmetic")
+		return checkedExpression{typ: common, token: token, diagnostic: &diagnostic}
 	}
 	value := constant.BinaryOp(left.source.Constant, operation, right.source.Constant)
 	if operator == DivideOperator || operator == RemainderOperator && compilerTypes.IsSignedInteger(common) {

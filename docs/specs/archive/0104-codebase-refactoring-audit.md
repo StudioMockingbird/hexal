@@ -1,12 +1,13 @@
 # RFC 0104: Codebase Refactoring Audit
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready. Every accepted finding has one selected
-  mechanism, the accepted set has a binding execution order, and Validation is
-  the exhaustive definition of done. Rejected and deferred findings do not
-  return without new evidence.
+- Status: Closed; implemented 2026-08-23. All thirty-three accepted findings
+  landed through stages 1-8 with the snippet manifest byte-identical after
+  the one permitted R6 move. The deferred set moved to RFC 0119 before
+  closure; the rejected set stays closed here.
 - Created: 2026-08-21
-- Updated: 2026-08-22 — re-verified against HEAD and dispositioned.
+- Updated: 2026-08-23 — closed after implementation, verification, and
+  deferred-set handoff.
 - Scope: the Go compiler implementation under `compiler/` and `workbench/` —
   hygiene, dead code, API surface, determinism, diagnostics, error handling,
   naming, file structure, signatures, architecture invariants, tests,

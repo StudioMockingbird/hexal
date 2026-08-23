@@ -82,7 +82,7 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 	visitor := &programVisitor{
 		// Literal constants carry no checked node (the value lives in the
 		// operand), so the Size target guard runs on every operand.
-		Operand: func(source checker.Operand) {
+		Operand: func(source checker.Operand) error {
 			if compilerTypes.Equal(source.Type, compilerTypes.SizeType) && source.Constant != nil {
 				if unsigned, ok := constant.Uint64Val(source.Constant); ok && unsigned > 65535 {
 					digits := formatInteger(unsigned, checker.DecimalRadix)
@@ -92,8 +92,9 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 					}
 				}
 			}
+			return nil
 		},
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.ConversionExpression && node.Operand != nil && classifyConversion(node.OperandType, node.ResultType) == conversionChecked {
 				key := node.OperandType.Name + ">" + node.ResultType.Name
 				if !seen[key] {
@@ -101,6 +102,7 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 					specs = append(specs, conversionSpec{source: node.OperandType, target: node.ResultType})
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)

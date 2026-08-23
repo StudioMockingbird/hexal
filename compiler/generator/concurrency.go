@@ -87,7 +87,7 @@ const (
 // string literal registry so the Error object's String members lower through
 // the ordinary literal machinery. logicalKey is the module's source-map
 // filename, recorded as the failure Errors' file.
-func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, literals *literalRegistry, moduleID, owner, logicalKey string) *generatedConcurrencyState {
+func discoverGeneratedConcurrency(program checker.Program, functions map[string]compilerTypes.Type, literals *literalRegistry, moduleID, owner, logicalKey string) (*generatedConcurrencyState, error) {
 	state := &generatedConcurrencyState{
 		taskTypes:            make(map[string]compilerTypes.Type),
 		joinTypes:            make(map[string]compilerTypes.Type),
@@ -104,7 +104,7 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 		// collect-only handle flags (channelNew, channelSend, ...) stay
 		// operation-driven: their failure literals and adapters are emitted
 		// only where a module actually performs the operation.
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			switch {
 			case typ.Task != nil:
 				state.used = true
@@ -117,8 +117,9 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 			case typ.Atomic != nil:
 				state.atomics[typ.CName] = typ
 			}
+			return nil
 		},
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			switch node.Kind {
 			case checker.SpawnExpression:
 				state.used = true
@@ -129,7 +130,7 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 				if node.Operand != nil {
 					site, err := spawnSiteFor(*node.Operand, functions, moduleID, owner)
 					if err != nil {
-						panic(err)
+						return err
 					}
 					state.spawns = append(state.spawns, site)
 				}
@@ -196,9 +197,12 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 					state.atomics[node.OperandType.CName] = node.OperandType
 				}
 			}
+			return nil
 		},
 	}
-	walkProgram(program, visitor)
+	if err := walkProgram(program, visitor); err != nil {
+		return nil, err
+	}
 	if state.used {
 		literals.used = true
 		literals.strand = true
@@ -216,7 +220,7 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 			state.mutexCreationFailed = literals.Intern(mutexCreationFailed)
 		}
 	}
-	return state
+	return state, nil
 }
 
 // spawnSiteFor derives one spawn site from the checked call node: the named
@@ -412,21 +416,27 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 		if state.channelNew {
 			union := state.channelNewUnions[channel.CName]
 			if union != (compilerTypes.Type{}) {
+				unionMembers := compilerTypes.UnionMembers(union)
 				channelIndex := unionMemberIndex(union, channel)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
+				channelMember, _ := unionMembers.At(channelIndex)
+				errorMember, _ := unionMembers.At(errorIndex)
 				message := state.messageLiteral(literals, state.channelCreationFailed)
 				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = channel };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
-					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[channelIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[channelIndex]), union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[errorIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[errorIndex]), message)
+					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(channelMember), tags.unionPayloadField(channelMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), message)
 			}
 		}
 		if state.channelSend {
 			union := state.channelSendUnions[channel.CName]
 			if union != (compilerTypes.Type{}) {
+				unionMembers := compilerTypes.UnionMembers(union)
 				nilIndex := unionMemberIndex(union, compilerTypes.Nil)
 				errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
+				nilMember, _ := unionMembers.At(nilIndex)
+				errorMember, _ := unionMembers.At(errorIndex)
 				message := state.messageLiteral(literals, state.channelSendFailed)
 				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
-					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[nilIndex]), union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[errorIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[errorIndex]), message)
+					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(nilMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), message)
 			}
 		}
 		// The receive union is emitted for every used Channel<T>: receive
@@ -435,10 +445,13 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 		// because it adapts the checked Heap identity argument.
 		receiveUnion := state.channelReceiveUnions[channel.CName]
 		if receiveUnion != (compilerTypes.Type{}) {
+			receiveMembers := compilerTypes.UnionMembers(receiveUnion)
 			elementIndex := unionMemberIndex(receiveUnion, element)
 			eosIndex := unionMemberIndex(receiveUnion, compilerTypes.EoS)
+			elementMember, _ := receiveMembers.At(elementIndex)
+			eosMember, _ := receiveMembers.At(eosIndex)
 			fmt.Fprintf(result, "\nstatic inline %s hex_chan_recv_%s(hex_chan *channel) {\n    %s value;\n    if (hex_chan_receive(channel, &value)) {\n        return (%s){ .tag = %s, .payload.%s = value };\n    }\n    return (%s){ .tag = %s };\n}\n",
-				receiveUnion.CName, suffix, elementSpelling, receiveUnion.CName, tags.unionMemberTag(compilerTypes.UnionMembers(receiveUnion)[elementIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(receiveUnion)[elementIndex]), receiveUnion.CName, tags.unionMemberTag(compilerTypes.UnionMembers(receiveUnion)[eosIndex]))
+				receiveUnion.CName, suffix, elementSpelling, receiveUnion.CName, tags.unionMemberTag(elementMember), tags.unionPayloadField(elementMember), receiveUnion.CName, tags.unionMemberTag(eosMember))
 		}
 		fmt.Fprintf(result, "\nstatic inline void hex_chan_free_%s(uintptr_t heap_identity, hex_chan *channel) {\n    (void)heap_identity;\n    hex_chan_free(channel);\n}\n", suffix)
 	}
@@ -457,11 +470,14 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 	if state.mutexNew {
 		union := state.mutexNewUnion
 		if union != (compilerTypes.Type{}) {
+			mutexMembers := compilerTypes.UnionMembers(union)
 			mutexIndex := unionMemberIndex(union, compilerTypes.MutexType)
 			errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
+			mutexMember, _ := mutexMembers.At(mutexIndex)
+			errorMember, _ := mutexMembers.At(errorIndex)
 			message := state.messageLiteral(literals, state.mutexCreationFailed)
 			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = mutex };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
-				union.CName, union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[mutexIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[mutexIndex]), union.CName, tags.unionMemberTag(compilerTypes.UnionMembers(union)[errorIndex]), tags.unionPayloadField(compilerTypes.UnionMembers(union)[errorIndex]), message)
+				union.CName, union.CName, tags.unionMemberTag(mutexMember), tags.unionPayloadField(mutexMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), message)
 		}
 	}
 	fmt.Fprintf(result, "\nstatic inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex) {\n    (void)heap_identity;\n    hex_mutex_free(mutex);\n}\n")
@@ -510,7 +526,7 @@ func hoistConcurrencyInStatement(statement checker.Statement, body *strings.Buil
 	// which visits only this statement's own expressions: a spawn inside a
 	// nested statement body is hoisted when that body's own statement list
 	// renders, so the prologue stays inside the block that contains it.
-	if err := walkStatementExpressions(statement, func(node *checker.Expression) error {
+	if err := walkStatementExpressions(statement, func(node checker.Expression) error {
 		if node.Kind == checker.SpawnExpression {
 			return hoistSpawn(node, body, state, indent)
 		}
@@ -537,7 +553,7 @@ func hoistConcurrencyInStatement(statement checker.Statement, body *strings.Buil
 // evaluated arguments in source order, then the task is created through the
 // scheduler. The checked call node is recorded as the hoisted handle so the
 // spawn expression renders as the task handle.
-func hoistSpawn(node *checker.Expression, body *strings.Builder, state *expressionValidation, indent string) error {
+func hoistSpawn(node checker.Expression, body *strings.Builder, state *expressionValidation, indent string) error {
 	if node.Operand == nil || node.OperandType.Task == nil {
 		return unknownExpressionDiagnostic("spawn expression has invalid checked metadata")
 	}
@@ -602,8 +618,9 @@ func renderSpawnExpression(node checker.Expression, state *expressionValidation)
 	if err != nil {
 		return "", err
 	}
-	taskMember := compilerTypes.UnionMembers(union)[taskIndex]
-	errorMember := compilerTypes.UnionMembers(union)[errorIndex]
+	spawnMembers := compilerTypes.UnionMembers(union)
+	taskMember, _ := spawnMembers.At(taskIndex)
+	errorMember, _ := spawnMembers.At(errorIndex)
 	return fmt.Sprintf("(%s ? (%s){ .tag = %s, .payload.%s = %s } : (%s){ .tag = %s, .payload.%s = hex_sched_error(%d, %d, &%s) })",
 		taskTemp, union.CName, state.tags.unionMemberTag(taskMember), state.tags.unionPayloadField(taskMember), taskTemp,
 		union.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(errorMember), node.SourceLine, node.SourceColumn, message), nil
@@ -612,6 +629,11 @@ func renderSpawnExpression(node checker.Expression, state *expressionValidation)
 // errorMessageLiteral resolves one failure message literal registered during
 // discovery.
 func errorMessageLiteral(state *expressionValidation, payload string) (string, error) {
+	if state.strings == nil {
+		// A registry-less state reaching concurrency rendering is a generator
+		// defect; it fails closed here instead of dereferencing nil.
+		return "", unknownExpressionDiagnostic("concurrency failure message rendering requires a literal registry")
+	}
 	handle, ok := state.strings.Lookup(payload)
 	if !ok {
 		return "", unknownExpressionDiagnostic("concurrency failure message is missing from the literal registry: " + payload)

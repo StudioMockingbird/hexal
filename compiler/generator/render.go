@@ -16,13 +16,20 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+// statementFrame is the enclosing-function context one nested statement list
+// renders under: the declared result gating return-flow checks, whether the
+// list sits inside a function body at all, and the checked scope's registered
+// deferred actions emitted in reverse order when the list completes.
+type statementFrame struct {
+	result     *compilerTypes.Type
+	inFunction bool
+	defers     []checker.DeferredAction
+}
+
 // writeStatements renders one statement list at a single indentation level.
-// main's module statements and a function body share it; result is the
-// enclosing function's declared result, and inFunction gates return. defers
-// are the checked scope's registered deferred actions, emitted in reverse
-// order when the list completes.
+// main's module statements and a function body share it.
 func writeStatements(body *strings.Builder, statements []checker.Statement, state *expressionValidation, result *compilerTypes.Type, inFunction bool, defers []checker.DeferredAction) error {
-	return writeStatementsAt(body, statements, state, result, inFunction, "    ", defers)
+	return writeStatementsAt(body, statements, state, statementFrame{result: result, inFunction: inFunction, defers: defers}, "    ")
 }
 
 func writeControlHeader(body *strings.Builder, indent, prefix, condition string, keywordLine, conditionLine int, filename string) {
@@ -36,12 +43,12 @@ func writeControlHeader(body *strings.Builder, indent, prefix, condition string,
 	fmt.Fprintf(body, "%s%s (%s) {\n", indent, prefix, condition)
 }
 
-func writeStatementsAt(body *strings.Builder, statements []checker.Statement, state *expressionValidation, result *compilerTypes.Type, inFunction bool, indent string, defers []checker.DeferredAction) error {
+func writeStatementsAt(body *strings.Builder, statements []checker.Statement, state *expressionValidation, frame statementFrame, indent string) error {
 	if len(state.activeScopes) == 0 {
 		state.pushScope()
 		defer state.popScope()
 	}
-	state.deferStack = append(state.deferStack, defers)
+	state.deferStack = append(state.deferStack, frame.defers)
 	defer func() { state.deferStack = state.deferStack[:len(state.deferStack)-1] }()
 	for _, statement := range statements {
 		// Spawn prologues emit before the try prologues so a try operand
@@ -54,7 +61,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		}
 		// Try prologues for this statement emit before it renders, in
 		// evaluation order, so nested and repeated operands evaluate once.
-		if err := hoistTryInStatement(statement, body, state, result, indent); err != nil {
+		if err := hoistTryInStatement(statement, body, state, frame.result, indent); err != nil {
 			return err
 		}
 		switch statement := statement.(type) {
@@ -125,11 +132,11 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			// discarded, so the statement renders nothing.
 			writeLineDirective(body, statement.SourceLine, state.filename)
 		case checker.ReturnStatement:
-			if !inFunction {
+			if !frame.inFunction {
 				return unknownExpressionDiagnostic("return outside a function body")
 			}
 			writeLineDirective(body, statement.SourceLine, state.filename)
-			text, returnErr := renderReturnStatement(statement, result, state, indent)
+			text, returnErr := renderReturnStatement(statement, frame.result, state, indent)
 			if returnErr != nil {
 				return returnErr
 			}
@@ -141,7 +148,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			}
 			writeControlHeader(body, indent, "if", condition, statement.SourceLine, statement.ConditionLine, state.filename)
 			state.pushScope()
-			if err := writeStatementsAt(body, statement.Then, state, result, inFunction, indent+"    ", statement.ThenDefers); err != nil {
+			if err := writeStatementsAt(body, statement.Then, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ThenDefers}, indent+"    "); err != nil {
 				return err
 			}
 			state.popScope()
@@ -152,7 +159,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				}
 				writeControlHeader(body, indent, "} else if", condition, branch.SourceLine, branch.ConditionLine, state.filename)
 				state.pushScope()
-				if err := writeStatementsAt(body, branch.Body, state, result, inFunction, indent+"    ", branchDefers(statement, branchIndex)); err != nil {
+				if err := writeStatementsAt(body, branch.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: branchDefers(statement, branchIndex)}, indent+"    "); err != nil {
 					return err
 				}
 				state.popScope()
@@ -161,7 +168,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				writeLineDirective(body, statement.ElseLine, state.filename)
 				fmt.Fprintf(body, "%s} else {\n", indent)
 				state.pushScope()
-				if err := writeStatementsAt(body, statement.Else, state, result, inFunction, indent+"    ", statement.ElseDefers); err != nil {
+				if err := writeStatementsAt(body, statement.Else, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ElseDefers}, indent+"    "); err != nil {
 					return err
 				}
 				state.popScope()
@@ -177,7 +184,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			previousLoopDepth := state.loopDepth
 			state.loopDepth++
 			state.loopDepths = append(state.loopDepths, len(state.deferStack))
-			err := writeStatementsAt(body, statement.Body, state, result, inFunction, indent+"    ", statement.BodyDefers)
+			err := writeStatementsAt(body, statement.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.BodyDefers}, indent+"    ")
 			state.loopDepths = state.loopDepths[:len(state.loopDepths)-1]
 			state.loopDepth = previousLoopDepth
 			state.popScope()
@@ -186,7 +193,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			}
 			fmt.Fprintf(body, "%s}\n", indent)
 		case checker.ForStatement:
-			if err := renderForStatement(body, statement, state, result, inFunction, indent); err != nil {
+			if err := renderForStatement(body, statement, state, frame.result, frame.inFunction, indent); err != nil {
 				return err
 			}
 		case checker.BreakStatement:
@@ -221,7 +228,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			}
 		case checker.FunctionDeclaration:
 			// Already emitted at file scope; a nested one is not representable.
-			if inFunction {
+			if frame.inFunction {
 				return unknownExpressionDiagnostic("function declaration inside a function body")
 			}
 			if len(state.activeScopes) > 1 {
@@ -229,7 +236,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			}
 		case checker.MethodDeclaration:
 			// Already emitted at file scope; a nested one is not representable.
-			if inFunction {
+			if frame.inFunction {
 				return unknownExpressionDiagnostic("method declaration inside a function body")
 			}
 			if len(state.activeScopes) > 1 {
@@ -239,8 +246,8 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			return unknownExpressionDiagnostic("unsupported checked statement")
 		}
 	}
-	if len(defers) > 0 {
-		if err := writeDeferredActions(body, defers, state, indent, "false"); err != nil {
+	if len(frame.defers) > 0 {
+		if err := writeDeferredActions(body, frame.defers, state, indent, "false"); err != nil {
 			return err
 		}
 	}
@@ -659,8 +666,12 @@ func typeSpelling(typ compilerTypes.Type) string {
 	return typ.CName
 }
 
-func renderExpression(node checker.Expression) (string, error) {
-	return renderExpressionWithState(node, &expressionValidation{strings: newLiteralRegistry()})
+// renderExpression renders one node under a fresh validation state bound to
+// the required literal registry. Production rendering shares the program-wide
+// registry through renderExpressionWithState; the parameter keeps every
+// direct call site honest about where String payloads resolve.
+func renderExpression(node checker.Expression, registry *literalRegistry) (string, error) {
+	return renderExpressionWithState(node, &expressionValidation{strings: registry})
 }
 
 func renderExpressionWithState(node checker.Expression, state *expressionValidation) (string, error) {
@@ -931,7 +942,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if !ok {
 			representation, index = node.OperandType, unionMemberIndex(node.OperandType, compilerTypes.Nil)
 		}
-		return operand + ".tag " + operator + " " + state.tags.unionMemberTag(compilerTypes.UnionMembers(representation)[index]), nil
+		nilRepresentationMember, _ := compilerTypes.UnionMembers(representation).At(index)
+		return operand + ".tag " + operator + " " + state.tags.unionMemberTag(nilRepresentationMember), nil
 	case checker.UnionInjectionExpression:
 		return renderUnionInjection(node, state)
 	case checker.UnionWidenExpression:
@@ -1510,21 +1522,13 @@ func expressionTypeWithStateSeen(node checker.Expression, state *expressionValid
 			return binding.typ, ok
 		}
 	case checker.AddressOfExpression:
-		if node.Operand == nil {
-			return compilerTypes.Type{}, false
+		// The checker stamps every address-of node with its interned
+		// canonical pointer result; recovery reads that metadata and never
+		// reconstructs a fresh type for comparison.
+		if node.ResultType != (compilerTypes.Type{}) {
+			return node.ResultType, true
 		}
-		if active[node.Operand] {
-			return compilerTypes.Type{}, false
-		}
-		active[node.Operand] = true
-		operandType, ok := expressionTypeWithStateSeen(*node.Operand, state, active)
-		delete(active, node.Operand)
-		if ok {
-			// Forged pointer type for metadata-only assignability check: the
-			// result is compared via the structural Element fallback in
-			// Assignable, never via Equal, so a fresh identity is safe here.
-			return compilerTypes.PtrType(operandType), true
-		}
+		return compilerTypes.Type{}, false
 	case checker.DereferenceExpression:
 		if node.Operand == nil {
 			return compilerTypes.Type{}, false
@@ -1567,11 +1571,10 @@ func writeLineDirective(body *strings.Builder, line int, filename string) {
 	}
 }
 
-func renderOperand(source checker.Operand) (string, error) {
-	if source.Type != (compilerTypes.Type{}) && compilerTypes.IsString(source.Type) {
-		return "", unknownExpressionDiagnostic("string operand requires a literal registry")
-	}
-	return renderOperandWithState(source, &expressionValidation{strings: newLiteralRegistry()})
+// renderOperand renders one operand under a fresh validation state bound to
+// the required literal registry, mirroring renderExpression.
+func renderOperand(source checker.Operand, registry *literalRegistry) (string, error) {
+	return renderOperandWithState(source, &expressionValidation{strings: registry})
 }
 
 func renderOperandWithState(source checker.Operand, state *expressionValidation) (string, error) {

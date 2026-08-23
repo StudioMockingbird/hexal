@@ -3,12 +3,21 @@
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Implementation-ready; design settled, implementation not started
 - Created: 2026-08-22
-- Updated: 2026-08-22
+- Updated: 2026-08-23
 - Scope: permit `Fun<...>` members in ordinary objects so programs can build explicit dispatch tables
-- Depends on: the existing `Fun<...>` rules, generic types, object values, RFC
-  0094, and RFC 0110
+- Depends on: the existing `Fun<...>` rules, generic types, object values, and
+  RFC 0094
 - Coordinates with: parser-independent type checking, object layout, function-value generation, C emission, and `docs/reference.md`
-- Does not change: generic monomorphization, method resolution, the no-closure rule, or the compiler's string-in/string-out boundary
+- Does not change: generic monomorphization, existing method resolution,
+  ownership or lifetime rules, the no-closure rule, or the compiler's
+  string-in/string-out boundary
+
+This RFC is specified against Hexal's current manual memory-management model.
+Function pointers are non-owning values, object copying remains the existing
+shallow copy, and pointer or handle lifetime remains the programmer's
+responsibility. RFC 0110 is future work and is not a prerequisite for this
+RFC; if a later ownership design changes object copyability, that design must
+revisit function-valued members separately.
 
 ## Decision
 
@@ -109,11 +118,13 @@ t.x(1)      ->  [Type Error] T has no method named x
 `receiver.name(arguments)` is routed to method resolution, which never
 considers object members. The parser already produces the shape.
 
-**Resolution rule.** When `receiver.name(arguments)` finds no method `name` on
-the receiver's type, and the receiver's type has a member `name` whose type is
-`Fun<...>`, the call resolves to an indirect call through that member. The
-member's signature governs arity and argument assignability, and the existing
-`Fun<...>` call diagnostics apply unchanged.
+**Resolution rule.** After the existing receiver typing, builtin dispatch,
+import visibility, and nominal method lookup have run, if no method `name` is
+found and the receiver's type has a member `name` whose type is `Fun<...>`,
+the call resolves to an indirect call through that member. The member's
+signature governs arity and argument assignability, and the existing
+`Fun<...>` call diagnostics apply unchanged. A method remains a method call;
+the member fallback is used only when method lookup finds no method.
 
 **The rule is unambiguous, because a name cannot be both.** Probed:
 
@@ -123,27 +134,34 @@ impl T.read(): Int32 do ... end
             ->  [Type Error] T already has a member named read
 ```
 
-Members and methods already share one namespace per type, so no precedence
-rule between them is required and none is introduced. A method continues to
-win where one exists, because a colliding member cannot exist.
+Members and methods already share one namespace per type. The declaration
+checker rejects a type that declares a member with the same name as a method,
+so no precedence rule is introduced. A valid method call retains its existing
+checked representation and lowering.
 
 When neither a method nor a `Fun<...>` member matches, the existing
 `has no method named` diagnostic is retained. When a member matches but is not
 `Fun<...>`, the diagnostic is
 `member <name> is not callable; its type is <type>`.
 
-No special dispatch-table AST node is introduced.
+No special dispatch-table AST node is introduced. A successful indirect member
+call uses the existing checked `CallExpression`: its `Operand` is the checked
+`MemberExpression` for `receiver.name`, its `OperandType` is the resolved
+non-nullable `Fun<...>` type, and its `ResultType` is the function result.
+It must not use `MethodCallExpression`, because no receiver adaptation or
+method symbol is involved. The existing member-expression renderer supplies
+the C function-pointer field expression used as the call callee.
 
 ## Type rules
 
 ### Object members
 
-`Fun<...>` is valid as an object member after this RFC is implemented. The
-member's exact function signature is part of the containing nominal object's
-canonical type and generated layout. Placement of function values elsewhere
-is governed by RFC 0094; this RFC does not reintroduce the older blanket
-restrictions on function results, ADT payloads, collections, Tasks, or
-Channels. Affine ownership of a containing object still follows RFC 0110.
+`Fun<...>` is valid as an object member after RFC 0094 admits that position.
+The member's exact function signature is part of the containing nominal
+object's canonical type and generated layout. Placement of function values
+elsewhere is governed by RFC 0094; this RFC does not reintroduce the older
+blanket restrictions on function results, ADT payloads, collections, Tasks,
+or Channels.
 
 An object containing a function member is itself an ordinary storable object.
 It may therefore be used wherever that object's other members and the normal
@@ -165,9 +183,12 @@ Object members remain fixed unless declared `mut`. A mutable function member may
 be replaced with another compatible function value. A function member has no
 equality, ordering, address-taking, or indexing operation.
 
-Object copying copies the function pointer and every other member shallowly.
-Copying a table does not copy or manage the state referenced by a context or
-state field.
+Under the current manual memory model, object copying copies the function
+pointer and every other copyable member shallowly. Copying a table does not
+copy or manage the state referenced by a context or state field. The presence
+of a `Fun<...>` member adds no cleanup, move, clone, share, or lifetime rule;
+the containing object's existing copyability and explicit-lifetime rules
+remain authoritative.
 
 ### Calls
 
@@ -270,17 +291,24 @@ This RFC adds no closure, environment, virtual dispatch, or implicit receiver.
 
 ## Implementation outline
 
-1. Remove the checker-only `Fun<...>` object-member rejection.
-2. Extend object layout and canonical-type validation to retain function-member
-   signatures after generic specialization.
-3. Reuse existing function-value initializer, assignment, nullability, and call
-   checking.
-4. Reuse the existing C function-pointer declarator for object fields.
-5. Emit member calls as indirect calls through the rendered field expression.
-6. Update `docs/reference.md` after behavior stabilizes, including the position
-   matrix, function rules, object layout, and generated-C contract.
-7. Add focused integration coverage for fixed, mutable, nullable, generic, and
-   nested table members, plus generated-C text assertions.
+1. Land RFC 0094's object-member admission and retain its position matrix as
+   the sole owner of `Fun<...>` placement eligibility.
+2. Extend `checkMethodCall` only after ordinary method lookup fails: resolve a
+   matching `Fun<...>` member, check it with the existing function-call rules,
+   and build the existing `CallExpression`/`MemberExpression` shape defined
+   above. Preserve the existing method path unchanged.
+3. Reuse existing function-value initializer, assignment, and nullability
+   checking for object members.
+4. Reuse the existing C function-pointer declarator for object fields and
+   render the checked member expression as the indirect-call callee.
+5. Extend canonical-type, generic-specialization, and module-visibility
+   validation so a concrete function-member signature remains complete and
+   accessible after specialization and import.
+6. Update `docs/reference.md` after behavior stabilizes, including the
+   position matrix, function rules, object layout, member-call rule, and
+   generated-C contract.
+7. Add focused integration coverage for fixed, mutable, nullable, generic,
+   imported, and nested table members, plus generated-C text assertions.
 
 ## Validation
 
@@ -293,9 +321,10 @@ passes:
 - `receiver.name(arguments)` resolves to a `Fun<...>` member when the receiver's
   type has no method `name`, with the member's signature governing arity and
   argument types.
-- A method continues to win where one exists, verified by the existing
-  `T already has a member named read` rejection: a name cannot be both, so no
-  precedence rule is needed and none is added.
+- A valid method remains a `MethodCallExpression` and retains its existing
+  receiver adaptation and lowering. A type declaring a member with the same
+  name as a method is rejected with the existing `T already has a member named
+  read` diagnostic; therefore no precedence rule is needed.
 - `receiver.name(arguments)` where `name` is a member of a non-`Fun` type is
   rejected with `member <name> is not callable; its type is <type>`, not with
   `has no method named`.
@@ -311,12 +340,21 @@ passes:
   concrete signature and can be passed to and returned from a function.
 - A nested object containing function members remains callable through the
   complete member chain.
+- An exported object containing a function member can cross a module boundary,
+  and the importing module can call that member through the ordinary object
+  value; existing object-type visibility rules still apply.
+- A copied table copies its function pointer and copyable fields shallowly;
+  no function cleanup, hidden context, or state duplication is emitted.
 - Direct `Fun<...>` use follows RFC 0094's placement and ownership rules; this
   RFC adds no second restriction matrix.
 - A function literal that captures an enclosing binding remains rejected.
+- The checked indirect call uses `CallExpression` with a `MemberExpression`
+  operand rather than `MethodCallExpression`.
 - Generated C contains a compatible function-pointer field and an indirect
-  member call, with no generated vtable, tag, context field, allocation,
-  dispatcher, or wrapper.
+  member call through that field, with no generated vtable, tag, context
+  field, allocation, dispatcher, or wrapper. The field declaration and call
+  are asserted as generated-C text, including the concrete specialized
+  signature.
 - Existing generic calls and statically resolved methods retain their current
   specialization and receiver behavior.
 - Existing programs that do not use function-valued object members produce no

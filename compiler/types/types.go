@@ -32,7 +32,7 @@ type typeIdentity struct {
 	signature string
 }
 
-func newTypeIdentity(scope *typeIdentity) *typeIdentity {
+func newTypeIdentity() *typeIdentity {
 	return &typeIdentity{}
 }
 
@@ -121,12 +121,24 @@ type ObjectType struct {
 	// it on every object it creates in a module scope; imported objects
 	// carry their defining module's id, which is what lets implementation
 	// ownership and method routing find the owner.
+	// Owner caches EncodeModuleOwner(ModuleID): the encoded spelling that
+	// generated C names embed. Write it only through SetModuleOwner so the
+	// cached spelling can never disagree with ModuleID.
 	ModuleID     string
+	Owner        string
 	Members      []ObjectMember
 	SourceLine   int
 	SourceColumn int
 	Incomplete   bool
 	identity     *typeIdentity
+}
+
+// SetModuleOwner stamps the declaring module's canonical id and its derived
+// encoded owner as one operation, so generation can read the spelling without
+// re-encoding it at every derivation site.
+func (object *ObjectType) SetModuleOwner(moduleID string) {
+	object.ModuleID = moduleID
+	object.Owner = EncodeModuleOwner(moduleID)
 }
 
 // Member resolves one member of the object by name.
@@ -264,12 +276,13 @@ func StampModule(err error, logicalKey string) error {
 	return err
 }
 
-// DiagnosticLess reports whether a should sort before b by line then column.
-func DiagnosticLess(a, b Diagnostic) bool {
+// CompareDiagnostic orders two diagnostics by line, then column. It is the
+// one position comparator shared by every stage that sorts diagnostics.
+func CompareDiagnostic(a, b Diagnostic) int {
 	if a.Line != b.Line {
-		return a.Line < b.Line
+		return a.Line - b.Line
 	}
-	return a.Column < b.Column
+	return a.Column - b.Column
 }
 
 // Environment is the store of all module-scoped types known to one
@@ -300,7 +313,9 @@ type Environment struct {
 // "m8_graphics6_shapes". The leading "m" keeps the encoded owner a valid
 // identifier prefix wherever it is embedded, as in the module header guard
 // HEX_MODULE_m8_graphics6_shapes_H. An empty canonical id (a compiler-owned
-// type with no defining module) encodes to nothing.
+// type with no defining module) encodes to nothing. Nominal records cache
+// their spelling at construction; this function stays pure so repeated calls
+// never share state across compilations.
 func EncodeModuleOwner(canonicalID string) string {
 	if canonicalID == "" {
 		return ""
@@ -339,19 +354,20 @@ func NewCompilationEnvironment(arena *Arena, moduleID string) *Environment {
 		aliases:             make(map[string]Type),
 		aliasUses:           make(map[string]TypeUse),
 		genericDeclarations: make(map[string]*GenericDeclaration),
-		identity:            newTypeIdentity(nil),
+		identity:            newTypeIdentity(),
 		arena:               arena,
 		moduleID:            moduleID,
 		owner:               EncodeModuleOwner(moduleID),
 	}
-	for name, typ := range builtinTypes {
-		environment.names[name] = typ
-	}
 	return environment
 }
 
-// Lookup resolves a declared object or ADT type name. Aliases resolve through
-// their own registry, which shadows nothing published by the environment.
+// Lookup resolves a declared object or ADT type name, falling back to the
+// immutable builtin registry. Aliases resolve through their own registry,
+// which shadows nothing published by the environment. Module declarations can
+// never collide with builtin names -- every declaration path rejects taken
+// names before binding -- so the fallback order preserves the flat-namespace
+// semantics without copying the builtin table into each module environment.
 func (environment *Environment) Lookup(name string) (Type, bool) {
 	if environment == nil {
 		return Type{}, false
@@ -362,7 +378,8 @@ func (environment *Environment) Lookup(name string) (Type, bool) {
 	if typ, ok := environment.aliases[name]; ok {
 		return typ, true
 	}
-	return Type{}, false
+	typ, ok := builtinTypes[name]
+	return typ, ok
 }
 
 // Contains reports whether a type name is already taken by a builtin, object,
@@ -377,7 +394,10 @@ func (environment *Environment) Contains(name string) bool {
 	if _, ok := environment.aliases[name]; ok {
 		return true
 	}
-	_, ok := environment.aliasUses[name]
+	if _, ok := environment.aliasUses[name]; ok {
+		return true
+	}
+	_, ok := builtinTypes[name]
 	return ok
 }
 
@@ -399,7 +419,7 @@ func (environment *Environment) DeclareAliasUse(name string, use TypeUse) {
 }
 
 // LookupUse resolves a type name to its written use: aliases first, then
-// environment names (builtins, objects, and ADTs).
+// module declarations, then the immutable builtin registry.
 func (environment *Environment) LookupUse(name string) (TypeUse, bool) {
 	if environment == nil {
 		return TypeUse{}, false
@@ -410,7 +430,11 @@ func (environment *Environment) LookupUse(name string) (TypeUse, bool) {
 	if typ, ok := environment.names[name]; ok {
 		return NewTypeUse(typ), true
 	}
-	return TypeUse{}, false
+	typ, ok := builtinTypes[name]
+	if !ok {
+		return TypeUse{}, false
+	}
+	return NewTypeUse(typ), true
 }
 
 // BeginObject publishes a provisional nominal object identity and binds the
@@ -420,7 +444,7 @@ func (environment *Environment) BeginObject(name string, sourceLine, sourceColum
 	if environment == nil {
 		return Type{}
 	}
-	identity := newTypeIdentity(environment.identity)
+	identity := newTypeIdentity()
 	identity.signature = "object:" + name
 	cName := "hex_t_" + SanitizeIdentifier(name)
 	if environment.owner != "" {
@@ -433,6 +457,7 @@ func (environment *Environment) BeginObject(name string, sourceLine, sourceColum
 		SourceColumn: sourceColumn,
 		identity:     identity,
 	}
+	object.SetModuleOwner(environment.moduleID)
 	identity.object = object
 	typ := Type{
 		Name:         name,
@@ -525,7 +550,7 @@ func (environment *Environment) pointerType(element Type, writable bool) Type {
 	if IsUnknown(element) {
 		cName = "void*"
 	}
-	identity := newTypeIdentity(environment.identity)
+	identity := newTypeIdentity()
 	identity.signature = canonicalKey
 	typ := Type{
 		Name:            constructor + "<" + element.Name + ">",
@@ -575,7 +600,7 @@ func (environment *Environment) NullableType(base Type) Type {
 	if cached, ok := environment.arena.nullableTypes[canonicalKey]; ok {
 		return cached
 	}
-	identity := newTypeIdentity(environment.identity)
+	identity := newTypeIdentity()
 	identity.signature = canonicalKey
 	nullable := Type{
 		Name:            base.Name + " | Nil",
@@ -624,7 +649,7 @@ func (environment *Environment) FunType(parameters []Type, result *Type) Type {
 		return cached
 	}
 	name := funName(parameters, result)
-	identity := newTypeIdentity(environment.identity)
+	identity := newTypeIdentity()
 	identity.signature = canonicalKey
 	typ := Type{
 		Name: name,
@@ -1138,7 +1163,7 @@ func IsStrand(typ Type) bool { return typ.identity != nil && typ.identity == Str
 func IsSize(typ Type) bool { return typ.identity != nil && typ.identity == SizeType.identity }
 
 func scalarType(name, cName string, kind ScalarKind, bits int) Type {
-	identity := newTypeIdentity(nil)
+	identity := newTypeIdentity()
 	identity.signature = "scalar:" + name
 	return Type{
 		Name:         name,
@@ -1179,7 +1204,7 @@ var (
 		Name:         "Nil",
 		CName:        "nullptr_t",
 		CanonicalKey: "Nil",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	// EoS is the end-of-stream singleton. Its one-byte C value is never
 	// allocated; the `T | EoS` result union carries it as a tag-only
@@ -1188,32 +1213,32 @@ var (
 		Name:         "EoS",
 		CName:        "hex_eos",
 		CanonicalKey: "EoS",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	Unknown = Type{
 		Name:         "Unknown",
 		CName:        "void",
 		CanonicalKey: "Unknown",
 		Incomplete:   true,
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	Heap = Type{
 		Name:         "Heap",
 		CName:        "hex_heap",
 		CanonicalKey: "Heap",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	StringType = Type{
 		Name:         "String",
 		CName:        "hex_string",
 		CanonicalKey: "String",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	StrandType = Type{
 		Name:         "Strand",
 		CName:        "hex_strand",
 		CanonicalKey: "Strand",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	// SizeType is the target-sized unsigned integer corresponding to C's
 	// size_t. It is a distinct canonical type even where its width matches
@@ -1224,7 +1249,7 @@ var (
 		CanonicalKey: "Size",
 		ScalarKind:   ScalarUnsignedInteger,
 		Bits:         64,
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	// ErrorType is the built-in nominal error value: five fixed fields
 	// recording the construction site and the program's category and
@@ -1238,7 +1263,7 @@ var (
 		Name:         "Mutex",
 		CName:        "hex_mutex",
 		CanonicalKey: "Mutex",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 	// RuneCursorType is the non-owning UTF-8 cursor: one descriptor holding
 	// the source byte pointer, byte length, and current byte offset. It is
@@ -1247,7 +1272,7 @@ var (
 		Name:         "RuneCursor",
 		CName:        "hex_rune_cursor",
 		CanonicalKey: "RuneCursor",
-		identity:     newTypeIdentity(nil),
+		identity:     newTypeIdentity(),
 	}
 )
 
@@ -1265,7 +1290,7 @@ func errorType() Type {
 			{Name: "message", Type: StringType},
 		},
 	}
-	identity := newTypeIdentity(nil)
+	identity := newTypeIdentity()
 	identity.object = object
 	object.identity = identity
 	return Type{Name: "Error", CName: "hex_t_Error", CanonicalKey: "Error", Object: object, identity: identity}

@@ -88,13 +88,16 @@ func (arena *Arena) ReserveUnionName(base string, typ Type) string {
 	}
 }
 
-// uniqueCollectionCName returns base when no type in family already uses it;
-// otherwise it appends the module encoding of the first nominal element, with
-// a numeric tail when even that collides. Resolution happens once at
-// interning, deterministically in construction order; every derivation site
-// reads the stored name, so a typedef and its helper suffixes stay paired.
-func uniqueCollectionCName(family map[string]Type, base string, element Type) string {
-	if !collectionCNameTaken(family, base) {
+// uniqueCollectionCName returns base when no constructed collection already
+// uses it; otherwise it appends the module encoding of the first nominal
+// element, with a numeric tail when even that collides. Resolution happens
+// once at interning, deterministically in construction order; every
+// derivation site reads the stored name, so a typedef and its helper suffixes
+// stay paired. The selected name is reserved in the arena's C-name index
+// exactly once, so the probe is O(1) instead of a per-candidate family scan.
+func (arena *Arena) uniqueCollectionCName(base string, element Type) string {
+	if !arena.collectionCNames[base] {
+		arena.collectionCNames[base] = true
 		return base
 	}
 	stem := base
@@ -102,29 +105,11 @@ func uniqueCollectionCName(family map[string]Type, base string, element Type) st
 		stem += "_" + EncodeModuleOwner(module)
 	}
 	candidate := stem
-	for counter := 0; collectionCNameTaken(family, candidate); counter++ {
+	for counter := 0; arena.collectionCNames[candidate]; counter++ {
 		candidate = stem + "_" + strconv.Itoa(counter)
 	}
+	arena.collectionCNames[candidate] = true
 	return candidate
-}
-
-func collectionCNameTaken(family map[string]Type, name string) bool {
-	for _, existing := range family {
-		if existing.CName == name {
-			return true
-		}
-	}
-	return false
-}
-
-func (arena *Arena) noteCollectionCName(name string) {
-	if arena == nil || name == "" {
-		return
-	}
-	if arena.collectionCNames == nil {
-		arena.collectionCNames = make(map[string]bool)
-	}
-	arena.collectionCNames[name] = true
 }
 
 // nominalModuleOf returns the canonical id of the first nominal (object or

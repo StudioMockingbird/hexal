@@ -25,12 +25,12 @@ func TestRingParenthesisRemovalChangesOnlyPunctuation(t *testing.T) {
 		ring(checker.AddOperator, a, ring(checker.MultiplyOperator, b, c)),
 		ring(checker.SubtractOperator, ring(checker.MultiplyOperator, a, b), ring(checker.AddOperator, c, d)),
 	} {
-		prettified, err := renderExpression(node)
+		prettified, err := renderExpression(node, newLiteralRegistry())
 		if err != nil {
 			t.Fatalf("renderExpression error = %v", err)
 		}
 		ringKeepEveryGrouping = true
-		constructed, err := renderExpression(node)
+		constructed, err := renderExpression(node, newLiteralRegistry())
 		ringKeepEveryGrouping = false
 		if err != nil {
 			t.Fatalf("renderExpression (grouped) error = %v", err)

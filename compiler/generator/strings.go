@@ -52,25 +52,26 @@ func (registry *literalRegistry) All() []string {
 func discoverGeneratedStrings(program checker.Program, registry *literalRegistry) bool {
 	used := false
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			if compilerTypes.IsString(typ) {
 				used = true
 				registry.used = true
-				return
+				return nil
 			}
 			if compilerTypes.IsStrand(typ) {
 				used = true
 				registry.used = true
 				registry.strand = true
-				return
 			}
+			return nil
 		},
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.StringLiteralExpression {
 				used = true
 				registry.used = true
 				registry.Intern(node.Name)
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -249,6 +250,11 @@ func renderTextComparison(node checker.Expression, state *expressionValidation) 
 func renderTextExpression(node checker.Expression, state *expressionValidation) (string, error) {
 	switch node.Kind {
 	case checker.StringLiteralExpression:
+		if state.strings == nil {
+			// A registry-less state reaching String rendering is a generator
+			// defect; it fails closed here instead of dereferencing nil.
+			return "", unknownExpressionDiagnostic("string literal rendering requires a literal registry")
+		}
 		handle, ok := state.strings.Lookup(node.Name)
 		if !ok {
 			return "", unknownExpressionDiagnostic("string literal is missing from the checked literal registry: " + node.Name)

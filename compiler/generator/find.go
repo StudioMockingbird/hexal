@@ -12,7 +12,7 @@ import (
 // enclosing statement. The component helper returns a pointer so the module
 // can construct the checked union without making a second probe.
 func hoistDictFindInStatement(statement checker.Statement, body *strings.Builder, state *expressionValidation, indent string) error {
-	return walkStatementExpressions(statement, func(node *checker.Expression) error {
+	return walkStatementExpressions(statement, func(node checker.Expression) error {
 		if node.Kind != checker.CollectionMethodCallExpression || node.Name != "find" || node.Operand == nil || node.OperandType.Dict == nil || len(node.Arguments) != 1 {
 			return nil
 		}
@@ -65,8 +65,12 @@ func renderDictFindExpression(node checker.Expression, state *expressionValidati
 		if valueIndex < 0 {
 			return "", unknownExpressionDiagnostic("dictionary find result has no value member")
 		}
-		present = fmt.Sprintf("(%s){ .tag = %s, .payload.%s = *%s }", node.ResultType.CName, state.tags.unionMemberTag(compilerTypes.UnionMembers(node.ResultType)[valueIndex]), state.tags.unionPayloadField(compilerTypes.UnionMembers(node.ResultType)[valueIndex]), temp)
+		resultMembers := compilerTypes.UnionMembers(node.ResultType)
+		valueMember, _ := resultMembers.At(valueIndex)
+		present = fmt.Sprintf("(%s){ .tag = %s, .payload.%s = *%s }", node.ResultType.CName, state.tags.unionMemberTag(valueMember), state.tags.unionPayloadField(valueMember), temp)
 	}
-	missing := fmt.Sprintf("(%s){ .tag = %s }", node.ResultType.CName, state.tags.unionMemberTag(compilerTypes.UnionMembers(node.ResultType)[nilIndex]))
+	resultMembers := compilerTypes.UnionMembers(node.ResultType)
+	nilMember, _ := resultMembers.At(nilIndex)
+	missing := fmt.Sprintf("(%s){ .tag = %s }", node.ResultType.CName, state.tags.unionMemberTag(nilMember))
 	return fmt.Sprintf("(%s == nullptr ? %s : %s)", temp, missing, present), nil
 }

@@ -580,8 +580,9 @@ func TestContextualReturnInsideBlockKeepsResultUse(t *testing.T) {
 		t.Fatalf("nested return node = %#v, want the literal converted to Size before injection", injection)
 	}
 	sizeIndex := -1
-	for index, member := range compilerTypes.UnionMembers(injection.ResultType) {
-		if compilerTypes.Equal(member, compilerTypes.SizeType) {
+	resultMembers := compilerTypes.UnionMembers(injection.ResultType)
+	for index := 0; index < resultMembers.Len(); index++ {
+		if member, _ := resultMembers.At(index); compilerTypes.Equal(member, compilerTypes.SizeType) {
 			sizeIndex = index
 		}
 	}

@@ -157,11 +157,8 @@ func specializedMethodList(generics *genericTable) []MethodDeclaration {
 // targets resolve under the parameter frame.
 func specializeTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if generics == nil {
-		return compilerTypes.TypeUse{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "generic type use outside a generic table",
-		}
+		diagnostic := unknownAt(fallback, "generic type use outside a generic table")
+		return compilerTypes.TypeUse{}, &diagnostic
 	}
 	open, ok := generics.types[expression.Name.Lexeme]
 	if !ok {
@@ -230,11 +227,8 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 	}
 	object, ok := open.Target.(parser.ObjectTypeExpression)
 	if !ok {
-		return compilerTypes.Type{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "generic object specialization without an object template",
-		}
+		diagnostic := unknownAt(token, "generic object specialization without an object template")
+		return compilerTypes.Type{}, &diagnostic
 	}
 	specializedName := specializeTypeName(open.Name, arguments)
 	provisional := typeEnvironment.BeginObject(specializedName, token.Line, token.Column)
@@ -242,7 +236,7 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 	// created it, so it is stamped with that module's identity like any
 	// locally declared object, and its canonical key follows the stamped
 	// module, not the requesting environment's.
-	provisional.Object.ModuleID = generics.moduleID
+	provisional.Object.SetModuleOwner(generics.moduleID)
 	provisional.CanonicalKey = compilerTypes.CanonicalNominalKey(specializedName, generics.moduleID)
 	generics.objectSpecializations[key] = provisional
 	generics.objectOpen[provisional.Object] = open
@@ -388,11 +382,8 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	generics := names.generics
 	key := specializeKey(open.Name, arguments)
 	if collection == nil {
-		return FunctionDeclaration{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "generic function specialization outside a specialization collection",
-		}
+		diagnostic := unknownAt(open.Declaration.Name, "generic function specialization outside a specialization collection")
+		return FunctionDeclaration{}, &diagnostic
 	}
 	if cached, ok := collection[key]; ok {
 		return cached, nil
@@ -421,11 +412,8 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	functionType := typeEnvironment.FunType(parameterTypes, result)
 	if functionType.Signature == nil {
 		generics.frame = previousFrame
-		return FunctionDeclaration{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "could not construct the function type for " + open.Name,
-		}
+		diagnostic := unknownAt(open.Declaration.Name, "could not construct the function type for "+open.Name)
+		return FunctionDeclaration{}, &diagnostic
 	}
 	specialized := FunctionDeclaration{
 		Name:         specializeFunctionName(open.Name, arguments),
@@ -738,7 +726,13 @@ func typeContainsPlaceholder(typ, placeholder compilerTypes.Type) bool {
 
 func unionTypeMembers(typ compilerTypes.Type) ([]compilerTypes.Type, bool) {
 	if compilerTypes.IsUnion(typ) {
-		return compilerTypes.UnionMembers(typ), true
+		members := compilerTypes.UnionMembers(typ)
+		result := make([]compilerTypes.Type, 0, members.Len())
+		for index := 0; index < members.Len(); index++ {
+			member, _ := members.At(index)
+			result = append(result, member)
+		}
+		return result, true
 	}
 	if compilerTypes.IsNullable(typ) {
 		base, _ := compilerTypes.NullableBase(typ)
@@ -753,11 +747,8 @@ func unionTypeMembers(typ compilerTypes.Type) ([]compilerTypes.Type, bool) {
 func checkGenericCall(call parser.CallExpression, bound binding, name string, token lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	open, ok := names.generics.functions[name]
 	if !ok {
-		return checkedExpression{token: token, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "generic function binding without an open template",
-		}}
+		diagnostic := unknownAt(token, "generic function binding without an open template")
+		return checkedExpression{token: token, diagnostic: &diagnostic}
 	}
 	var arguments []compilerTypes.Type
 	if len(call.TypeArguments) > 0 {
@@ -846,11 +837,8 @@ func lookupGenericMethod(names *scope, object *compilerTypes.ObjectType, name st
 func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, open *openGenericMethod, object *compilerTypes.ObjectType, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
 	receiverArguments := names.generics.objectArguments[object]
 	if receiverArguments == nil {
-		return checkedExpression{token: callee.Property, diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "generic method call without receiver arguments",
-		}}
+		diagnostic := unknownAt(callee.Property, "generic method call without receiver arguments")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	var methodArguments []compilerTypes.Type
 	if len(call.TypeArguments) > 0 {
@@ -978,11 +966,8 @@ func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type
 	}
 	open, ok := names.generics.functions[name.Lexeme]
 	if !ok {
-		return nil, &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "generic function binding without an open template",
-		}
+		diagnostic := unknownAt(name, "generic function binding without an open template")
+		return nil, &diagnostic
 	}
 	generics := names.generics
 	previousFrame := generics.frame
@@ -1081,15 +1066,12 @@ func specializeADTType(open *openGenericType, arguments []compilerTypes.Type, to
 	}
 	target, ok := open.Target.(parser.AdtDefinitionExpression)
 	if !ok {
-		return compilerTypes.Type{}, &compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "generic ADT specialization without an ADT template",
-		}
+		diagnostic := unknownAt(token, "generic ADT specialization without an ADT template")
+		return compilerTypes.Type{}, &diagnostic
 	}
 	specializedName := specializeTypeName(open.Name, arguments)
 	provisional := typeEnvironment.BeginADT(specializedName, token.Line, token.Column)
-	provisional.Adt.ModuleID = generics.moduleID
+	provisional.Adt.SetModuleOwner(generics.moduleID)
 	provisional.CanonicalKey = compilerTypes.CanonicalNominalKey(specializedName, generics.moduleID)
 	variants := make([]compilerTypes.AdtVariant, 0, len(target.Variants))
 	for _, variant := range target.Variants {

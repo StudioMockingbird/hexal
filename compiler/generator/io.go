@@ -64,7 +64,7 @@ func appendUnionOnce(order []compilerTypes.Type, union compilerTypes.Type) []com
 func discoverGeneratedStreams(program checker.Program, logicalKey string, literals *literalRegistry) *generatedStreamState {
 	state := &generatedStreamState{}
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			switch node.Kind {
 			case checker.StreamConstructorExpression:
 				state.used = true
@@ -103,6 +103,7 @@ func discoverGeneratedStreams(program checker.Program, logicalKey string, litera
 					state.closeUnions = appendUnionOnce(state.closeUnions, node.ResultType)
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -226,7 +227,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 // streamMemberRef resolves one union member's tag constant and payload field.
 func streamMemberRef(tags *tagRegistry, union compilerTypes.Type, member compilerTypes.Type) (string, string) {
 	index := unionMemberIndex(union, member)
-	resolved := compilerTypes.UnionMembers(union)[index]
+	resolved, _ := compilerTypes.UnionMembers(union).At(index)
 	return tags.unionMemberTag(resolved), tags.unionPayloadField(resolved)
 }
 
@@ -256,7 +257,7 @@ func validateStreamConstructor(node checker.Expression, expected *compilerTypes.
 		return unknownExpressionDiagnostic("stream constructor carries incomplete metadata")
 	}
 	members := compilerTypes.UnionMembers(node.ResultType)
-	if len(members) != 2 || !unionHasMember(members, compilerTypes.IOType) || !unionHasMember(members, compilerTypes.ErrorType) {
+	if members.Len() != 2 || !unionHasMember(members, compilerTypes.IOType) || !unionHasMember(members, compilerTypes.ErrorType) {
 		return unknownExpressionDiagnostic("stream constructor result is not IO | Error")
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -290,20 +291,20 @@ func validateStreamMethodCall(node checker.Expression, expected *compilerTypes.T
 		return unknownExpressionDiagnostic("stream method receiver is neither IO nor MutPtr<Bytes>")
 	}
 	var arguments int
-	var resultMembers []compilerTypes.Type
+	var contractMembers []compilerTypes.Type
 	switch node.Name {
 	case "read":
 		arguments = 2
-		resultMembers = []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.EoS, compilerTypes.ErrorType}
+		contractMembers = []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.EoS, compilerTypes.ErrorType}
 	case "write":
 		arguments = 1
-		resultMembers = []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.ErrorType}
+		contractMembers = []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.ErrorType}
 	case "seek":
 		arguments = 1
-		resultMembers = []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.ErrorType}
+		contractMembers = []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.ErrorType}
 	case "close":
 		arguments = 0
-		resultMembers = []compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType}
+		contractMembers = []compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType}
 		if memory {
 			return unknownExpressionDiagnostic("close exists only on IO streams")
 		}
@@ -314,10 +315,10 @@ func validateStreamMethodCall(node checker.Expression, expected *compilerTypes.T
 		return unknownExpressionDiagnostic("stream method has invalid checked metadata")
 	}
 	members := compilerTypes.UnionMembers(node.ResultType)
-	if len(members) != len(resultMembers) {
+	if members.Len() != len(contractMembers) {
 		return unknownExpressionDiagnostic("stream method result members do not match its contract")
 	}
-	for _, required := range resultMembers {
+	for _, required := range contractMembers {
 		if !unionHasMember(members, required) {
 			return unknownExpressionDiagnostic("stream method result is missing a contract member")
 		}
@@ -336,9 +337,9 @@ func validateStreamMethodCall(node checker.Expression, expected *compilerTypes.T
 	return nil
 }
 
-func unionHasMember(members []compilerTypes.Type, member compilerTypes.Type) bool {
-	for _, candidate := range members {
-		if compilerTypes.Equal(candidate, member) {
+func unionHasMember(members compilerTypes.UnionMemberView, member compilerTypes.Type) bool {
+	for index := 0; index < members.Len(); index++ {
+		if candidate, _ := members.At(index); compilerTypes.Equal(candidate, member) {
 			return true
 		}
 	}

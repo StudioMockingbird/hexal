@@ -56,10 +56,9 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 		// Publish a provisional nominal identity before resolving members so a
 		// member may reach this object behind at least one pointer layer. The
 		// identity is abandoned if any member fails and finalized only on
-		// complete success. The object is stamped with the declaring module's
-		// canonical id: that id is what owns its methods.
+		// complete success. BeginObject stamps the declaring module's
+		// canonical id and encoded owner.
 		beginResult := typeEnvironment.BeginObject(name, declaration.Name.Line, declaration.Name.Column)
-		beginResult.Object.ModuleID = names.moduleID
 		members, memberDiagnostics := resolveObjectMembers(name, object, typeEnvironment, names.generics)
 		diagnostics = append(diagnostics, memberDiagnostics...)
 		if len(diagnostics) == 0 {

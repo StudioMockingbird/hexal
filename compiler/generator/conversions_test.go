@@ -278,7 +278,7 @@ func TestRenderConversionClassification(t *testing.T) {
 		},
 	}
 	for _, testCase := range testCases {
-		got, err := renderExpression(testCase.node)
+		got, err := renderExpression(testCase.node, newLiteralRegistry())
 		if err != nil {
 			t.Fatalf("%s: renderExpression() error := %v", testCase.name, err)
 		}

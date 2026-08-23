@@ -412,7 +412,7 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 			return false
 		}
 	} else {
-		expectedCName := privateCName(typeName, compilerTypes.SanitizeIdentifier(object.Name), compilerTypes.EncodeModuleOwner(object.ModuleID))
+		expectedCName := privateCName(typeName, compilerTypes.SanitizeIdentifier(object.Name), object.Owner)
 		if state.declaredObjects != nil && !state.declaredObjects[object] || !validSourceName(compilerTypes.SanitizeIdentifier(object.Name)) || object.CName != expectedCName {
 			return false
 		}
@@ -1231,23 +1231,15 @@ func validateMethodCallExpression(node checker.Expression, expected *compilerTyp
 }
 
 // methodReceiverType recovers the actual checked type of an adapted receiver.
-// Address-of nodes intentionally omit result metadata because ordinary ref
-// typing is contextual; the place's writability supplies the missing
-// Ptr<T>/MutPtr<T> distinction here.
+// Address-of receivers carry their interned canonical pointer result from the
+// checker, so the Ptr<T>/MutPtr<T> distinction is read metadata, never a
+// fresh construction compared against interned identities.
 func methodReceiverType(node checker.Expression, target compilerTypes.Type, state *expressionValidation) (compilerTypes.Type, error) {
 	if node.Kind == checker.AddressOfExpression {
-		if node.Operand == nil {
-			return compilerTypes.Type{}, unknownExpressionDiagnostic("method receiver address-of has no place")
+		if node.ResultType == (compilerTypes.Type{}) || !isPointerType(node.ResultType) {
+			return compilerTypes.Type{}, unknownExpressionDiagnostic("method receiver address-of has no checked pointer result")
 		}
-		place, err := checkedPlaceMetadata(*node.Operand, state)
-		if err != nil {
-			return compilerTypes.Type{}, err
-		}
-		pointer := compilerTypes.PtrType(place.typ)
-		if place.writable {
-			pointer = compilerTypes.MutPtrType(place.typ)
-		}
-		return pointer, nil
+		return node.ResultType, nil
 	}
 	if typ, ok := expressionTypeWithState(node, state); ok {
 		// The checker only adapted a nullable receiver after a null test

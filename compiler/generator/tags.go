@@ -25,6 +25,10 @@ type tagRegistry struct {
 	records    []tagRecord
 	byIdentity map[string]string
 	seen       map[string]bool
+	// failure records the first registry miss; lookups after it return a
+	// stable placeholder so generation stays deterministic, and the error
+	// surfaces when the phase settles.
+	failure *compilerTypes.Diagnostic
 }
 
 func unionMemberIdentity(member compilerTypes.Type) string {
@@ -41,15 +45,13 @@ func adtVariantIdentity(adt *compilerTypes.AdtType, index int) string {
 // bare name.
 func tagLabelBase(typ compilerTypes.Type) string {
 	if typ.Object != nil {
-		owner := compilerTypes.EncodeModuleOwner(typ.Object.ModuleID)
-		if owner != "" {
-			return owner + "_" + compilerTypes.SanitizeIdentifier(typ.Object.Name)
+		if typ.Object.Owner != "" {
+			return typ.Object.Owner + "_" + compilerTypes.SanitizeIdentifier(typ.Object.Name)
 		}
 	}
 	if typ.Adt != nil {
-		owner := compilerTypes.EncodeModuleOwner(typ.Adt.ModuleID)
-		if owner != "" {
-			return owner + "_" + compilerTypes.SanitizeIdentifier(typ.Adt.Name)
+		if typ.Adt.Owner != "" {
+			return typ.Adt.Owner + "_" + compilerTypes.SanitizeIdentifier(typ.Adt.Name)
 		}
 	}
 	return compilerTypes.SanitizeIdentifier(typ.Name)
@@ -63,7 +65,9 @@ func buildTagRegistry(unionOrders, adtOrders [][]compilerTypes.Type) *tagRegistr
 	registry := &tagRegistry{byIdentity: make(map[string]string), seen: make(map[string]bool)}
 	for _, order := range unionOrders {
 		for _, union := range order {
-			for _, member := range compilerTypes.UnionMembers(union) {
+			members := compilerTypes.UnionMembers(union)
+			for index := 0; index < members.Len(); index++ {
+				member, _ := members.At(index)
 				registry.add(unionMemberIdentity(member), tagLabelBase(member))
 			}
 		}
@@ -71,7 +75,7 @@ func buildTagRegistry(unionOrders, adtOrders [][]compilerTypes.Type) *tagRegistr
 	for _, order := range adtOrders {
 		for _, adtType := range order {
 			adt := adtType.Adt
-			base := compilerTypes.EncodeModuleOwner(adt.ModuleID)
+			base := adt.Owner
 			if base != "" {
 				base += "_"
 			}
@@ -119,9 +123,25 @@ func (registry *tagRegistry) add(identity, base string) {
 func (registry *tagRegistry) constant(identity string) string {
 	name, ok := registry.byIdentity[identity]
 	if !ok {
-		panic(unknownExpressionDiagnostic("generated discriminant is missing from the program-wide registry: " + identity))
+		if registry.failure == nil {
+			diagnostic := compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "generator", 0, 0,
+				"generated discriminant is missing from the program-wide registry: "+identity)
+			registry.failure = &diagnostic
+		}
+		// The placeholder keeps the current artifact renderable while the
+		// run is already doomed; settled() discards every artifact.
+		return "hex_tag_" + identity
 	}
 	return "hex_tag_" + name
+}
+
+// settled reports the first registry miss, if any. Callers check it once
+// generation finishes and discard all artifacts on failure.
+func (registry *tagRegistry) settled() error {
+	if registry.failure == nil {
+		return nil
+	}
+	return *registry.failure
 }
 
 // unionMemberTag resolves one canonical union-member type to its program-wide

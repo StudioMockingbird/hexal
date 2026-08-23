@@ -119,8 +119,10 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 	}
 	node := expressionNode(source.source)
 	if compilerTypes.IsUnion(source.typ) {
-		mapping := make([]int, 0, len(compilerTypes.UnionMembers(source.typ)))
-		for _, sourceMember := range compilerTypes.UnionMembers(source.typ) {
+		sourceMembers := compilerTypes.UnionMembers(source.typ)
+		mapping := make([]int, 0, sourceMembers.Len())
+		for index := 0; index < sourceMembers.Len(); index++ {
+			sourceMember, _ := sourceMembers.At(index)
 			mapping = append(mapping, unionDestinationIndex(destination, sourceMember))
 		}
 		checkedNode := Expression{
@@ -145,13 +147,14 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 }
 
 func unionDestinationIndex(destination, source compilerTypes.Type) int {
-	for index, member := range compilerTypes.UnionMembers(destination) {
-		if compilerTypes.Equal(member, source) {
+	destinationMembers := compilerTypes.UnionMembers(destination)
+	for index := 0; index < destinationMembers.Len(); index++ {
+		if member, _ := destinationMembers.At(index); compilerTypes.Equal(member, source) {
 			return index
 		}
 	}
-	for index, member := range compilerTypes.UnionMembers(destination) {
-		if compilerTypes.Assignable(member, source) {
+	for index := 0; index < destinationMembers.Len(); index++ {
+		if member, _ := destinationMembers.At(index); compilerTypes.Assignable(member, source) {
 			return index
 		}
 	}
@@ -176,7 +179,8 @@ func checkUnionTypeTest(expression parser.TypeTestExpression, names *scope, type
 		diagnostic := typeErrorAt(expression.IsToken, "is may not test Nil; use == nil or != nil")
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
-	if !compilerTypes.IsUnion(operand.typ) || len(compilerTypes.UnionMembers(operand.typ)) < 2 {
+	operandMembers := compilerTypes.UnionMembers(operand.typ)
+	if !compilerTypes.IsUnion(operand.typ) || operandMembers.Len() < 2 {
 		diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("is requires a union value; got %s", operand.typ.Name))
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
@@ -187,8 +191,8 @@ func checkUnionTypeTest(expression parser.TypeTestExpression, names *scope, type
 		}
 	}
 	memberIndex := -1
-	for index, member := range compilerTypes.UnionMembers(operand.typ) {
-		if compilerTypes.Equal(member, query) {
+	for index := 0; index < operandMembers.Len(); index++ {
+		if member, _ := operandMembers.At(index); compilerTypes.Equal(member, query) {
 			memberIndex = index
 			break
 		}
@@ -197,8 +201,7 @@ func checkUnionTypeTest(expression parser.TypeTestExpression, names *scope, type
 		diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("%s is not a member of %s", query.Name, operand.typ.Name))
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
-	members := compilerTypes.UnionMembers(operand.typ)
-	if len(members) == 2 && compilerTypes.ContainsUnionMember(operand.typ, compilerTypes.Nil) {
+	if operandMembers.Len() == 2 && compilerTypes.ContainsUnionMember(operand.typ, compilerTypes.Nil) {
 		diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("is test of %s against %s is redundant; use != nil", query.Name, operand.typ.Name))
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
@@ -223,8 +226,9 @@ func checkUnionEquality(operator Operator, left, right checkedExpression, token 
 		diagnostic := typeErrorAt(token, fmt.Sprintf("union equality requires identical operand types; got %s and %s", left.typ.Name, right.typ.Name))
 		return &checkedExpression{token: token, diagnostic: &diagnostic}
 	}
-	for _, member := range compilerTypes.UnionMembers(left.typ) {
-		if !compilerTypes.IsNil(member) {
+	leftMembers := compilerTypes.UnionMembers(left.typ)
+	for index := 0; index < leftMembers.Len(); index++ {
+		if member, _ := leftMembers.At(index); !compilerTypes.IsNil(member) {
 			if ok, _ := equalityAvailable(member); !ok {
 				diagnostic := typeErrorAt(token, fmt.Sprintf("union member %s does not support equality", member.Name))
 				return &checkedExpression{token: token, diagnostic: &diagnostic}

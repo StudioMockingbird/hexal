@@ -107,8 +107,15 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		return nil, objectErr
 	}
 	emission.objects = objects
-	emission.unionState = discoverGeneratedUnions(program)
-	heapState := discoverHeapHelpers(program)
+	unionState, unionErr := discoverGeneratedUnions(program)
+	if unionErr != nil {
+		return nil, unionErr
+	}
+	emission.unionState = unionState
+	heapState, heapErr := discoverHeapHelpers(program)
+	if heapErr != nil {
+		return nil, heapErr
+	}
 	emission.heapState = heapState
 	emission.adtState = discoverGeneratedADTs(program)
 	arrayState := discoverGeneratedArrays(program)
@@ -127,10 +134,17 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.shiftSpecs = discoverGeneratedShifts(program)
 	emission.bitCastSpecs = discoverGeneratedBitCasts(program)
 	emission.endianSpecs = discoverGeneratedEndian(program)
-	emission.printState = discoverGeneratedPrint(program)
+	printState, printErr := discoverGeneratedPrint(program)
+	if printErr != nil {
+		return nil, printErr
+	}
+	emission.printState = printState
 	emission.ioState = discoverGeneratedStreams(program, logicalKey, literals)
 	emission.wrapState = discoverGeneratedWraps(program)
-	concurrencyState := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
+	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
+	if concurrencyErr != nil {
+		return nil, concurrencyErr
+	}
 	emission.concurrencyState = concurrencyState
 	if concurrencyState.used {
 		// The task runtime needs the String and Strand typedefs and the
@@ -337,7 +351,11 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 	// The standard-header and hex_eos requirements aggregate after every
 	// family state is merged, so the umbrella set covers the complete
 	// reachable generated program.
-	merged.requirements = computeHeaderRequirements(merged, modules)
+	requirements, requirementsErr := computeHeaderRequirements(merged, modules)
+	if requirementsErr != nil {
+		return nil, requirementsErr
+	}
+	merged.requirements = requirements
 	return merged, nil
 }
 
@@ -348,10 +366,12 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 // standard headers that own the declarations and macros its generated
 // helpers actually call. Requirements are discovered from checked types and
 // selection state, never by searching rendered C text.
-func computeHeaderRequirements(merged *programEmission, modules []*moduleEmission) *cHeaderRequirements {
+func computeHeaderRequirements(merged *programEmission, modules []*moduleEmission) (*cHeaderRequirements, error) {
 	requirements := &cHeaderRequirements{}
 	for _, module := range modules {
-		collectTypeRequirements(module.program, requirements)
+		if err := collectTypeRequirements(module.program, requirements); err != nil {
+			return nil, err
+		}
 		heapState := module.heapState
 		if heapState != nil && (heapState.required || len(heapState.elements) > 0) {
 			// hex_heap_raw_allocate/free: malloc/free from <stdlib.h>,
@@ -469,8 +489,9 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 				// directly on an impossible tag; EoS members spell hex_eos
 				// payloads. Nil members are tag-only and spell no C type.
 				requirements.add("stdlib.h")
-				for _, member := range compilerTypes.UnionMembers(union) {
-					if compilerTypes.IsEoS(member) {
+				unionMembers := compilerTypes.UnionMembers(union)
+				for index := 0; index < unionMembers.Len(); index++ {
+					if member, _ := unionMembers.At(index); compilerTypes.IsEoS(member) {
 						requirements.eos = true
 						requirements.add("stdint.h")
 					}
@@ -493,7 +514,7 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		// target probe; it needs size_t and SIZE_MAX themselves.
 		requirements.add("stddef.h", "stdint.h")
 	}
-	return requirements
+	return requirements, nil
 }
 
 // equalityStateUsed reports whether any equality helper is emitted.
@@ -669,14 +690,24 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 			spawned[site.function] = true
 		}
 	}
+	definitions := definitionContext{
+		body:      &moduleBody,
+		functions: functions,
+		methods:   methods,
+		typeState: typeState,
+		strings:   stringState,
+		owner:     owner,
+		filename:  logicalKey,
+		tags:      merged.tags,
+	}
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
-			if definitionErr := writeFunctionDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, spawned[privateCName(functionNameKind, declared.Name, owner)], merged.tags); definitionErr != nil {
+			if definitionErr := definitions.writeFunctionDefinition(declared, spawned[privateCName(functionNameKind, declared.Name, owner)]); definitionErr != nil {
 				return "", "", definitionErr
 			}
 		case checker.MethodDeclaration:
-			if definitionErr := writeMethodDefinition(&moduleBody, declared, functions, methods, typeState, stringState, owner, logicalKey, merged.tags); definitionErr != nil {
+			if definitionErr := definitions.writeMethodDefinition(declared); definitionErr != nil {
 				return "", "", definitionErr
 			}
 		}
@@ -689,7 +720,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	if err := writeSpecializedPrototypes(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, typeState, owner); err != nil {
 		return "", "", err
 	}
-	if err := writeSpecializedDefinitions(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, functions, methods, typeState, stringState, owner, logicalKey, merged.tags); err != nil {
+	if err := definitions.writeSpecializedDefinitions(program.SpecializedFunctions, program.SpecializedMethods); err != nil {
 		return "", "", err
 	}
 
@@ -957,24 +988,27 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 	// plus hexal.h, so no translation unit ever sees two definitions of one
 	// struct.
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			object := typ.Object
 			if object == nil || typ.Incomplete {
-				return
+				return nil
 			}
 			if previous, exists := seenCNames[object.CName]; exists && previous != object {
 				conflict = unknownExpressionDiagnostic("conflicting generated object C name")
-				return
+				return conflict
 			}
 			seenCNames[object.CName] = object
 			if seen[object] {
-				return
+				return nil
 			}
 			seen[object] = true
 			objects = append(objects, object)
+			return nil
 		},
 	}
-	walkProgram(program, visitor)
+	if err := walkProgram(program, visitor); err != nil {
+		return nil, err
+	}
 	if conflict != nil {
 		return nil, conflict
 	}
@@ -1029,9 +1063,9 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 // and the hex_eos typedef. The walk descends into ADT payloads, union
 // members, pointer pointees, signatures, and collection element types, so a
 // nested EoS or Nil member is discovered wherever it is spelled.
-func collectTypeRequirements(program checker.Program, requirements *cHeaderRequirements) {
+func collectTypeRequirements(program checker.Program, requirements *cHeaderRequirements) error {
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			switch {
 			case compilerTypes.IsSize(typ):
 				// Size spells size_t, owned by <stddef.h> independently of
@@ -1047,8 +1081,9 @@ func collectTypeRequirements(program checker.Program, requirements *cHeaderRequi
 				requirements.eos = true
 				requirements.add("stdint.h")
 			}
+			return nil
 		},
-		Operand: func(source checker.Operand) {
+		Operand: func(source checker.Operand) error {
 			// A special float literal renders the NAN/INFINITY macros from
 			// <math.h>; a finite literal needs no header.
 			if compilerTypes.IsFloat(source.Type) && source.FloatBits != 0 {
@@ -1062,8 +1097,9 @@ func collectTypeRequirements(program checker.Program, requirements *cHeaderRequi
 					requirements.add("math.h")
 				}
 			}
+			return nil
 		},
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			// Unsigned add/subtract/multiply renders through a width-picked
 			// uint64_t or uint32_t intermediate, so the operation selects
 			// <stdint.h> even when no written type spells an exact-width
@@ -1073,7 +1109,8 @@ func collectTypeRequirements(program checker.Program, requirements *cHeaderRequi
 				compilerTypes.IsUnsignedInteger(node.OperandType) {
 				requirements.add("stdint.h")
 			}
+			return nil
 		},
 	}
-	walkProgram(program, visitor)
+	return walkProgram(program, visitor)
 }

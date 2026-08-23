@@ -874,9 +874,10 @@ func diagnosticAt(diagnostic compilerTypes.Diagnostic) *compilerTypes.Diagnostic
 	return &diagnostic
 }
 
-// nameErrorAt, moduleErrorAt, and unknownAt are typeErrorAt's siblings for the
-// checker's other categories. Every diagnostic the checker reports is built by
-// one of these four, so a category is never spelled at a call site.
+// nameErrorAt, moduleErrorAt, semanticErrorAt, and unknownAt are
+// typeErrorAt's siblings for the checker's other categories. Every diagnostic
+// the checker reports is built by one of these five, so a category is never
+// spelled at a call site.
 func nameErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.NameError,
@@ -890,6 +891,18 @@ func nameErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
 func moduleErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.ModuleError,
+		Stage:    "checker",
+		Line:     token.Line,
+		Column:   token.Column,
+		Message:  message,
+	}
+}
+
+// semanticErrorAt reports a whole-program semantic contract failure, such as
+// scheduler starvation, that is neither a type nor a name error.
+func semanticErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
+	return compilerTypes.Diagnostic{
+		Category: compilerTypes.SemanticError,
 		Stage:    "checker",
 		Line:     token.Line,
 		Column:   token.Column,

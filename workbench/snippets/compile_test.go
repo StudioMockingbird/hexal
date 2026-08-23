@@ -64,9 +64,6 @@ func TestCatalogProgramsCompile(t *testing.T) {
 			})
 		}
 	}
-	for _, warning := range snippets.LineLimitWarnings(catalog) {
-		t.Logf("note: %s", warning)
-	}
 }
 
 // loadGeneratedManifest reads the committed baseline of every catalog

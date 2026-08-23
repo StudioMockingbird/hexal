@@ -22,7 +22,7 @@ type generatedPrintState struct {
 // for, including every recursively nested aggregate type. Only types
 // reachable from print arguments are collected: print's helpers must exist
 // exactly when a print argument could reference them, and not otherwise.
-func discoverGeneratedPrint(program checker.Program) *generatedPrintState {
+func discoverGeneratedPrint(program checker.Program) (*generatedPrintState, error) {
 	state := &generatedPrintState{}
 	seen := make(map[string]bool)
 	addType := func(typ compilerTypes.Type) error {
@@ -73,19 +73,22 @@ func discoverGeneratedPrint(program checker.Program) *generatedPrintState {
 	visitor := &programVisitor{
 		// The structural descent from a print argument's type reuses the
 		// walker's type walk, keeping print's argument-scoped criteria.
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.PrintExpression {
 				state.used = true
 				for _, argument := range node.Arguments {
 					if err := walkTypeTree(argument.Type, addType); err != nil {
-						panic(err)
+						return err
 					}
 				}
 			}
+			return nil
 		},
 	}
-	walkProgram(program, visitor)
-	return state
+	if err := walkProgram(program, visitor); err != nil {
+		return nil, err
+	}
+	return state, nil
 }
 
 // writePrintDefinitions emits the shared print runtime and the per-concrete

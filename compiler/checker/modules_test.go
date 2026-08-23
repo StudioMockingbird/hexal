@@ -29,18 +29,24 @@ func requireMessage(t *testing.T, err error, want string) {
 	t.Fatalf("diagnostics = %v, want message %q", diagnostics, want)
 }
 
-// The single-module path registers an import alias and leaves the alias
-// invisible to value lookup: a bare alias reference fails as an ordinary
-// unknown variable until the missing path is reported.
+// A resolved import alias is invisible to value lookup: a bare alias
+// reference fails as an ordinary unknown variable because the scope skips
+// alias bindings entirely.
 func TestImportAliasIsNotAValue(t *testing.T) {
-	requireAccepted(t, "module Math = import \"./math\"\n")
-	requireDiagnostic(t, "module Math = import \"./math\"\nresult: Int32 := Math.add(2, 3)\n", "unknown variable Math")
+	app := parseProgram(t, "module Math = import \"./vec3\"\nresult: Int32 := Math\n")
+	dep := parseProgram(t, "value: Int32 := 1\n")
+	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
+	requireMessage(t, err, "unknown variable Math")
 }
 
 // An import alias colliding with an existing module binding is a Name Error
 // at the alias; a later import redeclaring an alias is the same conflict.
 func TestImportAliasConflictsWithExistingName(t *testing.T) {
-	requireDiagnostic(t, "module Math = import \"./math\"\nmodule Math = import \"./math2\"\n", "import alias Math conflicts with an existing name")
+	app := parseProgram(t, "module Math = import \"./vec3\"\nmodule Math = import \"./wye\"\n")
+	vec3 := parseProgram(t, "value: Int32 := 1\n")
+	wye := parseProgram(t, "other: Int32 := 2\n")
+	_, err := CheckModules(graphOf("app", []string{"vec3", "wye", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": vec3, "wye.hex": wye}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}, {Alias: "Math", Target: "wye"}}}))
+	requireMessage(t, err, "import alias Math conflicts with an existing name")
 }
 
 // Imports must form the module's prefix; the parser ends the prefix at the
@@ -82,7 +88,10 @@ func TestImportedModuleDeclarationsOnly(t *testing.T) {
 
 // A function parameter may not shadow an import alias.
 func TestParameterCannotShadowImportAlias(t *testing.T) {
-	requireDiagnostic(t, "module Math = import \"./math\"\nfun f(Math: Int32) do\nend\n", "import alias Math conflicts with an existing name")
+	app := parseProgram(t, "module Math = import \"./vec3\"\nfun f(Math: Int32) do\nend\n")
+	dep := parseProgram(t, "value: Int32 := 1\n")
+	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
+	requireMessage(t, err, "import alias Math conflicts with an existing name")
 }
 
 // graphOf builds the module graph these tests would otherwise receive from

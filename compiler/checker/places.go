@@ -258,8 +258,9 @@ func freedPointeeDiagnostic(receiver checkedExpression, token lexer.Token, state
 func valueFromPlace(place checkedExpression) checkedExpression {
 	if place.storageType.Union != nil && !compilerTypes.IsUnion(place.typ) {
 		memberIndex := -1
-		for index, member := range compilerTypes.UnionMembers(place.storageType) {
-			if compilerTypes.Equal(member, place.typ) {
+		members := compilerTypes.UnionMembers(place.storageType)
+		for index := 0; index < members.Len(); index++ {
+			if member, _ := members.At(index); compilerTypes.Equal(member, place.typ) {
 				memberIndex = index
 				break
 			}
@@ -351,11 +352,15 @@ func checkReference(expression parser.RefExpression, names *scope, typeEnvironme
 			names.flow.escape(place.source.Binding)
 		}
 	}
+	// The checked node carries its interned result type: generation compares
+	// identities against it and never reconstructs a fresh pointer type.
+	addressNode := unaryNode(AddressOfExpression, place.source.Node)
+	addressNode.ResultType = ptrType
 	return checkedExpression{
 		source: Operand{
 			Kind:        VariableOperand,
 			Type:        ptrType,
-			Node:        unaryNode(AddressOfExpression, place.source.Node),
+			Node:        addressNode,
 			Addressable: true,
 		},
 		typ:   ptrType,

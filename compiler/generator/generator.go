@@ -2,7 +2,6 @@
 package generator
 
 import (
-	"errors"
 	"fmt"
 
 	"hexal/compiler/checker"
@@ -21,19 +20,8 @@ import (
 // order from the resolver, and every merged collection is deduplicated by
 // canonical identity in that order. config carries the build-time settings
 // that reach the generated runtime; its zero value selects the defaults.
-func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program, config Config) (files map[string]string, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			if recoveredErr, ok := recovered.(error); ok {
-				err = recoveredErr
-				files = nil
-				return
-			}
-			err = compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprint(recovered)}
-			files = nil
-		}
-	}()
-	files = make(map[string]string, 1+2*len(graph.Order))
+func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program, config Config) (map[string]string, error) {
+	files := make(map[string]string, 1+2*len(graph.Order))
 	modules := make([]*moduleEmission, 0, len(graph.Order))
 	literals := newLiteralRegistry()
 	entrypointCanonical := graph.Root
@@ -49,7 +37,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		}
 		emission, discoveryErr := discoverModuleEmission(program, canonical, key, literals)
 		if discoveryErr != nil {
-			return nil, stampModule(discoveryErr, key)
+			return nil, compilerTypes.StampModule(discoveryErr, key)
 		}
 		modules = append(modules, emission)
 	}
@@ -62,7 +50,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		isRoot := emission.canonicalID == entrypointCanonical
 		moduleC, moduleH, emissionErr := emitModulePair(emission, merged, isRoot)
 		if emissionErr != nil {
-			return nil, stampModule(emissionErr, emission.logicalKey)
+			return nil, compilerTypes.StampModule(emissionErr, emission.logicalKey)
 		}
 		files["modules/"+emission.canonicalID+".c"] = moduleC
 		files["modules/"+emission.canonicalID+".h"] = moduleH
@@ -98,23 +86,8 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		}
 		files[key] = content
 	}
+	if tagErr := merged.tags.settled(); tagErr != nil {
+		return nil, tagErr
+	}
 	return files, nil
-}
-
-// stampModule attributes a generation error to the module being emitted.
-// Discovery and emission construct diagnostics without knowing which module
-// they are in; the per-module loops are the only passes that know both.
-func stampModule(err error, logicalKey string) error {
-	if err == nil {
-		return nil
-	}
-	var diagnostics compilerTypes.Diagnostics
-	if errors.As(err, &diagnostics) {
-		return diagnostics.InModule(logicalKey)
-	}
-	var diagnostic compilerTypes.Diagnostic
-	if errors.As(err, &diagnostic) {
-		return diagnostic.InModule(logicalKey)
-	}
-	return err
 }

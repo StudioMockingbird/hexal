@@ -67,7 +67,8 @@ func TestInferredDeclarationTakesTheInitializersType(t *testing.T) {
 }
 
 // The rejected forms. Every one of these would otherwise take a type from the
-// literal defaults, which is the silent mistyping this RFC exists to prevent.
+// literal defaults, which is the silent mistyping the inferred-declaration
+// rule exists to prevent.
 func TestInferredDeclarationRejectsContextualInitializers(t *testing.T) {
 	for _, source := range []string{
 		"fun demo() do\n    total := 0\nend",

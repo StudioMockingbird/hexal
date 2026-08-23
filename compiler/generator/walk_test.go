@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"hexal/compiler/checker"
-	"hexal/compiler/lexer"
-	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -17,33 +15,41 @@ import (
 // checker package (checker.Statement's marker method is unexported), so the
 // fail-closed behavior is enforced by the branch itself, not a test.
 
+// The hoist traversal walks statement values: taking addresses of fields on
+// type-switch copies would heap-escape a whole operand per visited node on
+// every hoist pass. Zero allocations here pins the value-traversal contract.
+func TestWalkStatementExpressionsAllocatesNothing(t *testing.T) {
+	program := checkedGeneratorSource(t, "mut total: Int32 := 0\nfun add(value: Int32): Int32 do\n    return value + 1\nend\n")
+	statement := program.Statements[0]
+	visit := func(checker.Expression) error { return nil }
+	if allocations := testing.AllocsPerRun(100, func() {
+		_ = walkStatementExpressions(statement, visit)
+	}); allocations != 0 {
+		t.Fatalf("walkStatementExpressions AllocsPerRun = %v, want 0", allocations)
+	}
+}
+
 func walkTestProgram(t *testing.T, source string) string {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
-	if err != nil {
-		t.Fatalf("lex: %v", err)
-	}
-	program, err := parser.Parse(tokens)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	checked, err := checker.Check(program)
-	if err != nil {
-		t.Fatalf("check: %v", err)
-	}
+	checked := checkedGeneratorSource(t, source)
 	var visited []string
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			visited = append(visited, "T:"+typ.Name)
+			return nil
 		},
-		Operand: func(operand checker.Operand) {
+		Operand: func(operand checker.Operand) error {
 			visited = append(visited, "O:"+operand.Type.Name)
+			return nil
 		},
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			visited = append(visited, fmt.Sprintf("E:%d", node.Kind))
+			return nil
 		},
 	}
-	walkProgram(checked, visitor)
+	if err := walkProgram(checked, visitor); err != nil {
+		t.Fatalf("walk: %v", err)
+	}
 	return strings.Join(visited, " ")
 }
 
@@ -116,18 +122,8 @@ func TestWalkProgramIsDeterministicPreOrder(t *testing.T) {
 }
 
 func TestWalkProgramAcceptsNilVisitor(t *testing.T) {
-	source := "fun demo(count: Int32): Int32 do\n    total: Int32 := count + 2\n    return total\nend\n"
-	tokens, err := lexer.Lex(source)
-	if err != nil {
-		t.Fatalf("lex: %v", err)
+	checked := checkedGeneratorSource(t, "fun demo(count: Int32): Int32 do\n    total: Int32 := count + 2\n    return total\nend\n")
+	if err := walkProgram(checked, nil); err != nil {
+		t.Fatalf("walk: %v", err)
 	}
-	program, err := parser.Parse(tokens)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	checked, err := checker.Check(program)
-	if err != nil {
-		t.Fatalf("check: %v", err)
-	}
-	walkProgram(checked, nil)
 }

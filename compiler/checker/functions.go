@@ -96,11 +96,8 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 
 	functionType := typeEnvironment.FunType(parameterTypes, result)
 	if functionType.Signature == nil {
-		return checked, compilerTypes.Diagnostics{{
-			Category: compilerTypes.UnknownError,
-			Stage:    "checker",
-			Message:  "could not construct the function type for " + name,
-		}}
+		diagnostic := unknownAt(declaration.Name, "could not construct the function type for "+name)
+		return checked, compilerTypes.Diagnostics{diagnostic}
 	}
 	checked.Parameters = parameters
 	checked.Result = result
@@ -130,16 +127,9 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 		logicalKey: names.logicalKey,
 	}
 	for index := range parameters {
-		// No nested scope may shadow an import alias; a conflicting
-		// parameter is rejected like any other redeclaration.
 		if names.importAlias(parameters[index].Name) {
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.NameError,
-				Stage:    "checker",
-				Line:     parameters[index].SourceLine,
-				Column:   parameters[index].SourceColumn,
-				Message:  "import alias " + parameters[index].Name + " conflicts with an existing name",
-			})
+			token := lexer.Token{Line: parameters[index].SourceLine, Column: parameters[index].SourceColumn, Lexeme: parameters[index].Name}
+			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
 			continue
 		}
 		parameters[index].Binding = names.newBindingID()

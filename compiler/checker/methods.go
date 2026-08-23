@@ -179,13 +179,8 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		// No nested scope may shadow an import alias; a conflicting
 		// parameter is rejected like any other redeclaration.
 		if names.importAlias(parameters[index].Name) {
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.NameError,
-				Stage:    "checker",
-				Line:     parameters[index].SourceLine,
-				Column:   parameters[index].SourceColumn,
-				Message:  "import alias " + parameters[index].Name + " conflicts with an existing name",
-			})
+			token := lexer.Token{Line: parameters[index].SourceLine, Column: parameters[index].SourceColumn, Lexeme: parameters[index].Name}
+			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
 			continue
 		}
 		parameters[index].Binding = names.newBindingID()
@@ -590,10 +585,14 @@ func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee 
 				method.Name, target.Name, placeDescription(callee.Receiver), pointer.Name))
 			return Operand{}, &diagnostic
 		}
+		// The checked node carries its interned result type: generation compares
+		// identities against it and never reconstructs a fresh pointer type.
+		addressNode := unaryNode(AddressOfExpression, receiver.source.Node)
+		addressNode.ResultType = pointer
 		return Operand{
 			Kind: VariableOperand,
 			Type: pointer,
-			Node: unaryNode(AddressOfExpression, receiver.source.Node),
+			Node: addressNode,
 		}, nil
 	}
 	diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s needs %s; %s is %s",

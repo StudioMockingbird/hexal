@@ -23,7 +23,7 @@ func discoverGeneratedShifts(program checker.Program) []shiftSpec {
 	seen := make(map[string]bool)
 	var specs []shiftSpec
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.BinaryOperationExpression &&
 				(node.Operator == checker.ShiftLeftOperator || node.Operator == checker.ShiftRightOperator) {
 				key := node.Operator.String() + node.OperandType.Name
@@ -32,6 +32,7 @@ func discoverGeneratedShifts(program checker.Program) []shiftSpec {
 					specs = append(specs, shiftSpec{operator: node.Operator, typ: node.OperandType})
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -137,7 +138,7 @@ func discoverGeneratedBitCasts(program checker.Program) []bitCastSpec {
 	seen := make(map[string]bool)
 	var specs []bitCastSpec
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.BitCastExpression && node.Operand != nil {
 				key := node.OperandType.Name + ">" + node.ResultType.Name
 				if !seen[key] {
@@ -145,6 +146,7 @@ func discoverGeneratedBitCasts(program checker.Program) []bitCastSpec {
 					specs = append(specs, bitCastSpec{source: node.OperandType, target: node.ResultType})
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -189,7 +191,7 @@ func discoverGeneratedEndian(program checker.Program) []endianSpec {
 	seen := make(map[string]bool)
 	var specs []endianSpec
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.EndianConversionExpression && node.Element != (compilerTypes.Type{}) {
 				key := node.Name + fmt.Sprint(node.MemberIndex) + node.Element.Name
 				if !seen[key] {
@@ -197,6 +199,7 @@ func discoverGeneratedEndian(program checker.Program) []endianSpec {
 					specs = append(specs, endianSpec{typ: node.Element, bigEnd: node.MemberIndex == 1, from: node.Name == "from"})
 				}
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -292,7 +295,3 @@ func renderEndianConversion(node checker.Expression, state *expressionValidation
 	}
 	return endianHelperName(spec) + "(" + operand + ")", nil
 }
-
-
-
-

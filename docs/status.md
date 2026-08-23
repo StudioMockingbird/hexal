@@ -42,7 +42,7 @@ other.
 |---|---|
 | Function literals, local functions, and Fun value placement | [0094](specs/0094-anonymous-function-literals.md) |
 | Explicit dispatch tables — depends on 0094 for member admission; owns the member-call rule | [0109](specs/0109-explicit-dispatch-tables.md) |
-| Codebase refactoring audit — 33 accepted findings in eight stages; 6 deferred, 11 rejected | [0104](specs/0104-codebase-refactoring-audit.md) |
+| Refactoring audit residue — R21 coverage matrix, R25 checker context bundle, R47 API docs; R22-R24 split-or-drop decided here | [0119](specs/0119-refactor-audit-residue.md) |
 
 ### Design settled; implementation blocked
 

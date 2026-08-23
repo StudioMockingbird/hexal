@@ -150,59 +150,56 @@ func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
 	return privateCName(functionNameKind, methodKey(object, name), owner)
 }
 
-type functionRenderContext struct {
+// definitionContext owns everything shared by one module's definition
+// writers: the output builder, the function/method tables, generated-type and
+// literal state, and the module identity used for C names.
+type definitionContext struct {
 	body      *strings.Builder
-	declared  checker.FunctionDeclaration
 	functions map[string]compilerTypes.Type
 	methods   map[string]checker.MethodDeclaration
 	typeState *generatedTypeValidation
 	strings   *literalRegistry
 	owner     string
 	filename  string
-	external  bool
 	tags      *tagRegistry
 }
 
-// writeFunctionDefinition emits one C function. Parameters are fixed
-// bindings, so their declarators carry top-level const. external is true for
-// functions the generated spawn adapters must call; those keep external
-// linkage, everything else is static to its module C file.
-func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string, external bool, tags *tagRegistry) error {
-	ctx := functionRenderContext{body: body, declared: declared, functions: functions, methods: methods, typeState: typeState, strings: stringState, owner: owner, filename: filename, external: external, tags: tags}
-	return writeFunctionDefinitionWithContext(ctx)
-}
-
-func writeFunctionDefinitionWithContext(ctx functionRenderContext) error {
-	signature := ctx.declared.Type.Signature
-	if signature == nil || !validateGeneratedType(ctx.declared.Type, ctx.typeState, false) {
+// writeFunctionDefinition emits one C function. The declared function and the
+// external flag stay explicit parameters: external marks functions the
+// generated spawn adapters must call, which keep external linkage while
+// everything else is static to its module C file. Parameters are fixed
+// bindings, so their declarators carry top-level const.
+func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDeclaration, external bool) error {
+	signature := declared.Type.Signature
+	if signature == nil || !validateGeneratedType(declared.Type, ctx.typeState, false) {
 		return unknownExpressionDiagnostic("function declaration without a checked Fun type")
 	}
-	if len(signature.Parameters) != len(ctx.declared.Parameters) {
+	if len(signature.Parameters) != len(declared.Parameters) {
 		return unknownExpressionDiagnostic("function declaration parameter count does not match its checked type")
 	}
 	resultSpelling := "void"
-	if ctx.declared.Result != nil {
-		if ctx.declared.Result.Signature != nil {
+	if declared.Result != nil {
+		if declared.Result.Signature != nil {
 			return unknownExpressionDiagnostic("Fun function results are not supported")
 		}
-		if !validateGeneratedType(*ctx.declared.Result, ctx.typeState, false) {
+		if !validateGeneratedType(*declared.Result, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("unsupported checked function result type")
 		}
-		if signature.Result == nil || !compilerTypes.Equal(*signature.Result, *ctx.declared.Result) {
+		if signature.Result == nil || !compilerTypes.Equal(*signature.Result, *declared.Result) {
 			return unknownExpressionDiagnostic("function result does not match its checked type")
 		}
-		resultSpelling = typeSpelling(*ctx.declared.Result)
+		resultSpelling = typeSpelling(*declared.Result)
 	} else if signature.Result != nil {
 		return unknownExpressionDiagnostic("function result does not match its checked type")
 	}
-	if ctx.declared.Result != nil && checker.FallsThrough(ctx.declared.Body) {
+	if declared.Result != nil && checker.FallsThrough(declared.Body) {
 		return unknownExpressionDiagnostic("checked returning function may fall through without returning")
 	}
 
 	state := &expressionValidation{
-		variables:      make(map[string]generatedBinding, len(ctx.declared.Parameters)),
-		bindings:       make(map[checker.BindingID]generatedBinding, len(ctx.declared.Parameters)),
-		bindingNames:   make(map[checker.BindingID]string, len(ctx.declared.Parameters)),
+		variables:      make(map[string]generatedBinding, len(declared.Parameters)),
+		bindings:       make(map[checker.BindingID]generatedBinding, len(declared.Parameters)),
+		bindingNames:   make(map[checker.BindingID]string, len(declared.Parameters)),
 		usedNames:      make(map[string]bool),
 		functions:      ctx.functions,
 		methods:        ctx.methods,
@@ -213,8 +210,8 @@ func writeFunctionDefinitionWithContext(ctx functionRenderContext) error {
 		tags:           ctx.tags,
 	}
 	state.pushScope()
-	parameters := make([]string, len(ctx.declared.Parameters))
-	for index, parameter := range ctx.declared.Parameters {
+	parameters := make([]string, len(declared.Parameters))
+	for index, parameter := range declared.Parameters {
 		if !validSourceName(parameter.Name) {
 			return unknownExpressionDiagnostic("invalid checked function parameter name")
 		}
@@ -231,13 +228,13 @@ func writeFunctionDefinitionWithContext(ctx functionRenderContext) error {
 		parameters[index] = declaration(parameter.Type, name, false)
 	}
 
-	writeLineDirective(ctx.body, ctx.declared.SourceLine, ctx.filename)
+	writeLineDirective(ctx.body, declared.SourceLine, ctx.filename)
 	linkage := ""
-	if !ctx.external && !ctx.declared.Exported {
+	if !external && !declared.Exported {
 		linkage = "static "
 	}
-	fmt.Fprintf(ctx.body, "%s%s %s(%s) {\n", linkage, resultSpelling, privateCName(functionNameKind, ctx.declared.Name, ctx.owner), parameterList(parameters))
-	if err := writeStatements(ctx.body, ctx.declared.Body, state, ctx.declared.Result, true, ctx.declared.Defers); err != nil {
+	fmt.Fprintf(ctx.body, "%s%s %s(%s) {\n", linkage, resultSpelling, privateCName(functionNameKind, declared.Name, ctx.owner), parameterList(parameters))
+	if err := writeStatements(ctx.body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
 	ctx.body.WriteString("}\n\n")
@@ -248,11 +245,15 @@ func writeFunctionDefinitionWithContext(ctx functionRenderContext) error {
 // function. The implicit receiver is the first fixed parameter; its written
 // receiver type determines whether C receives a structure copy, a read-only
 // pointer, or a writable pointer.
-func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string, tags *tagRegistry) error {
+// writeMethodDefinition emits a checked impl method as a file-scope C
+// function. The implicit receiver is the first fixed parameter; its written
+// receiver type determines whether C receives a structure copy, a read-only
+// pointer, or a writable pointer.
+func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclaration) error {
 	if declared.Object == nil || declared.SelfBinding == 0 || !validSourceName(declared.Name) {
 		return unknownExpressionDiagnostic("method declaration is missing checked receiver metadata")
 	}
-	if !validateGeneratedType(declared.SelfType, typeState, false) {
+	if !validateGeneratedType(declared.SelfType, ctx.typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked method receiver type")
 	}
 	if declared.SelfType.Object != declared.Object && (declared.SelfType.Element == nil || declared.SelfType.Element.Object != declared.Object) {
@@ -260,7 +261,7 @@ func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclara
 	}
 	resultSpelling := "void"
 	if declared.Result != nil {
-		if declared.Result.Signature != nil || !validateGeneratedType(*declared.Result, typeState, false) {
+		if declared.Result.Signature != nil || !validateGeneratedType(*declared.Result, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("unsupported checked method result type")
 		}
 		resultSpelling = typeSpelling(*declared.Result)
@@ -274,13 +275,13 @@ func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclara
 		bindings:       make(map[checker.BindingID]generatedBinding, len(declared.Parameters)+1),
 		bindingNames:   make(map[checker.BindingID]string, len(declared.Parameters)+1),
 		usedNames:      make(map[string]bool),
-		functions:      functions,
-		methods:        methods,
-		generatedTypes: typeState,
-		strings:        stringState,
-		owner:          owner,
-		filename:       filename,
-		tags:           tags,
+		functions:      ctx.functions,
+		methods:        ctx.methods,
+		generatedTypes: ctx.typeState,
+		strings:        ctx.strings,
+		owner:          ctx.owner,
+		filename:       ctx.filename,
+		tags:           ctx.tags,
 	}
 	state.pushScope()
 	selfName, selfErr := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, false)
@@ -289,7 +290,7 @@ func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclara
 	}
 	parameters := []string{declaration(declared.SelfType, selfName, false)}
 	for _, parameter := range declared.Parameters {
-		if !validSourceName(parameter.Name) || parameter.Binding == 0 || !validateGeneratedType(parameter.Type, typeState, false) {
+		if !validSourceName(parameter.Name) || parameter.Binding == 0 || !validateGeneratedType(parameter.Type, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("invalid checked method parameter")
 		}
 		name, nameErr := state.allocateBinding(parameter.Binding, parameter.Name, parameter.Type, false)
@@ -299,16 +300,16 @@ func writeMethodDefinition(body *strings.Builder, declared checker.MethodDeclara
 		parameters = append(parameters, declaration(parameter.Type, name, false))
 	}
 
-	writeLineDirective(body, declared.SourceLine, filename)
+	writeLineDirective(ctx.body, declared.SourceLine, ctx.filename)
 	linkage := "static "
 	if declared.Exported {
 		linkage = ""
 	}
-	fmt.Fprintf(body, "%s%s %s(%s) {\n", linkage, resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
-	if err := writeStatements(body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
+	fmt.Fprintf(ctx.body, "%s%s %s(%s) {\n", linkage, resultSpelling, methodCName(declared.Object, declared.Name, ctx.owner), parameterList(parameters))
+	if err := writeStatements(ctx.body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
-	body.WriteString("}\n\n")
+	ctx.body.WriteString("}\n\n")
 	return nil
 }
 
@@ -364,16 +365,16 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 func writeForeignPrototypes(result *strings.Builder, program checker.Program, state *expressionValidation) {
 	emitted := make(map[string]bool)
 	visitor := &programVisitor{
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			switch node.Kind {
 			case checker.CallExpression:
 				callee := node.Operand
 				if callee == nil || callee.Module == "" || callee.ResultType.Signature == nil {
-					return
+					return nil
 				}
 				symbol := privateCName(functionNameKind, callee.Name, moduleOwner(callee.Module, state.owner))
 				if emitted[symbol] {
-					return
+					return nil
 				}
 				emitted[symbol] = true
 				parameters := make([]string, 0, len(callee.ResultType.Signature.Parameters))
@@ -387,11 +388,11 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
 			case checker.MethodCallExpression:
 				if node.Owner == nil || node.Owner.ModuleID == "" || node.Owner.ModuleID == state.moduleID {
-					return
+					return nil
 				}
 				symbol := methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner))
 				if emitted[symbol] {
-					return
+					return nil
 				}
 				emitted[symbol] = true
 				parameters := []string{typeSpelling(node.OperandType)}
@@ -404,6 +405,7 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				}
 				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -465,14 +467,14 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 
 // writeSpecializedDefinitions emits the concrete bodies of every
 // specialization in cache order.
-func writeSpecializedDefinitions(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, functionsTable map[string]compilerTypes.Type, methodsTable map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string, tags *tagRegistry) error {
+func (ctx definitionContext) writeSpecializedDefinitions(functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration) error {
 	for _, declared := range functions {
-		if definitionErr := writeFunctionDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, owner, filename, false, tags); definitionErr != nil {
+		if definitionErr := ctx.writeFunctionDefinition(declared, false); definitionErr != nil {
 			return definitionErr
 		}
 	}
 	for _, declared := range methods {
-		if definitionErr := writeMethodDefinition(body, declared, functionsTable, methodsTable, typeState, stringState, owner, filename, tags); definitionErr != nil {
+		if definitionErr := ctx.writeMethodDefinition(declared); definitionErr != nil {
 			return definitionErr
 		}
 	}

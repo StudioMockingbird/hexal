@@ -14,20 +14,23 @@ import (
 func discoverErrorUsed(program checker.Program) bool {
 	used := false
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) {
+		Type: func(typ compilerTypes.Type) error {
 			if compilerTypes.IsError(typ) || compilerTypes.IsUnion(typ) && unionMemberIndex(typ, compilerTypes.ErrorType) >= 0 {
 				used = true
 			}
+			return nil
 		},
-		Operand: func(source checker.Operand) {
+		Operand: func(source checker.Operand) error {
 			if compilerTypes.IsError(source.Type) || compilerTypes.IsUnion(source.Type) && unionMemberIndex(source.Type, compilerTypes.ErrorType) >= 0 {
 				used = true
 			}
+			return nil
 		},
-		Expression: func(node checker.Expression) {
+		Expression: func(node checker.Expression) error {
 			if compilerTypes.IsError(node.OperandType) || compilerTypes.IsError(node.ResultType) || compilerTypes.IsUnion(node.OperandType) && unionMemberIndex(node.OperandType, compilerTypes.ErrorType) >= 0 || compilerTypes.IsUnion(node.ResultType) && unionMemberIndex(node.ResultType, compilerTypes.ErrorType) >= 0 {
 				used = true
 			}
+			return nil
 		},
 	}
 	walkProgram(program, visitor)
@@ -64,7 +67,9 @@ func returnErrorExit(valueType compilerTypes.Type, valueName string, tags *tagRe
 	}
 	if compilerTypes.IsUnion(valueType) {
 		if index := unionMemberIndex(valueType, compilerTypes.ErrorType); index >= 0 {
-			return fmt.Sprintf("(%s.tag == %s)", valueName, tags.unionMemberTag(compilerTypes.UnionMembers(valueType)[index]))
+			members := compilerTypes.UnionMembers(valueType)
+			errorMember, _ := members.At(index)
+			return fmt.Sprintf("(%s.tag == %s)", valueName, tags.unionMemberTag(errorMember))
 		}
 	}
 	return "false"
@@ -79,7 +84,7 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 	// which visits only this statement's own expressions: a try inside a
 	// nested statement body is hoisted when that body's own statement list
 	// renders, so the prologue lands inside the block that contains it.
-	if err := walkStatementExpressions(statement, func(node *checker.Expression) error {
+	if err := walkStatementExpressions(statement, func(node checker.Expression) error {
 		if node.Kind == checker.TryExpression && node.Operand != nil {
 			return hoistTry(node, body, state, result, indent)
 		}
@@ -106,7 +111,7 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 // temporary; on Error the eligible defers and errdefers unwind and the Error
 // returns through the enclosing function's declared result; otherwise the
 // temporary yields the active success value.
-func hoistTry(node *checker.Expression, body *strings.Builder, state *expressionValidation, result *compilerTypes.Type, indent string) error {
+func hoistTry(node checker.Expression, body *strings.Builder, state *expressionValidation, result *compilerTypes.Type, indent string) error {
 	if node.Operand == nil || node.Element == (compilerTypes.Type{}) || node.MemberIndex < 0 {
 		return unknownExpressionDiagnostic("try expression has invalid checked metadata")
 	}
@@ -121,7 +126,8 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 	}
 	operandUnion := node.OperandType
 	errorIndex := node.MemberIndex
-	errorMember := compilerTypes.UnionMembers(operandUnion)[errorIndex]
+	operandMembers := compilerTypes.UnionMembers(operandUnion)
+	errorMember, _ := operandMembers.At(errorIndex)
 
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, operandUnion.CName, temp, operand)
@@ -146,7 +152,9 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 	if compilerTypes.IsError(resultType) {
 		fmt.Fprintf(&builder, "%s    return %s.payload.%s;\n", indent, temp, state.tags.unionPayloadField(errorMember))
 	} else {
-		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultType.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(compilerTypes.UnionMembers(resultType)[resultErrorIndex]), temp, state.tags.unionPayloadField(errorMember))
+		resultMembers := compilerTypes.UnionMembers(resultType)
+		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
+		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultType.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(resultErrorMember), temp, state.tags.unionPayloadField(errorMember))
 	}
 	fmt.Fprintf(&builder, "%s}\n", indent)
 	success := node.ResultType
@@ -156,7 +164,8 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 		if successIndex < 0 {
 			return unknownExpressionDiagnostic("try success member is missing from its source union")
 		}
-		state.hoistedTries[node.Operand] = fmt.Sprintf("%s.payload.%s", temp, state.tags.unionPayloadField(compilerTypes.UnionMembers(operandUnion)[successIndex]))
+		successSourceMember, _ := operandMembers.At(successIndex)
+		state.hoistedTries[node.Operand] = fmt.Sprintf("%s.payload.%s", temp, state.tags.unionPayloadField(successSourceMember))
 		body.WriteString(builder.String())
 		return nil
 	}
@@ -175,8 +184,10 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 		if resultErrorIndex < 0 {
 			return unknownExpressionDiagnostic("try result does not accept Error")
 		}
+		resultMembers := compilerTypes.UnionMembers(resultType)
+		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
 		fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(errorMember))
-		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultType.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(compilerTypes.UnionMembers(resultType)[resultErrorIndex]), temp, state.tags.unionPayloadField(errorMember))
+		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultType.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(resultErrorMember), temp, state.tags.unionPayloadField(errorMember))
 	}
 	if err := unwindAllDefers(&builder, state, indent, "true"); err != nil {
 		return err
@@ -185,14 +196,15 @@ func hoistTry(node *checker.Expression, body *strings.Builder, state *expression
 	fmt.Fprintf(&builder, "%s%s;\n", indent, declaration(success, resultTemp, false))
 	fmt.Fprintf(&builder, "%sswitch (%s.tag) {\n", indent, temp)
 	successMembers := compilerTypes.UnionMembers(success)
-	for _, successMember := range successMembers {
+	for index := 0; index < successMembers.Len(); index++ {
+		successMember, _ := successMembers.At(index)
 		sourceIndex := unionMemberIndex(operandUnion, successMember)
 		if sourceIndex < 0 {
 			return unknownExpressionDiagnostic("try success member is missing from its source union")
 		}
-		targetIndex := unionMemberIndex(success, successMember)
+		targetSourceMember, _ := operandMembers.At(sourceIndex)
 		fmt.Fprintf(&builder, "%scase %s:\n", indent, state.tags.unionMemberTag(successMember))
-		fmt.Fprintf(&builder, "%s    %s = (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultTemp, success.CName, state.tags.unionMemberTag(successMember), state.tags.unionPayloadField(compilerTypes.UnionMembers(success)[targetIndex]), temp, state.tags.unionPayloadField(compilerTypes.UnionMembers(operandUnion)[sourceIndex]))
+		fmt.Fprintf(&builder, "%s    %s = (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultTemp, success.CName, state.tags.unionMemberTag(successMember), state.tags.unionPayloadField(successMember), temp, state.tags.unionPayloadField(targetSourceMember))
 		fmt.Fprintf(&builder, "%s    break;\n", indent)
 	}
 	fmt.Fprintf(&builder, "%sdefault:\n%s    abort();\n%s}\n", indent, indent, indent)
