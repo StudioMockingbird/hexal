@@ -255,11 +255,7 @@ func checkExpression(expression parser.Expression, context expressionContext, na
 		return checkUnionTypeTest(expression, names, typeEnvironment)
 	default:
 		return checkedExpression{
-			diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Message:  "unsupported expression",
-			},
+			diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported expression")),
 		}
 	}
 }

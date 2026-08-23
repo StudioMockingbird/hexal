@@ -480,11 +480,15 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				diagnostics = append(diagnostics, nameErrorAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" conflicts with an existing name"))
 			}
 		default:
-			diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-				Category: compilerTypes.UnknownError,
-				Stage:    "checker",
-				Message:  "unsupported top-level item",
-			})
+			if token, ok := topLevelItemToken(item); ok {
+				diagnostics = append(diagnostics, unknownAt(token, "unsupported top-level item"))
+			} else {
+				diagnostics = append(diagnostics, compilerTypes.Diagnostic{
+					Category: compilerTypes.UnknownError,
+					Stage:    "checker",
+					Message:  "unsupported top-level item",
+				})
+			}
 		}
 	}
 	diagnostics = append(diagnostics, validateDeferredActions(environment, !sequenceTerminates(checked.Statements))...)
@@ -510,6 +514,59 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 		registry.registerGenerics(moduleID, environment.generics)
 	}
 	return checked, nil
+}
+
+func topLevelItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
+	switch node := item.(type) {
+	case parser.TypeDeclaration:
+		return node.Name, true
+	case parser.ImportDeclaration:
+		return node.Alias, true
+	case parser.FunctionDeclaration:
+		return node.Name, true
+	case parser.ImplDeclaration:
+		return node.Name, true
+	case parser.Declaration:
+		return node.Name, true
+	case parser.Assignment:
+		if token, ok := assignmentTargetToken(node.Target); ok {
+			return token, true
+		}
+		return lexer.Token{Line: 1, Column: 1}, true
+	case parser.CallExpression:
+		return tokenOf(node), true
+	case parser.ReturnStatement:
+		return node.Keyword, true
+	case parser.IfStatement:
+		return node.Keyword, true
+	case parser.WhileStatement:
+		return node.Keyword, true
+	case parser.ForStatement:
+		return node.Keyword, true
+	case parser.BreakStatement:
+		return node.Keyword, true
+	case parser.ContinueStatement:
+		return node.Keyword, true
+	case parser.DeferStatement:
+		return node.Keyword, true
+	case parser.ErrdeferStatement:
+		return node.Keyword, true
+	case parser.TryStatement:
+		return node.Keyword, true
+	}
+	return lexer.Token{}, false
+}
+
+func assignmentTargetToken(target parser.Expression) (lexer.Token, bool) {
+	switch node := target.(type) {
+	case parser.VariableExpression:
+		return node.Name, true
+	case parser.PropertyExpression:
+		return node.Property, true
+	case parser.IndexExpression:
+		return tokenOf(node.Receiver), true
+	}
+	return lexer.Token{}, false
 }
 
 // executableItemToken classifies one top-level item as an executable

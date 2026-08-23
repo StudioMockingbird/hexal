@@ -577,14 +577,12 @@ func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, 
 	}
 	generics.frame = placeholderFrame
 	expected := make([]compilerTypes.Type, 0, len(open.Declaration.Parameters))
-	expectedUses := make([]compilerTypes.TypeUse, 0, len(open.Declaration.Parameters))
 	for _, parameter := range open.Declaration.Parameters {
 		use, diagnostic := resolveTypeUse(parameter.Type, parameter.Name, typeEnvironment, generics)
 		if diagnostic != nil {
 			generics.frame = previousFrame
 			return nil, diagnostic
 		}
-		expectedUses = append(expectedUses, use)
 		expected = append(expected, use.Type)
 	}
 	generics.frame = previousFrame
@@ -594,7 +592,18 @@ func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, 
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)
 	for index := range expected {
 		if !unifyTypes(expected[index], actual[index], bindings, open.Generic) {
-			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[0].Lexeme)))
+			conflictingLexeme := open.Parameters[0].Lexeme
+			if expected[index].Generic != nil && expected[index].Generic == open.Generic && expected[index].GenericIndex >= 0 && expected[index].GenericIndex < len(open.Parameters) {
+				conflictingLexeme = open.Parameters[expected[index].GenericIndex].Lexeme
+			} else {
+				for paramIndex, placeholder := range placeholders {
+					if typeContainsPlaceholder(expected[index], placeholder) {
+						conflictingLexeme = open.Parameters[paramIndex].Lexeme
+						break
+					}
+				}
+			}
+			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("conflicting inferred types for generic parameter %s", conflictingLexeme)))
 		}
 	}
 	for index, binding := range bindings {
@@ -605,7 +614,6 @@ func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, 
 			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
 		}
 	}
-	_ = expectedUses
 	return bindings, nil
 }
 
@@ -657,6 +665,73 @@ func unifyTypes(expected, actual compilerTypes.Type, bindings []compilerTypes.Ty
 			}
 		}
 		return true
+	}
+	return false
+}
+
+func typeContainsPlaceholder(typ, placeholder compilerTypes.Type) bool {
+	if compilerTypes.Equal(typ, placeholder) {
+		return true
+	}
+	if typ.Element != nil && typeContainsPlaceholder(*typ.Element, placeholder) {
+		return true
+	}
+	if typ.NullableBase != nil && typeContainsPlaceholder(*typ.NullableBase, placeholder) {
+		return true
+	}
+	if typ.Array != nil && typeContainsPlaceholder(typ.Array.Element, placeholder) {
+		return true
+	}
+	if typ.View != nil && typeContainsPlaceholder(typ.View.Element, placeholder) {
+		return true
+	}
+	if typ.List != nil && typeContainsPlaceholder(typ.List.Element, placeholder) {
+		return true
+	}
+	if typ.Dict != nil && (typeContainsPlaceholder(typ.Dict.Key, placeholder) || typeContainsPlaceholder(typ.Dict.Value, placeholder)) {
+		return true
+	}
+	if typ.Task != nil && typeContainsPlaceholder(typ.Task.Result, placeholder) {
+		return true
+	}
+	if typ.Channel != nil && typeContainsPlaceholder(typ.Channel.Element, placeholder) {
+		return true
+	}
+	if typ.Atomic != nil && typeContainsPlaceholder(typ.Atomic.Element, placeholder) {
+		return true
+	}
+	if typ.Union != nil {
+		for _, member := range typ.Union.Members {
+			if typeContainsPlaceholder(member, placeholder) {
+				return true
+			}
+		}
+	}
+	if typ.Signature != nil {
+		for _, parameter := range typ.Signature.Parameters {
+			if typeContainsPlaceholder(parameter, placeholder) {
+				return true
+			}
+		}
+		if typ.Signature.Result != nil && typeContainsPlaceholder(*typ.Signature.Result, placeholder) {
+			return true
+		}
+	}
+	if typ.Object != nil {
+		for _, member := range typ.Object.Members {
+			if typeContainsPlaceholder(member.Type, placeholder) {
+				return true
+			}
+		}
+	}
+	if typ.Adt != nil {
+		for _, variant := range typ.Adt.Variants {
+			for _, member := range variant.Payload {
+				if typeContainsPlaceholder(member.Type, placeholder) {
+					return true
+				}
+			}
+		}
 	}
 	return false
 }
@@ -952,7 +1027,18 @@ func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type
 	}
 	if hasResult {
 		if !unifyTypes(expectedResult, *signature.Result, bindings, open.Generic) {
-			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[0].Lexeme)))
+			conflictingIndex := 0
+			if expectedResult.Generic != nil && expectedResult.Generic == open.Generic && expectedResult.GenericIndex >= 0 && expectedResult.GenericIndex < len(open.Parameters) {
+				conflictingIndex = expectedResult.GenericIndex
+			} else {
+				for index, placeholder := range placeholders {
+					if typeContainsPlaceholder(expectedResult, placeholder) {
+						conflictingIndex = index
+						break
+					}
+				}
+			}
+			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[conflictingIndex].Lexeme)))
 		}
 	}
 	for index, binding := range bindings {

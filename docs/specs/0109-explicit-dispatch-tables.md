@@ -74,17 +74,65 @@ The missing capability is storage of a function value, not an object-oriented
 runtime. Making the storage explicit preserves C interoperability and keeps the
 runtime model visible.
 
+## What this RFC owns, and what RFC 0094 owns
+
+RFC 0094 expands the `Fun<...>` position matrix and removes the object-member
+rejection. **After 0094 lands, storing a function value in an object already
+works.** This RFC does not repeat that change and must not re-derive it.
+
+What remains, and what this RFC is actually for:
+
+1. **Calling through a function-valued member**, which does not work today and
+   is not covered by 0094 — see Syntax.
+2. The dispatch-table pattern itself: generic operation tables, the
+   no-implicit-context rule, and the static-versus-indirect dispatch contract.
+
+If 0094 is withdrawn or descoped, this RFC inherits the object-member
+admission; otherwise it depends on it. Sequencing: 0094 first.
+
 ## Syntax
 
-No new syntax is added. Existing object declarations and literals are used.
-The existing member-call form calls a function-valued member:
+No new syntax is added. Existing object declarations and literals are used:
 
 ```hexal
 table.operation(arguments)
 ```
 
-The parser must therefore retain member access followed by a call as an
-ordinary call expression. No special dispatch-table AST node is introduced.
+**This form does not resolve to a member today, and the obstacle is the
+checker, not the parser.** Probed:
+
+```
+type T = { x: Int32, }
+t.x(1)      ->  [Type Error] T has no method named x
+```
+
+`receiver.name(arguments)` is routed to method resolution, which never
+considers object members. The parser already produces the shape.
+
+**Resolution rule.** When `receiver.name(arguments)` finds no method `name` on
+the receiver's type, and the receiver's type has a member `name` whose type is
+`Fun<...>`, the call resolves to an indirect call through that member. The
+member's signature governs arity and argument assignability, and the existing
+`Fun<...>` call diagnostics apply unchanged.
+
+**The rule is unambiguous, because a name cannot be both.** Probed:
+
+```
+type T = { read: Int32, }
+impl T.read(): Int32 do ... end
+            ->  [Type Error] T already has a member named read
+```
+
+Members and methods already share one namespace per type, so no precedence
+rule between them is required and none is introduced. A method continues to
+win where one exists, because a colliding member cannot exist.
+
+When neither a method nor a `Fun<...>` member matches, the existing
+`has no method named` diagnostic is retained. When a member matches but is not
+`Fun<...>`, the diagnostic is
+`member <name> is not callable; its type is <type>`.
+
+No special dispatch-table AST node is introduced.
 
 ## Type rules
 
@@ -240,7 +288,19 @@ This section is exhaustive. RFC 0109 is complete only when every item below
 passes:
 
 - A nominal object with one fixed `Fun<...>` member is accepted and its member
-  can be called.
+  can be called. Acceptance of the member itself is RFC 0094's Validation item;
+  this RFC asserts only that the call resolves.
+- `receiver.name(arguments)` resolves to a `Fun<...>` member when the receiver's
+  type has no method `name`, with the member's signature governing arity and
+  argument types.
+- A method continues to win where one exists, verified by the existing
+  `T already has a member named read` rejection: a name cannot be both, so no
+  precedence rule is needed and none is added.
+- `receiver.name(arguments)` where `name` is a member of a non-`Fun` type is
+  rejected with `member <name> is not callable; its type is <type>`, not with
+  `has no method named`.
+- `receiver.name(arguments)` where `name` is neither a method nor a member
+  retains the existing `has no method named` diagnostic unchanged.
 - A mutable function member can be reassigned only to a compatible function
   value; incompatible assignment is rejected.
 - A named function, non-capturing anonymous function literal, and existing

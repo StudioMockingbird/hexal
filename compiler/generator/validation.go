@@ -987,7 +987,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.BitCastExpression:
-		if node.Operand == nil || !bitCastEligible(node.OperandType) || !bitCastEligible(node.ResultType) || node.OperandType.Bits != node.ResultType.Bits {
+		if node.Operand == nil || !checker.BitCastEligibleType(node.OperandType) || !checker.BitCastEligibleType(node.ResultType) || node.OperandType.Bits != node.ResultType.Bits {
 			return unknownExpressionDiagnostic("bit cast has invalid checked metadata")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {

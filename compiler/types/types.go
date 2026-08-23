@@ -28,17 +28,12 @@ const (
 // is the interning key the identity was created for, so forged metadata copies
 // fail canonical validation even when every field looks self-consistent.
 type typeIdentity struct {
-	serial    uint64
-	parent    *typeIdentity
 	object    *ObjectType
 	signature string
 }
 
-var typeSerialCounter uint64 = 0
-
 func newTypeIdentity(scope *typeIdentity) *typeIdentity {
-	typeSerialCounter++
-	return &typeIdentity{serial: typeSerialCounter, parent: scope}
+	return &typeIdentity{}
 }
 
 // Type is the interned identity of one Hexal type. Every field except the
@@ -253,6 +248,30 @@ func ErrorMessages(err error) []string {
 	return []string{err.Error()}
 }
 
+// StampModule attributes a stage error to a module's logical source key.
+func StampModule(err error, logicalKey string) error {
+	if err == nil {
+		return nil
+	}
+	var diagnostics Diagnostics
+	if errors.As(err, &diagnostics) {
+		return diagnostics.InModule(logicalKey)
+	}
+	var diagnostic Diagnostic
+	if errors.As(err, &diagnostic) {
+		return diagnostic.InModule(logicalKey)
+	}
+	return err
+}
+
+// DiagnosticLess reports whether a should sort before b by line then column.
+func DiagnosticLess(a, b Diagnostic) bool {
+	if a.Line != b.Line {
+		return a.Line < b.Line
+	}
+	return a.Column < b.Column
+}
+
 // Environment is the store of all module-scoped types known to one
 // compilation: builtins, objects, ADTs, names, aliases, and generic
 // declarations. Constructed types are interned in the shared arena, once per
@@ -303,14 +322,10 @@ func ModuleHeaderGuard(canonicalID string) string {
 // NewEnvironment returns an empty environment seeded with the builtin types
 // and its own fresh arena.
 func NewEnvironment() *Environment {
-	return NewEnvironmentWithOwner("")
+	return newEnvironmentWithOwner("")
 }
 
-// NewEnvironmentWithOwner returns an environment whose user object types
-// carry the module owner (canonical id) in their C names and whose canonical
-// keys carry the module's id. The environment owns a fresh arena, so it is
-// the isolated form used by unit tests and generator metadata construction.
-func NewEnvironmentWithOwner(moduleID string) *Environment {
+func newEnvironmentWithOwner(moduleID string) *Environment {
 	return NewCompilationEnvironment(NewArena(), moduleID)
 }
 

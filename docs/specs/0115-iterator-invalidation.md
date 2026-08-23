@@ -1,7 +1,8 @@
 # RFC 0115: Iterator Invalidation
 
 - Kind: Language Semantics (ISO/IEC Language Standard Format)
-- Status: Draft; design proposed, implementation not started
+- Status: Implementation-ready; design settled, implementation not started
+- Updated: 2026-08-23
 - Features: defined mutation behavior during built-in collection traversal
 - Created: 2026-08-22
 - Depends on: RFC 0020 (collections), RFC 0063 (collection surface), RFC 0087
@@ -45,8 +46,10 @@ has changed.
   traps through the corresponding lifetime rule before traversal continues.
 
 The checker may elide a version check only when it proves that no operation in
-the traversing scope or any reachable call can mutate the source. Elision is an
-optimization, not a semantic distinction.
+the traversing scope or any reachable call can mutate the source (proven-safe
+elision only). Absence of a locally visible mutation is not sufficient when a
+called function could mutate through an alias; in that case the check is
+retained. Elision is an optimization, not a semantic distinction.
 
 ## Interaction with `for ... in`
 
@@ -61,15 +64,35 @@ optimization, not a semantic distinction.
 
 ## C23 lowering
 
-- List and Dict runtime state carries a monotonic structural version or an
-  equivalent invalidation token.
-- Generated traversal state stores the captured token and checks it at the
-  defined points.
+- List and Dict runtime state carries a monotonic structural version of type
+  `Size` (the target's `size_t`). The version is incremented on every
+  structural change. `Size` is the correct type because it is already the
+  collection length/capacity type and is the only target-sized counter
+  available without adding a new runtime type.
+- Generated traversal state stores the captured `Size` token and checks it at
+  the defined points (before each body and before advance).
 - The version need not be exposed as a Hexal field or be ABI-stable.
-- Version overflow must not make an old traversal appear valid. The runtime
-  uses a checked generation strategy or treats exhaustion as a trap.
-- A proven-safe traversal may omit the check, but the generated C must retain
-  the same iteration order and element semantics.
+- Version overflow wraps modulo `2^N` where `N` is `sizeof(size_t)*8`. **A
+  wrapped version that coincides with a live traversal's captured token is an
+  accepted false negative, not a detected condition.** Detecting it would
+  require each collection to enumerate its live traversals — a per-collection
+  registry of active tokens, with registration and deregistration on every
+  traversal entry and exit, including through `break`, `return`, `try`, and
+  cleanup paths. That is materially more runtime state than one `Size` field,
+  and it would be paid by every traversal to catch a case the same paragraph
+  says never occurs: `2^32` structural mutations during one live traversal on a
+  32-bit target, `2^64` on a 64-bit one.
+
+  The runtime cost is therefore exactly one `Size` compare per check and one
+  increment per structural mutation. Nothing else is added, which is what goal
+  15 requires.
+
+  An earlier revision of this section required the wrap to trap. That is
+  withdrawn: it specified an observable behavior whose implementation the
+  lowering did not describe and whose cost the RFC did not account for.
+- A proven-safe traversal may omit the check, but only under the proven-safe
+  elision rule above. The generated C must retain the same iteration order and
+  element semantics.
 
 ## Non-goals
 
@@ -97,6 +120,13 @@ passes:
 - Nested traversals maintain independent captured versions.
 - Generated C emits the version state and checks exactly where required, or
   omits checks only for a proven-safe traversal.
+- No live-traversal registry, traversal list, or per-traversal registration is
+  emitted. A version wrap coinciding with a captured token is an accepted false
+  negative; nothing detects it.
+- `hex_list_<T>` and `hex_dict_<K>_<V>` each gain exactly one `size_t` field.
+  The snippet manifest therefore moves for every snippet reaching a List or
+  Dict, whether or not it iterates one, because the struct layout changes.
+  Confirm the movement is confined to those snippets.
 - Repeated compilations produce identical generated artifacts.
 - Ordinary tests remain pure Go and assert checked trees and generated C text.
 

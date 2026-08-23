@@ -104,7 +104,8 @@ func Compile(sources map[string]string, entrypoint string, project Project) Comp
 
 	// Stats sum over the reachable module set: lines and tokens from the
 	// parse pass result, with no second lex.
-	for _, node := range graph.Modules {
+	for _, moduleID := range graph.Order {
+		node := graph.Modules[moduleID]
 		stats.SourceLines += sourceLineCount(sources[node.LogicalKey])
 		stats.TokenCount += node.TokenCount
 	}
@@ -404,14 +405,8 @@ func (s *reachState) record(moduleID string, line, column int, message string) {
 	})
 }
 
-// indexIn returns the first index of needle in haystack, or -1 when absent.
 func indexIn(haystack []string, needle string) int {
-	for i, candidate := range haystack {
-		if candidate == needle {
-			return i
-		}
-	}
-	return -1
+	return slices.Index(haystack, needle)
 }
 
 // mergeDiagnostics folds every stage error into one sorted diagnostic set. It
@@ -492,18 +487,6 @@ func sourceLineCount(source string) int {
 
 // stampModule attributes a stage error to one module's logical source key.
 // Lexing and parsing report positions without knowing which module they were
-// handed; the reachability walk is the only pass that knows both.
 func stampModule(err error, logicalKey string) error {
-	if err == nil {
-		return nil
-	}
-	var diagnostics compilerTypes.Diagnostics
-	if errors.As(err, &diagnostics) {
-		return diagnostics.InModule(logicalKey)
-	}
-	var diagnostic compilerTypes.Diagnostic
-	if errors.As(err, &diagnostic) {
-		return diagnostic.InModule(logicalKey)
-	}
-	return err
+	return compilerTypes.StampModule(err, logicalKey)
 }

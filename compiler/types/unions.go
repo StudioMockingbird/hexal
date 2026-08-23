@@ -126,7 +126,7 @@ func unionBaseName(members []Type) string {
 
 func unionMembers(typ Type) []Type {
 	if typ.Union != nil {
-		return append([]Type(nil), typ.Union.Members...)
+		return typ.Union.Members
 	}
 	if base, ok := NullableBase(typ); ok {
 		return []Type{base, Nil}

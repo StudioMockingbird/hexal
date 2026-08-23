@@ -21,8 +21,19 @@ import (
 // order from the resolver, and every merged collection is deduplicated by
 // canonical identity in that order. config carries the build-time settings
 // that reach the generated runtime; its zero value selects the defaults.
-func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program, config Config) (map[string]string, error) {
-	files := make(map[string]string, 1+2*len(graph.Order))
+func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program, config Config) (files map[string]string, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			if recoveredErr, ok := recovered.(error); ok {
+				err = recoveredErr
+				files = nil
+				return
+			}
+			err = compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprint(recovered)}
+			files = nil
+		}
+	}()
+	files = make(map[string]string, 1+2*len(graph.Order))
 	modules := make([]*moduleEmission, 0, len(graph.Order))
 	literals := newLiteralRegistry()
 	entrypointCanonical := graph.Root
@@ -34,7 +45,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 			// total by construction; a caller that assembled the checked map
 			// independently of the graph gets a diagnostic, never a silently
 			// omitted module.
-			return nil, fmt.Errorf("generator: the graph names module %s at source key %s, but no checked program has that key", canonical, key)
+			return nil, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the graph names module %s at source key %s, but no checked program has that key", canonical, key)}
 		}
 		emission, discoveryErr := discoverModuleEmission(program, canonical, key, literals)
 		if discoveryErr != nil {
@@ -63,7 +74,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		// The entrypoint module is always emitted; its absence means the
 		// caller's order or program keys disagree with the root name, a
 		// generation defect, never a quiet hexal.h-less success.
-		return nil, fmt.Errorf("generator: the entrypoint module %s is not among the emitted modules", entrypointCanonical)
+		return nil, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the entrypoint module %s is not among the emitted modules", entrypointCanonical)}
 	}
 	header, headerErr := hexalHeader(hexalHeaderInput{
 		sizeLiterals: merged.sizeLiterals,
@@ -83,7 +94,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 	}
 	for key, content := range components {
 		if _, exists := files[key]; exists {
-			return nil, fmt.Errorf("generator: duplicate generated artifact key %s", key)
+			return nil, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("duplicate generated artifact key %s", key)}
 		}
 		files[key] = content
 	}

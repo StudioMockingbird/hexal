@@ -27,6 +27,9 @@ type Arena struct {
 	// with a definition reserve through it; union reservations suffix instead
 	// of displacing.
 	definitionNames map[string]Type
+	// collectionCNames is the per-family C-name index for O(1) collision checks;
+	// it mirrors the CName values of every collection family to avoid O(n^2) scans.
+	collectionCNames map[string]bool
 }
 
 // NewArena returns an empty per-compilation constructed-type arena. Builtin
@@ -34,18 +37,19 @@ type Arena struct {
 // though their prefixes make a collision unreachable today.
 func NewArena() *Arena {
 	arena := &Arena{
-		pointerTypes:    make(map[string]Type),
-		nullableTypes:   make(map[string]Type),
-		funTypes:        make(map[string]Type),
-		arrayTypes:      make(map[string]Type),
-		viewTypes:       make(map[string]Type),
-		listTypes:       make(map[string]Type),
-		dictTypes:       make(map[string]Type),
-		taskTypes:       make(map[string]Type),
-		channelTypes:    make(map[string]Type),
-		atomicTypes:     make(map[string]Type),
-		unionTypes:      make(map[string]Type),
-		definitionNames: make(map[string]Type),
+		pointerTypes:     make(map[string]Type),
+		nullableTypes:    make(map[string]Type),
+		funTypes:         make(map[string]Type),
+		arrayTypes:       make(map[string]Type),
+		viewTypes:        make(map[string]Type),
+		listTypes:        make(map[string]Type),
+		dictTypes:        make(map[string]Type),
+		taskTypes:        make(map[string]Type),
+		channelTypes:     make(map[string]Type),
+		atomicTypes:      make(map[string]Type),
+		unionTypes:       make(map[string]Type),
+		definitionNames:  make(map[string]Type),
+		collectionCNames: make(map[string]bool),
 	}
 	for _, builtin := range builtinTypes {
 		arena.ReserveDefinitionName(builtin.CName, builtin)
@@ -111,6 +115,16 @@ func collectionCNameTaken(family map[string]Type, name string) bool {
 		}
 	}
 	return false
+}
+
+func (arena *Arena) noteCollectionCName(name string) {
+	if arena == nil || name == "" {
+		return
+	}
+	if arena.collectionCNames == nil {
+		arena.collectionCNames = make(map[string]bool)
+	}
+	arena.collectionCNames[name] = true
 }
 
 // nominalModuleOf returns the canonical id of the first nominal (object or

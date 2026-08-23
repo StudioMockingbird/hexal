@@ -21,14 +21,14 @@ other.
 
 | Work | Spec |
 |---|---|
+| Deterministic evaluation order — order rules settled; the bundled mixed-operator rejection needs a decision | [0111](specs/0111-deterministic-evaluation-order.md) |
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
 | Blocking-syscall boundary — what the scheduler does at a blocking call; gates sockets and readiness-based I/O | [0091](specs/0091-blocking-syscall-boundary.md) |
 | Language surface audit dispositions — 34 findings; promote/reject/accept per finding | [0103](specs/0103-language-surface-audit.md) |
 | Affine ownership and Arena/Pool lifetimes | [0110](specs/0110-affine-ownership-and-arenas.md) |
-| Deterministic evaluation order | [0111](specs/0111-deterministic-evaluation-order.md) |
-| Order-independent function visibility and mutual recursion | [0112](specs/0112-order-independent-function-visibility.md) |
+| Order-independent function visibility — inverts three RFC 0094 Validation cases; land 0094 first | [0112](specs/0112-order-independent-function-visibility.md) |
 | Library end-of-stream value replacing builtin EoS | [0113](specs/0113-library-end-of-stream.md) |
 | Sum-type surface simplification | [0114](specs/0114-sum-type-surface.md) |
 | Iterator invalidation contract | [0115](specs/0115-iterator-invalidation.md) |
@@ -40,14 +40,20 @@ other.
 
 | Work | Spec |
 |---|---|
-| Anonymous function literals | [0094](specs/0094-anonymous-function-literals.md) |
-| Explicit dispatch tables | [0109](specs/0109-explicit-dispatch-tables.md) |
+| Function literals, local functions, and Fun value placement | [0094](specs/0094-anonymous-function-literals.md) |
+| Explicit dispatch tables — depends on 0094 for member admission; owns the member-call rule | [0109](specs/0109-explicit-dispatch-tables.md) |
 | Codebase refactoring audit — 33 accepted findings in eight stages; 6 deferred, 11 rejected | [0104](specs/0104-codebase-refactoring-audit.md) |
 
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
 |---|---|---|
+
+## Open bugs
+
+| Bug | Owning spec |
+|---|---|
+| Array, View, and List equality for an unsupported element type reports an empty member name instead of an element path | [0094](specs/0094-anonymous-function-literals.md) |
 
 ## Unowned
 

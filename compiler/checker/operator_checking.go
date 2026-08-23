@@ -895,11 +895,7 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 			token:      expression.Operator,
 		}
 	default:
-		return expressionTypeHint{diagnostic: &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Message:  "unsupported expression",
-		}}
+		return expressionTypeHint{diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported expression"))}
 	}
 }
 

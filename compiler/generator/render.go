@@ -660,7 +660,7 @@ func typeSpelling(typ compilerTypes.Type) string {
 }
 
 func renderExpression(node checker.Expression) (string, error) {
-	return renderExpressionWithState(node, &expressionValidation{})
+	return renderExpressionWithState(node, &expressionValidation{strings: newLiteralRegistry()})
 }
 
 func renderExpressionWithState(node checker.Expression, state *expressionValidation) (string, error) {
@@ -1520,6 +1520,9 @@ func expressionTypeWithStateSeen(node checker.Expression, state *expressionValid
 		operandType, ok := expressionTypeWithStateSeen(*node.Operand, state, active)
 		delete(active, node.Operand)
 		if ok {
+			// Forged pointer type for metadata-only assignability check: the
+			// result is compared via the structural Element fallback in
+			// Assignable, never via Equal, so a fresh identity is safe here.
 			return compilerTypes.PtrType(operandType), true
 		}
 	case checker.DereferenceExpression:
@@ -1565,7 +1568,10 @@ func writeLineDirective(body *strings.Builder, line int, filename string) {
 }
 
 func renderOperand(source checker.Operand) (string, error) {
-	return renderOperandWithState(source, &expressionValidation{})
+	if source.Type != (compilerTypes.Type{}) && compilerTypes.IsString(source.Type) {
+		return "", unknownExpressionDiagnostic("string operand requires a literal registry")
+	}
+	return renderOperandWithState(source, &expressionValidation{strings: newLiteralRegistry()})
 }
 
 func renderOperandWithState(source checker.Operand, state *expressionValidation) (string, error) {

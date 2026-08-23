@@ -293,21 +293,6 @@ func renderEndianConversion(node checker.Expression, state *expressionValidation
 	return endianHelperName(spec) + "(" + operand + ")", nil
 }
 
-// bitCastEligible reports whether typ may be a bit_cast source or
-// destination: a fixed-representation scalar at 8, 16, 32, or 64 bits.
-func bitCastEligible(typ compilerTypes.Type) bool {
-	switch {
-	case compilerTypes.Equal(typ, compilerTypes.Int8), compilerTypes.Equal(typ, compilerTypes.UInt8),
-		compilerTypes.Equal(typ, compilerTypes.Int16), compilerTypes.Equal(typ, compilerTypes.UInt16),
-		compilerTypes.Equal(typ, compilerTypes.Int32), compilerTypes.Equal(typ, compilerTypes.UInt32),
-		compilerTypes.Equal(typ, compilerTypes.Int64), compilerTypes.Equal(typ, compilerTypes.UInt64),
-		compilerTypes.Equal(typ, compilerTypes.Float32), compilerTypes.Equal(typ, compilerTypes.Float64):
-		return true
-	}
-	return false
-}
 
-// endianEligible reports whether typ provides endian byte conversion: every
-// fixed-width integer, excluding Size and Rune.
 
-var _ = strings.TrimPrefix
+

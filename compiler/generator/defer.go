@@ -339,5 +339,3 @@ func unwindToLoopDepth(body *strings.Builder, state *expressionValidation, inden
 	}
 	return nil
 }
-
-var _ = compilerTypes.Type{}

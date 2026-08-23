@@ -15,7 +15,7 @@
 
 ## Summary
 
-Thirty-four findings from a full read of the normative reference against the
+Forty-six findings from a full read of the normative reference against the
 stated goals: cohesive and intuitive surface, one obvious way to do things,
 small clean surface, everything C can do, low ceremony, no undefined behavior,
 the compiler catches every memory error a local analysis can decide.
@@ -26,15 +26,17 @@ Error-in-unions with try/errdefer, structural union interning — are coherent
 and worth protecting unchanged. Nearly every finding below is an omission or an
 inconsistency between two otherwise-good rules, not a wrong mechanism.
 
-Findings are numbered F1–F34 in one flat sequence, grouped by class. Each
+Findings are numbered F1–F46 in one flat sequence, grouped by class. Each
 finding states its evidence as quoted reference text, the goal it conflicts
 with, a proposed direction, and the open question its successor RFC must
-answer. Nothing here changes the language until a successor RFC closes.
+answer. Nothing here changes the language until a successor RFC closes. F35–F46
+were added by the 2026-08-23 resurface audit; they extend the original thirty-four
+without altering their text or dispositions.
 
 ## Severity ordering
 
 | # | Finding | Class | Goal conflict | Size |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **F1** | **Mutual recursion is impossible** | expressiveness hole | everything C can do | large |
 | **F2** | **`match` value mode accepts only Bool** | expressiveness hole | one obvious way | medium |
 | **F3** | **No conditional expression** | expressiveness hole | low ceremony | small |
@@ -69,6 +71,18 @@ answer. Nothing here changes the language until a successor RFC closes.
 | F32 | C interop remains draft | promise gap | goals 8–9 | tracked |
 | F33 | Residual no-UB leaks beyond F6 | soundness | no undefined behavior | small |
 | F34 | Local-analysis memory checks have silent holes | safety honesty | goal 18 wording | docs |
+| F35 | Same-line `(` call rule is invisible | lexical gap | intuitive | small |
+| F36 | Module-path literal is a second string grammar | lexical asymmetry | one obvious way | small |
+| F37 | `Byte` vs `UInt8` spelling rule is stylistic | surface weight | one obvious way | small |
+| F38 | `Size` isolation forces explicit `to<Size>()` even for constants | ceremony | low ceremony | small |
+| F39 | Object/Array literal evaluation order unspecified | underspecification | determinism posture | small |
+| F40 | `Strand` has no `View` and no cached length | API hole | no runtime overhead | small |
+| F41 | String literal vs runtime handle dual lifetime | safety hole | if it compiles, it runs | small |
+| F42 | `print` arity and separator ceremony | API friction | low ceremony | small |
+| F43 | `View.from_pointer` provenance is local-only | safety hole | catch memory errors | medium |
+| F44 | `for` binder table is exact and rigid | ceremony | composability | small |
+| F45 | `defer` discards fallible results; trap may skip cleanup | soundness | no undefined behavior | small |
+| F46 | Task stack `Project` knobs leak target into language | surface weight | small clean surface | small |
 
 ## What clicks (protected unchanged)
 
@@ -642,6 +656,128 @@ single-function, no-escape analysis"), so the promise and the checker agree.
 
 Open question: none.
 
+### Additional audit — 2026-08-23 resurface (F35–F46)
+
+#### F35 — Same-line `(` call rule is invisible
+
+Evidence: "`call-arguments = same-line , "(" , [ argument-list ] , ")"`"; "`call-statement = ? call-expression whose first token is identifier or \"self\" ?`"; diagnostics `"a call's ( must follow its callee on the same line"` and `"a return value must begin on the same line as return"`.
+
+Problem: a newline silently changes `foo (bar)` from one call to two statements (`foo` then `(bar)` as parenthesized expression statement, which itself is rejected). The delimiter is whitespace, not a token, contradicting the otherwise token-delimited surface and the "no statement terminator" simplicity.
+
+Direction: keep the same-line rule (it removes `;` and `\` continuations) but promote it in diagnostics/tutorial as a core delimiter like `do`/`then`; or allow an explicit continuation (trailing `\\`) for the rare split-call case. No change to `print`/`spawn` already left-to-right specified.
+
+Open question: does the workbench rely on the newline break to separate a bare identifier statement from a following parenthesized expression?
+
+#### F36 — Module-path literal is a second string grammar
+
+Evidence: "`module-path-literal = ? a quoted literal scanned only when the previous token is \"import\" on the same line; the payload between quotes is taken verbatim (no escape decoding); a backslash in the payload is invalid ?`"
+
+Problem: a second quoted form with raw verbatim rules (no `\\`, `\"`, `\n`) adds lexical surface for one import syntax; users expect `"./my\"lib"` escapes to work and get `invalid module-path literal` instead. Violates one obvious way for quoted text.
+
+Direction: keep raw for portability (paths are identifiers, not text) and document as intentional; or unify with string literal and validate decoded payload as path. Raw is defensible — paths never need escapes — but the cost must be acknowledged.
+
+Open question: should `module-path-literal` allow `\\` as path separator on Windows, or is `/` canonical and `\\` always an error?
+
+#### F37 — `Byte` vs `UInt8` spelling rule is stylistic, not semantic
+
+Evidence: "`Byte` is the canonical spelling wherever the value is raw storage rather than a number: `View<Byte>`, `Array<Byte, N>`, `List<Byte>`, and byte-oriented parameters and results. `UInt8` is canonical wherever the value is an 8-bit integer participating in arithmetic … Both remain the same canonical type; this rule governs spelling, not semantics (RFC 0063)."
+
+Problem: one canonical type with two enforced spellings based on intent — a lint rule disguised as a language rule. `View<UInt8>` and `View<Byte>` are the same type but one is a style error. Violates one obvious way.
+
+Direction: keep one type but downgrade spelling to `go vet`-level diagnostic or `fmt` rewrite, not a type error; or split into distinct `Byte` (non-arithmetic) and `UInt8` (arithmetic) types. Either is coherent; enforcement level is not.
+
+Open question: does `Byte` arithmetic ban (`Byte` is `UInt8` but `Byte + Byte` is numeric) confuse the spelling rule's teaching?
+
+#### F38 — `Size` isolation forces explicit `to<Size>()` even for constants
+
+Evidence: "`Size` has no widening edges: no fixed-width integer or float implicitly converts to Size, and Size does not implicitly convert to any fixed-width integer or float, because no conversion is lossless on every conforming target."
+
+Problem: `x: Size := 4` needs contextual literal typing (works) but `x: Size := y` where `y: Int32 = 4` needs `y.to<Size>()` with dynamic trap, even though `4` fits every target. In-range constants pay the same ceremony as out-of-range values. Low-ceremony goal hit at the most common `Size` use (`length`/`index`).
+
+Direction: keep isolation for non-constant values (portable), but allow constant-only implicit path for values provably in `0..SIZE_MAX` on all targets via `static_assert`; or keep explicit and accept ceremony. Isolation is honest about target variance.
+
+Open question: does constant-only widening reintroduce target-dependent typing that `Size` was designed to hide?
+
+#### F39 — Object and array literal evaluation order is unspecified
+
+Evidence: "Initializer evaluation order is unspecified." "Unless stated otherwise, operand order, call-argument order, receiver-versus-argument order, and object-initializer order are C23-unspecified."
+
+Problem: same underspecification as F23 but for construction: `Point{x = foo(), y = bar()}` and `[a(), b()]` have unspecified order, while `print` and `spawn` are specified left-to-right. Side-effecting initializers have determinism hole.
+
+Direction: extend F23's proposed left-to-right guarantee to object-member initializers and array elements. Generator already sequences multi-step lowerings; formalize it.
+
+Open question: does sequencing object initializers in source order or declaration order match user expectation when literal order differs from declaration order?
+
+#### F40 — `Strand` has no `View` and no cached length
+
+Evidence: "`Strand` is immutable literal-only inline 32 bytes: at most 31 UTF-8 bytes … Strand has no room for a count and scans, bounded by its 31 payload bytes. … Neither is indexable … `Strand` exposes no View into inline bytes."
+
+Problem: `Strand` cannot be sliced or viewed without `to_string(heap)` allocation (`Strand.to_string(heap) -> String` then `String.bytes()`). Iterating runes via `rune_cursor` is gone (now on `String` only after 0087). Zero-cost literal story forces heap for read-only window.
+
+Direction: add `Strand.bytes() -> View<Byte>` borrowing inline storage (like `String.bytes()`) or `Strand.slice`, or document as intentional small loss to keep `Strand` 32 bytes. F5's `Strand/String` comparison fix may subsume part of this.
+
+Open question: does a `Strand` View extend lifetime beyond the literal's inline storage in a way that breaks the borrowing model?
+
+#### F41 — String literal vs runtime handle dual lifetime
+
+Evidence: "Runtime values use one header-plus-bytes allocation; literals use static storage." "Runtime String allocations require one matching free; all aliases then dangle. Literals must never be freed."
+
+Problem: one type `String` has two lifetimes with different `free` obligations; `if (isLiteral) skip free` is manual and error-prone. Violates ownership-decides-representation uniformity where `String` is supposed to be one handle shape.
+
+Direction: keep dual storage but make `free` on a literal a checked trap (or no-op) instead of undefined; or add `String.is_literal` / separate `StaticString` type. Current `must never be freed` is a trap waiting to happen.
+
+Open question: does the generator already emit a runtime check to trap `free` of a literal, or is it truly UB?
+
+#### F42 — `print` arity and separator ceremony
+
+Evidence: "`print(first: Printable, rest: Printable...) -> no value` is protected, requires at least one argument, inserts no separator/newline, and returns no value."
+
+Problem: `print()` with zero args is invalid, every line needs manual `"\n"` and `", "`; depth-dependent quoting (F24) plus arity makes the most common teaching example `print("hello\n")` carry ceremony for no reason. Low-ceremony goal hit.
+
+Direction: allow zero-arg no-op or add `println(...)` as F24 proposes; keep single-arg minimum if intentional for explicitness. No separator change needed.
+
+Open question: does `println` earn its surface weight as a second protected form, or should `print` with trailing newline be the idiom?
+
+#### F43 — `View.from_pointer` provenance is local-only
+
+Evidence: "`View<T>.from_pointer(pointer: Ptr<T> | MutPtr<T>, length: Size) -> View<T>` … It rejects pointers locally traceable to `ref` and accepts heap or opaque parameter pointers. Interprocedural provenance from a caller argument is not checked."
+
+Problem: `ref local` passed through `fn f(p: Ptr<Int32>) -> View<Int32> { return View<Int32>.from_pointer(p, 1) }` compiles, reintroducing a dangling-View hole similar to F19/F34 but for `View` construction. Local-only check is honest but holes remain.
+
+Direction: extend tracking through one indirection (parameter `Ptr` that is itself `ref`-derived in caller) or document as accepted hole like F34. Bounded by single-function analysis, not full escape analysis.
+
+Open question: false-positive rate if any `Ptr` parameter is conservatively assumed `ref`-derived?
+
+#### F44 — `for` binder table is exact and rigid
+
+Evidence: "| Array, View, List, String, Strand | 1 | value | … | 2 | `index: Size`, value | … Dict 2 key,value 3 index,key,value Every other source/arity combination is invalid."
+
+Problem: cannot ignore value and take only index (`for i, _ in list`), or take index with Dict's 2-form; `for v in dict` is invalid, must write `for k,v in dict`. Uniform but rigid; `_` discard not defined for binders.
+
+Direction: allow `_` as a discard binder in any position, or allow trailing binders to be omitted (`for i in list` gives index only). Either keeps exact typing.
+
+Open question: does `_` as binder need a reserved-word or is it an ordinary identifier discard?
+
+#### F45 — `defer` discards fallible results; trap may skip cleanup
+
+Evidence: "Cleanup result values are discarded. Process traps need not run cleanup." "Only `IO.close()` may appear in defer/errdefer." "`defer expression` … A direct call captures callee, receiver, and arguments at registration"
+
+Problem: `defer io.close()` returns `Nil|Error` but error is discarded; failure is silent. Trap path (`[Runtime Error]`) need not run `defer`, so `List.free` in `defer` may leak on trap. Soundness/ceremony tension.
+
+Direction: keep discard (cleanup must not fail) but lint `defer` of `Nil|Error` without handling; document trap-skip as intentional (traps are fatal). Or allow `errdefer` for root cleanup.
+
+Open question: should `defer` of `IO.close()` be required to handle `Error`, or is discard the intended semantics for close-during-unwind?
+
+#### F46 — Task stack `Project` knobs leak target into language
+
+Evidence: "Stacks reserve 1 MiB by default with an 8 KiB initial commit, both `Project` build-time settings; the initial commit is a Windows-only knob, and the usable region is the reserve less one guard page."
+
+Problem: language-level `Project` carries OS page-commit knob (`TaskStackCommit` Windows-only). Breaks small-clean-surface and target-agnostic language story; `Project` should be language settings, not OS tuning.
+
+Direction: keep in `Project` but hide Windows-only knob behind `target` profile (RFC 0052) or default to reserve-only and remove commit knob; document commit as Windows-only explicitly (already) and accept.
+
+Open question: does the POSIX guard-page implementation need a commit knob at all, or can it be removed?
+
 ## Disposition
 
 Each finding resolves to exactly one of:
@@ -651,7 +787,7 @@ Each finding resolves to exactly one of:
 - **Accept**: the cost is acknowledged and the current design stands.
 
 | # | Disposition | Successor |
-|---|---|---|
+| --- | --- | --- |
 | F1 | Promote | TBD |
 | F2 | Promote | TBD |
 | F3 | Promote | TBD |
@@ -686,6 +822,18 @@ Each finding resolves to exactly one of:
 | F32 | Cross-reference | RFC 0039 |
 | F33 | Promote | TBD |
 | F34 | Fold into F19; AGENTS.md rewording | — |
+| F35 | Undecided | — |
+| F36 | Undecided | — |
+| F37 | Undecided | — |
+| F38 | Undecided | — |
+| F39 | Fold into F23 | — |
+| F40 | Undecided | — |
+| F41 | Undecided | — |
+| F42 | Undecided | — |
+| F43 | Undecided | — |
+| F44 | Undecided | — |
+| F45 | Accept (docs-only) | — |
+| F46 | Undecided | — |
 
 Undecided entries await the author's call; this RFC does not decide them.
 
@@ -705,7 +853,7 @@ This section is exhaustive for THIS RFC (a findings catalog):
 - Every finding quotes the reference text it challenges; a finding without a
   quote is invalid and is removed.
 - Every finding names the goal it conflicts with or states "none" explicitly.
-- The disposition table covers all thirty-four findings with no gaps.
+- The disposition table covers all forty-six findings with no gaps.
 - Reference quotations were verified verbatim against `docs/reference.md` at
   creation time; a quotation that no longer matches indicates the reference
   moved and the finding must be re-verified before promotion.

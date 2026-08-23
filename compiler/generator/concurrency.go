@@ -53,7 +53,6 @@ type generatedConcurrencyState struct {
 	channelSend           bool
 	mutexCreate           bool
 	fileLiteral           literalHandle
-	headerLiteral         literalHandle
 	taskCreationFailed    literalHandle
 	channelCreationFailed literalHandle
 	channelSendFailed     literalHandle
@@ -204,7 +203,6 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 		literals.used = true
 		literals.strand = true
 		state.fileLiteral = literals.Intern(logicalKey)
-		state.headerLiteral = literals.Intern("Scheduler")
 		if state.spawnFail {
 			state.taskCreationFailed = literals.Intern(taskCreationFailed)
 		}

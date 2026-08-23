@@ -107,7 +107,7 @@ func resolveADTPayload(adtName string, expression parser.ObjectTypeExpression, t
 
 // resolveVariantOwner resolves a qualified variant's owner ADT, handling
 // generic owners through explicit arguments or expected-type inference.
-func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, expectedType compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (compilerTypes.Type, *compilerTypes.AdtVariant, *compilerTypes.Diagnostic) {
+func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, expectedType compilerTypes.Type, token lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) (compilerTypes.Type, *compilerTypes.AdtVariant, *compilerTypes.Diagnostic) {
 	if adtType, ok := typeEnvironment.Lookup(owner); ok && adtType.Adt != nil {
 		return adtType, nil, nil
 	}
@@ -137,11 +137,7 @@ func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, e
 		}
 	}
 	if len(arguments) == 0 {
-		return compilerTypes.Type{}, nil, &compilerTypes.Diagnostic{
-			Category: compilerTypes.TypeError,
-			Stage:    "checker",
-			Message:  fmt.Sprintf("cannot infer generic parameter for %s", owner),
-		}
+		return compilerTypes.Type{}, nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("cannot infer generic parameter for %s", owner)))
 	}
 	specialized, diagnostic := specializeADTType(open, arguments, lexer.Token{}, typeEnvironment, names.generics)
 	if diagnostic != nil {
@@ -157,7 +153,7 @@ func checkQualifiedVariant(expression parser.QualifiedVariantExpression, expecte
 	if target, ok := names.importAliasTarget(expression.Owner.Lexeme); ok {
 		return checkModuleVariantConstructor(expression, target, names, typeEnvironment)
 	}
-	adtType, _, ownerDiagnostic := resolveVariantOwner(expression.Owner.Lexeme, expression.OwnerArguments, expectedType, names, typeEnvironment)
+	adtType, _, ownerDiagnostic := resolveVariantOwner(expression.Owner.Lexeme, expression.OwnerArguments, expectedType, expression.Owner, names, typeEnvironment)
 	if ownerDiagnostic != nil {
 		return initializerValue{token: expression.Variant, diagnostic: ownerDiagnostic}
 	}
@@ -267,7 +263,7 @@ func adtVariantIndex(adtType compilerTypes.Type, variant string) int {
 // when the owner names an ADT (or a generic ADT resolvable from the expected
 // type).
 func checkUnitVariant(owner, variant lexer.Token, expectedType compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (*checkedExpression, *compilerTypes.Diagnostic) {
-	adtType, _, ownerDiagnostic := resolveVariantOwner(owner.Lexeme, nil, expectedType, names, typeEnvironment)
+	adtType, _, ownerDiagnostic := resolveVariantOwner(owner.Lexeme, nil, expectedType, owner, names, typeEnvironment)
 	if ownerDiagnostic != nil {
 		return nil, ownerDiagnostic
 	}

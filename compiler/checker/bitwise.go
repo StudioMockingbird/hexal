@@ -8,9 +8,13 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// bitCastEligibleType reports whether typ may be a bit_cast source or
+// BitCastEligibleType reports whether typ may be a bit_cast source or
 // destination: a fixed-representation scalar at 8, 16, 32, or 64 bits.
 // Size, Rune, Bool, pointers, aggregates, and managed values are rejected.
+func BitCastEligibleType(typ compilerTypes.Type) bool {
+	return bitCastEligibleType(typ)
+}
+
 func bitCastEligibleType(typ compilerTypes.Type) bool {
 	switch {
 	case compilerTypes.Equal(typ, compilerTypes.Int8), compilerTypes.Equal(typ, compilerTypes.UInt8),

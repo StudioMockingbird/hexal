@@ -313,7 +313,7 @@ func (parser *Parser) adtDefinitionExpression() (AdtDefinitionExpression, error)
 			}
 			for _, member := range payload.Members {
 				if member.Mutable {
-					return AdtDefinitionExpression{}, parser.errorAt(member.Name, "ADT payload fields cannot be mutable in this RFC")
+					return AdtDefinitionExpression{}, parser.errorAt(member.Name, "ADT payload fields cannot be mutable")
 				}
 			}
 			variant.Payload = &payload

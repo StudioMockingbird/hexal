@@ -150,57 +150,75 @@ func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
 	return privateCName(functionNameKind, methodKey(object, name), owner)
 }
 
+type functionRenderContext struct {
+	body      *strings.Builder
+	declared  checker.FunctionDeclaration
+	functions map[string]compilerTypes.Type
+	methods   map[string]checker.MethodDeclaration
+	typeState *generatedTypeValidation
+	strings   *literalRegistry
+	owner     string
+	filename  string
+	external  bool
+	tags      *tagRegistry
+}
+
 // writeFunctionDefinition emits one C function. Parameters are fixed
 // bindings, so their declarators carry top-level const. external is true for
 // functions the generated spawn adapters must call; those keep external
 // linkage, everything else is static to its module C file.
 func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDeclaration, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, typeState *generatedTypeValidation, stringState *literalRegistry, owner, filename string, external bool, tags *tagRegistry) error {
-	signature := declared.Type.Signature
-	if signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
+	ctx := functionRenderContext{body: body, declared: declared, functions: functions, methods: methods, typeState: typeState, strings: stringState, owner: owner, filename: filename, external: external, tags: tags}
+	return writeFunctionDefinitionWithContext(ctx)
+}
+
+func writeFunctionDefinitionWithContext(ctx functionRenderContext) error {
+	signature := ctx.declared.Type.Signature
+	if signature == nil || !validateGeneratedType(ctx.declared.Type, ctx.typeState, false) {
 		return unknownExpressionDiagnostic("function declaration without a checked Fun type")
 	}
-	if len(signature.Parameters) != len(declared.Parameters) {
+	if len(signature.Parameters) != len(ctx.declared.Parameters) {
 		return unknownExpressionDiagnostic("function declaration parameter count does not match its checked type")
 	}
 	resultSpelling := "void"
-	if declared.Result != nil {
-		if declared.Result.Signature != nil {
+	if ctx.declared.Result != nil {
+		if ctx.declared.Result.Signature != nil {
 			return unknownExpressionDiagnostic("Fun function results are not supported")
 		}
-		if !validateGeneratedType(*declared.Result, typeState, false) {
+		if !validateGeneratedType(*ctx.declared.Result, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("unsupported checked function result type")
 		}
-		if signature.Result == nil || !compilerTypes.Equal(*signature.Result, *declared.Result) {
+		if signature.Result == nil || !compilerTypes.Equal(*signature.Result, *ctx.declared.Result) {
 			return unknownExpressionDiagnostic("function result does not match its checked type")
 		}
-		resultSpelling = typeSpelling(*declared.Result)
+		resultSpelling = typeSpelling(*ctx.declared.Result)
 	} else if signature.Result != nil {
 		return unknownExpressionDiagnostic("function result does not match its checked type")
 	}
-	if declared.Result != nil && checker.FallsThrough(declared.Body) {
+	if ctx.declared.Result != nil && checker.FallsThrough(ctx.declared.Body) {
 		return unknownExpressionDiagnostic("checked returning function may fall through without returning")
 	}
 
 	state := &expressionValidation{
-		variables:      make(map[string]generatedBinding, len(declared.Parameters)),
-		bindings:       make(map[checker.BindingID]generatedBinding, len(declared.Parameters)),
-		bindingNames:   make(map[checker.BindingID]string, len(declared.Parameters)),
+		variables:      make(map[string]generatedBinding, len(ctx.declared.Parameters)),
+		bindings:       make(map[checker.BindingID]generatedBinding, len(ctx.declared.Parameters)),
+		bindingNames:   make(map[checker.BindingID]string, len(ctx.declared.Parameters)),
 		usedNames:      make(map[string]bool),
-		functions:      functions,
-		methods:        methods,
-		generatedTypes: typeState,
-		strings:        stringState,
-		owner:          owner,
-		filename:       filename,
-		tags:           tags,
+		functions:      ctx.functions,
+		methods:        ctx.methods,
+		generatedTypes: ctx.typeState,
+		strings:        ctx.strings,
+		owner:          ctx.owner,
+		filename:       ctx.filename,
+		tags:           ctx.tags,
 	}
 	state.pushScope()
-	parameters := make([]string, len(declared.Parameters))
-	for index, parameter := range declared.Parameters {
+	parameters := make([]string, len(ctx.declared.Parameters))
+	for index, parameter := range ctx.declared.Parameters {
 		if !validSourceName(parameter.Name) {
 			return unknownExpressionDiagnostic("invalid checked function parameter name")
 		}
-		if !validateGeneratedType(parameter.Type, typeState, false) {
+		if !validateGeneratedType(parameter.Type, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("unsupported checked function parameter type")
 		}
 		if !compilerTypes.Equal(signature.Parameters[index], parameter.Type) {
@@ -213,18 +231,16 @@ func writeFunctionDefinition(body *strings.Builder, declared checker.FunctionDec
 		parameters[index] = declaration(parameter.Type, name, false)
 	}
 
-	writeLineDirective(body, declared.SourceLine, filename)
-	// Exported declarations and spawn targets keep external linkage;
-	// everything else is static to the module translation unit.
+	writeLineDirective(ctx.body, ctx.declared.SourceLine, ctx.filename)
 	linkage := ""
-	if !external && !declared.Exported {
+	if !ctx.external && !ctx.declared.Exported {
 		linkage = "static "
 	}
-	fmt.Fprintf(body, "%s%s %s(%s) {\n", linkage, resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
-	if err := writeStatements(body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
+	fmt.Fprintf(ctx.body, "%s%s %s(%s) {\n", linkage, resultSpelling, privateCName(functionNameKind, ctx.declared.Name, ctx.owner), parameterList(parameters))
+	if err := writeStatements(ctx.body, ctx.declared.Body, state, ctx.declared.Result, true, ctx.declared.Defers); err != nil {
 		return err
 	}
-	body.WriteString("}\n\n")
+	ctx.body.WriteString("}\n\n")
 	return nil
 }
 

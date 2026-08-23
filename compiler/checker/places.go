@@ -183,11 +183,7 @@ func checkPlace(expression parser.Expression, names *scope, typeEnvironment *com
 		return checkedExpression{source: literal.source, typ: literal.typ, token: literal.token, diagnostic: literal.diagnostic}
 	default:
 		return checkedExpression{
-			diagnostic: &compilerTypes.Diagnostic{
-				Category: compilerTypes.TypeError,
-				Stage:    "checker",
-				Message:  "unsupported place",
-			},
+			diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported place")),
 		}
 	}
 }
