@@ -7,8 +7,11 @@
 - Created: 2026-08-22
 - Depends on: RFC 0020 (collections), RFC 0063 (collection surface), RFC 0087
   (cached text length), and `docs/reference.md`
-- Coordinates with: affine ownership RFC 0110, generated collection runtimes,
+- Coordinates with: affine ownership RFC 0110 (which does not subsume this rule
+  -- see Why a runtime check is the right cost), generated collection runtimes,
   and language-surface audit finding F6
+- Accepted cost: one `size_t` field on List and Dict, one increment per
+  structural mutation, and one compare per iteration where safety is not proven
 
 ## Problem
 
@@ -16,6 +19,102 @@ The current reference permits List element replacement while iterating, but
 leaves structural List changes and every Dict mutation as programmer
 responsibility. That is an undefined-behavior hole because aliases can mutate
 the collection through a different binding.
+
+The hole has two severities, and this RFC closes both:
+
+```hexal
+for v in xs do
+    xs.push(v)          -- length grows every iteration: an infinite loop.
+end                     -- Wrong, but memory-safe and visible to the author.
+
+for v in xs do
+    xs.free(h)          -- the next iteration reads freed memory.
+end                     -- Memory-unsafe.
+
+for k, v in table do
+    table.insert(k2, v) -- rehashing invalidates the bucket cursor: entries are
+end                     -- skipped or repeated, and the freed bucket array can
+                        -- be read. Memory-unsafe.
+```
+
+**Structural growth traps as well, and that is deliberate.** Some languages
+define append-during-iteration; Hexal does not, because the traversal boundary
+is captured from a length that the append changes, and defining it would mean
+choosing between "see the new elements" and "do not" for every collection
+operation. Trapping is one rule instead of a table of them. This is the
+behavior a reader is most likely to be surprised by, so it is stated here
+rather than left to be discovered.
+
+## Why a runtime check is the right cost
+
+Goal 15 says no runtime overhead and goal 16 says no undefined behavior. They
+appear to conflict here. They do not, because **the language already made this
+exact trade** — `hex_list_at_<T>` traps today:
+
+```c
+static inline const int32_t *hex_list_at_Int32(const hex_list_Int32 *list, size_t index) {
+    if (index >= list->length) {
+        hex_runtime_trap("[Runtime Error] list index out of bounds\n");
+    }
+    return &list->data[index];
+}
+```
+
+Goal 15 has never meant "no runtime checks". It means no garbage collector, no
+reference counting, no vtables, no hidden allocation. Hexal already pays a
+compare per index access to buy defined behavior, and RFC 0088 exists precisely
+to *elide* the checks that provably cannot fire while keeping the ones that can.
+The proven-safe elision rule below is that same shape applied to the same kind
+of check.
+
+The per-iteration cost is also smaller than it appears: the version field sits
+beside `length`, which the loop condition already loads on every iteration, so
+the check is a warm load and a predictable compare.
+
+**The zero-cost alternative is not available.** A traversal that borrows its
+source exclusively would need alias exclusivity, and RFC 0110 states that it
+"does not introduce a general Rust-style borrow checker"; its `share` is
+explicit and does not transfer exclusive ownership, so aliases survive and may
+mutate. A checker-only rule therefore leaves the case that matters undefined:
+
+```hexal
+fun helper(ys: List<Int32>, h: Heap) do
+    ys.free(h)
+end
+fun demo(h: Heap) do
+    xs: List<Int32> := List<Int32>.new(h)
+    for v in xs do
+        helper(xs, h)   -- the checker cannot see through the call
+    end                 -- use-after-free on the next iteration
+end
+```
+
+Accepting that would require deleting goal 16's unqualified claim, not merely
+this rule.
+
+## Generated C, before and after
+
+Today:
+
+```c
+const hex_list_Int32 *const hex_for_1 = hex_v_xs;
+for (size_t hex_for_1_index = 0; hex_for_1_index < hex_for_1->length; hex_for_1_index++) {
+    const int32_t hex_v_v = *hex_list_at_Int32(hex_for_1, (size_t)(hex_for_1_index));
+```
+
+After, for a traversal whose safety is not proven:
+
+```c
+const hex_list_Int32 *const hex_for_1 = hex_v_xs;
+const size_t hex_for_1_version = hex_for_1->version;
+for (size_t hex_for_1_index = 0; hex_for_1_index < hex_for_1->length; hex_for_1_index++) {
+    if (hex_for_1->version != hex_for_1_version) {
+        hex_runtime_trap("[Runtime Error] collection modified during iteration\n");
+    }
+    const int32_t hex_v_v = *hex_list_at_Int32(hex_for_1, (size_t)(hex_for_1_index));
+```
+
+A proven-safe traversal emits the first form unchanged.
 
 ## Rule
 
@@ -115,6 +214,9 @@ passes:
   when locally provable and otherwise produce the defined runtime trap.
 - Mutation through a copied collection handle invalidates the original
   traversal.
+- `push` during a List traversal traps rather than extending or terminating the
+  traversal, and the trap message is the collection-modified one rather than a
+  bounds message. This is the case a reader is most likely to expect to work.
 - A mutation after `break` or after the traversal's scope exits is valid when
   no separate lifetime rule rejects it.
 - Nested traversals maintain independent captured versions.

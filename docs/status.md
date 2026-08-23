@@ -31,7 +31,6 @@ other.
 | Order-independent function visibility — inverts three RFC 0094 Validation cases; land 0094 first | [0112](specs/0112-order-independent-function-visibility.md) |
 | Library end-of-stream value replacing builtin EoS | [0113](specs/0113-library-end-of-stream.md) |
 | Sum-type surface simplification | [0114](specs/0114-sum-type-surface.md) |
-| Iterator invalidation contract | [0115](specs/0115-iterator-invalidation.md) |
 | Native module storage and linkage | [0116](specs/0116-native-module-storage-and-linkage.md) |
 | Restricted compile-time evaluation | [0117](specs/0117-compile-time-evaluation.md) |
 | Concurrency safety and task lifetimes | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
@@ -42,6 +41,7 @@ other.
 |---|---|
 | Function literals, local functions, and Fun value placement | [0094](specs/0094-anonymous-function-literals.md) |
 | Explicit dispatch tables — depends on 0094 for member admission; owns the member-call rule | [0109](specs/0109-explicit-dispatch-tables.md) |
+| Iterator invalidation contract — accepted cost: one size_t per List/Dict and one compare per unproven iteration | [0115](specs/0115-iterator-invalidation.md) |
 | Refactoring audit residue — R21 coverage matrix, R25 checker context bundle, R47 API docs; R22-R24 split-or-drop decided here | [0119](specs/0119-refactor-audit-residue.md) |
 
 ### Design settled; implementation blocked
