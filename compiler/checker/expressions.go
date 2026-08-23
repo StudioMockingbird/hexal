@@ -173,6 +173,8 @@ func checkExpression(expression parser.Expression, context expressionContext, na
 		return checkContextualUnion(expression, context.expected, names, typeEnvironment)
 	}
 	switch expression := expression.(type) {
+	case parser.AnonymousFunctionLiteral:
+		return checkAnonymousFunctionLiteral(expression, context, names, typeEnvironment)
 	case parser.IntegerLiteral:
 		return checkedFromInitializer(integerInitializer(expression.Token, contextualIntegerType(context.expected.Type), false))
 	case parser.DecimalLiteral:

@@ -98,9 +98,7 @@ func TestReturnFormsMatchTheDeclaration(t *testing.T) {
 }
 
 func TestUnsupportedFunPositions(t *testing.T) {
-	assertRejectsAnyDiagnostic(t,
-		"fun maker(): Fun<(Int32) : Int32> do\n    return maker\nend\n",
-		"returning Fun<(Int32) : Int32> is not supported")
+	assertChecked(t, "fun helper(x: Int32): Int32 do\n    return x\nend\nfun maker(): Fun<(Int32) : Int32> do\n    return helper\nend\n")
 	assertChecked(t, "type Holder = { callback: Fun<(Int32) : Int32>, }\n")
 	assertRejectsAnyDiagnostic(t,
 		"type Bad = Ptr<Fun<(Int32) : Int32>>\n",
@@ -124,6 +122,82 @@ func TestDispatchTableMemberCalls(t *testing.T) {
 			"ops: ReaderOps<FileState> := ReaderOps<FileState> { read = read_file, }\n"+
 			"mut buf: Byte := b'a'\n"+
 			"ops.read(ref state, ref buf, 1)\n")
+	assertChecked(t,
+		"type Inner = { callback: Fun<(Int32) : Int32>, }\n"+
+			"type Outer = { inner: Inner, }\n"+
+			"fun handler(value: Int32): Int32 do\n    return value\nend\n"+
+			"table: Outer := Outer { inner = Inner { callback = handler, }, }\n"+
+			"result: Int32 := table.inner.callback(5)\n")
+	assertChecked(t,
+		"type Ops<T> = { callback: Fun<(T) : T>, }\n"+
+			"fun identity<T>(value: T): T do\n    return value\nend\n"+
+			"fun use<T>(table: Ops<T>, value: T): T do\n    return table.callback(value)\nend\n"+
+			"fun make<T>(callback: Fun<(T) : T>): Ops<T> do\n    return Ops<T> { callback = callback, }\nend\n"+
+			"table: Ops<Int32> := Ops<Int32> { callback = identity, }\n"+
+			"result: Int32 := use<Int32>(table, 5)\n"+
+			"returned: Ops<Int32> := make<Int32>(identity)\n"+
+			"again: Int32 := returned.callback(6)\n")
+}
+
+// A non-capturing anonymous function literal can initialize a dispatch-table
+// member directly, exactly like a named function or an existing function
+// binding.
+func TestDispatchTableMemberFromAnonymousLiteral(t *testing.T) {
+	assertChecked(t,
+		"type Ops = { callback: Fun<(Int32) : Int32>, }\n"+
+			"table: Ops := Ops { callback = fun (value: Int32): Int32 do\n"+
+			"    return value * 2\n"+
+			"end, }\n"+
+			"result: Int32 := table.callback(5)\n")
+}
+
+// A mutable dispatch-table member can be reassigned to a compatible function
+// value.
+func TestDispatchTableMutableMemberReassignment(t *testing.T) {
+	assertChecked(t,
+		"type Ops = { mut callback: Fun<(Int32) : Int32>, }\n"+
+			"fun double(v: Int32): Int32 do\n    return v * 2\nend\n"+
+			"fun triple(v: Int32): Int32 do\n    return v * 3\nend\n"+
+			"mut table: Ops := Ops { callback = double, }\n"+
+			"table.callback = triple\n"+
+			"result: Int32 := table.callback(5)\n")
+}
+
+func TestDispatchTableMemberDiagnosticsAndCShape(t *testing.T) {
+	assertRejectsAnyDiagnostic(t,
+		"type Ops = { value: Int32, }\n"+
+			"table: Ops := Ops { value = 1, }\n"+
+			"table.value()\n",
+		"member value is not callable; its type is Int32")
+
+	source := "type Ops = { callback: Fun<(Int32) : Int32>, }\n" +
+		"fun handler(value: Int32): Int32 do\n    return value\nend\n" +
+		"table: Ops := Ops { callback = handler, }\n" +
+		"result: Int32 := table.callback(5)\n"
+	result := assertCompiles(t, source)
+	if !strings.Contains(rootH(t, result), "int32_t (*hex_m_callback)(int32_t);") {
+		t.Fatalf("modules/app.h = %q, want the concrete function-pointer field", rootH(t, result))
+	}
+	if !strings.Contains(rootC(t, result), "hex_v_table.hex_m_callback(5)") {
+		t.Fatalf("modules/app.c = %q, want an indirect member call", rootC(t, result))
+	}
+}
+
+func TestDispatchTableMemberAcrossModule(t *testing.T) {
+	result := compiler.Compile(map[string]string{
+		"app.hex": "module Lib = import \"./lib\"\n" +
+			"table: Lib.Ops := Lib.make()\n" +
+			"result: Int32 := table.callback(5)\n",
+		"lib.hex": "export type Ops = { callback: Fun<(Int32) : Int32>, }\n" +
+			"fun handler(value: Int32): Int32 do\n    return value\nend\n" +
+			"export fun make(): Ops do\n    return Ops { callback = handler, }\nend\n",
+	}, "app.hex", compiler.Project{})
+	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
+		t.Fatalf("cross-module dispatch table rejected: %#v", result.Stderr)
+	}
+	if !strings.Contains(rootC(t, result), "hex_v_table.hex_m_callback(5)") {
+		t.Fatalf("modules/app.c = %q, want an indirect imported-member call", rootC(t, result))
+	}
 }
 
 func TestFunctionNamesAreNotStorage(t *testing.T) {
@@ -349,5 +423,178 @@ func TestSpecializedBodyCallStatementWithStringLiteralArgument(t *testing.T) {
 	}
 	if !strings.Contains(rootC(t, result), "&hex_lit_0") {
 		t.Fatalf("generated C = %q, want the literal registry entry in the specialized body", rootC(t, result))
+	}
+}
+
+// Two local generic functions that reuse a source name in disjoint scopes
+// must specialize to distinct C symbols: the generator's specialization
+// discovery already handles any FunctionDeclaration uniformly, so a local
+// template's compiler-owned identity is what keeps its generated name from
+// colliding with a same-named sibling elsewhere.
+func TestTwoLocalGenericsWithSameNameProduceDistinctSymbols(t *testing.T) {
+	result := assertCompiles(t,
+		"fun first(): Int32 do\n"+
+			"    fun identity<T>(value: T): T do\n"+
+			"        return value\n"+
+			"    end\n"+
+			"    return identity(1)\n"+
+			"end\n"+
+			"fun second(): Bool do\n"+
+			"    fun identity<T>(value: T): T do\n"+
+			"        return value\n"+
+			"    end\n"+
+			"    return identity(true)\n"+
+			"end\n")
+	body := rootC(t, result)
+	if !strings.Contains(body, "identity_local") {
+		t.Fatalf("generated C = %q, want an identity-qualified local generic symbol", body)
+	}
+	if strings.Count(body, "hex_f_m3_app_identity_local") < 2 || strings.Contains(body, "hex_f_m3_app_identity_Int32(") {
+		t.Fatalf("generated C = %q, want two distinct local generic symbols, no bare identity_Int32", body)
+	}
+}
+
+// A local named generic function with self-recursion lowers to one file-scope
+// static C function with a prototype before its use, recursing through its
+// own generated symbol.
+func TestLocalGenericSelfRecursionGeneratesOneHelper(t *testing.T) {
+	result := assertCompiles(t,
+		"fun outer(): Int32 do\n"+
+			"    fun fact<T>(value: Int32): Int32 do\n"+
+			"        if value == 0 then\n"+
+			"            return 1\n"+
+			"        end\n"+
+			"        return value * fact<Int32>(value - 1)\n"+
+			"    end\n"+
+			"    return fact<Int32>(5)\n"+
+			"end\n")
+	body := rootC(t, result)
+	prototype := "static int32_t hex_f_m3_app_fact_local1_Int32(int32_t);"
+	definition := "static int32_t hex_f_m3_app_fact_local1_Int32(const int32_t hex_v_value) {"
+	prototypeIndex := strings.Index(body, prototype)
+	definitionIndex := strings.Index(body, definition)
+	if prototypeIndex < 0 || definitionIndex < 0 {
+		t.Fatalf("generated C = %q, want both %q and %q", body, prototype, definition)
+	}
+	if prototypeIndex >= definitionIndex {
+		t.Fatalf("prototype at %d must precede definition at %d", prototypeIndex, definitionIndex)
+	}
+	if strings.Count(body, "hex_f_m3_app_fact_local1_Int32") != 4 {
+		// One prototype, one definition, one call from outer, one recursive
+		// call inside fact's own body.
+		t.Fatalf("generated C = %q, want exactly 4 occurrences of the generated symbol", body)
+	}
+}
+
+// A local named function lowers to one file-scope static hex_fun_<ordinal>
+// helper with a prototype before its use, no closure environment, and no C
+// nested function.
+func TestLocalFunctionGeneratesOneStaticHelper(t *testing.T) {
+	result := assertCompiles(t,
+		"fun outer(): Int32 do\n"+
+			"    fun inner(value: Int32): Int32 do\n"+
+			"        return value + 1\n"+
+			"    end\n"+
+			"    return inner(1)\n"+
+			"end\n")
+	body := rootC(t, result)
+	prototype := "static int32_t hex_fun_1(int32_t);"
+	definition := "static int32_t hex_fun_1(const int32_t hex_v_value) {"
+	prototypeIndex := strings.Index(body, prototype)
+	definitionIndex := strings.Index(body, definition)
+	if prototypeIndex < 0 || definitionIndex < 0 {
+		t.Fatalf("generated C = %q, want both %q and %q", body, prototype, definition)
+	}
+	if prototypeIndex >= definitionIndex {
+		t.Fatalf("prototype at %d must precede definition at %d", prototypeIndex, definitionIndex)
+	}
+	for _, forbidden := range []string{"struct hex_closure", "typedef struct hex_env", "(void *)inner", "nested"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("generated C = %q, must contain no closure/environment artifact %q", body, forbidden)
+		}
+	}
+}
+
+// A bare anonymous literal passed directly as a call argument lowers to a
+// direct function pointer reference with no wrapper, dispatcher, or
+// allocation.
+func TestBareLiteralArgumentLowersToDirectFunctionPointer(t *testing.T) {
+	result := assertCompiles(t,
+		"fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n"+
+			"    return callback(value)\n"+
+			"end\n"+
+			"result: Int32 := apply(fun (value: Int32): Int32 do\n"+
+			"    return value * value\n"+
+			"end, 5)\n")
+	body := rootC(t, result)
+	if !strings.Contains(body, "static int32_t hex_fun_") {
+		t.Fatalf("generated C = %q, want a static hex_fun_<ordinal> helper", body)
+	}
+	if !strings.Contains(body, "hex_f_m3_app_apply(hex_fun_") {
+		t.Fatalf("generated C = %q, want apply called with the literal's function pointer directly", body)
+	}
+}
+
+// Two sibling anonymous literals at the same nesting level receive distinct
+// ordinals in source order, and two identical compilations produce
+// byte-identical output.
+func TestSiblingLiteralsGetDistinctDeterministicOrdinals(t *testing.T) {
+	source := "fun apply2(a: Fun<(Int32) : Int32>, b: Fun<(Int32) : Int32>, v: Int32): Int32 do\n" +
+		"    return a(v) + b(v)\n" +
+		"end\n" +
+		"x: Int32 := apply2(fun (n: Int32): Int32 do\n" +
+		"    return n + 1\n" +
+		"end, fun (n: Int32): Int32 do\n" +
+		"    return n * 2\n" +
+		"end, 5)\n"
+	first := assertCompiles(t, source)
+	second := assertCompiles(t, source)
+	firstBody := rootC(t, first)
+	if firstBody != rootC(t, second) {
+		t.Fatal("two identical compilations produced different generated C")
+	}
+	firstOrdinal := strings.Index(firstBody, "static int32_t hex_fun_")
+	secondOrdinal := strings.LastIndex(firstBody, "static int32_t hex_fun_")
+	if firstOrdinal < 0 || firstOrdinal == secondOrdinal {
+		t.Fatalf("generated C = %q, want two distinct hex_fun_<ordinal> definitions", firstBody)
+	}
+}
+
+// A non-generic local function nested inside a generic function's body is
+// re-checked once per concrete enclosing specialization, and each
+// specialization's own copy receives a distinct helper identity.
+func TestLocalFunctionInsideGenericGetsDistinctHelperPerSpecialization(t *testing.T) {
+	result := assertCompiles(t,
+		"fun apply<T>(value: T): T do\n"+
+			"    fun identity(input: T): T do\n"+
+			"        return input\n"+
+			"    end\n"+
+			"    return identity(value)\n"+
+			"end\n"+
+			"x: Int32 := apply<Int32>(5)\n"+
+			"y: Bool := apply<Bool>(true)\n")
+	body := rootC(t, result)
+	// Each specialization's copy of identity gets its own prototype (one
+	// occurrence) and definition (a second), so a distinct symbol shows up
+	// exactly twice; the same symbol appearing under both return types
+	// would mean the two specializations collided onto one helper.
+	if strings.Count(body, "static int32_t hex_fun_") != 2 || strings.Count(body, "static bool hex_fun_") != 2 {
+		t.Fatalf("generated C = %q, want one Int32 helper and one Bool helper, each with its own ordinal", body)
+	}
+}
+
+// A local function nested in module-level control flow (not inside any
+// enclosing function) compiles: nesting inside a conditional or loop block
+// is exactly where a local function is meant to live, not only inside a
+// function body.
+func TestLocalFunctionInsideModuleLevelControlFlow(t *testing.T) {
+	for _, source := range []string{
+		"cond: Bool := true\nif cond then\n    fun helper(): Int32 do\n        return 1\n    end\n    x: Int32 := helper()\nend\n",
+		"mut i: Int32 := 0\nwhile i < 1 do\n    fun helper(): Int32 do\n        return 1\n    end\n    i = i + helper()\nend\n",
+	} {
+		result := compileSource(source)
+		if result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("Compile(%q) rejected: %v", source, result.Stderr)
+		}
 	}
 }

@@ -539,7 +539,7 @@ func hoistConcurrencyInStatement(statement checker.Statement, body *strings.Buil
 		checker.Declaration, checker.Assignment, checker.CallStatement, checker.TryStatement,
 		checker.ReturnStatement, checker.BreakStatement, checker.ContinueStatement,
 		checker.DeferStatement, checker.ErrdeferStatement, checker.FunctionDeclaration,
-		checker.MethodDeclaration:
+		checker.MethodDeclaration, checker.LocalFunctionDeclaration:
 		// Block statements carry no expressions beyond their own operands,
 		// and leaf statements none; nested bodies hoist at their own
 		// statement list.

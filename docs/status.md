@@ -36,10 +36,8 @@ other.
 
 | Work | Spec |
 |---|---|
-| Function literals, local functions, and Fun value placement | [0094](specs/0094-anonymous-function-literals.md) |
 | Deterministic evaluation order — left-to-right expression, call, aggregate, assignment, and cleanup evaluation | [0111](specs/0111-deterministic-evaluation-order.md) |
-| Order-independent function visibility — land after 0094 and reconcile its three visibility cases | [0112](specs/0112-order-independent-function-visibility.md) |
-| Explicit dispatch tables — depends on 0094 for member admission; owns the member-call rule | [0109](specs/0109-explicit-dispatch-tables.md) |
+| Order-independent function visibility — 0094 landed; reconcile its three visibility cases | [0112](specs/0112-order-independent-function-visibility.md) |
 | Refactoring audit residue — R21 coverage matrix, R25 checker context bundle, R47 API docs; R22-R24 split-or-drop decided here | [0119](specs/0119-refactor-audit-residue.md) |
 
 ### Design settled; implementation blocked
@@ -51,7 +49,6 @@ other.
 
 | Bug | Owning spec |
 |---|---|
-| Array, View, and List equality for an unsupported element type reports an empty member name instead of an element path | [0094](specs/0094-anonymous-function-literals.md) |
 
 ## Unowned
 

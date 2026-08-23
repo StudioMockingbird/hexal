@@ -44,11 +44,15 @@ parameter = identifier , ":" , type-expression ;
 generic-parameter-list = "<" , identifier , { "," , identifier } , ">" ;
 
 statement = non-control-statement | return-statement
-            | if-statement | while-statement | for-statement ;
+            | if-statement | while-statement | for-statement
+            | local-function-declaration ;
 non-control-statement = declaration | assignment | call-statement
                         | try-statement
                         | "break" | "continue"
                         | defer-statement | errdefer-statement ;
+local-function-declaration = "fun" , identifier
+                             , [ generic-parameter-list ]
+                             , signature , "do" , block , "end" ;
 block = { statement } ;
 declaration = [ "mut" ] , identifier
               , ( ":" , type-expression , ":=" | ":=" ) , expression ;
@@ -147,10 +151,13 @@ index-suffix = "[" , expression , "]" ;
 primary-expression = identifier | "self" | object-literal
                      | qualified-record-variant
                      | array-literal | match-expression
+                     | anonymous-function-literal
                      | integer-literal | decimal-floating-literal
                      | byte-literal | rune-literal | string-literal
                      | "true" | "false" | "nil" | "eos"
                      | "(" , expression , ")" ;
+anonymous-function-literal = "fun" , [ generic-parameter-list ]
+                             , signature , "do" , block , "end" ;
 object-literal = identifier , [ type-argument-list ]
                  , "{" , [ member-initializer-list ] , "}" ;
 qualified-record-variant = identifier , "." , identifier , variant-payload ;
@@ -463,10 +470,13 @@ HeapAllocation
 
 - `fun` declares a function, not mutable storage. `Fun<(P1, P2) : R>` is a function-pointer type;
   omit `: R` for no result.
-- Fun is valid as a binding, function parameter, parameter inside another Fun, object member, or union member.
-  It is invalid as a result, ADT member, collection element/value, Task argument/result,
-  Channel element, Ptr/MutPtr pointee, or `ref` target. Function declarations
-  are not addressable. An object may store a Fun value as an explicit dispatch table; the field holds one
+- Fun is valid as a binding, function parameter, parameter inside another Fun, function result,
+  object member, ADT payload, Array/View/List element, Dict value, Task argument or result,
+  Channel element, or union member. It is invalid as a Ptr/MutPtr pointee, a `ref` target, a
+  Dict key (function values have no equality or hash contract), and a direct heap-allocation
+  type. Function declarations are not addressable. Every accepted position stores or copies one
+  ordinary C function pointer; no position adds an environment, ownership operation, or
+  allocation. An object may store a Fun value as an explicit dispatch table; the field holds one
   ordinary C function pointer and is called as `table.operation(args)` with no hidden receiver or environment.
 - Calls require exact arity and assignable arguments. No-result calls are statements only. Results
   must match their declarations; result-producing bodies cannot fall through.
@@ -479,8 +489,55 @@ HeapAllocation
   `T`; implicit `ref` from a capability-compatible addressable `T`.
 - One method name exists at most once across an object's receiver forms. It cannot equal a member
   name or be extracted as a function value.
-- There is no overloading, default/named/variadic argument syntax, static method, function literal,
-  or closure.
+- `receiver.name(arguments)` resolves to a method first. Only when no method named `name` exists,
+  and the receiver's type has a member `name` of an exact or nullable `Fun<...>` type, does the
+  call resolve to an indirect call through that member instead, with the member's signature
+  governing arity and argument types; a nullable member must be narrowed before the call. This
+  needs no precedence rule beyond the existing one: a member and a method already share one
+  namespace, so a type cannot declare both under the same name. A member matching the name but not
+  `Fun<...>` is rejected with `member <name> is not callable; its type is <type>`, distinct from
+  `<type> has no method named <name>` when the name is neither a method nor a member.
+- There is no overloading, default/named/variadic argument syntax, static method, or closure.
+
+#### Anonymous function literals and local named functions
+
+- `fun (p1: T1, p2: T2): R do ... end` is a non-capturing function value with type
+  `Fun<(T1, T2) : R>`; omitting `: R` gives `Fun<(T1, T2)>` and forbids a value-returning `return`.
+  A generic literal declares type parameters between `fun` and its signature: `fun<T>(value: T): T do ... end`.
+  The literal is a postfix base: a same-line call suffix invokes it directly, valid only where an
+  expression is expected, never as a call statement. It declares no source name and cannot use `export`.
+- `fun name(...) do ... end` at statement position (inside a function or method body, or nested
+  inside module-level control flow) is a local named function declaration: the same syntax as a
+  module function without `export`. `export fun` remains rejected outside module scope.
+- An inferred fixed declaration (`name := ...`) whose initializer is directly a function literal,
+  after stripping only grouping-only parentheses, is declaration sugar over the same function form
+  as a named declaration: it emits the helper function and no function-pointer storage, is fixed
+  and self-recursive, and is accepted in a declaration-only imported module. It remains private,
+  since `export` prefixes only the named function-declaration form. A written type, `mut`, a call
+  or other suffix on the initializer, or a binding initialized from an existing function value all
+  remain ordinary runtime data with no self-recursion name.
+- Named functions, local named functions, and anonymous literals share one signature, body,
+  return-flow, defer, and generic-specialization implementation; they differ only in how their own
+  name and result are bound. A literal or local function is checked in a fresh closed scope: it may
+  use its own parameters, bindings it declares, named functions visible at its source position
+  (module functions and earlier local functions in an enclosing block, including its own body when
+  it has a self-recursion name), and Fun values it receives or declares. It cannot read an enclosing
+  local, parameter, `self`, or root Fun/data binding; no environment, capture, or heap allocation is
+  generated for this. A mutable receiving binding cannot supply a stable self-recursion identity, so
+  referring to it from the literal's own body remains an invalid capture.
+- A local named function or a direct inferred fixed literal binding is visible from its declaration
+  onward in its containing lexical block, including from later local declarations in that same
+  block, and is hidden outside the block. A call to a not-yet-declared later local function in the
+  same block is rejected; mutual recursion through a later declaration is unavailable. Two
+  same-named local declarations in disjoint blocks are distinct.
+- A literal or local function may itself declare generic type parameters. Its own parameter names
+  must be distinct from every generic parameter active in an enclosing generic function, method, or
+  local declaration; redeclaring an enclosing name is a duplicate-parameter error, while an
+  unshadowed enclosing parameter remains usable in the inner signature and body. Every open generic
+  function, named or local, has a compiler-owned template identity distinct from its source name, so
+  two local generic declarations that reuse a name in disjoint scopes specialize independently.
+  Contextual specialization (an exact expected `Fun<...>` type, or a call's own arguments) applies
+  to a generic literal exactly as it does to a named generic function.
 
 ### Generics
 
@@ -1119,6 +1176,17 @@ MutPtr<T>.write_volatile(value: T) -> no value
   `size_t` (RFC 0069 Amendment 2).
 - Objects/ADTs lower to source-ordered structs; unions to checked tagged values except pointer-null
   niches; generics are monomorphized. Object forward typedefs precede source-ordered definitions.
+- `Fun<...>` uses its ordinary complete C function-pointer declarator in every position - binding,
+  parameter, field, collection element - except a function's own return type, which cannot nest
+  that declarator inside its own. There, and in any other position needing a standalone type
+  specifier, the recursive spelling uses C23 `typeof` around the same declarator
+  (`typeof(int32_t (*)(int32_t))`); no function-pointer typedef family is generated. A fixed binding
+  reached through `typeof` qualifies the pointer value (`typeof(...) const name`); a mutable one
+  omits that qualifier. Named module functions, local named functions, and anonymous literals all
+  lower to ordinary C functions with no closure, environment, or dispatcher. A local named function
+  or literal is file-scope `static` and named `hex_fun_<ordinal>`, sharing one module-local ordinal
+  stream in checked-tree preorder; its source name is checker metadata, never a C symbol. Every
+  helper's prototype is emitted before any definition can reference it.
 - Pointer qualification follows type layers only: Ptr adds pointee `const`, MutPtr does not, and a
   fixed binding adds trailing `const`. Object members themselves are unqualified. No
   qualifier-discarding cast is emitted.

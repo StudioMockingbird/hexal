@@ -29,6 +29,10 @@ import (
 //     only hook that sees operand-level metadata (Constant, Literal,
 //     Addressable) rather than just a type and a node.
 //   - Expression fires for every non-invalid checked expression node.
+//   - Statement fires for every checked statement, at every nesting depth,
+//     before that statement's own type-directed descent. It is the hook
+//     local named function and literal discovery uses to find every
+//     LocalFunctionDeclaration regardless of how deeply nested it is.
 //
 // Callbacks are optional; nil callbacks are ignored. A callback error stops
 // the walk and surfaces through walkProgram, so discovery reports a
@@ -37,6 +41,7 @@ type programVisitor struct {
 	Type       func(compilerTypes.Type) error
 	Operand    func(checker.Operand) error
 	Expression func(checker.Expression) error
+	Statement  func(checker.Statement) error
 }
 
 // walkTypeTree visits typ and every type structurally reachable from it
@@ -200,7 +205,7 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 		return walkStatementOperand(statement.Source, visit)
 	case checker.WhileStatement:
 		return walkStatementOperand(statement.Condition, visit)
-	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration, checker.MethodDeclaration:
+	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration, checker.MethodDeclaration, checker.LocalFunctionDeclaration:
 		// No expressions reachable directly from these shapes; nested
 		// bodies are the caller's recursion.
 	default:
@@ -455,6 +460,11 @@ func (state *walkState) walkExpression(node checker.Expression) error {
 			return err
 		}
 	}
+	if node.Function != nil {
+		if err := state.walkCallable(node.Function.Type, node.Function.Parameters, node.Function.Result, node.Function.Body); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -512,6 +522,11 @@ func (state *walkState) walkCallable(signature compilerTypes.Type, parameters []
 
 func (state *walkState) walkStatements(statements []checker.Statement) error {
 	for _, statement := range statements {
+		if state.visitor.Statement != nil {
+			if err := state.visitor.Statement(statement); err != nil {
+				return err
+			}
+		}
 		switch statement := statement.(type) {
 		case checker.Declaration:
 			if err := state.walkType(statement.Type); err != nil {
@@ -591,6 +606,10 @@ func (state *walkState) walkStatements(statements []checker.Statement) error {
 			}
 		case checker.MethodDeclaration:
 			if err := state.walkMethodBody(statement.SelfType, statement.Parameters, statement.Result, statement.Body); err != nil {
+				return err
+			}
+		case checker.LocalFunctionDeclaration:
+			if err := state.walkFunctionBody(statement.Type, statement.Parameters, statement.Result, statement.Body); err != nil {
 				return err
 			}
 		default:

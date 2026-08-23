@@ -956,6 +956,149 @@ func TestParseFunctionOneParameter(t *testing.T) {
 	}
 }
 
+func TestParseAnonymousFunctionLiteral(t *testing.T) {
+	expression := parseInitializer(t, "result := fun (value: Int32) : Int32 do\nreturn value\nend")
+	literal, ok := expression.(AnonymousFunctionLiteral)
+	if !ok {
+		t.Fatalf("initializer = %#v, want AnonymousFunctionLiteral", expression)
+	}
+	if len(literal.Parameters) != 1 || literal.Parameters[0].Name.Lexeme != "value" {
+		t.Fatalf("parameters = %#v, want one parameter named value", literal.Parameters)
+	}
+	if named, ok := literal.Return.(NamedTypeExpression); !ok || named.Name.Lexeme != "Int32" {
+		t.Fatalf("return type = %#v, want Int32", literal.Return)
+	}
+	if len(literal.Body) != 1 {
+		t.Fatalf("body length = %d, want 1", len(literal.Body))
+	}
+	if len(literal.TypeParameters) != 0 {
+		t.Fatalf("type parameters = %#v, want none", literal.TypeParameters)
+	}
+}
+
+func TestParseAnonymousFunctionLiteralNoResult(t *testing.T) {
+	expression := parseInitializer(t, "callback := fun (value: Int32) do\nend")
+	literal := expression.(AnonymousFunctionLiteral)
+	if literal.Return != nil {
+		t.Fatalf("return type = %#v, want nil", literal.Return)
+	}
+}
+
+func TestParseAnonymousFunctionLiteralIsNotAStatement(t *testing.T) {
+	var expression Expression = AnonymousFunctionLiteral{}
+	if _, ok := expression.(Statement); ok {
+		t.Fatal("AnonymousFunctionLiteral implements Statement; it must be bound before it can be invoked as a statement")
+	}
+}
+
+func TestParseGenericAnonymousFunctionLiteral(t *testing.T) {
+	// `<` immediately after `fun` is unambiguously the generic-parameter
+	// delimiter: no value expression can end with the `fun` token, so this
+	// cannot be misread as a relational comparison.
+	expression := parseInitializer(t, "identity := fun<T>(value: T) : T do\nreturn value\nend")
+	literal := expression.(AnonymousFunctionLiteral)
+	if len(literal.TypeParameters) != 1 || literal.TypeParameters[0].Lexeme != "T" {
+		t.Fatalf("type parameters = %#v, want [T]", literal.TypeParameters)
+	}
+}
+
+func TestParseAnonymousFunctionLiteralDirectCall(t *testing.T) {
+	// A call suffix on a literal is a postfix base; it is valid only where an
+	// expression is expected, never as a call statement (see
+	// TestParseFunctionDiagnostics for the rejected statement form).
+	expression := parseInitializer(t, "result := fun (value: Int32) : Int32 do\nreturn value\nend(5)")
+	call, ok := expression.(CallExpression)
+	if !ok {
+		t.Fatalf("initializer = %#v, want CallExpression", expression)
+	}
+	if _, ok := call.Callee.(AnonymousFunctionLiteral); !ok {
+		t.Fatalf("callee = %#v, want AnonymousFunctionLiteral", call.Callee)
+	}
+	if len(call.Arguments) != 1 {
+		t.Fatalf("argument count = %d, want 1", len(call.Arguments))
+	}
+}
+
+func TestParseNestedAnonymousFunctionLiteral(t *testing.T) {
+	expression := parseInitializer(t,
+		"outer := fun (value: Int32) : Fun<(Int32) : Int32> do\nreturn fun (delta: Int32) : Int32 do\nreturn delta\nend\nend")
+	outer := expression.(AnonymousFunctionLiteral)
+	returned, ok := outer.Body[0].(ReturnStatement)
+	if !ok {
+		t.Fatalf("outer body[0] = %#v, want ReturnStatement", outer.Body[0])
+	}
+	if _, ok := returned.Value.(AnonymousFunctionLiteral); !ok {
+		t.Fatalf("returned value = %#v, want a nested AnonymousFunctionLiteral", returned.Value)
+	}
+}
+
+func TestParseAnonymousFunctionLiteralDiagnostics(t *testing.T) {
+	for _, testCase := range []struct{ source, want string }{
+		{"result := fun do\nend", "anonymous function requires '(' or '<' after 'fun'"},
+		{"result := fun (value: Int32) : Int32\nreturn value\nend", "expected 'do' after function signature"},
+		{"result := fun (value) : Int32 do\nreturn value\nend", "function parameters require type annotations"},
+	} {
+		if message := parseError(t, testCase.source); !strings.Contains(message, testCase.want) {
+			t.Errorf("parseError(%q) = %q, want to contain %q", testCase.source, message, testCase.want)
+		}
+	}
+}
+
+func TestParseLocalFunctionDeclaration(t *testing.T) {
+	item := parseOneItem(t, "fun outer() do\nfun inner(value: Int32) : Int32 do\nreturn value\nend\nreturn inner(1)\nend")
+	outer := item.(FunctionDeclaration)
+	if len(outer.Body) != 2 {
+		t.Fatalf("outer body length = %d, want 2", len(outer.Body))
+	}
+	local, ok := outer.Body[0].(LocalFunctionDeclaration)
+	if !ok {
+		t.Fatalf("outer body[0] = %#v, want LocalFunctionDeclaration", outer.Body[0])
+	}
+	if local.Name.Lexeme != "inner" {
+		t.Fatalf("local function name = %q, want inner", local.Name.Lexeme)
+	}
+	if len(local.Parameters) != 1 || local.Parameters[0].Name.Lexeme != "value" {
+		t.Fatalf("local function parameters = %#v, want one parameter named value", local.Parameters)
+	}
+	if _, ok := outer.Body[1].(ReturnStatement); !ok {
+		t.Fatalf("outer body[1] = %#v, want ReturnStatement calling inner", outer.Body[1])
+	}
+}
+
+func TestParseLocalFunctionDeclarationIsAStatement(t *testing.T) {
+	var item TopLevelItem = LocalFunctionDeclaration{}
+	if _, ok := item.(Statement); !ok {
+		t.Fatal("LocalFunctionDeclaration must implement Statement, unlike the module-level FunctionDeclaration")
+	}
+}
+
+func TestParseGenericLocalFunctionDeclaration(t *testing.T) {
+	item := parseOneItem(t, "fun outer() do\nfun identity<T>(value: T) : T do\nreturn value\nend\nend")
+	outer := item.(FunctionDeclaration)
+	local := outer.Body[0].(LocalFunctionDeclaration)
+	if len(local.TypeParameters) != 1 || local.TypeParameters[0].Lexeme != "T" {
+		t.Fatalf("type parameters = %#v, want [T]", local.TypeParameters)
+	}
+}
+
+func TestParseBareReturnThenLocalFunctionOnNextLine(t *testing.T) {
+	// A bare `return` on its own line must not treat a following local
+	// function declaration as an attempted, wrongly-placed return value:
+	// `fun` is value-only exactly when it begins an anonymous literal, which
+	// a next-line `fun identifier` never does.
+	item := parseOneItem(t, "fun outer() do\nreturn\nfun inner() do\nend\nend")
+	outer := item.(FunctionDeclaration)
+	if len(outer.Body) != 2 {
+		t.Fatalf("body length = %d, want 2", len(outer.Body))
+	}
+	if _, ok := outer.Body[0].(ReturnStatement); !ok {
+		t.Fatalf("body[0] = %#v, want ReturnStatement", outer.Body[0])
+	}
+	if _, ok := outer.Body[1].(LocalFunctionDeclaration); !ok {
+		t.Fatalf("body[1] = %#v, want LocalFunctionDeclaration", outer.Body[1])
+	}
+}
+
 func TestParseImplReceiverForms(t *testing.T) {
 	for _, testCase := range []struct {
 		source     string
@@ -1156,7 +1299,7 @@ func TestParseFunctionDiagnostics(t *testing.T) {
 		{"fun adder(left: Int32) do\nreturn left", "expected end to close function adder"},
 		{"fun adder(left)\nend", "function parameters require type annotations"},
 		{"mut fun adder()\nend", "mut cannot modify a function declaration; declare a mut Fun binding"},
-		{"fun outer() do\nfun inner()\nend\nend", "function declarations are module-level only"},
+		{"fun outer() do\nfun inner()\nend\nend", "expected 'do' after function signature"},
 		{"fun outer() do\nimpl Point.m()\nend\nend", "impl declarations are module-level only"},
 	} {
 		message := parseError(t, testCase.source)

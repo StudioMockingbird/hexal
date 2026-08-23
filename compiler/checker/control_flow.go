@@ -76,6 +76,13 @@ func checkStatements(statements []parser.Statement, names *scope, typeEnvironmen
 			declaration := statement.(parser.Declaration)
 			names.define(declaration.Name.Lexeme, declaredBinding)
 		}
+		if checkedStatement == nil {
+			// A generic local function declaration checked clean: like its
+			// module-level equivalent, it has no concrete function of its
+			// own and emits nothing, so it never joins the executable
+			// statement list or affects reachability.
+			continue
+		}
 		checked = append(checked, checkedStatement)
 		if reachable {
 			if _, returns := checkedStatement.(ReturnStatement); returns {
@@ -97,6 +104,17 @@ func checkStatements(statements []parser.Statement, names *scope, typeEnvironmen
 func checkStatement(statement parser.Statement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) (Statement, binding, bool, compilerTypes.Diagnostics) {
 	switch statement := statement.(type) {
 	case parser.Declaration:
+		if literal, isSugar := directFunctionLiteralSugar(statement); isSugar {
+			// A direct inferred fixed literal declaration is checked as the
+			// equivalent local named function declaration; the name is
+			// registered inside checkLocalFunctionDeclaration itself, before
+			// its own body is checked, so no post-hoc define is needed here.
+			checked, diagnostics := checkLocalFunctionDeclaration(asLocalFunctionDeclaration(statement.Name, literal), names, typeEnvironment)
+			if len(diagnostics) == 0 && checked.Type == (compilerTypes.Type{}) {
+				return nil, binding{}, false, nil
+			}
+			return checked, binding{}, false, diagnostics
+		}
 		checked, declared, diagnostics := checkDeclaration(statement, names, typeEnvironment)
 		return checked, declared, true, diagnostics
 	case parser.Assignment:
@@ -132,6 +150,18 @@ func checkStatement(statement parser.Statement, names *scope, typeEnvironment *c
 		return checked, binding{}, false, diagnostics
 	case parser.ErrdeferStatement:
 		checked, diagnostics := checkErrdeferStatement(statement, names, typeEnvironment)
+		return checked, binding{}, false, diagnostics
+	case parser.LocalFunctionDeclaration:
+		// The declaration binds its own name into names.local before its
+		// body is checked, exactly like a module function; unlike an
+		// ordinary Declaration, no post-hoc define call is needed here.
+		checked, diagnostics := checkLocalFunctionDeclaration(statement, names, typeEnvironment)
+		if len(diagnostics) == 0 && checked.Type == (compilerTypes.Type{}) {
+			// A generic declaration is an open template with no concrete
+			// function of its own; it emits nothing, exactly like its
+			// module-level equivalent.
+			return nil, binding{}, false, nil
+		}
 		return checked, binding{}, false, diagnostics
 	case parser.TryStatement:
 		// A try statement reuses the try-expression validation and

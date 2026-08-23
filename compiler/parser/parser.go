@@ -231,9 +231,16 @@ func (parser *Parser) consume(kind lexer.TokenKind, expected string) (lexer.Toke
 func (parser *Parser) statement() (Statement, error) {
 	switch {
 	case parser.check(lexer.Fun):
-		// topLevelItem consumes module-level `fun` before reaching here, so a
-		// `fun` token at statement position is always nested.
-		return nil, parser.errorAt(parser.peek(), "function declarations are module-level only")
+		// At statement position, `fun` followed by an identifier is a local
+		// named function declaration. `fun (` and `fun<` begin an anonymous
+		// literal which is not a statement - it must be bound first.
+		if parser.tokenAfterFun() == lexer.Identifier {
+			return parser.localFunctionDeclaration()
+		}
+		if parser.funBeginsAnonymousLiteral() {
+			return nil, parser.errorAt(parser.peek(), "anonymous functions cannot begin statements; bind the function first")
+		}
+		return nil, parser.errorAt(parser.peek(), "anonymous function requires '(' or '<' after 'fun'")
 	case parser.check(lexer.Impl):
 		return nil, parser.errorAt(parser.peek(), "impl declarations are module-level only")
 	case parser.check(lexer.Type):
@@ -371,6 +378,22 @@ func (parser *Parser) returnStatement() (Statement, error) {
 		return nil, parser.errorAt(keyword, "return is only valid inside a function or method body")
 	}
 	next := parser.peek()
+	// `fun` is not classified by startsExpression/valueOnlyToken below: unlike
+	// every other token there, whether it is a value depends on the token
+	// after it. `fun (`/`fun<` is always an anonymous literal (a value);
+	// `fun identifier` is a local function declaration (never a value), and
+	// must fall through to the ordinary next-statement path even when it
+	// shares return's line.
+	if next.Kind == lexer.Fun {
+		if next.Line == keyword.Line && parser.funBeginsAnonymousLiteral() {
+			value, err := parser.expression()
+			if err != nil {
+				return nil, err
+			}
+			return ReturnStatement{Keyword: keyword, Value: value}, nil
+		}
+		return ReturnStatement{Keyword: keyword}, nil
+	}
 	if next.Line == keyword.Line && startsExpression(next.Kind) {
 		value, err := parser.expression()
 		if err != nil {
@@ -382,6 +405,25 @@ func (parser *Parser) returnStatement() (Statement, error) {
 		return nil, parser.errorAt(next, "a return value must begin on the same line as return")
 	}
 	return ReturnStatement{Keyword: keyword}, nil
+}
+
+// tokenAfterFun returns the kind of the token immediately after the current
+// `fun` token, or lexer.EOF when none exists. `fun` is the only reserved word
+// whose statement-versus-expression classification depends on lookahead
+// rather than its own kind, so every `fun`-dispatch site shares this helper.
+func (parser *Parser) tokenAfterFun() lexer.TokenKind {
+	if parser.current+1 >= len(parser.tokens) {
+		return lexer.EOF
+	}
+	return parser.tokens[parser.current+1].Kind
+}
+
+// funBeginsAnonymousLiteral reports whether the token at the parser's current
+// position is `fun` immediately followed by `(` or `<`, per the grammar rule
+// that no other token may follow expression-position `fun`.
+func (parser *Parser) funBeginsAnonymousLiteral() bool {
+	next := parser.tokenAfterFun()
+	return next == lexer.LeftParen || next == lexer.Less
 }
 
 func startsExpression(kind lexer.TokenKind) bool {

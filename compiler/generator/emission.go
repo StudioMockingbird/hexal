@@ -663,6 +663,18 @@ func routeSpawnSites(merged *generatedConcurrencyState) map[string][]spawnSite {
 // the entry adapters of every spawn site routed to this module are emitted
 // after the function definitions they call; all literal references use the
 // program-wide table.
+//
+// Definition order within the module body: local named function and
+// anonymous literal helper prototypes first (so an ordinary definition
+// below can already call one), then ordinary module function and method
+// definitions in source order, then concrete generic specialization
+// prototypes and definitions, then the local/anonymous helper definitions
+// themselves, then (root only) the entry point. A helper may therefore call
+// its enclosing named function - already fully defined by the time helpers
+// are emitted - and an enclosing function may call its own helper through
+// the prototype emitted up front; every helper is static and carries no
+// owner encoding, since collectLocalHelpers's ordinal alone is unique
+// within the module.
 func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bool) (moduleC string, moduleH string, err error) {
 	canonicalID := emission.canonicalID
 	logicalKey := emission.logicalKey
@@ -700,6 +712,18 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		filename:  logicalKey,
 		tags:      merged.tags,
 	}
+	// Local named function and anonymous literal helpers get one shared
+	// module-local ordinal stream. Their prototypes are emitted first, so an
+	// ordinary function or method defined below can already call one; their
+	// definitions follow the ordinary and specialized definitions, before
+	// the root main body.
+	localHelpers, localHelpersErr := collectLocalHelpers(program)
+	if localHelpersErr != nil {
+		return "", "", localHelpersErr
+	}
+	if err := writeLocalHelperPrototypes(&moduleBody, localHelpers, typeState); err != nil {
+		return "", "", err
+	}
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
@@ -721,6 +745,16 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		return "", "", err
 	}
 	if err := definitions.writeSpecializedDefinitions(program.SpecializedFunctions, program.SpecializedMethods); err != nil {
+		return "", "", err
+	}
+
+	// Local helper definitions follow the ordinary and specialized
+	// definitions and precede the root main body: an enclosing named
+	// function's own definition, already emitted above, can therefore
+	// reference its helper only through the prototype emitted earlier, and
+	// a helper can call its enclosing named function because that
+	// definition already exists by this point.
+	if err := writeLocalHelperDefinitions(definitions, localHelpers); err != nil {
 		return "", "", err
 	}
 

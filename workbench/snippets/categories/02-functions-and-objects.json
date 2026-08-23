@@ -168,6 +168,65 @@
       ]},
       "features": ["objects", "methods"],
       "reservedWords": ["type", "impl", "mut", "self", "return", "end", "do"]
+    },
+    {
+      "id": "functions-stored-literal",
+      "name": "Stored function literal",
+      "description": "Binds an anonymous function literal to a name and calls it, exactly like the equivalent named declaration.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "square:= fun (value: Int32): Int32 do",
+        "    return value * value",
+        "end",
+        "result: Int32:= square(6)"
+      ]},
+      "features": ["functions", "function-values", "anonymous-functions"],
+      "reservedWords": ["fun", "return", "end", "do"]
+    },
+    {
+      "id": "functions-literal-passed-directly",
+      "name": "Directly passed function literal",
+      "description": "Passes an anonymous function literal straight into a callback parameter with no intermediate binding.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do",
+        "    return callback(value)",
+        "end",
+        "result: Int32:= apply(fun (value: Int32): Int32 do",
+        "    return value * value",
+        "end, 5)"
+      ]},
+      "features": ["functions", "function-values", "anonymous-functions"],
+      "reservedWords": ["fun", "return", "end", "do"]
+    },
+    {
+      "id": "functions-bound-no-result-literal",
+      "name": "Bound no-result function literal",
+      "description": "A no-result literal must be bound to a name before it can be invoked.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "increment:= fun (counter: MutPtr<Int32>) do",
+        "    counter.value = counter.value + 1",
+        "end",
+        "mut total: Int32:= 0",
+        "increment(ref total)"
+      ]},
+      "features": ["functions", "no-result-functions", "anonymous-functions"],
+      "reservedWords": ["fun", "mut", "end", "do"]
+    },
+    {
+      "id": "functions-multi-parameter-literal",
+      "name": "Multi-parameter function literal",
+      "description": "An anonymous function literal with more than one parameter, stored and called like any other function value.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "combine:= fun (a: Int32, b: Int32, c: Int32): Int32 do",
+        "    return a + b + c",
+        "end",
+        "result: Int32:= combine(1, 2, 3)"
+      ]},
+      "features": ["functions", "function-values", "anonymous-functions"],
+      "reservedWords": ["fun", "return", "end", "do"]
     }
   ]
 }

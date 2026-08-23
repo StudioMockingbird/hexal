@@ -180,6 +180,10 @@ func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpres
 	}
 }
 
+func nonCallableMemberDiagnostic(token lexer.Token, member *compilerTypes.ObjectMember) compilerTypes.Diagnostic {
+	return typeErrorAt(token, fmt.Sprintf("member %s is not callable; its type is %s", member.Name, member.Type.Name))
+}
+
 // checkImplDeclaration follows the same single-pass order as a function:
 // resolve the target and the signature, register the method, then check the
 // body. Registering first is what makes self-recursion resolve while keeping a
@@ -532,23 +536,32 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		diagnostic := typeErrorAt(callee.Property, receiver.typ.Name+" has no method named "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	// Dispatch-table member check precedes method lookup: a Fun<...> or
-	// Fun<...>|Nil object member is an ordinary function value, not a
-	// method. This must run before the method table is consulted so a
-	// member named like a method is correctly treated as data.
-	if member, ok := object.Member(name); ok && (member.Type.Signature != nil || isNullableFun(member.Type)) {
-		return checkFunMemberCall(call, callee, receiver, member, names, typeEnvironment)
-	}
 	// A receiver whose type another module defines routes its method lookup
 	// to that module's recorded exported methods. Builtin receivers carry an
 	// empty id and keep the local path.
 	if object.ModuleID != "" && object.ModuleID != names.moduleID {
+		if member, ok := object.Member(name); ok {
+			if member.Type.Signature != nil || isNullableFun(member.Type) {
+				return checkFunMemberCall(call, callee, receiver, member, names, typeEnvironment)
+			}
+			return checkedExpression{token: callee.Property, diagnostic: func() *compilerTypes.Diagnostic {
+				diagnostic := nonCallableMemberDiagnostic(callee.Property, member)
+				return &diagnostic
+			}()}
+		}
 		return checkImportedMethodCall(call, callee, name, object, receiver, names, typeEnvironment)
 	}
 	method := names.methods.lookup(object, name)
 	if method == nil {
 		if genericMethod := lookupGenericMethod(names, object, name); genericMethod != nil {
 			return checkGenericMethodCall(call, callee, genericMethod, object, receiver, names, typeEnvironment)
+		}
+		if member, ok := object.Member(name); ok {
+			if member.Type.Signature != nil || isNullableFun(member.Type) {
+				return checkFunMemberCall(call, callee, receiver, member, names, typeEnvironment)
+			}
+			diagnostic := nonCallableMemberDiagnostic(callee.Property, member)
+			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
 		diagnostic := typeErrorAt(callee.Property, object.Name+" has no method named "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

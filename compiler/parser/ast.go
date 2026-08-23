@@ -121,6 +121,37 @@ type FunctionDeclaration struct {
 
 func (FunctionDeclaration) topLevelItemNode() {}
 
+// LocalFunctionDeclaration is a named function at statement position.
+// It uses the same syntax as a module function without `export` and is
+// visible only inside its enclosing lexical block.
+type LocalFunctionDeclaration struct {
+	Keyword         lexer.Token
+	Name            lexer.Token
+	TypeParameters  []lexer.Token
+	Parameters      []Parameter
+	Return          TypeExpression
+	Body            []Statement
+	End             lexer.Token
+	HasSyntaxErrors bool
+}
+
+func (LocalFunctionDeclaration) topLevelItemNode() {}
+func (LocalFunctionDeclaration) statementNode()    {}
+
+// AnonymousFunctionLiteral is a non-capturing function value.
+// It has no source name and cannot use `export`.
+type AnonymousFunctionLiteral struct {
+	FunKeyword      lexer.Token
+	TypeParameters  []lexer.Token
+	Parameters      []Parameter
+	Return          TypeExpression
+	Body            []Statement
+	End             lexer.Token
+	HasSyntaxErrors bool
+}
+
+func (AnonymousFunctionLiteral) expressionNode() {}
+
 // ImplDeclaration is a method attached to a receiver type. SelfType keeps the
 // written receiver form (Point, Ptr<Point>, MutPtr<Point>) unresolved; the
 // checker decides whether it names a nominal object type. Exported records an

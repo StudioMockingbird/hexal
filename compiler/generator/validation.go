@@ -303,6 +303,12 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				return unknownExpressionDiagnostic("method declaration inside a module-level control-flow block")
 			}
 			continue
+		case checker.LocalFunctionDeclaration:
+			// Unlike a module function or method, nesting inside control
+			// flow is exactly where a local function is meant to live; its
+			// own body is validated separately, not through this sweep for
+			// concrete generic specializations' substituted types.
+			continue
 		default:
 			return unknownExpressionDiagnostic("unsupported checked statement")
 		}
@@ -360,9 +366,10 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 		return false
 	}
 	if typ.Signature != nil {
-		// A Fun result would have to wrap a second declarator around the
-		// name; the language does not support it, so it fails closed here.
-		if typ.Signature.Result != nil && (typ.Signature.Result.Signature != nil || !validateGeneratedType(*typ.Signature.Result, state, false)) {
+		// A Fun result, including one that is itself a Fun, lowers through
+		// standaloneResultSpelling's C23 typeof wrapping; ordinary recursion
+		// is enough here.
+		if typ.Signature.Result != nil && !validateGeneratedType(*typ.Signature.Result, state, false) {
 			return false
 		}
 		for _, parameter := range typ.Signature.Parameters {
@@ -738,6 +745,8 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateExpressionMetadata(node, expected, state)
 	case checker.FunctionReferenceExpression:
 		return validateFunctionReference(node, expected, state)
+	case checker.FunctionLiteralExpression:
+		return validateFunctionLiteralExpression(node, expected, state)
 	case checker.CallExpression:
 		return validateCallExpression(node, expected, state)
 	case checker.MethodCallExpression:
@@ -1109,13 +1118,16 @@ func validateExpressionMetadata(node checker.Expression, expected *compilerTypes
 // validateFunctionReference accepts a declared function used as a Fun<...> value.
 // A function is not a place, so no addressability metadata is consulted.
 func validateFunctionReference(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
-	if !validSourceName(node.Name) {
-		return unknownExpressionDiagnostic("function reference without a source name")
-	}
 	if node.ResultType.Signature == nil || !supportedGeneratedTypeWithState(node.ResultType, state) {
 		return unknownExpressionDiagnostic("function reference without a checked Fun type")
 	}
-	if state.functions != nil && node.Module == "" {
+	if node.LocalHelperOrdinal != 0 {
+		// A local named function's generated symbol is the shared
+		// hex_fun_<ordinal> stream, never an entry in the module's
+		// source-name-keyed declaration table.
+	} else if !validSourceName(node.Name) {
+		return unknownExpressionDiagnostic("function reference without a source name")
+	} else if state.functions != nil && node.Module == "" {
 		// A cross-module callee is not in the local declaration table; the
 		// checker resolved it against the target module's exported records,
 		// and the checked Fun type is authoritative.
@@ -1129,6 +1141,25 @@ func validateFunctionReference(node checker.Expression, expected *compilerTypes.
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
 		return unknownExpressionDiagnostic("function reference type does not match its expected type")
+	}
+	return nil
+}
+
+// validateFunctionLiteralExpression accepts an anonymous function literal
+// used as a Fun<...> value. Its own body is not re-validated here: like an
+// ordinary named function's body, it is checked directly when
+// writeLocalHelperDefinitions emits it, not through this preflight sweep,
+// which exists for concrete generic specializations' substituted types.
+// This function only proves the value-position metadata is self-consistent.
+func validateFunctionLiteralExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Function == nil || node.LocalHelperOrdinal == 0 || node.LocalHelperOrdinal != node.Function.HelperOrdinal {
+		return unknownExpressionDiagnostic("function literal has invalid checked metadata")
+	}
+	if node.ResultType.Signature == nil || !supportedGeneratedTypeWithState(node.ResultType, state) || !compilerTypes.Equal(node.ResultType, node.Function.Type) {
+		return unknownExpressionDiagnostic("function literal without a checked Fun type")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("function literal type does not match its expected type")
 	}
 	return nil
 }

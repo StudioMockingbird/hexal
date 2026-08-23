@@ -324,6 +324,18 @@ func (parser *Parser) place() (Expression, error) {
 func (parser *Parser) primaryExpression() (Expression, error) {
 	var expression Expression
 	switch parser.peek().Kind {
+	case lexer.Fun:
+		// In expression position, `fun (` starts a concrete anonymous literal
+		// and `fun<` starts a generic one. `fun` followed by anything else
+		// is a syntax error at the `fun` keyword.
+		if !parser.funBeginsAnonymousLiteral() {
+			return nil, parser.errorAt(parser.peek(), "anonymous function requires '(' or '<' after 'fun'")
+		}
+		literal, err := parser.anonymousFunctionLiteral()
+		if err != nil {
+			return nil, err
+		}
+		expression = literal
 	case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger:
 		expression = IntegerLiteral{Token: parser.advance()}
 	case lexer.DecimalFloat:

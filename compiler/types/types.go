@@ -635,12 +635,12 @@ func (environment *Environment) FunType(parameters []Type, result *Type) Type {
 	}
 	state := canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}
 	for _, parameter := range parameters {
-		if !isCanonicalForEnvironment(environment, parameter, &state, false) || !IsCompleteValue(parameter) {
+		if !isCanonicalForEnvironment(environment, parameter, &state, false) || !IsCompleteValue(parameter) && !ContainsTypeParameter(parameter) {
 			return Type{}
 		}
 	}
 	if result != nil {
-		if !isCanonicalForEnvironment(environment, *result, &state, false) || !IsCompleteValue(*result) {
+		if !isCanonicalForEnvironment(environment, *result, &state, false) || !IsCompleteValue(*result) && !ContainsTypeParameter(*result) {
 			return Type{}
 		}
 	}

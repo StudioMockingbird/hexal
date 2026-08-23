@@ -611,13 +611,14 @@ func TestAtomicDirectPointeeRules(t *testing.T) {
 }
 
 func TestChannelAndTaskRejectFunElement(t *testing.T) {
-	rejected := []string{
+	// Fun is valid as Channel element and Task result/argument.
+	accepted := []string{
 		"fun identity(x: Int32): Int32 do\n    return x\nend\nfun f(h: Heap): Nil | Error do\n    ch: Channel<Fun<(Int32) : Int32>> := try Channel<Fun<(Int32) : Int32>>.new(h, 2)\n    return nil\nend\n",
-		"fun identity(x: Int32): Int32 do\n    return x\nend\nfun f(h: Heap): Nil | Error do\n    t: Task<Fun<(Int32) : Int32>> := try spawn identity(1)\n    return nil\nend\n",
+		"fun identity(x: Int32): Int32 do\n    return x\nend\nfun maker(): Fun<(Int32) : Int32> do\n    return identity\nend\nfun f(): Task<Fun<(Int32) : Int32>> | Error do\n    t: Task<Fun<(Int32) : Int32>> := try spawn maker()\n    return t\nend\n",
 	}
-	for _, source := range rejected {
-		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want Fun excluded from Channel/Task; got accept:\n%s", source)
+	for _, source := range accepted {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("want Fun accepted for Channel/Task; got %v:\n%s", result.Stderr, source)
 		}
 	}
 }

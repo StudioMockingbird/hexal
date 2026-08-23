@@ -242,6 +242,12 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if len(state.activeScopes) > 1 {
 				return unknownExpressionDiagnostic("method declaration inside a module-level control-flow block")
 			}
+		case checker.LocalFunctionDeclaration:
+			// A local function declaration is a checked declaration, not an
+			// executable statement: its file-scope static helper is emitted
+			// separately by writeLocalHelperDefinitions, so this position
+			// renders nothing, exactly like a module function encountered
+			// here already does.
 		default:
 			return unknownExpressionDiagnostic("unsupported checked statement")
 		}
@@ -645,6 +651,20 @@ func funDeclaration(typ compilerTypes.Type, name string, mutable bool) string {
 	return result + " (" + inner + ")(" + parameterList(parameters) + ")"
 }
 
+// standaloneResultSpelling renders typ as a function's own return type. A
+// Fun<...> result cannot use its ordinary abstract declarator directly: that
+// declarator places the declared name in the middle of itself
+// (`RT (*name)(params)`), which cannot nest inside the outer function's own
+// `RT name(params)` declarator. C23 typeof turns the abstract declarator into
+// a standalone type specifier, which is the one place this RFC introduces
+// typeof; every other Fun-typed position keeps its existing declarator.
+func standaloneResultSpelling(typ compilerTypes.Type) string {
+	if typ.Signature != nil {
+		return "typeof(" + typeSpelling(typ) + ")"
+	}
+	return typeSpelling(typ)
+}
+
 // typeSpelling renders typ where no name is declared: a function-pointer
 // type's parameter and result positions. It never adds a top-level qualifier.
 func typeSpelling(typ compilerTypes.Type) string {
@@ -701,10 +721,18 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		return name, nil
 	case checker.FunctionReferenceExpression:
+		if node.LocalHelperOrdinal != 0 {
+			return localHelperCName(node.LocalHelperOrdinal), nil
+		}
 		if node.Name == "" {
 			return "", unknownExpressionDiagnostic("function reference without a source name")
 		}
 		return privateCName(functionNameKind, node.Name, moduleOwner(node.Module, state.owner)), nil
+	case checker.FunctionLiteralExpression:
+		if node.LocalHelperOrdinal == 0 {
+			return "", unknownExpressionDiagnostic("function literal without an assigned helper ordinal")
+		}
+		return localHelperCName(node.LocalHelperOrdinal), nil
 	case checker.CallExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("call without a checked callee")

@@ -46,6 +46,13 @@ type scope struct {
 	// against the target modules' exported records.
 	// It is shared by reference with every child scope.
 	registry *ModuleRegistry
+	// closureRoot marks the body scope of a local named function or
+	// anonymous function literal. lookup treats every data or
+	// parameter binding beyond this scope's own local map as an invalid
+	// capture, while functions declared at or beyond it remain visible: a
+	// non-capturing function may call any function visible at its source
+	// position, but may not read an enclosing function's data.
+	closureRoot bool
 }
 
 // moduleScope builds the root frame of one module. Import aliases are read
@@ -740,10 +747,29 @@ const (
 // module-level data binding is deliberately unreachable; only previously
 // declared functions remain visible. An import alias is never a value and is
 // skipped entirely, so a bare alias reference fails as an unknown variable.
+//
+// Crossing a closureRoot scope narrows this further: a local
+// function or anonymous literal's own body may read its own parameters, its
+// own self-recursion binding, and bindings it declares itself, but nothing
+// data-shaped from an enclosing function. dataVisible starts true (this
+// scope's own bindings are ordinary) and turns off for good the moment the
+// walk steps out of a closureRoot scope into its parent, so every binding
+// beyond that point counts only if it is itself a function. A rejected
+// capture is reported as nameMissing, not a distinct status: a closed
+// function has no environment, so an enclosing local is, from its
+// perspective, simply not there - the same ordinary unknown-name diagnostic
+// that a genuine typo gets.
 func (names *scope) lookup(name string) (binding, lookupStatus) {
+	dataVisible := true
 	for current := names; current != nil && current.local != nil; current = current.parent {
 		if bound, ok := current.local[name]; ok {
-			return bound, nameFound
+			if dataVisible || bound.kind == functionBinding || bound.kind == genericFunctionBinding {
+				return bound, nameFound
+			}
+			return binding{}, nameMissing
+		}
+		if current.closureRoot {
+			dataVisible = false
 		}
 	}
 	if bound, ok := names.module[name]; ok && bound.kind != aliasBinding {
@@ -814,6 +840,33 @@ func (names *scope) define(name string, bound binding) bool {
 	}
 	names.module[name] = bound
 	return true
+}
+
+// closureRootScope builds the body scope for a local named function or
+// anonymous function literal. Unlike child, it does not inherit
+// self, result, or resultUse - a nested function has neither the enclosing
+// method's receiver nor its result type - and it starts a fresh flow state
+// and defer list, exactly like a module function's own body: it is a
+// distinct call frame, not a continuation of the enclosing one. Its parent
+// is still the declaring scope, so lookup can find every function visible at
+// this source position while closureRoot blocks everything else beyond this
+// scope's own local map.
+func (names *scope) closureRootScope(owner string) *scope {
+	return &scope{
+		module:      names.module,
+		local:       make(map[string]binding),
+		parent:      names,
+		owner:       owner,
+		methods:     names.methods,
+		function:    true,
+		nextID:      names.nextID,
+		flow:        newFlowState(),
+		generics:    names.generics,
+		registry:    names.registry,
+		moduleID:    names.moduleID,
+		logicalKey:  names.logicalKey,
+		closureRoot: true,
+	}
 }
 
 func (names *scope) child() *scope {

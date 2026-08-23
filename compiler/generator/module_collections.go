@@ -48,6 +48,17 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 	if typ.Dict != nil {
 		return typeIsModuleEmitted(typ.Dict.Value)
 	}
+	if typ.Signature != nil {
+		if typ.Signature.Result != nil && typeIsModuleEmitted(*typ.Signature.Result) {
+			return true
+		}
+		for _, parameter := range typ.Signature.Parameters {
+			if typeIsModuleEmitted(parameter) {
+				return true
+			}
+		}
+		return false
+	}
 	return false
 }
 

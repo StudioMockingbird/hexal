@@ -230,12 +230,9 @@ func TestSupportedFunPositionsAreAccepted(t *testing.T) {
 }
 
 func TestReturningAFunTypeIsUnsupported(t *testing.T) {
-	requireDiagnostic(t,
-		"fun maker(): Fun<(Int32) : Int32> do\n    return maker\nend\n",
-		"returning Fun<(Int32) : Int32> is not supported")
-	requireDiagnostic(t,
-		"type Bad = Fun<() : Fun<(Int32) : Int32>>\n",
-		"returning Fun<(Int32) : Int32> is not supported")
+	// Fun is now valid as a function result and as a nested result.
+	requireAccepted(t, "fun helper(x: Int32): Int32 do\n    return x\nend\nfun maker(): Fun<(Int32) : Int32> do\n    return helper\nend\n")
+	requireAccepted(t, "type Bad = Fun<() : Fun<(Int32) : Int32>>\n")
 }
 
 func TestFunObjectMembersAreSupported(t *testing.T) {

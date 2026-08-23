@@ -1,9 +1,15 @@
 # RFC 0094: Function Literals and Local Functions
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented 2026-08-24. All nine stages landed: the shared
+  checked function form, lexical function bindings and capture rejection,
+  generic template identity for local/anonymous forms, the expanded
+  `Fun<...>` position matrix, recursive C23 `typeof` lowering, helper
+  discovery/ordinals/emission, exhaustive behavior coverage, four workbench
+  snippets, and this reference update. The pre-existing array/view/list
+  empty-member-name equality bug is fixed as part of the required sweep.
 - Created: 2026-08-19
-- Updated: 2026-08-23
+- Updated: 2026-08-24 — closed after implementation and verification.
 - Scope: add non-capturing anonymous function literals, local named functions,
   and complete value-position support for concrete `Fun<...>` pointers
 - Depends on: implemented RFC 0093, the existing `Fun<...>` rules, and `docs/reference.md`
@@ -381,6 +387,51 @@ end
 ## Implementation plan
 
 Execute the stages in order. Stages may be developed separately, but the expanded `Fun<...>` checker matrix, recursive `typeof` lowering, and generated-type validation must become externally visible atomically: never leave a revision that accepts a program the generator cannot lower.
+
+### Concrete execution sequence
+
+The implementation is one dependency chain. Each work package below has one
+owner boundary and one observable result. Do not start a later package until
+the preceding package's gate passes; in particular, do not broaden `Fun<...>`
+eligibility before the generator can represent every newly accepted type.
+
+| Order | Work package | Primary ownership | Required result before proceeding |
+|---|---|---|---|
+| 0 | Baseline and manifest freeze | `docs/specs/0094-anonymous-function-literals.md`, `workbench/snippets/testdata/generated-c-sha256.json` | Clean pre-0094 suite and manifest snapshot; every old rejection has an owning test. |
+| 1 | Shared parser forms | `compiler/parser/ast.go`, `compiler/parser/parser.go`, `compiler/parser/statements.go`, `compiler/parser/expressions.go` | Named module functions remain structurally unchanged; anonymous literals and local named functions have explicit parser nodes; forbidden statement starts have exact diagnostics. |
+| 2 | Shared checked function form | `compiler/checker/functions.go`, `compiler/checker/operands.go`, `compiler/checker/scope.go`, `compiler/checker/control_flow.go` | Module functions, local functions, and literals share signature/body checking; captures, self-recursion, scope lifetime, and source order are checked without runtime closure state. |
+| 3 | Declaration-sugar classification | `compiler/checker/declarations.go`, `compiler/checker/checker.go`, `compiler/checker/modules.go` | Only direct inferred fixed literals become storage-free function bindings; typed, mutable, contextual, grouped-with-suffix, and existing-value forms remain runtime data. |
+| 4 | Generic template unification | `compiler/checker/generics.go`, `compiler/types/generics.go` | Named/local/anonymous generic forms share template identity, specialization caches, recursion guards, enclosing-parameter handling, and imported ownership. |
+| 5 | Expanded type-position matrix | `compiler/types/collections.go`, `compiler/checker/type_resolution.go`, `compiler/checker/declarations.go`, `compiler/checker/adt.go`, `compiler/checker/equality.go` | All newly accepted `Fun` positions reach a checked tree; retained Ptr, `ref`, heap, Dict-key, equality, ordering, and copyability rejections remain exact. |
+| 6 | Recursive C23 type lowering | `compiler/generator/render.go`, `compiler/generator/declarations.go`, `compiler/generator/validation.go` | Function results, aggregate fields, nested signatures, qualifiers, and component-owned signatures lower through recursive `typeof` without typedef families. |
+| 7 | Discovery and helper emission | `compiler/generator/walk.go`, `compiler/generator/generator.go`, `compiler/generator/declarations.go`, `compiler/generator/concurrency.go`, `compiler/generator/defer.go` | Every helper is discovered once, receives the shared deterministic ordinal, gets a prototype before use, and emits as one file-scope static C function with no closure machinery. |
+| 8 | Public behavior and artifact coverage | `compiler/parser/*_test.go`, `compiler/checker/*_test.go`, `compiler/generator/*_test.go`, `compiler/tests/integration/functions_test.go`, `compiler/tests/integration/modules_*_test.go` | Every Validation case has focused parser/checker/generator/integration coverage; generated-C assertions prove declarations, calls, ownership, ordinals, source maps, and absence of wrappers. |
+| 9 | Snippets, canonical docs, and handoff | `workbench/snippets/categories/`, `workbench/snippets/testdata/generated-c-sha256.json`, `docs/reference.md`, `docs/status.md`, `bin/workbench.exe` | Exactly four snippets are added; only their manifest entries move; reference/status agree; all gates pass; workbench is rebuilt and restarted. |
+
+Implementation work must follow these operating rules:
+
+1. Keep parser, checker, and generator changes in separate reviewable commits
+   where practical, but do not merge a checker change that has no generator
+   validation for the accepted checked shape.
+2. Reuse the existing named-function signature, body, return-flow, defer, and
+   generic-specialization machinery. A new literal-only checker or generic
+   engine is out of scope.
+3. Keep all function and data names in the same lexical namespace. A local
+   function declaration is a checked declaration, not an executable statement,
+   a C nested function, or a hidden function-pointer variable.
+4. Use checked-tree preorder for local-helper ordinals. Never derive helper
+   names from source coordinates, source names, map iteration, or a second
+   counter used only for anonymous functions.
+5. Treat generated C text as the generator contract. Ordinary Go tests must
+   assert prototypes before uses, complete `typeof` declarations, one helper
+   definition, exact `#line` locations, and no environment/allocation/wrapper
+   artifacts; they must not invoke gcc or clang.
+6. Rebuild the snippet manifest only after the full behavior and generator
+   tests pass. Any existing hash movement is a stop condition requiring
+   diagnosis, not a baseline update.
+7. Update `docs/reference.md` and `docs/status.md` only in Stage 9, after the
+   accepted behavior is stable. The RFC remains open until its exhaustive
+   Validation section and handoff gate both pass.
 
 ### Stage 0 — baseline and invariant inventory
 

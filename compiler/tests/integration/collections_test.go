@@ -20,25 +20,28 @@ func TestStorabilityRule(t *testing.T) {
 		"v: View<Int32> := View<Int32>.empty()\n",
 		"type Row = { t: Task<Int32>, c: Channel<Int32>, m: Mutex, e: EoS }\n",
 		"type Box = { f: Fun<(Int32) : Int32> }\n",
+		// An ADT payload field also accepts Fun<...>: the expanded position
+		// matrix admits it in every structural position, not only object
+		// members.
+		"fun helper(x: Int32): Int32 do return x end\ntype Wrapper = | A as { f: Fun<(Int32) : Int32> } | B as { x: Int32 }\nw: Wrapper := Wrapper.B { x = 1 }\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
-	rejected := []string{
-		"funs: Array<Fun<(Int32) : Int32>, 1> := [identity]\nfun identity(x: Int32): Int32 do\n    return x\nend\n",
+	// Array/List/Dict/Task/Channel elements now accept Fun.
+	for _, source := range []string{
+		"fun identity(x: Int32): Int32 do\n    return x\nend\nfuns: Array<Fun<(Int32) : Int32>, 1> := [identity]\n",
 		"fun helper(x: Int32): Int32 do return x end\nfun f(h: Heap) do\n    values: List<Fun<(Int32) : Int32>> := List<Fun<(Int32) : Int32>>.new(h)\nend\n",
 		"fun helper(x: Int32): Int32 do return x end\nfun f(h: Heap) do\n    d: Dict<Int32, Fun<(Int32) : Int32>> := Dict<Int32, Fun<(Int32) : Int32>>.new(h)\nend\n",
-		"fun helper(x: Int32): Int32 do return x end\ntype Wrapper = | A as { f: Fun<(Int32) : Int32> } | B as { x: Int32 }\nw: Wrapper := Wrapper.B { x = 1 }\n",
-	}
-	for _, source := range rejected {
-		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
-			t.Fatalf("want reject; got accept:\n%s", source)
+	} {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("want accept for expanded Fun position; got %v:\n%s", result.Stderr, source)
 		}
 	}
-	// A Fun inside a union member stays accepted; only structural payload
-	// positions reject it.
+	// A Fun inside a union member stays accepted, exactly like every other
+	// structural position.
 	for _, source := range []string{
 		"fun helper(x: Int32): Int32 do return x end\ntype Wrapper = Fun<(Int32) : Int32> | Int32\nw: Wrapper := 1\n",
 	} {

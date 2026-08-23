@@ -52,7 +52,23 @@ and anonymous function literals. It also applies after generic specialization.
 ## Compiler obligations
 
 - Constant folding is allowed only when it preserves values, traps, and
-  observable effects.
+  observable effects. Observable effects are exactly: a defined trap
+  (out-of-bounds index, empty pop, missing Dict key, zero divisor, bad shift
+  count, float overflow, allocation failure, malformed UTF-8, close failure,
+  Mutex misuse, task stack overflow, and the other trap rules in
+  `reference.md`), `print` output, `Heap.allocate`/`free` and every
+  heap-backed container or String allocation that routes through it, `spawn`
+  task creation, and a write to a `mut` place or binding (assignment or
+  `ref` producing `MutPtr`). Pure value computation with none of these is
+  not observable and may be reordered or folded. Folding `10 / 0` remains the
+  existing compile-time zero-divisor diagnostic, not an eliminated trap, and
+  `sideEffect() + 1 + 2` must not fold `1 + 2` before `sideEffect()` when
+  `sideEffect()` is observable.
+- Member, index, and `ref` place evaluation follows receiver/index before
+  load: `obj.member`, `arr[idx()]`, and `ref place` evaluate the receiver or
+  index (including any calls inside it) before the load or address-taking.
+  `spawn getFunc()(a(), b())` evaluates `getFunc()` as the callee, then `a()`
+  then `b()`, before task creation.
 - The checker and generator must not rely on map iteration order for source
   evaluation.
 - Generated C must use temporaries or separate statements whenever a C

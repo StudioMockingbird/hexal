@@ -179,16 +179,13 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 	}
 	resultSpelling := "void"
 	if declared.Result != nil {
-		if declared.Result.Signature != nil {
-			return unknownExpressionDiagnostic("Fun function results are not supported")
-		}
 		if !validateGeneratedType(*declared.Result, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("unsupported checked function result type")
 		}
 		if signature.Result == nil || !compilerTypes.Equal(*signature.Result, *declared.Result) {
 			return unknownExpressionDiagnostic("function result does not match its checked type")
 		}
-		resultSpelling = typeSpelling(*declared.Result)
+		resultSpelling = standaloneResultSpelling(*declared.Result)
 	} else if signature.Result != nil {
 		return unknownExpressionDiagnostic("function result does not match its checked type")
 	}
@@ -261,10 +258,10 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 	}
 	resultSpelling := "void"
 	if declared.Result != nil {
-		if declared.Result.Signature != nil || !validateGeneratedType(*declared.Result, ctx.typeState, false) {
+		if !validateGeneratedType(*declared.Result, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("unsupported checked method result type")
 		}
-		resultSpelling = typeSpelling(*declared.Result)
+		resultSpelling = standaloneResultSpelling(*declared.Result)
 	}
 	if declared.Result != nil && checker.FallsThrough(declared.Body) {
 		return unknownExpressionDiagnostic("checked returning method may fall through without returning")
@@ -333,7 +330,7 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 			}
 			resultSpelling := "void"
 			if declared.Result != nil {
-				resultSpelling = typeSpelling(*declared.Result)
+				resultSpelling = standaloneResultSpelling(*declared.Result)
 			}
 			parameters := make([]string, len(declared.Parameters))
 			for index, parameter := range declared.Parameters {
@@ -346,7 +343,7 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 			}
 			resultSpelling := "void"
 			if declared.Result != nil {
-				resultSpelling = typeSpelling(*declared.Result)
+				resultSpelling = standaloneResultSpelling(*declared.Result)
 			}
 			parameters := []string{typeSpelling(declared.SelfType)}
 			for _, parameter := range declared.Parameters {
@@ -383,7 +380,7 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				}
 				resultSpelling := "void"
 				if callee.ResultType.Signature.Result != nil {
-					resultSpelling = typeSpelling(*callee.ResultType.Signature.Result)
+					resultSpelling = standaloneResultSpelling(*callee.ResultType.Signature.Result)
 				}
 				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
 			case checker.MethodCallExpression:
@@ -401,7 +398,7 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				}
 				resultSpelling := "void"
 				if node.ResultType != (compilerTypes.Type{}) {
-					resultSpelling = typeSpelling(node.ResultType)
+					resultSpelling = standaloneResultSpelling(node.ResultType)
 				}
 				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
 			}
@@ -422,10 +419,10 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 		}
 		resultSpelling := "void"
 		if declared.Result != nil {
-			if declared.Result.Signature != nil || !validateGeneratedType(*declared.Result, typeState, false) {
+			if !validateGeneratedType(*declared.Result, typeState, false) {
 				return unknownExpressionDiagnostic("unsupported specialized function result type")
 			}
-			resultSpelling = typeSpelling(*declared.Result)
+			resultSpelling = standaloneResultSpelling(*declared.Result)
 		}
 		parameters := make([]string, len(declared.Parameters))
 		for index, parameter := range declared.Parameters {
@@ -443,10 +440,10 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 		}
 		resultSpelling := "void"
 		if declared.Result != nil {
-			if declared.Result.Signature != nil || !validateGeneratedType(*declared.Result, typeState, false) {
+			if !validateGeneratedType(*declared.Result, typeState, false) {
 				return unknownExpressionDiagnostic("unsupported specialized method result type")
 			}
-			resultSpelling = typeSpelling(*declared.Result)
+			resultSpelling = standaloneResultSpelling(*declared.Result)
 		}
 		parameters := make([]string, 0, len(declared.Parameters)+1)
 		parameters = append(parameters, typeSpelling(declared.SelfType))

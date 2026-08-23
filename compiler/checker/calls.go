@@ -30,7 +30,10 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 	}
 	callee, ok := call.Callee.(parser.VariableExpression)
 	if !ok {
-		return checkedExpression{token: call.OpenParen, diagnostic: diagnosticAt(typeErrorAt(call.OpenParen, "a call's callee must be a function name or a method selection"))}
+		// A callee that is neither a name nor a method selection is an
+		// ordinary expression: an anonymous function literal invoked
+		// directly, or any other expression whose checked type is Fun<...>.
+		return checkIndirectCall(call, names, typeEnvironment)
 	}
 	if callee.Name.Kind == lexer.Self {
 		return checkedExpression{token: callee.Name, diagnostic: selfNotBoundDiagnostic(callee.Name)}
@@ -101,7 +104,7 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 
 	calleeNode := variableNodeWithBinding(name, bound.id)
 	if bound.kind == functionBinding {
-		calleeNode = Expression{Kind: FunctionReferenceExpression, Name: name, ResultType: bound.typ}
+		calleeNode = Expression{Kind: FunctionReferenceExpression, Name: name, LocalHelperOrdinal: bound.localHelperOrdinal, ResultType: bound.typ}
 	}
 	var resultType compilerTypes.Type
 	if signature.Result != nil {
@@ -252,6 +255,66 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: specialized.Name, Node: node},
 		typ:    resultType,
 		token:  property,
+	}
+}
+
+// checkIndirectCall checks a call whose callee is neither a bare name nor a
+// method selection: an anonymous function literal invoked directly, or any
+// other expression whose checked type is Fun<...>. It shares argument
+// checking with the named-callee and dispatch-table-member paths; the
+// checked node differs only in what its Operand holds, which here is the
+// callee's own checked expression.
+func checkIndirectCall(call parser.CallExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	if literal, isLiteral := call.Callee.(parser.AnonymousFunctionLiteral); isLiteral && len(literal.TypeParameters) > 0 {
+		// An unspecialized generic literal has no exact type to check as an
+		// ordinary expression; its own call arguments infer it instead,
+		// exactly like a bare generic function name called without explicit
+		// type arguments.
+		return checkGenericLiteralDirectCall(call, literal, names, typeEnvironment)
+	}
+	callee := checkExpression(call.Callee, expressionContext{}, names, typeEnvironment)
+	if diagnostics := initializerDiagnostics(callee); len(diagnostics) > 0 {
+		return checkedExpression{token: callee.token, diagnostics: diagnostics}
+	}
+	funType := callee.typ
+	if isNullableFun(funType) {
+		diagnostic := typeErrorAt(call.OpenParen, funType.Name+" may be Nil; narrow it before calling it")
+		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
+	}
+	signature := funType.Signature
+	if signature == nil {
+		diagnostic := typeErrorAt(call.OpenParen, "a call's callee must be a function name or a method selection")
+		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
+	}
+	if len(call.Arguments) != len(signature.Parameters) {
+		diagnostic := typeErrorAt(call.OpenParen,
+			fmt.Sprintf("the called function expects %d arguments; got %d", len(signature.Parameters), len(call.Arguments)))
+		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
+	}
+	parameterUses := make([]compilerTypes.TypeUse, len(signature.Parameters))
+	for index, parameter := range signature.Parameters {
+		parameterUses[index] = compilerTypes.NewTypeUse(parameter)
+	}
+	arguments, diagnostics := checkArguments("the called function", parameterUses, call.Arguments, call.OpenParen, names, typeEnvironment)
+	if len(diagnostics) > 0 {
+		return checkedExpression{token: call.OpenParen, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
+	var resultType compilerTypes.Type
+	if signature.Result != nil {
+		resultType = *signature.Result
+	}
+	calleeNode := expressionNode(callee.source)
+	node := Expression{
+		Kind:        CallExpression,
+		Operand:     &calleeNode,
+		Arguments:   arguments,
+		OperandType: funType,
+		ResultType:  resultType,
+	}
+	return checkedExpression{
+		source: Operand{Kind: ExpressionOperand, Type: resultType, Node: node},
+		typ:    resultType,
+		token:  call.OpenParen,
 	}
 }
 

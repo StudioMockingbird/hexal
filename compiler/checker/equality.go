@@ -18,7 +18,7 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 	case typ.Object != nil:
 		for _, member := range typ.Object.Members {
 			if ok, _ := equalityAvailable(member.Type); !ok {
-				return false, member.Name
+				return false, "member " + member.Name
 			}
 		}
 		return true, ""
@@ -26,7 +26,7 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 		for _, variant := range typ.Adt.Variants {
 			for _, member := range variant.Payload {
 				if ok, _ := equalityAvailable(member.Type); !ok {
-					return false, member.Name
+					return false, "member " + member.Name
 				}
 			}
 		}
@@ -41,11 +41,20 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 	case typ.NullableBase != nil:
 		return equalityAvailable(*typ.NullableBase)
 	case typ.Array != nil:
-		return equalityAvailable(typ.Array.Element)
+		if ok, _ := equalityAvailable(typ.Array.Element); !ok {
+			return false, "element type " + typ.Array.Element.Name
+		}
+		return true, ""
 	case typ.View != nil:
-		return equalityAvailable(typ.View.Element)
+		if ok, _ := equalityAvailable(typ.View.Element); !ok {
+			return false, "element type " + typ.View.Element.Name
+		}
+		return true, ""
 	case typ.List != nil:
-		return equalityAvailable(typ.List.Element)
+		if ok, _ := equalityAvailable(typ.List.Element); !ok {
+			return false, "element type " + typ.List.Element.Name
+		}
+		return true, ""
 	case typ.Element != nil:
 		// Pointer identity equality never dereferences the pointee, so it
 		// stays finite and always available.
@@ -63,19 +72,28 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 }
 
 // equalityUnavailableDiagnostic reports why equality is unavailable for one
-// operand of the comparison.
+// operand of the comparison. reason already names its own path - "member
+// name" for an object/ADT field, "element type Name" for an Array/View/List
+// - so the template never manufactures an empty description; it is empty
+// only when typ itself is the direct cause, which the fallback below covers
+// by kind instead.
 func equalityUnavailableDiagnostic(typ compilerTypes.Type, reason string, token lexer.Token) *compilerTypes.Diagnostic {
-	diagnostic := typeErrorAt(token, "equality is unavailable because member "+reason+" does not support ==")
-	if reason == "" {
-		switch {
-		case typ.Signature != nil:
-			diagnostic = typeErrorAt(token, "function values are not equality-comparable")
-		case compilerTypes.IsHeap(typ):
-			diagnostic = typeErrorAt(token, "allocator handles are not equality-comparable")
-		case typ.Dict != nil:
-			diagnostic = typeErrorAt(token, "dictionary equality is not available in v1")
-		}
+	if reason != "" {
+		diagnostic := typeErrorAt(token, "equality is unavailable because "+reason+" does not support ==")
+		return &diagnostic
 	}
+	switch {
+	case typ.Signature != nil:
+		diagnostic := typeErrorAt(token, "function values are not equality-comparable")
+		return &diagnostic
+	case compilerTypes.IsHeap(typ):
+		diagnostic := typeErrorAt(token, "allocator handles are not equality-comparable")
+		return &diagnostic
+	case typ.Dict != nil:
+		diagnostic := typeErrorAt(token, "dictionary equality is not available in v1")
+		return &diagnostic
+	}
+	diagnostic := typeErrorAt(token, "equality is unavailable for "+typ.Name)
 	return &diagnostic
 }
 

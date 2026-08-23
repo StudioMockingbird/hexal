@@ -80,6 +80,11 @@ func TestEqualityUnavailable(t *testing.T) {
 	}{
 		{"fun helper(value: Int32) do\nend\nfun demo() do\n    callback: Fun<(Int32)> := helper\n    other: Fun<(Int32)> := callback\n    bad: Bool := callback == other\nend", "function values are not equality-comparable"},
 		{"fun helper(value: Int32) do\nend\nfun demo() do\n    mixed: Fun<(Int32)> | Int32 := helper\n    other: Fun<(Int32)> | Int32 := mixed\n    bad: Bool := mixed == other\nend", "union member Fun<(Int32)> does not support equality"},
+		// An Array/View/List element that cannot compare must name its
+		// element type; it must never fall back to an empty member name,
+		// which is what "member  does not support ==" would render as.
+		{"fun helper(x: Int32): Int32 do return x end\na: Array<Fun<(Int32) : Int32>, 1> := [helper]\nb: Array<Fun<(Int32) : Int32>, 1> := [helper]\nx: Bool := a == b\n", "element type Fun<(Int32) : Int32> does not support =="},
+		{"h1: Array<Heap, 1> := [Heap.new()]\nh2: Array<Heap, 1> := [Heap.new()]\nx: Bool := h1 == h2\n", "element type Heap does not support =="},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

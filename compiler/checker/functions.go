@@ -29,6 +29,34 @@ type FunctionDeclaration struct {
 
 func (FunctionDeclaration) statementNode() {}
 
+// LocalFunctionDeclaration is a named function declared inside another
+// function's body. It shares its Fun<...> type, parameters,
+// result, body, and self-recursion mechanism with FunctionDeclaration; it
+// differs only in scope: it is visible from its declaration onward in its
+// containing lexical block and hidden outside it. It is a checked
+// declaration, not an executable statement: generation emits one file-scope
+// static helper and no block-local function-pointer object.
+type LocalFunctionDeclaration struct {
+	Name       string
+	Parameters []FunctionParameter
+	Result     *compilerTypes.Type
+	ResultUse  *compilerTypes.TypeUse
+	Type       compilerTypes.Type
+	Body       []Statement
+	Defers     []DeferredAction
+	// HelperOrdinal is this declaration's compiler-owned identity, assigned
+	// once at check time in checked-tree preorder - the same shared
+	// BindingID counter every parameter and local binding draws from, not a
+	// second counter kept only for local functions. Generation spells it
+	// hex_fun_<HelperOrdinal>; the source Name above is checker metadata
+	// used only for diagnostics.
+	HelperOrdinal BindingID
+	SourceLine    int
+	SourceColumn  int
+}
+
+func (LocalFunctionDeclaration) statementNode() {}
+
 // FunctionParameter is one resolved parameter. Parameters are fixed bindings,
 // so no mutability field exists.
 type FunctionParameter struct {
@@ -78,76 +106,93 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 		return checked, registerGenericFunction(declaration, names, typeEnvironment)
 	}
 
-	parameters, parameterDiagnostics := checkParameters(declaration.Parameters, typeEnvironment, names.generics)
-	diagnostics = append(diagnostics, parameterDiagnostics...)
-	parameterTypes := make([]compilerTypes.Type, 0, len(parameters))
-	for _, parameter := range parameters {
-		parameterTypes = append(parameterTypes, parameter.Type)
-	}
-
-	result, resultUse, resultDiagnostics := checkResultType(declaration.Return, declaration.Name, typeEnvironment, names.generics)
-	diagnostics = append(diagnostics, resultDiagnostics...)
-
+	signature, signatureDiagnostics := checkFunctionSignature(declaration.Parameters, declaration.Return, declaration.Name, names.generics, typeEnvironment)
+	diagnostics = append(diagnostics, signatureDiagnostics...)
 	// An incomplete signature cannot be bound, so the body is not checked
 	// either: every name in it would resolve against a fiction.
 	if len(diagnostics) > 0 {
 		return checked, diagnostics
 	}
+	checked.Parameters = signature.parameters
+	checked.Result = signature.result
+	checked.ResultUse = signature.resultUse
+	checked.Type = signature.functionType
 
-	functionType := typeEnvironment.FunType(parameterTypes, result)
-	if functionType.Signature == nil {
-		diagnostic := unknownAt(declaration.Name, "could not construct the function type for "+name)
-		return checked, compilerTypes.Diagnostics{diagnostic}
-	}
-	checked.Parameters = parameters
-	checked.Result = result
-	checked.ResultUse = resultUse
-	checked.Type = functionType
-
-	parameterUses := make([]compilerTypes.TypeUse, 0, len(parameters))
-	for _, parameter := range parameters {
+	parameterUses := make([]compilerTypes.TypeUse, 0, len(signature.parameters))
+	for _, parameter := range signature.parameters {
 		parameterUses = append(parameterUses, parameter.TypeUse)
 	}
-	functionUse := compilerTypes.FunctionTypeUse(functionType, parameterUses, resultUse)
-	names.module[name] = binding{typ: functionType, use: functionUse, kind: functionBinding}
+	functionUse := compilerTypes.FunctionTypeUse(signature.functionType, parameterUses, signature.resultUse)
+	names.module[name] = binding{typ: signature.functionType, use: functionUse, kind: functionBinding}
 
-	body := &scope{
-		module:     names.module,
-		local:      make(map[string]binding, len(parameters)),
-		owner:      name,
-		result:     result,
-		resultUse:  resultUse,
-		methods:    names.methods,
-		function:   true,
-		nextID:     names.nextID,
-		flow:       newFlowState(),
-		generics:   names.generics,
-		registry:   names.registry,
-		moduleID:   names.moduleID,
-		logicalKey: names.logicalKey,
-	}
-	for index := range parameters {
-		if names.importAlias(parameters[index].Name) {
-			token := lexer.Token{Line: parameters[index].SourceLine, Column: parameters[index].SourceColumn, Lexeme: parameters[index].Name}
-			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
-			continue
-		}
-		parameters[index].Binding = names.newBindingID()
-		bound := binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
-		body.local[parameters[index].Name] = bound
-	}
-	checked.Parameters = parameters
-
-	statements, bodyDiagnostics := checkBody(declaration.Body, body, typeEnvironment)
+	body := names.closureRootScope(name)
+	body.result = signature.result
+	body.resultUse = signature.resultUse
+	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, declaration.Body, names, body, typeEnvironment)
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = statements
 	checked.Defers = append(checked.Defers, body.defers...)
 
-	if analyzeReturns && result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
+	if analyzeReturns && signature.result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.End,
-			fmt.Sprintf("returning %s may fall through without returning %s", name, result.Name)))
+			fmt.Sprintf("returning %s may fall through without returning %s", name, signature.result.Name)))
 	}
 	return checked, diagnostics
+}
+
+// functionSignature is the resolved, not-yet-bound parameter list, result,
+// and Fun<...> type shared by every function form.
+type functionSignature struct {
+	parameters   []FunctionParameter
+	result       *compilerTypes.Type
+	resultUse    *compilerTypes.TypeUse
+	functionType compilerTypes.Type
+}
+
+// checkFunctionSignature resolves one written parameter list and optional
+// result against typeEnvironment and generics. It is the one shared
+// implementation behind a module FunctionDeclaration, a
+// LocalFunctionDeclaration, and a FunctionLiteralExpression: all three
+// resolve their signature identically and differ only in how their own name,
+// if any, is bound around the call.
+func checkFunctionSignature(written []parser.Parameter, resultExpr parser.TypeExpression, fallback lexer.Token, generics *genericTable, typeEnvironment *compilerTypes.Environment) (functionSignature, compilerTypes.Diagnostics) {
+	parameters, diagnostics := checkParameters(written, typeEnvironment, generics)
+	parameterTypes := make([]compilerTypes.Type, 0, len(parameters))
+	for _, parameter := range parameters {
+		parameterTypes = append(parameterTypes, parameter.Type)
+	}
+	result, resultUse, resultDiagnostics := checkResultType(resultExpr, fallback, typeEnvironment, generics)
+	diagnostics = append(diagnostics, resultDiagnostics...)
+	if len(diagnostics) > 0 {
+		return functionSignature{}, diagnostics
+	}
+	functionType := typeEnvironment.FunType(parameterTypes, result)
+	if functionType.Signature == nil {
+		return functionSignature{}, compilerTypes.Diagnostics{unknownAt(fallback, "could not construct the function type for "+fallback.Lexeme)}
+	}
+	return functionSignature{parameters: parameters, result: result, resultUse: resultUse, functionType: functionType}, nil
+}
+
+// bindParametersAndCheckBody binds each resolved parameter into body (already
+// constructed by the caller with the visibility rules appropriate to a
+// module function, local function, or anonymous literal) and checks the
+// statements. enclosing supplies the import-alias check, which is a property
+// of the declaring scope regardless of which scope the parameters are bound
+// into.
+func bindParametersAndCheckBody(parameters []FunctionParameter, statements []parser.Statement, enclosing, body *scope, typeEnvironment *compilerTypes.Environment) ([]Statement, compilerTypes.Diagnostics) {
+	diagnostics := make(compilerTypes.Diagnostics, 0)
+	for index := range parameters {
+		if enclosing.importAlias(parameters[index].Name) {
+			token := lexer.Token{Line: parameters[index].SourceLine, Column: parameters[index].SourceColumn, Lexeme: parameters[index].Name}
+			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
+			continue
+		}
+		parameters[index].Binding = body.newBindingID()
+		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
+	}
+	checkedStatements, bodyDiagnostics := checkBody(statements, body, typeEnvironment)
+	diagnostics = append(diagnostics, bodyDiagnostics...)
+	return checkedStatements, diagnostics
 }
 
 // checkParameters resolves one written parameter list. Functions and methods
@@ -210,15 +255,144 @@ func checkResultType(written parser.TypeExpression, fallback lexer.Token, typeEn
 	if unknownDiagnostic := valueTypeDiagnostic(written, fallback, resolved); unknownDiagnostic != nil {
 		return nil, nil, compilerTypes.Diagnostics{*unknownDiagnostic}
 	}
-	if resolved.Signature != nil {
-		// Supported-position whitelist: a Fun<...> result needs C declarator
-		// rules that are not supported.
-		return nil, nil, compilerTypes.Diagnostics{typeErrorAt(fallback, "returning "+resolved.Name+" is not supported")}
-	}
 	// A result is returned by value, so it goes through the shared position
-	// model like every other copy-requiring position.
+	// model like every other copy-requiring position. Fun is
+	// now valid as a function result via the expanded Storable matrix.
 	if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionResult) {
 		return nil, nil, compilerTypes.Diagnostics{typeErrorAt(fallback, "function result "+resolved.Name+" is not shallow-copyable")}
 	}
 	return &resolved, &resolvedUse, nil
+}
+
+// directFunctionLiteralSugar reports whether declaration is declaration
+// sugar over a function form rather than ordinary runtime data: an inferred
+// fixed binding (`name := ...`) whose initializer is directly an anonymous
+// function literal. A written type or `mut` makes it ordinary data; so does
+// a call or other suffix on the initializer, which the parser represents as
+// a CallExpression wrapping the literal, not this kind at all. The parser
+// never wraps a redundant grouping, so no stripping is needed here.
+func directFunctionLiteralSugar(declaration parser.Declaration) (parser.AnonymousFunctionLiteral, bool) {
+	if declaration.Mutable || declaration.Type != nil {
+		return parser.AnonymousFunctionLiteral{}, false
+	}
+	literal, ok := declaration.Initializer.(parser.AnonymousFunctionLiteral)
+	return literal, ok
+}
+
+// asFunctionDeclaration synthesizes the module-level named-function form
+// that a direct function-literal declaration is sugar for: name is the
+// source binding name, and the signature and body are the literal's own.
+func asFunctionDeclaration(name lexer.Token, literal parser.AnonymousFunctionLiteral) parser.FunctionDeclaration {
+	return parser.FunctionDeclaration{
+		Keyword:         literal.FunKeyword,
+		Name:            name,
+		TypeParameters:  literal.TypeParameters,
+		Parameters:      literal.Parameters,
+		Return:          literal.Return,
+		Body:            literal.Body,
+		End:             literal.End,
+		HasSyntaxErrors: literal.HasSyntaxErrors,
+	}
+}
+
+// asLocalFunctionDeclaration synthesizes the local named-function form that
+// a direct function-literal declaration is sugar for.
+func asLocalFunctionDeclaration(name lexer.Token, literal parser.AnonymousFunctionLiteral) parser.LocalFunctionDeclaration {
+	return parser.LocalFunctionDeclaration{
+		Keyword:         literal.FunKeyword,
+		Name:            name,
+		TypeParameters:  literal.TypeParameters,
+		Parameters:      literal.Parameters,
+		Return:          literal.Return,
+		Body:            literal.Body,
+		End:             literal.End,
+		HasSyntaxErrors: literal.HasSyntaxErrors,
+	}
+}
+
+// checkLocalFunctionDeclaration checks a named function declared inside
+// another function's body. It follows the same single-pass order as a module
+// FunctionDeclaration - resolve the signature, bind the name, then check the
+// body - so self-recursion resolves the same way; it differs only in binding
+// the name into the current lexical block instead of the module frame, which
+// gives it that block's visibility instead of the whole module's.
+func checkLocalFunctionDeclaration(declaration parser.LocalFunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment) (LocalFunctionDeclaration, compilerTypes.Diagnostics) {
+	name := declaration.Name.Lexeme
+	checked := LocalFunctionDeclaration{
+		Name:         name,
+		SourceLine:   declaration.Name.Line,
+		SourceColumn: declaration.Name.Column,
+	}
+	diagnostics := make(compilerTypes.Diagnostics, 0)
+
+	if name == "print" {
+		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, "print is a protected built-in name"))
+	}
+	if layoutBuiltins[name] {
+		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, name+" is a protected built-in name"))
+	}
+	if compilerTypes.IsProtectedTypeName(name) || typeEnvironment.Contains(name) {
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+name+" is already declared as a type"))
+	} else if names.declaredHere(name) {
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, name+" is already declared"))
+	} else if method, taken := names.methods.cNames[name]; taken {
+		diagnostics = append(diagnostics, collisionDiagnostic(name, method, declaration.Name))
+	}
+	if len(diagnostics) > 0 {
+		return checked, diagnostics
+	}
+
+	if len(declaration.TypeParameters) > 0 {
+		synthesized := parser.FunctionDeclaration{
+			Keyword:         declaration.Keyword,
+			Name:            declaration.Name,
+			TypeParameters:  declaration.TypeParameters,
+			Parameters:      declaration.Parameters,
+			Return:          declaration.Return,
+			Body:            declaration.Body,
+			End:             declaration.End,
+			HasSyntaxErrors: declaration.HasSyntaxErrors,
+		}
+		_, registerDiagnostics := registerLocalGenericFunction(declaration.Name, declaration.TypeParameters, synthesized, names, typeEnvironment)
+		return checked, registerDiagnostics
+	}
+
+	signature, signatureDiagnostics := checkFunctionSignature(declaration.Parameters, declaration.Return, declaration.Name, names.generics, typeEnvironment)
+	diagnostics = append(diagnostics, signatureDiagnostics...)
+	if len(diagnostics) > 0 {
+		return checked, diagnostics
+	}
+	checked.Parameters = signature.parameters
+	checked.Result = signature.result
+	checked.ResultUse = signature.resultUse
+	checked.Type = signature.functionType
+
+	parameterUses := make([]compilerTypes.TypeUse, 0, len(signature.parameters))
+	for _, parameter := range signature.parameters {
+		parameterUses = append(parameterUses, parameter.TypeUse)
+	}
+	functionUse := compilerTypes.FunctionTypeUse(signature.functionType, parameterUses, signature.resultUse)
+	// The ordinal is assigned here, before the body is checked, from the
+	// same shared counter every binding draws from: checking proceeds in
+	// exactly one linear preorder pass, so this is already checked-tree
+	// preorder without a second counter.
+	ordinal := names.newBindingID()
+	checked.HelperOrdinal = ordinal
+	// Registered before the body is checked, exactly like a module function:
+	// this is what makes direct self-recursion resolve.
+	names.define(name, binding{typ: signature.functionType, use: functionUse, kind: functionBinding, localHelperOrdinal: ordinal})
+
+	body := names.closureRootScope(name)
+	body.result = signature.result
+	body.resultUse = signature.resultUse
+	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, declaration.Body, names, body, typeEnvironment)
+	diagnostics = append(diagnostics, bodyDiagnostics...)
+	checked.Body = statements
+	checked.Defers = append(checked.Defers, body.defers...)
+
+	if signature.result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
+		diagnostics = append(diagnostics, typeErrorAt(declaration.End,
+			fmt.Sprintf("returning %s may fall through without returning %s", name, signature.result.Name)))
+	}
+	return checked, diagnostics
 }

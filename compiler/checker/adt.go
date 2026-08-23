@@ -82,10 +82,6 @@ func resolveADTPayload(adtName string, expression parser.ObjectTypeExpression, t
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
 		}
-		if resolvedUse.Type.Signature != nil {
-			diagnostics = append(diagnostics, typeErrorAt(member.Name, "Fun<…> ADT payload fields are not supported"))
-			continue
-		}
 		if compilerTypes.ContainsAtomic(resolvedUse.Type) {
 			diagnostics = append(diagnostics, typeErrorAt(member.Name, "Atomic values cannot be copied, assigned, addressed, or stored here"))
 			continue

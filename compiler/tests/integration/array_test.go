@@ -116,9 +116,10 @@ func TestArrayIndexErrors(t *testing.T) {
 }
 
 func TestArrayElementClassRejectsFunctionValues(t *testing.T) {
+	// Fun is now valid as an Array element (stored as function pointers).
 	result := compileSource("type Holder = { callbacks: Array<Fun<(Int32)>, 2>, }")
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "not an inline array element type") {
-		t.Fatalf("Compile stderr = %#v, want inline-element diagnostic", result.Stderr)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile stderr = %#v, want accept for Array<Fun>", result.Stderr)
 	}
 }
 

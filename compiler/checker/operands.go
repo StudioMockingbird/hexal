@@ -220,6 +220,14 @@ const (
 	// OperandType is that adapted receiver type; ResultType is the
 	// operation's structural result union.
 	StreamMethodCallExpression
+	// FunctionLiteralExpression is a non-capturing anonymous function value
+	// checked in expression position: stored, passed, returned, or invoked
+	// directly. Function carries its checked signature and body; ResultType
+	// is its exact Fun<...> type. It never carries a recursion name: a
+	// literal that is the direct initializer of a fixed inferred binding is
+	// declaration sugar and is checked as the equivalent named function
+	// declaration instead, never as this expression kind.
+	FunctionLiteralExpression
 )
 
 // Operator is the resolved semantic operator carried by a checked operation.
@@ -348,6 +356,36 @@ type Expression struct {
 	// signature, so the generator needs these to declare the foreign
 	// prototype in the importer's header. Nil for local calls.
 	MethodParameters []compilerTypes.Type
+	// Function is the checked signature and body of a
+	// FunctionLiteralExpression. Nil for every other kind.
+	Function *FunctionLiteral
+	// LocalHelperOrdinal is nonzero exactly when Kind is
+	// FunctionReferenceExpression or FunctionLiteralExpression and the
+	// referenced function is a local named function or anonymous literal:
+	// its generated symbol is hex_fun_<LocalHelperOrdinal>, not an
+	// owner-qualified name built from Name. BindingID allocation never
+	// returns zero, so zero unambiguously means "not a local helper
+	// reference".
+	LocalHelperOrdinal BindingID
+}
+
+// FunctionLiteral is the checked signature and body shared by every
+// function form: a module FunctionDeclaration, a LocalFunctionDeclaration,
+// and a FunctionLiteralExpression all check their parameters, result, and
+// body through the same path and store the result in this shape.
+type FunctionLiteral struct {
+	Parameters []FunctionParameter
+	Result     *compilerTypes.Type
+	ResultUse  *compilerTypes.TypeUse
+	Type       compilerTypes.Type
+	Body       []Statement
+	Defers     []DeferredAction
+	// HelperOrdinal is this literal's compiler-owned identity, assigned once
+	// at check time from the same shared BindingID counter LocalFunctionDeclaration
+	// draws from. The two share one hex_fun_<ordinal> stream.
+	HelperOrdinal BindingID
+	SourceLine    int
+	SourceColumn  int
 }
 
 // ViewRootKind classifies the root of a View-producing expression for the

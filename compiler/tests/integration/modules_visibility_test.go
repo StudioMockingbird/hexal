@@ -37,6 +37,26 @@ func assertMultiModuleSuccess(t *testing.T, result compiler.CompilationResult, m
 	}
 }
 
+// A direct inferred fixed function-literal declaration is declaration sugar,
+// not executable data, so an imported declaration-only module may contain
+// one. It stays private: export prefixes only the named function-declaration
+// form, never this spelling.
+func TestDeclarationOnlyModuleAcceptsDirectFunctionLiteral(t *testing.T) {
+	sources := map[string]string{
+		"app.hex": "module Lib = import \"./lib\"\nresult: Int32 := Lib.add(2, 3)\n",
+		"lib.hex": "add := fun (x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
+	}
+	result := compiler.Compile(sources, "app.hex", compiler.Project{})
+	if result.ExitCode == compiler.ExitSuccess {
+		t.Fatal("unexported declaration sugar must stay private, like the equivalent named form")
+	}
+	for _, message := range result.Stderr {
+		if strings.Contains(message, "executable statements") {
+			t.Fatalf("declaration sugar misclassified as an executable statement: %v", result.Stderr)
+		}
+	}
+}
+
 func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 := Math.add(2, 3)\n",

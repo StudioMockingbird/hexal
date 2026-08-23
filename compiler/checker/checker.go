@@ -232,6 +232,17 @@ type binding struct {
 	// moduleID is the target canonical module of an aliasBinding import.
 	// It is empty for every value and function binding.
 	moduleID string
+	// genericFunction is the open template a genericFunctionBinding refers
+	// to. Resolution reads it directly from the binding rather than a
+	// name-keyed lookup, so a local generic's binding can be found through
+	// its own lexical block without touching any module-wide, name-keyed
+	// table that a same-named sibling in another scope could collide with.
+	genericFunction *openGenericFunction
+	// localHelperOrdinal is nonzero for a functionBinding that names a local
+	// named function: a reference built from this binding carries the
+	// ordinal instead of the source name, so two same-named local functions
+	// in disjoint scopes generate distinct symbols.
+	localHelperOrdinal BindingID
 }
 
 // Check resolves declared types, checks initializers, binding modes, pointer
@@ -372,6 +383,18 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				checked.TypeDeclarations = append(checked.TypeDeclarations, checkedDeclaration)
 			}
 		case parser.Declaration:
+			if literal, isSugar := directFunctionLiteralSugar(statement); isSugar {
+				// A direct inferred fixed literal declaration is checked as
+				// the equivalent named function declaration; it is
+				// declaration sugar, not runtime data, and emits no
+				// initializer statement or function-pointer object.
+				checkedStatement, statementDiagnostics := checkFunctionDeclaration(asFunctionDeclaration(statement.Name, literal), environment, typeEnvironment, !literal.HasSyntaxErrors)
+				diagnostics = append(diagnostics, statementDiagnostics...)
+				if len(statementDiagnostics) == 0 && checkedStatement.Type != (compilerTypes.Type{}) {
+					checked.Statements = append(checked.Statements, checkedStatement)
+				}
+				continue
+			}
 			checkedStatement, declaredBinding, statementDiagnostics := checkDeclaration(statement, environment, typeEnvironment)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
@@ -581,6 +604,12 @@ func assignmentTargetToken(target parser.Expression) (lexer.Token, bool) {
 func executableItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 	switch statement := item.(type) {
 	case parser.Declaration:
+		if _, isSugar := directFunctionLiteralSugar(statement); isSugar {
+			// Declaration sugar over a function form is a declaration, not
+			// an executable statement, exactly like the named spelling it is
+			// equivalent to.
+			return lexer.Token{}, false
+		}
 		return statement.Name, true
 	case parser.TryStatement:
 		return statement.Keyword, true

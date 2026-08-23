@@ -71,11 +71,47 @@ type openGenericType struct {
 
 // openGenericFunction is one generic function declaration kept as an open
 // template. Its body is re-checked under a concrete frame at specialization.
+// A module-level template is identified by Name alone, exactly as before
+// local generic declarations existed: one module has one name per
+// declaration, so no collision is possible. Local is true for a local named
+// function or a direct inferred fixed literal, where identity instead
+// carries the compiler-owned template identity: two local generics can
+// legitimately reuse a name in disjoint scopes, and the module-wide type
+// environment and specialization tables key on strings, so templateKey is
+// what actually distinguishes them.
 type openGenericFunction struct {
 	Name        string
 	Parameters  []lexer.Token
 	Declaration parser.FunctionDeclaration
 	Generic     *compilerTypes.GenericDeclaration
+	identity    BindingID
+	local       bool
+}
+
+// templateKey is the string that keys this template's type-environment
+// registration, specialization cache, recursion guard, and generated C name
+// stem. A module template keeps its bare source name, preserving today's
+// generated names and cache keys exactly. A local template's key is
+// qualified by its identity so two same-named local templates in disjoint
+// scopes never share a cache entry, a type-parameter placeholder, or a
+// generated symbol.
+func (open *openGenericFunction) templateKey() string {
+	if !open.local {
+		return open.Name
+	}
+	return fmt.Sprintf("%s#%d", open.Name, open.identity)
+}
+
+// generatedStem is templateKey's counterpart for a generated C symbol
+// fragment, which must be a valid C identifier and therefore cannot use
+// templateKey's '#' separator. A module template keeps its bare name; a
+// local template's stem is disambiguated with its identity so two local
+// templates that reuse a name in disjoint scopes never share a symbol.
+func (open *openGenericFunction) generatedStem() string {
+	if !open.local {
+		return open.Name
+	}
+	return fmt.Sprintf("%s_local%d", open.Name, open.identity)
 }
 
 // openGenericMethod is one generic method declaration. ReceiverParameters are
@@ -130,6 +166,26 @@ func parameterFrame(parameters []lexer.Token, arguments []compilerTypes.Type) ma
 		}
 	}
 	return frame
+}
+
+// mergedFrame combines an enclosing generic frame with a nested template's
+// own, so a local generic function or literal specializing inside an
+// already-specializing generic function or method can still resolve the
+// enclosing type parameter. The active-name check at registration already
+// rejects a nested declaration that redeclares an enclosing name, so no
+// entry in inner ever legitimately overwrites one in outer.
+func mergedFrame(outer, inner map[string]compilerTypes.Type) map[string]compilerTypes.Type {
+	if len(outer) == 0 {
+		return inner
+	}
+	merged := make(map[string]compilerTypes.Type, len(outer)+len(inner))
+	for name, typ := range outer {
+		merged[name] = typ
+	}
+	for name, typ := range inner {
+		merged[name] = typ
+	}
+	return merged
 }
 
 // specializedFunctionList returns the cached concrete function specializations
@@ -276,14 +332,56 @@ func registerGenericFunction(declaration parser.FunctionDeclaration, names *scop
 	if generic == nil {
 		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, name+" is already declared")}
 	}
-	names.generics.functions[name] = &openGenericFunction{
+	open := &openGenericFunction{
 		Name:        name,
 		Parameters:  append([]lexer.Token(nil), declaration.TypeParameters...),
 		Declaration: declaration,
 		Generic:     generic,
+		identity:    names.newBindingID(),
 	}
-	names.module[name] = binding{typ: compilerTypes.Type{}, use: compilerTypes.NewTypeUse(compilerTypes.Type{}), kind: genericFunctionBinding}
+	// A module template is additionally published under its bare name so a
+	// clean module can export it; registerGenerics reads exactly this map.
+	// A local template never reaches this path.
+	names.generics.functions[name] = open
+	names.module[name] = binding{typ: compilerTypes.Type{}, use: compilerTypes.NewTypeUse(compilerTypes.Type{}), kind: genericFunctionBinding, genericFunction: open}
 	return nil
+}
+
+// registerLocalGenericFunction validates and stores one local named generic
+// function or direct inferred fixed generic literal declaration as an open
+// template scoped to the current lexical block, then binds its name so a
+// call from that block resolves. Unlike a module template it is never
+// published for export - export prefixes only the module-level named form -
+// and its own type-parameter names are additionally checked against every
+// name already active in an enclosing generic function, method, local
+// function, or literal, so a nested redeclaration is rejected rather than
+// silently shadowing.
+func registerLocalGenericFunction(name lexer.Token, typeParameters []lexer.Token, synthesized parser.FunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment) (*openGenericFunction, compilerTypes.Diagnostics) {
+	diagnostics := validateGenericParameters(typeParameters)
+	for _, parameter := range typeParameters {
+		if _, active := names.generics.frame[parameter.Lexeme]; active {
+			diagnostics = append(diagnostics, typeErrorAt(parameter, "generic parameter "+parameter.Lexeme+" is already declared by an enclosing function"))
+		}
+	}
+	if len(diagnostics) > 0 {
+		return nil, diagnostics
+	}
+	identity := names.newBindingID()
+	open := &openGenericFunction{
+		Name:        name.Lexeme,
+		Parameters:  append([]lexer.Token(nil), typeParameters...),
+		Declaration: synthesized,
+		local:       true,
+		identity:    identity,
+	}
+	generic := typeEnvironment.DeclareGeneric(open.templateKey(), len(typeParameters), parameterNamesOf(typeParameters))
+	if generic == nil {
+		diagnostic := unknownAt(name, "could not declare the generic template for "+name.Lexeme)
+		return nil, compilerTypes.Diagnostics{diagnostic}
+	}
+	open.Generic = generic
+	names.define(name.Lexeme, binding{typ: compilerTypes.Type{}, use: compilerTypes.NewTypeUse(compilerTypes.Type{}), kind: genericFunctionBinding, genericFunction: open})
+	return open, nil
 }
 
 // isGenericReceiver reports whether an impl receiver is a generic type use
@@ -380,7 +478,8 @@ func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Typ
 // runs entirely in the requesting module's type environment.
 func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment, collection map[string]FunctionDeclaration) (FunctionDeclaration, *compilerTypes.Diagnostic) {
 	generics := names.generics
-	key := specializeKey(open.Name, arguments)
+	stem := open.templateKey()
+	key := specializeKey(stem, arguments)
 	if collection == nil {
 		diagnostic := unknownAt(open.Declaration.Name, "generic function specialization outside a specialization collection")
 		return FunctionDeclaration{}, &diagnostic
@@ -389,12 +488,16 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		return cached, nil
 	}
 	for activeKey := range generics.active {
-		if strings.HasPrefix(activeKey, open.Name+"|") && activeKey != key {
+		if strings.HasPrefix(activeKey, stem+"|") && activeKey != key {
 			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.Name, "recursive specialization changes generic arguments"))
 		}
 	}
 	previousFrame := generics.frame
-	generics.frame = parameterFrame(open.Parameters, arguments)
+	// Merge rather than replace: a local generic template nested inside an
+	// already-specializing enclosing generic function or method must still
+	// resolve the enclosing type parameter, exactly as a non-generic nested
+	// declaration already does through the shared generics table.
+	generics.frame = mergedFrame(previousFrame, parameterFrame(open.Parameters, arguments))
 	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, typeEnvironment, generics)
 	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, typeEnvironment, generics)
 	if len(parameterDiagnostics) > 0 {
@@ -416,7 +519,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		return FunctionDeclaration{}, &diagnostic
 	}
 	specialized := FunctionDeclaration{
-		Name:         specializeFunctionName(open.Name, arguments),
+		Name:         specializeFunctionName(open.generatedStem(), arguments),
 		Parameters:   parameters,
 		Result:       result,
 		ResultUse:    resultUse,
@@ -427,21 +530,30 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	collection[key] = specialized
 	generics.active[key] = true
 	generics.open = false
-	body := &scope{
-		module:     names.module,
-		local:      make(map[string]binding, len(parameters)),
-		owner:      specialized.Name,
-		result:     result,
-		resultUse:  resultUse,
-		methods:    names.methods,
-		function:   true,
-		nextID:     names.nextID,
-		flow:       newFlowState(),
-		generics:   generics,
-		registry:   names.registry,
-		moduleID:   names.moduleID,
-		logicalKey: names.logicalKey,
+	var body *scope
+	if open.local {
+		// A local template's self-recursion binding lives in an enclosing
+		// block's local map, not the module frame; only a scope chained to
+		// names can reach it, and the same chain is what gives its body the
+		// closed-function capture rule every other local declaration has.
+		body = names.closureRootScope(specialized.Name)
+	} else {
+		body = &scope{
+			module:     names.module,
+			local:      make(map[string]binding, len(parameters)),
+			methods:    names.methods,
+			function:   true,
+			nextID:     names.nextID,
+			flow:       newFlowState(),
+			generics:   generics,
+			registry:   names.registry,
+			moduleID:   names.moduleID,
+			logicalKey: names.logicalKey,
+		}
+		body.owner = specialized.Name
 	}
+	body.result = result
+	body.resultUse = resultUse
 	for index := range parameters {
 		parameters[index].Binding = names.newBindingID()
 		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
@@ -476,7 +588,11 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 			frame[parameter.Lexeme] = methodArguments[index]
 		}
 	}
-	generics.frame = frame
+	// Merged, not replaced, for the same reason as specializeFunctionIn: a
+	// method cannot itself nest inside anything, but a local generic
+	// function or literal declared in its body can, and that inner template
+	// specializes while this frame is still active.
+	generics.frame = mergedFrame(previousFrame, frame)
 	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, typeEnvironment, generics)
 	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, typeEnvironment, generics)
 	if len(parameterDiagnostics) > 0 {
@@ -563,7 +679,7 @@ func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, 
 		placeholders[index] = placeholder
 		placeholderFrame[parameter.Lexeme] = placeholder
 	}
-	generics.frame = placeholderFrame
+	generics.frame = mergedFrame(previousFrame, placeholderFrame)
 	expected := make([]compilerTypes.Type, 0, len(open.Declaration.Parameters))
 	for _, parameter := range open.Declaration.Parameters {
 		use, diagnostic := resolveTypeUse(parameter.Type, parameter.Name, typeEnvironment, generics)
@@ -745,8 +861,8 @@ func unionTypeMembers(typ compilerTypes.Type) ([]compilerTypes.Type, bool) {
 // function call, specializes the callee, and returns the checked concrete
 // call.
 func checkGenericCall(call parser.CallExpression, bound binding, name string, token lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	open, ok := names.generics.functions[name]
-	if !ok {
+	open := bound.genericFunction
+	if open == nil {
 		diagnostic := unknownAt(token, "generic function binding without an open template")
 		return checkedExpression{token: token, diagnostic: &diagnostic}
 	}
@@ -964,77 +1080,12 @@ func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type
 	if status != nameFound || bound.kind != genericFunctionBinding {
 		return nil, nil
 	}
-	open, ok := names.generics.functions[name.Lexeme]
-	if !ok {
+	open := bound.genericFunction
+	if open == nil {
 		diagnostic := unknownAt(name, "generic function binding without an open template")
 		return nil, &diagnostic
 	}
-	generics := names.generics
-	previousFrame := generics.frame
-	placeholderFrame := make(map[string]compilerTypes.Type, len(open.Parameters))
-	placeholders := make([]compilerTypes.Type, open.Generic.Arity)
-	for index, parameter := range open.Parameters {
-		placeholder := typeEnvironment.TypeParameter(open.Generic, index)
-		placeholders[index] = placeholder
-		placeholderFrame[parameter.Lexeme] = placeholder
-	}
-	generics.frame = placeholderFrame
-	expectedTypes := make([]compilerTypes.Type, 0, len(open.Declaration.Parameters))
-	for _, parameter := range open.Declaration.Parameters {
-		use, diagnostic := resolveTypeUse(parameter.Type, name, typeEnvironment, generics)
-		if diagnostic != nil {
-			generics.frame = previousFrame
-			return nil, diagnostic
-		}
-		expectedTypes = append(expectedTypes, use.Type)
-	}
-	var expectedResult compilerTypes.Type
-	hasResult := false
-	if open.Declaration.Return != nil {
-		use, diagnostic := resolveTypeUse(open.Declaration.Return, name, typeEnvironment, generics)
-		if diagnostic != nil {
-			generics.frame = previousFrame
-			return nil, diagnostic
-		}
-		expectedResult = use.Type
-		hasResult = true
-	}
-	generics.frame = previousFrame
-	signature := expected.Signature
-	if signature == nil || len(signature.Parameters) != len(expectedTypes) || (signature.Result == nil) != !hasResult {
-		return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("cannot infer generic parameter for %s", open.Name)))
-	}
-	bindings := make([]compilerTypes.Type, open.Generic.Arity)
-	for index := range expectedTypes {
-		if !unifyTypes(expectedTypes[index], signature.Parameters[index], bindings, open.Generic) {
-			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[index].Lexeme)))
-		}
-	}
-	if hasResult {
-		if !unifyTypes(expectedResult, *signature.Result, bindings, open.Generic) {
-			conflictingIndex := 0
-			if expectedResult.Generic != nil && expectedResult.Generic == open.Generic && expectedResult.GenericIndex >= 0 && expectedResult.GenericIndex < len(open.Parameters) {
-				conflictingIndex = expectedResult.GenericIndex
-			} else {
-				for index, placeholder := range placeholders {
-					if typeContainsPlaceholder(expectedResult, placeholder) {
-						conflictingIndex = index
-						break
-					}
-				}
-			}
-			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[conflictingIndex].Lexeme)))
-		}
-	}
-	for index, binding := range bindings {
-		if binding == (compilerTypes.Type{}) {
-			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("cannot infer generic parameter %s for %s", open.Parameters[index].Lexeme, open.Name)))
-		}
-		if compilerTypes.ContainsTypeParameter(binding) {
-			return nil, diagnosticAt(typeErrorAt(name, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
-		}
-	}
-	specialized, diagnostic := specializeFunction(open, bindings, names, typeEnvironment)
+	specialized, diagnostic := specializeFromExpectedType(open, expected, name, names, typeEnvironment)
 	if diagnostic != nil {
 		return nil, diagnostic
 	}
@@ -1050,6 +1101,82 @@ func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type
 		function: true,
 	}
 	return &reference, nil
+}
+
+// specializeFromExpectedType infers open's type arguments by unifying its
+// written signature (resolved under placeholder parameters) against an exact
+// expected Fun<...> type, then specializes it. It is the shared contextual-
+// specialization engine behind a bare generic function reference and a
+// generic anonymous literal used where an exact Fun<...> type is expected;
+// fallback names the token diagnostics anchor to when open has no useful
+// position of its own (an anonymous literal has no declared name).
+func specializeFromExpectedType(open *openGenericFunction, expected compilerTypes.Type, fallback lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) (FunctionDeclaration, *compilerTypes.Diagnostic) {
+	generics := names.generics
+	previousFrame := generics.frame
+	placeholderFrame := make(map[string]compilerTypes.Type, len(open.Parameters))
+	placeholders := make([]compilerTypes.Type, open.Generic.Arity)
+	for index, parameter := range open.Parameters {
+		placeholder := typeEnvironment.TypeParameter(open.Generic, index)
+		placeholders[index] = placeholder
+		placeholderFrame[parameter.Lexeme] = placeholder
+	}
+	generics.frame = mergedFrame(previousFrame, placeholderFrame)
+	expectedTypes := make([]compilerTypes.Type, 0, len(open.Declaration.Parameters))
+	for _, parameter := range open.Declaration.Parameters {
+		use, diagnostic := resolveTypeUse(parameter.Type, fallback, typeEnvironment, generics)
+		if diagnostic != nil {
+			generics.frame = previousFrame
+			return FunctionDeclaration{}, diagnostic
+		}
+		expectedTypes = append(expectedTypes, use.Type)
+	}
+	var expectedResult compilerTypes.Type
+	hasResult := false
+	if open.Declaration.Return != nil {
+		use, diagnostic := resolveTypeUse(open.Declaration.Return, fallback, typeEnvironment, generics)
+		if diagnostic != nil {
+			generics.frame = previousFrame
+			return FunctionDeclaration{}, diagnostic
+		}
+		expectedResult = use.Type
+		hasResult = true
+	}
+	generics.frame = previousFrame
+	signature := expected.Signature
+	if signature == nil || len(signature.Parameters) != len(expectedTypes) || (signature.Result == nil) != !hasResult {
+		return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("cannot infer generic parameter for %s", open.Name)))
+	}
+	bindings := make([]compilerTypes.Type, open.Generic.Arity)
+	for index := range expectedTypes {
+		if !unifyTypes(expectedTypes[index], signature.Parameters[index], bindings, open.Generic) {
+			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[index].Lexeme)))
+		}
+	}
+	if hasResult {
+		if !unifyTypes(expectedResult, *signature.Result, bindings, open.Generic) {
+			conflictingIndex := 0
+			if expectedResult.Generic != nil && expectedResult.Generic == open.Generic && expectedResult.GenericIndex >= 0 && expectedResult.GenericIndex < len(open.Parameters) {
+				conflictingIndex = expectedResult.GenericIndex
+			} else {
+				for index, placeholder := range placeholders {
+					if typeContainsPlaceholder(expectedResult, placeholder) {
+						conflictingIndex = index
+						break
+					}
+				}
+			}
+			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[conflictingIndex].Lexeme)))
+		}
+	}
+	for index, binding := range bindings {
+		if binding == (compilerTypes.Type{}) {
+			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("cannot infer generic parameter %s for %s", open.Parameters[index].Lexeme, open.Name)))
+		}
+		if compilerTypes.ContainsTypeParameter(binding) {
+			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
+		}
+	}
+	return specializeFunction(open, bindings, names, typeEnvironment)
 }
 
 // specializeADTType creates or reuses the nominal ADT for one concrete

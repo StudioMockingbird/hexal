@@ -41,6 +41,11 @@ func TestEveryReaderOfTheExpectedTypeIsClassified(t *testing.T) {
 		// Forward to their operands; contextualExpression recurses to match.
 		"checkUnaryExpression",
 		"checkBinaryExpression",
+		// Consumes the expected type for itself, exactly like the accepted
+		// generic function reference case: a generic literal specializes
+		// directly against an exact expected Fun<...> type rather than
+		// forwarding it to a checked sub-expression.
+		"checkGenericAnonymousFunctionLiteral",
 	}
 	slices.Sort(reviewed)
 

@@ -38,7 +38,7 @@ func checkPlace(expression parser.Expression, names *scope, typeEnvironment *com
 					Kind: VariableOperand,
 					Type: binding.typ,
 					Name: expression.Name.Lexeme,
-					Node: Expression{Kind: FunctionReferenceExpression, Name: expression.Name.Lexeme, ResultType: binding.typ},
+					Node: Expression{Kind: FunctionReferenceExpression, Name: expression.Name.Lexeme, LocalHelperOrdinal: binding.localHelperOrdinal, ResultType: binding.typ},
 				},
 				typ:      binding.typ,
 				token:    expression.Name,

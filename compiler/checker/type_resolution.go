@@ -225,11 +225,10 @@ func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnviro
 		if diagnostic := valueTypeDiagnostic(expression.Return, expression.Keyword, resolvedUse.Type); diagnostic != nil {
 			return compilerTypes.TypeUse{}, diagnostic
 		}
-		if resolvedUse.Type.Signature != nil {
-			diagnostic := typeErrorAt(expression.Keyword, "returning "+resolvedUse.Type.Name+" is not supported")
-			return compilerTypes.TypeUse{}, &diagnostic
-		}
 		resolved := resolvedUse.Type
+		if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionResult) {
+			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Keyword, "function result "+resolved.Name+" is not storable"))
+		}
 		result = &resolved
 		resultUse = &resolvedUse
 	}

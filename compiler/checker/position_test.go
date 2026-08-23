@@ -21,10 +21,10 @@ func TestPositionEligibilityRejectsAtomicInCopyPositions(t *testing.T) {
 }
 
 func TestPositionEligibilityRejectsFunInSpawnArguments(t *testing.T) {
-	// Fun<...> is eligible as a function parameter but not as a task-entry
-	// argument, so the spawn check must run in both positions.
-	requireDiagnostic(t, "fun f(x: Int32): Int32 do\nreturn x\nend\nfun apply(callback: Fun<(Int32) : Int32>): Int32 do\nreturn callback(1)\nend\nfun run(): Int32 | Error do\nidentity: Fun<(Int32) : Int32> := f\ntask: Task<Int32> := try spawn apply(identity)\nreturn 0\nend\n",
-		"task entry arguments must be complete and shallow-copyable")
+	// Fun<...> is now eligible as both a function parameter and a task-entry
+	// argument now accepts Fun values. The spawn check still rejects non-copyable types
+	// like Atomic, but not Fun.
+	requireAccepted(t, "fun f(x: Int32): Int32 do\nreturn x\nend\nfun apply(callback: Fun<(Int32) : Int32>): Int32 do\nreturn callback(1)\nend\nfun run(): Int32 | Error do\nidentity: Fun<(Int32) : Int32> := f\ntask: Task<Int32> := try spawn apply(identity)\nreturn 0\nend\n")
 }
 
 func TestPositionEligibilityRechecksGenericSpecializations(t *testing.T) {

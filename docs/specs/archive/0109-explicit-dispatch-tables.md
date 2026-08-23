@@ -1,9 +1,16 @@
 # RFC 0109: Explicit Dispatch Tables
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented 2026-08-24. The member-call resolution rule
+  (checkMethodCall's Fun-member fallback) was verified 2026-08-23,
+  independently of RFC 0094. The remaining dependency - member admission
+  itself, and an anonymous function literal or generic table checking as a
+  member initializer - closed when RFC 0094 landed; re-verified 2026-08-24
+  against the completed implementation, including the literal-initializer
+  and mutable-reassignment cases this RFC's Validation names.
 - Created: 2026-08-22
-- Updated: 2026-08-23
+- Updated: 2026-08-24 — closed after RFC 0094 landed and this RFC's
+  remaining Validation items were re-verified.
 - Scope: permit `Fun<...>` members in ordinary objects so programs can build explicit dispatch tables
 - Depends on: the existing `Fun<...>` rules, generic types, object values, and
   RFC 0094

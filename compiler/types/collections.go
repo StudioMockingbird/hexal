@@ -191,7 +191,15 @@ func Storable(typ Type, position Position) bool {
 		return position == PositionUnionMember
 	}
 	if typ.Signature != nil {
-		return position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam || position == PositionObjectMember
+		switch position {
+		case PositionBinding, PositionUnionMember, PositionFunctionParam, PositionFunctionResult,
+			PositionObjectMember, PositionADTPayload, PositionArrayElement, PositionViewElement,
+			PositionListElement, PositionDictValue, PositionTaskArgument, PositionTaskResult,
+			PositionChannelElement:
+			return true
+		default:
+			return false
+		}
 	}
 	if typ.Atomic != nil && !isConstructionPosition(position) {
 		return false
