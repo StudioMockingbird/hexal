@@ -104,19 +104,24 @@ value binding.
 
 ## Generated C
 
-- Every module header emits prototypes for all functions and methods whose
-  declarations are visible across the module boundary, plus prototypes for
-  every local function that is reachable and whose address is taken or whose
-  signature is needed across the module (deterministic by `hex_fun_<ordinal>`
-  sharing with RFC 0094). In practice the local-function prototype region
-  precedes ordinary function definitions, as specified by RFC 0094.
-- Every module C file emits definitions after the prototype region.
+- Every module header emits prototypes only for module-level functions and
+  methods whose declarations are visible across the module boundary. Private
+  module-level functions and all local functions never appear in a module
+  header.
+- Every module C file emits a module-local prototype region before any function
+  definition that may be referenced before its definition. Private
+  module-level functions and methods use `static` prototypes in this region.
+  Exported module-level prototypes are supplied by the module header and are
+  not duplicated in the C file solely for this RFC.
+- Every local-function prototype region is emitted in the containing C scope,
+  as specified by RFC 0094; it is not moved into a module header.
+- Function definitions are emitted after the applicable prototype region and
+  exactly once.
 - Private functions and all local functions retain internal (`static`) linkage;
   exported module-level functions retain their existing external-linkage
   contract.
-- Prototype ordering is deterministic by module identity, then by block
-  preorder source position for locals, then by module source position for
-  module-level functions.
+- Prototype ordering is deterministic by module source position for
+  module-level functions, then by block preorder source position for locals.
 - Function bodies retain their source `#line` mappings.
 
 ## Non-goals
@@ -153,8 +158,15 @@ passes:
 - Anonymous literals see only the collected module plus enclosing-block local
   function set and still reject lexical value captures.
 - Generated C prototypes precede every mutually recursive use (module and
-  local) and each definition is emitted exactly once with deterministic
-  ordering.
+  local). Private module-level prototypes occur only in the module C file;
+  cross-module prototypes occur only in the module header; local prototypes
+  occur only in their containing C scope. Each definition is emitted exactly
+  once with deterministic ordering.
+- A private module-level function called by a later function has a `static`
+  prototype before the caller in the module C file and no private prototype in
+  the module header.
+- A module header contains no local-function prototype, even when a local
+  function's address is taken or its signature is used by generated code.
 - Repeated compilations produce identical module artifacts and symbol names.
 - Ordinary tests remain pure Go and assert checked trees and generated C text.
 

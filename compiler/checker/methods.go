@@ -76,6 +76,110 @@ func methodCollisionDiagnostic(objectName, methodName, existing string, token le
 	return typeErrorAt(token, fmt.Sprintf("impl %s.%s collides with impl %s", objectName, methodName, existing))
 }
 
+// isNullableFun reports whether typ is a nullable function pointer
+// (Fun<...> | Nil) that can be used as a dispatch-table member. The
+// nullable form reuses the base's Signature, so IsNullable must be checked
+// before the direct Signature test.
+func isNullableFun(typ compilerTypes.Type) bool {
+	if compilerTypes.IsNullable(typ) {
+		if base, ok := compilerTypes.NullableBase(typ); ok && base.Signature != nil {
+			return true
+		}
+	}
+	if typ.Signature != nil {
+		return false
+	}
+	if typ.Union != nil {
+		hasFun, hasNil := false, false
+		for _, member := range typ.Union.Members {
+			if member.Signature != nil {
+				hasFun = true
+			}
+			if compilerTypes.IsNil(member) {
+				hasNil = true
+			}
+		}
+		if hasFun && hasNil && len(typ.Union.Members) == 2 {
+			return true
+		}
+	}
+	return false
+}
+
+// checkFunMemberCall handles a call through an explicit dispatch-table
+// member such as `table.operation(args)` where operation is a Fun<...> or
+// `Fun<...>|Nil` field. It validates arity and argument types against the
+// stored Fun signature and lowers to an indirect call through the member.
+func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, member *compilerTypes.ObjectMember, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+	funType := member.Type
+	if isNullableFun(funType) {
+		// A nullable dispatch member must be narrowed before the call. The
+		// checker only narrows bare bindings, so a direct member call cannot
+		// prove non-nil. Require the caller to bind the member to a local
+		// and narrow that local (e.g. `cb := table.cb; if cb != nil { cb() }`).
+		diagnostic := typeErrorAt(callee.Property, member.Type.Name+" may be Nil; narrow it before calling it")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	if funType.Signature == nil {
+		diagnostic := typeErrorAt(callee.Property, member.Name+" is not callable")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	signature := funType.Signature
+	if len(call.Arguments) != len(signature.Parameters) {
+		diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s expects %d arguments; got %d", member.Name, len(signature.Parameters), len(call.Arguments)))
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	parameterUses := make([]compilerTypes.TypeUse, len(signature.Parameters))
+	for index, parameter := range signature.Parameters {
+		parameterUses[index] = compilerTypes.NewTypeUse(parameter)
+	}
+	arguments, diagnostics := checkArguments(member.Name, parameterUses, call.Arguments, callee.Property, names, typeEnvironment)
+	if len(diagnostics) > 0 {
+		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
+	// Build the member-access node for the Fun value. When the receiver is
+	// a pointer to the object, insert an explicit dereference so the member
+	// access lowers to `(*ptr).member` rather than `ptr.member`.
+	var memberAccessNode Expression
+	if receiver.typ.Element != nil && receiver.typ.Element.Object != nil {
+		dereferenced := dereferencePlace(receiver, callee.Property, names.flow)
+		if dereferenced.diagnostic != nil {
+			return checkedExpression{token: callee.Property, diagnostic: dereferenced.diagnostic}
+		}
+		memberAccessNode = Expression{
+			Kind:        MemberExpression,
+			Operand:     &dereferenced.source.Node,
+			Member:      member,
+			OperandType: dereferenced.typ,
+			ResultType:  funType,
+		}
+	} else {
+		memberAccessNode = Expression{
+			Kind:        MemberExpression,
+			Operand:     &receiver.source.Node,
+			Member:      member,
+			OperandType: receiver.typ,
+			ResultType:  funType,
+		}
+	}
+	var resultType compilerTypes.Type
+	if signature.Result != nil {
+		resultType = *signature.Result
+	}
+	node := Expression{
+		Kind:        CallExpression,
+		Operand:     &memberAccessNode,
+		Arguments:   arguments,
+		OperandType: funType,
+		ResultType:  resultType,
+	}
+	return checkedExpression{
+		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: member.Name, Node: node},
+		typ:    resultType,
+		token:  callee.Property,
+	}
+}
+
 // checkImplDeclaration follows the same single-pass order as a function:
 // resolve the target and the signature, register the method, then check the
 // body. Registering first is what makes self-recursion resolve while keeping a
@@ -427,6 +531,13 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if object == nil {
 		diagnostic := typeErrorAt(callee.Property, receiver.typ.Name+" has no method named "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	// Dispatch-table member check precedes method lookup: a Fun<...> or
+	// Fun<...>|Nil object member is an ordinary function value, not a
+	// method. This must run before the method table is consulted so a
+	// member named like a method is correctly treated as data.
+	if member, ok := object.Member(name); ok && (member.Type.Signature != nil || isNullableFun(member.Type)) {
+		return checkFunMemberCall(call, callee, receiver, member, names, typeEnvironment)
 	}
 	// A receiver whose type another module defines routes its method lookup
 	// to that module's recorded exported methods. Builtin receivers carry an

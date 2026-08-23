@@ -7,9 +7,8 @@
 - Created: 2026-08-22
 - Depends on: RFC 0020 (collections), RFC 0063 (collection surface), RFC 0087
   (cached text length), and `docs/reference.md`
-- Coordinates with: affine ownership RFC 0110 (which does not subsume this rule
-  -- see Why a runtime check is the right cost), generated collection runtimes,
-  and language-surface audit finding F6
+- Coordinates with: generated collection runtimes and language-surface audit
+  finding F6
 - Accepted cost: one `size_t` field on List and Dict, one increment per
   structural mutation, and one compare per iteration where safety is not proven
 
@@ -72,10 +71,9 @@ beside `length`, which the loop condition already loads on every iteration, so
 the check is a warm load and a predictable compare.
 
 **The zero-cost alternative is not available.** A traversal that borrows its
-source exclusively would need alias exclusivity, and RFC 0110 states that it
-"does not introduce a general Rust-style borrow checker"; its `share` is
-explicit and does not transfer exclusive ownership, so aliases survive and may
-mutate. A checker-only rule therefore leaves the case that matters undefined:
+source exclusively would need alias exclusivity, but the current manual-memory
+model permits copied handles to survive and mutate. A checker-only rule
+therefore leaves the case that matters undefined:
 
 ```hexal
 fun helper(ys: List<Int32>, h: Heap) do
@@ -131,18 +129,23 @@ has changed.
   traversal.
 - Mutation through any alias observes and updates the same version because
   copied collection handles refer to the same collection state.
-- A traversal checks its version before each iteration body and before any
-  operation that advances the traversal.
+- A traversal checks its version immediately before each iteration body. The
+  next body's check covers the transition to the next element; no duplicate
+  check is required at the loop increment.
 - A mismatch is a defined runtime trap with the message
   `[Runtime Error] collection modified during iteration`.
 - The checker may reject a mutation at compile time when local ownership or
   provenance proves that an active traversal would be invalidated.
-- When the checker cannot prove safety, the program remains valid and the
-  generated version check supplies the defined runtime behavior. It must not
-  silently become unsafe.
-- Collection free, Arena reset, Pool destruction, or affine move invalidation
-  during an active traversal is rejected when locally decidable and otherwise
-  traps through the corresponding lifetime rule before traversal continues.
+- When the checker cannot prove that a structural mutation is safe, the
+  program remains valid and the generated version check supplies the defined
+  runtime behavior. It must not silently become unsafe.
+- Freeing the traversed List or Dict, or an alias that refers to it, is always
+  rejected while the traversal is active. The checker must reject a direct or
+  locally traceable free before it can invalidate the captured loop state.
+- A traversed List or Dict, or an alias that refers to it, may be passed to a
+  call during the traversal only when the checker proves that the call cannot
+  structurally mutate or free that collection. An unproven call is rejected;
+  the checker must not rely on a version check after a possible free.
 
 The checker may elide a version check only when it proves that no operation in
 the traversing scope or any reachable call can mutate the source (proven-safe
@@ -168,8 +171,8 @@ retained. Elision is an optimization, not a semantic distinction.
   structural change. `Size` is the correct type because it is already the
   collection length/capacity type and is the only target-sized counter
   available without adding a new runtime type.
-- Generated traversal state stores the captured `Size` token and checks it at
-  the defined points (before each body and before advance).
+- Generated traversal state stores the captured `Size` token and checks it
+  immediately before each body. No generated path checks a freed collection.
 - The version need not be exposed as a Hexal field or be ABI-stable.
 - Version overflow wraps modulo `2^N` where `N` is `sizeof(size_t)*8`. **A
   wrapped version that coincides with a live traversal's captured token is an
@@ -208,10 +211,14 @@ This section is exhaustive. RFC 0115 is complete only when every item below
 passes:
 
 - Array and View element replacement during traversal remains valid.
-- List `push`, `pop`, `clear`, and free during traversal are rejected when
-  locally provable and otherwise produce the defined runtime trap.
-- Dict insert, replacement, remove, and free during traversal are rejected
-  when locally provable and otherwise produce the defined runtime trap.
+- List `push`, `pop`, and `clear` during traversal are rejected when locally
+  provable and otherwise produce the defined runtime trap. Free of the List,
+  or an alias to it, is always rejected while the traversal is active.
+- Dict insert, replacement, and remove during traversal are rejected when
+  locally provable and otherwise produce the defined runtime trap. Free of the
+  Dict, or an alias to it, is always rejected while the traversal is active.
+- Passing the traversed collection or an alias to an unproven call is rejected
+  rather than relying on a post-call runtime check.
 - Mutation through a copied collection handle invalidates the original
   traversal.
 - `push` during a List traversal traps rather than extending or terminating the
@@ -220,8 +227,9 @@ passes:
 - A mutation after `break` or after the traversal's scope exits is valid when
   no separate lifetime rule rejects it.
 - Nested traversals maintain independent captured versions.
-- Generated C emits the version state and checks exactly where required, or
-  omits checks only for a proven-safe traversal.
+- Generated C emits the version state and one check immediately before each
+  iteration body, or omits checks only for a proven-safe traversal. No
+  generated path checks a freed collection.
 - No live-traversal registry, traversal list, or per-traversal registration is
   emitted. A version wrap coinciding with a captured token is an accepted false
   negative; nothing detects it.

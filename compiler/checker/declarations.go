@@ -137,14 +137,9 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
 		}
-		if resolved.Signature != nil {
-			// Supported-position whitelist: a Fun<...> member would be
-			// callback data in the object layout, which is not supported.
-			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "Fun<…> object members are not supported"))
-			continue
-		}
 		// Any complete, finitely sized value may be an object member except
-		// Fun, Unknown, and Atomic at non-construction positions. An open type
+		// Unknown and Atomic at non-construction positions. Fun<...> is valid
+		// as an object member for explicit dispatch tables. An open type
 		// parameter defers to specialization rechecking.
 		if !compilerTypes.ContainsTypeParameter(resolved) && !compilerTypes.Storable(resolved, compilerTypes.PositionObjectMember) {
 			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "unsupported object member type "+resolved.Name))

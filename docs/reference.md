@@ -463,10 +463,11 @@ HeapAllocation
 
 - `fun` declares a function, not mutable storage. `Fun<(P1, P2) : R>` is a function-pointer type;
   omit `: R` for no result.
-- Fun is valid only as a binding, function parameter, parameter inside another Fun, or union member.
-  It is invalid as a result, object/ADT member, collection element/value, Task argument/result,
+- Fun is valid as a binding, function parameter, parameter inside another Fun, object member, or union member.
+  It is invalid as a result, ADT member, collection element/value, Task argument/result,
   Channel element, Ptr/MutPtr pointee, or `ref` target. Function declarations
-  are not addressable.
+  are not addressable. An object may store a Fun value as an explicit dispatch table; the field holds one
+  ordinary C function pointer and is called as `table.operation(args)` with no hidden receiver or environment.
 - Calls require exact arity and assignable arguments. No-result calls are statements only. Results
   must match their declarations; result-producing bodies cannot fall through.
 - Infallible commands with no payload return no value. Fallible commands with no success payload
@@ -651,6 +652,7 @@ destinations only. `none` means no fixed-width destination.
 | Dict | 3 | `index: Size`, key, value |
 
 Every other source/arity combination is invalid.
+
 - Text iterates decoded Runes; Dict order is unspecified.
 - Finite-source traversal boundaries are captured once. Array places iterate in place; temporary
   Arrays and Strands materialize once; handles copy shallowly.
@@ -876,7 +878,7 @@ Dict:               {<key>: <value>, ...}
 ```
 
 Object members use declaration order and ` = `. Record variants print only the active payload.
-Array/View/List use `[]` when empty. Dict uses `: `, `{}` when empty, and unspecified entry order.
+Array/View/List use `[]` when empty. Dict uses `:`, `{}` when empty, and unspecified entry order.
 
 - Float32/64 use `%g` precision 9/17; signed zero and `inf`, `-inf`, `nan` are preserved. A direct
   Error prints `file:line:column: header: message` with no trailing newline; nested, it uses the

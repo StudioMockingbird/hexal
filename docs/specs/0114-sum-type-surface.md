@@ -6,8 +6,7 @@
   restricted anonymous unions
 - Created: 2026-08-22
 - Depends on: RFC 0019 (generics), RFC 0029 (Error values), RFC 0034
-  (modules), RFC 0099 (program-wide discriminants), RFC 0113 (End), and
-  `docs/reference.md`
+  (modules), RFC 0099 (program-wide discriminants), and `docs/reference.md`
 - Coordinates with: C interop RFC 0039, affine ownership RFC 0110, and the
   language-surface audit
 
@@ -31,7 +30,7 @@ optional values and fallible results.
 
 One primary sum model removes duplicate grammar, checker dispatch, narrowing
 rules, tag-registration paths, generated representations, diagnostics, and
-test matrices. It also gives affine ownership, Error propagation, End values,
+test matrices. It also gives affine ownership, Error propagation, completion values,
 and C interop one place to define their sum behavior. Generic `Option` and
 `Result` forms preserve concise everyday code, while named ADTs make complex
 states discoverable and reusable. The cost is a small amount of declaration
@@ -73,8 +72,9 @@ but that implementation identity is not a source-language declaration form.
 - Foreign unions are never inferred as native ADTs. They retain foreign
   layout identity and are unsafe unless the target profile proves a checked
   representation.
-- `Nil`, `End`, and `Error` are ordinary members of their owning sum/API
-  contract, not a second pattern language.
+- `Nil` and `Error` are ordinary members of their protected core/API contract,
+  not a second pattern language. Existing `EoS` completion behavior is outside
+  this RFC.
 - A sum value has one active variant and no implicit conversion to a surviving
   member. Narrowing is required before member access.
 
@@ -84,7 +84,8 @@ but that implementation identity is not a source-language declaration form.
   `Result<T, E>` forms.
 - Replace `T | Error` with the selected fallible-result sugar or a named Result
   type without changing `try` propagation semantics.
-- Replace `T | EoS` with `T | End` under RFC 0113 before removing EoS.
+- Preserve the existing `T | EoS` completion contract; replacing EoS requires
+  a future dedicated proposal.
 - Keep generated tagged unions for ADTs and normalized compiler representations.
 - Keep C union support inside RFC 0039's unsafe foreign boundary.
 
@@ -114,8 +115,8 @@ passes:
   and representation guarantees.
 - Arbitrary source unions outside the retained sugar and foreign forms produce
   a structured diagnostic with migration guidance.
-- `End` participates through its ordinary library-owned unit value rather than
-  a compiler-only EoS path.
+- Existing EoS completion behavior remains unchanged; this RFC does not
+  introduce a replacement completion value.
 - Foreign C unions remain available only through the explicit C interop trust
   boundary and target-profile evidence.
 - Generated C emits one canonical tagged representation per reachable ADT or

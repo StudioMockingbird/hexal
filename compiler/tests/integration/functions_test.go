@@ -101,15 +101,29 @@ func TestUnsupportedFunPositions(t *testing.T) {
 	assertRejectsAnyDiagnostic(t,
 		"fun maker(): Fun<(Int32) : Int32> do\n    return maker\nend\n",
 		"returning Fun<(Int32) : Int32> is not supported")
-	assertRejectsAnyDiagnostic(t,
-		"type Holder = { callback: Fun<(Int32) : Int32>, }\n",
-		"Fun<…> object members are not supported")
+	assertChecked(t, "type Holder = { callback: Fun<(Int32) : Int32>, }\n")
 	assertRejectsAnyDiagnostic(t,
 		"type Bad = Ptr<Fun<(Int32) : Int32>>\n",
 		"Ptr<Fun<(Int32) : Int32>> is not supported")
 	assertRejectsAnyDiagnostic(t,
 		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> := ref adder\n",
 		"function declarations are not addressable; use adder as a Fun value")
+}
+
+func TestDispatchTableMemberCalls(t *testing.T) {
+	assertChecked(t,
+		"type Ops = { callback: Fun<(Int32) : Int32>, }\n"+
+			"fun handler(value: Int32): Int32 do\n    return value\nend\n"+
+			"table: Ops := Ops { callback = handler, }\n"+
+			"result: Int32 := table.callback(5)\n")
+	assertChecked(t,
+		"type ReaderOps<S> = { read: Fun<(MutPtr<S>, MutPtr<Byte>, Size)>, }\n"+
+			"type FileState = { position: Size, }\n"+
+			"fun read_file(state: MutPtr<FileState>, dest: MutPtr<Byte>, count: Size) do\n    return\nend\n"+
+			"mut state: FileState := FileState { position = 0, }\n"+
+			"ops: ReaderOps<FileState> := ReaderOps<FileState> { read = read_file, }\n"+
+			"mut buf: Byte := b'a'\n"+
+			"ops.read(ref state, ref buf, 1)\n")
 }
 
 func TestFunctionNamesAreNotStorage(t *testing.T) {

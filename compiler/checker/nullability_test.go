@@ -122,9 +122,7 @@ func TestCheckerPreservesFunctionPositionRestrictions(t *testing.T) {
 	requireDiagnostic(t,
 		"type Bad = Ptr<Fun<(Int32) : Int32>> | Nil",
 		"Ptr<Fun<(Int32) : Int32>> is not supported")
-	requireDiagnostic(t,
-		"type Holder = { callback: Fun<(Int32) : Int32> | Nil, }",
-		"Fun<…> object members are not supported")
+	requireAccepted(t, "type Holder = { callback: Fun<(Int32) : Int32> | Nil, }")
 }
 
 func TestCheckerRoutesNullableAndUnknownAssignabilityThroughAllContexts(t *testing.T) {

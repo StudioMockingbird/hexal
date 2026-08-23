@@ -238,10 +238,40 @@ func TestReturningAFunTypeIsUnsupported(t *testing.T) {
 		"returning Fun<(Int32) : Int32> is not supported")
 }
 
-func TestFunObjectMembersAreUnsupported(t *testing.T) {
+func TestFunObjectMembersAreSupported(t *testing.T) {
+	requireAccepted(t, "type Holder = { callback: Fun<(Int32) : Int32>, }\n")
+	requireAccepted(t, "type Ops = { mut handler: Fun<(Int32) : Int32>, }\n")
+	requireAccepted(t, "type Handler = { callback: Fun<(Int32) : Int32> | Nil, }\n")
+}
+
+func TestDispatchTableCallsThroughFunMembers(t *testing.T) {
+	requireAccepted(t,
+		"type Ops = { callback: Fun<(Int32) : Int32>, }\n"+
+			"fun handler(value: Int32): Int32 do\n    return value\nend\n"+
+			"table: Ops := Ops { callback = handler, }\n"+
+			"result: Int32 := table.callback(5)\n")
+	requireAccepted(t,
+		"type Ops = { mut callback: Fun<(Int32) : Int32>, }\n"+
+			"fun first(value: Int32): Int32 do\n    return value\nend\n"+
+			"fun second(value: Int32): Int32 do\n    return value + 1\nend\n"+
+			"mut table: Ops := Ops { callback = first, }\n"+
+			"table.callback = second\n"+
+			"result: Int32 := table.callback(5)\n")
+}
+
+func TestNullableFunMemberRequiresNarrowing(t *testing.T) {
 	requireDiagnostic(t,
-		"type Holder = { callback: Fun<(Int32) : Int32>, }\n",
-		"Fun<…> object members are not supported")
+		"type Ops = { callback: Fun<(Int32) : Int32> | Nil, }\n"+
+			"fun handler(value: Int32): Int32 do\n    return value\nend\n"+
+			"table: Ops := Ops { callback = handler, }\n"+
+			"result: Int32 := table.callback(5)\n",
+		"Fun<(Int32) : Int32> | Nil may be Nil; narrow it before calling it")
+	requireAccepted(t,
+		"type Ops = { callback: Fun<(Int32) : Int32> | Nil, }\n"+
+			"fun handler(value: Int32): Int32 do\n    return value\nend\n"+
+			"table: Ops := Ops { callback = handler, }\n"+
+			"local: Fun<(Int32) : Int32> | Nil := table.callback\n"+
+			"if local != nil then\n    result: Int32 := local(5)\nend\n")
 }
 
 func TestPointersToFunAreUnsupported(t *testing.T) {

@@ -1,7 +1,7 @@
 # RFC 0111: Deterministic Evaluation Order
 
 - Kind: Language Semantics (ISO/IEC Language Standard Format)
-- Status: Draft; design proposed, implementation not started
+- Status: Implementation-ready; design settled, implementation not started
 - Features: left-to-right expression, call, aggregate, and assignment
   evaluation
 - Created: 2026-08-22
@@ -21,6 +21,9 @@ generated C.
 
 - A complete statement evaluates before the next complete statement.
 - A binary expression evaluates its left operand before its right operand.
+- Existing operator precedence and associativity remain unchanged; mixed
+  operators are valid. For example, `a + b * c` parses as `a + (b * c)` and
+  evaluates `a`, then `b`, then `c` before applying the operators.
 - A unary expression evaluates its operand before applying the operator.
 - A receiver is evaluated before a method's arguments.
 - Call arguments evaluate left to right in written order, after the callee or
@@ -35,9 +38,13 @@ generated C.
 - A match scrutinee evaluates once before arm selection; the selected arm alone
   evaluates.
 - `and` and `or` retain left-to-right short-circuit behavior.
-- `try`, `spawn`, `defer`, and `errdefer` evaluate each source expression once
-  according to their dedicated contracts; they do not create an alternate
-  operand-order rule.
+- `try source` evaluates `source` once before propagating an `Error` or
+  producing its value.
+- `spawn callee(args)` evaluates the callee, then arguments left to right,
+  before creating the task.
+- `defer` and `errdefer` evaluate the registered callee and arguments at the
+  registration statement, in ordinary call order; the registered call runs at
+  its existing cleanup point.
 
 The order applies to calls through named functions, methods, function values,
 and anonymous function literals. It also applies after generic specialization.
@@ -56,8 +63,9 @@ and anonymous function literals. It also applies after generic specialization.
 
 ## Diagnostics
 
-No new source diagnostic is required for ordinary ordering. A compiler
-internal failure to preserve order is an Unknown Error and must prevent output.
+No new source diagnostic is required for ordinary ordering or for mixed
+operators. A compiler internal failure to preserve order is an Unknown Error
+and must prevent output.
 
 ## Non-goals
 
@@ -73,6 +81,9 @@ This section is exhaustive. RFC 0111 is complete only when every item below
 passes:
 
 - Nested binary operands are evaluated left before right.
+- Mixed operators preserve existing precedence and associativity, while their
+  operands still evaluate left to right; explicit grouping preserves its
+  existing meaning.
 - Method receivers evaluate before arguments.
 - Function arguments evaluate left to right for named, method, function-value,
   generic, and anonymous calls.
@@ -80,7 +91,9 @@ passes:
 - Assignment targets evaluate before assignment sources.
 - Match scrutinees evaluate once and only the selected arm evaluates.
 - Short-circuit expressions do not evaluate skipped operands.
-- `try` and `spawn` operands evaluate once in the specified position.
+- `try` evaluates its source once before propagation or value production;
+  `spawn` evaluates its callee and arguments left to right before task
+  creation; `defer` and `errdefer` evaluate registration operands immediately.
 - Repeated compilations produce identical generated files.
 - Generated C text contains the required temporaries or statement boundaries
   for every source form whose direct C expression would be unordered.
@@ -92,4 +105,5 @@ passes:
 
 After implementation stabilizes, replace the C23-unspecified evaluation rule in
 `docs/reference.md` with this contract and update every affected generated-C
-lowering rule.
+lowering rule. Keep the existing operator precedence, associativity, and
+short-circuit rules; mixed operators are not a rejection category.

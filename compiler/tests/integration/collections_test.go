@@ -19,6 +19,7 @@ func TestStorabilityRule(t *testing.T) {
 		"fun s(xs: List<String>): View<String> do\n    return xs.slice(0, 1)\nend\n",
 		"v: View<Int32> := View<Int32>.empty()\n",
 		"type Row = { t: Task<Int32>, c: Channel<Int32>, m: Mutex, e: EoS }\n",
+		"type Box = { f: Fun<(Int32) : Int32> }\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -26,7 +27,6 @@ func TestStorabilityRule(t *testing.T) {
 		}
 	}
 	rejected := []string{
-		"type Box = { f: Fun<(Int32) : Int32> }\n",
 		"funs: Array<Fun<(Int32) : Int32>, 1> := [identity]\nfun identity(x: Int32): Int32 do\n    return x\nend\n",
 		"fun helper(x: Int32): Int32 do return x end\nfun f(h: Heap) do\n    values: List<Fun<(Int32) : Int32>> := List<Fun<(Int32) : Int32>>.new(h)\nend\n",
 		"fun helper(x: Int32): Int32 do return x end\nfun f(h: Heap) do\n    d: Dict<Int32, Fun<(Int32) : Int32>> := Dict<Int32, Fun<(Int32) : Int32>>.new(h)\nend\n",

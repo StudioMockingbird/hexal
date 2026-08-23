@@ -191,7 +191,7 @@ func Storable(typ Type, position Position) bool {
 		return position == PositionUnionMember
 	}
 	if typ.Signature != nil {
-		return position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam
+		return position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam || position == PositionObjectMember
 	}
 	if typ.Atomic != nil && !isConstructionPosition(position) {
 		return false
