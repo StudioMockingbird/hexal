@@ -109,7 +109,7 @@
         "age: Int32:= 21",
         "has_ticket: Bool:= true",
         "vip: Bool:= false",
-        "mut admitted: Bool:= (age >= 18 and has_ticket) or vip",
+        "mut admitted: Bool:= ((age >= 18) and has_ticket) or vip",
         "mut rejected: Bool:= !admitted",
         "rejected = rejected and (age < 16)"
       ]},

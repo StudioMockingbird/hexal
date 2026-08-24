@@ -146,7 +146,7 @@
         "    mut left: Int32:= 1",
         "    mut right: Int32:= 2",
         "    swap(ref left, ref right)",
-        "    return left + right * 10",
+        "    return left + (right * 10)",
         "end"
       ]},
       "features": ["pointers", "functions", "no-result-functions"],

@@ -205,7 +205,7 @@ func TestEndianDiagnostics(t *testing.T) {
 }
 
 func TestBitwisePrecedence(t *testing.T) {
-	result := compileSource("fun demo() do\n    red: UInt32 := 1\n    green: UInt32 := 2\n    blue: UInt32 := 3\n    packed: UInt32 := red << 16 | green << 8 | blue\n    mixed: Bool := (1 | 2) == 3 and (1 & 3) == 1\nend")
+	result := compileSource("fun demo() do\n    red: UInt32 := 1\n    green: UInt32 := 2\n    blue: UInt32 := 3\n    packed: UInt32 := (red << 16) | (green << 8) | blue\n    mixed: Bool := ((1 | 2) == 3) and ((1 & 3) == 1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

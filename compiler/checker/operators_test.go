@@ -241,8 +241,8 @@ func TestCheckShortCircuitReachability(t *testing.T) {
 		source string
 		want   bool
 	}{
-		{"result: Bool := true or (1 / 0 == 0)", true},
-		{"result: Bool := false and (1 / 0 == 0)", false},
+		{"result: Bool := true or ((1 / 0) == 0)", true},
+		{"result: Bool := false and ((1 / 0) == 0)", false},
 		// Mixed-type logical operands fold through their
 		// truthiness; the unreachable RHS never evaluates.
 		{"result: Bool := true or (1 and 2)", true},
@@ -259,8 +259,8 @@ func TestCheckShortCircuitReachability(t *testing.T) {
 	}
 
 	for _, source := range []string{
-		"mut guard: Bool := true result: Bool := guard or (1 / 0 == 0)",
-		"mut guard: Bool := false result: Bool := guard and (1 / 0 == 0)",
+		"mut guard: Bool := true result: Bool := guard or ((1 / 0) == 0)",
+		"mut guard: Bool := false result: Bool := guard and ((1 / 0) == 0)",
 	} {
 		_, err := Check(parseProgram(t, source))
 		if err == nil || !strings.Contains(err.Error(), "division by zero") {

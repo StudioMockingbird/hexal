@@ -1,7 +1,47 @@
 # RFC 0120: Explicit Binary Grouping
 
 - Kind: Language Semantics (ISO/IEC Language Standard Format)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented 2026-08-24. The parser gained one small piece
+  of state (`binaryOperatorRecorded`/`binaryOperatorKind`/`binaryOperatorToken`
+  on `Parser`) and one enforcement helper, `recordBinaryOperator`, called from
+  every one of the ten binary-operator ladder loops (`or`, `and`,
+  bitwise-or/xor/and, equality, relational, shift, additive, multiplicative)
+  plus `typeTestExpression`'s single `is` check. `expression()` itself pushes
+  and restores a fresh region via `pushExpressionRegion`, which every
+  independently delimited nested expression reaches for free since grouping
+  parens, call arguments, index expressions, array elements, and member
+  initializers all already funneled through it; `matchExpression`'s scrutinee
+  and arm-result parses were the sole exception, confirmed by grep to be the
+  only two call sites that enter the ladder directly at `orExpression`, and
+  were given their own explicit push/restore. Fixing the resulting fixture
+  breakage found the actual scope: 3 parser-level precedence tests replaced
+  with rejection-plus-explicit-grouping pairs, 20-odd checker/integration
+  test sources and 20 workbench snippets parenthesized to their minimal
+  explicit form, verified to reproduce byte-identical checked trees and
+  generated C (several tests assert exact generated-C fragments or exact
+  checked-tree shapes, and passed unchanged) and a byte-identical snippet
+  manifest (added parentheses changed no line number and the generator
+  already fully parenthesizes C regardless of source grouping, so nothing in
+  the manifest needed regenerating). A new
+  `compiler/parser/binary_grouping_test.go` covers repeated same-kind chains
+  for all 19 operator kinds, an exhaustive rejection matrix over every
+  ordered pair of differing kinds (19x19 minus same-kind, minus the pairs
+  where `is` is first and the second kind sits below `is` in the old ladder
+  order and so can never appear in the same grammatically meaningful region
+  after `is` completes, minus `is` paired with `|` specifically since an
+  unparenthesized `|` after `is`'s type stays inside that type expression as
+  a union separator), the mirror acceptance matrix with parentheses in both
+  nesting directions, nested-region isolation (grouping, call arguments,
+  indexing, array elements, object members, match scrutinee and arms),
+  unary/postfix forms mixing freely with one binary kind, and chained-`is`
+  diagnostic ownership ahead of a mixed-operator violation. `docs/reference.md`
+  replaced the twelve-nonterminal precedence ladder with a single flat
+  `expression = unary-expression , { binary-tail }` rule plus a third
+  prose-only EBNF exception (alongside the two already there) stating the
+  one-operator-kind-per-region constraint, and reworded the one evaluation-order
+  sentence that said "keeping existing precedence" to describe written tree
+  shape and left associativity instead, without touching RFC 0111's
+  substantive evaluation-order guarantees.
 - Features: rejection of mixed unparenthesized binary operators
 - Created: 2026-08-24
 - Depends on: RFC 0111 (deterministic evaluation order) and

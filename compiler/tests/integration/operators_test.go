@@ -28,7 +28,7 @@ const completeOperatorsSource = "mut left: Int32 := 7 mut right: Int32 := 3 " +
 	"f64Sum: Float64 := first + second f64Difference: Float64 := first - second " +
 	"f64Product: Float64 := first * second f64Quotient: Float64 := first / second " +
 	"f64Less: Bool := first < second f64Equal: Bool := first == second " +
-	"precedence: Float64 := first + second * third " +
+	"precedence: Float64 := first + (second * third) " +
 	"grouped: Float64 := (first + second) * third " +
 	"mut unsignedLeft: UInt32 := 7 mut unsignedRight: UInt32 := 3 " +
 	"unsignedSum: UInt32 := unsignedLeft + unsignedRight " +
@@ -116,7 +116,7 @@ func TestImmutableArithmeticStaysRuntimeAndLiteralFoldingSurvives(t *testing.T) 
 }
 
 func TestPrecedenceChain(t *testing.T) {
-	result := compileSource("mut first: Float64 := 1.0 mut second: Float64 := 2.0 mut third: Float64 := 3.0 mut limit: Float64 := 8.0 mut expected: Bool := true mut all: Bool := false mut either: Bool := true result: Bool := !(first + second * third < limit == expected and all or either)")
+	result := compileSource("mut first: Float64 := 1.0 mut second: Float64 := 2.0 mut third: Float64 := 3.0 mut limit: Float64 := 8.0 mut expected: Bool := true mut all: Bool := false mut either: Bool := true result: Bool := !(((((first + (second * third)) < limit) == expected) and all) or either)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful precedence-chain program", result)
 	}
@@ -148,8 +148,8 @@ func TestOperatorDiagnostics(t *testing.T) {
 
 func TestShortCircuitReachability(t *testing.T) {
 	for _, source := range []string{
-		"result: Bool := true or (1 / 0 == 0)",
-		"result: Bool := false and (1 / 0 == 0)",
+		"result: Bool := true or ((1 / 0) == 0)",
+		"result: Bool := false and ((1 / 0) == 0)",
 		// Mixed-type logical operands are valid; the unreachable
 		// RHS folds away without ever evaluating.
 		"result: Bool := true or (1 and 2)",
@@ -165,8 +165,8 @@ func TestShortCircuitReachability(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"mut guard: Bool := true result: Bool := guard or (1 / 0 == 0)", "division by zero"},
-		{"mut guard: Bool := false result: Bool := guard and (1 / 0 == 0)", "division by zero"},
+		{"mut guard: Bool := true result: Bool := guard or ((1 / 0) == 0)", "division by zero"},
+		{"mut guard: Bool := false result: Bool := guard and ((1 / 0) == 0)", "division by zero"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -246,7 +246,7 @@ func TestSignedWrappingBoundaries(t *testing.T) {
 }
 
 func TestShortCircuitRuntime(t *testing.T) {
-	result := compileSource("mut zero: Int32 := 0 mut guardOr: Bool := true resultOr: Bool := guardOr or (zero / zero > 0) mut guardAnd: Bool := false resultAnd: Bool := guardAnd and (zero / zero > 0)")
+	result := compileSource("mut zero: Int32 := 0 mut guardOr: Bool := true resultOr: Bool := guardOr or ((zero / zero) > 0) mut guardAnd: Bool := false resultAnd: Bool := guardAnd and ((zero / zero) > 0)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful short-circuit program", result)
 	}

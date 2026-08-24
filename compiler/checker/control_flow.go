@@ -44,37 +44,37 @@ func statementFallsThrough(statement Statement) bool {
 }
 
 // checkBody checks a function or method body with no active loop at entry.
-func checkBody(statements []parser.Statement, names *scope, typeEnvironment *compilerTypes.Environment) ([]Statement, compilerTypes.Diagnostics) {
-	return checkStatements(statements, names, typeEnvironment, 0)
+func checkBody(statements []parser.Statement, ctx checkContext) ([]Statement, compilerTypes.Diagnostics) {
+	return checkStatements(statements, ctx, 0)
 }
 
 // checkStatements recursively checks one lexical statement sequence. A child
 // scope is supplied by the control-flow handlers; declarations are installed
 // only in the current frame after their own diagnostics have cleared.
-func checkStatements(statements []parser.Statement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) ([]Statement, compilerTypes.Diagnostics) {
+func checkStatements(statements []parser.Statement, ctx checkContext, loopDepth int) ([]Statement, compilerTypes.Diagnostics) {
 	checked := make([]Statement, 0, len(statements))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	reachable := true
 	for _, statement := range statements {
-		returnFlowCount := len(names.returnFlows)
+		returnFlowCount := len(ctx.names.returnFlows)
 		// A statement that fails mid-check may already have mutated flow
 		// facts (narrowing, escapes, freed marks). Restore the pre-statement
 		// snapshot so a failed statement contributes no fact to a later
 		// diagnostic; the successful statement's resulting state is kept.
 		var flowSnapshot *flowState
-		if names.flow != nil {
-			flowSnapshot = names.flow.clone()
+		if ctx.names.flow != nil {
+			flowSnapshot = ctx.names.flow.clone()
 		}
-		checkedStatement, declaredBinding, define, statementDiagnostics := checkStatement(statement, names, typeEnvironment, loopDepth)
+		checkedStatement, declaredBinding, define, statementDiagnostics := checkStatement(statement, ctx, loopDepth)
 		diagnostics = append(diagnostics, statementDiagnostics...)
 		if len(statementDiagnostics) != 0 {
-			names.returnFlows = names.returnFlows[:returnFlowCount]
-			names.flow = flowSnapshot
+			ctx.names.returnFlows = ctx.names.returnFlows[:returnFlowCount]
+			ctx.names.flow = flowSnapshot
 			continue
 		}
 		if define {
 			declaration := statement.(parser.Declaration)
-			names.define(declaration.Name.Lexeme, declaredBinding)
+			ctx.names.define(declaration.Name.Lexeme, declaredBinding)
 		}
 		if checkedStatement == nil {
 			// A generic local function declaration checked clean: like its
@@ -86,22 +86,22 @@ func checkStatements(statements []parser.Statement, names *scope, typeEnvironmen
 		checked = append(checked, checkedStatement)
 		if reachable {
 			if _, returns := checkedStatement.(ReturnStatement); returns {
-				names.recordReturnFlow()
+				ctx.names.recordReturnFlow()
 			}
 		} else {
 			// The statement was checked for its own diagnostics, but it cannot
 			// add a return path after an earlier terminator.
-			names.returnFlows = names.returnFlows[:returnFlowCount]
+			ctx.names.returnFlows = ctx.names.returnFlows[:returnFlowCount]
 		}
 		if reachable && statementTerminates(checkedStatement) {
 			reachable = false
 		}
 	}
-	diagnostics = append(diagnostics, validateDeferredActions(names, !sequenceTerminates(checked))...)
+	diagnostics = append(diagnostics, validateDeferredActions(ctx.names, !sequenceTerminates(checked))...)
 	return checked, diagnostics
 }
 
-func checkStatement(statement parser.Statement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) (Statement, binding, bool, compilerTypes.Diagnostics) {
+func checkStatement(statement parser.Statement, ctx checkContext, loopDepth int) (Statement, binding, bool, compilerTypes.Diagnostics) {
 	switch statement := statement.(type) {
 	case parser.Declaration:
 		// A direct inferred fixed literal declaration (`name := fun ...`) is
@@ -109,25 +109,25 @@ func checkStatement(statement parser.Statement, names *scope, typeEnvironment *c
 		// and checkModule's Declaration case); at local scope a function
 		// literal initializer is ordinary runtime data, checked like any
 		// other expression.
-		checked, declared, diagnostics := checkDeclaration(statement, names, typeEnvironment, -1, nil)
+		checked, declared, diagnostics := checkDeclaration(statement, ctx, -1, nil)
 		return checked, declared, true, diagnostics
 	case parser.Assignment:
-		checked, diagnostics := checkAssignment(statement, names, typeEnvironment)
+		checked, diagnostics := checkAssignment(statement, ctx)
 		return checked, binding{}, false, diagnostics
 	case parser.CallExpression:
-		checked, diagnostics := checkCallStatement(statement, names, typeEnvironment)
+		checked, diagnostics := checkCallStatement(statement, ctx)
 		return checked, binding{}, false, diagnostics
 	case parser.ReturnStatement:
-		checked, diagnostics := checkReturnStatement(statement, names, typeEnvironment)
+		checked, diagnostics := checkReturnStatement(statement, ctx)
 		return checked, binding{}, false, diagnostics
 	case parser.IfStatement:
-		checked, diagnostics := checkIfStatement(statement, names, typeEnvironment, loopDepth)
+		checked, diagnostics := checkIfStatement(statement, ctx, loopDepth)
 		return checked, binding{}, false, diagnostics
 	case parser.WhileStatement:
-		checked, diagnostics := checkWhileStatement(statement, names, typeEnvironment, loopDepth)
+		checked, diagnostics := checkWhileStatement(statement, ctx, loopDepth)
 		return checked, binding{}, false, diagnostics
 	case parser.ForStatement:
-		checked, diagnostics := checkForStatement(statement, names, typeEnvironment, loopDepth)
+		checked, diagnostics := checkForStatement(statement, ctx, loopDepth)
 		return checked, binding{}, false, diagnostics
 	case parser.BreakStatement:
 		if loopDepth == 0 {
@@ -140,15 +140,15 @@ func checkStatement(statement parser.Statement, names *scope, typeEnvironment *c
 		}
 		return ContinueStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}, binding{}, false, nil
 	case parser.DeferStatement:
-		checked, diagnostics := checkDeferStatement(statement, names, typeEnvironment)
+		checked, diagnostics := checkDeferStatement(statement, ctx)
 		return checked, binding{}, false, diagnostics
 	case parser.ErrdeferStatement:
-		checked, diagnostics := checkErrdeferStatement(statement, names, typeEnvironment)
+		checked, diagnostics := checkErrdeferStatement(statement, ctx)
 		return checked, binding{}, false, diagnostics
 	case parser.TryStatement:
 		// A try statement reuses the try-expression validation and
 		// propagation metadata; the success value is discarded.
-		checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, names, typeEnvironment)
+		checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, ctx)
 		if diagnostics := initializerDiagnostics(checkedTry); len(diagnostics) > 0 {
 			return nil, binding{}, false, diagnostics
 		}
@@ -167,8 +167,8 @@ func checkStatement(statement parser.Statement, names *scope, typeEnvironment *c
 	}
 }
 
-func checkCondition(expression parser.Expression, names *scope, typeEnvironment *compilerTypes.Environment) (Operand, *Operand, lexer.Token, compilerTypes.Diagnostics) {
-	checked := checkValue(expression, names, typeEnvironment)
+func checkCondition(expression parser.Expression, ctx checkContext) (Operand, *Operand, lexer.Token, compilerTypes.Diagnostics) {
+	checked := checkValue(expression, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return checked.source, nil, checked.token, diagnostics
 	}
@@ -226,7 +226,7 @@ func conditionNarrowing(condition Operand, state *flowState, typeEnvironment *co
 	return nil
 }
 
-func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) (IfStatement, compilerTypes.Diagnostics) {
+func checkIfStatement(statement parser.IfStatement, ctx checkContext, loopDepth int) (IfStatement, compilerTypes.Diagnostics) {
 	checked := IfStatement{
 		SourceLine:   statement.Keyword.Line,
 		SourceColumn: statement.Keyword.Column,
@@ -235,7 +235,7 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		ElseLine:     statement.ElseKeyword.Line,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	condition, _, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, names, typeEnvironment)
+	condition, _, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, ctx)
 	diagnostics = append(diagnostics, conditionDiagnostics...)
 	checked.Condition = condition
 	checked.ConditionLine = conditionToken.Line
@@ -250,9 +250,9 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 	// then detects disagreements exactly.
 	var fact *narrowingFact
 	if len(conditionDiagnostics) == 0 {
-		fact = conditionNarrowing(condition, names.flow, typeEnvironment)
+		fact = conditionNarrowing(condition, ctx.names.flow, ctx.typeEnvironment)
 	}
-	parentState := names.flow
+	parentState := ctx.names.flow
 	thenState := parentState
 	elseState := parentState
 	if parentState != nil {
@@ -264,14 +264,14 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		}
 	}
 
-	thenScope := names.child()
+	thenScope := ctx.names.child()
 	thenScope.flow = thenState
-	thenBody, thenDiagnostics := checkStatements(statement.Then, thenScope, typeEnvironment, loopDepth)
+	thenBody, thenDiagnostics := checkStatements(statement.Then, checkContext{names: thenScope, typeEnvironment: ctx.typeEnvironment}, loopDepth)
 	diagnostics = append(diagnostics, thenDiagnostics...)
 	checked.Then = thenBody
 	checked.ThenDefers = append(checked.ThenDefers, thenScope.defers...)
 	if len(thenDiagnostics) == 0 {
-		names.recordChildReturnFlows(thenScope.returnFlows)
+		ctx.names.recordChildReturnFlows(thenScope.returnFlows)
 	}
 
 	continuing := make([]*flowState, 0, len(statement.ElseIf)+2)
@@ -283,9 +283,9 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		// An elseif condition is checked where every previous condition was
 		// false, so its state is the else-side chain; each body narrows a
 		// clone of that chain and only its invalidations merge onward.
-		conditionScope := names.child()
+		conditionScope := ctx.names.child()
 		conditionScope.flow = elseState
-		branchCondition, _, branchToken, branchConditionDiagnostics := checkCondition(branch.Condition, conditionScope, typeEnvironment)
+		branchCondition, _, branchToken, branchConditionDiagnostics := checkCondition(branch.Condition, checkContext{names: conditionScope, typeEnvironment: ctx.typeEnvironment})
 		diagnostics = append(diagnostics, branchConditionDiagnostics...)
 		// Always clone the else-side chain for the branch body: its own
 		// invalidations must not leak into the next elseif condition, and they
@@ -295,7 +295,7 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		if elseState != nil {
 			branchState = elseState.clone()
 			if len(branchConditionDiagnostics) == 0 {
-				if branchFact := conditionNarrowing(branchCondition, elseState, typeEnvironment); branchFact != nil {
+				if branchFact := conditionNarrowing(branchCondition, elseState, ctx.typeEnvironment); branchFact != nil {
 					branchState.narrow(branchFact.binding, branchFact.typ)
 					nextElseState := elseState.clone()
 					nextElseState.narrow(branchFact.binding, branchFact.other)
@@ -303,13 +303,13 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 				}
 			}
 		}
-		branchScope := names.child()
+		branchScope := ctx.names.child()
 		branchScope.flow = branchState
-		branchBody, branchDiagnostics := checkStatements(branch.Body, branchScope, typeEnvironment, loopDepth)
+		branchBody, branchDiagnostics := checkStatements(branch.Body, checkContext{names: branchScope, typeEnvironment: ctx.typeEnvironment}, loopDepth)
 		diagnostics = append(diagnostics, branchDiagnostics...)
 		checked.ElseIfDefers = append(checked.ElseIfDefers, append([]DeferredAction(nil), branchScope.defers...))
 		if len(branchDiagnostics) == 0 {
-			names.recordChildReturnFlows(branchScope.returnFlows)
+			ctx.names.recordChildReturnFlows(branchScope.returnFlows)
 		}
 		checked.ElseIf = append(checked.ElseIf, IfBranch{
 			Condition:       branchCondition,
@@ -324,14 +324,14 @@ func checkIfStatement(statement parser.IfStatement, names *scope, typeEnvironmen
 		}
 	}
 	if statement.Else != nil {
-		elseScope := names.child()
+		elseScope := ctx.names.child()
 		elseScope.flow = elseState
-		elseBody, elseDiagnostics := checkStatements(statement.Else, elseScope, typeEnvironment, loopDepth)
+		elseBody, elseDiagnostics := checkStatements(statement.Else, checkContext{names: elseScope, typeEnvironment: ctx.typeEnvironment}, loopDepth)
 		diagnostics = append(diagnostics, elseDiagnostics...)
 		checked.Else = elseBody
 		checked.ElseDefers = append(checked.ElseDefers, elseScope.defers...)
 		if len(elseDiagnostics) == 0 {
-			names.recordChildReturnFlows(elseScope.returnFlows)
+			ctx.names.recordChildReturnFlows(elseScope.returnFlows)
 		}
 		if len(elseDiagnostics) == 0 && !sequenceTerminates(elseBody) && elseState != nil {
 			continuing = append(continuing, elseState)
@@ -394,7 +394,7 @@ func statementTerminates(statement Statement) bool {
 // checkForStatement checks the for-in form: the source must be one
 // iterable concrete type, the binder arity must match the source kind, and
 // every binder is a fresh immutable binding in a fresh body scope.
-func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) (ForStatement, compilerTypes.Diagnostics) {
+func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDepth int) (ForStatement, compilerTypes.Diagnostics) {
 	checked := ForStatement{
 		SourceLine:   statement.Keyword.Line,
 		SourceColumn: statement.Keyword.Column,
@@ -415,9 +415,9 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 	var source checkedExpression
 	switch statement.Source.(type) {
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
-		source = checkPlace(statement.Source, names, typeEnvironment)
+		source = checkPlace(statement.Source, ctx)
 	default:
-		source = checkExpression(statement.Source, expressionContext{foldConstants: false}, names, typeEnvironment)
+		source = checkExpression(statement.Source, expressionContext{foldConstants: false}, ctx)
 	}
 	if source.diagnostic != nil {
 		return checked, append(diagnostics, *source.diagnostic)
@@ -434,16 +434,16 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 		return checked, append(diagnostics, typeErrorAt(statement.Keyword, "for-in binder count does not match the source type"))
 	}
 
-	parentState := names.flow
+	parentState := ctx.names.flow
 	bodyState := parentState
 	if parentState != nil {
 		bodyState = parentState.clone()
 	}
-	bodyScope := names.child()
+	bodyScope := ctx.names.child()
 	bodyScope.flow = bodyState
 	for index, binder := range statement.Binders {
 		binderType := binderTypes[index]
-		bound := binding{typ: binderType, use: compilerTypes.NewTypeUse(binderType), loopBinder: true, id: names.newBindingID()}
+		bound := binding{typ: binderType, use: compilerTypes.NewTypeUse(binderType), loopBinder: true, id: ctx.names.newBindingID()}
 		bodyScope.local[binder.Lexeme] = bound
 		checked.Binders = append(checked.Binders, ForBinder{
 			Name:         binder.Lexeme,
@@ -454,12 +454,12 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 		})
 	}
 
-	body, bodyDiagnostics := checkStatements(statement.Body, bodyScope, typeEnvironment, loopDepth+1)
+	body, bodyDiagnostics := checkStatements(statement.Body, checkContext{names: bodyScope, typeEnvironment: ctx.typeEnvironment}, loopDepth+1)
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = body
 	checked.BodyDefers = append(checked.BodyDefers, bodyScope.defers...)
 	if len(bodyDiagnostics) == 0 {
-		names.recordChildReturnFlows(bodyScope.returnFlows)
+		ctx.names.recordChildReturnFlows(bodyScope.returnFlows)
 	}
 	checked.Source = source.source
 	// Iterator invalidation: direct structural mutations and frees through any
@@ -469,7 +469,7 @@ func checkForStatement(statement parser.ForStatement, names *scope, typeEnvironm
 	// statement position.
 	if len(bodyDiagnostics) == 0 && (source.typ.List != nil || source.typ.Dict != nil) {
 		if binding := baseBindingID(&source.source.Node); binding != 0 {
-			root := collectionRootForOperand(source.source, names, binding)
+			root := collectionRootForOperand(source.source, ctx.names, binding)
 			if mutationDiagnostics := checkForIterationMutations(binding, root, source.typ, body); len(mutationDiagnostics) > 0 {
 				diagnostics = append(diagnostics, mutationDiagnostics...)
 				return checked, diagnostics
@@ -658,7 +658,7 @@ func (scanner *iterationMutationScanner) collectionOperand(node *Expression, typ
 	return isTrackedCollection(typ) && collectionRootOfNode(node) == scanner.sourceRoot
 }
 
-func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvironment *compilerTypes.Environment, loopDepth int) (WhileStatement, compilerTypes.Diagnostics) {
+func checkWhileStatement(statement parser.WhileStatement, ctx checkContext, loopDepth int) (WhileStatement, compilerTypes.Diagnostics) {
 	checked := WhileStatement{
 		SourceLine:   statement.Keyword.Line,
 		SourceColumn: statement.Keyword.Column,
@@ -666,7 +666,7 @@ func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvi
 		EndColumn:    statement.End.Column,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	condition, conditionKnown, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, names, typeEnvironment)
+	condition, conditionKnown, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, ctx)
 	diagnostics = append(diagnostics, conditionDiagnostics...)
 	checked.Condition = condition
 	checked.ConditionKnown = conditionKnown
@@ -676,24 +676,24 @@ func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvi
 	// The condition's narrowing holds for the body. The parent state is also
 	// a zero-iteration path, so a body free cannot become definite after the
 	// loop merely because one iteration can execute it.
-	parentState := names.flow
+	parentState := ctx.names.flow
 	bodyState := parentState
 	if parentState != nil {
 		bodyState = parentState.clone()
 		if len(conditionDiagnostics) == 0 {
-			if fact := conditionNarrowing(condition, parentState, typeEnvironment); fact != nil {
+			if fact := conditionNarrowing(condition, parentState, ctx.typeEnvironment); fact != nil {
 				bodyState.narrow(fact.binding, fact.typ)
 			}
 		}
 	}
-	bodyScope := names.child()
+	bodyScope := ctx.names.child()
 	bodyScope.flow = bodyState
-	body, bodyDiagnostics := checkStatements(statement.Body, bodyScope, typeEnvironment, loopDepth+1)
+	body, bodyDiagnostics := checkStatements(statement.Body, checkContext{names: bodyScope, typeEnvironment: ctx.typeEnvironment}, loopDepth+1)
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = body
 	checked.BodyDefers = append(checked.BodyDefers, bodyScope.defers...)
 	if len(bodyDiagnostics) == 0 {
-		names.recordChildReturnFlows(bodyScope.returnFlows)
+		ctx.names.recordChildReturnFlows(bodyScope.returnFlows)
 	}
 	if len(bodyDiagnostics) == 0 && parentState != nil && bodyState != nil {
 		parentState.mergeBranches(parentState.clone(), bodyState)
@@ -701,40 +701,40 @@ func checkWhileStatement(statement parser.WhileStatement, names *scope, typeEnvi
 	return checked, diagnostics
 }
 
-func checkReturnStatement(statement parser.ReturnStatement, names *scope, typeEnvironment *compilerTypes.Environment) (ReturnStatement, compilerTypes.Diagnostics) {
+func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (ReturnStatement, compilerTypes.Diagnostics) {
 	checked := ReturnStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
-	if !names.inFunction() {
+	if !ctx.names.inFunction() {
 		return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "return is only valid inside a function body")}
 	}
 	if statement.Value == nil {
-		if names.result != nil {
+		if ctx.names.result != nil {
 			return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword,
-				fmt.Sprintf("return requires a value; %s declares %s", names.owner, names.result.Name))}
+				fmt.Sprintf("return requires a value; %s declares %s", ctx.names.owner, ctx.names.result.Name))}
 		}
 		return checked, nil
 	}
-	if names.result == nil {
-		return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, names.owner+" returns no value; use a bare return")}
+	if ctx.names.result == nil {
+		return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, ctx.names.owner+" returns no value; use a bare return")}
 	}
 
-	resultUse := compilerTypes.NewTypeUse(*names.result)
-	if names.resultUse != nil {
-		resultUse = *names.resultUse
+	resultUse := compilerTypes.NewTypeUse(*ctx.names.result)
+	if ctx.names.resultUse != nil {
+		resultUse = *ctx.names.resultUse
 	}
-	value := checkInitializer(statement.Value, resultUse, statement.Keyword, names, typeEnvironment)
+	value := checkInitializer(statement.Value, resultUse, statement.Keyword, ctx)
 	if valueDiagnostics := initializerDiagnostics(value); len(valueDiagnostics) > 0 {
 		return checked, valueDiagnostics
 	}
-	if value.typ != (compilerTypes.Type{}) && !assignable(*names.result, value.typ) {
+	if value.typ != (compilerTypes.Type{}) && !assignable(*ctx.names.result, value.typ) {
 		return checked, compilerTypes.Diagnostics{typeErrorAt(value.token,
-			fmt.Sprintf("%s returns %s; got %s", names.owner, names.result.Name, value.typ.Name))}
+			fmt.Sprintf("%s returns %s; got %s", ctx.names.owner, ctx.names.result.Name, value.typ.Name))}
 	}
 	if value.typ != (compilerTypes.Type{}) {
 		if diagnostic := atomicCopyDiagnostic(value.source, statement.Keyword); diagnostic != nil {
 			return checked, compilerTypes.Diagnostics{*diagnostic}
 		}
 		if value.typ.View != nil {
-			if diagnostic := viewReturnDiagnostic(value.source.Node, statement.Keyword, names); diagnostic != nil {
+			if diagnostic := viewReturnDiagnostic(value.source.Node, statement.Keyword, ctx.names); diagnostic != nil {
 				return checked, compilerTypes.Diagnostics{*diagnostic}
 			}
 		}

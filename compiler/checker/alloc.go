@@ -11,29 +11,29 @@ import (
 // checkDeferStatement types a deferred expression and registers its action on
 // the current lexical scope. A direct call is captured at registration; every
 // other expression evaluates when the scope exits.
-func checkDeferStatement(statement parser.DeferStatement, names *scope, typeEnvironment *compilerTypes.Environment) (DeferStatement, compilerTypes.Diagnostics) {
-	names.cleanupDepth++
-	defer func() { names.cleanupDepth-- }()
+func checkDeferStatement(statement parser.DeferStatement, ctx checkContext) (DeferStatement, compilerTypes.Diagnostics) {
+	ctx.names.cleanupDepth++
+	defer func() { ctx.names.cleanupDepth-- }()
 	action := DeferredAction{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
 	var source Operand
 	if call, isCall := statement.Expression.(parser.CallExpression); isCall {
-		checked := checkCall(call, names, typeEnvironment)
+		checked := checkCall(call, ctx)
 		if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 			return DeferStatement{}, diagnostics
 		}
 		action.IsCall = true
 		action.Call = &checked.source
-		captureDeferredHeapFree(&action, names)
+		captureDeferredHeapFree(&action, ctx.names)
 		source = checked.source
 	} else {
-		checked := checkExitTimeExpression(statement.Expression, names, typeEnvironment)
+		checked := checkExitTimeExpression(statement.Expression, ctx)
 		if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 			return DeferStatement{}, diagnostics
 		}
 		action.Value = &checked.source
 		source = checked.source
 	}
-	names.defers = append(names.defers, action)
+	ctx.names.defers = append(ctx.names.defers, action)
 	return DeferStatement{
 		Expression:   source,
 		Action:       action,
@@ -42,14 +42,14 @@ func checkDeferStatement(statement parser.DeferStatement, names *scope, typeEnvi
 	}, nil
 }
 
-func checkExitTimeExpression(expression parser.Expression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	checking := names
-	if names != nil && names.flow != nil {
-		checking = names.child()
-		checking.flow = names.flow.withoutFreedChecks()
-		checking.cleanupDepth = names.cleanupDepth
+func checkExitTimeExpression(expression parser.Expression, ctx checkContext) checkedExpression {
+	checking := ctx.names
+	if ctx.names != nil && ctx.names.flow != nil {
+		checking = ctx.names.child()
+		checking.flow = ctx.names.flow.withoutFreedChecks()
+		checking.cleanupDepth = ctx.names.cleanupDepth
 	}
-	return checkExpression(expression, expressionContext{inCleanup: true}, checking, typeEnvironment)
+	return checkExpression(expression, expressionContext{inCleanup: true}, checkContext{names: checking, typeEnvironment: ctx.typeEnvironment})
 }
 
 func captureDeferredHeapFree(action *DeferredAction, names *scope) {
@@ -72,7 +72,7 @@ func captureDeferredHeapFree(action *DeferredAction, names *scope) {
 
 // checkHeapTypeCall resolves a call written as Heap.<name>(...) where the
 // receiver names the built-in type itself rather than a Heap value.
-func checkHeapTypeCall(call parser.CallExpression, token parser.VariableExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkHeapTypeCall(call parser.CallExpression, token parser.VariableExpression, ctx checkContext) checkedExpression {
 	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
 	if name != "new" || len(call.Arguments) != 0 {
 		return checkedExpression{token: token.Name, diagnostic: diagnosticAt(typeErrorAt(token.Name, "Heap has no such operation; use Heap.new()"))}
@@ -84,7 +84,7 @@ func checkHeapTypeCall(call parser.CallExpression, token parser.VariableExpressi
 
 // checkHeapAllocate resolves h.allocate<T>(initial) into a checked
 // HeapAllocateExpression returning MutPtr<T>.
-func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 1 {
 		message := "allocation requires an explicit initializer"
 		if len(call.Arguments) > 1 {
@@ -95,7 +95,7 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 	if len(call.TypeArguments) != 1 {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "allocate requires exactly one type argument"))}
 	}
-	elementUse, diagnostic := resolveTypeUse(call.TypeArguments[0], callee.Property, typeEnvironment, names.generics)
+	elementUse, diagnostic := resolveTypeUse(call.TypeArguments[0], callee.Property, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -103,7 +103,7 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 	if !compilerTypes.Eligible(element, compilerTypes.PositionHeapAllocation) {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "allocation requires a complete finite type"))}
 	}
-	initial := checkInitializer(call.Arguments[0], elementUse, callee.Property, names, typeEnvironment)
+	initial := checkInitializer(call.Arguments[0], elementUse, callee.Property, ctx)
 	if diagnostics := initializerDiagnostics(initial); len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -111,7 +111,7 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("allocation initializer requires %s; got %s", element.Name, initial.typ.Name)))}
 	}
 	receiverNode := expressionNode(receiver.source)
-	result := typeEnvironment.MutPtrType(element)
+	result := ctx.typeEnvironment.MutPtrType(element)
 	node := Expression{
 		Kind:        HeapAllocateExpression,
 		Operand:     &receiverNode,
@@ -126,23 +126,23 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 
 // checkHeapFree resolves h.free(value) into a no-result checked
 // HeapFreeExpression. The value may be Ptr<T> or MutPtr<T>.
-func checkHeapFree(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkHeapFree(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "free expects exactly one pointer argument"))}
 	}
-	value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.Type{}), callee.Property, names, typeEnvironment)
+	value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.Type{}), callee.Property, ctx)
 	if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	if value.typ.Element == nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "value is not an allocation produced by this Heap"))}
 	}
-	if nodeTracesToRef(&value.source.Node, names) {
+	if nodeTracesToRef(&value.source.Node, ctx.names) {
 		diagnostic := freeLocalStorageDiagnostic(callee.Property)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	if names.cleanupDepth == 0 {
-		if diagnostic := checkTrackedHeapFree(value.source, callee.Property, names); diagnostic != nil {
+	if ctx.names.cleanupDepth == 0 {
+		if diagnostic := checkTrackedHeapFree(value.source, callee.Property, ctx.names); diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
 	}

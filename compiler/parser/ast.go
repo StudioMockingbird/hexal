@@ -419,7 +419,9 @@ type UnaryExpression struct {
 func (UnaryExpression) expressionNode() {}
 
 // BinaryExpression combines two operands with an infix operator. Nested nodes
-// retain the source precedence and associativity chosen by the parser.
+// retain the tree shape written explicit grouping and left associativity
+// produce; grouping-only parentheses select this shape and are otherwise
+// discarded, never appearing as a node of their own.
 type BinaryExpression struct {
 	Left     Expression
 	Operator lexer.Token

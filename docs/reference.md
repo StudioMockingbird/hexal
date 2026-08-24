@@ -8,12 +8,18 @@ Compiler behavior that disagrees with this file is a conformance bug.
 The grammar defines source shape only. Semantic rules in the remainder of this file may reject a
 grammatically valid form.
 
-Two lexical/parser rules are not expressible in EBNF:
+Three lexical/parser rules are not expressible in EBNF:
 
 - Tokens use maximal munch. Inside nested type-argument lists only, one `>>` token may close two
   levels; in expression position it is always one shift token.
 - `|` is a union separator in type position and bitwise-or in expression position; parser context
-  selects the grammar.
+  selects the grammar. On `is`'s right side specifically, an unparenthesized `|` stays inside that
+  type expression as a union separator and is never read as the following `binary-tail`.
+- Within one independently delimited expression, every `binary-tail` must repeat the same token
+  kind (`is` counts as its own kind, distinct from every other). A grouping `( expression )`, each
+  call argument, index expression, array element, member initializer, and match scrutinee or arm
+  result independently delimits a fresh expression with its own requirement. Hexal has no
+  binary-operator precedence: this is the entire rule for how a mixed chain must be written.
 
 ```ebnf
 program = lexical-separation , { top-level-item } ;
@@ -107,25 +113,11 @@ function-type-expression = "Fun" , "<" , "(" , [ type-list ] , ")"
                            , [ ":" , type-expression ] , ">" ;
 type-list = type-expression , { "," , type-expression } ;
 
-expression = or-expression ;
-or-expression = and-expression , { "or" , and-expression } ;
-and-expression = bitwise-or-expression , { "and" , bitwise-or-expression } ;
-bitwise-or-expression = bitwise-xor-expression
-                        , { "|" , bitwise-xor-expression } ;
-bitwise-xor-expression = bitwise-and-expression
-                         , { "^" , bitwise-and-expression } ;
-bitwise-and-expression = equality-expression
-                         , { "&" , equality-expression } ;
-equality-expression = type-test-expression
-                      , { equality-operator , type-test-expression } ;
-type-test-expression = relational-expression , [ "is" , type-expression ] ;
-relational-expression = shift-expression
-                        , { relational-operator , shift-expression } ;
-shift-expression = additive-expression , { shift-operator , additive-expression } ;
-additive-expression = multiplicative-expression
-                      , { additive-operator , multiplicative-expression } ;
-multiplicative-expression = unary-expression
-                            , { multiplicative-operator , unary-expression } ;
+expression = unary-expression , { binary-tail } ;
+binary-tail = binary-operator , unary-expression | "is" , type-expression ;
+binary-operator = multiplicative-operator | additive-operator | shift-operator
+                  | relational-operator | equality-operator
+                  | "&" | "^" | "|" | "and" | "or" ;
 unary-expression = unary-operator , unary-expression
                    | "try" , unary-expression
                    | "spawn" , call-expression
@@ -367,8 +359,9 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Every value is copyable except `Atomic<T>` and inline aggregates transitively containing one.
   Atomic containment traversal stops at every pointer and handle indirection.
 - Full statements execute in source order, and evaluation within a statement is fully ordered:
-  a binary expression evaluates its left operand before its right, keeping existing precedence
-  and associativity; a unary expression evaluates its operand before the operator applies; a
+  a binary expression evaluates its left operand before its right, keeping its written tree
+  structure and a repeated operator's left associativity; a unary expression evaluates its
+  operand before the operator applies; a
   receiver evaluates before a call's or method's arguments, which then evaluate left to right in
   written order; array elements and object/ADT initializers evaluate left to right in written
   order regardless of storage layout order; a union initializer evaluates its source once before

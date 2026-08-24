@@ -130,6 +130,10 @@ This RFC does not change that scheduling contract.
 - An IO operation does not satisfy the visible `Task.yield()` requirement for
   a task-reachable literal `while true`, because the operation may complete
   immediately.
+- An outstanding `IO.read` destination or `IO.write` source remains shared
+  memory. Concurrent mutation, resize, or free is an unsynchronized conflict;
+  this RFC owns rejection when local analysis proves it. RFC 0121's Task
+  parking neither creates nor removes that aliasing rule.
 - RFC 0121 replaces this backend after it lands without changing IO
   signatures; it is not a dependency of this safety RFC.
 

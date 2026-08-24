@@ -36,16 +36,16 @@ func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 
 // checkDictTypeCall resolves Dict<K, V>.new(heap) into a fresh owning
 // dictionary.
-func checkDictTypeCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkDictTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme != "new" || len(call.TypeArguments) != 2 || len(call.Arguments) != 1 {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Dict has no such operation; use Dict<K, V>.new(heap)"))}
 	}
-	dictUse, diagnostic := resolveDictTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "Dict", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, typeEnvironment, names.generics)
+	dictUse, diagnostic := resolveDictTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "Dict", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
-	heap := checkValue(call.Arguments[0], names, typeEnvironment)
+	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 		return heap
 	}
@@ -67,7 +67,7 @@ func checkDictTypeCall(call parser.CallExpression, callee lexer.Token, names *sc
 
 // checkDictMethodCall dispatches the built-in Dict methods: insert, get, find,
 // contains, remove, and free.
-func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	dictType := receiver.typ
 	keyType := dictType.Dict.Key
@@ -88,11 +88,11 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("insert expects 2 arguments; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, names, typeEnvironment)
+		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		value, diagnostic := listElementArgument(call.Arguments[1], callee.Property, valueType, names, typeEnvironment)
+		value, diagnostic := listElementArgument(call.Arguments[1], callee.Property, valueType, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
@@ -104,13 +104,13 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s expects 1 argument; got %d", name, len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, names, typeEnvironment)
+		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
 		resultType := valueType
 		if name == "find" {
-			resultType = typeEnvironment.UnionType([]compilerTypes.Type{valueType, compilerTypes.Nil})
+			resultType = ctx.typeEnvironment.UnionType([]compilerTypes.Type{valueType, compilerTypes.Nil})
 			if resultType == (compilerTypes.Type{}) {
 				diagnostic := typeErrorAt(callee.Property, valueType.Name+" cannot be combined with Nil")
 				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
@@ -124,7 +124,7 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("contains expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, names, typeEnvironment)
+		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
@@ -136,7 +136,7 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], names, typeEnvironment)
+		heap := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -164,8 +164,8 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 // checkDictKeyArgument checks one insert/get/contains/remove key against the
 // key type. A String literal in a Strand position retains Strand's
 // literal-only construction.
-func checkDictKeyArgument(expression parser.Expression, fallback lexer.Token, keyType compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (Operand, *compilerTypes.Diagnostic) {
-	checked := checkInitializer(expression, compilerTypes.NewTypeUse(keyType), fallback, names, typeEnvironment)
+func checkDictKeyArgument(expression parser.Expression, fallback lexer.Token, keyType compilerTypes.Type, ctx checkContext) (Operand, *compilerTypes.Diagnostic) {
+	checked := checkInitializer(expression, compilerTypes.NewTypeUse(keyType), fallback, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return Operand{}, &diagnostics[0]
 	}

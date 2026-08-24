@@ -34,9 +34,7 @@ other.
 
 | Work | Spec |
 |---|---|
-| Refactoring audit residue — R21 coverage matrix, R25 checker context bundle, R47 API docs; R22-R24 split-or-drop decided here | [0119](specs/0119-refactor-audit-residue.md) |
-| Explicit binary grouping — reject mixed unparenthesized binary operators | [0120](specs/0120-explicit-binary-grouping.md) |
-| Scheduler-aware blocking pool — park Tasks while bounded native threads perform synchronous operations | [0121](specs/0121-scheduler-aware-blocking.md) |
+| Scheduler-aware blocking — demand-grown native-operation pool and safe Task parking | [0121](specs/0121-scheduler-aware-blocking.md) |
 
 ### Design settled; implementation blocked
 
@@ -47,6 +45,7 @@ other.
 
 | Bug | Owning spec |
 |---|---|
+| Task parking can publish a running fiber; join can lose a wake or reclaim a completing fiber; contended Mutex handoff traps its selected waiter | [0121](specs/0121-scheduler-aware-blocking.md) |
 
 ## Unowned
 

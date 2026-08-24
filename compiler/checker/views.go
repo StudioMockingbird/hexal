@@ -33,16 +33,16 @@ func resolveViewTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 // their recorded root chain, and slicing a temporary view keeps its original
 // stable root. Known constant bounds against a known array length fail at
 // compile time; all other invalid ranges trap at runtime.
-func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 2 {
 		diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	start, startKnown, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, names, typeEnvironment)
+	start, startKnown, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
-	end, endKnown, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, names, typeEnvironment)
+	end, endKnown, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -71,7 +71,7 @@ func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpressi
 		}
 	}
 
-	viewType := typeEnvironment.ViewType(element)
+	viewType := ctx.typeEnvironment.ViewType(element)
 	if viewType == (compilerTypes.Type{}) {
 		diagnostic := typeErrorAt(callee.Property, element.Name+" is not an inline view element type")
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

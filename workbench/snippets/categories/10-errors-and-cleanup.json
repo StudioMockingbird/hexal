@@ -9,7 +9,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun validate(score: Int32): Int32 | Error do",
-        "    if score < 0 or score > 100 then",
+        "    if (score < 0) or (score > 100) then",
         "        return Error.new(\"Validation Error\", \"score out of range\")",
         "    end",
         "    return score",
@@ -89,7 +89,7 @@
       "sources": {"app.hex": [
         "type Tracer = { mut log: Int32, }",
         "fun trace(tracer: MutPtr<Tracer>, step: Int32) do",
-        "    tracer.log = tracer.log * 10 + step",
+        "    tracer.log = (tracer.log * 10) + step",
         "end",
         "fun demo(): Int32 do",
         "    mut tracer: Tracer:= Tracer { log = 0 }",
@@ -192,7 +192,7 @@
         "end",
         "fun inspect(): Bool do",
         "    err: Error:= Error.new(\"Input Error\", \"missing value\")",
-        "    return err.header == \"Input Error\" and err.message == \"missing value\"",
+        "    return (err.header == \"Input Error\") and (err.message == \"missing value\")",
         "end"
       ]},
       "features": ["errors", "unions", "text"],

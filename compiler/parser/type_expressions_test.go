@@ -95,7 +95,12 @@ func TestParseTypeTestExpression(t *testing.T) {
 }
 
 func TestParseTypeTestPrecedence(t *testing.T) {
-	initializer := parseInitializer(t, "tested: Bool := value is Int32 == expected")
+	message := parseError(t, "tested: Bool := value is Int32 == expected")
+	if !strings.Contains(message, "mixed binary operators require parentheses; found '==' after 'is'") {
+		t.Fatalf("message = %q, want the mixed-operator diagnostic", message)
+	}
+
+	initializer := parseInitializer(t, "tested: Bool := (value is Int32) == expected")
 	if got := fmt.Sprintf("%T", initializer); got != "parser.BinaryExpression" {
 		t.Fatalf("initializer = %q, want parser.BinaryExpression", got)
 	}

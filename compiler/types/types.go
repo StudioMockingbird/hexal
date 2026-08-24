@@ -14,6 +14,7 @@ import (
 // zero value shared by every non-scalar type.
 type ScalarKind int
 
+// The concrete ScalarKind values, named for the scalar family they classify.
 const (
 	ScalarNone ScalarKind = iota
 	ScalarSignedInteger
@@ -157,6 +158,9 @@ func (object *ObjectType) Member(name string) (*ObjectMember, bool) {
 // ErrorCategory classifies a compilation error.
 type ErrorCategory string
 
+// The concrete ErrorCategory values. Each string is the exact bracketed
+// label a Diagnostic renders in its Error() text, so renaming one changes
+// every diagnostic of that category.
 const (
 	SemanticError      ErrorCategory = "Semantic Error"
 	TypeError          ErrorCategory = "Type Error"
@@ -205,6 +209,8 @@ func (diagnostics Diagnostics) InModule(module string) Diagnostics {
 // Diagnostics is the ordered set of diagnostics one stage produced.
 type Diagnostics []Diagnostic
 
+// Error renders the diagnostic's bracketed category, message, and source
+// location, satisfying the standard error interface.
 func (diagnostic Diagnostic) Error() string {
 	// An empty category is a construction defect in the compiler: every site
 	// must name a category, so an empty one renders as "[]" instead of being
@@ -222,6 +228,8 @@ func (diagnostic Diagnostic) Error() string {
 	return "[" + string(diagnostic.Category) + "] " + diagnostic.Message + location
 }
 
+// Error joins every diagnostic's own Error() text with a newline, satisfying
+// the standard error interface for a whole diagnostic set.
 func (diagnostics Diagnostics) Error() string {
 	if len(diagnostics) == 0 {
 		return ""
@@ -835,6 +843,9 @@ func Assignable(target, source Type) bool {
 // TruthinessKind classifies how a value's truthiness is decided.
 type TruthinessKind int
 
+// The concrete TruthinessKind values. TruthinessInvalid is the unset zero
+// value, and TruthinessAlwaysTrue marks a type with no false representation
+// at all.
 const (
 	TruthinessInvalid TruthinessKind = iota
 	TruthinessBool

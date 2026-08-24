@@ -22,11 +22,11 @@ func directPointerBinding(source Operand, target compilerTypes.Type) BindingID {
 	return source.Node.Binding
 }
 
-func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, names *scope, itemIndex int, functionIndexByName map[string]int) (TypeDeclaration, compilerTypes.Diagnostics) {
+func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, itemIndex int, functionIndexByName map[string]int) (TypeDeclaration, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	name := declaration.Name.Lexeme
-	previousType, hadPreviousType := typeEnvironment.Lookup(name)
-	previousUse, hadPreviousUse := typeEnvironment.LookupUse(name)
+	previousType, hadPreviousType := ctx.typeEnvironment.Lookup(name)
+	previousUse, hadPreviousUse := ctx.typeEnvironment.LookupUse(name)
 	functionIndex, declaredAsFunction := functionIndexByName[name]
 	if compilerTypes.IsProtectedTypeName(name) {
 		message := "built-in type " + name + " cannot be redeclared"
@@ -34,19 +34,19 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 			message = "built-in type constructor " + name + " cannot be redeclared"
 		}
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, message))
-	} else if typeEnvironment.Contains(name) {
+	} else if ctx.typeEnvironment.Contains(name) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type "+name+" is already declared"))
-	} else if names.declaredHere(name) || (declaredAsFunction && functionIndex < itemIndex) {
+	} else if ctx.names.declaredHere(name) || (declaredAsFunction && functionIndex < itemIndex) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type "+name+" is already declared as a value"))
 	}
 
 	if len(declaration.Parameters) > 0 {
-		genericDiagnostics := registerGenericTypeDeclaration(declaration, typeEnvironment, names)
+		genericDiagnostics := registerGenericTypeDeclaration(declaration, ctx)
 		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, append(diagnostics, genericDiagnostics...)
 	}
 
 	if adt, isADT := declaration.Target.(parser.AdtDefinitionExpression); isADT {
-		checked, adtDiagnostics := checkADTDeclaration(declaration, adt, typeEnvironment, names)
+		checked, adtDiagnostics := checkADTDeclaration(declaration, adt, ctx)
 		return checked, append(diagnostics, adtDiagnostics...)
 	}
 
@@ -59,11 +59,11 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 		// identity is abandoned if any member fails and finalized only on
 		// complete success. BeginObject stamps the declaring module's
 		// canonical id and encoded owner.
-		beginResult := typeEnvironment.BeginObject(name, declaration.Name.Line, declaration.Name.Column)
-		members, memberDiagnostics := resolveObjectMembers(name, object, typeEnvironment, names.generics)
+		beginResult := ctx.typeEnvironment.BeginObject(name, declaration.Name.Line, declaration.Name.Column)
+		members, memberDiagnostics := resolveObjectMembers(name, object, ctx.typeEnvironment, ctx.names.generics)
 		diagnostics = append(diagnostics, memberDiagnostics...)
 		if len(diagnostics) == 0 {
-			resolved := typeEnvironment.CompleteObject(name, members)
+			resolved := ctx.typeEnvironment.CompleteObject(name, members)
 			if !compilerTypes.Equal(resolved, beginResult) {
 				return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, compilerTypes.Diagnostics{{
 					Category: compilerTypes.UnknownError,
@@ -81,19 +81,19 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 		}
 		if hadPreviousType {
 			if hadPreviousUse {
-				typeEnvironment.DeclareAliasUse(name, previousUse)
+				ctx.typeEnvironment.DeclareAliasUse(name, previousUse)
 			} else {
-				typeEnvironment.DeclareAlias(name, previousType)
+				ctx.typeEnvironment.DeclareAlias(name, previousType)
 			}
 		} else {
-			typeEnvironment.AbandonObject(name)
+			ctx.typeEnvironment.AbandonObject(name)
 		}
 		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, diagnostics
 	}
 
 	if containsTypeName(declaration.Target, name) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type alias "+name+" cannot reference itself"))
-	} else if resolvedUse, diagnostic := resolveTypeUse(declaration.Target, declaration.Name, typeEnvironment, names.generics); diagnostic != nil {
+	} else if resolvedUse, diagnostic := resolveTypeUse(declaration.Target, declaration.Name, ctx.typeEnvironment, ctx.names.generics); diagnostic != nil {
 		diagnostics = append(diagnostics, *diagnostic)
 	} else if len(diagnostics) == 0 {
 		return TypeDeclaration{
@@ -284,7 +284,7 @@ func firstTypeNameDeclaredAtOrAfter(expression parser.TypeExpression, itemIndex 
 // registerGenericTypeDeclaration validates and stores one generic type or
 // alias declaration as an open template. The target is not resolved yet:
 // parameters are placeholders until a concrete specialization is requested.
-func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, names *scope) compilerTypes.Diagnostics {
+func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext) compilerTypes.Diagnostics {
 	name := declaration.Name.Lexeme
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	seen := make(map[string]bool, len(declaration.Parameters))
@@ -304,7 +304,7 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvi
 	if len(diagnostics) > 0 {
 		return diagnostics
 	}
-	generic := typeEnvironment.DeclareGeneric(name, len(declaration.Parameters), parameterNames)
+	generic := ctx.typeEnvironment.DeclareGeneric(name, len(declaration.Parameters), parameterNames)
 	if generic == nil {
 		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, "type "+name+" is already declared")}
 	}
@@ -315,7 +315,7 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvi
 	} else if containsTypeName(declaration.Target, name) {
 		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, "type alias "+name+" cannot reference itself")}
 	}
-	names.generics.types[name] = &openGenericType{
+	ctx.names.generics.types[name] = &openGenericType{
 		Name:        name,
 		Parameters:  append([]lexer.Token(nil), declaration.Parameters...),
 		Target:      declaration.Target,
@@ -324,7 +324,7 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvi
 	return nil
 }
 
-func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironment *compilerTypes.Environment, itemIndex int, typeIndexByName map[string]int) (Declaration, binding, compilerTypes.Diagnostics) {
+func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemIndex int, typeIndexByName map[string]int) (Declaration, binding, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	// A declaration without a type expression takes its type from the
 	// initializer below.
@@ -333,7 +333,7 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 		if token, tooLate := firstTypeNameDeclaredAtOrAfter(declaration.Type, itemIndex, typeIndexByName); tooLate {
 			diagnostics = append(diagnostics, typeErrorAt(token, "unknown type "+token.Lexeme))
 		} else {
-			resolved, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, names.generics)
+			resolved, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
 			declaredUse = resolved
 			if typeDiagnostic != nil {
 				diagnostics = append(diagnostics, *typeDiagnostic)
@@ -359,10 +359,10 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 			message = "built-in type constructor " + declaration.Name.Lexeme + " cannot be redeclared"
 		}
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, message))
-	} else if typeEnvironment.Contains(declaration.Name.Lexeme) {
+	} else if ctx.typeEnvironment.Contains(declaration.Name.Lexeme) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+declaration.Name.Lexeme+" is already declared as a type"))
 	}
-	if names.declaredHere(declaration.Name.Lexeme) {
+	if ctx.names.declaredHere(declaration.Name.Lexeme) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "variable "+declaration.Name.Lexeme+" is already declared in this scope; use '=' for reassignment"))
 	}
 
@@ -375,7 +375,7 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 			"`:=` requires an initializer whose type does not depend on context; annotate the binding instead"))
 	}
 
-	initializer := checkInitializer(declaration.Initializer, declaredUse, declaration.Name, names, typeEnvironment)
+	initializer := checkInitializer(declaration.Initializer, declaredUse, declaration.Name, ctx)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
@@ -401,12 +401,12 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 		typ:     declaredType,
 		use:     declaredUse,
 		mutable: declaration.Mutable,
-		id:      names.newBindingID(),
+		id:      ctx.names.newBindingID(),
 	}
 	if isTrackedCollection(declaredType) {
-		declaredBinding.collectionRoot = collectionRootForOperand(initializer.source, names, declaredBinding.id)
+		declaredBinding.collectionRoot = collectionRootForOperand(initializer.source, ctx.names, declaredBinding.id)
 	}
-	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, names) {
+	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, ctx.names) {
 		declaredBinding.fromRef = true
 	}
 	if declaredType.View != nil {
@@ -422,15 +422,15 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 		known := *initializer.known
 		declaredBinding.known = &known
 	}
-	if len(diagnostics) == 0 && names.flow != nil && trackablePointerBinding(declaredBinding) {
-		names.flow.trackFreed(declaredBinding.id)
+	if len(diagnostics) == 0 && ctx.names.flow != nil && trackablePointerBinding(declaredBinding) {
+		ctx.names.flow.trackFreed(declaredBinding.id)
 		if sourceBinding := directPointerBinding(initializer.source, declaredType); sourceBinding != 0 {
-			names.flow.dropFreed(sourceBinding)
-			names.flow.dropFreed(declaredBinding.id)
+			ctx.names.flow.dropFreed(sourceBinding)
+			ctx.names.flow.dropFreed(declaredBinding.id)
 		}
 	}
-	if len(diagnostics) == 0 && names.flow != nil {
-		seedStreamBindingFacts(names.flow, declaredBinding.id, declaredType, initializer.source)
+	if len(diagnostics) == 0 && ctx.names.flow != nil {
+		seedStreamBindingFacts(ctx.names.flow, declaredBinding.id, declaredType, initializer.source)
 	}
 	return Declaration{
 		Name:         declaration.Name.Lexeme,
@@ -444,9 +444,9 @@ func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironm
 	}, declaredBinding, diagnostics
 }
 
-func checkAssignment(assignment parser.Assignment, names *scope, typeEnvironment *compilerTypes.Environment) (Assignment, compilerTypes.Diagnostics) {
+func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	target := checkPlace(assignment.Target, names, typeEnvironment)
+	target := checkPlace(assignment.Target, ctx)
 	switch {
 	case target.diagnostic != nil:
 		diagnostics = append(diagnostics, *target.diagnostic)
@@ -474,7 +474,7 @@ func checkAssignment(assignment parser.Assignment, names *scope, typeEnvironment
 	targetBinding := BindingID(0)
 	if variable, ok := assignment.Target.(parser.VariableExpression); ok && target.source.Binding != 0 {
 		targetBinding = target.source.Binding
-		if bound, status := names.lookup(variable.Name.Lexeme); status == nameFound {
+		if bound, status := ctx.names.lookup(variable.Name.Lexeme); status == nameFound {
 			targetType = bound.typ
 			target.source.Type = bound.typ
 			target.use = bound.use
@@ -484,7 +484,7 @@ func checkAssignment(assignment parser.Assignment, names *scope, typeEnvironment
 	if targetUse.Type == (compilerTypes.Type{}) {
 		targetUse = compilerTypes.NewTypeUse(targetType)
 	}
-	initializer := checkInitializer(assignment.Initializer, targetUse, assignment.Name, names, typeEnvironment)
+	initializer := checkInitializer(assignment.Initializer, targetUse, assignment.Name, ctx)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
@@ -496,24 +496,24 @@ func checkAssignment(assignment parser.Assignment, names *scope, typeEnvironment
 	if len(diagnostics) == 0 && initializer.typ != (compilerTypes.Type{}) && !assignable(targetType, initializer.typ) {
 		diagnostics = append(diagnostics, bindingMismatchDiagnostic(assignment.Name.Lexeme, targetType, initializer.typ, initializer.token))
 	}
-	if len(diagnostics) == 0 && names.flow != nil && targetBinding != 0 {
-		names.flow.invalidateNarrowing(targetBinding)
+	if len(diagnostics) == 0 && ctx.names.flow != nil && targetBinding != 0 {
+		ctx.names.flow.invalidateNarrowing(targetBinding)
 		if sourceBinding := directPointerBinding(initializer.source, targetType); sourceBinding != 0 {
-			names.flow.dropFreed(sourceBinding)
-			names.flow.dropFreed(targetBinding)
+			ctx.names.flow.dropFreed(sourceBinding)
+			ctx.names.flow.dropFreed(targetBinding)
 		} else {
-			names.flow.clearFreed(targetBinding)
+			ctx.names.flow.clearFreed(targetBinding)
 		}
-		seedStreamBindingFacts(names.flow, targetBinding, targetType, initializer.source)
+		seedStreamBindingFacts(ctx.names.flow, targetBinding, targetType, initializer.source)
 	}
 	if len(diagnostics) == 0 && targetBinding != 0 {
 		// Assignment re-sources the slot: the binding now holds the ref-derived
 		// value exactly when the assigned initializer traces to a ref, so the
 		// flag is both set and cleared by the same check.
-		names.setFromRef(targetBinding, nodeTracesToRef(&initializer.source.Node, names))
+		ctx.names.setFromRef(targetBinding, nodeTracesToRef(&initializer.source.Node, ctx.names))
 	}
 	if len(diagnostics) == 0 && targetBinding != 0 && isTrackedCollection(targetType) {
-		names.setCollectionRoot(targetBinding, collectionRootForOperand(initializer.source, names, targetBinding))
+		ctx.names.setCollectionRoot(targetBinding, collectionRootForOperand(initializer.source, ctx.names, targetBinding))
 	}
 
 	return Assignment{

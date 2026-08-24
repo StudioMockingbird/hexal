@@ -20,14 +20,14 @@ var layoutBuiltins = map[string]bool{
 // explicit type argument, no value arguments, result Size. The type must be
 // complete and representable; a type parameter defers validation to the
 // specialization pass, which re-checks the body with concrete arguments.
-func checkLayoutCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkLayoutCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.TypeArguments) != 1 {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, callee.Lexeme+" requires exactly one type argument"))}
 	}
 	if len(call.Arguments) != 0 {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, callee.Lexeme+" takes no value arguments"))}
 	}
-	use, diagnostic := resolveTypeUse(call.TypeArguments[0], callee, typeEnvironment, names.generics)
+	use, diagnostic := resolveTypeUse(call.TypeArguments[0], callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
@@ -75,13 +75,13 @@ func volatileEligibleType(typ compilerTypes.Type) bool {
 
 // checkVolatileCall resolves read_volatile() and write_volatile(value) on
 // Ptr<T> and MutPtr<T> receivers whose element is an integer storage type.
-func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	element := *receiver.typ.Element
 	if !volatileEligibleType(element) {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "volatile access is supported only for integer storage types; got "+element.Name))}
 	}
-	if diagnostic := freedPointeeDiagnostic(receiver, callee.Property, names.flow); diagnostic != nil {
+	if diagnostic := freedPointeeDiagnostic(receiver, callee.Property, ctx.names.flow); diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
 	switch name {
@@ -99,7 +99,7 @@ func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpress
 		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
 			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "write_volatile expects 1 argument"))}
 		}
-		value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.Arguments[0]), names, typeEnvironment)
+		value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.Arguments[0]), ctx)
 		if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 		}

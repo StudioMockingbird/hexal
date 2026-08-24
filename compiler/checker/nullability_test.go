@@ -232,7 +232,7 @@ func TestCheckerNarrowingIsBranchLocal(t *testing.T) {
 
 func TestCheckerRejectsNullableAccessWithoutNarrowing(t *testing.T) {
 	requireDiagnostic(t, "mut value: Int32 := 1 maybe: Ptr<Int32> | Nil := ref value bad: Int32 := maybe.value", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
-	requireDiagnostic(t, "mut value: Int32 := 1 maybe: Ptr<Int32> | Nil := ref value flag: Bool := true if maybe != nil and flag then bad: Int32 := maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
+	requireDiagnostic(t, "mut value: Int32 := 1 maybe: Ptr<Int32> | Nil := ref value flag: Bool := true if (maybe != nil) and flag then bad: Int32 := maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 	requireDiagnostic(t, "mut value: Int32 := 1 maybe: Ptr<Int32> | Nil := ref value flag: Bool := true if flag then bad: Int32 := maybe.value end", "Ptr<Int32> | Nil may be Nil; narrow it before using .value")
 }
 

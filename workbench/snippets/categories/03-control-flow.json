@@ -109,7 +109,7 @@
         "    scores: Array<Int32, 3>:= [10, 20, 30]",
         "    mut weighted: Int32:= 0",
         "    for index, value in scores do",
-        "        weighted = weighted + value * (index.to<Int32>() + 1)",
+        "        weighted = weighted + (value * (index.to<Int32>() + 1))",
         "    end",
         "end"
       ]},

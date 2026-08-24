@@ -86,7 +86,7 @@ func printUnsupportedPath(typ compilerTypes.Type) string {
 // checkPrintCall resolves the protected builtin `print(...)` call. It is
 // recognized before ordinary free-function lookup, requires at least one
 // argument, takes no type arguments, and produces no value.
-func checkPrintCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkPrintCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.TypeArguments) != 0 {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "print does not take type arguments"))}
 	}
@@ -97,7 +97,7 @@ func checkPrintCall(call parser.CallExpression, callee lexer.Token, names *scope
 	for _, argument := range call.Arguments {
 		// A print argument is the sole position admitting
 		// standalone Nil, so arguments check under allowStandaloneNil.
-		checked := checkExpression(argument, expressionContext{foldConstants: true, allowStandaloneNil: true}, names, typeEnvironment)
+		checked := checkExpression(argument, expressionContext{foldConstants: true, allowStandaloneNil: true}, ctx)
 		if checked.token.Line == 0 {
 			checked.token = tokenOf(argument)
 		}

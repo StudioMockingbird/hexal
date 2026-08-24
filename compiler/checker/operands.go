@@ -16,6 +16,9 @@ type BindingID uint64
 // guessing from spelling.
 type OperandKind uint8
 
+// The concrete OperandKind values. Each name is self-evident given
+// OperandKind's own contract; InvalidOperand is the unset zero value, never a
+// checked operand's real kind.
 const (
 	InvalidOperand OperandKind = iota
 	ConstantOperand
@@ -29,6 +32,12 @@ const (
 // deliberately owned by the generator.
 type ExpressionKind uint8
 
+// The concrete ExpressionKind values. InvalidExpression is the unset zero
+// value; the generator's render and validation dispatchers explicitly own
+// every other kind but never this one. A kind whose carried fields are
+// self-evident from its name and Expression's own field docs carries no
+// further comment; every kind with a non-obvious contract, invariant, or
+// field convention documents it individually below.
 const (
 	InvalidExpression ExpressionKind = iota
 	VariableExpression
@@ -234,6 +243,9 @@ const (
 // It deliberately contains no lexer token or generated C spelling.
 type Operator uint8
 
+// The concrete Operator values: unary forms first, then binary. Grouping is
+// documentation convenience only; declaration order carries no semantic
+// weight. InvalidOperator is the unset zero value.
 const (
 	InvalidOperator Operator = iota
 	NegateOperator
@@ -401,6 +413,7 @@ type FunctionLiteral struct {
 // return check.
 type ViewRootKind uint8
 
+// The concrete ViewRootKind values, each documented at its own line.
 const (
 	ViewRootNone     ViewRootKind = iota // empty(): no root; any return is safe
 	ViewRootForeign                      // from_pointer: opaque foreign region
@@ -415,6 +428,8 @@ type ObjectValue struct {
 	Initializers []ObjectMemberValue
 }
 
+// ObjectMemberValue is one checked object-literal initializer: the member it
+// fills and the operand it was initialized from.
 type ObjectMemberValue struct {
 	Member *compilerTypes.ObjectMember
 	Source Operand
@@ -425,6 +440,8 @@ type ObjectMemberValue struct {
 // still authoritative in Constant.
 type LiteralRadix uint8
 
+// The concrete LiteralRadix values, named for the source spelling they
+// record.
 const (
 	DecimalRadix LiteralRadix = iota
 	HexadecimalRadix

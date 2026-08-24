@@ -66,7 +66,7 @@ func TestUnsignedRingBoundariesKeepTheirTypedValue(t *testing.T) {
 		},
 		{
 			name:   "tree narrows before a comparison consumes it",
-			source: "fun demo(a: UInt32, b: UInt32, c: UInt32): Bool do\n    return a + b > c\nend\n",
+			source: "fun demo(a: UInt32, b: UInt32, c: UInt32): Bool do\n    return (a + b) > c\nend\n",
 			want:   "return ((uint32_t)((uintmax_t)hex_v_a + hex_v_b) > hex_v_c);",
 		},
 		{
@@ -127,7 +127,7 @@ func TestUnsignedRingWidthBoundaries(t *testing.T) {
 			{"maximum plus one", "return a + b"},
 			{"zero minus one", "return b - a"},
 			{"overflowing multiplication", "return a * a"},
-			{"tree wrapping more than once", "return a * a + a * a"},
+			{"tree wrapping more than once", "return (a * a) + (a * a)"},
 			{"nested right-hand subtree", "return a + (b * a)"},
 		} {
 			t.Run(typ.hexal+"/"+shape.name, func(t *testing.T) {

@@ -115,7 +115,7 @@ func checkStringLiteral(expression parser.StringLiteral, expected compilerTypes.
 // checkStringTypeCall resolves a call written as String.<name>(...), the
 // built-in type constructors String.from_bytes(heap, view) and
 // String.from_runes(heap, view).
-func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
 	viewType := compilerTypes.UInt8
 	if name == "from_runes" {
@@ -124,7 +124,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *
 	if (name != "from_bytes" && name != "from_runes") || len(call.Arguments) != 2 {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "String has no such operation; use String.from_bytes(heap, view) or String.from_runes(heap, view)"))}
 	}
-	heap := checkValue(call.Arguments[0], names, typeEnvironment)
+	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 		return heap
 	}
@@ -132,7 +132,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *
 		diagnostic := typeErrorAt(heap.token, "String."+name+" requires a Heap; got "+heap.typ.Name)
 		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 	}
-	view := checkValue(call.Arguments[1], names, typeEnvironment)
+	view := checkValue(call.Arguments[1], ctx)
 	if diagnostics := initializerDiagnostics(view); len(diagnostics) > 0 {
 		return view
 	}
@@ -163,7 +163,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, names *
 // length, bytes, slice, rune_cursor, to_string, concat, and free,
 // and rejects the removed at name with its replacement. Indexing
 // ([index]) resolves through checkIndexPlace.
-func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
 	case "length":
@@ -180,7 +180,7 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(callee.Property, "bytes expects no arguments")
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		view := typeEnvironment.ViewType(compilerTypes.UInt8)
+		view := ctx.typeEnvironment.ViewType(compilerTypes.UInt8)
 		node := Expression{
 			Kind:        StringMethodCallExpression,
 			Name:        name,
@@ -200,15 +200,15 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, names, typeEnvironment)
+		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, names, typeEnvironment)
+		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		view := typeEnvironment.ViewType(compilerTypes.UInt8)
+		view := ctx.typeEnvironment.ViewType(compilerTypes.UInt8)
 		node := Expression{
 			Kind:        StringMethodCallExpression,
 			Name:        name,
@@ -237,7 +237,7 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("to_string expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], names, typeEnvironment)
+		heap := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -260,7 +260,7 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("concat expects 2 arguments; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], names, typeEnvironment)
+		heap := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -268,7 +268,7 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(heap.token, "concat requires a Heap; got "+heap.typ.Name)
 			return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 		}
-		other := checkValue(call.Arguments[1], names, typeEnvironment)
+		other := checkValue(call.Arguments[1], ctx)
 		if diagnostics := initializerDiagnostics(other); len(diagnostics) > 0 {
 			return other
 		}
@@ -291,7 +291,7 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], names, typeEnvironment)
+		heap := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -317,7 +317,7 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 
 // checkStrandMethodCall dispatches the Strand surface: length and to_string.
 // Strand never exposes bytes, slice, rune_cursor, concat, or free.
-func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
 	case "length":
@@ -333,7 +333,7 @@ func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("to_string expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], names, typeEnvironment)
+		heap := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -359,7 +359,7 @@ func checkStrandMethodCall(call parser.CallExpression, callee parser.PropertyExp
 
 // checkRuneCursorMethodCall dispatches the RuneCursor surface:
 // has_next and next.
-func checkRuneCursorMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, _ *scope, _ *compilerTypes.Environment) checkedExpression {
+func checkRuneCursorMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, _ checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
 	case "has_next":

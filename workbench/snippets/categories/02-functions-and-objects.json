@@ -63,7 +63,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun combine(a: Int32, b: Int32): Int32 do",
-        "    return a * 2 + b",
+        "    return (a * 2) + b",
         "end",
         "step: Fun<(Int32, Int32) : Int32> := combine",
         "result: Int32:= step(3, 4)"

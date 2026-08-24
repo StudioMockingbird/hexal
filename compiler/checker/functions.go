@@ -56,7 +56,7 @@ type FunctionParameter struct {
 // function collide correctly against a root value declared earlier in
 // source but not yet processed, keeping diagnostic ownership on whichever
 // declaration is actually later regardless of which pass reaches it first.
-func collectFunctionSignature(declaration parser.FunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment, rootValueNamesSoFar map[string]bool) (functionSignature, compilerTypes.Diagnostics) {
+func collectFunctionSignature(declaration parser.FunctionDeclaration, ctx checkContext, rootValueNamesSoFar map[string]bool) (functionSignature, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
@@ -70,18 +70,18 @@ func collectFunctionSignature(declaration parser.FunctionDeclaration, names *sco
 		// declaration.
 		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, name+" is a protected built-in name"))
 	}
-	if compilerTypes.IsProtectedTypeName(name) || typeEnvironment.Contains(name) {
+	if compilerTypes.IsProtectedTypeName(name) || ctx.typeEnvironment.Contains(name) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+name+" is already declared as a type"))
-	} else if names.declaredHere(name) || rootValueNamesSoFar[name] {
+	} else if ctx.names.declaredHere(name) || rootValueNamesSoFar[name] {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, name+" is already declared"))
-	} else if method, taken := names.methods.cNames[name]; taken {
+	} else if method, taken := ctx.names.methods.cNames[name]; taken {
 		// hex_f_ is not injective: Point_translate and impl Point.translate
 		// share one private C spelling, so one of them has to go.
 		diagnostics = append(diagnostics, collisionDiagnostic(name, method, declaration.Name))
 	}
 
 	if len(diagnostics) == 0 && len(declaration.TypeParameters) > 0 {
-		return functionSignature{}, registerGenericFunction(declaration, names, typeEnvironment)
+		return functionSignature{}, registerGenericFunction(declaration, ctx)
 	}
 	// An incomplete signature cannot be bound, so the body is not checked
 	// either: every name in it would resolve against a fiction.
@@ -89,7 +89,7 @@ func collectFunctionSignature(declaration parser.FunctionDeclaration, names *sco
 		return functionSignature{}, diagnostics
 	}
 
-	signature, signatureDiagnostics := checkFunctionSignature(declaration.Parameters, declaration.Return, declaration.Name, names.generics, typeEnvironment)
+	signature, signatureDiagnostics := checkFunctionSignature(declaration.Parameters, declaration.Return, declaration.Name, ctx.names.generics, ctx.typeEnvironment)
 	if len(signatureDiagnostics) > 0 {
 		return functionSignature{}, signatureDiagnostics
 	}
@@ -99,7 +99,7 @@ func collectFunctionSignature(declaration parser.FunctionDeclaration, names *sco
 		parameterUses = append(parameterUses, parameter.TypeUse)
 	}
 	functionUse := compilerTypes.FunctionTypeUse(signature.functionType, parameterUses, signature.resultUse)
-	names.module[name] = binding{typ: signature.functionType, use: functionUse, kind: functionBinding}
+	ctx.names.module[name] = binding{typ: signature.functionType, use: functionUse, kind: functionBinding}
 	return signature, nil
 }
 
@@ -108,7 +108,7 @@ func collectFunctionSignature(declaration parser.FunctionDeclaration, names *sco
 // module's second pass, after every module-level signature is bound, so a
 // call to any other module function or method - earlier, later, or mutually
 // recursive - resolves.
-func checkFunctionBody(declaration parser.FunctionDeclaration, signature functionSignature, names *scope, typeEnvironment *compilerTypes.Environment, analyzeReturns bool) (FunctionDeclaration, compilerTypes.Diagnostics) {
+func checkFunctionBody(declaration parser.FunctionDeclaration, signature functionSignature, ctx checkContext, analyzeReturns bool) (FunctionDeclaration, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	checked := FunctionDeclaration{
 		Name:         name,
@@ -122,10 +122,10 @@ func checkFunctionBody(declaration parser.FunctionDeclaration, signature functio
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
-	body := names.closureRootScope(name)
+	body := ctx.names.closureRootScope(name)
 	body.result = signature.result
 	body.resultUse = signature.resultUse
-	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, declaration.Body, names, body, typeEnvironment)
+	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, declaration.Body, ctx.names, body, ctx.typeEnvironment)
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = statements
 	checked.Defers = append(checked.Defers, body.defers...)
@@ -186,7 +186,7 @@ func bindParametersAndCheckBody(parameters []FunctionParameter, statements []par
 		parameters[index].Binding = body.newBindingID()
 		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
 	}
-	checkedStatements, bodyDiagnostics := checkBody(statements, body, typeEnvironment)
+	checkedStatements, bodyDiagnostics := checkBody(statements, checkContext{names: body, typeEnvironment: typeEnvironment})
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	return checkedStatements, diagnostics
 }

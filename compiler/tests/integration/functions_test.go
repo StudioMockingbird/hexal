@@ -213,8 +213,8 @@ const pointType = "type Point = { mut x: Int32, mut y: Int32, }\n"
 
 func TestMethodDeclarationsAndCalls(t *testing.T) {
 	assertChecked(t, pointType+
-		"impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n"+
-		"impl Ptr<Point>.is_origin(): Bool do\n    return self.x == 0 and self.y == 0\nend\n"+
+		"impl Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n"+
+		"impl Ptr<Point>.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n"+
 		"mut here: Point := Point { x = 0, y = 0, }\n"+
 		"here.translate(5, 5)\n"+
@@ -281,10 +281,10 @@ func assertGeneratedC(t *testing.T, source, want string) {
 func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 	source := pointType +
 		"impl Point.length_squared(): Int32 do\n" +
-		"    return self.x * self.x + self.y * self.y\n" +
+		"    return (self.x * self.x) + (self.y * self.y)\n" +
 		"end\n" +
 		"impl Ptr<Point>.is_origin(): Bool do\n" +
-		"    return self.x == 0 and self.y == 0\n" +
+		"    return (self.x == 0) and (self.y == 0)\n" +
 		"end\n" +
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n" + "    self.x = self.x + dx\n" + "    self.y = self.y + dy\n" + "end\n" +
 		"mut here: Point := Point { x = 0, y = 0, }\n" +

@@ -1,7 +1,50 @@
 # RFC 0119: Refactoring Audit Residue
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented 2026-08-24. R21 added
+  `TestExpressionDispatchersCoverEveryConcreteKind` in
+  `compiler/generator/expression_dispatch_coverage_test.go`, an AST-based test
+  comparing `ExpressionKind` constants against the case labels of
+  `renderExpressionUncheckedWithState` and `validateExpressionNode`. The test
+  found a genuine, pre-existing gap: `renderExpressionUncheckedWithState` had
+  no case for `PrintExpression` (validation.go already had one), silently
+  relying on the shared fail-closed default; a `case checker.PrintExpression:`
+  was added matching the neighboring `MatchExpression` case's
+  "lowers at statement level" shape, since a print call's zero result type
+  makes it unreachable there in any valid or currently-diagnosed program (no
+  test's diagnostic text changed). R22-R24 were re-measured and confirmed
+  Drop with no code move. R25 added `checkContext{names, typeEnvironment}` in
+  `compiler/checker/expressions.go` and mechanically migrated 108 checker
+  functions from separate `names *scope, typeEnvironment
+  *compilerTypes.Environment` parameters to one `ctx checkContext`, via a
+  temporary `.tmp/` codemod (two-phase: rewrite each migrated function's own
+  signature and body, then collapse call-site `ctx.names, ctx.typeEnvironment`
+  argument pairs into `ctx` wherever the callee was itself migrated) plus
+  hand-fixed exceptions the codemod could not safely automate: one
+  pre-existing local variable shadow (`adt.go`'s `names` renamed to
+  `remainingNames`), calls passing a derived child or closure-root scope
+  instead of the bundle's own `names` (`checkContext{names: child, ...}`
+  wherever a callee needed a scope value that was not simply the caller's
+  own), `checkModule`'s own 19 call sites (which pass its locally named
+  `environment`/`typeEnvironment`, not `names`), and one function whose
+  scope/environment parameters were both already blank `_` identifiers
+  (`checkRuneCursorMethodCall`). The parameter is named `ctx`, not `context`,
+  because 8 of the migrated functions already had an unrelated `context
+  expressionContext` parameter. `bindParametersAndCheckBody` was confirmed as
+  the one deliberate exception: it takes two distinct `*scope` values
+  (`enclosing`, `body`), not the bundleable pair. R47 inventoried every
+  exported production Go declaration under `compiler/` via `go/ast` (a
+  temporary `.tmp/` script), found 168 missing doc comments concentrated in
+  `compiler/lexer/lexer.go`'s `TokenKind` block, `compiler/checker/operands.go`'s
+  `OperandKind`/`Operator`/`ExpressionKind`/`LiteralRadix` blocks,
+  `compiler/types/types.go`'s `ScalarKind`/`ErrorCategory`/`TruthinessKind`
+  blocks and two `Error()` methods, `compiler/types/collections.go`'s
+  `Position` block, `compiler/types/io.go`'s `StreamCapability` block,
+  `compiler/types/unions.go`'s six `TypeUse` constructors and two
+  `UnionMember` functions, and three `compiler/checker/checker.go` statement
+  types; closed every one, mostly via one CARE-compliant group comment per
+  constant block per the RFC's own grouped-constant allowance, down to zero
+  missing.
 - Created: 2026-08-23
 - Updated: 2026-08-24
 - Scope: the six findings deferred by RFC 0104: R21-R25 and R47

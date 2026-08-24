@@ -713,22 +713,27 @@ func TestParseDirectMinusLiteralRetainsLiteralNode(t *testing.T) {
 }
 
 func TestParseBinaryPrecedenceAndGrouping(t *testing.T) {
-	multiplicative := parseInitializer(t, "x: Int32 := 2 + 3 * 4").(BinaryExpression)
-	if multiplicative.Operator.Kind != lexer.Plus {
-		t.Fatalf("root operator = %v, want +", multiplicative.Operator.Kind)
-	}
-	right, ok := multiplicative.Right.(BinaryExpression)
-	if !ok || right.Operator.Kind != lexer.Star {
-		t.Fatalf("right operand = %#v, want multiplication", multiplicative.Right)
+	message := parseError(t, "x: Int32 := 2 + 3 * 4")
+	if !strings.Contains(message, "mixed binary operators require parentheses; found '*' after '+'") {
+		t.Fatalf("message = %q, want the mixed-operator diagnostic", message)
 	}
 
-	grouped := parseInitializer(t, "x: Int32 := (2 + 3) * 4").(BinaryExpression)
-	if grouped.Operator.Kind != lexer.Star {
-		t.Fatalf("grouped root operator = %v, want *", grouped.Operator.Kind)
+	rightGrouped := parseInitializer(t, "x: Int32 := 2 + (3 * 4)").(BinaryExpression)
+	if rightGrouped.Operator.Kind != lexer.Plus {
+		t.Fatalf("root operator = %v, want +", rightGrouped.Operator.Kind)
 	}
-	left, ok := grouped.Left.(BinaryExpression)
+	right, ok := rightGrouped.Right.(BinaryExpression)
+	if !ok || right.Operator.Kind != lexer.Star {
+		t.Fatalf("right operand = %#v, want multiplication", rightGrouped.Right)
+	}
+
+	leftGrouped := parseInitializer(t, "x: Int32 := (2 + 3) * 4").(BinaryExpression)
+	if leftGrouped.Operator.Kind != lexer.Star {
+		t.Fatalf("grouped root operator = %v, want *", leftGrouped.Operator.Kind)
+	}
+	left, ok := leftGrouped.Left.(BinaryExpression)
 	if !ok || left.Operator.Kind != lexer.Plus {
-		t.Fatalf("grouped left operand = %#v, want addition", grouped.Left)
+		t.Fatalf("grouped left operand = %#v, want addition", leftGrouped.Left)
 	}
 }
 
@@ -745,7 +750,12 @@ func TestParseBinaryOperatorsAssociateLeft(t *testing.T) {
 }
 
 func TestParseAllExpressionPrecedenceLevels(t *testing.T) {
-	initializer := parseInitializer(t, "result: Bool := a + 1 > b and !done or ready == loaded")
+	message := parseError(t, "result: Bool := a + 1 > b and !done or ready == loaded")
+	if !strings.Contains(message, "mixed binary operators require parentheses; found '>' after '+'") {
+		t.Fatalf("message = %q, want the mixed-operator diagnostic", message)
+	}
+
+	initializer := parseInitializer(t, "result: Bool := (((a + 1) > b) and !done) or (ready == loaded)")
 	orExpression, ok := initializer.(BinaryExpression)
 	if !ok || orExpression.Operator.Kind != lexer.Or {
 		t.Fatalf("initializer = %#v, want or expression", initializer)

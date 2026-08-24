@@ -12,9 +12,9 @@ import (
 // constructor and the empty View. The pointer must be a statically non-null
 // Ptr<T> or MutPtr<T>; the length must be a Size under ordinary lossless
 // conversion rules. The result View is read-only, like every View.
-func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
-	viewUse, diagnostic := resolveViewTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "View", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, typeEnvironment, names.generics)
+	viewUse, diagnostic := resolveViewTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "View", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
@@ -27,7 +27,7 @@ func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *
 		if len(call.Arguments) != 2 {
 			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "View.from_pointer expects 2 arguments (pointer, length)"))}
 		}
-		pointer := checkValue(call.Arguments[0], names, typeEnvironment)
+		pointer := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(pointer); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 		}
@@ -37,14 +37,14 @@ func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, names *
 		if !compilerTypes.Equal(*pointer.typ.Element, element) {
 			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("View<%s>.from_pointer requires Ptr<%s> or MutPtr<%s>; got %s", element.Name, element.Name, element.Name, pointer.typ.Name)))}
 		}
-		length := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[1]), names, typeEnvironment)
+		length := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[1]), ctx)
 		if diagnostics := initializerDiagnostics(length); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
 		}
 		if !assignable(compilerTypes.SizeType, length.typ) {
 			return checkedExpression{token: length.token, diagnostic: diagnosticAt(typeErrorAt(length.token, "View length cannot be represented as Size"))}
 		}
-		if diagnostic := fromPointerRefTrace(pointer, names); diagnostic != nil {
+		if diagnostic := fromPointerRefTrace(pointer, ctx.names); diagnostic != nil {
 			return checkedExpression{token: pointer.token, diagnostic: diagnostic}
 		}
 		node := Expression{Kind: ViewBridgeExpression, Name: "from_pointer", Arguments: []Operand{pointer.source, length.source}, OperandType: viewUse.Type, ResultType: viewUse.Type, Element: element, RootKind: ViewRootForeign}

@@ -54,10 +54,10 @@ type checkedExpression struct {
 // checkInitializer resolves a syntax expression into one checked operand.
 // Numeric literals use the expected primitive type as context; operation trees
 // carry that context only into untyped literals.
-func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.TypeUse, fallback lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
+func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.TypeUse, fallback lexer.Token, ctx checkContext) initializerValue {
 	// Initializers are the boundary where exact constants can be retained. A
 	// later mutable read still becomes an expression through valueFromPlace.
-	checked := checkExpression(initializer, expressionContext{expected: expectedUse, foldConstants: true}, names, typeEnvironment)
+	checked := checkExpression(initializer, expressionContext{expected: expectedUse, foldConstants: true}, ctx)
 	if len(initializerDiagnostics(checked)) == 0 && expectedUse.Type.Name != "" && compilerTypes.IsUnion(expectedUse.Type) && !compilerTypes.Equal(expectedUse.Type, checked.typ) {
 		checked = injectIntoUnion(checked, expectedUse.Type)
 	}
@@ -67,29 +67,29 @@ func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.T
 	return checked
 }
 
-func checkObjectLiteral(expression parser.ObjectLiteral, expectedType compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) initializerValue {
-	literalType, ok := typeEnvironment.Lookup(expression.TypeName.Lexeme)
+func checkObjectLiteral(expression parser.ObjectLiteral, expectedType compilerTypes.Type, ctx checkContext) initializerValue {
+	literalType, ok := ctx.typeEnvironment.Lookup(expression.TypeName.Lexeme)
 	if compilerTypes.IsError(literalType) {
 		// Error is built-in and constructed only through
 		// Error.new(header, message); a raw object initializer is rejected.
 		return initializerValue{token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, "Error must be created with Error.new(header, message)"))}
 	}
-	if !ok && names.generics != nil {
+	if !ok && ctx.names.generics != nil {
 		// A generic object literal names an open generic template. With
 		// explicit type arguments it specializes directly; otherwise the
 		// arguments are inferred from the expected destination type when it
 		// is a specialization of the same template.
-		if open, generic := names.generics.types[expression.TypeName.Lexeme]; generic {
+		if open, generic := ctx.names.generics.types[expression.TypeName.Lexeme]; generic {
 			if len(expression.TypeArguments) > 0 {
-				specializedUse, diagnostic := specializeTypeUse(parser.GenericTypeExpression{Name: expression.TypeName, Arguments: expression.TypeArguments}, expression.TypeName, typeEnvironment, names.generics)
+				specializedUse, diagnostic := specializeTypeUse(parser.GenericTypeExpression{Name: expression.TypeName, Arguments: expression.TypeArguments}, expression.TypeName, ctx.typeEnvironment, ctx.names.generics)
 				if diagnostic != nil {
 					return initializerValue{token: expression.TypeName, diagnostic: diagnostic}
 				}
 				literalType = specializedUse.Type
 				ok = literalType.Object != nil
 			} else if expectedType.Object != nil {
-				if expectedOpen := names.generics.objectOpen[expectedType.Object]; expectedOpen == open {
-					specializedUse, diagnostic := specializeTypeUseArguments(open, names.generics.objectArguments[expectedType.Object], expression.TypeName, typeEnvironment, names.generics)
+				if expectedOpen := ctx.names.generics.objectOpen[expectedType.Object]; expectedOpen == open {
+					specializedUse, diagnostic := specializeTypeUseArguments(open, ctx.names.generics.objectArguments[expectedType.Object], expression.TypeName, ctx.typeEnvironment, ctx.names.generics)
 					if diagnostic != nil {
 						return initializerValue{token: expression.TypeName, diagnostic: diagnostic}
 					}
@@ -130,7 +130,7 @@ func checkObjectLiteral(expression parser.ObjectLiteral, expectedType compilerTy
 		if memberUse.Type == (compilerTypes.Type{}) {
 			memberUse = compilerTypes.NewTypeUse(member.Type)
 		}
-		checked := checkInitializer(initializer.Value, memberUse, initializer.Name, names, typeEnvironment)
+		checked := checkInitializer(initializer.Value, memberUse, initializer.Name, ctx)
 		if nestedDiagnostics := initializerDiagnostics(checked); len(nestedDiagnostics) > 0 {
 			diagnostics = append(diagnostics, nestedDiagnostics...)
 			continue
@@ -164,17 +164,26 @@ func checkObjectLiteral(expression parser.ObjectLiteral, expectedType compilerTy
 
 // checkValue resolves an expression in value context. Assignment and ref call
 // checkPlace instead to retain place mode.
-func checkValue(expression parser.Expression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	return checkExpression(expression, expressionContext{}, names, typeEnvironment)
+func checkValue(expression parser.Expression, ctx checkContext) checkedExpression {
+	return checkExpression(expression, expressionContext{}, ctx)
 }
 
-func checkExpression(expression parser.Expression, context expressionContext, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+// checkContext bundles the scope and type environment threaded together
+// across nearly every expression-checking function. It carries only that
+// stable pair: a lexer token, an expected type, a generic table, or a flow
+// fact is operation-specific and stays an explicit parameter beside it.
+type checkContext struct {
+	names           *scope
+	typeEnvironment *compilerTypes.Environment
+}
+
+func checkExpression(expression parser.Expression, context expressionContext, ctx checkContext) checkedExpression {
 	if len(context.expected.Candidates) > 1 && isContextualExpression(expression) {
-		return checkContextualUnion(expression, context.expected, names, typeEnvironment)
+		return checkContextualUnion(expression, context.expected, ctx)
 	}
 	switch expression := expression.(type) {
 	case parser.AnonymousFunctionLiteral:
-		return checkAnonymousFunctionLiteral(expression, context, names, typeEnvironment)
+		return checkAnonymousFunctionLiteral(expression, context, ctx)
 	case parser.IntegerLiteral:
 		return checkedFromInitializer(integerInitializer(expression.Token, contextualIntegerType(context.expected.Type), false))
 	case parser.DecimalLiteral:
@@ -210,17 +219,17 @@ func checkExpression(expression parser.Expression, context expressionContext, na
 	case parser.RuneLiteral:
 		return checkRuneLiteral(expression)
 	case parser.ObjectLiteral:
-		return checkObjectLiteral(expression, context.expected.Type, names, typeEnvironment)
+		return checkObjectLiteral(expression, context.expected.Type, ctx)
 	case parser.ArrayLiteralExpression:
-		return checkArrayLiteral(expression, context.expected.Type, names, typeEnvironment)
+		return checkArrayLiteral(expression, context.expected.Type, ctx)
 	case parser.QualifiedVariantExpression:
-		return checkQualifiedVariant(expression, context.expected.Type, names, typeEnvironment)
+		return checkQualifiedVariant(expression, context.expected.Type, ctx)
 	case parser.MatchExpression:
-		return checkMatchExpression(expression, context, names, typeEnvironment)
+		return checkMatchExpression(expression, context, ctx)
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
 		if property, isProperty := expression.(parser.PropertyExpression); isProperty {
 			if variable, isVariable := property.Receiver.(parser.VariableExpression); isVariable && property.Property.Kind == lexer.Identifier {
-				if reference, diagnostic := checkUnitVariant(variable.Name, property.Property, context.expected.Type, names, typeEnvironment); reference != nil || diagnostic != nil {
+				if reference, diagnostic := checkUnitVariant(variable.Name, property.Property, context.expected.Type, ctx); reference != nil || diagnostic != nil {
 					if diagnostic != nil {
 						return checkedExpression{token: property.Property, diagnostic: diagnostic}
 					}
@@ -229,32 +238,32 @@ func checkExpression(expression parser.Expression, context expressionContext, na
 			}
 		}
 		if variable, isVariable := expression.(parser.VariableExpression); isVariable && context.expected.Type.Signature != nil {
-			if reference, diagnostic := checkGenericFunctionReference(variable.Name, context.expected.Type, names, typeEnvironment); reference != nil || diagnostic != nil {
+			if reference, diagnostic := checkGenericFunctionReference(variable.Name, context.expected.Type, ctx); reference != nil || diagnostic != nil {
 				if diagnostic != nil {
 					return checkedExpression{token: variable.Name, diagnostic: diagnostic}
 				}
 				return *reference
 			}
 		}
-		place := checkPlace(expression, names, typeEnvironment)
+		place := checkPlace(expression, ctx)
 		if place.diagnostic != nil {
 			return place
 		}
 		return valueFromPlace(place)
 	case parser.RefExpression:
-		return checkReference(expression, names, typeEnvironment)
+		return checkReference(expression, ctx)
 	case parser.CallExpression:
-		return checkCallValue(expression, names, typeEnvironment)
+		return checkCallValue(expression, ctx)
 	case parser.UnaryExpression:
-		return checkUnaryExpression(expression, context, names, typeEnvironment)
+		return checkUnaryExpression(expression, context, ctx)
 	case parser.SpawnExpression:
-		return checkSpawnExpression(expression, names, typeEnvironment)
+		return checkSpawnExpression(expression, ctx)
 	case parser.TryExpression:
-		return checkTryExpression(expression, context, names, typeEnvironment)
+		return checkTryExpression(expression, context, ctx)
 	case parser.BinaryExpression:
-		return checkBinaryExpression(expression, context, names, typeEnvironment)
+		return checkBinaryExpression(expression, context, ctx)
 	case parser.TypeTestExpression:
-		return checkUnionTypeTest(expression, names, typeEnvironment)
+		return checkUnionTypeTest(expression, ctx)
 	default:
 		return checkedExpression{
 			diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported expression")),

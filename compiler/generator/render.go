@@ -1006,6 +1006,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderAdtPayload(node, state)
 	case checker.MatchExpression:
 		return "", unknownExpressionDiagnostic("match expressions lower at statement level")
+	case checker.PrintExpression:
+		return "", unknownExpressionDiagnostic("print expressions lower at statement level")
 	case checker.ObjectExpression:
 		return objectLiteralWithState(node.Object, state)
 	case checker.ConstantExpression, checker.UnaryOperationExpression, checker.BinaryOperationExpression:

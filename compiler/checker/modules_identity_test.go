@@ -49,7 +49,7 @@ func TestImplOwnModuleTypeStillDeclaresMethods(t *testing.T) {
 func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\np: Math.Point := Math.origin()\narea: Int32 := p.length_squared()\n",
-		"export type Point = { x: Int32, y: Int32 }\nexport impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\nexport fun origin(): Point do\n    return Point { x = 3, y = 4 }\nend\n")
+		"export type Point = { x: Int32, y: Int32 }\nexport impl Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\nexport fun origin(): Point do\n    return Point { x = 3, y = 4 }\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the imported method call: %v", err)
 	}

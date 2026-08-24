@@ -15,6 +15,8 @@ import (
 // \" and \u{...}.
 type literalEscapeSet int
 
+// The concrete literalEscapeSet values, named for the literal form whose
+// escape grammar they select.
 const (
 	ByteEscapes literalEscapeSet = iota
 	RuneEscapes
@@ -123,6 +125,10 @@ func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
 // TokenKind identifies the syntactic role of a token.
 type TokenKind uint8
 
+// The concrete TokenKind values: punctuation and operators first, then
+// literal forms, then keywords, in the source's own lexical groupings. Each
+// name spells the token it identifies and needs no further comment; EOF is
+// the sentinel the lexer emits once after the last real token.
 const (
 	Identifier TokenKind = iota
 	Colon

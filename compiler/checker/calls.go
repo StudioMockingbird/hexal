@@ -8,8 +8,8 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-func checkCallStatement(call parser.CallExpression, names *scope, typeEnvironment *compilerTypes.Environment) (CallStatement, compilerTypes.Diagnostics) {
-	checked := checkCall(call, names, typeEnvironment)
+func checkCallStatement(call parser.CallExpression, ctx checkContext) (CallStatement, compilerTypes.Diagnostics) {
+	checked := checkCall(call, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return CallStatement{}, diagnostics
 	}
@@ -24,16 +24,16 @@ func checkCallStatement(call parser.CallExpression, names *scope, typeEnvironmen
 // parameter's expected-type position so contextual literals and MutPtr-to-Ptr
 // weakening both apply. The returned type is the zero Type for a no-return
 // callee; only a call statement accepts that.
-func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkCall(call parser.CallExpression, ctx checkContext) checkedExpression {
 	if property, isMethod := call.Callee.(parser.PropertyExpression); isMethod {
-		return checkMethodCall(call, property, names, typeEnvironment)
+		return checkMethodCall(call, property, ctx)
 	}
 	callee, ok := call.Callee.(parser.VariableExpression)
 	if !ok {
 		// A callee that is neither a name nor a method selection is an
 		// ordinary expression: an anonymous function literal invoked
 		// directly, or any other expression whose checked type is Fun<...>.
-		return checkIndirectCall(call, names, typeEnvironment)
+		return checkIndirectCall(call, ctx)
 	}
 	if callee.Name.Kind == lexer.Self {
 		return checkedExpression{token: callee.Name, diagnostic: selfNotBoundDiagnostic(callee.Name)}
@@ -42,26 +42,26 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 	// free-function lookup and cannot be redeclared or referenced as a
 	// value.
 	if callee.Name.Lexeme == "print" {
-		return checkPrintCall(call, callee.Name, names, typeEnvironment)
+		return checkPrintCall(call, callee.Name, ctx)
 	}
 	// The protected layout queries resolve before ordinary
 	// free-function lookup.
 	if layoutBuiltins[callee.Name.Lexeme] {
-		return checkLayoutCall(call, callee.Name, names, typeEnvironment)
+		return checkLayoutCall(call, callee.Name, ctx)
 	}
 
 	name := callee.Name.Lexeme
-	bound, status := names.lookup(name)
+	bound, status := ctx.names.lookup(name)
 	switch status {
 	case nameMissing:
 		diagnostic := typeErrorAt(callee.Name, "unknown function "+name+"; functions must be declared before use")
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	case nameModuleData:
-		diagnostic := moduleDataDiagnostic(names.owner, name, callee.Name)
+		diagnostic := moduleDataDiagnostic(ctx.names.owner, name, callee.Name)
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
 	if bound.kind == genericFunctionBinding {
-		return checkGenericCall(call, bound, name, callee.Name, names, typeEnvironment)
+		return checkGenericCall(call, bound, name, callee.Name, ctx)
 	}
 	// A call resolves the callee's effective type from the branch-local
 	// flow facts, so a null test can narrow a nullable Fun<...> binding to
@@ -69,7 +69,7 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 	// nullable storage type.
 	calleeType := bound.typ
 	if bound.kind != functionBinding {
-		if narrowed, ok := names.flow.narrowedType(bound.id); ok {
+		if narrowed, ok := ctx.names.flow.narrowedType(bound.id); ok {
 			calleeType = narrowed
 		}
 	}
@@ -97,7 +97,7 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 			parameterUses[index] = compilerTypes.NewTypeUse(parameter)
 		}
 	}
-	arguments, diagnostics := checkArguments(name, parameterUses, call.Arguments, callee.Name, names, typeEnvironment)
+	arguments, diagnostics := checkArguments(name, parameterUses, call.Arguments, callee.Name, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Name, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -132,11 +132,11 @@ func checkCall(call parser.CallExpression, names *scope, typeEnvironment *compil
 // an exported concrete function may be an exported generic template, which
 // the call specializes against the defining module's collection; only then is
 // it the visibility failure.
-func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token, target string, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	function, ok := names.registry.exportedFunction(target, property.Lexeme)
+func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token, target string, ctx checkContext) checkedExpression {
+	function, ok := ctx.names.registry.exportedFunction(target, property.Lexeme)
 	if !ok {
-		if open, generic := names.registry.genericFunction(target, property.Lexeme); generic {
-			return checkQualifiedGenericCall(call, open, property, target, names, typeEnvironment)
+		if open, generic := ctx.names.registry.genericFunction(target, property.Lexeme); generic {
+			return checkQualifiedGenericCall(call, open, property, target, ctx)
 		}
 		diagnostic := privateToModuleDiagnostic(property, property.Lexeme, target)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
@@ -155,7 +155,7 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 	for _, parameter := range function.Parameters {
 		parameterUses = append(parameterUses, parameter.TypeUse)
 	}
-	arguments, diagnostics := checkArguments(function.Name, parameterUses, call.Arguments, property, names, typeEnvironment)
+	arguments, diagnostics := checkArguments(function.Name, parameterUses, call.Arguments, property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -187,12 +187,12 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 // (declaration, argument) pair reuse the one recorded specialization.
 // The requested body was not part of the defining module's starvation scan,
 // which ran before this request arrived.
-func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunction, property lexer.Token, target string, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunction, property lexer.Token, target string, ctx checkContext) checkedExpression {
 	var arguments []compilerTypes.Type
 	if len(call.TypeArguments) > 0 {
 		arguments = make([]compilerTypes.Type, 0, len(call.TypeArguments))
 		for _, argumentExpression := range call.TypeArguments {
-			argumentUse, diagnostic := resolveTypeUse(argumentExpression, property, typeEnvironment, names.generics)
+			argumentUse, diagnostic := resolveTypeUse(argumentExpression, property, ctx.typeEnvironment, ctx.names.generics)
 			if diagnostic != nil {
 				return checkedExpression{token: property, diagnostic: diagnostic}
 			}
@@ -205,19 +205,19 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 	} else {
 		argumentTypes := make([]compilerTypes.Type, 0, len(call.Arguments))
 		for _, argument := range call.Arguments {
-			checked := checkValue(argument, names, typeEnvironment)
+			checked := checkValue(argument, ctx)
 			if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 				return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
 			argumentTypes = append(argumentTypes, checked.typ)
 		}
-		inferred, diagnostic := inferTypeArguments(open, argumentTypes, names, typeEnvironment)
+		inferred, diagnostic := inferTypeArguments(open, argumentTypes, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
 		arguments = inferred
 	}
-	specialized, diagnostic := specializeFunctionIn(open, arguments, names, typeEnvironment, names.registry.specializationStore(target))
+	specialized, diagnostic := specializeFunctionIn(open, arguments, ctx, ctx.names.registry.specializationStore(target))
 	if diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
@@ -235,7 +235,7 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 	for _, parameter := range specialized.Parameters {
 		parameterUses = append(parameterUses, parameter.TypeUse)
 	}
-	argumentsOperands, diagnostics := checkArguments(specialized.Name, parameterUses, call.Arguments, property, names, typeEnvironment)
+	argumentsOperands, diagnostics := checkArguments(specialized.Name, parameterUses, call.Arguments, property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -264,15 +264,15 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 // checking with the named-callee and dispatch-table-member paths; the
 // checked node differs only in what its Operand holds, which here is the
 // callee's own checked expression.
-func checkIndirectCall(call parser.CallExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkIndirectCall(call parser.CallExpression, ctx checkContext) checkedExpression {
 	if literal, isLiteral := call.Callee.(parser.AnonymousFunctionLiteral); isLiteral && len(literal.TypeParameters) > 0 {
 		// An unspecialized generic literal has no exact type to check as an
 		// ordinary expression; its own call arguments infer it instead,
 		// exactly like a bare generic function name called without explicit
 		// type arguments.
-		return checkGenericLiteralDirectCall(call, literal, names, typeEnvironment)
+		return checkGenericLiteralDirectCall(call, literal, ctx)
 	}
-	callee := checkExpression(call.Callee, expressionContext{}, names, typeEnvironment)
+	callee := checkExpression(call.Callee, expressionContext{}, ctx)
 	if diagnostics := initializerDiagnostics(callee); len(diagnostics) > 0 {
 		return checkedExpression{token: callee.token, diagnostics: diagnostics}
 	}
@@ -295,7 +295,7 @@ func checkIndirectCall(call parser.CallExpression, names *scope, typeEnvironment
 	for index, parameter := range signature.Parameters {
 		parameterUses[index] = compilerTypes.NewTypeUse(parameter)
 	}
-	arguments, diagnostics := checkArguments("the called function", parameterUses, call.Arguments, call.OpenParen, names, typeEnvironment)
+	arguments, diagnostics := checkArguments("the called function", parameterUses, call.Arguments, call.OpenParen, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: call.OpenParen, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -321,12 +321,12 @@ func checkIndirectCall(call parser.CallExpression, names *scope, typeEnvironment
 // checkArguments checks each written argument in its parameter's expected-type
 // position, so contextual literals and MutPtr-to-Ptr weakening both apply.
 // Callee is only used to spell diagnostics.
-func checkArguments(callee string, expected []compilerTypes.TypeUse, written []parser.Expression, token lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) ([]Operand, compilerTypes.Diagnostics) {
+func checkArguments(callee string, expected []compilerTypes.TypeUse, written []parser.Expression, token lexer.Token, ctx checkContext) ([]Operand, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	arguments := make([]Operand, 0, len(written))
 	for index, argument := range written {
 		want := expected[index]
-		checked := checkInitializer(argument, want, token, names, typeEnvironment)
+		checked := checkInitializer(argument, want, token, ctx)
 		if argumentDiagnostics := initializerDiagnostics(checked); len(argumentDiagnostics) > 0 {
 			diagnostics = append(diagnostics, argumentDiagnostics...)
 			continue
@@ -348,8 +348,8 @@ func checkArguments(callee string, expected []compilerTypes.TypeUse, written []p
 // checkCallValue is the value-position wrapper: a callee that returns nothing
 // has no value to bind, so it is rejected here rather than reaching an
 // initializer with a zero type.
-func checkCallValue(call parser.CallExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	checked := checkCall(call, names, typeEnvironment)
+func checkCallValue(call parser.CallExpression, ctx checkContext) checkedExpression {
+	checked := checkCall(call, ctx)
 	if len(initializerDiagnostics(checked)) > 0 {
 		return checked
 	}

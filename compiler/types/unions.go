@@ -23,16 +23,25 @@ type TypeUse struct {
 	Result     *TypeUse
 }
 
+// NewTypeUse wraps typ with no candidate, element, or parameter structure:
+// the ordinary case for a type reached with no source-written union,
+// pointer, or function shape to preserve.
 func NewTypeUse(typ Type) TypeUse { return TypeUse{Type: typ} }
 
+// UnionTypeUse wraps typ with its source-written candidate order retained
+// for contextual expression checking.
 func UnionTypeUse(typ Type, candidates []TypeUse) TypeUse {
 	return TypeUse{Type: typ, Candidates: append([]TypeUse(nil), candidates...)}
 }
 
+// PointerTypeUse wraps typ with its pointee's own TypeUse, so a nested
+// contextual union inside a Ptr or MutPtr element resolves recursively.
 func PointerTypeUse(typ Type, element TypeUse) TypeUse {
 	return TypeUse{Type: typ, Element: &element}
 }
 
+// FunctionTypeUse wraps typ with its parameter and result TypeUses, so a
+// Fun<...> type's own contextual structure resolves recursively.
 func FunctionTypeUse(typ Type, parameters []TypeUse, result *TypeUse) TypeUse {
 	return TypeUse{
 		Type:       typ,
@@ -266,6 +275,9 @@ func IsUnion(typ Type) bool { return typ.Union != nil || IsNullable(typ) }
 // caller receives a mutable member slice.
 func UnionMembers(typ Type) UnionMemberView { return unionMemberView(typ) }
 
+// ContainsUnionMember reports whether member is exactly one of union's
+// canonical members. A specialized nullable union is treated as if it were
+// the ordinary two-member form: its base type plus Nil.
 func ContainsUnionMember(union, member Type) bool {
 	if !IsUnion(union) {
 		return false
@@ -282,6 +294,9 @@ func ContainsUnionMember(union, member Type) bool {
 	return ok && (Equal(base, member) || IsNil(member))
 }
 
+// RemoveUnionMember interns and returns the union remaining after removing
+// member, and whether member was actually present. Removing down to one
+// member returns that member's own Type rather than a one-member union.
 func RemoveUnionMember(environment *Environment, union, member Type) (Type, bool) {
 	if !IsUnion(union) {
 		return Type{}, false

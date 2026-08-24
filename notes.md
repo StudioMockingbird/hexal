@@ -191,3 +191,7 @@ STOP AND ASK if any of these happen:
 - A spec's change would require changing a test the spec does not name.
 - Two specs appear to conflict.
 Do not improvise past any of these.
+
+
+
+Sharing the reviews done by other agents. Consider their points on its merits. be unbiased and try to stick to our language goals. update the spec where you have clarity and confidence. Ask me otherwise, with simple language, code examples, options and recommendations.

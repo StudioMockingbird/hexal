@@ -320,14 +320,14 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 
 // registerGenericFunction validates and stores one generic function
 // declaration as an open template, then binds its name so calls resolve.
-func registerGenericFunction(declaration parser.FunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment) compilerTypes.Diagnostics {
+func registerGenericFunction(declaration parser.FunctionDeclaration, ctx checkContext) compilerTypes.Diagnostics {
 	name := declaration.Name.Lexeme
 	diagnostics := validateGenericParameters(declaration.TypeParameters)
 	if len(diagnostics) > 0 {
 		return diagnostics
 	}
 	parameterNames := parameterNamesOf(declaration.TypeParameters)
-	generic := typeEnvironment.DeclareGeneric(name, len(declaration.TypeParameters), parameterNames)
+	generic := ctx.typeEnvironment.DeclareGeneric(name, len(declaration.TypeParameters), parameterNames)
 	if generic == nil {
 		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, name+" is already declared")}
 	}
@@ -336,13 +336,13 @@ func registerGenericFunction(declaration parser.FunctionDeclaration, names *scop
 		Parameters:  append([]lexer.Token(nil), declaration.TypeParameters...),
 		Declaration: declaration,
 		Generic:     generic,
-		identity:    names.newBindingID(),
+		identity:    ctx.names.newBindingID(),
 	}
 	// A module template is additionally published under its bare name so a
 	// clean module can export it; registerGenerics reads exactly this map.
 	// A local template never reaches this path.
-	names.generics.functions[name] = open
-	names.module[name] = binding{typ: compilerTypes.Type{}, use: compilerTypes.NewTypeUse(compilerTypes.Type{}), kind: genericFunctionBinding, genericFunction: open}
+	ctx.names.generics.functions[name] = open
+	ctx.names.module[name] = binding{typ: compilerTypes.Type{}, use: compilerTypes.NewTypeUse(compilerTypes.Type{}), kind: genericFunctionBinding, genericFunction: open}
 	return nil
 }
 
@@ -356,12 +356,12 @@ func isGenericReceiver(expression parser.TypeExpression) bool {
 // registerGenericMethod validates and stores one generic method declaration as
 // an open template. The receiver must be the owner's bare generic parameters
 // in declaration order.
-func registerGenericMethod(declaration parser.ImplDeclaration, names *scope, typeEnvironment *compilerTypes.Environment) compilerTypes.Diagnostics {
+func registerGenericMethod(declaration parser.ImplDeclaration, ctx checkContext) compilerTypes.Diagnostics {
 	receiver, ok := declaration.SelfType.(parser.GenericTypeExpression)
 	if !ok {
 		return compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword, "a generic method requires a generic receiver")}
 	}
-	open, generic := names.generics.types[receiver.Name.Lexeme]
+	open, generic := ctx.names.generics.types[receiver.Name.Lexeme]
 	if !generic {
 		return compilerTypes.Diagnostics{typeErrorAt(receiver.Name, "unknown generic type "+receiver.Name.Lexeme)}
 	}
@@ -379,11 +379,11 @@ func registerGenericMethod(declaration parser.ImplDeclaration, names *scope, typ
 		return diagnostics
 	}
 	parameterNames := parameterNamesOf(declaration.TypeParameters)
-	methodGeneric := typeEnvironment.DeclareGeneric(declaration.Name.Lexeme+"<method>", len(declaration.TypeParameters), parameterNames)
+	methodGeneric := ctx.typeEnvironment.DeclareGeneric(declaration.Name.Lexeme+"<method>", len(declaration.TypeParameters), parameterNames)
 	if methodGeneric == nil {
 		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, declaration.Name.Lexeme+" is already declared")}
 	}
-	names.generics.methods[open.Name+"."+declaration.Name.Lexeme] = &openGenericMethod{
+	ctx.names.generics.methods[open.Name+"."+declaration.Name.Lexeme] = &openGenericMethod{
 		ObjectName:         open.Name,
 		Name:               declaration.Name.Lexeme,
 		ReceiverParameters: append([]lexer.Token(nil), open.Parameters...),
@@ -426,8 +426,8 @@ func parameterNamesOf(parameters []lexer.Token) []string {
 // the requesting module's own table; imports of another module's generic go
 // through specializeFunctionIn with the defining module's collection
 // instead.
-func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (FunctionDeclaration, *compilerTypes.Diagnostic) {
-	return specializeFunctionIn(open, arguments, names, typeEnvironment, names.generics.functionSpecializations)
+func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Type, ctx checkContext) (FunctionDeclaration, *compilerTypes.Diagnostic) {
+	return specializeFunctionIn(open, arguments, ctx, ctx.names.generics.functionSpecializations)
 }
 
 // specializeFunctionIn is the shared specialization engine behind
@@ -438,8 +438,8 @@ func specializeFunction(open *openGenericFunction, arguments []compilerTypes.Typ
 // imported one. The requesting module's generic table still supplies the
 // parameter frame, recursion guards, and binding ids, so one specialization
 // runs entirely in the requesting module's type environment.
-func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment, collection map[string]FunctionDeclaration) (FunctionDeclaration, *compilerTypes.Diagnostic) {
-	generics := names.generics
+func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.Type, ctx checkContext, collection map[string]FunctionDeclaration) (FunctionDeclaration, *compilerTypes.Diagnostic) {
+	generics := ctx.names.generics
 	stem := open.templateKey()
 	key := specializeKey(stem, arguments)
 	if collection == nil {
@@ -460,8 +460,8 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	// resolve the enclosing type parameter, exactly as a non-generic nested
 	// declaration already does through the shared generics table.
 	generics.frame = mergedFrame(previousFrame, parameterFrame(open.Parameters, arguments))
-	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, typeEnvironment, generics)
-	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, typeEnvironment, generics)
+	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, ctx.typeEnvironment, generics)
+	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, ctx.typeEnvironment, generics)
 	if len(parameterDiagnostics) > 0 {
 		generics.frame = previousFrame
 		return FunctionDeclaration{}, &parameterDiagnostics[0]
@@ -474,7 +474,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	for _, parameter := range parameters {
 		parameterTypes = append(parameterTypes, parameter.Type)
 	}
-	functionType := typeEnvironment.FunType(parameterTypes, result)
+	functionType := ctx.typeEnvironment.FunType(parameterTypes, result)
 	if functionType.Signature == nil {
 		generics.frame = previousFrame
 		diagnostic := unknownAt(open.Declaration.Name, "could not construct the function type for "+open.Name)
@@ -498,29 +498,29 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		// block's local map, not the module frame; only a scope chained to
 		// names can reach it, and the same chain is what gives its body the
 		// closed-function capture rule every other local declaration has.
-		body = names.closureRootScope(specialized.Name)
+		body = ctx.names.closureRootScope(specialized.Name)
 	} else {
 		body = &scope{
-			module:     names.module,
+			module:     ctx.names.module,
 			local:      make(map[string]binding, len(parameters)),
-			methods:    names.methods,
+			methods:    ctx.names.methods,
 			function:   true,
-			nextID:     names.nextID,
+			nextID:     ctx.names.nextID,
 			flow:       newFlowState(),
 			generics:   generics,
-			registry:   names.registry,
-			moduleID:   names.moduleID,
-			logicalKey: names.logicalKey,
+			registry:   ctx.names.registry,
+			moduleID:   ctx.names.moduleID,
+			logicalKey: ctx.names.logicalKey,
 		}
 		body.owner = specialized.Name
 	}
 	body.result = result
 	body.resultUse = resultUse
 	for index := range parameters {
-		parameters[index].Binding = names.newBindingID()
+		parameters[index].Binding = ctx.names.newBindingID()
 		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
 	}
-	statements, bodyDiagnostics := checkBody(open.Declaration.Body, body, typeEnvironment)
+	statements, bodyDiagnostics := checkBody(open.Declaration.Body, checkContext{names: body, typeEnvironment: ctx.typeEnvironment})
 	generics.frame = previousFrame
 	delete(generics.active, key)
 	generics.open = true
@@ -537,8 +537,8 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 
 // specializeMethod creates or reuses the concrete declaration for one
 // specialization of a generic method.
-func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.ObjectType, receiverType compilerTypes.Type, receiverArguments []compilerTypes.Type, methodArguments []compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (MethodDeclaration, *compilerTypes.Diagnostic) {
-	generics := names.generics
+func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.ObjectType, receiverType compilerTypes.Type, receiverArguments []compilerTypes.Type, methodArguments []compilerTypes.Type, ctx checkContext) (MethodDeclaration, *compilerTypes.Diagnostic) {
+	generics := ctx.names.generics
 	key := open.ObjectName + "|" + argumentNames(receiverArguments) + "|" + open.Name + "|" + argumentNames(methodArguments)
 	if cached, ok := generics.methodSpecializations[key]; ok {
 		return cached, nil
@@ -555,8 +555,8 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 	// function or literal declared in its body can, and that inner template
 	// specializes while this frame is still active.
 	generics.frame = mergedFrame(previousFrame, frame)
-	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, typeEnvironment, generics)
-	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, typeEnvironment, generics)
+	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, ctx.typeEnvironment, generics)
+	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, ctx.typeEnvironment, generics)
 	if len(parameterDiagnostics) > 0 {
 		generics.frame = previousFrame
 		return MethodDeclaration{}, &parameterDiagnostics[0]
@@ -582,30 +582,30 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 	generics.methodSpecializations[key] = specialized
 	generics.active[key] = true
 	generics.open = false
-	selfID := names.newBindingID()
+	selfID := ctx.names.newBindingID()
 	specialized.SelfBinding = selfID
 	body := &scope{
-		module:     names.module,
+		module:     ctx.names.module,
 		local:      make(map[string]binding, len(parameters)),
 		owner:      methodName,
 		result:     result,
 		resultUse:  resultUse,
-		methods:    names.methods,
+		methods:    ctx.names.methods,
 		self:       &specialized.SelfType,
 		selfID:     selfID,
 		function:   true,
-		nextID:     names.nextID,
+		nextID:     ctx.names.nextID,
 		flow:       newFlowState(),
 		generics:   generics,
-		registry:   names.registry,
-		moduleID:   names.moduleID,
-		logicalKey: names.logicalKey,
+		registry:   ctx.names.registry,
+		moduleID:   ctx.names.moduleID,
+		logicalKey: ctx.names.logicalKey,
 	}
 	for index := range parameters {
-		parameters[index].Binding = names.newBindingID()
+		parameters[index].Binding = ctx.names.newBindingID()
 		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
 	}
-	statements, bodyDiagnostics := checkBody(open.Declaration.Body, body, typeEnvironment)
+	statements, bodyDiagnostics := checkBody(open.Declaration.Body, checkContext{names: body, typeEnvironment: ctx.typeEnvironment})
 	generics.frame = previousFrame
 	delete(generics.active, key)
 	generics.open = true
@@ -631,20 +631,20 @@ func argumentNames(arguments []compilerTypes.Type) string {
 // inferTypeArguments unifies the open declaration's signature (resolved under
 // placeholder parameters) against concrete call argument types, binding each
 // parameter to exactly one canonical type.
-func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) ([]compilerTypes.Type, *compilerTypes.Diagnostic) {
-	generics := names.generics
+func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, ctx checkContext) ([]compilerTypes.Type, *compilerTypes.Diagnostic) {
+	generics := ctx.names.generics
 	previousFrame := generics.frame
 	placeholderFrame := make(map[string]compilerTypes.Type, len(open.Parameters))
 	placeholders := make([]compilerTypes.Type, open.Generic.Arity)
 	for index, parameter := range open.Parameters {
-		placeholder := typeEnvironment.TypeParameter(open.Generic, index)
+		placeholder := ctx.typeEnvironment.TypeParameter(open.Generic, index)
 		placeholders[index] = placeholder
 		placeholderFrame[parameter.Lexeme] = placeholder
 	}
 	generics.frame = mergedFrame(previousFrame, placeholderFrame)
 	expected := make([]compilerTypes.Type, 0, len(open.Declaration.Parameters))
 	for _, parameter := range open.Declaration.Parameters {
-		use, diagnostic := resolveTypeUse(parameter.Type, parameter.Name, typeEnvironment, generics)
+		use, diagnostic := resolveTypeUse(parameter.Type, parameter.Name, ctx.typeEnvironment, generics)
 		if diagnostic != nil {
 			generics.frame = previousFrame
 			return nil, diagnostic
@@ -822,7 +822,7 @@ func unionTypeMembers(typ compilerTypes.Type) ([]compilerTypes.Type, bool) {
 // checkGenericCall infers or validates the type arguments of a generic
 // function call, specializes the callee, and returns the checked concrete
 // call.
-func checkGenericCall(call parser.CallExpression, bound binding, name string, token lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkGenericCall(call parser.CallExpression, bound binding, name string, token lexer.Token, ctx checkContext) checkedExpression {
 	open := bound.genericFunction
 	if open == nil {
 		diagnostic := unknownAt(token, "generic function binding without an open template")
@@ -832,7 +832,7 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 	if len(call.TypeArguments) > 0 {
 		arguments = make([]compilerTypes.Type, 0, len(call.TypeArguments))
 		for _, argumentExpression := range call.TypeArguments {
-			argumentUse, diagnostic := resolveTypeUse(argumentExpression, token, typeEnvironment, names.generics)
+			argumentUse, diagnostic := resolveTypeUse(argumentExpression, token, ctx.typeEnvironment, ctx.names.generics)
 			if diagnostic != nil {
 				return checkedExpression{token: token, diagnostic: diagnostic}
 			}
@@ -844,7 +844,7 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 	} else {
 		argumentTypes := make([]compilerTypes.Type, 0, len(call.Arguments))
 		for _, argument := range call.Arguments {
-			checked := checkValue(argument, names, typeEnvironment)
+			checked := checkValue(argument, ctx)
 			if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 				return checkedExpression{token: token, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
@@ -853,22 +853,22 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 			}
 			argumentTypes = append(argumentTypes, checked.typ)
 		}
-		inferred, diagnostic := inferTypeArguments(open, argumentTypes, names, typeEnvironment)
+		inferred, diagnostic := inferTypeArguments(open, argumentTypes, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: token, diagnostic: diagnostic}
 		}
 		arguments = inferred
 	}
-	specialized, diagnostic := specializeFunction(open, arguments, names, typeEnvironment)
+	specialized, diagnostic := specializeFunction(open, arguments, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: token, diagnostic: diagnostic}
 	}
-	return buildConcreteCall(call, specialized, names, typeEnvironment, token)
+	return buildConcreteCall(call, specialized, ctx, token)
 }
 
 // buildConcreteCall checks a call against a concrete specialized signature and
 // builds the checked call node.
-func buildConcreteCall(call parser.CallExpression, specialized FunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment, token lexer.Token) checkedExpression {
+func buildConcreteCall(call parser.CallExpression, specialized FunctionDeclaration, ctx checkContext, token lexer.Token) checkedExpression {
 	signature := specialized.Type.Signature
 	if len(call.Arguments) != len(signature.Parameters) {
 		return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, fmt.Sprintf("%s expects %d arguments; got %d", specialized.Name, len(signature.Parameters), len(call.Arguments))))}
@@ -877,7 +877,7 @@ func buildConcreteCall(call parser.CallExpression, specialized FunctionDeclarati
 	for _, parameter := range specialized.Parameters {
 		parameterUses = append(parameterUses, parameter.TypeUse)
 	}
-	arguments, diagnostics := checkArguments(specialized.Name, parameterUses, call.Arguments, token, names, typeEnvironment)
+	arguments, diagnostics := checkArguments(specialized.Name, parameterUses, call.Arguments, token, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: token, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -912,8 +912,8 @@ func lookupGenericMethod(names *scope, object *compilerTypes.ObjectType, name st
 
 // checkGenericMethodCall specializes a generic method for the concrete
 // receiver and infers or validates the method's own type arguments.
-func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, open *openGenericMethod, object *compilerTypes.ObjectType, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	receiverArguments := names.generics.objectArguments[object]
+func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, open *openGenericMethod, object *compilerTypes.ObjectType, receiver checkedExpression, ctx checkContext) checkedExpression {
+	receiverArguments := ctx.names.generics.objectArguments[object]
 	if receiverArguments == nil {
 		diagnostic := unknownAt(callee.Property, "generic method call without receiver arguments")
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
@@ -922,7 +922,7 @@ func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyEx
 	if len(call.TypeArguments) > 0 {
 		methodArguments = make([]compilerTypes.Type, 0, len(call.TypeArguments))
 		for _, argumentExpression := range call.TypeArguments {
-			argumentUse, diagnostic := resolveTypeUse(argumentExpression, callee.Property, typeEnvironment, names.generics)
+			argumentUse, diagnostic := resolveTypeUse(argumentExpression, callee.Property, ctx.typeEnvironment, ctx.names.generics)
 			if diagnostic != nil {
 				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 			}
@@ -932,35 +932,35 @@ func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyEx
 			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "explicit generic argument count does not match declaration"))}
 		}
 	} else {
-		inferred, diagnostic := inferMethodArguments(open, receiverArguments, call.Arguments, callee.Property, names, typeEnvironment)
+		inferred, diagnostic := inferMethodArguments(open, receiverArguments, call.Arguments, callee.Property, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
 		methodArguments = inferred
 	}
-	specialized, diagnostic := specializeMethod(open, object, receiver.typ, receiverArguments, methodArguments, names, typeEnvironment)
+	specialized, diagnostic := specializeMethod(open, object, receiver.typ, receiverArguments, methodArguments, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
-	return buildConcreteMethodCall(call, callee, specialized, receiver, names, typeEnvironment)
+	return buildConcreteMethodCall(call, callee, specialized, receiver, ctx)
 }
 
 // inferMethodArguments infers a method's own arguments from the call
 // arguments under the combined receiver and method parameter frame.
-func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerTypes.Type, written []parser.Expression, token lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) ([]compilerTypes.Type, *compilerTypes.Diagnostic) {
-	generics := names.generics
+func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerTypes.Type, written []parser.Expression, token lexer.Token, ctx checkContext) ([]compilerTypes.Type, *compilerTypes.Diagnostic) {
+	generics := ctx.names.generics
 	previousFrame := generics.frame
 	frame := parameterFrame(open.ReceiverParameters, receiverArguments)
 	placeholders := make([]compilerTypes.Type, open.Generic.Arity)
 	for index, parameter := range open.Parameters {
-		placeholder := typeEnvironment.TypeParameter(open.Generic, index)
+		placeholder := ctx.typeEnvironment.TypeParameter(open.Generic, index)
 		placeholders[index] = placeholder
 		frame[parameter.Lexeme] = placeholder
 	}
 	generics.frame = frame
 	expected := make([]compilerTypes.Type, 0, len(open.Declaration.Parameters))
 	for _, parameter := range open.Declaration.Parameters {
-		use, diagnostic := resolveTypeUse(parameter.Type, token, typeEnvironment, generics)
+		use, diagnostic := resolveTypeUse(parameter.Type, token, ctx.typeEnvironment, generics)
 		if diagnostic != nil {
 			generics.frame = previousFrame
 			return nil, diagnostic
@@ -973,7 +973,7 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 	}
 	actual := make([]compilerTypes.Type, 0, len(written))
 	for _, argument := range written {
-		checked := checkValue(argument, names, typeEnvironment)
+		checked := checkValue(argument, ctx)
 		if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 			return nil, &diagnostics[0]
 		}
@@ -998,11 +998,11 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 
 // buildConcreteMethodCall checks a call against a specialized method and
 // builds the checked method-call node.
-func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyExpression, specialized MethodDeclaration, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyExpression, specialized MethodDeclaration, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != len(specialized.Parameters) {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("%s expects %d arguments; got %d", specialized.Name, len(specialized.Parameters), len(call.Arguments))))}
 	}
-	adapted, diagnostic := adaptReceiver(receiver, specialized, callee, typeEnvironment, names.flow)
+	adapted, diagnostic := adaptReceiver(receiver, specialized, callee, ctx.typeEnvironment, ctx.names.flow)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -1010,7 +1010,7 @@ func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyE
 	for _, parameter := range specialized.Parameters {
 		expected = append(expected, parameter.TypeUse)
 	}
-	arguments, diagnostics := checkArguments(specialized.Name, expected, call.Arguments, callee.Property, names, typeEnvironment)
+	arguments, diagnostics := checkArguments(specialized.Name, expected, call.Arguments, callee.Property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -1037,8 +1037,8 @@ func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyE
 // checkGenericFunctionReference infers a generic function's arguments from an
 // exact Fun<...> expected type and returns the concrete reference. It returns
 // nil when the name is not a generic function.
-func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (*checkedExpression, *compilerTypes.Diagnostic) {
-	bound, status := names.lookup(name.Lexeme)
+func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type, ctx checkContext) (*checkedExpression, *compilerTypes.Diagnostic) {
+	bound, status := ctx.names.lookup(name.Lexeme)
 	if status != nameFound || bound.kind != genericFunctionBinding {
 		return nil, nil
 	}
@@ -1047,7 +1047,7 @@ func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type
 		diagnostic := unknownAt(name, "generic function binding without an open template")
 		return nil, &diagnostic
 	}
-	specialized, diagnostic := specializeFromExpectedType(open, expected, name, names, typeEnvironment)
+	specialized, diagnostic := specializeFromExpectedType(open, expected, name, ctx)
 	if diagnostic != nil {
 		return nil, diagnostic
 	}
@@ -1072,20 +1072,20 @@ func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type
 // generic anonymous literal used where an exact Fun<...> type is expected;
 // fallback names the token diagnostics anchor to when open has no useful
 // position of its own (an anonymous literal has no declared name).
-func specializeFromExpectedType(open *openGenericFunction, expected compilerTypes.Type, fallback lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) (FunctionDeclaration, *compilerTypes.Diagnostic) {
-	generics := names.generics
+func specializeFromExpectedType(open *openGenericFunction, expected compilerTypes.Type, fallback lexer.Token, ctx checkContext) (FunctionDeclaration, *compilerTypes.Diagnostic) {
+	generics := ctx.names.generics
 	previousFrame := generics.frame
 	placeholderFrame := make(map[string]compilerTypes.Type, len(open.Parameters))
 	placeholders := make([]compilerTypes.Type, open.Generic.Arity)
 	for index, parameter := range open.Parameters {
-		placeholder := typeEnvironment.TypeParameter(open.Generic, index)
+		placeholder := ctx.typeEnvironment.TypeParameter(open.Generic, index)
 		placeholders[index] = placeholder
 		placeholderFrame[parameter.Lexeme] = placeholder
 	}
 	generics.frame = mergedFrame(previousFrame, placeholderFrame)
 	expectedTypes := make([]compilerTypes.Type, 0, len(open.Declaration.Parameters))
 	for _, parameter := range open.Declaration.Parameters {
-		use, diagnostic := resolveTypeUse(parameter.Type, fallback, typeEnvironment, generics)
+		use, diagnostic := resolveTypeUse(parameter.Type, fallback, ctx.typeEnvironment, generics)
 		if diagnostic != nil {
 			generics.frame = previousFrame
 			return FunctionDeclaration{}, diagnostic
@@ -1095,7 +1095,7 @@ func specializeFromExpectedType(open *openGenericFunction, expected compilerType
 	var expectedResult compilerTypes.Type
 	hasResult := false
 	if open.Declaration.Return != nil {
-		use, diagnostic := resolveTypeUse(open.Declaration.Return, fallback, typeEnvironment, generics)
+		use, diagnostic := resolveTypeUse(open.Declaration.Return, fallback, ctx.typeEnvironment, generics)
 		if diagnostic != nil {
 			generics.frame = previousFrame
 			return FunctionDeclaration{}, diagnostic
@@ -1138,7 +1138,7 @@ func specializeFromExpectedType(open *openGenericFunction, expected compilerType
 			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
 		}
 	}
-	return specializeFunction(open, bindings, names, typeEnvironment)
+	return specializeFunction(open, bindings, ctx)
 }
 
 // specializeADTType creates or reuses the nominal ADT for one concrete

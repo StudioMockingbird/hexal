@@ -37,14 +37,14 @@ func endianEligibleType(typ compilerTypes.Type) bool {
 // checkBitCastCall resolves `receiver.bit_cast<Dest>()`. The
 // method takes exactly one explicit type argument and no value arguments;
 // source and destination must be same-width eligible scalars.
-func checkBitCastCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkBitCastCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if len(call.TypeArguments) != 1 {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "bit_cast requires exactly 1 explicit type argument"))}
 	}
 	if len(call.Arguments) != 0 {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "bit_cast accepts no value arguments"))}
 	}
-	targetUse, diagnostic := resolveTypeUse(call.TypeArguments[0], call.OpenParen, typeEnvironment, names.generics)
+	targetUse, diagnostic := resolveTypeUse(call.TypeArguments[0], call.OpenParen, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -62,14 +62,14 @@ func checkBitCastCall(call parser.CallExpression, callee parser.PropertyExpressi
 
 // checkEndianToBytesCall resolves `value.to_le_bytes()` and
 // `value.to_be_bytes()`. The result is Array<Byte, width / 8>.
-func checkEndianToBytesCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkEndianToBytesCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, callee.Property.Lexeme+" takes no arguments"))}
 	}
 	if !endianEligibleType(receiver.typ) {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, callee.Property.Lexeme+" requires a fixed-width integer receiver; got "+receiver.typ.Name))}
 	}
-	array := typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(receiver.typ.Bits/8))
+	array := ctx.typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(receiver.typ.Bits/8))
 	if array == (compilerTypes.Type{}) {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct the endian byte array type"))}
 	}
@@ -85,20 +85,20 @@ func checkEndianToBytesCall(call parser.CallExpression, callee parser.PropertyEx
 // checkEndianFromBytesCall resolves the type-qualified
 // `Int32.from_le_bytes(bytes)` and `Int32.from_be_bytes(bytes)` intrinsics.
 // The argument must be exactly Array<Byte, width / 8>.
-func checkEndianFromBytesCall(call parser.CallExpression, callee lexer.Token, typeEnvironment *compilerTypes.Environment, names *scope) checkedExpression {
+func checkEndianFromBytesCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
-	integerType, ok := typeEnvironment.Lookup(callee.Lexeme)
+	integerType, ok := ctx.typeEnvironment.Lookup(callee.Lexeme)
 	if !ok || !endianEligibleType(integerType) {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, callee.Lexeme+" has no such operation; from_le_bytes and from_be_bytes require a fixed-width integer type"))}
 	}
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, property.Lexeme+" expects exactly 1 argument"))}
 	}
-	array := typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(integerType.Bits/8))
+	array := ctx.typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(integerType.Bits/8))
 	if array == (compilerTypes.Type{}) {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the endian byte array type"))}
 	}
-	bytes := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(array), tokenOf(call.Arguments[0]), names, typeEnvironment)
+	bytes := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(array), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(bytes); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 	}

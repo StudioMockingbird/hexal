@@ -155,6 +155,8 @@ func UnionContainsEoS(typ Type) bool {
 // generic specialization can bypass one by accident.
 type Position int
 
+// The concrete Position values, named for the storing position they
+// classify.
 const (
 	PositionBinding Position = iota
 	PositionObjectMember

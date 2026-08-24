@@ -27,16 +27,16 @@ func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 }
 
 // checkListTypeCall resolves List<T>.new(heap) into a fresh owning list.
-func checkListTypeCall(call parser.CallExpression, callee lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkListTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme != "new" || len(call.TypeArguments) != 1 || len(call.Arguments) != 1 {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "List has no such operation; use List<T>.new(heap)"))}
 	}
-	listUse, diagnostic := resolveListTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "List", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, typeEnvironment, names.generics)
+	listUse, diagnostic := resolveListTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "List", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
-	heap := checkValue(call.Arguments[0], names, typeEnvironment)
+	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 		return heap
 	}
@@ -58,7 +58,7 @@ func checkListTypeCall(call parser.CallExpression, callee lexer.Token, names *sc
 
 // checkListMethodCall dispatches the built-in List methods: length, slice,
 // push, pop, set, clear, and free.
-func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	listType := receiver.typ
 	element := listType.List.Element
@@ -76,11 +76,11 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, names, typeEnvironment)
+		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, names, typeEnvironment)
+		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
@@ -88,7 +88,7 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			diagnostic := typeErrorAt(callee.Property, "a view cannot be rooted in a temporary List")
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		viewType := typeEnvironment.ViewType(element)
+		viewType := ctx.typeEnvironment.ViewType(element)
 		if viewType == (compilerTypes.Type{}) {
 			diagnostic := typeErrorAt(callee.Property, element.Name+" is not an inline view element type")
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
@@ -115,7 +115,7 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 				diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("push expects 1 argument; got %d", len(call.Arguments)))
 				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 			}
-			value, diagnostic := listElementArgument(call.Arguments[0], callee.Property, element, names, typeEnvironment)
+			value, diagnostic := listElementArgument(call.Arguments[0], callee.Property, element, ctx)
 			if diagnostic != nil {
 				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 			}
@@ -144,7 +144,7 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.Arguments)))
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], names, typeEnvironment)
+		heap := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -166,9 +166,9 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		// borrowed from this exact binding; borrowers consult the mark. A
 		// deferred free releases at scope exit, outside local proof, so it
 		// takes the documented unknown-state envelope instead.
-		if names.flow != nil && names.cleanupDepth == 0 {
+		if ctx.names.flow != nil && ctx.names.cleanupDepth == 0 {
 			if binding := baseBindingID(&receiver.source.Node); binding != 0 {
-				names.flow.releaseSource(binding)
+				ctx.names.flow.releaseSource(binding)
 			}
 		}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
@@ -182,8 +182,8 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 // listElementArgument checks one push or set value against the element type.
 // A String result is stored by shallow handle copy; cleanup stays the
 // programmer's responsibility.
-func listElementArgument(expression parser.Expression, fallback lexer.Token, element compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) (Operand, *compilerTypes.Diagnostic) {
-	checked := checkInitializer(expression, compilerTypes.NewTypeUse(element), fallback, names, typeEnvironment)
+func listElementArgument(expression parser.Expression, fallback lexer.Token, element compilerTypes.Type, ctx checkContext) (Operand, *compilerTypes.Diagnostic) {
+	checked := checkInitializer(expression, compilerTypes.NewTypeUse(element), fallback, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return Operand{}, &diagnostics[0]
 	}

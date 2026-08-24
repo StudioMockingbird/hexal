@@ -108,14 +108,14 @@ func TestAdtLiteralFieldsEvaluateInWrittenOrder(t *testing.T) {
 	requireAscending(t, positions, "side_second() hoisted", "side_first() hoisted", ".first assigned from hex_seq_2", ".second assigned from hex_seq_1")
 }
 
-// Mixed operators keep their existing precedence and associativity while
-// still evaluating left to right: a() + b() * c() parses as a() + (b() * c())
-// and must still evaluate a(), then b(), then c(), in that order.
+// An explicitly grouped mixed-operator tree keeps its written associativity
+// while still evaluating left to right: a() + (b() * c()) must still
+// evaluate a(), then b(), then c(), in that order.
 func TestMixedOperatorsPreservePrecedenceAndLeftToRightEvaluation(t *testing.T) {
 	result := assertCompiles(t, "fun a(): Int32 do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
 		"fun c(): Int32 do\n    return 3\nend\n"+
-		"result: Int32 := a() + b() * c()\n")
+		"result: Int32 := a() + (b() * c())\n")
 	body := rootC(t, result)
 	if !strings.Contains(body, "hex_wrap_mul_int32_t(hex_seq_2, hex_seq_3)") {
 		t.Fatalf("generated C = %q, want b() * c() grouped by precedence into its own temporary", body)
@@ -186,7 +186,7 @@ func TestShortCircuitOperandsAreNotHoisted(t *testing.T) {
 	result := assertCompiles(t, "fun guard(): Bool do\n    return false\nend\n"+
 		"fun a(): Int32 do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
-		"result: Bool := guard() and a() == b()\n")
+		"result: Bool := guard() and (a() == b())\n")
 	body := rootC(t, result)
 	if strings.Contains(body, "hex_seq_") {
 		t.Fatalf("short-circuited operand was hoisted into an unconditional prologue:\n%s", body)

@@ -130,12 +130,12 @@ func TestTruthinessShortCircuitSkipsFoldedSide(t *testing.T) {
 	// 0 is truthy, so the right side of and is evaluated and its division by
 	// zero is a static error; false is falsey, so the right side is never
 	// evaluated and the same expression is fine.
-	result := compileSource("result: Bool := 0 and (1 / 0 == 0)")
+	result := compileSource("result: Bool := 0 and ((1 / 0) == 0)")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "division by zero") {
 		t.Fatalf("Compile = %#v, want the evaluated side to fail statically", result)
 	}
 
-	result = compileSource("result: Bool := false and (1 / 0 == 0)")
+	result = compileSource("result: Bool := false and ((1 / 0) == 0)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want the skipped side to never be checked", result)
 	}

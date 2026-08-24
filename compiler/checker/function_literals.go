@@ -16,24 +16,24 @@ import (
 // shares parameter, result, and body checking with every other function
 // form; the only difference from a local named function is that it carries
 // no self-recursion name, because nothing here bound it to one.
-func checkAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, context expressionContext, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, context expressionContext, ctx checkContext) checkedExpression {
 	if len(expression.TypeParameters) > 0 {
-		return checkGenericAnonymousFunctionLiteral(expression, context, names, typeEnvironment)
+		return checkGenericAnonymousFunctionLiteral(expression, context, ctx)
 	}
 
-	signature, diagnostics := checkFunctionSignature(expression.Parameters, expression.Return, expression.FunKeyword, names.generics, typeEnvironment)
+	signature, diagnostics := checkFunctionSignature(expression.Parameters, expression.Return, expression.FunKeyword, ctx.names.generics, ctx.typeEnvironment)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: expression.FunKeyword, diagnostics: diagnostics}
 	}
 	// Assigned before the body is checked, in checked-tree preorder, from
 	// the same shared counter every local named function draws from - the
 	// two share one hex_fun_<ordinal> stream.
-	ordinal := names.newBindingID()
+	ordinal := ctx.names.newBindingID()
 
-	body := names.closureRootScope("function literal")
+	body := ctx.names.closureRootScope("function literal")
 	body.result = signature.result
 	body.resultUse = signature.resultUse
-	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, expression.Body, names, body, typeEnvironment)
+	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, expression.Body, ctx.names, body, ctx.typeEnvironment)
 	if len(bodyDiagnostics) > 0 {
 		return checkedExpression{token: expression.FunKeyword, diagnostics: bodyDiagnostics}
 	}
@@ -74,10 +74,10 @@ func checkAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, c
 // never share a generated symbol. Nothing binds the result to a name,
 // because a bare literal is never itself an open-template binding - only
 // one immediate specialization of it is ever checked.
-func openGenericLiteral(expression parser.AnonymousFunctionLiteral, names *scope, typeEnvironment *compilerTypes.Environment) (*openGenericFunction, compilerTypes.Diagnostics) {
+func openGenericLiteral(expression parser.AnonymousFunctionLiteral, ctx checkContext) (*openGenericFunction, compilerTypes.Diagnostics) {
 	diagnostics := validateGenericParameters(expression.TypeParameters)
 	for _, parameter := range expression.TypeParameters {
-		if _, active := names.generics.frame[parameter.Lexeme]; active {
+		if _, active := ctx.names.generics.frame[parameter.Lexeme]; active {
 			diagnostics = append(diagnostics, typeErrorAt(parameter, "generic parameter "+parameter.Lexeme+" is already declared by an enclosing function"))
 		}
 	}
@@ -99,9 +99,9 @@ func openGenericLiteral(expression parser.AnonymousFunctionLiteral, names *scope
 		Parameters:  append([]lexer.Token(nil), expression.TypeParameters...),
 		Declaration: synthesized,
 		local:       true,
-		identity:    names.newBindingID(),
+		identity:    ctx.names.newBindingID(),
 	}
-	generic := typeEnvironment.DeclareGeneric(open.templateKey(), len(expression.TypeParameters), parameterNamesOf(expression.TypeParameters))
+	generic := ctx.typeEnvironment.DeclareGeneric(open.templateKey(), len(expression.TypeParameters), parameterNamesOf(expression.TypeParameters))
 	if generic == nil {
 		diagnostic := unknownAt(expression.FunKeyword, "could not declare the generic template for this function literal")
 		return nil, compilerTypes.Diagnostics{diagnostic}
@@ -115,8 +115,8 @@ func openGenericLiteral(expression parser.AnonymousFunctionLiteral, names *scope
 // parameter position expecting an exact Fun<...> type. An unspecialized
 // generic literal is a compile-time template, not a runtime value, so with
 // no exact expected type there is nothing to check it against.
-func checkGenericAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, context expressionContext, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	open, diagnostics := openGenericLiteral(expression, names, typeEnvironment)
+func checkGenericAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, context expressionContext, ctx checkContext) checkedExpression {
+	open, diagnostics := openGenericLiteral(expression, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: expression.FunKeyword, diagnostics: diagnostics}
 	}
@@ -124,7 +124,7 @@ func checkGenericAnonymousFunctionLiteral(expression parser.AnonymousFunctionLit
 		diagnostic := typeErrorAt(expression.FunKeyword, "cannot infer generic parameter for function literal")
 		return checkedExpression{token: expression.FunKeyword, diagnostic: &diagnostic}
 	}
-	specialized, diagnostic := specializeFromExpectedType(open, context.expected.Type, expression.FunKeyword, names, typeEnvironment)
+	specialized, diagnostic := specializeFromExpectedType(open, context.expected.Type, expression.FunKeyword, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: expression.FunKeyword, diagnostic: diagnostic}
 	}
@@ -145,14 +145,14 @@ func checkGenericAnonymousFunctionLiteral(expression parser.AnonymousFunctionLit
 // its type arguments from the call's own arguments, then checks the call
 // against the concrete specialization - the direct-invocation counterpart
 // to checkGenericCall's named-callee inference.
-func checkGenericLiteralDirectCall(call parser.CallExpression, literal parser.AnonymousFunctionLiteral, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	open, diagnostics := openGenericLiteral(literal, names, typeEnvironment)
+func checkGenericLiteralDirectCall(call parser.CallExpression, literal parser.AnonymousFunctionLiteral, ctx checkContext) checkedExpression {
+	open, diagnostics := openGenericLiteral(literal, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: literal.FunKeyword, diagnostics: diagnostics}
 	}
 	argumentTypes := make([]compilerTypes.Type, 0, len(call.Arguments))
 	for _, argument := range call.Arguments {
-		checked := checkValue(argument, names, typeEnvironment)
+		checked := checkValue(argument, ctx)
 		if argumentDiagnostics := initializerDiagnostics(checked); len(argumentDiagnostics) > 0 {
 			return checkedExpression{token: literal.FunKeyword, diagnostics: argumentDiagnostics}
 		}
@@ -162,13 +162,13 @@ func checkGenericLiteralDirectCall(call parser.CallExpression, literal parser.An
 		}
 		argumentTypes = append(argumentTypes, checked.typ)
 	}
-	arguments, diagnostic := inferTypeArguments(open, argumentTypes, names, typeEnvironment)
+	arguments, diagnostic := inferTypeArguments(open, argumentTypes, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: literal.FunKeyword, diagnostic: diagnostic}
 	}
-	specialized, specializeDiagnostic := specializeFunction(open, arguments, names, typeEnvironment)
+	specialized, specializeDiagnostic := specializeFunction(open, arguments, ctx)
 	if specializeDiagnostic != nil {
 		return checkedExpression{token: literal.FunKeyword, diagnostic: specializeDiagnostic}
 	}
-	return buildConcreteCall(call, specialized, names, typeEnvironment, literal.FunKeyword)
+	return buildConcreteCall(call, specialized, ctx, literal.FunKeyword)
 }

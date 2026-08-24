@@ -383,7 +383,7 @@ func TestSelfOutsideAnImplBodyIsRejected(t *testing.T) {
 }
 
 func TestMethodDeclarationProducesCheckedIR(t *testing.T) {
-	checked := requireAccepted(t, point+"impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n")
+	checked := requireAccepted(t, point+"impl Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n")
 	declaration, ok := checked.Statements[0].(MethodDeclaration)
 	if !ok {
 		t.Fatalf("statement = %T, want MethodDeclaration", checked.Statements[0])
@@ -413,7 +413,7 @@ func TestMethodControlFlowUsesStructuredScopesAndFlow(t *testing.T) {
 func TestAllThreeReceiverFormsBindSelf(t *testing.T) {
 	checked := requireAccepted(t, point+
 		"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"impl Ptr<Point>.is_origin(): Bool do\n    return self.x == 0 and self.y == 0\nend\n"+
+		"impl Ptr<Point>.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
 		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n")
 	want := []string{"Point", "Ptr<Point>", "MutPtr<Point>"}
 	for index, name := range want {

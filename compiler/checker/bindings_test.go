@@ -81,7 +81,7 @@ func TestCheckKnownImmutableShortCircuitSkipsUnreachableDivision(t *testing.T) {
 	// metadata, so the unreachable right-hand division stays unchecked
 	// exactly as it was before reads stopped being substituted, and the
 	// read itself stays in the runtime expression.
-	checked := requireAccepted(t, "guard: Bool := true result: Bool := guard or (1 / 0 == 0)")
+	checked := requireAccepted(t, "guard: Bool := true result: Bool := guard or ((1 / 0) == 0)")
 	result := checked.Statements[1].(Declaration)
 	if result.Source.Kind != ExpressionOperand || result.Source.Node.Kind != BinaryOperationExpression || result.Source.Node.Operator != LogicalOrOperator {
 		t.Fatalf("result source = %#v, want a runtime logical or", result.Source)

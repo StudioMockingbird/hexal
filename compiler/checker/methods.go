@@ -110,7 +110,7 @@ func isNullableFun(typ compilerTypes.Type) bool {
 // member such as `table.operation(args)` where operation is a Fun<...> or
 // `Fun<...>|Nil` field. It validates arity and argument types against the
 // stored Fun signature and lowers to an indirect call through the member.
-func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, member *compilerTypes.ObjectMember, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, member *compilerTypes.ObjectMember, ctx checkContext) checkedExpression {
 	funType := member.Type
 	if isNullableFun(funType) {
 		// A nullable dispatch member must be narrowed before the call. The
@@ -133,7 +133,7 @@ func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpres
 	for index, parameter := range signature.Parameters {
 		parameterUses[index] = compilerTypes.NewTypeUse(parameter)
 	}
-	arguments, diagnostics := checkArguments(member.Name, parameterUses, call.Arguments, callee.Property, names, typeEnvironment)
+	arguments, diagnostics := checkArguments(member.Name, parameterUses, call.Arguments, callee.Property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -142,7 +142,7 @@ func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpres
 	// access lowers to `(*ptr).member` rather than `ptr.member`.
 	var memberAccessNode Expression
 	if receiver.typ.Element != nil && receiver.typ.Element.Object != nil {
-		dereferenced := dereferencePlace(receiver, callee.Property, names.flow)
+		dereferenced := dereferencePlace(receiver, callee.Property, ctx.names.flow)
 		if dereferenced.diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: dereferenced.diagnostic}
 		}
@@ -194,7 +194,7 @@ func nonCallableMemberDiagnostic(token lexer.Token, member *compilerTypes.Object
 // method is registered as an open template by registerGenericMethod before
 // any receiver resolution and returns a zero declaration; its body is
 // checked only lazily at specialization time.
-func collectMethodSignature(declaration parser.ImplDeclaration, names *scope, typeEnvironment *compilerTypes.Environment) (MethodDeclaration, compilerTypes.Diagnostics) {
+func collectMethodSignature(declaration parser.ImplDeclaration, ctx checkContext) (MethodDeclaration, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	checked := MethodDeclaration{
 		Name:         name,
@@ -207,10 +207,10 @@ func collectMethodSignature(declaration parser.ImplDeclaration, names *scope, ty
 	// A generic method is registered as an open template before any receiver
 	// resolution: the receiver names the generic owner's parameters.
 	if len(declaration.TypeParameters) > 0 || isGenericReceiver(declaration.SelfType) {
-		return MethodDeclaration{}, registerGenericMethod(declaration, names, typeEnvironment)
+		return MethodDeclaration{}, registerGenericMethod(declaration, ctx)
 	}
 
-	targetUse, targetDiagnostic := resolveTypeUse(declaration.SelfType, declaration.Keyword, typeEnvironment, names.generics)
+	targetUse, targetDiagnostic := resolveTypeUse(declaration.SelfType, declaration.Keyword, ctx.typeEnvironment, ctx.names.generics)
 	if targetDiagnostic != nil {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{*targetDiagnostic}
 	}
@@ -237,7 +237,7 @@ func collectMethodSignature(declaration parser.ImplDeclaration, names *scope, ty
 	// module's identity, so the ModuleID comparison rejects every spelling of
 	// it, qualified or not. Builtins carry an empty id and keep their
 	// compiler-owned behavior.
-	if object.ModuleID != "" && object.ModuleID != names.moduleID {
+	if object.ModuleID != "" && object.ModuleID != ctx.names.moduleID {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
 			"cannot declare methods for imported type "+receiverSpelling(declaration.SelfType, object.Name))}
 	}
@@ -245,20 +245,20 @@ func collectMethodSignature(declaration parser.ImplDeclaration, names *scope, ty
 	checked.SelfType = target
 
 	// Method rules 4 and 5, then the non-injective C name rule.
-	if names.methods.lookup(object, name) != nil {
+	if ctx.names.methods.lookup(object, name) != nil {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, object.Name+" already has a method named "+name))
 	} else if _, exists := object.Member(name); exists {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, object.Name+" already has a member named "+name))
-	} else if bound, declared := names.module[object.Name+"_"+name]; declared && bound.kind == functionBinding {
+	} else if bound, declared := ctx.names.module[object.Name+"_"+name]; declared && bound.kind == functionBinding {
 		diagnostics = append(diagnostics, collisionDiagnostic(object.Name+"_"+name, object.Name+"."+name, declaration.Name))
-	} else if existing, taken := names.methods.cNames[object.Name+"_"+name]; taken {
+	} else if existing, taken := ctx.names.methods.cNames[object.Name+"_"+name]; taken {
 		diagnostics = append(diagnostics, methodCollisionDiagnostic(object.Name, name, existing, declaration.Name))
 	}
 
-	parameters, parameterDiagnostics := checkParameters(declaration.Parameters, typeEnvironment, names.generics)
+	parameters, parameterDiagnostics := checkParameters(declaration.Parameters, ctx.typeEnvironment, ctx.names.generics)
 	diagnostics = append(diagnostics, parameterDiagnostics...)
 
-	result, resultUse, resultDiagnostics := checkResultType(declaration.Return, declaration.Name, typeEnvironment, names.generics)
+	result, resultUse, resultDiagnostics := checkResultType(declaration.Return, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
 	diagnostics = append(diagnostics, resultDiagnostics...)
 	checked.Result = result
 	checked.ResultUse = resultUse
@@ -268,7 +268,7 @@ func collectMethodSignature(declaration parser.ImplDeclaration, names *scope, ty
 		return MethodDeclaration{}, diagnostics
 	}
 
-	names.methods.define(&checked)
+	ctx.names.methods.define(&checked)
 	return checked, nil
 }
 
@@ -277,44 +277,44 @@ func collectMethodSignature(declaration parser.ImplDeclaration, names *scope, ty
 // after every module-level function and method signature is registered, so
 // a call to any other module function or method - earlier, later, or
 // mutually recursive - resolves.
-func checkMethodBody(declaration parser.ImplDeclaration, checked MethodDeclaration, names *scope, typeEnvironment *compilerTypes.Environment, analyzeReturns bool) (MethodDeclaration, compilerTypes.Diagnostics) {
+func checkMethodBody(declaration parser.ImplDeclaration, checked MethodDeclaration, ctx checkContext, analyzeReturns bool) (MethodDeclaration, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	parameters := checked.Parameters
 
-	selfID := names.newBindingID()
+	selfID := ctx.names.newBindingID()
 	checked.SelfBinding = selfID
 	body := &scope{
-		module:     names.module,
+		module:     ctx.names.module,
 		local:      make(map[string]binding, len(parameters)),
 		owner:      checked.Name,
 		result:     checked.Result,
 		resultUse:  checked.ResultUse,
-		methods:    names.methods,
+		methods:    ctx.names.methods,
 		self:       &checked.SelfType,
 		selfID:     selfID,
 		function:   true,
-		nextID:     names.nextID,
+		nextID:     ctx.names.nextID,
 		flow:       newFlowState(),
-		generics:   names.generics,
-		registry:   names.registry,
-		moduleID:   names.moduleID,
-		logicalKey: names.logicalKey,
+		generics:   ctx.names.generics,
+		registry:   ctx.names.registry,
+		moduleID:   ctx.names.moduleID,
+		logicalKey: ctx.names.logicalKey,
 	}
 	for index := range parameters {
 		// No nested scope may shadow an import alias; a conflicting
 		// parameter is rejected like any other redeclaration.
-		if names.importAlias(parameters[index].Name) {
+		if ctx.names.importAlias(parameters[index].Name) {
 			token := lexer.Token{Line: parameters[index].SourceLine, Column: parameters[index].SourceColumn, Lexeme: parameters[index].Name}
 			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
 			continue
 		}
-		parameters[index].Binding = names.newBindingID()
+		parameters[index].Binding = ctx.names.newBindingID()
 		bound := binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
 		body.local[parameters[index].Name] = bound
 	}
 	checked.Parameters = parameters
 
-	statements, bodyDiagnostics := checkBody(declaration.Body, body, typeEnvironment)
+	statements, bodyDiagnostics := checkBody(declaration.Body, checkContext{names: body, typeEnvironment: ctx.typeEnvironment})
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = statements
 	checked.Defers = append(checked.Defers, body.defers...)
@@ -366,87 +366,87 @@ func receiverSpellingToken(expression parser.TypeExpression, fallback lexer.Toke
 // place -- adaptation may need its address -- and the method is found by the
 // receiver's nominal object identity, so all three receiver forms reach the
 // one method declared on that object.
-func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	// Alias.name(...) where Alias is an import alias calls the target
 	// module's exported function. This precedes every builtin receiver check
 	// so an alias always wins over a same-named builtin receiver, and a
 	// dangling alias falls through to the ordinary path.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable {
-		if target, ok := names.importAliasTarget(variable.Name.Lexeme); ok {
-			return checkQualifiedFunctionCall(call, callee.Property, target, names, typeEnvironment)
+		if target, ok := ctx.names.importAliasTarget(variable.Name.Lexeme); ok {
+			return checkQualifiedFunctionCall(call, callee.Property, target, ctx)
 		}
 	}
 	// Heap.new() names the built-in type, not a Heap value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Heap" {
-		return checkHeapTypeCall(call, variable, names, typeEnvironment)
+		return checkHeapTypeCall(call, variable, ctx)
 	}
 	// String.from_bytes() names the built-in type, not a String value
 	// binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "String" {
-		return checkStringTypeCall(call, variable.Name, names, typeEnvironment)
+		return checkStringTypeCall(call, variable.Name, ctx)
 	}
 	// List<T>.new() names the built-in generic type, not a List value
 	// binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "List" {
-		return checkListTypeCall(call, variable.Name, names, typeEnvironment)
+		return checkListTypeCall(call, variable.Name, ctx)
 	}
 	// Dict<K, V>.new() names the built-in generic type, not a Dict value
 	// binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Dict" {
-		return checkDictTypeCall(call, variable.Name, names, typeEnvironment)
+		return checkDictTypeCall(call, variable.Name, ctx)
 	}
 	// View<T>.from_pointer() and View<T>.empty() name the built-in generic
 	// type, not a View value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "View" {
-		return checkViewBridgeCall(call, variable.Name, names, typeEnvironment)
+		return checkViewBridgeCall(call, variable.Name, ctx)
 	}
 	// Task.yield() names the built-in Task type, not a Task value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Task" {
-		return checkTaskTypeCall(call, variable.Name, names, typeEnvironment)
+		return checkTaskTypeCall(call, variable.Name, ctx)
 	}
 	// Channel<T>.new() names the built-in generic Channel type, not a
 	// Channel value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Channel" {
-		return checkChannelTypeCall(call, variable.Name, names, typeEnvironment)
+		return checkChannelTypeCall(call, variable.Name, ctx)
 	}
 	// Mutex.new() names the built-in Mutex type, not a Mutex value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Mutex" {
-		return checkMutexTypeCall(call, variable.Name, names, typeEnvironment)
+		return checkMutexTypeCall(call, variable.Name, ctx)
 	}
 	// IO.stdin()/stdout()/stderr() name the built-in IO type.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "IO" {
-		return checkIOTypeCall(call, variable, names, typeEnvironment)
+		return checkIOTypeCall(call, variable, ctx)
 	}
 	// Bytes.over(buffer) names the built-in Bytes type.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Bytes" {
-		return checkBytesTypeCall(call, variable, names, typeEnvironment)
+		return checkBytesTypeCall(call, variable, ctx)
 	}
 	// Atomic<T>.new() names the built-in generic Atomic type, not an Atomic
 	// value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Atomic" {
-		return checkAtomicTypeCall(call, variable.Name, names, typeEnvironment)
+		return checkAtomicTypeCall(call, variable.Name, ctx)
 	}
 	// Int32.from_le_bytes(...) names a fixed-width integer type, not an
 	// integer value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable &&
 		(callee.Property.Lexeme == "from_le_bytes" || callee.Property.Lexeme == "from_be_bytes") {
-		return checkEndianFromBytesCall(call, variable.Name, typeEnvironment, names)
+		return checkEndianFromBytesCall(call, variable.Name, ctx)
 	}
 	// Error.new(...) names the built-in Error type, not an Error value
 	// binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Error" {
-		return checkErrorNewCall(call, variable.Name, names, typeEnvironment)
+		return checkErrorNewCall(call, variable.Name, ctx)
 	}
 	receiver := checkedExpression{}
 	switch callee.Receiver.(type) {
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
-		receiver = checkPlace(callee.Receiver, names, typeEnvironment)
+		receiver = checkPlace(callee.Receiver, ctx)
 	default:
 		// A call or literal receiver has no addressable storage of its own;
 		// check it as a value so collection methods can reject temporary
 		// roots with their own diagnostics.
-		receiver = checkValue(callee.Receiver, names, typeEnvironment)
+		receiver = checkValue(callee.Receiver, ctx)
 	}
 	if receiverDiagnostics := initializerDiagnostics(receiver); len(receiverDiagnostics) > 0 {
 		return receiver
@@ -457,84 +457,84 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if name == "to" &&
 		(compilerTypes.IsInteger(receiver.typ) || compilerTypes.IsFloat(receiver.typ) ||
 			compilerTypes.IsRune(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
-		return checkConversionCall(call, callee, receiver, names, typeEnvironment)
+		return checkConversionCall(call, callee, receiver, ctx)
 	}
 	// The compiler-owned `bit_cast<T>()` reinterprets same-width
 	// fixed-representation scalar bits.
 	if name == "bit_cast" && (bitCastEligibleType(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
-		return checkBitCastCall(call, callee, receiver, names, typeEnvironment)
+		return checkBitCastCall(call, callee, receiver, ctx)
 	}
 	// Explicit-endian byte conversion instance methods on fixed-width
 	// integer receivers.
 	if (name == "to_le_bytes" || name == "to_be_bytes") && (compilerTypes.IsInteger(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
-		return checkEndianToBytesCall(call, callee, receiver, names, typeEnvironment)
+		return checkEndianToBytesCall(call, callee, receiver, ctx)
 	}
 	// Volatile integer accesses dispatch on pointer receivers. A nullable
 	// receiver is excluded so the nullable-narrowing diagnostic below owns
 	// it.
 	if receiver.typ.Element != nil && !compilerTypes.IsNullable(receiver.typ) && (name == "read_volatile" || name == "write_volatile") {
-		return checkVolatileCall(call, callee, receiver, names, typeEnvironment)
+		return checkVolatileCall(call, callee, receiver, ctx)
 	}
 	// Heap operations dispatch on the built-in receiver type.
 	if compilerTypes.IsHeap(receiver.typ) {
 		switch name {
 		case "allocate":
-			return checkHeapAllocate(call, callee, receiver, names, typeEnvironment)
+			return checkHeapAllocate(call, callee, receiver, ctx)
 		case "free":
-			return checkHeapFree(call, callee, receiver, names, typeEnvironment)
+			return checkHeapFree(call, callee, receiver, ctx)
 		}
 	}
 	// Array and View methods dispatch on the built-in collection receiver
 	// types.
 	if receiver.typ.Array != nil || receiver.typ.View != nil {
-		return checkCollectionMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkCollectionMethodCall(call, callee, receiver, ctx)
 	}
 	// List methods dispatch on the built-in list receiver type.
 	if receiver.typ.List != nil {
-		return checkListMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkListMethodCall(call, callee, receiver, ctx)
 	}
 	// Dict methods dispatch on the built-in dictionary receiver type.
 	if receiver.typ.Dict != nil {
-		return checkDictMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkDictMethodCall(call, callee, receiver, ctx)
 	}
 	// Task, Channel, Mutex, and Atomic methods dispatch on their built-in
 	// handle receiver types.
 	if receiver.typ.Task != nil {
-		return checkTaskMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkTaskMethodCall(call, callee, receiver, ctx)
 	}
 	if receiver.typ.Channel != nil {
-		return checkChannelMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkChannelMethodCall(call, callee, receiver, ctx)
 	}
 	if compilerTypes.IsMutex(receiver.typ) {
-		return checkMutexMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkMutexMethodCall(call, callee, receiver, ctx)
 	}
 	if receiver.typ.Atomic != nil {
-		return checkAtomicMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkAtomicMethodCall(call, callee, receiver, ctx)
 	}
 	// Stream operations dispatch on the built-in stream receivers: IO
 	// methods take the value; Bytes state-changing methods reach MutPtr<Bytes>
 	// either through a pointer value or through the mutable-binding rule.
 	if compilerTypes.IsIO(receiver.typ) {
-		return checkIOStreamMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkIOStreamMethodCall(call, callee, receiver, ctx)
 	}
 	if receiver.typ.Element != nil && compilerTypes.IsBytes(*receiver.typ.Element) {
-		return checkBytesStreamMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkBytesStreamMethodCall(call, callee, receiver, ctx)
 	}
 	if compilerTypes.IsBytes(receiver.typ) {
-		return checkBytesStreamMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkBytesStreamMethodCall(call, callee, receiver, ctx)
 	}
 	// String methods dispatch on the built-in String receiver type.
 	if compilerTypes.IsString(receiver.typ) {
-		return checkStringMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkStringMethodCall(call, callee, receiver, ctx)
 	}
 	// Strand methods dispatch on the built-in Strand receiver type; the
 	// surface is deliberately smaller than String's.
 	if compilerTypes.IsStrand(receiver.typ) {
-		return checkStrandMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkStrandMethodCall(call, callee, receiver, ctx)
 	}
 	// RuneCursor methods dispatch on the cursor descriptor type.
 	if compilerTypes.IsRuneCursor(receiver.typ) {
-		return checkRuneCursorMethodCall(call, callee, receiver, names, typeEnvironment)
+		return checkRuneCursorMethodCall(call, callee, receiver, ctx)
 	}
 	// A nullable receiver reaches no method until a null test narrowed it to
 	// its pointer member.
@@ -556,26 +556,26 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// A receiver whose type another module defines routes its method lookup
 	// to that module's recorded exported methods. Builtin receivers carry an
 	// empty id and keep the local path.
-	if object.ModuleID != "" && object.ModuleID != names.moduleID {
+	if object.ModuleID != "" && object.ModuleID != ctx.names.moduleID {
 		if member, ok := object.Member(name); ok {
 			if member.Type.Signature != nil || isNullableFun(member.Type) {
-				return checkFunMemberCall(call, callee, receiver, member, names, typeEnvironment)
+				return checkFunMemberCall(call, callee, receiver, member, ctx)
 			}
 			return checkedExpression{token: callee.Property, diagnostic: func() *compilerTypes.Diagnostic {
 				diagnostic := nonCallableMemberDiagnostic(callee.Property, member)
 				return &diagnostic
 			}()}
 		}
-		return checkImportedMethodCall(call, callee, name, object, receiver, names, typeEnvironment)
+		return checkImportedMethodCall(call, callee, name, object, receiver, ctx)
 	}
-	method := names.methods.lookup(object, name)
+	method := ctx.names.methods.lookup(object, name)
 	if method == nil {
-		if genericMethod := lookupGenericMethod(names, object, name); genericMethod != nil {
-			return checkGenericMethodCall(call, callee, genericMethod, object, receiver, names, typeEnvironment)
+		if genericMethod := lookupGenericMethod(ctx.names, object, name); genericMethod != nil {
+			return checkGenericMethodCall(call, callee, genericMethod, object, receiver, ctx)
 		}
 		if member, ok := object.Member(name); ok {
 			if member.Type.Signature != nil || isNullableFun(member.Type) {
-				return checkFunMemberCall(call, callee, receiver, member, names, typeEnvironment)
+				return checkFunMemberCall(call, callee, receiver, member, ctx)
 			}
 			diagnostic := nonCallableMemberDiagnostic(callee.Property, member)
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
@@ -584,7 +584,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 
-	adapted, diagnostic := adaptReceiver(receiver, *method, callee, typeEnvironment, names.flow)
+	adapted, diagnostic := adaptReceiver(receiver, *method, callee, ctx.typeEnvironment, ctx.names.flow)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -602,7 +602,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		}
 		expected = append(expected, use)
 	}
-	arguments, diagnostics := checkArguments(name, expected, call.Arguments, callee.Property, names, typeEnvironment)
+	arguments, diagnostics := checkArguments(name, expected, call.Arguments, callee.Property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -634,13 +634,13 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 // checked call mirrors a local method call: the same receiver adaptation,
 // argument checking, and node shape, with the defining module's resolved
 // signature.
-func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyExpression, name string, object *compilerTypes.ObjectType, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
-	method, ok := names.registry.exportedMethod(object.ModuleID, object.Name, name)
+func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyExpression, name string, object *compilerTypes.ObjectType, receiver checkedExpression, ctx checkContext) checkedExpression {
+	method, ok := ctx.names.registry.exportedMethod(object.ModuleID, object.Name, name)
 	if !ok {
 		diagnostic := privateToModuleDiagnostic(callee.Property, name, object.ModuleID)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	adapted, diagnostic := adaptReceiver(receiver, method, callee, typeEnvironment, names.flow)
+	adapted, diagnostic := adaptReceiver(receiver, method, callee, ctx.typeEnvironment, ctx.names.flow)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -657,7 +657,7 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 		}
 		expected = append(expected, use)
 	}
-	arguments, diagnostics := checkArguments(name, expected, call.Arguments, callee.Property, names, typeEnvironment)
+	arguments, diagnostics := checkArguments(name, expected, call.Arguments, callee.Property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}

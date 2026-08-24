@@ -31,7 +31,7 @@ func resolveArrayTypeUse(expression parser.ArrayTypeExpression, fallback lexer.T
 // checkArrayLiteral checks a bracket literal against an expected Array<T, N>
 // destination. The literal must contain exactly N elements, each assignable
 // to T, evaluated left-to-right.
-func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compilerTypes.Type, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compilerTypes.Type, ctx checkContext) checkedExpression {
 	if len(expression.Elements) == 0 {
 		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(typeErrorAt(expression.OpenBracket, "an array literal requires at least one element"))}
 	}
@@ -46,7 +46,7 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	elements := make([]Operand, 0, len(expression.Elements))
 	for _, element := range expression.Elements {
-		checked := checkInitializer(element, elementUse, expression.OpenBracket, names, typeEnvironment)
+		checked := checkInitializer(element, elementUse, expression.OpenBracket, ctx)
 		if nested := initializerDiagnostics(checked); len(nested) > 0 {
 			diagnostics = append(diagnostics, nested...)
 			continue
@@ -75,8 +75,8 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 // against a known array length are checked by the caller. The known-value
 // metadata is returned alongside the operand so the caller's constant-required
 // bounds check sees through reads of named immutable bindings.
-func checkArrayIndex(expression parser.Expression, fallback lexer.Token, names *scope, typeEnvironment *compilerTypes.Environment) (Operand, *Operand, *compilerTypes.Diagnostic) {
-	checked := checkExpression(expression, expressionContext{}, names, typeEnvironment)
+func checkArrayIndex(expression parser.Expression, fallback lexer.Token, ctx checkContext) (Operand, *Operand, *compilerTypes.Diagnostic) {
+	checked := checkExpression(expression, expressionContext{}, ctx)
 	if nested := initializerDiagnostics(checked); len(nested) > 0 {
 		return Operand{}, nil, &nested[0]
 	}
@@ -96,12 +96,12 @@ func checkArrayIndex(expression parser.Expression, fallback lexer.Token, names *
 // checkIndexPlace resolves array[index] or view[index] as a place: readable
 // always, writable only for a mutable Array. A View element place is never
 // writable, though a MutPtr element's pointee keeps its own capability.
-func checkIndexPlace(expression parser.IndexExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checkedExpression {
 	var receiver checkedExpression
 	if _, temporary := expression.Receiver.(parser.ObjectLiteral); temporary {
-		receiver = checkValue(expression.Receiver, names, typeEnvironment)
+		receiver = checkValue(expression.Receiver, ctx)
 	} else {
-		receiver = checkPlace(expression.Receiver, names, typeEnvironment)
+		receiver = checkPlace(expression.Receiver, ctx)
 	}
 	if receiver.diagnostic != nil {
 		return receiver
@@ -131,7 +131,7 @@ func checkIndexPlace(expression parser.IndexExpression, names *scope, typeEnviro
 		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, View<T>, or List<T>")
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
-	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, names, typeEnvironment)
+	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnostic}
 	}
@@ -164,7 +164,7 @@ func checkIndexPlace(expression parser.IndexExpression, names *scope, typeEnviro
 
 // checkCollectionMethodCall dispatches the built-in Array and View methods
 // length and slice.
-func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	collectionType := receiver.typ
 	switch name {
@@ -177,7 +177,7 @@ func checkCollectionMethodCall(call parser.CallExpression, callee parser.Propert
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
 	case "slice":
-		return checkSliceMethod(call, callee, receiver, names, typeEnvironment)
+		return checkSliceMethod(call, callee, receiver, ctx)
 	default:
 		diagnostic := typeErrorAt(callee.Property, collectionType.Name+" has no method "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

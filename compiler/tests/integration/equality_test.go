@@ -252,7 +252,7 @@ func TestProgramOwnedEqualitySharedAcrossModules(t *testing.T) {
     rightList.push(1)
     leftError: Error := Error.new("x", "y")
     rightError: Error := Error.new("x", "y")
-    return left == right and leftView == rightView and leftList == rightList and leftError == rightError
+    return (left == right) and (leftView == rightView) and (leftList == rightList) and (leftError == rightError)
 end
 `
 	result := compiler.Compile(map[string]string{

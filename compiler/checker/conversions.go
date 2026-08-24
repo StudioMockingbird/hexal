@@ -33,7 +33,7 @@ func truncateTowardZero(value constant.Value) constant.Value {
 // eligible scalar receiver. The receiver-scoped builtin resolves before
 // ordinary method lookup; an unrelated nominal object may declare its own
 // method named `to`.
-func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, names *scope, typeEnvironment *compilerTypes.Environment) checkedExpression {
+func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	source := receiver.typ
 	if len(call.TypeArguments) != 1 {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "to requires exactly 1 explicit type argument"))}
@@ -41,7 +41,7 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 	if len(call.Arguments) != 0 {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "to accepts no value arguments"))}
 	}
-	targetUse, diagnostic := resolveTypeUse(call.TypeArguments[0], call.OpenParen, typeEnvironment, names.generics)
+	targetUse, diagnostic := resolveTypeUse(call.TypeArguments[0], call.OpenParen, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}

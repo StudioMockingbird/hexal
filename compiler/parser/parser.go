@@ -31,6 +31,16 @@ type Parser struct {
 	// there loses nothing.
 	implReceiver     bool
 	unionMemberDepth int
+	// binaryOperatorRecorded, binaryOperatorKind, and binaryOperatorToken track
+	// the current expression region's one allowed binary operator token kind.
+	// expression and matchExpression's scrutinee and arm parses each push a
+	// fresh region and restore the containing one on exit; every other
+	// independently delimited nested expression reaches a fresh region for
+	// free by calling expression again. recordBinaryOperator is the single
+	// enforcement point every binary-operator parser path calls.
+	binaryOperatorRecorded bool
+	binaryOperatorKind     lexer.TokenKind
+	binaryOperatorToken    lexer.Token
 }
 
 // matchBoundaryKind selects which tokens terminate a match position's top-level

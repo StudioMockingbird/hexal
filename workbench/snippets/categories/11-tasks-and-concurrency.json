@@ -220,7 +220,7 @@
         "    mut value: Int64:= seed",
         "    mut step: Int64:= 0",
         "    while step < 1000000 do",
-        "        value = (value * 31 + step) % 1000003",
+        "        value = ((value * 31) + step) % 1000003",
         "        step = step + 1",
         "    end",
         "    return value",
@@ -286,7 +286,7 @@
         "    counter: Atomic<Int32>:= Atomic<Int32>.new(1)",
         "    succeeded: Bool:= counter.compare_exchange(1, 2)",
         "    failed: Bool:= counter.compare_exchange(1, 3)",
-        "    return succeeded and !failed and counter.load() == 2",
+        "    return succeeded and !failed and (counter.load() == 2)",
         "end"
       ]},
       "features": ["atomics", "truthiness", "equality-ordering"],

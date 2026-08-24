@@ -81,6 +81,8 @@ func IsSeek(typ Type) bool { return typ.Adt != nil && typ.Adt.Name == "Seek" }
 // Unknown selects the runtime access-mask check.
 type StreamCapability uint8
 
+// The concrete StreamCapability values. StreamUnknown is the conservative
+// default that falls back to the runtime access-mask check.
 const (
 	StreamUnknown StreamCapability = iota
 	StreamReadable

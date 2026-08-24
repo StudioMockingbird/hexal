@@ -32,7 +32,7 @@
         "    first: Int32:= 2",
         "    second: Int32:= 3",
         "    third: Int32:= 4",
-        "    ungrouped: Int32:= first + second * third",
+        "    ungrouped: Int32:= first + (second * third)",
         "    grouped: Int32:= (first + second) * third",
         "    return ungrouped < grouped",
         "end"
@@ -72,7 +72,7 @@
         "    enabled: Bool:= (flags & mask) != 0",
         "    combined: UInt32:= flags | 0b0100",
         "    shifted: UInt32:= flags << 2",
-        "    return enabled and combined != flags and shifted == 0b101000",
+        "    return enabled and (combined != flags) and (shifted == 0b101000)",
         "end"
       ]},
       "features": ["bitwise"],
@@ -139,7 +139,7 @@
         "    letter: Rune:= code.to<Rune>()",
         "    same: Bool:= letter == 'A'",
         "    back: UInt32:= letter.to<UInt32>()",
-        "    return same and back == code",
+        "    return same and (back == code)",
         "end"
       ]},
       "features": ["numeric-conversions"],
@@ -173,7 +173,7 @@
         "    big: Array<UInt8, 4>:= value.to_be_bytes()",
         "    back: UInt32:= UInt32.from_le_bytes(little)",
         "    swapped: UInt32:= UInt32.from_be_bytes(big)",
-        "    return back == value and swapped == value",
+        "    return (back == value) and (swapped == value)",
         "end"
       ]},
       "features": ["endian-conversion"],

@@ -81,6 +81,7 @@ type IfStatement struct {
 
 func (IfStatement) statementNode() {}
 
+// IfBranch is one checked elseif clause: its own condition and body.
 type IfBranch struct {
 	Condition       Operand
 	ConditionLine   int
@@ -135,6 +136,8 @@ type ForBinder struct {
 	SourceColumn int
 }
 
+// BreakStatement leaves the innermost enclosing loop. It is valid only inside
+// a loop; the checker rejects one outside any loop depth.
 type BreakStatement struct {
 	SourceLine   int
 	SourceColumn int
@@ -142,6 +145,9 @@ type BreakStatement struct {
 
 func (BreakStatement) statementNode() {}
 
+// ContinueStatement skips to the next iteration of the innermost enclosing
+// loop. It is valid only inside a loop; the checker rejects one outside any
+// loop depth.
 type ContinueStatement struct {
 	SourceLine   int
 	SourceColumn int
@@ -354,6 +360,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	environment := moduleScope(moduleID, logicalKey, registry)
 	typeEnvironment := compilerTypes.NewCompilationEnvironment(arena, moduleID)
+	ctx := checkContext{names: environment, typeEnvironment: typeEnvironment}
 
 	items := program.Items
 	if items == nil {
@@ -424,7 +431,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			if _, exists := typeIndexByName[statement.Name.Lexeme]; !exists {
 				typeIndexByName[statement.Name.Lexeme] = index
 			}
-			checkedDeclaration, statementDiagnostics := checkTypeDeclaration(statement, typeEnvironment, environment, index, functionIndexByName)
+			checkedDeclaration, statementDiagnostics := checkTypeDeclaration(statement, ctx, index, functionIndexByName)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			// A generic declaration is registered as an open template and
 			// carries no canonical type of its own, so it is not an alias.
@@ -453,7 +460,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 		switch statement := item.(type) {
 		case parser.Declaration:
 			if literal, isSugar := directFunctionLiteralSugar(statement); isSugar {
-				signature, statementDiagnostics := collectFunctionSignature(asFunctionDeclaration(statement.Name, literal), environment, typeEnvironment, rootValueNames)
+				signature, statementDiagnostics := collectFunctionSignature(asFunctionDeclaration(statement.Name, literal), ctx, rootValueNames)
 				diagnostics = append(diagnostics, statementDiagnostics...)
 				if len(statementDiagnostics) == 0 && signature.functionType != (compilerTypes.Type{}) {
 					collectedFunctions[index] = signature
@@ -462,13 +469,13 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			}
 			rootValueNames[statement.Name.Lexeme] = true
 		case parser.FunctionDeclaration:
-			signature, statementDiagnostics := collectFunctionSignature(statement, environment, typeEnvironment, rootValueNames)
+			signature, statementDiagnostics := collectFunctionSignature(statement, ctx, rootValueNames)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 && signature.functionType != (compilerTypes.Type{}) {
 				collectedFunctions[index] = signature
 			}
 		case parser.ImplDeclaration:
-			methodChecked, statementDiagnostics := collectMethodSignature(statement, environment, typeEnvironment)
+			methodChecked, statementDiagnostics := collectMethodSignature(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 && methodChecked.Object != nil {
 				collectedMethods[index] = methodChecked
@@ -505,21 +512,21 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				if !collected {
 					continue
 				}
-				checkedStatement, statementDiagnostics := checkFunctionBody(asFunctionDeclaration(statement.Name, literal), signature, environment, typeEnvironment, !literal.HasSyntaxErrors)
+				checkedStatement, statementDiagnostics := checkFunctionBody(asFunctionDeclaration(statement.Name, literal), signature, ctx, !literal.HasSyntaxErrors)
 				diagnostics = append(diagnostics, statementDiagnostics...)
 				if len(statementDiagnostics) == 0 {
 					checked.Statements = append(checked.Statements, checkedStatement)
 				}
 				continue
 			}
-			checkedStatement, declaredBinding, statementDiagnostics := checkDeclaration(statement, environment, typeEnvironment, index, typeIndexByName)
+			checkedStatement, declaredBinding, statementDiagnostics := checkDeclaration(statement, ctx, index, typeIndexByName)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				environment.define(statement.Name.Lexeme, declaredBinding)
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.Assignment:
-			checkedStatement, statementDiagnostics := checkAssignment(statement, environment, typeEnvironment)
+			checkedStatement, statementDiagnostics := checkAssignment(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
@@ -533,13 +540,13 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			if !collected {
 				continue
 			}
-			checkedStatement, statementDiagnostics := checkFunctionBody(statement, signature, environment, typeEnvironment, !statement.HasSyntaxErrors)
+			checkedStatement, statementDiagnostics := checkFunctionBody(statement, signature, ctx, !statement.HasSyntaxErrors)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.CallExpression:
-			checkedStatement, statementDiagnostics := checkCallStatement(statement, environment, typeEnvironment)
+			checkedStatement, statementDiagnostics := checkCallStatement(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
@@ -548,7 +555,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			// A try statement reuses the try-expression validation and
 			// propagation metadata; only the success value differs, and it is
 			// discarded.
-			checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, environment, typeEnvironment)
+			checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, ctx)
 			if errs := initializerDiagnostics(checkedTry); len(errs) > 0 {
 				diagnostics = append(diagnostics, errs...)
 				continue
@@ -559,40 +566,40 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				SourceColumn: statement.Keyword.Column,
 			})
 		case parser.ReturnStatement:
-			_, statementDiagnostics := checkReturnStatement(statement, environment, typeEnvironment)
+			_, statementDiagnostics := checkReturnStatement(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 		case parser.IfStatement:
-			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, environment, typeEnvironment, 0)
+			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, ctx, 0)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.WhileStatement:
-			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, environment, typeEnvironment, 0)
+			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, ctx, 0)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.ForStatement:
-			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, environment, typeEnvironment, 0)
+			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, ctx, 0)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.BreakStatement:
-			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, environment, typeEnvironment, 0)
+			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, ctx, 0)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.ContinueStatement:
-			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, environment, typeEnvironment, 0)
+			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, ctx, 0)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.DeferStatement:
-			checkedStatement, statementDiagnostics := checkDeferStatement(statement, environment, typeEnvironment)
+			checkedStatement, statementDiagnostics := checkDeferStatement(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
@@ -601,7 +608,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			// errdefer is grammatically a statement at root but is valid only
 			// where an enclosing function result accepts Error; the shared
 			// check owns that diagnostic. Never append the invalid action.
-			_, statementDiagnostics := checkErrdeferStatement(statement, environment, typeEnvironment)
+			_, statementDiagnostics := checkErrdeferStatement(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 		case parser.ImplDeclaration:
 			// A missing collected declaration means either a generic
@@ -612,7 +619,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			if !collected {
 				continue
 			}
-			checkedStatement, statementDiagnostics := checkMethodBody(statement, methodChecked, environment, typeEnvironment, !statement.HasSyntaxErrors)
+			checkedStatement, statementDiagnostics := checkMethodBody(statement, methodChecked, ctx, !statement.HasSyntaxErrors)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)

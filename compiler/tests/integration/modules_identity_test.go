@@ -52,7 +52,7 @@ func TestCannotDeclareMethodsThroughAliasOfImportedType(t *testing.T) {
 func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point := Geometry.make()\nlength: Int32 := p.length_squared()\n",
-		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nexport impl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n",
+		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nexport impl Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "geometry")
 }
@@ -60,7 +60,7 @@ func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point := Geometry.make()\nlength: Int32 := p.length_squared()\n",
-		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nimpl Point.length_squared(): Int32 do\n    return self.x * self.x + self.y * self.y\nend\n",
+		"geometry.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun make(): Point do\n    return Point { x = 3, y = 4 }\nend\nimpl Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "declaration length_squared is private to module geometry")

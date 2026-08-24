@@ -1,10 +1,52 @@
 package parser
 
-import "hexal/compiler/lexer"
+import (
+	"fmt"
+
+	"hexal/compiler/lexer"
+)
+
+// pushExpressionRegion starts a fresh binary-operator-kind region for one
+// independently parsed expression, returning a restore closure the caller
+// must invoke exactly once, on every exit path including an error return, to
+// bring back the containing region's own recorded kind.
+func (parser *Parser) pushExpressionRegion() func() {
+	recorded, kind, token := parser.binaryOperatorRecorded, parser.binaryOperatorKind, parser.binaryOperatorToken
+	parser.binaryOperatorRecorded = false
+	return func() {
+		parser.binaryOperatorRecorded, parser.binaryOperatorKind, parser.binaryOperatorToken = recorded, kind, token
+	}
+}
+
+// recordBinaryOperator enforces the one-binary-operator-kind rule for the
+// current expression region. The first operator recorded in a region sets
+// its allowed kind and always succeeds; a later operator of that same kind
+// also succeeds; a later operator of a different kind is the exact
+// mixed-operator syntax error this rule exists to report, located at the
+// later token.
+func (parser *Parser) recordBinaryOperator(token lexer.Token) error {
+	if !parser.binaryOperatorRecorded {
+		parser.binaryOperatorRecorded = true
+		parser.binaryOperatorKind = token.Kind
+		parser.binaryOperatorToken = token
+		return nil
+	}
+	if token.Kind == parser.binaryOperatorKind {
+		return nil
+	}
+	return parser.errorAt(token, fmt.Sprintf("mixed binary operators require parentheses; found '%s' after '%s'", token.Lexeme, parser.binaryOperatorToken.Lexeme))
+}
 
 // expression starts the precedence ladder. mut is only valid before a binding
-// or member name in a declaration, never as an expression prefix.
+// or member name in a declaration, never as an expression prefix. expression
+// is the ordinary entrypoint for one independently delimited expression
+// region; it owns pushing and restoring that region's binary-operator-kind
+// state so every caller gets region isolation for free. matchExpression's
+// scrutinee and arm parses are the sole exception, since they enter the
+// precedence ladder directly at orExpression and so push their own regions.
 func (parser *Parser) expression() (Expression, error) {
+	restore := parser.pushExpressionRegion()
+	defer restore()
 	return parser.orExpression()
 }
 
@@ -15,6 +57,9 @@ func (parser *Parser) orExpression() (Expression, error) {
 	}
 	for parser.check(lexer.Or) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.andExpression()
 		if err != nil {
 			return nil, err
@@ -31,6 +76,9 @@ func (parser *Parser) andExpression() (Expression, error) {
 	}
 	for parser.check(lexer.And) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.bitwiseOrExpression()
 		if err != nil {
 			return nil, err
@@ -49,6 +97,9 @@ func (parser *Parser) bitwiseOrExpression() (Expression, error) {
 	}
 	for parser.check(lexer.Pipe) && parser.matchBoundary == noMatchBoundary {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.bitwiseXorExpression()
 		if err != nil {
 			return nil, err
@@ -65,6 +116,9 @@ func (parser *Parser) bitwiseXorExpression() (Expression, error) {
 	}
 	for parser.check(lexer.Caret) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.bitwiseAndExpression()
 		if err != nil {
 			return nil, err
@@ -81,6 +135,9 @@ func (parser *Parser) bitwiseAndExpression() (Expression, error) {
 	}
 	for parser.check(lexer.Amp) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.equalityExpression()
 		if err != nil {
 			return nil, err
@@ -97,6 +154,9 @@ func (parser *Parser) equalityExpression() (Expression, error) {
 	}
 	for parser.check(lexer.EqualEqual) || parser.check(lexer.BangEqual) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.typeTestExpression()
 		if err != nil {
 			return nil, err
@@ -118,6 +178,9 @@ func (parser *Parser) typeTestExpression() (Expression, error) {
 		return expression, nil
 	}
 	isToken := parser.advance()
+	if err := parser.recordBinaryOperator(isToken); err != nil {
+		return nil, err
+	}
 	typeExpression, err := parser.typeExpression()
 	if err != nil {
 		return nil, err
@@ -136,6 +199,9 @@ func (parser *Parser) relationalExpression() (Expression, error) {
 	for parser.check(lexer.Less) || parser.check(lexer.LessEqual) ||
 		parser.check(lexer.Greater) || parser.check(lexer.GreaterEqual) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.shiftExpression()
 		if err != nil {
 			return nil, err
@@ -152,6 +218,9 @@ func (parser *Parser) shiftExpression() (Expression, error) {
 	}
 	for parser.check(lexer.ShiftLeft) || parser.check(lexer.ShiftRight) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.additiveExpression()
 		if err != nil {
 			return nil, err
@@ -168,6 +237,9 @@ func (parser *Parser) additiveExpression() (Expression, error) {
 	}
 	for parser.check(lexer.Plus) || parser.check(lexer.Minus) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.multiplicativeExpression()
 		if err != nil {
 			return nil, err
@@ -184,6 +256,9 @@ func (parser *Parser) multiplicativeExpression() (Expression, error) {
 	}
 	for parser.check(lexer.Star) || parser.check(lexer.Slash) || parser.check(lexer.Percent) {
 		operator := parser.advance()
+		if err := parser.recordBinaryOperator(operator); err != nil {
+			return nil, err
+		}
 		right, err := parser.unaryExpression()
 		if err != nil {
 			return nil, err
@@ -680,7 +755,9 @@ func (parser *Parser) matchExpression() (Expression, error) {
 	// boundary.
 	outer := parser.matchBoundary
 	parser.matchBoundary = scrutineeBoundary
+	restoreRegion := parser.pushExpressionRegion()
 	scrutinee, err := parser.orExpression()
+	restoreRegion()
 	parser.matchBoundary = outer
 	if err != nil {
 		return nil, err
@@ -704,7 +781,9 @@ func (parser *Parser) matchExpression() (Expression, error) {
 		// The arm result uses the full expression grammar under a boundary
 		// that stops before an unparenthesized `|` (next arm separator).
 		parser.matchBoundary = armBoundary
+		restoreRegion := parser.pushExpressionRegion()
 		armExpression, err := parser.orExpression()
+		restoreRegion()
 		parser.matchBoundary = outer
 		if err != nil {
 			return nil, err
