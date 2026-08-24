@@ -136,7 +136,7 @@ func TestQualifiedTypeResolvesThroughAlias(t *testing.T) {
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\ns: Math.Shape := Math.Circle { x = 1 }\n",
-		"math.hex": "export type Shape = | Circle as { x: Int32 } | Square\n",
+		"math.hex": "export type Shape as | Circle { x: Int32 } | Square end\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
 }

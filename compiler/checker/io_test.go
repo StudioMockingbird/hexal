@@ -129,7 +129,7 @@ func TestCheckBytesProvenance(t *testing.T) {
 func TestCheckStreamPlacementMatrix(t *testing.T) {
 	rejections := []struct{ name, source string }{
 		{"object member", "type Box = { stream: IO, }"},
-		{"ADT payload", "type Held = | Carry as { stream: IO }"},
+		{"ADT payload", "type Held as | Carry { stream: IO } end"},
 		{"array element", "type Box = { pair: Array<IO, 2>, }"},
 		{"bytes object member", "type Box = { stream: Bytes, }"},
 	}
@@ -179,7 +179,7 @@ func TestCheckSeekConstruction(t *testing.T) {
 func TestCheckStreamNamesAreReserved(t *testing.T) {
 	requireDiagnostic(t, "type IO = { x: Int32, }", "built-in type IO cannot be redeclared")
 	requireDiagnostic(t, "type Bytes = { x: Int32, }", "built-in type Bytes cannot be redeclared")
-	requireDiagnostic(t, "type Seek = | North | South", "built-in type Seek cannot be redeclared")
+	requireDiagnostic(t, "type Seek as | North | South end", "built-in type Seek cannot be redeclared")
 	requireDiagnostic(t, "fun f(x: IO<Byte>): Nil | Error do\n    return nil\nend\n", "unknown generic type IO")
 }
 

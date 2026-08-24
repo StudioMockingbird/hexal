@@ -561,7 +561,7 @@ func TestAtomicNonCopyability(t *testing.T) {
 		"counter: Atomic<Int32> := Atomic<Int32>.new(0)\nmut other: Atomic<Int32> := Atomic<Int32>.new(1)\nother = counter\n",
 		"counter: Atomic<Int32> := Atomic<Int32>.new(0)\npointer: MutPtr<Atomic<Int32>> := ref counter\n",
 		"items: Array<Atomic<Int32>, 1> := [Atomic<Int32>.new(0)]\n",
-		"type Bad = | V as { a: Atomic<Int32> }\n",
+		"type Bad as | V { a: Atomic<Int32> } end\n",
 		"counter: Atomic<Int32> := Atomic<Int32>.new(0)\nvalue: Atomic<Int32> | Nil := counter\n",
 	}
 	for _, source := range rejected {

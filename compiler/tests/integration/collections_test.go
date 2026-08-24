@@ -23,7 +23,7 @@ func TestStorabilityRule(t *testing.T) {
 		// An ADT payload field also accepts Fun<...>: the expanded position
 		// matrix admits it in every structural position, not only object
 		// members.
-		"fun helper(x: Int32): Int32 do return x end\ntype Wrapper = | A as { f: Fun<(Int32) : Int32> } | B as { x: Int32 }\nw: Wrapper := Wrapper.B { x = 1 }\n",
+		"fun helper(x: Int32): Int32 do return x end\ntype Wrapper as | A { f: Fun<(Int32) : Int32> } | B { x: Int32 } end\nw: Wrapper := Wrapper.B { x = 1 }\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {

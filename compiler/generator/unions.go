@@ -450,11 +450,11 @@ func remapUnionMember(operand *checker.Expression, operandType compilerTypes.Typ
 }
 
 func renderUnionEquality(node checker.Expression, state *expressionValidation) (string, error) {
-	left, err := renderExpressionExpectedWithState(*node.Left, &node.OperandType, state)
+	left, err := renderHoistedExpressionExpected(node.Left, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
-	right, err := renderExpressionExpectedWithState(*node.Right, &node.OperandType, state)
+	right, err := renderHoistedExpressionExpected(node.Right, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}

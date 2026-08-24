@@ -64,6 +64,12 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		if err := hoistTryInStatement(statement, body, state, frame.result, indent); err != nil {
 			return err
 		}
+		// Evaluation-order sequencing runs last: it treats every
+		// already-hoisted try/spawn/Dict.find node above as a resolved
+		// effect boundary rather than recursing into it a second time.
+		if err := hoistEvaluationOrderInStatement(statement, body, state, indent); err != nil {
+			return err
+		}
 		switch statement := statement.(type) {
 		case checker.Declaration:
 			if !supportedGeneratedTypeWithState(statement.Type, state) {
@@ -448,6 +454,14 @@ type expressionValidation struct {
 	// renders, and the expression renders as the task handle.
 	spawnCounter  int
 	hoistedSpawns map[*checker.Expression]string
+	// sequenceCounter and hoistedSequencing carry evaluation-order hoisting:
+	// a compound C expression whose sub-parts would otherwise evaluate in an
+	// unspecified order gets each sub-part hoisted into a named temporary in
+	// written order, keyed by the checked tree's own pointer or
+	// slice-indexed field so the later render lookup resolves to the same
+	// node the hoist pass computed the key from.
+	sequenceCounter   int
+	hoistedSequencing map[*checker.Expression]string
 	// registeredDefers records the deferred actions whose statements were
 	// processed, in registration order. A try error branch may render
 	// earlier than a later defer statement, and must not run it.
@@ -737,7 +751,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("call without a checked callee")
 		}
-		callee, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
+		callee, atomic, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 		if err != nil {
 			return "", err
 		}
@@ -746,7 +760,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		arguments := make([]string, len(node.Arguments))
 		for index, argument := range node.Arguments {
-			rendered, argumentErr := renderOperandWithState(argument, state)
+			rendered, argumentErr := renderHoistedOperand(&node.Arguments[index].Node, argument, state)
 			if argumentErr != nil {
 				return "", argumentErr
 			}
@@ -757,17 +771,23 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Owner == nil || node.Operand == nil {
 			return "", unknownExpressionDiagnostic("method call without a checked receiver")
 		}
-		receiverType, receiverErr := methodReceiverType(*node.Operand, node.OperandType, state)
-		if receiverErr != nil {
-			return "", receiverErr
-		}
-		receiver, _, receiverErr := renderExpressionNodeWithExpectedState(*node.Operand, &receiverType, state)
-		if receiverErr != nil {
-			return "", receiverErr
+		var receiver string
+		if name, ok := hoistedSequenceValue(state, node.Operand); ok {
+			receiver = name
+		} else {
+			receiverType, receiverErr := methodReceiverType(*node.Operand, node.OperandType, state)
+			if receiverErr != nil {
+				return "", receiverErr
+			}
+			rendered, _, receiverErr := renderExpressionNodeWithExpectedState(*node.Operand, &receiverType, state)
+			if receiverErr != nil {
+				return "", receiverErr
+			}
+			receiver = rendered
 		}
 		arguments := make([]string, len(node.Arguments))
 		for index, argument := range node.Arguments {
-			rendered, argumentErr := renderOperandWithState(argument, state)
+			rendered, argumentErr := renderHoistedOperand(&node.Arguments[index].Node, argument, state)
 			if argumentErr != nil {
 				return "", argumentErr
 			}
@@ -835,11 +855,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Left == nil || node.Right == nil {
 			return "", unknownExpressionDiagnostic("deep equality without both operands")
 		}
-		left, _, leftErr := renderExpressionNodeWithExpectedState(*node.Left, &node.OperandType, state)
+		left, _, leftErr := renderHoistedExpressionNode(node.Left, &node.OperandType, state)
 		if leftErr != nil {
 			return "", leftErr
 		}
-		right, _, rightErr := renderExpressionNodeWithExpectedState(*node.Right, &node.OperandType, state)
+		right, _, rightErr := renderHoistedExpressionNode(node.Right, &node.OperandType, state)
 		if rightErr != nil {
 			return "", rightErr
 		}
@@ -919,11 +939,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Operand == nil || node.OperandType.Element == nil || len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("volatile write without checked operands")
 		}
-		receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
+		receiver, _, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 		if err != nil {
 			return "", err
 		}
-		value, valueErr := renderOperandWithState(node.Arguments[0], state)
+		value, valueErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if valueErr != nil {
 			return "", valueErr
 		}
@@ -1169,11 +1189,11 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 	if resultIsBool != compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
 		return "", unknownExpressionDiagnostic("binary operation has an invalid result type")
 	}
-	left, err := renderExpressionExpectedWithState(*node.Left, &node.OperandType, state)
+	left, err := renderHoistedExpressionExpected(node.Left, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
-	right, err := renderExpressionExpectedWithState(*node.Right, &rightExpected, state)
+	right, err := renderHoistedExpressionExpected(node.Right, &rightExpected, state)
 	if err != nil {
 		return "", err
 	}
@@ -1681,22 +1701,26 @@ func objectLiteralWithState(value *checker.ObjectValue, state *expressionValidat
 	if err := validateObjectValue(value, state); err != nil {
 		return "", err
 	}
-	byMember := make(map[*compilerTypes.ObjectMember]checker.Operand, len(value.Initializers))
-	for _, initializer := range value.Initializers {
+	// byMemberIndex keeps the initializer's position in value.Initializers
+	// (written order), not the Operand itself, so the render loop below can
+	// still reach hoistObjectSequence's key (&value.Initializers[i].Source.Node)
+	// for a hoisted written-order temporary.
+	byMemberIndex := make(map[*compilerTypes.ObjectMember]int, len(value.Initializers))
+	for index, initializer := range value.Initializers {
 		if initializer.Member == nil {
 			return "", unknownExpressionDiagnostic("object initializer without a checked member")
 		}
-		byMember[initializer.Member] = initializer.Source
+		byMemberIndex[initializer.Member] = index
 	}
 	var result strings.Builder
 	fmt.Fprintf(&result, "(%s){", value.Type.CName)
 	for index := range value.Type.Object.Members {
 		member := &value.Type.Object.Members[index]
-		source, ok := byMember[member]
+		sourceIndex, ok := byMemberIndex[member]
 		if !ok {
 			return "", unknownExpressionDiagnostic("incomplete checked object value")
 		}
-		rendered, err := renderOperandWithState(source, state)
+		rendered, err := renderHoistedOperand(&value.Initializers[sourceIndex].Source.Node, value.Initializers[sourceIndex].Source, state)
 		if err != nil {
 			return "", err
 		}

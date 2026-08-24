@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseADTDeclaration(t *testing.T) {
-	program := parseOneItem(t, "type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }").(TypeDeclaration)
+	program := parseOneItem(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end").(TypeDeclaration)
 	adt, ok := program.Target.(AdtDefinitionExpression)
 	if !ok || len(adt.Variants) != 2 {
 		t.Fatalf("target = %#v, want two-variant ADT", program.Target)
@@ -22,7 +22,7 @@ func TestParseADTDeclaration(t *testing.T) {
 }
 
 func TestParseADTUnitVariants(t *testing.T) {
-	program := parseOneItem(t, "type Direction = | East | West").(TypeDeclaration)
+	program := parseOneItem(t, "type Direction as | East | West end").(TypeDeclaration)
 	adt := program.Target.(AdtDefinitionExpression)
 	if adt.Variants[0].Payload != nil || adt.Variants[1].Payload != nil {
 		t.Fatalf("variants = %#v, want unit variants", adt.Variants)
@@ -30,7 +30,7 @@ func TestParseADTUnitVariants(t *testing.T) {
 }
 
 func TestParseADTRejectsMutablePayloadField(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape = | Circle as { mut r: Int32 } | Square as { a: Int32 }")
+	tokens, err := lexer.Lex("type Shape as | Circle { mut r: Int32 } | Square { a: Int32 } end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,12 +40,63 @@ func TestParseADTRejectsMutablePayloadField(t *testing.T) {
 }
 
 func TestParseADTRequiresVariantAfterPipe(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape = | | Square as { a: Int32 }")
+	tokens, err := lexer.Lex("type Shape as | | Square { a: Int32 } end")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Parse(tokens); err == nil {
 		t.Fatal("Parse accepted an empty variant")
+	}
+}
+
+// The obsolete `type Name = | ...` header is rejected with the exact
+// migration diagnostic naming the new form.
+func TestParseADTObsoleteHeaderIsRejected(t *testing.T) {
+	tokens, err := lexer.Lex("type Shape = | Circle { r: Int32 } | Square { a: Int32 }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Parse(tokens)
+	if err == nil || !strings.Contains(err.Error(), "ADT declarations use 'type Name as ... end'") {
+		t.Fatalf("Parse error = %v, want the obsolete-header diagnostic", err)
+	}
+}
+
+// The obsolete per-variant `as` payload introducer is rejected with the
+// exact migration diagnostic, even though the block itself opens correctly.
+func TestParseADTObsoletePerVariantAsIsRejected(t *testing.T) {
+	tokens, err := lexer.Lex("type Shape as | Circle as { r: Int32 } end")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Parse(tokens)
+	if err == nil || !strings.Contains(err.Error(), "ADT payload follows the variant name directly; remove 'as'") {
+		t.Fatalf("Parse error = %v, want the obsolete-payload diagnostic", err)
+	}
+}
+
+// A missing 'end' is rejected with the exact unterminated-block diagnostic.
+func TestParseADTMissingEndIsRejected(t *testing.T) {
+	tokens, err := lexer.Lex("type Shape as | Circle { r: Int32 }")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Parse(tokens)
+	if err == nil || !strings.Contains(err.Error(), "expected 'end' after ADT declaration") {
+		t.Fatalf("Parse error = %v, want the unterminated-block diagnostic", err)
+	}
+}
+
+// Object declarations and transparent aliases keep using '=' unaffected by
+// the ADT block syntax.
+func TestParseObjectAndAliasStillUseEquals(t *testing.T) {
+	program := parseOneItem(t, "type Point = { x: Int32, y: Int32 }").(TypeDeclaration)
+	if _, ok := program.Target.(ObjectTypeExpression); !ok {
+		t.Fatalf("target = %#v, want ObjectTypeExpression", program.Target)
+	}
+	program = parseOneItem(t, "type Count = Int32").(TypeDeclaration)
+	if _, ok := program.Target.(NamedTypeExpression); !ok {
+		t.Fatalf("target = %#v, want NamedTypeExpression", program.Target)
 	}
 }
 

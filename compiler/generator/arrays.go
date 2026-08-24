@@ -379,11 +379,11 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		if placeErr != nil {
 			return "", placeErr
 		}
-		receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
+		receiver, receiverErr := renderHoistedReceiver(node.Operand, node.OperandType, state)
 		if receiverErr != nil {
 			return "", receiverErr
 		}
-		index, indexErr := renderOperandWithState(node.Arguments[0], state)
+		index, indexErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if indexErr != nil {
 			return "", indexErr
 		}
@@ -413,7 +413,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		}
 		elements := make([]string, len(node.Arguments))
 		for index, element := range node.Arguments {
-			rendered, elementErr := renderOperandWithState(element, state)
+			rendered, elementErr := renderHoistedOperand(&node.Arguments[index].Node, element, state)
 			if elementErr != nil {
 				return "", elementErr
 			}

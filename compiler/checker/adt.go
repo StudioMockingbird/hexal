@@ -191,7 +191,16 @@ func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtTy
 		return initializerValue{token: expression.Variant, diagnostic: diagnosticAt(typeErrorAt(expression.Variant, fmt.Sprintf("%s.%s is a unit variant and takes no payload", expression.Owner.Lexeme, expression.Variant.Lexeme)))}
 	}
 	seen := make(map[string]bool, len(*expression.Payload))
-	arguments := make([]Operand, 0, len(*expression.Payload))
+	// byField and evaluationOrder are populated in written order, but
+	// Arguments below is assembled in variant.Payload declaration order:
+	// renderAdtConstruct indexes Arguments positionally against
+	// variant.Payload, so declaration order is what the checked tree must
+	// carry. evaluationOrder separately records, as indices into the
+	// declaration-ordered Arguments, the order fields were actually
+	// written in, so generation can still sequence side effects in
+	// written order without reordering the field assignment itself.
+	byField := make(map[string]Operand, len(*expression.Payload))
+	evaluationOrder := make([]int, 0, len(*expression.Payload))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	for _, initializer := range *expression.Payload {
 		field, exists := variantField(variant, initializer.Name.Lexeme)
@@ -213,7 +222,15 @@ func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtTy
 			diagnostics = append(diagnostics, typeMismatchDiagnostic(field.Type, checked.typ, checked.token))
 			continue
 		}
-		arguments = append(arguments, checked.source)
+		byField[field.Name] = checked.source
+		declaredIndex := -1
+		for index := range variant.Payload {
+			if variant.Payload[index].Name == field.Name {
+				declaredIndex = index
+				break
+			}
+		}
+		evaluationOrder = append(evaluationOrder, declaredIndex)
 	}
 	for index := range variant.Payload {
 		if !seen[variant.Payload[index].Name] {
@@ -223,12 +240,17 @@ func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtTy
 	if len(diagnostics) > 0 {
 		return initializerValue{token: expression.Variant, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
+	arguments := make([]Operand, len(variant.Payload))
+	for index := range variant.Payload {
+		arguments[index] = byField[variant.Payload[index].Name]
+	}
 	node := Expression{
-		Kind:         AdtConstructExpression,
-		OperandType:  adtType,
-		ResultType:   adtType,
-		VariantIndex: adtVariantIndex(adtType, variant.Name),
-		Arguments:    arguments,
+		Kind:            AdtConstructExpression,
+		OperandType:     adtType,
+		ResultType:      adtType,
+		VariantIndex:    adtVariantIndex(adtType, variant.Name),
+		Arguments:       arguments,
+		EvaluationOrder: evaluationOrder,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: adtType, Node: node}
 	return initializerValue{source: source, typ: adtType, token: expression.Variant}

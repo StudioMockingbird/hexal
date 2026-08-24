@@ -326,8 +326,13 @@ type Expression struct {
 	Object         *ObjectValue
 	Constant       *Operand
 	// Owner is the nominal object a MethodCallExpression's method belongs to.
-	Owner        *compilerTypes.ObjectType
-	Arguments    []Operand // call expressions only, in written order
+	Owner *compilerTypes.ObjectType
+	// Arguments is in written order for every kind except
+	// AdtConstructExpression, whose payload fields may be written out of
+	// declaration order: there it is declaration order, matching the
+	// generated struct's field layout, and EvaluationOrder separately
+	// carries the written order for sequencing.
+	Arguments    []Operand
 	Operator     Operator
 	OperandType  compilerTypes.Type
 	ResultType   compilerTypes.Type
@@ -335,7 +340,11 @@ type Expression struct {
 	VariantIndex int
 	TestType     compilerTypes.Type
 	MemberMap    []int
-	Element      compilerTypes.Type
+	// EvaluationOrder is non-nil only for AdtConstructExpression: the
+	// indices into Arguments (declaration order) in the order the payload
+	// fields were actually written, for evaluation sequencing.
+	EvaluationOrder []int
+	Element         compilerTypes.Type
 	// ViewRoots is the ordered binding chain a View-producing expression is
 	// borrowed from, outermost root first.
 	ViewRoots []BindingID

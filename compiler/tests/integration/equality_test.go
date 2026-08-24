@@ -324,7 +324,7 @@ func TestDictionaryEqualityRejected(t *testing.T) {
 }
 
 func TestAdtEquality(t *testing.T) {
-	result := compileSource("type Shape = | Circle as { r: Int32, } | Square as { a: Int32, }\nfun demo() do\n    left: Shape := Shape.Circle { r = 1, }\n    right: Shape := Shape.Circle { r = 1, }\n    same: Bool := left == right\nend")
+	result := compileSource("type Shape as | Circle { r: Int32, } | Square { a: Int32, } end\nfun demo() do\n    left: Shape := Shape.Circle { r = 1, }\n    right: Shape := Shape.Circle { r = 1, }\n    same: Bool := left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

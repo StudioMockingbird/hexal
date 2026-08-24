@@ -6,8 +6,8 @@ import (
 	"hexal/compiler/lexer"
 )
 
-// typeDeclaration parses `type Name = Target`. The exported flag records an
-// `export` prefix consumed by the caller.
+// typeDeclaration parses `type Name = Target` or `type Name as ... end`. The
+// exported flag records an `export` prefix consumed by the caller.
 func (parser *Parser) typeDeclaration(exported bool) (TypeDeclaration, error) {
 	keyword, err := parser.consume(lexer.Type, "'type'")
 	if err != nil {
@@ -20,6 +20,13 @@ func (parser *Parser) typeDeclaration(exported bool) (TypeDeclaration, error) {
 	parameters, err := parser.genericParameterList()
 	if err != nil {
 		return TypeDeclaration{}, err
+	}
+	if parser.check(lexer.As) {
+		target, err := parser.adtBlock()
+		if err != nil {
+			return TypeDeclaration{}, err
+		}
+		return TypeDeclaration{Keyword: keyword, Name: name, Parameters: parameters, Target: target, Exported: exported}, nil
 	}
 	if _, err := parser.consume(lexer.Equal, "'='"); err != nil {
 		return TypeDeclaration{}, err

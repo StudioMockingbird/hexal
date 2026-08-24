@@ -27,7 +27,6 @@ other.
 | Blocking-syscall boundary — what the scheduler does at a blocking call; gates sockets and readiness-based I/O | [0091](specs/0091-blocking-syscall-boundary.md) |
 | Language surface audit dispositions — 34 findings; promote/reject/accept per finding | [0103](specs/0103-language-surface-audit.md) |
 | Affine ownership and Arena/Pool lifetimes | [0110](specs/0110-affine-ownership-and-arenas.md) |
-| Sum-type surface simplification | [0114](specs/0114-sum-type-surface.md) |
 | Native module storage and linkage | [0116](specs/0116-native-module-storage-and-linkage.md) |
 | Restricted compile-time evaluation | [0117](specs/0117-compile-time-evaluation.md) |
 | Concurrency safety and task lifetimes | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
@@ -36,9 +35,9 @@ other.
 
 | Work | Spec |
 |---|---|
-| Deterministic evaluation order — left-to-right expression, call, aggregate, assignment, and cleanup evaluation | [0111](specs/0111-deterministic-evaluation-order.md) |
 | Order-independent function visibility — 0094 landed; reconcile its three visibility cases | [0112](specs/0112-order-independent-function-visibility.md) |
 | Refactoring audit residue — R21 coverage matrix, R25 checker context bundle, R47 API docs; R22-R24 split-or-drop decided here | [0119](specs/0119-refactor-audit-residue.md) |
+| Explicit binary grouping — reject mixed unparenthesized binary operators | [0120](specs/0120-explicit-binary-grouping.md) |
 
 ### Design settled; implementation blocked
 

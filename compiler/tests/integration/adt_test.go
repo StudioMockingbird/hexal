@@ -7,7 +7,7 @@ import (
 )
 
 func TestADTDeclarationWithRecordVariants(t *testing.T) {
-	result := compileSource("type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } shape: Shape := Shape.Circle { r = 10 }")
+	result := compileSource("type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 }")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -16,8 +16,22 @@ func TestADTDeclarationWithRecordVariants(t *testing.T) {
 	}
 }
 
+// A variant constructor's payload fields may be written out of declaration
+// order without swapping which value lands in which field.
+func TestADTPayloadOutOfOrderAssignsCorrectFields(t *testing.T) {
+	result := compileSource("type W as | A { first: Int32, second: Int32 } | B { x: Int32 } end\n" +
+		"w: W := W.A { second = 20, first = 10 }\n")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	body := rootC(t, result)
+	if !strings.Contains(body, ".hex_m_first = 10") || !strings.Contains(body, ".hex_m_second = 20") {
+		t.Fatalf("generated C = %q, want first assigned 10 and second assigned 20 regardless of write order", body)
+	}
+}
+
 func TestADTUnitVariantEnumBehavior(t *testing.T) {
-	result := compileSource("type Direction = | East | West | North | South heading: Direction := Direction.North")
+	result := compileSource("type Direction as | East | West | North | South end heading: Direction := Direction.North")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -27,28 +41,28 @@ func TestADTUnitVariantEnumBehavior(t *testing.T) {
 }
 
 func TestADTQualifiedConstructorRequiresOwner(t *testing.T) {
-	result := compileSource("type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } shape: Shape := Circle { r = 20 }")
+	result := compileSource("type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Circle { r = 20 }")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
 		t.Fatalf("diagnostics = %#v, want unqualified-constructor error", result.Stderr)
 	}
 }
 
 func TestADTConstructorValidatesPayloadFields(t *testing.T) {
-	result := compileSource("type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } bad: Shape := Shape.Circle { a = 20 }")
+	result := compileSource("type Shape as | Circle { r: Int32 } | Square { a: Int32 } end bad: Shape := Shape.Circle { a = 20 }")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, " "), "Circle has no field named a") {
 		t.Fatalf("diagnostics = %#v, want payload field error", result.Stderr)
 	}
 }
 
 func TestADTIndirectRecursionCompiles(t *testing.T) {
-	result := compileSource("type Expr = | Literal as { value: Int32 } | Add as { left: Ptr<Expr>, right: Ptr<Expr> }")
+	result := compileSource("type Expr as | Literal { value: Int32 } | Add { left: Ptr<Expr>, right: Ptr<Expr> } end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestADTByValueRecursionRejected(t *testing.T) {
-	result := compileSource("type Expr = | Literal as { value: Int32 } | Wrap as { inner: Expr }")
+	result := compileSource("type Expr as | Literal { value: Int32 } | Wrap { inner: Expr } end")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "ADT recursion has no finite representation") {
 		t.Fatalf("diagnostics = %#v, want by-value recursion error", result.Stderr)
 	}
@@ -65,7 +79,7 @@ func TestMatchValueModeBooleanPatterns(t *testing.T) {
 }
 
 func TestMatchTypeModeVariantArmsNarrowPayload(t *testing.T) {
-	result := compileSource("type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } shape: Shape := Shape.Circle { r = 10 } area: Int32 := match shape is\n| Shape.Circle then shape.r * shape.r\n| Shape.Square then shape.a * shape.a\nend")
+	result := compileSource("type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 } area: Int32 := match shape is\n| Shape.Circle then shape.r * shape.r\n| Shape.Square then shape.a * shape.a\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -89,7 +103,7 @@ func TestMatchElseCoversRemainder(t *testing.T) {
 }
 
 func TestMatchExhaustivenessDiagnostic(t *testing.T) {
-	result := compileSource("type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } shape: Shape := Shape.Circle { r = 10 } label: Int32 := match shape is\n| Shape.Circle then 1\nend")
+	result := compileSource("type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 } label: Int32 := match shape is\n| Shape.Circle then 1\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "match is not exhaustive; missing Shape.Square") {
 		t.Fatalf("diagnostics = %#v, want exhaustiveness error", result.Stderr)
 	}
@@ -106,7 +120,7 @@ func TestMatchScrutineeEvaluatedOnce(t *testing.T) {
 }
 
 func TestGeneratedADTTagLayoutAndInvalidTagTrap(t *testing.T) {
-	result := compileSource("type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } shape: Shape := Shape.Circle { r = 10 }")
+	result := compileSource("type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 }")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -116,14 +130,14 @@ func TestGeneratedADTTagLayoutAndInvalidTagTrap(t *testing.T) {
 }
 
 func TestADTDiagnosticsFailClosed(t *testing.T) {
-	result := compileSource("type Shape = | Circle as { r: Int32 } | Circle as { a: Int32 }")
+	result := compileSource("type Shape as | Circle { r: Int32 } | Circle { a: Int32 } end")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "ADT variant name is duplicated") {
 		t.Fatalf("diagnostics = %#v, want duplicate variant error", result.Stderr)
 	}
 }
 
 func TestGenericADTSpecializesAndMatches(t *testing.T) {
-	result := compileSource("type Result<T, E> = | Ok as { value: T } | Err as { error: E } success: Result<Int32, Bool> := Result.Ok { value = 42 } label: Int32 := match success is\n| Result.Ok then success.value\n| Result.Err then 0\nend")
+	result := compileSource("type Result<T, E> as | Ok { value: T } | Err { error: E } end success: Result<Int32, Bool> := Result.Ok { value = 42 } label: Int32 := match success is\n| Result.Ok then success.value\n| Result.Err then 0\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -133,7 +147,7 @@ func TestGenericADTSpecializesAndMatches(t *testing.T) {
 }
 
 func TestGenericADTUnitVariantNoPayload(t *testing.T) {
-	result := compileSource("type Maybe<T> = | Some as { value: T } | None value: Maybe<Int32> := Maybe.None")
+	result := compileSource("type Maybe<T> as | Some { value: T } | None end value: Maybe<Int32> := Maybe.None")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -147,8 +161,8 @@ func TestGenericADTUnitVariantNoPayload(t *testing.T) {
 func TestTwoModulesDeclaringSameADTStayDistinct(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nb: M.Shape := M.make()\nc: S.Shape := S.make()\n",
-		"m.hex":   "export type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
-		"s.hex":   "export type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
+		"m.hex":   "export type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
+		"s.hex":   "export type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {

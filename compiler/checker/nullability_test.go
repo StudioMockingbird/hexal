@@ -19,7 +19,7 @@ func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
 		"fun bad(argument: Nil) do return end",
 		"fun bad(): Nil do return end",
 		"type Bad = { marker: Nil, }",
-		"type Bad = | One as { marker: Nil } | Two as { value: Int32 }",
+		"type Bad as | One { marker: Nil } | Two { value: Int32 } end",
 		"bad: Array<Nil, 4> := [nil, nil, nil, nil]",
 		"bad: View<Nil> := View<Nil>.empty()",
 		"bad: List<Nil> := List<Nil>.new(Heap.new())",

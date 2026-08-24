@@ -175,7 +175,7 @@ func isBytesReceiver(node checker.Expression) bool {
 // result-union adapter. The receiver arrives already adapted: an IO value for
 // OS-backed operations, a MutPtr<Bytes> value for memory ones.
 func renderStreamMethod(node checker.Expression, state *expressionValidation) (string, error) {
-	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
+	receiver, _, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
@@ -191,11 +191,11 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		if len(node.Arguments) != 2 {
 			return "", unknownExpressionDiagnostic("stream read without checked arguments")
 		}
-		into, intoErr := renderOperandWithState(node.Arguments[0], state)
+		into, intoErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if intoErr != nil {
 			return "", intoErr
 		}
-		maximum, maxErr := renderOperandWithState(node.Arguments[1], state)
+		maximum, maxErr := renderHoistedOperand(&node.Arguments[1].Node, node.Arguments[1], state)
 		if maxErr != nil {
 			return "", maxErr
 		}
@@ -204,7 +204,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		if len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("stream write without a checked view")
 		}
-		from, fromErr := renderOperandWithState(node.Arguments[0], state)
+		from, fromErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if fromErr != nil {
 			return "", fromErr
 		}
@@ -213,7 +213,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		if len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("stream seek without a checked position")
 		}
-		to, toErr := renderOperandWithState(node.Arguments[0], state)
+		to, toErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if toErr != nil {
 			return "", toErr
 		}

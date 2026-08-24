@@ -145,7 +145,7 @@ func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\ns: Math.Shape := Math.Circle { x = 1 }\nu: Math.Shape := Math.Square\n",
-		"export type Shape = | Circle as { x: Int32 } | Square\n")
+		"export type Shape as | Circle { x: Int32 } | Square end\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified variants: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 func TestQualifiedVariantRejectsUnknownExport(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\ns: Math.Shape := Math.Circle { x = 1 }\n",
-		"export type Shape = | Other as { x: Int32 }\n")
+		"export type Shape as | Other { x: Int32 } end\n")
 	requireMessage(t, err, "declaration Circle is private to module math")
 }
 

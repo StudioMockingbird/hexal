@@ -32,7 +32,7 @@ module-path-literal = ? a quoted literal scanned only when the previous
 declaration-item = type-declaration | function-declaration
                    | implementation-declaration ;
 type-declaration = "type" , identifier , [ generic-parameter-list ]
-                   , "=" , type-definition-expression ;
+                   , ( "=" , type-definition-expression | adt-block ) ;
 function-declaration = "fun" , identifier , [ generic-parameter-list ]
                        , signature , "do" , block , "end" ;
 implementation-declaration = "impl" , type-expression , "." , identifier
@@ -73,13 +73,12 @@ for-binders = identifier
               | identifier , "," , identifier
               | identifier , "," , identifier , "," , identifier ;
 
-type-definition-expression = object-type-expression
-                             | adt-type-expression | type-expression ;
+type-definition-expression = object-type-expression | type-expression ;
 object-type-expression = "{" , member-declaration
                          , { "," , member-declaration } , [ "," ] , "}" ;
 member-declaration = [ "mut" ] , identifier , ":" , type-expression ;
-adt-type-expression = adt-variant , { adt-variant } ;
-adt-variant = "|" , identifier , [ "as" , adt-payload ] ;
+adt-block = "as" , adt-variant , { adt-variant } , "end" ;
+adt-variant = "|" , identifier , [ adt-payload ] ;
 adt-payload = "{" , payload-member
               , { "," , payload-member } , [ "," ] , "}" ;
 payload-member = identifier , ":" , type-expression ;
@@ -361,8 +360,19 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   alias leaves others dangling; losing the last handle can leak.
 - Every value is copyable except `Atomic<T>` and inline aggregates transitively containing one.
   Atomic containment traversal stops at every pointer and handle indirection.
-- Full statements execute in source order. Unless stated otherwise, operand order, call-argument
-  order, receiver-versus-argument order, and object-initializer order are C23-unspecified.
+- Full statements execute in source order, and evaluation within a statement is fully ordered:
+  a binary expression evaluates its left operand before its right, keeping existing precedence
+  and associativity; a unary expression evaluates its operand before the operator applies; a
+  receiver evaluates before a call's or method's arguments, which then evaluate left to right in
+  written order; array elements and object/ADT initializers evaluate left to right in written
+  order regardless of storage layout order; a union initializer evaluates its source once before
+  selecting or writing the active member; an assignment evaluates its target place, including any
+  receiver and index, before its source value. `and`/`or` keep left-to-right short-circuit
+  evaluation and do not evaluate a skipped operand. Constant folding and reordering are valid only
+  when they cannot change a value, a trap, or an observable effect (a defined trap, `print`
+  output, an allocation or free, `spawn` task creation, or a write to a `mut` place or binding).
+  Generated C uses a temporary or a separate statement wherever C's own operand or argument order
+  would otherwise be unspecified.
 
 ## Position eligibility
 
@@ -437,7 +447,8 @@ HeapAllocation
   no C typedef. Targets resolve in source order; recursive aliases are invalid.
 - Objects are nominal, ordered inline values with at least one member. Identical layouts remain
   distinct. Object literals name every member exactly once in any order; trailing comma is allowed.
-  Initializer evaluation order is unspecified.
+  Initializers evaluate left to right in written order; the member's declared position governs
+  storage layout only, never evaluation order.
 - Identity is canonical and recursive, never derived from display names: same-named nominal types
   in distinct modules are distinct, identical layouts included, and constructed builtin generic
   types (pointer, nullable, function, Array, View, List, Dict, Task, Channel, Atomic, union) intern
@@ -1056,7 +1067,7 @@ MutPtr<Bytes>.read(into: List<Byte>, max: Size)  -> Size | EoS | Error
 MutPtr<Bytes>.write(from: View<Byte>)             -> Size | Error
 MutPtr<Bytes>.seek(to: Seek)                      -> Size | Error
 
-type Seek = | Start(Size) | Current(Int64) | End(Int64)
+type Seek as | Start(Size) | Current(Int64) | End(Int64) end
 ```
 
 - `IO`, `Bytes`, and `Seek` are reserved protected type names; redeclaration is a Type Error.

@@ -40,7 +40,7 @@
       "description": "Converts an ADT direction into a numeric step.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Direction = | North | East | South | West",
+        "type Direction as | North | East | South | West end",
         "heading: Direction:= Direction.East",
         "step: Int32:= match heading is",
         "| Direction.North then 0",
@@ -58,7 +58,7 @@
       "description": "Matches unit and record variants of a command type.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Command = | Stop | Move as { distance: Int32 }",
+        "type Command as | Stop | Move { distance: Int32 } end",
         "command: Command:= Command.Move { distance = 4 }",
         "label: Int32:= match command is",
         "| Command.Stop then 0",
@@ -74,7 +74,7 @@
       "description": "Matches circle and rectangle variants to calculate an area.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Shape = | Circle as { radius: Int32 } | Rect as { width: Int32, height: Int32 }",
+        "type Shape as | Circle { radius: Int32 } | Rect { width: Int32, height: Int32 } end",
         "shape: Shape:= Shape.Circle { radius = 2 }",
         "area: Int32:= match shape is",
         "| Shape.Circle then shape.radius * shape.radius",
@@ -122,7 +122,7 @@
       "description": "Matches every protocol variant with an explicit fallback.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Protocol = | Ping | Pong | Quit",
+        "type Protocol as | Ping | Pong | Quit end",
         "frame: Protocol:= Protocol.Ping",
         "code: Int32:= match frame is",
         "| Protocol.Ping then 1",
@@ -140,7 +140,7 @@
       "description": "Matches a record variant and uses its payload fields.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Event = | Key as { code: Int32 } | Move as { dx: Int32, dy: Int32 }",
+        "type Event as | Key { code: Int32 } | Move { dx: Int32, dy: Int32 } end",
         "event: Event:= Event.Move { dx = 3, dy = 4 }",
         "distance: Int32:= match event is",
         "| Event.Key then event.code",

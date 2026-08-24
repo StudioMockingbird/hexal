@@ -175,7 +175,7 @@
       "description": "Small tokenizing parser loop over String runes, terminated by EoS; longer than 20 lines because it demonstrates as, match, then, and eos together.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Token = | Digit as { value: Rune } | Other as { value: Rune }",
+        "type Token as | Digit { value: Rune } | Other { value: Rune } end",
         "",
         "fun next_token(cursor: RuneCursor): Token | EoS do",
         "    if !cursor.has_next() then",

@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateADTDefinitionAndConstruction(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } shape: Shape := Shape.Circle { r = 10 }")
+	program := checkedGeneratorSource(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 }")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -22,7 +22,7 @@ func TestGenerateADTDefinitionAndConstruction(t *testing.T) {
 }
 
 func TestGenerateADTUnitVariantsHaveNoPayload(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Direction = | East | West heading: Direction := Direction.East")
+	program := checkedGeneratorSource(t, "type Direction as | East | West end heading: Direction := Direction.East")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -37,7 +37,7 @@ func TestGenerateADTUnitVariantsHaveNoPayload(t *testing.T) {
 }
 
 func TestGenerateMatchTypeMode(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Shape = | Circle as { r: Int32 } | Square as { a: Int32 } shape: Shape := Shape.Circle { r = 10 } area: Int32 := match shape is\n| Shape.Circle then shape.r\n| Shape.Square then 0\nend")
+	program := checkedGeneratorSource(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 } area: Int32 := match shape is\n| Shape.Circle then shape.r\n| Shape.Square then 0\nend")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {

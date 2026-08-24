@@ -225,7 +225,7 @@ func TestTagFreeProgramHasNoTagEnum(t *testing.T) {
 // Two distinct identities whose labels collide resolve in identity order:
 // the first keeps the base, the later ones append _0, never _2.
 func TestTagCollisionSuffixesStartAtZero(t *testing.T) {
-	result := compileSource("type Direction = | North | East type Direction_North = { a: Int32 } heading: Direction := Direction.North marker: Direction_North := Direction_North { a = 1 } u: Direction_North | Nil := marker")
+	result := compileSource("type Direction as | North | East end type Direction_North = { a: Int32 } heading: Direction := Direction.North marker: Direction_North := Direction_North { a = 1 } u: Direction_North | Nil := marker")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected tag-collision source: %v", result.Stderr)
 	}
@@ -320,8 +320,8 @@ func TestReversedImportedObjectUnionsInternTogether(t *testing.T) {
 func TestReversedImportedADTUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Shape | S.Shape := M.make()\nb: S.Shape | M.Shape := a\n",
-		"m.hex":   "export type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
-		"s.hex":   "export type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\n",
+		"m.hex":   "export type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
+		"s.hex":   "export type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {

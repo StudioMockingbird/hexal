@@ -223,7 +223,7 @@ func TestSeekLowersThroughTheADT(t *testing.T) {
 func TestStreamNamesReservedEndToEnd(t *testing.T) {
 	assertRejects(t, "type IO = { x: Int32, }", "built-in type IO cannot be redeclared")
 	assertRejects(t, "type Bytes = { x: Int32, }", "built-in type Bytes cannot be redeclared")
-	assertRejects(t, "type Seek = | North | South", "built-in type Seek cannot be redeclared")
+	assertRejects(t, "type Seek as | North | South end", "built-in type Seek cannot be redeclared")
 	result := assertCompiles(t, "Start: Int32 := 0 Current: Int32 := 1 End: Int32 := 2 total: Int32 := Start + Current + End")
 	if !strings.Contains(rootC(t, result), "hex_v_total") {
 		t.Fatalf("unqualified variant names must remain usable")

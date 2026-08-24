@@ -38,7 +38,7 @@ func TestInferredDeclarationTakesTheInitializersType(t *testing.T) {
 		},
 		{
 			"qualified variant",
-			"type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\nfun demo() do\n    s := Shape.Circle { r = 10 }\nend",
+			"type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\nfun demo() do\n    s := Shape.Circle { r = 10 }\nend",
 			"const hex_t_m3_app_Shape hex_v_s =",
 		},
 		{
@@ -154,6 +154,6 @@ func TestInferredAndAnnotatedDeclarationsGenerateIdenticalC(t *testing.T) {
 // message is the one an author sees.
 func TestInferredDeclarationLeavesBareVariantsToTheTypeChecker(t *testing.T) {
 	assertRejects(t,
-		"type Shape = | Circle as { r: Int32 } | Square as { a: Int32 }\nfun demo() do\n    s := Circle { r = 10 }\nend",
+		"type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\nfun demo() do\n    s := Circle { r = 10 }\nend",
 		"unknown type Circle")
 }

@@ -283,20 +283,24 @@ func (parser *Parser) functionTypeExpression(keyword lexer.Token) (FunctionTypeE
 
 // typeDefinitionExpression is the wider grammar used only after
 // `type Name =`. Object type expressions are deliberately not accepted by
-// variable annotations or Ptr element positions.
+// variable annotations or Ptr element positions. A leading '|' here is the
+// obsolete ADT header form (ADTs now open with `type Name as ... end`).
 func (parser *Parser) typeDefinitionExpression() (TypeExpression, error) {
 	if parser.check(lexer.LeftBrace) {
 		return parser.objectTypeExpression()
 	}
 	if parser.check(lexer.Pipe) {
-		return parser.adtDefinitionExpression()
+		return nil, parser.errorAtCurrent("ADT declarations use 'type Name as ... end'")
 	}
 	return parser.typeExpression()
 }
 
-// adtDefinitionExpression parses `"|" variant { "|" variant }`. A variant is
-// an identifier optionally followed by "as" and a record payload body.
-func (parser *Parser) adtDefinitionExpression() (AdtDefinitionExpression, error) {
+// adtBlock parses the ADT declaration body introduced by `type Name as`:
+// "as" adt-variant { adt-variant } "end". A variant is an identifier
+// optionally followed directly by a record payload body; the payload no
+// longer takes its own "as" introducer.
+func (parser *Parser) adtBlock() (AdtDefinitionExpression, error) {
+	parser.advance() // 'as'
 	variants := make([]AdtVariantDeclaration, 0, 2)
 	for parser.check(lexer.Pipe) {
 		parser.advance()
@@ -306,7 +310,9 @@ func (parser *Parser) adtDefinitionExpression() (AdtDefinitionExpression, error)
 		}
 		variant := AdtVariantDeclaration{Name: name}
 		if parser.check(lexer.As) {
-			parser.advance()
+			return AdtDefinitionExpression{}, parser.errorAtCurrent("ADT payload follows the variant name directly; remove 'as'")
+		}
+		if parser.check(lexer.LeftBrace) {
 			payload, err := parser.objectTypeExpression()
 			if err != nil {
 				return AdtDefinitionExpression{}, err
@@ -319,6 +325,9 @@ func (parser *Parser) adtDefinitionExpression() (AdtDefinitionExpression, error)
 			variant.Payload = &payload
 		}
 		variants = append(variants, variant)
+	}
+	if _, err := parser.consume(lexer.End, "'end' after ADT declaration"); err != nil {
+		return AdtDefinitionExpression{}, err
 	}
 	return AdtDefinitionExpression{Variants: variants}, nil
 }

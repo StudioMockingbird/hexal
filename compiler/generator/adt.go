@@ -83,7 +83,10 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 		}
 		fmt.Fprintf(&builder, ", .payload.%s = {", compilerTypes.SanitizeIdentifier(variant.Name))
 		for index, member := range variant.Payload {
-			value, err := renderOperandWithState(node.Arguments[index], state)
+			// A field written out of declaration order was hoisted into its
+			// own written-order temporary by hoistAdtSequence; the compound
+			// literal itself always assembles in declaration order.
+			value, err := renderHoistedOperand(&node.Arguments[index].Node, node.Arguments[index], state)
 			if err != nil {
 				return "", err
 			}

@@ -24,6 +24,23 @@ Affine ownership supplies task and resource lifetime. It does not by itself
 make shared mutation safe, so this RFC defines the boundary between ownership,
 sharing, synchronization, and scheduler operations.
 
+## Current behavior being changed
+
+The current reference deliberately provides a weaker contract:
+
+- `Task<R>` is a shallow-copyable shared handle; aliases race to the one
+  successful `join` or `detach`.
+- Unsynchronized conflicting access is recorded as a data race with no Hexal
+  guarantee.
+- `Mutex` is an untyped synchronization handle with no checker-visible
+  association to the storage it is intended to protect.
+- Hexal has no general `unsafe` block or expression syntax.
+
+This RFC cannot be implemented as a checker-only tightening without settling
+those surface changes. In particular, treating "some Mutex is locked" as proof
+that an arbitrary pointer access is protected would accept programs whose two
+tasks lock different mutexes before racing on the same storage.
+
 ## Data-race rule
 
 Two operations conflict when they access the same mutable storage and at least
@@ -166,13 +183,32 @@ passes:
 
 ## Open questions
 
-1. Whether the compiler uses explicit `Send`/`Sync`-like type predicates or a
-   smaller built-in task-transferability table.
-2. Whether task cancellation is part of the terminal-operation set or a later
-   RFC.
-3. The exact scheduler annotation for a blocking foreign function.
-4. Whether lock-order diagnostics are local enough to add without a new
-   language concept.
+1. Whether task transferability uses new user-visible traits or one structural,
+   compiler-owned predicate over existing ownership classes.
+2. Whether `Task<R>` becomes affine or retains the current shared-alias handle
+   contract.
+3. Whether `detach` is rejected when `R` is an affine owner whose discarded
+   result would leak a resource.
+4. Whether the safe Mutex surface becomes `Mutex<T>` with an affine guard, or
+   the existing untyped Mutex remains a manual low-level primitive that cannot
+   prove safe shared access.
+5. Whether borrowed pointers and Views are initially forbidden as task
+   arguments except for program-lifetime storage, or accepted through a new
+   cross-task lifetime proof.
+6. Whether unknown race safety is rejected until RFC 0039 defines a foreign
+   unsafe contract, or this RFC adds a general unsafe syntax.
+7. Whether cancellation and lock-order diagnostics remain separate future
+   features.
+8. RFC 0091 owns the scheduler mechanism and RFC 0039 owns foreign blocking
+   annotations; this RFC consumes those decisions rather than choosing them.
+
+## Implementation readiness
+
+This RFC is not implementation-ready. Its ownership checks depend on RFC 0110,
+its safe blocking validation depends on RFC 0091, and questions 1-7 above alter
+source-visible behavior or the builtin API. A detailed implementation plan must
+be added after those decisions are settled; writing one now would hide design
+choices inside implementation steps.
 
 ## Reference synchronization
 

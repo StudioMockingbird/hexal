@@ -666,11 +666,11 @@ func renderChannelConstructor(node checker.Expression, state *expressionValidati
 	if node.OperandType.Channel == nil || len(node.Arguments) != 2 {
 		return "", unknownExpressionDiagnostic("channel constructor without a checked channel type")
 	}
-	heap, err := renderOperandWithState(node.Arguments[0], state)
+	heap, err := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 	if err != nil {
 		return "", err
 	}
-	capacity, err := renderOperandWithState(node.Arguments[1], state)
+	capacity, err := renderHoistedOperand(&node.Arguments[1].Node, node.Arguments[1], state)
 	if err != nil {
 		return "", err
 	}
@@ -789,7 +789,7 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 	if node.Operand == nil || node.OperandType.Atomic == nil {
 		return "", unknownExpressionDiagnostic("atomic method without a checked receiver")
 	}
-	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
+	receiver, _, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
 	}
@@ -801,7 +801,7 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 		if len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("atomic method without a checked value")
 		}
-		value, valueErr := renderOperandWithState(node.Arguments[0], state)
+		value, valueErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if valueErr != nil {
 			return "", valueErr
 		}
@@ -810,11 +810,11 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 		if len(node.Arguments) != 2 {
 			return "", unknownExpressionDiagnostic("atomic compare_exchange without checked operands")
 		}
-		expected, expectedErr := renderOperandWithState(node.Arguments[0], state)
+		expected, expectedErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if expectedErr != nil {
 			return "", expectedErr
 		}
-		desired, desiredErr := renderOperandWithState(node.Arguments[1], state)
+		desired, desiredErr := renderHoistedOperand(&node.Arguments[1].Node, node.Arguments[1], state)
 		if desiredErr != nil {
 			return "", desiredErr
 		}

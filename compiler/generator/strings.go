@@ -210,11 +210,11 @@ func renderTextComparison(node checker.Expression, state *expressionValidation) 
 		if node.Left == nil || node.Right == nil {
 			return "", unknownExpressionDiagnostic("text ordering without both operands")
 		}
-		left, _, leftErr := renderExpressionNodeWithExpectedState(*node.Left, &node.OperandType, state)
+		left, _, leftErr := renderHoistedExpressionNode(node.Left, &node.OperandType, state)
 		if leftErr != nil {
 			return "", leftErr
 		}
-		right, _, rightErr := renderExpressionNodeWithExpectedState(*node.Right, &node.OperandType, state)
+		right, _, rightErr := renderHoistedExpressionNode(node.Right, &node.OperandType, state)
 		if rightErr != nil {
 			return "", rightErr
 		}

@@ -4,12 +4,13 @@
 - Status: Draft; design decision required
 - Created: 2026-08-19
 - Scope: what the scheduler does when generated code calls something that blocks
-- Depends on: RFC 0118 (concurrency safety)
-- Gates: RFC 0065 (byte stream I/O), a future sockets specification, a future
-  filesystem specification, and any pipe or process-spawn surface
+- Depends on: implemented RFC 0108 (descriptor I/O), RFC 0052 (target
+  profiles), and the existing M:N scheduler contract
+- Gates: complete safe-task behavior for `IO`, a future sockets specification,
+  and scheduler-aware filesystem, pipe, and process surfaces
 - Coordinates with: `docs/reference.md` (Tasks and synchronization),
-  `docs/status.md`, RFC 0039 (C interop is how a blocking call first becomes
-  reachable), RFC 0118 (safe-task and foreign-thread contract)
+  `docs/status.md`, RFC 0039 (foreign blocking declarations), and RFC 0118
+  (safe-task and foreign-thread contract)
 - Does not change: the M:N model, worker count, `spawn`/`join`/`detach`, or
   `Task.yield()`
 
@@ -20,16 +21,19 @@ finishes — and by no other means. A blocking syscall parks the **OS thread**, 
 N workers blocked in `read` stall the scheduler completely, and no construct
 available to a Hexal program prevents it.
 
-**This is the last unspecified thing between Hexal and any I/O at all.** Every
-downstream surface — files, sockets, pipes, process spawn — has to know the
-answer before its signatures can be written, because the answer decides whether
-a handle is blocking or non-blocking and whether an operation registers
-readiness.
+RFC 0108 has since shipped synchronous descriptor I/O. Its source signatures
+are settled and its initial contract explicitly permits a descriptor operation
+to block the current worker. Other workers continue; if all workers block, the
+scheduler stalls until one call returns.
+
+This RFC is therefore a scheduler-progress upgrade, not a prerequisite for all
+I/O. It must preserve the existing `IO` signatures while deciding whether safe
+blocking operations continue to consume workers or become scheduler-aware.
 
 Nothing here is designed yet. What follows is what is already determined, so
 the design pass starts from it rather than re-deriving it.
 
-RFC 0118 owns the safety rule around this mechanism: an undeclared blocking
+RFC 0118 will own the safety rule around this mechanism: an undeclared blocking
 foreign call is unsafe, a safe blocking operation must be scheduler-classified,
 and it must not silently convert all scheduler progress into an unspecified
 stall. This RFC chooses the implementation for that contract; it does not
@@ -64,11 +68,10 @@ readiness on them, so an operation can register interest, park the task, and be
 woken when the handle is ready. The worker stays free throughout. This is
 Go's netpoller and Crystal's event loop.
 
-**Not pollable. Regular files.** `epoll` rejects them outright and `select`
-always reports them ready. There is no readiness event to wait for: a read
-either returns from page cache immediately or blocks inside the kernel for as
-long as the device takes. **No polling mechanism on any supported target fixes
-this.**
+**Not portably readiness-pollable. Regular files.** `epoll` rejects them and
+`select` reports them ready. A read may still block in the kernel. Target
+completion APIs such as IOCP or `io_uring` may optimize regular-file operations,
+but no one readiness mechanism covers every supported target.
 
 Go, the only surveyed language that handles both, uses two mechanisms: the
 netpoller for sockets, and detaching the P from the M — letting that thread
@@ -123,33 +126,38 @@ in-flight operations.
 - Linux-only, so it cannot be the answer — at most an optimisation behind one of
   the above.
 
-## The option that spans both
+## Settled surface constraint
 
-**Zig's explicit `Io` parameter.** The caller passes the I/O implementation, and
-that implementation decides whether an operation blocks the thread or parks the
-task. A blocking implementation and an evented one present the same surface.
-
-This deserves first evaluation because **Hexal already passes allocators
-explicitly** — the pattern is established, not novel, and users already accept
-it. It would also let F2 ship first and P1 land later without changing a single
-signature, which no other option here allows.
-
-Its cost is that the choice becomes visible in every I/O-touching function's
-parameter list, exactly as `Heap` already is.
+RFC 0108 deliberately made scheduler integration replaceable without changing
+stream signatures. This RFC therefore does not add an explicit `Io` parameter,
+a source-visible blocking mode, or a `would block` result. Scheduler handling is
+runtime-transparent; primitive `IO` results remain transfer, `EoS`, or `Error`.
 
 ## What the answer must specify
 
 1. Which mechanism serves pollable handles, and which serves regular files.
-2. Whether the choice is made by the runtime or passed by the caller.
-3. What a handle's blocking mode is at the language surface — invisible,
-   implied by the type, or an explicit parameter.
-4. Whether an operation can report "would block" to a Hexal program, or whether
-   that is always absorbed by the scheduler.
-5. The interaction with `Task.yield()`: whether a parked I/O task counts as a
+2. The runtime ownership and sizing of any poller or blocking pool.
+3. How the runtime classifies a handle as pollable or non-pollable.
+4. The interaction with `Task.yield()`: whether a parked I/O task counts as a
    scheduling point for the `while true` rule.
-6. What happens on a target where the chosen mechanism is unavailable —
+5. What happens on a target where the chosen mechanism is unavailable —
    `reference.md` already answers this shape for Tasks with an `Unsupported
    Error`, and the same discipline should apply.
+
+## Implementation readiness
+
+This RFC is not implementation-ready. It still must choose among:
+
+- retaining RFC 0108's current worker-blocking contract and closing this RFC
+  without implementation;
+- using one bounded blocking pool for every blocking operation; or
+- using readiness/completion parking for pollable handles and a bounded
+  blocking pool for regular files and other non-pollable operations.
+
+The selected design must also settle pool sizing, poller ownership, handle
+classification, the `while true` yield interaction, and unsupported-target
+behavior. A detailed implementation plan must be written after that selection;
+the current option inventory is not an execution plan.
 
 ## Invariants
 
@@ -160,9 +168,7 @@ parameter list, exactly as `Heap` already is.
    problem.
 3. `spawn`, `join`, `detach`, `yield`, Channel, and Mutex semantics are
    unchanged.
-4. No language surface changes unless option 3 above is answered "explicit
-   parameter", in which case that surface is specified here and not invented
-   downstream.
+4. No language surface or existing `IO` signature changes.
 5. Generated C for programs that perform no I/O is byte-identical.
 
 ## Validation
