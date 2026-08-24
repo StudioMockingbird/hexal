@@ -11,11 +11,17 @@ func ioComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil || merged.ioState == nil || (!merged.ioState.used && !merged.printUsed) {
 		return nil, nil
 	}
-	model := struct{}{}
 	return []componentArtifact{
-		{key: "hexal/io.h", template: "io.h", model: model},
-		{key: "hexal/io.c", template: "io.c", model: model},
+		{key: "hexal/io.h", template: "io.h", model: struct{}{}},
+		{key: "hexal/io.c", template: "io.c", model: ioSourceModel{Blocking: blockingSelected(merged)}},
 	}, nil
+}
+
+// ioSourceModel is the render model for packages/io.c: whether the blocking
+// pool is selected, so each native transfer routes through hex_blocking_call
+// instead of calling its private synchronous core directly.
+type ioSourceModel struct {
+	Blocking bool
 }
 
 // moduleStreamComponent selects hexal/io.h for a module using streams.

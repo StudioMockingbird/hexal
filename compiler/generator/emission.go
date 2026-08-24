@@ -301,6 +301,14 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		}
 		if module.ioState != nil && module.ioState.used {
 			merged.ioState.used = true
+			// The blocking pool's demand fact (concurrencyComponents) needs
+			// exactly these four operation flags program-wide; every other
+			// generatedStreamState field stays module-local, discovered
+			// directly from each module's own rendering pass.
+			merged.ioState.readIO = merged.ioState.readIO || module.ioState.readIO
+			merged.ioState.writeIO = merged.ioState.writeIO || module.ioState.writeIO
+			merged.ioState.seekIO = merged.ioState.seekIO || module.ioState.seekIO
+			merged.ioState.closeIO = merged.ioState.closeIO || module.ioState.closeIO
 		}
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)

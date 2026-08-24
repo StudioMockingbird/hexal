@@ -10,8 +10,8 @@
   Channel, Mutex, Atomic, and synchronous IO contracts in
   `docs/reference.md`
 - Coordinates with: RFC 0055 (build and validation driver), RFC 0108 (I/O),
-  RFC 0121 (scheduler-aware blocking), native module storage RFC 0116,
-  `docs/reference.md`, and `docs/status.md`
+  RFC 0121 (scheduler-aware blocking), RFC 0122 (safe Task parking), native
+  module storage RFC 0116, `docs/reference.md`, and `docs/status.md`
 
 ## Summary
 
@@ -134,8 +134,9 @@ This RFC does not change that scheduling contract.
   memory. Concurrent mutation, resize, or free is an unsynchronized conflict;
   this RFC owns rejection when local analysis proves it. RFC 0121's Task
   parking neither creates nor removes that aliasing rule.
-- RFC 0121 replaces this backend after it lands without changing IO
-  signatures; it is not a dependency of this safety RFC.
+- RFC 0122 first corrects Task parking, joining, and reclamation without
+  changing IO. RFC 0121 then replaces this backend without changing IO
+  signatures; neither is a dependency of this safety RFC.
 
 ## Foreign-thread entry
 
@@ -163,7 +164,7 @@ Target-profile facts for atomics, threads, TLS, and OS facilities come from RFC
 - Making arbitrary C callbacks, device registers, or foreign thread pools safe
   without an explicit RFC 0039 contract.
 - Adding a readiness poller, blocking pool, or thread-handoff mechanism inside
-  this RFC; RFC 0121 owns the separate blocking-pool change.
+  this RFC; RFC 0122 owns safe parking and RFC 0121 owns the separate pool.
 
 ## Validation
 
@@ -210,8 +211,9 @@ passes:
    unsafe contract, or this RFC adds a general unsafe syntax.
 7. Whether cancellation and lock-order diagnostics remain separate future
    features.
-8. RFC 0039 owns foreign blocking annotations. RFC 0121 owns scheduler-aware
-   waiting for the native operations it names and does not block this RFC.
+8. RFC 0039 owns foreign blocking annotations. RFC 0122 owns the parking
+   primitive and RFC 0121 owns scheduler-aware execution for the native
+   operations it names; neither blocks this RFC.
 
 ## Implementation readiness
 

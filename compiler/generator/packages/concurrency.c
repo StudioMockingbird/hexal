@@ -18,19 +18,38 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
-#if defined(__STDC_NO_THREADS__)
-#error "Hexal Task runtime requires C23 threads (<threads.h>); this toolchain defines __STDC_NO_THREADS__"
-#endif
-#include <threads.h>
+// hexal/concurrency.h already validated C23 thread support and included
+// <threads.h> before defining struct hex_task's mtx_t members.
 #include <stdatomic.h>
 #include <string.h>
 
-#define HEX_TASK_READY 1
-#define HEX_TASK_RUNNING 2
-#define HEX_TASK_PARKED 3
-#define HEX_TASK_DONE 4
+// hex_task's park_phase: the common suspend/wake protocol shared by yield,
+// join, Channel, and Mutex. running has no pending park; parking is
+// registered but its fiber has not yet switched out; parked means the
+// dispatcher confirmed the switch with no waker racing ahead; notified means
+// a waker recorded an early wake before that confirmation; ready means the
+// task is published on the ready queue exactly once and may resume. Values
+// are chosen so calloc's zero-initialization starts a task at running.
+#define HEX_PARK_RUNNING 0
+#define HEX_PARK_PARKING 1
+#define HEX_PARK_PARKED 2
+#define HEX_PARK_NOTIFIED 3
+#define HEX_PARK_READY 4
+
+// hex_task's life: completion status, guarded entirely by the task's own
+// lifecycle_mutex and independent of park_phase. running is the default;
+// completing means the task's own fiber has switched out after finishing but
+// before the dispatcher records done, so it is not yet reclaimable; done
+// means the target fiber will never run again.
+#define HEX_LIFE_RUNNING 0
+#define HEX_LIFE_COMPLETING 1
+#define HEX_LIFE_DONE 2
+
+#define HEX_TASK_CLAIM_NONE 0
+#define HEX_TASK_CLAIM_JOIN 1
+#define HEX_TASK_CLAIM_DETACH 2
+
 #define HEX_TASK_ROOT 1u
-#define HEX_TASK_DETACH 2u
 
 // hex_stack_overflow_message is the one structured diagnostic emitted from a
 // signal or exception context: the handler cannot call hex_runtime_trap,
@@ -273,6 +292,71 @@ static hex_task *hex_ready_pop(void) {
     return task;
 }
 
+// hex_task_wake applies the common wake transition to one parked waiter: the
+// shared operation behind Channel wake, Mutex handoff, join completion, and
+// the dispatcher's own yield notification. The caller writes any wake
+// payload (wake_result, transferred Mutex ownership) before calling this, so
+// every store here is a release that the resumed task's later acquire sees.
+// Compare-exchanging parking to notified always succeeds unless the
+// dispatcher already committed the fiber switch to parked, in which case
+// this function performs the ready-queue publication itself; if the
+// dispatcher has not yet committed, its own commit will observe notified and
+// publish instead. Either way exactly one side publishes.
+static void hex_task_wake(hex_task *waiter) {
+    uint8_t expected = HEX_PARK_PARKING;
+    if (atomic_compare_exchange_strong_explicit(&waiter->park_phase, &expected, HEX_PARK_NOTIFIED,
+                                                 memory_order_release, memory_order_relaxed)) {
+        return;
+    }
+    if (expected == HEX_PARK_PARKED) {
+        uint8_t parked = HEX_PARK_PARKED;
+        if (atomic_compare_exchange_strong_explicit(&waiter->park_phase, &parked, HEX_PARK_READY,
+                                                     memory_order_release, memory_order_relaxed)) {
+            hex_ready_push(waiter);
+        }
+        // A losing retry here means the dispatcher's own commit already
+        // published this task; the stale attempt does nothing further.
+    }
+    // notified, ready, or running: the wake is already recorded or this
+    // waker is stale; either way nothing more to do.
+}
+
+// hex_task_commit_park runs on the dispatcher immediately after a parked
+// task's fiber switches back, the mirror of hex_task_wake. Its own
+// compare-exchange from parking to parked wins when no waker raced ahead,
+// leaving the task genuinely suspended; it loses only to a waker that
+// already recorded notified, in which case the dispatcher itself publishes.
+static void hex_task_commit_park(hex_task *task) {
+    uint8_t expected = HEX_PARK_PARKING;
+    if (atomic_compare_exchange_strong_explicit(&task->park_phase, &expected, HEX_PARK_PARKED,
+                                                 memory_order_acq_rel, memory_order_acquire)) {
+        return;
+    }
+    if (expected != HEX_PARK_NOTIFIED) {
+        hex_runtime_trap("[Runtime Error] invalid Task park phase during commit\n");
+    }
+    expected = HEX_PARK_NOTIFIED;
+    if (!atomic_compare_exchange_strong_explicit(&task->park_phase, &expected, HEX_PARK_READY,
+                                                  memory_order_acq_rel, memory_order_acquire)) {
+        hex_runtime_trap("[Runtime Error] Task park phase changed during commit\n");
+    }
+    hex_ready_push(task);
+}
+
+// hex_task_resume_commit runs on a resumed task's own fiber, immediately
+// after its hex_context_switch call returns control to it. The acquire load
+// synchronizes with whichever waker or dispatcher released this task into
+// ready, making every write before that release (a wake payload, transferred
+// Mutex ownership) visible here before the caller reads it.
+static void hex_task_resume_commit(hex_task *self) {
+    uint8_t expected = HEX_PARK_READY;
+    if (!atomic_compare_exchange_strong_explicit(&self->park_phase, &expected, HEX_PARK_RUNNING,
+                                                  memory_order_acquire, memory_order_relaxed)) {
+        hex_runtime_trap("[Runtime Error] invalid Task park phase during resume\n");
+    }
+    self->pending_park = nullptr;
+}
+
 void hex_task_release(hex_task *task) {
     if (task->flags & HEX_TASK_ROOT) {
         return;
@@ -280,27 +364,24 @@ void hex_task_release(hex_task *task) {
     if (task->fiber != nullptr) {
         hex_context_destroy((hex_context)task->fiber);
     }
+    mtx_destroy(&task->lifecycle_mutex);
     free(task->args);
     free(task->result);
     free(task);
 }
 
-// hex_task_complete marks the task done, wakes one joiner, stops the
-// scheduler when the root completes, and hands the worker back to its
-// dispatch loop. The trampoline and the root epilogue both end here; the
-// task's fiber never returns through an invalid stack.
+// hex_task_complete is step one of the two-step completion transition,
+// running on the completing task's own fiber. It records completing under
+// the lifecycle mutex with no mutex held across the switch, publishes no
+// joiner, and is not reclaimable yet: the dispatcher's own commit (in
+// hex_worker_loop, after switch-back) records done, extracts the joiner and
+// terminal disposition, and performs the root-shutdown and joiner-wake or
+// detached-reclamation steps. The trampoline and the root epilogue both end
+// here; the task's fiber never returns through an invalid stack.
 void hex_task_complete(hex_task *task) {
-    task->state = HEX_TASK_DONE;
-    if (task->joiner != nullptr) {
-        hex_task *joiner = task->joiner;
-        task->joiner = nullptr;
-        joiner->state = HEX_TASK_READY;
-        hex_ready_push(joiner);
-    }
-    if (task->flags & HEX_TASK_ROOT) {
-        atomic_store(&hex_shutdown, 1);
-        cnd_broadcast(&hex_ready_cond);
-    }
+    mtx_lock(&task->lifecycle_mutex);
+    task->life = HEX_LIFE_COMPLETING;
+    mtx_unlock(&task->lifecycle_mutex);
     hex_current_task = nullptr;
     hex_context_switch((hex_context)task->fiber, (hex_context)task->scheduler_fiber);
 }
@@ -336,12 +417,41 @@ static void hex_worker_loop(void *param) {
         hex_task *task = hex_ready_pop();
         mtx_unlock(&hex_ready_mutex);
         hex_current_task = task;
-        task->state = HEX_TASK_RUNNING;
         task->scheduler_fiber = (void *)loop_context;
         hex_context_switch(loop_context, (hex_context)task->fiber);
-        if (task->state == HEX_TASK_DONE && (task->flags & HEX_TASK_DETACH)) {
+        // A non-null pending link means this switch-back is an ordinary park:
+        // commit it through the common protocol. A null link is otherwise
+        // unambiguous: every park path sets a non-null link before switching,
+        // so this switch-back can only be hex_task_complete's step one, and
+        // this dispatcher is now step two.
+        if (task->pending_park != nullptr) {
+            hex_task_commit_park(task);
+            continue;
+        }
+        mtx_lock(&task->lifecycle_mutex);
+        task->life = HEX_LIFE_DONE;
+        hex_task *joiner = task->joiner;
+        task->joiner = nullptr;
+        bool root = (task->flags & HEX_TASK_ROOT) != 0;
+        bool detached = task->terminal_claim == HEX_TASK_CLAIM_DETACH;
+        mtx_unlock(&task->lifecycle_mutex);
+        if (root) {
+            // The root shutdown switch-back is handled by the ordinary
+            // shutdown check at the top of this loop, not here: recording
+            // shutdown and broadcasting is this branch's only job, and it is
+            // not a ready publication or reclamation path.
+            atomic_store(&hex_shutdown, 1);
+            mtx_lock(&hex_ready_mutex);
+            cnd_broadcast(&hex_ready_cond);
+            mtx_unlock(&hex_ready_mutex);
+        } else if (joiner != nullptr) {
+            hex_task_wake(joiner);
+        } else if (detached) {
             hex_task_release(task);
         }
+        // A joined, non-detached, non-root task is destroyed by its resumed
+        // joiner after it copies the result out; this dispatcher performs no
+        // further access to it.
     }
 }
 
@@ -354,7 +464,8 @@ static int hex_worker_thread(void *unused) {
     return 0;
 }
 
-// hex_scheduler_init establishes the root task on the initial process thread
+{{if .Blocking}}static void hex_blocking_init(void);
+{{end}}// hex_scheduler_init establishes the root task on the initial process thread
 // (worker zero), creates the remaining workers, and starts dispatch. The
 // root fiber is the converted main thread context; its statements run as the
 // Hexal entry point.
@@ -376,8 +487,10 @@ void hex_scheduler_init(void) {
     if (hex_root_task->fiber == nullptr) {
         hex_runtime_trap("[Runtime Error] scheduler fiber initialization failed\n");
     }
+    if (mtx_init(&hex_root_task->lifecycle_mutex, mtx_plain) != thrd_success) {
+        hex_runtime_trap("[Runtime Error] scheduler lifecycle mutex initialization failed\n");
+    }
     hex_root_task->id = atomic_fetch_add(&hex_next_task_id, 1);
-    hex_root_task->state = HEX_TASK_READY;
     hex_root_task->flags = HEX_TASK_ROOT;
     hex_root_task->scheduler_fiber = (void *)hex_context_create(hex_worker_loop, (void *)1);
     if (hex_root_task->scheduler_fiber == nullptr) {
@@ -395,14 +508,21 @@ void hex_scheduler_init(void) {
         }
         thrd_detach(thread);
     }
-    hex_context_switch((hex_context)hex_root_task->fiber, (hex_context)hex_root_task->scheduler_fiber);
+{{if .Blocking}}    hex_blocking_init();
+{{end}}    hex_context_switch((hex_context)hex_root_task->fiber, (hex_context)hex_root_task->scheduler_fiber);
 }
 
+// hex_task_yield is the source-less park: it has no wait-source mutex to
+// register under, so it release-stores notified directly instead of parking
+// first, and the yielding fiber never publishes itself. The dispatcher alone
+// observes notified after switch-back and publishes through the common
+// commit path.
 void hex_task_yield(void) {
     hex_task *self = hex_current_task;
-    self->state = HEX_TASK_READY;
-    hex_ready_push(self);
+    self->pending_park = self;
+    atomic_store_explicit(&self->park_phase, HEX_PARK_NOTIFIED, memory_order_release);
     hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
+    hex_task_resume_commit(self);
 }
 
 // hex_task_spawn allocates the argument frame and task control block,
@@ -441,8 +561,14 @@ hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_ali
         free(args_frame);
         return nullptr;
     }
+    if (mtx_init(&task->lifecycle_mutex, mtx_plain) != thrd_success) {
+        hex_context_destroy((hex_context)task->fiber);
+        free(result_frame);
+        free(task);
+        free(args_frame);
+        return nullptr;
+    }
     task->id = atomic_fetch_add(&hex_next_task_id, 1);
-    task->state = HEX_TASK_READY;
     task->entry = entry;
     task->args = args_frame;
     task->result = result_frame;
@@ -451,31 +577,194 @@ hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_ali
 }
 
 // hex_task_join waits for the task to finish and returns its result frame.
-// The joining task parks on the target's joiner slot while waiting. Joining
-// the current task through its own alias is a cheaply detectable misuse and
-// traps.
+// The target's lifecycle mutex serializes the done check against completion
+// recording the same fact, so a join arriving during completing always
+// registers before the dispatcher's step two can extract it, and a join
+// observing done never races a still-running fiber. Joining the current task
+// through its own alias is a cheaply detectable misuse and traps. The
+// generated per-result-type wrapper copies the result out and releases the
+// target; this function performs neither.
 void *hex_task_join(hex_task *task) {
-    for (;;) {
-        if (task->state == HEX_TASK_DONE) {
-            return task->result;
-        }
-        hex_task *self = hex_current_task;
-        if (task == self) {
-            hex_runtime_trap("[Runtime Error] cannot join the current task\n");
-        }
-        self->state = HEX_TASK_PARKED;
-        task->joiner = self;
-        hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
+    hex_task *self = hex_current_task;
+    if (task == self) {
+        hex_runtime_trap("[Runtime Error] cannot join the current task\n");
     }
+    mtx_lock(&task->lifecycle_mutex);
+    if (task->terminal_claim != HEX_TASK_CLAIM_NONE) {
+        mtx_unlock(&task->lifecycle_mutex);
+        hex_runtime_trap("[Runtime Error] Task already joined or detached\n");
+    }
+    task->terminal_claim = HEX_TASK_CLAIM_JOIN;
+    if (task->life == HEX_LIFE_DONE) {
+        mtx_unlock(&task->lifecycle_mutex);
+        return task->result;
+    }
+    self->pending_park = task;
+    atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
+    task->joiner = self;
+    mtx_unlock(&task->lifecycle_mutex);
+    hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
+    hex_task_resume_commit(self);
+    return task->result;
 }
 
+// hex_task_detach claims terminal ownership under the target lifecycle mutex.
+// Completion either observes that claim and reclaims after its final switch,
+// or a completed target is reclaimed here. A later join or detach traps before
+// touching a reclaimed target because the claim is serialized first.
 void hex_task_detach(hex_task *task) {
-    task->flags |= HEX_TASK_DETACH;
-    if (task->state == HEX_TASK_DONE) {
+    mtx_lock(&task->lifecycle_mutex);
+    if (task->terminal_claim != HEX_TASK_CLAIM_NONE) {
+        mtx_unlock(&task->lifecycle_mutex);
+        hex_runtime_trap("[Runtime Error] Task already joined or detached\n");
+    }
+    task->terminal_claim = HEX_TASK_CLAIM_DETACH;
+    bool done = task->life == HEX_LIFE_DONE;
+    mtx_unlock(&task->lifecycle_mutex);
+    if (done) {
         hex_task_release(task);
     }
 }
-{{end}}{{if .Channels}}
+{{if .Blocking}}
+// hex_blocking_job is one queued native operation: entry and context are the
+// caller's typed closure, next links the FIFO, and task is the parked
+// caller a completing worker wakes. Every job lives on the calling Task's
+// fiber stack; the queue stores pointers to those live stack frames and
+// allocates nothing per call.
+typedef struct hex_blocking_job {
+    hex_blocking_entry entry;
+    void *context;
+    struct hex_blocking_job *next;
+    hex_task *task;
+} hex_blocking_job;
+
+static hex_blocking_job *hex_blocking_head;
+static hex_blocking_job *hex_blocking_tail;
+static mtx_t hex_blocking_mutex;
+static cnd_t hex_blocking_cond;
+// Logical counts protected entirely by hex_blocking_mutex: baseline is fixed
+// at initialization, total is live-or-reserved workers (a reservation counts
+// before its thrd_create call, so a submission never double-reserves for one
+// unit of unmet demand), busy is workers currently running a job, and queued
+// is jobs waiting for a worker.
+static int hex_blocking_baseline;
+static int hex_blocking_total;
+static int hex_blocking_busy;
+static int hex_blocking_queued;
+
+static int hex_blocking_worker(void *unused) {
+    (void)unused;
+    for (;;) {
+        mtx_lock(&hex_blocking_mutex);
+        while (hex_blocking_head == nullptr) {
+            cnd_wait(&hex_blocking_cond, &hex_blocking_mutex);
+        }
+        hex_blocking_job *job = hex_blocking_head;
+        hex_blocking_head = job->next;
+        if (hex_blocking_head == nullptr) {
+            hex_blocking_tail = nullptr;
+        }
+        hex_blocking_queued--;
+        hex_blocking_busy++;
+        mtx_unlock(&hex_blocking_mutex);
+
+        // Neither the blocking mutex nor the ready-queue mutex is held here:
+        // entry performs only its own synchronous native operation.
+        job->entry(job->context);
+        hex_task_wake(job->task);
+
+        mtx_lock(&hex_blocking_mutex);
+        hex_blocking_busy--;
+        bool retire = hex_blocking_head == nullptr && hex_blocking_total > hex_blocking_baseline;
+        if (retire) {
+            hex_blocking_total--;
+        }
+        mtx_unlock(&hex_blocking_mutex);
+        if (retire) {
+            return 0;
+        }
+    }
+}
+
+// hex_blocking_init creates the baseline pool, sized like the scheduler's own
+// worker count with minimum one. It runs before user code, alongside
+// hex_scheduler_init; partial initialization traps rather than running the
+// program with a half-started pool.
+static void hex_blocking_init(void) {
+    if (mtx_init(&hex_blocking_mutex, mtx_plain) != thrd_success) {
+        hex_runtime_trap("[Runtime Error] blocking pool mutex initialization failed\n");
+    }
+    if (cnd_init(&hex_blocking_cond) != thrd_success) {
+        hex_runtime_trap("[Runtime Error] blocking pool condition variable initialization failed\n");
+    }
+    int logical = hex_logical_processors();
+    if (logical < 1) {
+        logical = 1;
+    }
+    hex_blocking_baseline = logical;
+    hex_blocking_total = logical;
+    for (int index = 0; index < logical; index++) {
+        thrd_t thread;
+        if (thrd_create(&thread, hex_blocking_worker, nullptr) != thrd_success) {
+            hex_runtime_trap("[Runtime Error] blocking pool worker creation failed\n");
+        }
+        thrd_detach(thread);
+    }
+}
+
+// hex_blocking_call is the task-aware frontend every selected native
+// operation submits through. The current-Task test is the one place that
+// distinguishes a running Task from direct use (no scheduler attached, or
+// runtime initialization before scheduler entry); hex_current_task stays
+// private to this file. Registration follows the common protocol's required
+// order: pending link, then release-stored parking phase, then the FIFO
+// registration the queue mutex actually serializes.
+void hex_blocking_call(hex_blocking_entry entry, void *context) {
+    hex_task *self = hex_current_task;
+    if (self == nullptr) {
+        entry(context);
+        return;
+    }
+    hex_blocking_job job = {.entry = entry, .context = context, .task = self};
+    mtx_lock(&hex_blocking_mutex);
+    self->pending_park = &job;
+    atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
+    job.next = nullptr;
+    if (hex_blocking_tail != nullptr) {
+        hex_blocking_tail->next = &job;
+    } else {
+        hex_blocking_head = &job;
+    }
+    hex_blocking_tail = &job;
+    hex_blocking_queued++;
+    bool need_worker = hex_blocking_total - hex_blocking_busy < hex_blocking_queued;
+    if (need_worker) {
+        // The reserved slot counts as live capacity before thrd_create, so
+        // this submission's own accounting is already correct; a
+        // concurrent submission sees the incremented total under this same
+        // mutex and never reserves twice for one unit of unmet demand.
+        hex_blocking_total++;
+    }
+    cnd_signal(&hex_blocking_cond);
+    mtx_unlock(&hex_blocking_mutex);
+    if (need_worker) {
+        thrd_t thread;
+        if (thrd_create(&thread, hex_blocking_worker, nullptr) != thrd_success) {
+            // Thread-creation failure cancels only this reservation; the job
+            // stays queued in FIFO order for existing workers, and no Error
+            // or trap is added.
+            mtx_lock(&hex_blocking_mutex);
+            hex_blocking_total--;
+            cnd_broadcast(&hex_blocking_cond);
+            mtx_unlock(&hex_blocking_mutex);
+        } else {
+            thrd_detach(thread);
+        }
+    }
+    hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
+    hex_task_resume_commit(self);
+}
+{{end}}{{end}}{{if .Channels}}
 typedef struct hex_chan {
     mtx_t mutex;
     hex_task *wait_send;
@@ -528,13 +817,15 @@ bool hex_chan_send(hex_chan *channel, const void *value) {
         if (channel->length < channel->capacity) {
             break;
         }
-        self->state = HEX_TASK_PARKED;
-        self->wake_error = 0;
+        self->wake_result = 0;
+        self->pending_park = self;
+        atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
         self->wait_next = channel->wait_send;
         channel->wait_send = self;
         mtx_unlock(&channel->mutex);
         hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
-        if (self->wake_error) {
+        hex_task_resume_commit(self);
+        if (self->wake_result) {
             return false;
         }
     }
@@ -544,8 +835,8 @@ bool hex_chan_send(hex_chan *channel, const void *value) {
     hex_task *waiter = channel->wait_recv;
     if (waiter != nullptr) {
         channel->wait_recv = waiter->wait_next;
-        waiter->state = HEX_TASK_READY;
-        hex_ready_push(waiter);
+        waiter->wake_result = 0;
+        hex_task_wake(waiter);
     }
     mtx_unlock(&channel->mutex);
     return true;
@@ -564,12 +855,14 @@ bool hex_chan_receive(hex_chan *channel, void *out) {
             mtx_unlock(&channel->mutex);
             return false;
         }
-        self->state = HEX_TASK_PARKED;
-        self->wake_error = 0;
+        self->wake_result = 0;
+        self->pending_park = self;
+        atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
         self->wait_next = channel->wait_recv;
         channel->wait_recv = self;
         mtx_unlock(&channel->mutex);
         hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
+        hex_task_resume_commit(self);
     }
     memcpy(out, channel->slots + channel->head * channel->element_size, channel->element_size);
     channel->head = (channel->head + 1) % channel->capacity;
@@ -577,33 +870,34 @@ bool hex_chan_receive(hex_chan *channel, void *out) {
     hex_task *waiter = channel->wait_send;
     if (waiter != nullptr) {
         channel->wait_send = waiter->wait_next;
-        waiter->wake_error = 0;
-        waiter->state = HEX_TASK_READY;
-        hex_ready_push(waiter);
+        waiter->wake_result = 0;
+        hex_task_wake(waiter);
     }
     mtx_unlock(&channel->mutex);
     return true;
 }
 
 // close is idempotent: it wakes every blocked sender (with an Error) and
-// receiver (with EoS) and never discards queued values.
+// receiver (with EoS) and never discards queued values. Each dequeued
+// waiter's wake transition happens under channel->mutex, serialized with any
+// concurrent send or receive registration, so no waiter is ever left
+// notified without its dispatcher eventually observing and publishing it.
 void hex_chan_close(hex_chan *channel) {
     mtx_lock(&channel->mutex);
     channel->closed = true;
     hex_task *waiter = channel->wait_send;
     while (waiter != nullptr) {
         hex_task *next = waiter->wait_next;
-        waiter->wake_error = 1;
-        waiter->state = HEX_TASK_READY;
-        hex_ready_push(waiter);
+        waiter->wake_result = 1;
+        hex_task_wake(waiter);
         waiter = next;
     }
     channel->wait_send = nullptr;
     waiter = channel->wait_recv;
     while (waiter != nullptr) {
         hex_task *next = waiter->wait_next;
-        waiter->state = HEX_TASK_READY;
-        hex_ready_push(waiter);
+        waiter->wake_result = 0;
+        hex_task_wake(waiter);
         waiter = next;
     }
     channel->wait_recv = nullptr;
@@ -660,6 +954,11 @@ hex_mutex *hex_mutex_new(void) {
     return mutex;
 }
 
+// lock retains direct ownership transfer: unlock assigns mutex->owner to the
+// selected waiter itself before waking it, so a woken waiter here always
+// finds wake_result set and returns directly instead of re-entering
+// acquisition, which is what the recursive-lock check below would otherwise
+// wrongly reject.
 void hex_mutex_lock(hex_mutex *mutex) {
     hex_task *self = hex_current_task;
     for (;;) {
@@ -673,14 +972,23 @@ void hex_mutex_lock(hex_mutex *mutex) {
             mtx_unlock(&mutex->mutex);
             hex_runtime_trap("[Runtime Error] recursive mutex lock\n");
         }
-        self->state = HEX_TASK_PARKED;
+        self->wake_result = 0;
+        self->pending_park = self;
+        atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
         self->wait_next = mutex->wait_list;
         mutex->wait_list = self;
         mtx_unlock(&mutex->mutex);
         hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
+        hex_task_resume_commit(self);
+        if (self->wake_result) {
+            return;
+        }
     }
 }
 
+// unlock hands ownership directly to the selected waiter under mutex->mutex,
+// serialized with the wake transition per the common protocol; a waiter
+// consumes that transfer in lock() above rather than re-entering acquisition.
 void hex_mutex_unlock(hex_mutex *mutex) {
     mtx_lock(&mutex->mutex);
     if (mutex->owner != hex_current_task) {
@@ -691,8 +999,8 @@ void hex_mutex_unlock(hex_mutex *mutex) {
     if (waiter != nullptr) {
         mutex->wait_list = waiter->wait_next;
         mutex->owner = waiter;
-        waiter->state = HEX_TASK_READY;
-        hex_ready_push(waiter);
+        waiter->wake_result = 1;
+        hex_task_wake(waiter);
     } else {
         mutex->owner = nullptr;
     }

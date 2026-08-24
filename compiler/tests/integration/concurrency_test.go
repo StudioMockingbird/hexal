@@ -412,6 +412,56 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 	}
 }
 
+// A program combining a Task with a descriptor IO transfer selects the
+// blocking pool end to end: hex_blocking_call wired into io.c's read path,
+// the pool's runtime defined exactly once in concurrency.c, and the
+// current-Task lookup kept private to concurrency.c. A Task-only program
+// compiled the same way selects no pool at all.
+func TestBlockingPoolEndToEnd(t *testing.T) {
+	source := "fun helper(): Int32 do\n" +
+		"    return 1\n" +
+		"end\n" +
+		"fun worker(h: Heap): Int32 | Error do\n" +
+		"    stream: IO := try IO.stdin()\n" +
+		"    buffer: List<Byte> := List<Byte>.new(h)\n" +
+		"    defer buffer.free(h)\n" +
+		"    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n" +
+		"    task: Task<Int32> := try spawn helper()\n" +
+		"    return task.join()\n" +
+		"end\n" +
+		"fun run(): Int32 | Error do\n" +
+		"    h: Heap := Heap.new()\n" +
+		"    return worker(h)\n" +
+		"end\n"
+	result := assertCompiles(t, source)
+	concurrencyC := moduleFile(t, result, "hexal/concurrency.c")
+	ioBody := ioC(t, result)
+	if !strings.Contains(ioBody, "hex_blocking_call(hex_io_read_entry, &job);") {
+		t.Fatalf("hexal/io.c must route the read transfer through hex_blocking_call:\n%s", ioBody)
+	}
+	if strings.Contains(ioBody, "hex_current_task") {
+		t.Fatalf("hexal/io.c must never reference hex_current_task directly:\n%s", ioBody)
+	}
+	for _, fragment := range []string{
+		"static int hex_blocking_worker(void *unused) {",
+		"static void hex_blocking_init(void) {",
+		"void hex_blocking_call(hex_blocking_entry entry, void *context) {",
+	} {
+		if n := strings.Count(concurrencyC, fragment); n != 1 {
+			t.Fatalf("hexal/concurrency.c defines %q %d times, want exactly once:\n%s", fragment, n, concurrencyC)
+		}
+	}
+	if !strings.Contains(concurrencyC, "hex_blocking_init();\n") {
+		t.Fatalf("hex_scheduler_init must start the blocking pool:\n%s", concurrencyC)
+	}
+
+	taskOnly := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n"
+	solo := assertCompiles(t, taskOnly)
+	if strings.Contains(moduleFile(t, solo, "hexal/concurrency.c"), "hex_blocking") {
+		t.Fatalf("a Task-only program must select no blocking pool:\n%s", moduleFile(t, solo, "hexal/concurrency.c"))
+	}
+}
+
 // An atomic-only program emits the Atomic typedefs and helpers with the C23
 // nullptr spelling and no raw fputs.
 func TestAtomicOnlyOutputUsesNullptr(t *testing.T) {

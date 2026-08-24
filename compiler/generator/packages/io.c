@@ -1,5 +1,6 @@
 ﻿#include "hexal/io.h"
-#include <stdckdint.h>
+{{if .Blocking}}#include "hexal/concurrency.h"
+{{end}}#include <stdckdint.h>
 
 #ifdef _WIN32
 
@@ -123,6 +124,69 @@ intptr_t hex_io_stdout_desc(void) {
 // call. A capability mismatch never allocates.
 
 static hex_io_transfer hex_io_read_transfer(hex_io stream, uint8_t *target, size_t request);
+static hex_io_transfer hex_io_write_transfer(hex_io stream, const uint8_t *data, size_t request);
+static hex_io_position hex_io_seek_move(hex_io stream, int64_t offset, int whence);
+static hex_io_status_only hex_io_close_native(hex_io stream);
+static bool hex_io_write_all_native(intptr_t desc, const uint8_t *data, size_t length);
+{{if .Blocking}}
+typedef struct hex_io_read_job {
+    hex_io stream;
+    uint8_t *target;
+    size_t request;
+    hex_io_transfer result;
+} hex_io_read_job;
+
+static void hex_io_read_entry(void *raw) {
+    hex_io_read_job *job = (hex_io_read_job *)raw;
+    job->result = hex_io_read_transfer(job->stream, job->target, job->request);
+}
+
+typedef struct hex_io_write_job {
+    hex_io stream;
+    const uint8_t *data;
+    size_t request;
+    hex_io_transfer result;
+} hex_io_write_job;
+
+static void hex_io_write_entry(void *raw) {
+    hex_io_write_job *job = (hex_io_write_job *)raw;
+    job->result = hex_io_write_transfer(job->stream, job->data, job->request);
+}
+
+typedef struct hex_io_seek_job {
+    hex_io stream;
+    int64_t offset;
+    int whence;
+    hex_io_position result;
+} hex_io_seek_job;
+
+static void hex_io_seek_entry(void *raw) {
+    hex_io_seek_job *job = (hex_io_seek_job *)raw;
+    job->result = hex_io_seek_move(job->stream, job->offset, job->whence);
+}
+
+typedef struct hex_io_close_job {
+    hex_io stream;
+    hex_io_status_only result;
+} hex_io_close_job;
+
+static void hex_io_close_entry(void *raw) {
+    hex_io_close_job *job = (hex_io_close_job *)raw;
+    job->result = hex_io_close_native(job->stream);
+}
+
+typedef struct hex_io_write_all_job {
+    intptr_t desc;
+    const uint8_t *data;
+    size_t length;
+    bool result;
+} hex_io_write_all_job;
+
+static void hex_io_write_all_entry(void *raw) {
+    hex_io_write_all_job *job = (hex_io_write_all_job *)raw;
+    job->result = hex_io_write_all_native(job->desc, job->data, job->length);
+}
+{{end}}
 
 hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
     if ((stream.access & HEX_IO_ACCESS_READ) == 0) {
@@ -137,8 +201,12 @@ hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
         hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
     }
     hex_list_reserve_at_least_UInt8(into, needed);
-    hex_io_transfer transfer = hex_io_read_transfer(stream, into->data + into->length, request);
-    if (transfer.status == HEX_IO_OK) {
+    uint8_t *target = into->data + into->length;
+{{if .Blocking}}    hex_io_read_job job = {.stream = stream, .target = target, .request = request};
+    hex_blocking_call(hex_io_read_entry, &job);
+    hex_io_transfer transfer = job.result;
+{{else}}    hex_io_transfer transfer = hex_io_read_transfer(stream, target, request);
+{{end}}    if (transfer.status == HEX_IO_OK) {
         into->length += transfer.count;
     }
     return transfer;
@@ -163,47 +231,74 @@ hex_io_transfer hex_io_write(hex_io stream, hex_view_UInt8 from) {
         return (hex_io_transfer){.status = HEX_IO_OK, .count = 0};
     }
     size_t request = from.length > HEX_IO_MAX_REQUEST ? HEX_IO_MAX_REQUEST : from.length;
+{{if .Blocking}}    hex_io_write_job job = {.stream = stream, .data = from.data, .request = request};
+    hex_blocking_call(hex_io_write_entry, &job);
+    return job.result;
+{{else}}    return hex_io_write_transfer(stream, from.data, request);
+{{end}}}
+
+static hex_io_transfer hex_io_write_transfer(hex_io stream, const uint8_t *data, size_t request) {
     DWORD moved = 0;
-    if (!WriteFile((HANDLE)stream.desc, from.data, (DWORD)request, &moved, nullptr)) {
+    if (!WriteFile((HANDLE)stream.desc, data, (DWORD)request, &moved, nullptr)) {
         return (hex_io_transfer){.status = HEX_IO_ERROR, .count = 0, .code = (long long)GetLastError()};
     }
     return (hex_io_transfer){.status = HEX_IO_OK, .count = (size_t)moved};
 }
 
-hex_io_position hex_io_seek_start(hex_io stream, uint64_t position) {
+static hex_io_position hex_io_seek_move(hex_io stream, int64_t offset, int whence) {
+    DWORD method;
+    switch (whence) {
+    case 0:
+        method = FILE_BEGIN;
+        break;
+    case 1:
+        method = FILE_CURRENT;
+        break;
+    default:
+        method = FILE_END;
+        break;
+    }
     LARGE_INTEGER target;
-    target.QuadPart = (LONGLONG)position;
+    target.QuadPart = (LONGLONG)offset;
     LARGE_INTEGER moved;
-    if (!SetFilePointerEx((HANDLE)stream.desc, target, &moved, FILE_BEGIN)) {
+    if (!SetFilePointerEx((HANDLE)stream.desc, target, &moved, method)) {
         return (hex_io_position){.status = HEX_IO_ERROR, .code = (long long)GetLastError()};
     }
     return (hex_io_position){.status = HEX_IO_OK, .position = (long long)moved.QuadPart};
 }
+
+hex_io_position hex_io_seek_start(hex_io stream, uint64_t position) {
+{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = (int64_t)position, .whence = 0};
+    hex_blocking_call(hex_io_seek_entry, &job);
+    return job.result;
+{{else}}    return hex_io_seek_move(stream, (int64_t)position, 0);
+{{end}}}
 
 hex_io_position hex_io_seek_current(hex_io stream, int64_t offset) {
-    LARGE_INTEGER target;
-    target.QuadPart = (LONGLONG)offset;
-    LARGE_INTEGER moved;
-    if (!SetFilePointerEx((HANDLE)stream.desc, target, &moved, FILE_CURRENT)) {
-        return (hex_io_position){.status = HEX_IO_ERROR, .code = (long long)GetLastError()};
-    }
-    return (hex_io_position){.status = HEX_IO_OK, .position = (long long)moved.QuadPart};
-}
+{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = 1};
+    hex_blocking_call(hex_io_seek_entry, &job);
+    return job.result;
+{{else}}    return hex_io_seek_move(stream, offset, 1);
+{{end}}}
 
 hex_io_position hex_io_seek_end(hex_io stream, int64_t offset) {
-    LARGE_INTEGER target;
-    target.QuadPart = (LONGLONG)offset;
-    LARGE_INTEGER moved;
-    if (!SetFilePointerEx((HANDLE)stream.desc, target, &moved, FILE_END)) {
-        return (hex_io_position){.status = HEX_IO_ERROR, .code = (long long)GetLastError()};
-    }
-    return (hex_io_position){.status = HEX_IO_OK, .position = (long long)moved.QuadPart};
-}
+{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = 2};
+    hex_blocking_call(hex_io_seek_entry, &job);
+    return job.result;
+{{else}}    return hex_io_seek_move(stream, offset, 2);
+{{end}}}
 
 hex_io_status_only hex_io_close(hex_io stream) {
     if (!stream.owned) {
         hex_runtime_trap("[Runtime Error] close of a borrowed stream\n");
     }
+{{if .Blocking}}    hex_io_close_job job = {.stream = stream};
+    hex_blocking_call(hex_io_close_entry, &job);
+    return job.result;
+{{else}}    return hex_io_close_native(stream);
+{{end}}}
+
+static hex_io_status_only hex_io_close_native(hex_io stream) {
     if (!CloseHandle((HANDLE)stream.desc)) {
         return (hex_io_status_only){.status = HEX_IO_ERROR, .code = (long long)GetLastError()};
     }
@@ -211,6 +306,13 @@ hex_io_status_only hex_io_close(hex_io stream) {
 }
 
 bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
+{{if .Blocking}}    hex_io_write_all_job job = {.desc = desc, .data = data, .length = length};
+    hex_blocking_call(hex_io_write_all_entry, &job);
+    return job.result;
+{{else}}    return hex_io_write_all_native(desc, data, length);
+{{end}}}
+
+static bool hex_io_write_all_native(intptr_t desc, const uint8_t *data, size_t length) {
     size_t written = 0;
     while (written < length) {
         DWORD moved = 0;
@@ -273,11 +375,23 @@ hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
         hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
     }
     hex_list_reserve_at_least_UInt8(into, needed);
-    hex_io_transfer transfer = hex_io_read_transfer(stream, into->data + into->length, request);
-    if (transfer.status == HEX_IO_OK) {
+    uint8_t *target = into->data + into->length;
+{{if .Blocking}}    hex_io_read_job job = {.stream = stream, .target = target, .request = request};
+    hex_blocking_call(hex_io_read_entry, &job);
+    hex_io_transfer transfer = job.result;
+{{else}}    hex_io_transfer transfer = hex_io_read_transfer(stream, target, request);
+{{end}}    if (transfer.status == HEX_IO_OK) {
         into->length += transfer.count;
     }
     return transfer;
+}
+
+static hex_io_transfer hex_io_write_transfer(hex_io stream, const uint8_t *data, size_t request) {
+    ssize_t moved = write((int)stream.desc, data, request);
+    if (moved < 0) {
+        return (hex_io_transfer){.status = HEX_IO_ERROR, .count = 0, .code = (long long)errno};
+    }
+    return (hex_io_transfer){.status = HEX_IO_OK, .count = (size_t)moved};
 }
 
 hex_io_transfer hex_io_write(hex_io stream, hex_view_UInt8 from) {
@@ -288,12 +402,11 @@ hex_io_transfer hex_io_write(hex_io stream, hex_view_UInt8 from) {
         return (hex_io_transfer){.status = HEX_IO_OK, .count = 0};
     }
     size_t request = from.length > HEX_IO_MAX_REQUEST ? HEX_IO_MAX_REQUEST : from.length;
-    ssize_t moved = write((int)stream.desc, from.data, request);
-    if (moved < 0) {
-        return (hex_io_transfer){.status = HEX_IO_ERROR, .count = 0, .code = (long long)errno};
-    }
-    return (hex_io_transfer){.status = HEX_IO_OK, .count = (size_t)moved};
-}
+{{if .Blocking}}    hex_io_write_job job = {.stream = stream, .data = from.data, .request = request};
+    hex_blocking_call(hex_io_write_entry, &job);
+    return job.result;
+{{else}}    return hex_io_write_transfer(stream, from.data, request);
+{{end}}}
 
 static hex_io_position hex_io_seek_move(hex_io stream, int64_t offset, int whence) {
     off_t result = lseek((int)stream.desc, (off_t)offset, whence);
@@ -307,31 +420,47 @@ hex_io_position hex_io_seek_start(hex_io stream, uint64_t position) {
     if (position > (uint64_t)INT64_MAX) {
         return (hex_io_position){.status = HEX_IO_ERROR, .code = (long long)EINVAL};
     }
-    return hex_io_seek_move(stream, (int64_t)position, SEEK_SET);
-}
+{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = (int64_t)position, .whence = SEEK_SET};
+    hex_blocking_call(hex_io_seek_entry, &job);
+    return job.result;
+{{else}}    return hex_io_seek_move(stream, (int64_t)position, SEEK_SET);
+{{end}}}
 
 hex_io_position hex_io_seek_current(hex_io stream, int64_t offset) {
-    return hex_io_seek_move(stream, offset, SEEK_CUR);
-}
+{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = SEEK_CUR};
+    hex_blocking_call(hex_io_seek_entry, &job);
+    return job.result;
+{{else}}    return hex_io_seek_move(stream, offset, SEEK_CUR);
+{{end}}}
 
 hex_io_position hex_io_seek_end(hex_io stream, int64_t offset) {
-    return hex_io_seek_move(stream, offset, SEEK_END);
-}
+{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = SEEK_END};
+    hex_blocking_call(hex_io_seek_entry, &job);
+    return job.result;
+{{else}}    return hex_io_seek_move(stream, offset, SEEK_END);
+{{end}}}
 
-hex_io_status_only hex_io_close(hex_io stream) {
-    if (!stream.owned) {
-        hex_runtime_trap("[Runtime Error] close of a borrowed stream\n");
-    }
-    // A close interrupted by a signal leaves the release state unspecified,
-    // so it is reported as failure and never retried: a retry could close a
-    // reused descriptor.
+// A close interrupted by a signal leaves the release state unspecified, so
+// it is reported as failure and never retried: a retry could close a reused
+// descriptor.
+static hex_io_status_only hex_io_close_native(hex_io stream) {
     if (close((int)stream.desc) != 0) {
         return (hex_io_status_only){.status = HEX_IO_ERROR, .code = (long long)errno};
     }
     return (hex_io_status_only){.status = HEX_IO_OK};
 }
 
-bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
+hex_io_status_only hex_io_close(hex_io stream) {
+    if (!stream.owned) {
+        hex_runtime_trap("[Runtime Error] close of a borrowed stream\n");
+    }
+{{if .Blocking}}    hex_io_close_job job = {.stream = stream};
+    hex_blocking_call(hex_io_close_entry, &job);
+    return job.result;
+{{else}}    return hex_io_close_native(stream);
+{{end}}}
+
+static bool hex_io_write_all_native(intptr_t desc, const uint8_t *data, size_t length) {
     size_t written = 0;
     while (written < length) {
         size_t remaining = length - written;
@@ -351,8 +480,14 @@ bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
     return true;
 }
 
-#endif
+bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
+{{if .Blocking}}    hex_io_write_all_job job = {.desc = desc, .data = data, .length = length};
+    hex_blocking_call(hex_io_write_all_entry, &job);
+    return job.result;
+{{else}}    return hex_io_write_all_native(desc, data, length);
+{{end}}}
 
+#endif
 // The memory backend shares the transfer shapes but never issues a platform
 // call. Self-aliasing rejects before any reserve, copy, cursor movement, or
 // List mutation; every reserve rides the List component's checked helper.
@@ -453,4 +588,3 @@ hex_io_position hex_bytes_seek_from(hex_bytes *stream, uint8_t whence, int64_t o
 hex_bytes hex_bytes_over(hex_list_UInt8 *buffer) {
     return (hex_bytes){.buffer = buffer, .cursor = 0};
 }
-

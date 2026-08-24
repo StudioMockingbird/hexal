@@ -1,13 +1,66 @@
 # RFC 0121: Scheduler-Aware Blocking Pool
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented 2026-08-24. `hexal/concurrency.h` gained
+  `hex_blocking_entry` and `hex_blocking_call`, declared only when the pool is
+  selected. `hexal/concurrency.c` gained the pool itself: a FIFO job queue
+  (`hex_blocking_job{entry, context, next, task}`, stack-allocated per call,
+  linked while the submitting Task's fiber is merely switched away, never
+  destroyed), `hex_blocking_init` (baseline sized to the scheduler's own
+  logical worker count, called once from `hex_scheduler_init` right before
+  its final context switch), `hex_blocking_worker` (pop under the pool mutex,
+  run `entry(context)` and wake the caller with neither mutex held, re-lock to
+  update `busy`/retire when the queue is empty and `total` exceeds
+  `baseline`), and `hex_blocking_call` itself (direct call when
+  `hex_current_task` is null; otherwise builds the job, registers under the
+  same RFC 0122 protocol used by every other wait family — pending-link
+  write, then release-stored `parking`, then FIFO append, all under the pool
+  mutex — reserves a growth slot before unlocking when demand exceeds
+  capacity, creates the overflow worker outside the mutex, rolls the
+  reservation back on `thrd_create` failure, then switches to the scheduler
+  and resumes through `hex_task_resume_commit`). Selection is demand-driven
+  (`blockingSelected`: the scheduler runtime combined with a reachable
+  `IO.read`/`write`/`seek`/`close` or print's descriptor write-all sink) and
+  computed once per program in `concurrency_component.go`, threaded into both
+  `concurrencyHeaderModelFrom`/`concurrencySourceModelFrom` and
+  `io_component.go`'s new `ioSourceModel`. `hexal/io.c` was restructured so
+  each of read/write/seek/close/write-all has exactly one private synchronous
+  core per platform (POSIX's three seek functions and Windows's were already
+  or newly unified into one `hex_io_seek_move`), with each public frontend
+  routing through `hex_blocking_call` when the pool is selected and calling
+  its core directly otherwise; the typed job/entry pairs for all five
+  operations are defined once, after the platform split, shared by both
+  frontends. `print` needed no changes at all: it was confirmed (by grep) to
+  call only `hex_io_write_all`, so making that one core task-aware made print
+  task-aware transparently. Two defects were caught and fixed before closure:
+  a Go-template whitespace bug where bare-line `{{if .Blocking}}`/`{{end}}`
+  boundaries left stray blank lines in generated output even when the pool
+  was not selected, spuriously moving Task-only/Channel-only/Mutex-only
+  snippet manifest entries (fixed by gluing the tags directly against
+  adjacent code with zero intervening bare newlines at all three insertion
+  points); and a POSIX define-before-use ordering bug where the newly
+  extracted `hex_io_close_native`/`hex_io_write_all_native` cores were placed
+  after their public wrappers (POSIX has no forward declarations, unlike the
+  Windows side), fixed by reordering. Verified textually: the demand-selection
+  matrix (IO alone, print alone, Task alone, Atomic beside IO, and Bytes
+  beside Task all select no pool; Task combined with IO or with print each
+  select exactly one), `hex_current_task` staying private to
+  `hexal/concurrency.c` and never referenced from `hexal/io.c`, the pending
+  registration order, and that the rebuilt snippet-manifest diff touches only
+  `hexal/concurrency.c`/`.h` (the 15 Task/Channel/Mutex snippets, from RFC
+  0122) and `hexal/io.c` (the 8 IO/print snippets, from this RFC's native-core
+  extraction) with no other artifact family moving. Runtime behavior of the
+  pool itself (overflow growth and retirement under real concurrent demand,
+  thread-creation-failure fallback, no-double-publish on an
+  immediately-completing call, and so on) is recorded as a coverage gap in
+  `docs/status.md`, consistent with this project's C-invoking-test
+  restriction.
 - Created: 2026-08-24
 - Updated: 2026-08-24
 - Scope: prevent synchronous native operations from blocking scheduler workers
-  and make every Task park/wake transition lost-wakeup-safe
 - Depends on: the implemented M:N Task runtime, implemented RFC 0108
-  (synchronous descriptor IO), and `docs/reference.md`
+  (synchronous descriptor IO), RFC 0122 (safe Task parking and reclamation),
+  and `docs/reference.md`
 - Coordinates with: RFC 0039 (foreign calls), RFC 0055 (runnable generated-C
   validation), and RFC 0118 (concurrency safety)
 - Supersedes: discarded RFC 0091's unresolved implementation directions
@@ -47,13 +100,9 @@ run them on a separate blocking pool. This preserves the C-like IO
 model while separating scheduler workers from threads whose job is explicitly
 to block.
 
-The current scheduler also publishes Tasks too early. `Task.yield()` pushes
-itself to the ready queue before switching out. Channel and Mutex waits publish
-the Task on a wait list before switching out, and another worker may wake it in
-that interval. Task join additionally reads completion and installs its joiner
-without synchronization. These paths can run one fiber concurrently on two OS
-threads or lose a join wake. The blocking path must not add a fifth parking
-protocol while leaving those four defects intact.
+RFC 0122 supplies the scheduler-owned lost-wakeup-safe parking protocol used by
+yield, join, Channel, and Mutex. This RFC adds blocking jobs as another user; it
+does not alter or duplicate that state machine.
 
 ## Decision
 
@@ -89,11 +138,13 @@ On submission:
 1. Append the job under the blocking mutex.
 2. Determine whether existing idle or already-reserved starting capacity can
    service every queued job.
-3. If not, reserve exactly one additional worker slot before releasing the
-   mutex and create one detached overflow worker.
+3. If not, reserve exactly one additional worker slot, release the blocking
+   mutex, and only then create one detached overflow worker. Thread creation
+   never occurs while the blocking mutex is held.
 4. Thread-creation failure removes that reservation, leaves the job in FIFO
-   order, and signals the baseline workers. It adds no Error or trap; the job
-   runs when existing blocking capacity becomes available.
+   order, and signals the baseline workers after reacquiring the mutex. It adds
+   no Error or trap; the job runs when existing blocking capacity becomes
+   available.
 5. Signal the condition variable and enter the common parking protocol.
 
 Concurrent submissions serialize this calculation under the blocking mutex,
@@ -106,6 +157,10 @@ its removal from the count under the mutex before exiting. A submission racing
 with retirement either sees that worker as available or sees the decremented
 count and creates a replacement. Overflow workers require no idle timeout,
 timer, or retirement manager.
+
+The reserved slot counts as live capacity before `thrd_create`. Successful
+creation therefore requires no second count increment; failure reacquires the
+blocking mutex and cancels that exact reservation.
 
 The pool may temporarily approach one native thread per outstanding blocking
 operation. Growth is nevertheless bounded by live Tasks because a Task can
@@ -147,6 +202,9 @@ foreign entry before a future attach contract exists, and runtime initialization
 before scheduler entry.
 
 The fallback is never used from a running Hexal Task when the pool is selected.
+The current-Task test lives inside `hex_blocking_call`; `hex_current_task`
+remains private to `concurrency.c` and is not declared in `concurrency.h`.
+Combined `io.c` calls `hex_blocking_call` without inspecting scheduler TLS.
 
 ## Source-language contract
 
@@ -214,10 +272,8 @@ are fixed:
   to the context. It does not call Hexal, yield, acquire a Hexal Mutex, or access
   the scheduler directly.
 
-Each `hex_task` gains one nullable pending-park link and one C23 atomic park
-phase. The link identifies the live wait/job state for dispatcher fast-path and
-cleanup purposes; it carries no mutex identity. Every dispatcher and waker
-coordinates the phase through that one atomic.
+The job registers through RFC 0122's existing pending-park link and C23 atomic
+park phase. This RFC adds no second Task state machine or wait-source identity.
 
 ### Queue
 
@@ -234,96 +290,13 @@ coordinates the phase through that one atomic.
 - Queue length is bounded by live Tasks; it needs no separate allocation or
   capacity policy.
 
-### One lost-wakeup-safe parking protocol
+### Parking dependency
 
-Every operation that suspends a Task uses one scheduler-owned park/commit/wake
-protocol. Its users are `Task.yield()`, Task join, Channel send/receive, Mutex
-lock, and blocking jobs. Do not retain independent check-then-switch sequences.
-
-A wake may occur immediately. It must be safe before or after the fiber
-switches back to its scheduler. Use these logical values in the Task's C23
-atomic park phase:
-
-```text
-running   Task is executing and has no pending park
-parking   Task registered its wait but its fiber has not committed its switch
-parked    worker dispatcher has regained control from the fiber
-notified  wake arrived before the dispatcher committed the park
-ready     Task is published exactly once after it is no longer executing
-```
-
-Required common handshake:
-
-1. Under the wait source's synchronization, the Task records `parking` and
-   registers its wait. Channel and Mutex use their existing mutexes; join gains
-   synchronization around target completion and joiner registration; a
-   blocking job uses the blocking-queue mutex.
-2. The Task releases that source synchronization and switches to its scheduler
-   context. It never publishes itself to the ready queue.
-3. The worker dispatcher sees the Task's non-null pending-park link after the
-   switch. It uses compare-exchange to commit `parking` to `parked`.
-4. A waker uses compare-exchange to change `parking` to `notified` without
-   publishing the Task, or `parked` to `ready` followed by exactly one
-   ready-queue publication.
-5. A dispatcher that observes `notified` changes it to `ready` and publishes
-   exactly once. Otherwise it leaves the Task parked.
-6. The reactivated Task clears its pending-park state before returning to user
-   code.
-
-The waker's successful phase transition is a release operation. Dispatcher and
-resumed-Task observations are acquire operations. A pool worker writes the job
-result before its release transition; the resumed Task acquires that result
-before reading it. Ready-queue mutex synchronization remains present but is not
-the protocol's unstated visibility mechanism.
-
-`Task.yield()` is the degenerate case: it has no wait source. The running Task
-sets its pending link, records itself as already `notified`, and switches. The
-dispatcher alone changes it to `ready` and publishes it after the switch.
-
-Each Task control block has one lifecycle mutex protecting its completion
-state, joiner slot, and join/detach terminal claim. Join holds the target's
-lifecycle mutex while checking completion, recording its own `parking` phase,
-and installing itself as joiner. No unsynchronized `state`/`joiner`
-check-then-switch sequence remains. Spawn initializes this mutex before
-publishing the Task; release destroys it after the fiber is reclaimable.
-
-Private implementation states may differ, but a check-then-switch sequence that
-can enqueue a still-running fiber is forbidden.
-
-Each wait source's mutex, when required, precedes its atomic wake transition and
-any ready-queue push. No path acquires a wait-source mutex while holding the
-ready-queue mutex. The dispatcher never acquires a foreign wait-source mutex.
-
-The dispatcher checks the pending-park link first. An ordinary switch-back with
-no pending park performs no park-phase compare-exchange and acquires no parking
-or blocking mutex.
-
-### Completion and join reclamation
-
-Task completion is a two-step scheduler transition:
-
-1. On its fiber, the Task records `completing` under its lifecycle mutex and
-   switches to its dispatcher. It does not publish a joiner and is not yet
-   reclaimable.
-2. After the switch returns, the dispatcher records `done`, extracts the
-   registered joiner and terminal disposition, then releases the lifecycle
-   mutex. It wakes the extracted joiner only after unlocking and performs no
-   later access to the completed Task. A detached Task is reclaimed by that
-   dispatcher after unlocking; a joined Task is reclaimable by its resumed
-   joiner.
-
-A join arriving during `completing` registers and parks. A join observing
-`done` may return and reclaim because the completed fiber is no longer running.
-No joiner can destroy a fiber stack while its completion switch still uses it
-or destroy a lifecycle mutex still held by the dispatcher.
-
-### Mutex handoff
-
-Unlock retains direct ownership transfer to one waiter under the Mutex's
-internal mutex. The wake record marks that ownership was transferred. After
-resumption, that waiter returns successfully from `lock()` instead of
-re-entering acquisition and treating its transferred ownership as a recursive
-lock. A fresh lock attempt by the current owner still traps as recursive.
+Blocking submission and completion use RFC 0122's common park/commit/wake
+protocol. Registration occurs under the blocking mutex. The pool worker is the
+job's unique waker and applies RFC 0122's release transition only after writing
+the typed context result. The resumed Task acquires that result before reading
+it. No pool-specific parking phase, ready-queue path, or reclamation rule exists.
 
 ## Native operation lowering
 
@@ -372,7 +345,8 @@ enter the pool.
 - Add a `Blocking` demand fact to the program-wide concurrency render model.
 - Add a scheduler-aware flag to the IO render model.
 - `concurrency.h` declares the internal blocking entrypoint only when selected.
-- `concurrency.c` emits the pool and handshake only when selected.
+- `concurrency.c` emits the pool only when selected; RFC 0122's parking support
+  remains owned by scheduler demand.
 - `io.c` includes `concurrency.h` only in the combined variant.
 - Each native operation has one synchronous private implementation shared by
   direct and task-aware frontends. Do not keep two native-call bodies merely to
@@ -387,9 +361,6 @@ enter the pool.
 ## Failure behavior
 
 - Baseline pool initialization failure traps before user code.
-- Lifecycle-mutex initialization failure follows the existing owner: root
-  initialization traps; spawned Task creation fails through its existing Error
-  path without publishing a partial Task.
 - Submission allocates nothing and adds no recoverable Error path.
 - Native failures retain existing Error or trap behavior.
 - Queued work parks Tasks; it is not an Error. Unmet blocking demand creates an
@@ -407,25 +378,19 @@ enter the pool.
 - Readiness polling, IOCP dispatch, `epoll`, `kqueue`, `poll`, or `io_uring`.
 - Async syntax, futures, promises, callbacks, executors, or an explicit IO
   context parameter.
-- Timeouts, cancellation, priorities, work stealing, or configurable pool size.
+- Timeouts, cancellation, asynchronous fiber interruption, priorities, work
+  stealing, or configurable pool size.
 - Making concurrent IO aliases safe; RFC 0118 owns rejection of provable
   unsynchronized buffer mutation.
 - Scheduler integration for arbitrary foreign calls before RFC 0039.
-- Timer or sleep parking. A later RFC may reuse the common parking protocol.
+- Timer or sleep parking. A later RFC may reuse RFC 0122's common protocol.
 
 ## Required sweep
 
 - Route every selected native IO transfer and print write-all path through the
   task-aware internal frontend; no running-Task path may bypass it.
-- Replace the early-publication and unsynchronized-join sequences in yield,
-  join, Channel, and Mutex with the common park/commit/wake protocol.
-- Add the Task's atomic park phase and nullable pending-park link to the shared
-  runtime declaration; the resulting layout change affects every Task program
-  and is expected manifest movement.
-- Replace completion-side early joiner publication with dispatcher-finalized
-  `completing` to `done` transition, so join cannot reclaim a live fiber stack.
-- Preserve direct Mutex ownership handoff while making the resumed owner return
-  successfully instead of re-entering the recursive-lock check.
+- Use RFC 0122's common protocol without adding a pool-specific phase, pending
+  link, ready-queue path, or lifecycle rule.
 - Keep capability checks, zero-length fast paths, List growth, Bytes operations,
   and union adaptation outside the pool.
 - Keep runtime C in `compiler/generator/packages/*.c` and `*.h`, not Go strings.
@@ -437,19 +402,30 @@ enter the pool.
 
 ## Implementation plan
 
+### Implementation map
+
+| Area | Required work |
+|---|---|
+| `compiler/generator/concurrency_component.go` | Derive `Blocking` only from scheduler demand combined with selected native IO/print demand; carry baseline worker and blocking render facts. |
+| `compiler/generator/packages/concurrency.h` | Conditionally declare the private `hex_blocking_entry`, stack-job frontend, and no public ABI. |
+| `compiler/generator/packages/concurrency.c` | Add FIFO state, mutex/condition lifecycle, baseline creation, overflow reservation/creation/retirement, direct fallback, stack-job submission, and RFC 0122 wake integration. |
+| `compiler/generator/io_component.go` | Carry the scheduler-aware IO render flag and select the conditional concurrency dependency. |
+| `compiler/generator/packages/io.c` | Extract one synchronous private native core per operation and add typed stack contexts/frontends for read, write, seek, and close. |
+| `compiler/generator/print_component.go` and package templates | Route the complete descriptor write-all core through the same task-aware mechanism without moving formatting into the pool. |
+| component tests | Assert the complete demand matrix, one pool owner, exact includes/declarations, no duplicate native bodies, and deterministic output. |
+| `compiler/tests/integration/io_test.go` and `print_test.go` | Compile direct and Task-combined cases and assert submission boundaries, result adaptation, retries, and pool absence/presence. |
+| snippet manifest | Use RFC 0122 output as baseline; accept movement only for IO/print extraction and Task-combined pool selection. |
+
 ### Phase 0: baseline and inventory
 
 1. Record the green test/vet baseline and snippet manifest.
 2. Record artifacts for IO-only, print-only, Task-only, Atomic-plus-IO,
-   Bytes-plus-Task, Task-plus-IO, and Task-plus-print programs.
+   Bytes-plus-Task, Task-plus-IO, and Task-plus-print programs after RFC 0122's
+   manifest migration has landed.
 3. Inventory every direct native read, write, seek, close, `ReadFile`,
    `WriteFile`, and print write-all call in package templates.
 4. Confirm worker count, ready-queue locking, context-switch return points, and
    component-selection facts against the current tree.
-5. Record the current early-ready publication in yield, Channel, and Mutex; the
-   unsynchronized completion/joiner sequence; completion-side early joiner
-   publication before the fiber switch finishes; and Mutex handoff re-entering
-   the recursive-lock trap as defects being removed, not behavior preserved.
 
 ### Phase 1: demand discovery
 
@@ -462,26 +438,15 @@ enter the pool.
 ### Phase 2: blocking runtime core
 
 1. Add conditional declarations to `packages/concurrency.h`.
-2. Replace yield, join, Channel, and Mutex suspension with the common
-   park/commit/wake protocol before adding blocking jobs as its fifth user.
-3. Add the Task atomic park phase and pending link; implement acquire/release
-   compare-exchange transitions without a park mutex or wait-source identity in
-   the pending link.
-4. Add and lifecycle-manage the per-Task lifecycle mutex. Use it for completion
-   state, joiner registration, and join/detach terminal claims; finalize
-   completion in the dispatcher before waking a joiner or permitting
-   reclamation.
-5. Preserve Mutex handoff with an explicit resumed-with-ownership result.
-6. Add queue, blocking workers, stack jobs, and direct fallback to
+2. Add queue, blocking workers, stack jobs, and direct fallback to
    `packages/concurrency.c`.
-7. Initialize the baseline logical-worker count of blocking threads; add the
+3. Initialize the baseline logical-worker count of blocking threads; add the
    mutex-protected demand calculation, overflow reservation/creation, and
    queue-empty overflow retirement rule.
-8. Hook the worker dispatcher immediately after a Task switches back. It first
-   checks the pending-park link and touches no parking mutex when that link is
-   null.
-9. Add text tests for FIFO behavior, lock order, no allocation, direct fallback,
-   state transitions, and one ready push in every wake ordering and wait family.
+4. Register blocking jobs and publish their completion only through RFC 0122's
+   existing common parking operations.
+5. Add text tests for FIFO behavior, lock order, no allocation, direct fallback,
+   result visibility, and exactly one ready publication per completed job.
 
 ### Phase 3: IO integration
 
@@ -491,7 +456,9 @@ enter the pool.
    changes rather than duplicating implementations.
 3. Add typed stack contexts for read, write, seek, and close.
 4. Preserve validation and result handling on the Task.
-5. Assert every selected native path uses `hex_blocking_call` and no Bytes path
+5. Keep scheduler TLS private: combined IO calls `hex_blocking_call`, whose
+   implementation owns the direct-fallback test.
+6. Assert every selected native path uses `hex_blocking_call` and no Bytes path
    does.
 
 ### Phase 4: print integration
@@ -504,9 +471,9 @@ enter the pool.
 ### Phase 5: conformance and canonical docs
 
 1. Implement every textual validation item below and no additional behavior.
-2. Rebuild the snippet manifest once. Accept only concurrency artifacts changed
-   by the parking correction and IO/print artifacts changed by the single-core
-   extraction or task-aware path.
+2. Rebuild the snippet manifest once. RFC 0122's concurrency migration is the
+   baseline; accept only IO/print and combined Task-plus-IO/print artifacts
+   changed by the pool, single-core extraction, or task-aware path.
 3. Update `docs/reference.md` once behavior stabilizes.
 4. Add the runtime-only cases below to `docs/status.md` known coverage gaps
    until RFC 0055 can execute them.
@@ -532,6 +499,9 @@ This section is exhaustive.
 - Baseline pool size reuses scheduler logical worker count with minimum one.
 - Generated submission code reserves one overflow slot only when queued jobs
   exceed idle plus already-reserved starting capacity.
+- Overflow reservation occurs under the blocking mutex; `thrd_create` occurs
+  after unlocking, and its failure path reacquires the mutex before cancelling
+  the reservation and signalling workers.
 - Generated code reads and changes worker, busy, starting, and queued counts
   only under the blocking mutex; it contains no hard-cap constant or `Project`
   setting.
@@ -543,28 +513,14 @@ This section is exhaustive.
 - The queue is FIFO and protected by one mutex/condition pair.
 - Native entries execute with neither the blocking-queue mutex nor the
   ready-queue mutex held.
-- Completion-before-commit and commit-before-completion each contain exactly
-  one ready-queue publication.
-- No path publishes a parking Task from the submitting fiber.
-- `hex_task` contains one C23 atomic park phase and one nullable pending-park
-  link. Dispatcher and waker transitions use acquire/release compare-exchange;
-  no park mutex or wait-source-mutex pointer is emitted.
-- Yield, join, Channel send/receive, Mutex lock, and blocking jobs all use the
-  common park/commit/wake protocol; none publishes a Task before its fiber has
-  switched out.
-- Each Task lifecycle mutex is initialized before publication, protects
-  completion state, joiner registration, and join/detach terminal claims, and
-  is destroyed only after the fiber is reclaimable.
-- Completion changes through `completing`; only the dispatcher records `done`,
-  extracts terminal state after switch-back, unlocks the lifecycle mutex, and
-  then either wakes the joiner as its final target-related action or reclaims a
-  detached Task.
-- Mutex handoff records transferred ownership and the resumed waiter returns
-  successfully without re-entering the recursive-lock rejection path.
-- Dispatcher switch-back checks a nullable pending-park link before performing
-  any park-phase compare-exchange and never acquires wait-source
-  synchronization.
+- Blocking jobs use RFC 0122's existing pending link and atomic park phase; no
+  second phase, park mutex, wait-source pointer, or ready-queue path is emitted.
+- Completion-before-commit and commit-before-completion of a blocking job each
+  contain exactly one ready-queue publication, and submission never publishes
+  its still-running Task.
 - A task-aware frontend falls back directly when `hex_current_task` is null.
+- `hex_current_task` remains private to `concurrency.c`; `io.c` neither declares
+  nor reads it.
 - Capability failures and zero-length operations submit no job.
 - IO read reserves on the Task, performs only native transfer in the pool, and
   updates length after wake.
@@ -574,9 +530,9 @@ This section is exhaustive.
   private synchronous entry used by the direct or task-aware frontend.
 - No source signature, checked expression, result union, Error message, helper
   family, or public header changes beyond the internal concurrency declaration.
-- Unaffected manifest entries remain byte-identical; changed entries are
-  limited to concurrency programs affected by corrected parking and IO/print
-  programs affected by native-core extraction or task-aware lowering.
+- Unaffected manifest entries, including Task-only, Channel-only, and Mutex-only
+  entries already migrated by RFC 0122, remain byte-identical. Changed entries
+  are limited to IO/print native-core extraction and task-aware lowering.
 - Repeated compilation produces byte-identical artifacts.
 - Ordinary tests remain pure Go.
 - `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass.
@@ -596,13 +552,8 @@ These are required semantics but ordinary tests cannot execute generated C:
   racing with retirement neither loses a job nor omits replacement capacity.
 - Overflow creation failure leaves the job queued; an existing worker executes
   it after capacity becomes available.
-- Immediate completion cannot republish a still-running fiber.
-- Completion before and after park commit each wake exactly once.
-- Immediate yield, join completion, Channel wake, and Mutex wake cannot
-  republish a still-running fiber or lose a wake.
-- A contended Mutex transfers ownership without trapping the selected waiter.
-- A join cannot reclaim a completed Task's fiber until that fiber has switched
-  back to its dispatcher.
+- Immediate job completion cannot republish a still-running fiber; completion
+  before and after park commit each wake exactly once through RFC 0122.
 - Results written by a pool thread are visible after wake.
 - Baseline pool initialization failure traps before user code.
 - Root completion terminates with blocked detached jobs under the existing
@@ -632,6 +583,4 @@ After implementation stabilizes, update `docs/reference.md` to state:
 - a blocking operation does not satisfy the explicit `Task.yield()` rule.
 
 Remove the superseded statement that descriptor operations may block a
-scheduler worker. Verify that the corrected yield, join, Channel, and Mutex
-implementations already satisfy their existing reference contracts; they add
-no new language rule. No canonical documentation changes before implementation.
+scheduler worker. No canonical documentation changes before implementation.

@@ -368,3 +368,248 @@ func TestConcurrencyOverflowTrapReachesRuntime(t *testing.T) {
 		t.Fatalf("hexal.h must not own the handler message: %s", files["hexal.h"])
 	}
 }
+
+// hex_task carries exactly one atomic park phase, one nullable pending link,
+// and one lifecycle mutex; no superseded state or wake_error field remains,
+// and wake_result is the one generalized payload byte shared by Channel
+// close and Mutex ownership transfer.
+func TestConcurrencyTaskLayoutOwnsParkingAndLifecycleFieldsOnce(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	files := generateOne(t, program)
+	header := files["hexal/concurrency.h"]
+	for _, want := range []string{
+		"_Atomic(uint8_t) park_phase;",
+		"void *pending_park;",
+		"mtx_t lifecycle_mutex;",
+		"uint8_t wake_result;",
+	} {
+		if strings.Count(header, want) != 1 {
+			t.Fatalf("hexal/concurrency.h defines %q %d times, want exactly once: %q", want, strings.Count(header, want), header)
+		}
+	}
+	for _, forbidden := range []string{"uint8_t state;", "wake_error", "HEX_TASK_READY", "HEX_TASK_RUNNING", "HEX_TASK_PARKED", "HEX_TASK_DONE"} {
+		if strings.Contains(header, forbidden) || strings.Contains(files["hexal/concurrency.c"], forbidden) {
+			t.Fatalf("concurrency artifacts retain the superseded field or constant %q", forbidden)
+		}
+	}
+}
+
+// The common park/commit/wake transition helpers exist exactly once each:
+// no wait family duplicates the protocol with its own local variant.
+func TestConcurrencyNoDuplicateParkWakeProtocol(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	files := generateOne(t, program)
+	source := files["hexal/concurrency.c"]
+	for _, fragment := range []string{
+		"static void hex_task_wake(hex_task *waiter) {",
+		"static void hex_task_commit_park(hex_task *task) {",
+		"static void hex_task_resume_commit(hex_task *self) {",
+	} {
+		if strings.Count(source, fragment) != 1 {
+			t.Fatalf("hexal/concurrency.c defines %q %d times, want exactly once:\n%s", fragment, strings.Count(source, fragment), source)
+		}
+	}
+}
+
+// Every wait-family registration writes its pending link before
+// release-storing parking, matching the required ordering under the wait
+// source's own mutex. Each occurrence of the parking store is checked
+// against the nearest preceding pending-link write, independent of exact
+// indentation.
+func TestConcurrencyPendingLinkPrecedesParkingPhaseStore(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    ch: Channel<Int32> := try Channel<Int32>.new(h, 4)\n    m: Mutex := try Mutex.new(h)\n    task: Task<Bool> := try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n")
+	files := generateOne(t, program)
+	source := files["hexal/concurrency.c"]
+	const parkingStore = "atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);"
+	count := strings.Count(source, parkingStore)
+	if count == 0 {
+		t.Fatalf("hexal/concurrency.c has no parking-phase store to check:\n%s", source)
+	}
+	searchFrom := 0
+	for i := 0; i < count; i++ {
+		storeIndex := strings.Index(source[searchFrom:], parkingStore) + searchFrom
+		linkIndex := strings.LastIndex(source[:storeIndex], "pending_park = ")
+		if linkIndex < 0 {
+			t.Fatalf("parking-phase store at byte %d has no preceding pending-link write:\n%s", storeIndex, source)
+		}
+		searchFrom = storeIndex + len(parkingStore)
+	}
+}
+
+// A Mutex waiter resumed from unlock's direct ownership transfer returns
+// from lock() immediately instead of re-entering acquisition, which is what
+// would incorrectly trap transferred ownership as a recursive lock.
+func TestConcurrencyMutexHandoffReturnsWithoutReenteringAcquisition(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    m: Mutex := try Mutex.new(h)\n    m.lock()\n    m.unlock()\n    defer m.free(h)\n    return 0\nend\n")
+	files := generateOne(t, program)
+	source := files["hexal/concurrency.c"]
+	if !strings.Contains(source, "hex_task_resume_commit(self);\n        if (self->wake_result) {\n            return;\n        }\n    }\n}") {
+		t.Fatalf("hex_mutex_lock must return directly on a transferred wake_result rather than re-entering acquisition:\n%s", source)
+	}
+	if !strings.Contains(source, "waiter->wake_result = 1;\n        hex_task_wake(waiter);") {
+		t.Fatalf("hex_mutex_unlock must mark transferred ownership before waking its selected waiter:\n%s", source)
+	}
+}
+
+// The blocking pool selects only for one combination: the scheduler runtime
+// (Task, Channel, or Mutex) reaching a native descriptor transfer
+// (IO.read/write/seek/close) or print's descriptor write-all sink. Every
+// other combination (IO alone, print alone, Task alone, Atomic beside IO, or
+// Bytes beside Task) selects no pool at all.
+func TestConcurrencyBlockingSelectionMatrix(t *testing.T) {
+	spawnJoin := "fun square(value: Int32): Int32 do\n    return value * value\nend\n"
+	for _, testCase := range []struct {
+		name     string
+		source   string
+		blocking bool
+	}{
+		{
+			"io only",
+			"fun run(): Nil | Error do\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
+			false,
+		},
+		{
+			"print only",
+			"fun demo() do\n    print(42)\nend\n",
+			false,
+		},
+		{
+			"task only",
+			spawnJoin + "fun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			false,
+		},
+		{
+			"atomic plus io",
+			"fun run(): Nil | Error do\n    counter: Atomic<Int32> := Atomic<Int32>.new(0)\n    counter.store(1)\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
+			false,
+		},
+		{
+			"bytes plus task",
+			spawnJoin + "fun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    data: List<Byte> := List<Byte>.new(h)\n    defer data.free(h)\n    dst: List<Byte> := List<Byte>.new(h)\n    defer dst.free(h)\n    mut live: Bytes := Bytes.over(data)\n    r: Size | EoS | Error := live.read(dst, 4)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			false,
+		},
+		{
+			"task plus io",
+			spawnJoin + "fun run(): Int32 | Error do\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			true,
+		},
+		{
+			"task plus print",
+			spawnJoin + "fun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    v: Int32 := task.join()\n    print(v)\n    return 0\nend\n",
+			true,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			program := checkedGeneratorSource(t, testCase.source)
+			files := generateOne(t, program)
+			combined := files["hexal/concurrency.h"] + files["hexal/concurrency.c"] + files["hexal/io.c"]
+			count := strings.Count(combined, "hex_blocking")
+			if testCase.blocking {
+				if count == 0 {
+					t.Fatalf("%s: want the blocking pool selected, found no hex_blocking text", testCase.name)
+				}
+				if n := strings.Count(files["hexal/concurrency.c"], "static int hex_blocking_worker(void *unused) {"); n != 1 {
+					t.Fatalf("%s: hex_blocking_worker defined %d times, want exactly once:\n%s", testCase.name, n, files["hexal/concurrency.c"])
+				}
+				if n := strings.Count(files["hexal/concurrency.c"], "static void hex_blocking_init(void) {"); n != 1 {
+					t.Fatalf("%s: hex_blocking_init defined %d times, want exactly once:\n%s", testCase.name, n, files["hexal/concurrency.c"])
+				}
+				if !strings.Contains(files["hexal/concurrency.c"], "hex_current_task") {
+					t.Fatalf("%s: hex_blocking_call must read hex_current_task in hexal/concurrency.c", testCase.name)
+				}
+				if strings.Contains(files["hexal/io.c"], "hex_current_task") {
+					t.Fatalf("%s: hexal/io.c must never reference hex_current_task directly, only hexal/concurrency.c may:\n%s", testCase.name, files["hexal/io.c"])
+				}
+			} else if count != 0 {
+				t.Fatalf("%s: want no blocking pool, found %d hex_blocking occurrences across concurrency.h/.c and io.c", testCase.name, count)
+			}
+		})
+	}
+}
+
+// Pooled IO frontends must see complete job types and entry definitions before
+// their first use. Generated C is checked as text because ordinary tests do
+// not invoke an external C compiler.
+func TestBlockingIODeclarationsPrecedeFrontendUses(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    stream: IO := try IO.stdin()\n    buffer: List<Byte> := List<Byte>.new(h)\n    defer buffer.free(h)\n    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	ioSource := generateOne(t, program)["hexal/io.c"]
+	for _, operation := range []string{"read", "write", "seek", "close", "write_all"} {
+		definition := strings.Index(ioSource, "typedef struct hex_io_"+operation+"_job")
+		use := strings.Index(ioSource, "hex_io_"+operation+"_job job")
+		if definition < 0 || use < 0 || definition >= use {
+			t.Fatalf("hex_io_%s_job definition must precede its frontend use: definition=%d use=%d", operation, definition, use)
+		}
+		entryDefinition := strings.Index(ioSource, "static void hex_io_"+operation+"_entry(void *raw)")
+		entryUse := strings.Index(ioSource, "hex_blocking_call(hex_io_"+operation+"_entry, &job);")
+		if entryDefinition < 0 || entryUse < 0 || entryDefinition >= entryUse {
+			t.Fatalf("hex_io_%s_entry definition must precede its frontend use: definition=%d use=%d", operation, entryDefinition, entryUse)
+		}
+	}
+}
+
+// Completion snapshots every target disposition while it still owns the
+// lifecycle mutex. Waking a joiner is the final target access because the
+// joiner may reclaim the target immediately after publication.
+func TestConcurrencyCompletionPublishesOnlyAfterDispositionSnapshot(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	source := generateOne(t, program)["hexal/concurrency.c"]
+	snapshot := strings.Index(source, "bool root = (task->flags & HEX_TASK_ROOT) != 0;")
+	detached := strings.Index(source, "bool detached = task->terminal_claim == HEX_TASK_CLAIM_DETACH;")
+	unlock := strings.Index(source[snapshot:], "mtx_unlock(&task->lifecycle_mutex);") + snapshot
+	wake := strings.Index(source[unlock:], "hex_task_wake(joiner);") + unlock
+	if snapshot < 0 || detached < snapshot || unlock < detached || wake < unlock {
+		t.Fatalf("completion must snapshot disposition under the lifecycle mutex before waking the joiner:\n%s", source)
+	}
+	workerEnd := strings.Index(source[wake:], "\nstatic int hex_worker_thread")
+	if workerEnd < 0 {
+		t.Fatalf("could not isolate the completion dispatcher:\n%s", source)
+	}
+	afterWake := source[wake : wake+workerEnd]
+	if strings.Contains(afterWake, "task->") {
+		t.Fatalf("completion accesses the target after waking its joiner:\n%s", afterWake)
+	}
+}
+
+// Join and detach claim the one terminal ownership slot before either can
+// arrange reclamation; the generated runtime contains both claim checks.
+func TestConcurrencyTerminalClaimProtectsJoinAndDetach(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    task.detach()\n    return 0\nend\n")
+	files := generateOne(t, program)
+	header := files["hexal/concurrency.h"]
+	source := files["hexal/concurrency.c"]
+	if strings.Count(header, "uint8_t terminal_claim;") != 1 {
+		t.Fatalf("hex_task must own one terminal claim field:\n%s", header)
+	}
+	for _, fragment := range []string{
+		"#define HEX_TASK_CLAIM_NONE 0",
+		"#define HEX_TASK_CLAIM_JOIN 1",
+		"#define HEX_TASK_CLAIM_DETACH 2",
+		"if (task->terminal_claim != HEX_TASK_CLAIM_NONE)",
+		"task->terminal_claim = HEX_TASK_CLAIM_JOIN;",
+		"task->terminal_claim = HEX_TASK_CLAIM_DETACH;",
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Fatalf("concurrency runtime lacks terminal-claim fragment %q:\n%s", fragment, source)
+		}
+	}
+}
+
+// Resume and dispatcher commit must perform the specified phase transitions;
+// an unexpected phase is a runtime defect, not an implicit ready publication.
+func TestConcurrencyParkPhaseTransitionsFailClosed(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun worker(): Bool do\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> := try spawn worker()\n    task.join()\n    return 0\nend\n")
+	source := generateOne(t, program)["hexal/concurrency.c"]
+	if strings.Contains(source, "atomic_store_explicit(&self->park_phase, HEX_PARK_RUNNING") {
+		t.Fatalf("resume must transition ready to running with compare-exchange:\n%s", source)
+	}
+	for _, fragment := range []string{
+		"atomic_compare_exchange_strong_explicit(&self->park_phase, &expected, HEX_PARK_RUNNING",
+		"invalid Task park phase during resume",
+		"invalid Task park phase during commit",
+		"Task park phase changed during commit",
+	} {
+		if !strings.Contains(source, fragment) {
+			t.Fatalf("concurrency runtime lacks fail-closed phase fragment %q:\n%s", fragment, source)
+		}
+	}
+}

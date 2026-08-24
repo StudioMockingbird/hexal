@@ -985,7 +985,9 @@ Task.yield() -> no value
 - `join()` waits, copies the exact result, and reclaims storage. `detach()` discards result and
   arranges reclamation. Exactly one successful join or detach is allowed across aliases.
 - Scheduler-owned stacks/control/queues need no allocator. `Task.yield()` is the explicit scheduling
-  point in one cooperative M:N scheduler over C23 worker threads.
+  point in one cooperative M:N scheduler over C23 worker threads. A native operation that parks its
+  caller on the blocking pool (see IO) does not satisfy this explicit-yield rule; a `while true` loop
+  containing only such an operation still requires its own `Task.yield()`.
 - Targets are Windows x64 and POSIX x86-64 with verified C23 `<threads.h>`; otherwise Task features
   produce Unsupported Error. Root is pinned to worker zero; root return does not join tasks. Stacks
   reserve 1 MiB by default with an 8 KiB initial commit, both `Project` build-time settings; the
@@ -1113,7 +1115,14 @@ type Seek as | Start(Size) | Current(Int64) | End(Int64) end
   Both are rejected in object members, ADT payloads, collections, Channels, and heap allocation,
   recursively through aggregates.
 - Concurrent use of one stream requires external synchronization; no cross-task ordering or
-  compound-write atomicity is promised. Descriptor operations may block their OS worker.
+  compound-write atomicity is promised. A synchronous native transfer invoked by a running Task
+  parks that Task and runs on a program-wide blocking pool instead of blocking a scheduler worker;
+  the pool starts at the scheduler's logical worker count, grows when queued work exceeds available
+  capacity, and retires idle overflow workers afterward, with no hard ceiling — a failed overflow
+  worker creation leaves the operation queued for existing workers rather than raising an Error or
+  trap. A queued operation is a parked Task, not a blocked one. A call made outside any Task runs
+  directly, with no pool involved. Bytes never uses the pool, since its transfers are pure memory
+  operations. Source-visible semantics and failures for IO and print are unchanged either way.
 - Failures carry a bounded ASCII Strand header `IO <operation> errno=<code>` (POSIX) or
   `winerr=<code>` (Windows), zero-filled with one NUL, plus a static message such as `read failed`
   or `stream is not writable`; no Heap is required on a failure path. Native codes are diagnostic

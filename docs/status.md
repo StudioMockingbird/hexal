@@ -15,7 +15,6 @@ other.
 
 | Work | Spec |
 |---|---|
-| Arena and Pool allocators; Default-Heap runtime collapse — direct checked `malloc`/`free` decision (RFC 0069 audit finding) | [0027](specs/0027-arena-and-pool-allocators.md) |
 
 ### Design decisions required
 
@@ -34,7 +33,7 @@ other.
 
 | Work | Spec |
 |---|---|
-| Scheduler-aware blocking — demand-grown native-operation pool and safe Task parking | [0121](specs/0121-scheduler-aware-blocking.md) |
+| Arena and Pool allocators; Heap-only library boundary and stateless checked-`calloc` default Heap | [0027](specs/0027-arena-and-pool-allocators.md) |
 
 ### Design settled; implementation blocked
 
@@ -45,7 +44,6 @@ other.
 
 | Bug | Owning spec |
 |---|---|
-| Task parking can publish a running fiber; join can lose a wake or reclaim a completing fiber; contended Mutex handoff traps its selected waiter | [0121](specs/0121-scheduler-aware-blocking.md) |
 
 ## Unowned
 
@@ -132,3 +130,48 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   Demand-driven helper emission would remove the dead code. (The old C23
   harness that tolerated `unused-*` warnings is retained but has no entry
   point.)
+- **The redesigned Task park/commit/wake protocol is unverified at runtime**,
+  for the same reason as every other generated-C claim: no test executes
+  generated C. What is verified textually (exact generated-C structure,
+  asserted in `compiler/generator/concurrency_component_test.go`): `hex_task`
+  carries exactly one atomic park phase, one nullable pending link, and one
+  lifecycle mutex with no superseded `state`/`wake_error` field; the three
+  transition helpers (`hex_task_wake`, `hex_task_commit_park`,
+  `hex_task_resume_commit`) are defined exactly once each; every wait-family
+  registration writes its pending link before its release phase store; and a
+  Mutex waiter's generated code returns directly on a transferred
+  `wake_result` instead of re-entering acquisition. Unverified at runtime:
+  immediate yield, join completion, Channel wake, and Mutex wake never run
+  one fiber on two workers and never lose a wake; completion before and
+  after dispatcher park commit each publish exactly once; Channel close
+  wakes every registered waiter exactly once, including waiters whose fiber
+  switches are not yet committed; a resumed Channel operation can recheck
+  and re-park without stale-waker ABA; a contended Mutex transfers ownership
+  without trapping its selected waiter; a join cannot reclaim the target
+  fiber before its completion switch returns to the dispatcher; and join
+  during `completing`, join after `done`, detach completion, and root
+  shutdown each use their defined destruction owner.
+- **The scheduler-aware blocking pool is unverified at runtime**, for the same
+  reason as every other generated-C claim: no test executes generated C. What
+  is verified textually (asserted in
+  `compiler/generator/concurrency_component_test.go` and
+  `compiler/tests/integration/concurrency_test.go`): the pool selects only
+  when the scheduler runtime reaches a native descriptor transfer
+  (`IO.read`/`write`/`seek`/`close`) or print's descriptor write-all sink,
+  and selects for no other combination (IO alone, print alone, Task alone,
+  Atomic beside IO, Bytes beside Task); `hex_blocking_worker`,
+  `hex_blocking_init`, and `hex_blocking_call` are defined exactly once;
+  `hex_blocking_call` submits under the required pending-link-then-parking-
+  store-then-registration order; `hex_current_task` stays private to
+  `hexal/concurrency.c` and is never read from `hexal/io.c`; and the platform
+  IO cores are extracted once and shared by both the direct and pooled call
+  paths. Unverified at runtime: N workers concurrently blocked on N native
+  operations make progress; overflow growth and later retirement behave
+  correctly under sustained and bursty demand; a `thrd_create` failure during
+  growth truly falls back to existing workers rather than stalling the job;
+  an immediately-completing native call does not double-publish its waiter's
+  wake; the caller observes its job's result only after its own resume,
+  never a stale or torn value; a baseline pool that fails to start traps
+  before any user code runs; and root shutdown with detached Tasks still
+  blocked on a native call reclaims correctly rather than leaking or racing
+  the pool's own worker threads.
