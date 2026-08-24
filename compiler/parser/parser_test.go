@@ -1044,58 +1044,22 @@ func TestParseAnonymousFunctionLiteralDiagnostics(t *testing.T) {
 	}
 }
 
-func TestParseLocalFunctionDeclaration(t *testing.T) {
-	item := parseOneItem(t, "fun outer() do\nfun inner(value: Int32) : Int32 do\nreturn value\nend\nreturn inner(1)\nend")
-	outer := item.(FunctionDeclaration)
-	if len(outer.Body) != 2 {
-		t.Fatalf("outer body length = %d, want 2", len(outer.Body))
-	}
-	local, ok := outer.Body[0].(LocalFunctionDeclaration)
-	if !ok {
-		t.Fatalf("outer body[0] = %#v, want LocalFunctionDeclaration", outer.Body[0])
-	}
-	if local.Name.Lexeme != "inner" {
-		t.Fatalf("local function name = %q, want inner", local.Name.Lexeme)
-	}
-	if len(local.Parameters) != 1 || local.Parameters[0].Name.Lexeme != "value" {
-		t.Fatalf("local function parameters = %#v, want one parameter named value", local.Parameters)
-	}
-	if _, ok := outer.Body[1].(ReturnStatement); !ok {
-		t.Fatalf("outer body[1] = %#v, want ReturnStatement calling inner", outer.Body[1])
-	}
-}
-
-func TestParseLocalFunctionDeclarationIsAStatement(t *testing.T) {
-	var item TopLevelItem = LocalFunctionDeclaration{}
-	if _, ok := item.(Statement); !ok {
-		t.Fatal("LocalFunctionDeclaration must implement Statement, unlike the module-level FunctionDeclaration")
-	}
-}
-
-func TestParseGenericLocalFunctionDeclaration(t *testing.T) {
-	item := parseOneItem(t, "fun outer() do\nfun identity<T>(value: T) : T do\nreturn value\nend\nend")
-	outer := item.(FunctionDeclaration)
-	local := outer.Body[0].(LocalFunctionDeclaration)
-	if len(local.TypeParameters) != 1 || local.TypeParameters[0].Lexeme != "T" {
-		t.Fatalf("type parameters = %#v, want [T]", local.TypeParameters)
-	}
-}
-
-func TestParseBareReturnThenLocalFunctionOnNextLine(t *testing.T) {
-	// A bare `return` on its own line must not treat a following local
-	// function declaration as an attempted, wrongly-placed return value:
-	// `fun` is value-only exactly when it begins an anonymous literal, which
-	// a next-line `fun identifier` never does.
-	item := parseOneItem(t, "fun outer() do\nreturn\nfun inner() do\nend\nend")
-	outer := item.(FunctionDeclaration)
-	if len(outer.Body) != 2 {
-		t.Fatalf("body length = %d, want 2", len(outer.Body))
-	}
-	if _, ok := outer.Body[0].(ReturnStatement); !ok {
-		t.Fatalf("body[0] = %#v, want ReturnStatement", outer.Body[0])
-	}
-	if _, ok := outer.Body[1].(LocalFunctionDeclaration); !ok {
-		t.Fatalf("body[1] = %#v, want LocalFunctionDeclaration", outer.Body[1])
+// A named function declaration is rejected at statement position, inside a
+// function body, with the exact diagnostic naming module scope. A bare
+// `return` on its own line must not confuse this rejection with an
+// attempted, wrongly-placed return value: `fun` is value-only exactly when
+// it begins an anonymous literal, which a next-line `fun identifier` never
+// does, so both forms report the same diagnostic.
+func TestParseLocalFunctionDeclarationIsRejected(t *testing.T) {
+	for _, source := range []string{
+		"fun outer() do\nfun inner(value: Int32) : Int32 do\nreturn value\nend\nreturn inner(1)\nend",
+		"fun outer() do\nfun identity<T>(value: T) : T do\nreturn value\nend\nend",
+		"fun outer() do\nreturn\nfun inner() do\nend\nend",
+	} {
+		message := parseError(t, source)
+		if !strings.Contains(message, "named function declarations are only valid at module scope") {
+			t.Fatalf("parseError(%q) = %q, want the module-scope-only diagnostic", source, message)
+		}
 	}
 }
 
@@ -1299,7 +1263,7 @@ func TestParseFunctionDiagnostics(t *testing.T) {
 		{"fun adder(left: Int32) do\nreturn left", "expected end to close function adder"},
 		{"fun adder(left)\nend", "function parameters require type annotations"},
 		{"mut fun adder()\nend", "mut cannot modify a function declaration; declare a mut Fun binding"},
-		{"fun outer() do\nfun inner()\nend\nend", "expected 'do' after function signature"},
+		{"fun inner()\nend", "expected 'do' after function signature"},
 		{"fun outer() do\nimpl Point.m()\nend\nend", "impl declarations are module-level only"},
 	} {
 		message := parseError(t, testCase.source)

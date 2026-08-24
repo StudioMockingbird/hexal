@@ -22,11 +22,12 @@ func directPointerBinding(source Operand, target compilerTypes.Type) BindingID {
 	return source.Node.Binding
 }
 
-func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, names *scope) (TypeDeclaration, compilerTypes.Diagnostics) {
+func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *compilerTypes.Environment, names *scope, itemIndex int, functionIndexByName map[string]int) (TypeDeclaration, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	name := declaration.Name.Lexeme
 	previousType, hadPreviousType := typeEnvironment.Lookup(name)
 	previousUse, hadPreviousUse := typeEnvironment.LookupUse(name)
+	functionIndex, declaredAsFunction := functionIndexByName[name]
 	if compilerTypes.IsProtectedTypeName(name) {
 		message := "built-in type " + name + " cannot be redeclared"
 		if name == "Ptr" || name == "MutPtr" {
@@ -35,7 +36,7 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, typeEnvironment *c
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, message))
 	} else if typeEnvironment.Contains(name) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type "+name+" is already declared"))
-	} else if names.declaredHere(name) {
+	} else if names.declaredHere(name) || (declaredAsFunction && functionIndex < itemIndex) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type "+name+" is already declared as a value"))
 	}
 
@@ -225,6 +226,61 @@ func containsTypeName(expression parser.TypeExpression, name string) bool {
 	}
 }
 
+// firstTypeNameDeclaredAtOrAfter walks a written type expression looking for
+// a named reference to a type whose own declaration is at or after
+// itemIndex, returning that name's token. A root declaration's own type
+// annotation is checked against this before resolution, since root
+// declarations keep their pre-existing source-order restriction even though
+// function signatures and bodies gained forward visibility into every module
+// type. itemIndex negative means unrestricted (nested declarations, which do
+// share that forward visibility), and always reports no match.
+func firstTypeNameDeclaredAtOrAfter(expression parser.TypeExpression, itemIndex int, typeIndexByName map[string]int) (lexer.Token, bool) {
+	if itemIndex < 0 {
+		return lexer.Token{}, false
+	}
+	tooLate := func(name lexer.Token) bool {
+		declaredIndex, ok := typeIndexByName[name.Lexeme]
+		return ok && declaredIndex >= itemIndex
+	}
+	switch expression := expression.(type) {
+	case parser.NamedTypeExpression:
+		if tooLate(expression.Name) {
+			return expression.Name, true
+		}
+	case parser.GenericTypeExpression:
+		if tooLate(expression.Name) {
+			return expression.Name, true
+		}
+		for _, argument := range expression.Arguments {
+			if token, found := firstTypeNameDeclaredAtOrAfter(argument, itemIndex, typeIndexByName); found {
+				return token, true
+			}
+		}
+	case parser.PtrTypeExpression:
+		return firstTypeNameDeclaredAtOrAfter(expression.Element, itemIndex, typeIndexByName)
+	case parser.ArrayTypeExpression:
+		return firstTypeNameDeclaredAtOrAfter(expression.Element, itemIndex, typeIndexByName)
+	case parser.UnionTypeExpression:
+		for _, member := range expression.Members {
+			if token, found := firstTypeNameDeclaredAtOrAfter(member, itemIndex, typeIndexByName); found {
+				return token, true
+			}
+		}
+	case parser.GroupedTypeExpression:
+		return firstTypeNameDeclaredAtOrAfter(expression.Inner, itemIndex, typeIndexByName)
+	case parser.FunctionTypeExpression:
+		for _, parameter := range expression.Parameters {
+			if token, found := firstTypeNameDeclaredAtOrAfter(parameter, itemIndex, typeIndexByName); found {
+				return token, true
+			}
+		}
+		if expression.Return != nil {
+			return firstTypeNameDeclaredAtOrAfter(expression.Return, itemIndex, typeIndexByName)
+		}
+	}
+	return lexer.Token{}, false
+}
+
 // registerGenericTypeDeclaration validates and stores one generic type or
 // alias declaration as an open template. The target is not resolved yet:
 // parameters are placeholders until a concrete specialization is requested.
@@ -268,18 +324,22 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, typeEnvi
 	return nil
 }
 
-func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironment *compilerTypes.Environment) (Declaration, binding, compilerTypes.Diagnostics) {
+func checkDeclaration(declaration parser.Declaration, names *scope, typeEnvironment *compilerTypes.Environment, itemIndex int, typeIndexByName map[string]int) (Declaration, binding, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	// A declaration without a type expression takes its type from the
 	// initializer below.
 	var declaredUse compilerTypes.TypeUse
 	if declaration.Type != nil {
-		resolved, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, names.generics)
-		declaredUse = resolved
-		if typeDiagnostic != nil {
-			diagnostics = append(diagnostics, *typeDiagnostic)
-		} else if diagnostic := valueTypeDiagnostic(declaration.Type, declaration.Name, resolved.Type); diagnostic != nil {
-			diagnostics = append(diagnostics, *diagnostic)
+		if token, tooLate := firstTypeNameDeclaredAtOrAfter(declaration.Type, itemIndex, typeIndexByName); tooLate {
+			diagnostics = append(diagnostics, typeErrorAt(token, "unknown type "+token.Lexeme))
+		} else {
+			resolved, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, names.generics)
+			declaredUse = resolved
+			if typeDiagnostic != nil {
+				diagnostics = append(diagnostics, *typeDiagnostic)
+			} else if diagnostic := valueTypeDiagnostic(declaration.Type, declaration.Name, resolved.Type); diagnostic != nil {
+				diagnostics = append(diagnostics, *diagnostic)
+			}
 		}
 	}
 	declaredType := declaredUse.Type

@@ -67,11 +67,13 @@ func checkAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, c
 }
 
 // openGenericLiteral builds an ephemeral open template for a generic
-// anonymous function literal. It follows the same active-enclosing-name and
-// compiler-owned-identity rules as a local named generic function
-// (registerLocalGenericFunction); the difference is that nothing binds the
-// result to a name, because a bare literal is never itself an open-template
-// binding - only one immediate specialization of it is ever checked.
+// anonymous function literal, checking its type parameters against every
+// name already active in an enclosing generic function or method so a
+// nested redeclaration is rejected rather than silently shadowing, and
+// assigning it a compiler-owned identity so two literals in disjoint scopes
+// never share a generated symbol. Nothing binds the result to a name,
+// because a bare literal is never itself an open-template binding - only
+// one immediate specialization of it is ever checked.
 func openGenericLiteral(expression parser.AnonymousFunctionLiteral, names *scope, typeEnvironment *compilerTypes.Environment) (*openGenericFunction, compilerTypes.Diagnostics) {
 	diagnostics := validateGenericParameters(expression.TypeParameters)
 	for _, parameter := range expression.TypeParameters {

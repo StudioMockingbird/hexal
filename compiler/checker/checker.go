@@ -362,7 +362,124 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			items = append(items, statement)
 		}
 	}
-	for _, item := range items {
+
+	// functionIndexByName records each module-level function's earliest
+	// source position before pass 1 runs, so a type declaration processed in
+	// pass 1 can tell whether a same-named function is actually earlier in
+	// source, even though functions are not otherwise collected until pass
+	// 2. Without this, a function appearing before a colliding type would
+	// wrongly have the type register successfully (function-collection has
+	// not happened yet) and then blame the function's own, earlier
+	// declaration once pass 2 reaches it, backwards from the rule that the
+	// later declaration always owns the diagnostic.
+	functionIndexByName := make(map[string]int)
+	for index, item := range items {
+		var name string
+		switch statement := item.(type) {
+		case parser.FunctionDeclaration:
+			name = statement.Name.Lexeme
+		case parser.Declaration:
+			if _, isSugar := directFunctionLiteralSugar(statement); isSugar {
+				name = statement.Name.Lexeme
+			}
+		}
+		if name == "" {
+			continue
+		}
+		if _, exists := functionIndexByName[name]; !exists {
+			functionIndexByName[name] = index
+		}
+	}
+
+	// typeIndexByName records each type declaration's source position as
+	// pass 1 reaches it, so pass 3 can tell a root declaration whether its
+	// own type annotation names a type declared later: root declarations
+	// keep the pre-existing restriction against that, even though pass 1
+	// fully populating typeEnvironment ahead of pass 3 would otherwise make
+	// every type look available regardless of position.
+	typeIndexByName := make(map[string]int)
+
+	// Pass 1: imports, then type declarations, in source order. Imports are
+	// always a contiguous prefix (enforced by the parser), so every one is
+	// always reached before any type here. Type declarations retain their
+	// own existing source-order resolution rules; only function and method
+	// visibility becomes order-independent below.
+	for index, item := range items {
+		switch statement := item.(type) {
+		case parser.ImportDeclaration:
+			// The target is the graph's resolved edge, recorded in the
+			// registry: the checker reads resolution, it never repeats it.
+			target, ok := registry.importTarget(moduleID, statement.Alias.Lexeme)
+			if !ok {
+				// A resolved graph always publishes every edge's target; a
+				// missing entry is an internal inconsistency, so it fails
+				// closed instead of binding an empty module id.
+				diagnostics = append(diagnostics, unknownAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" has no resolved module target"))
+				continue
+			}
+			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
+				diagnostics = append(diagnostics, nameErrorAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" conflicts with an existing name"))
+			}
+		case parser.TypeDeclaration:
+			if _, exists := typeIndexByName[statement.Name.Lexeme]; !exists {
+				typeIndexByName[statement.Name.Lexeme] = index
+			}
+			checkedDeclaration, statementDiagnostics := checkTypeDeclaration(statement, typeEnvironment, environment, index, functionIndexByName)
+			diagnostics = append(diagnostics, statementDiagnostics...)
+			// A generic declaration is registered as an open template and
+			// carries no canonical type of its own, so it is not an alias.
+			if len(statementDiagnostics) == 0 && checkedDeclaration.Type.Name != "" {
+				typeEnvironment.DeclareAliasUse(statement.Name.Lexeme, checkedDeclaration.TypeUse)
+				checked.TypeDeclarations = append(checked.TypeDeclarations, checkedDeclaration)
+			}
+		}
+	}
+
+	// Pass 2: collect every module-level function and method signature from
+	// the completed type environment, before any body or root executable
+	// statement is checked. This is what makes a forward call and mutual
+	// recursion between module-level functions and methods resolve: every
+	// signature bound here is visible to every body pass 3 checks, in
+	// either source-order direction. rootValueNames tracks each root
+	// value's name, in source order, as this pass reaches it, even though
+	// root values are not otherwise touched until pass 3: it is what keeps
+	// a function-vs-root-value name collision attributed to whichever
+	// declaration is actually later in source, regardless of which pass
+	// reaches it first.
+	collectedFunctions := make(map[int]functionSignature, len(items))
+	collectedMethods := make(map[int]MethodDeclaration, len(items))
+	rootValueNames := make(map[string]bool)
+	for index, item := range items {
+		switch statement := item.(type) {
+		case parser.Declaration:
+			if literal, isSugar := directFunctionLiteralSugar(statement); isSugar {
+				signature, statementDiagnostics := collectFunctionSignature(asFunctionDeclaration(statement.Name, literal), environment, typeEnvironment, rootValueNames)
+				diagnostics = append(diagnostics, statementDiagnostics...)
+				if len(statementDiagnostics) == 0 && signature.functionType != (compilerTypes.Type{}) {
+					collectedFunctions[index] = signature
+				}
+				continue
+			}
+			rootValueNames[statement.Name.Lexeme] = true
+		case parser.FunctionDeclaration:
+			signature, statementDiagnostics := collectFunctionSignature(statement, environment, typeEnvironment, rootValueNames)
+			diagnostics = append(diagnostics, statementDiagnostics...)
+			if len(statementDiagnostics) == 0 && signature.functionType != (compilerTypes.Type{}) {
+				collectedFunctions[index] = signature
+			}
+		case parser.ImplDeclaration:
+			methodChecked, statementDiagnostics := collectMethodSignature(statement, environment, typeEnvironment)
+			diagnostics = append(diagnostics, statementDiagnostics...)
+			if len(statementDiagnostics) == 0 && methodChecked.Object != nil {
+				collectedMethods[index] = methodChecked
+			}
+		}
+	}
+
+	// Pass 3: check every function and method body against the complete
+	// signature set pass 2 collected, and every root executable statement
+	// in source order, exactly as before order-independent visibility.
+	for index, item := range items {
 		// Only the entrypoint module executes statements; an imported
 		// module's top level is declarations only. The offending statement is
 		// skipped entirely, never partially checked.
@@ -373,29 +490,29 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			}
 		}
 		switch statement := item.(type) {
-		case parser.TypeDeclaration:
-			checkedDeclaration, statementDiagnostics := checkTypeDeclaration(statement, typeEnvironment, environment)
-			diagnostics = append(diagnostics, statementDiagnostics...)
-			// A generic declaration is registered as an open template and
-			// carries no canonical type of its own, so it is not an alias.
-			if len(statementDiagnostics) == 0 && checkedDeclaration.Type.Name != "" {
-				typeEnvironment.DeclareAliasUse(statement.Name.Lexeme, checkedDeclaration.TypeUse)
-				checked.TypeDeclarations = append(checked.TypeDeclarations, checkedDeclaration)
-			}
+		case parser.TypeDeclaration, parser.ImportDeclaration:
+			// Already fully handled in pass 1.
 		case parser.Declaration:
 			if literal, isSugar := directFunctionLiteralSugar(statement); isSugar {
 				// A direct inferred fixed literal declaration is checked as
 				// the equivalent named function declaration; it is
 				// declaration sugar, not runtime data, and emits no
-				// initializer statement or function-pointer object.
-				checkedStatement, statementDiagnostics := checkFunctionDeclaration(asFunctionDeclaration(statement.Name, literal), environment, typeEnvironment, !literal.HasSyntaxErrors)
+				// initializer statement or function-pointer object. A
+				// missing collected signature means either a generic
+				// template (checked lazily at specialization, nothing more
+				// to do here) or a pass-2 failure already diagnosed.
+				signature, collected := collectedFunctions[index]
+				if !collected {
+					continue
+				}
+				checkedStatement, statementDiagnostics := checkFunctionBody(asFunctionDeclaration(statement.Name, literal), signature, environment, typeEnvironment, !literal.HasSyntaxErrors)
 				diagnostics = append(diagnostics, statementDiagnostics...)
-				if len(statementDiagnostics) == 0 && checkedStatement.Type != (compilerTypes.Type{}) {
+				if len(statementDiagnostics) == 0 {
 					checked.Statements = append(checked.Statements, checkedStatement)
 				}
 				continue
 			}
-			checkedStatement, declaredBinding, statementDiagnostics := checkDeclaration(statement, environment, typeEnvironment)
+			checkedStatement, declaredBinding, statementDiagnostics := checkDeclaration(statement, environment, typeEnvironment, index, typeIndexByName)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
 				environment.define(statement.Name.Lexeme, declaredBinding)
@@ -408,14 +525,17 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.FunctionDeclaration:
-			// The signature is bound inside checkFunctionDeclaration, before the
-			// body is checked, so self-recursion resolves and a later call
-			// cannot see this declaration early.
-			checkedStatement, statementDiagnostics := checkFunctionDeclaration(statement, environment, typeEnvironment, !statement.HasSyntaxErrors)
+			// A missing collected signature means either a generic
+			// template (checked lazily at specialization) or a pass-2
+			// failure already diagnosed; either way there is no body to
+			// check here.
+			signature, collected := collectedFunctions[index]
+			if !collected {
+				continue
+			}
+			checkedStatement, statementDiagnostics := checkFunctionBody(statement, signature, environment, typeEnvironment, !statement.HasSyntaxErrors)
 			diagnostics = append(diagnostics, statementDiagnostics...)
-			// A generic declaration is an open template with no concrete
-			// function of its own and emits nothing.
-			if len(statementDiagnostics) == 0 && checkedStatement.Type != (compilerTypes.Type{}) {
+			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.CallExpression:
@@ -484,33 +604,18 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			_, statementDiagnostics := checkErrdeferStatement(statement, environment, typeEnvironment)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 		case parser.ImplDeclaration:
-			// Like a function, the method is bound before its body is checked,
-			// so it sees itself and nothing declared after it.
-			checkedStatement, statementDiagnostics := checkImplDeclaration(statement, environment, typeEnvironment, !statement.HasSyntaxErrors)
-			diagnostics = append(diagnostics, statementDiagnostics...)
-			// A generic method is an open template with no concrete method of
-			// its own and emits nothing.
-			if len(statementDiagnostics) == 0 && checkedStatement.Object != nil {
-				checked.Statements = append(checked.Statements, checkedStatement)
-			}
-		case parser.ImportDeclaration:
-			// The parser ends the import prefix at the first non-import item,
-			// so a misplaced import is a confined Syntax Error before the
-			// checker runs. The alias is a fixed module identity, not a
-			// value; name lookup skips it and qualified resolution reaches
-			// the target module's names instead.
-			// The target is the graph's resolved edge, recorded in the
-			// registry: the checker reads resolution, it never repeats it.
-			target, ok := registry.importTarget(moduleID, statement.Alias.Lexeme)
-			if !ok {
-				// A resolved graph always publishes every edge's target; a
-				// missing entry is an internal inconsistency, so it fails
-				// closed instead of binding an empty module id.
-				diagnostics = append(diagnostics, unknownAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" has no resolved module target"))
+			// A missing collected declaration means either a generic
+			// template (checked lazily at specialization) or a pass-2
+			// failure already diagnosed; either way there is no body to
+			// check here.
+			methodChecked, collected := collectedMethods[index]
+			if !collected {
 				continue
 			}
-			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
-				diagnostics = append(diagnostics, nameErrorAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" conflicts with an existing name"))
+			checkedStatement, statementDiagnostics := checkMethodBody(statement, methodChecked, environment, typeEnvironment, !statement.HasSyntaxErrors)
+			diagnostics = append(diagnostics, statementDiagnostics...)
+			if len(statementDiagnostics) == 0 {
+				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		default:
 			// Exhaustive over parser.TopLevelItem today; a new item form

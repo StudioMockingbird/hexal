@@ -71,14 +71,13 @@ type openGenericType struct {
 
 // openGenericFunction is one generic function declaration kept as an open
 // template. Its body is re-checked under a concrete frame at specialization.
-// A module-level template is identified by Name alone, exactly as before
-// local generic declarations existed: one module has one name per
-// declaration, so no collision is possible. Local is true for a local named
-// function or a direct inferred fixed literal, where identity instead
-// carries the compiler-owned template identity: two local generics can
-// legitimately reuse a name in disjoint scopes, and the module-wide type
-// environment and specialization tables key on strings, so templateKey is
-// what actually distinguishes them.
+// A module-level template is identified by Name alone: one module has one
+// name per declaration, so no collision is possible. Local is true for a
+// generic anonymous function literal (openGenericLiteral), where identity
+// instead carries the compiler-owned template identity: two literals can
+// legitimately reuse the same synthesized name in disjoint scopes, and the
+// module-wide type environment and specialization tables key on strings, so
+// templateKey is what actually distinguishes them.
 type openGenericFunction struct {
 	Name        string
 	Parameters  []lexer.Token
@@ -169,11 +168,11 @@ func parameterFrame(parameters []lexer.Token, arguments []compilerTypes.Type) ma
 }
 
 // mergedFrame combines an enclosing generic frame with a nested template's
-// own, so a local generic function or literal specializing inside an
-// already-specializing generic function or method can still resolve the
-// enclosing type parameter. The active-name check at registration already
-// rejects a nested declaration that redeclares an enclosing name, so no
-// entry in inner ever legitimately overwrites one in outer.
+// own, so a generic literal specializing inside an already-specializing
+// generic function or method can still resolve the enclosing type
+// parameter. The active-name check at registration already rejects a
+// nested declaration that redeclares an enclosing name, so no entry in
+// inner ever legitimately overwrites one in outer.
 func mergedFrame(outer, inner map[string]compilerTypes.Type) map[string]compilerTypes.Type {
 	if len(outer) == 0 {
 		return inner
@@ -345,43 +344,6 @@ func registerGenericFunction(declaration parser.FunctionDeclaration, names *scop
 	names.generics.functions[name] = open
 	names.module[name] = binding{typ: compilerTypes.Type{}, use: compilerTypes.NewTypeUse(compilerTypes.Type{}), kind: genericFunctionBinding, genericFunction: open}
 	return nil
-}
-
-// registerLocalGenericFunction validates and stores one local named generic
-// function or direct inferred fixed generic literal declaration as an open
-// template scoped to the current lexical block, then binds its name so a
-// call from that block resolves. Unlike a module template it is never
-// published for export - export prefixes only the module-level named form -
-// and its own type-parameter names are additionally checked against every
-// name already active in an enclosing generic function, method, local
-// function, or literal, so a nested redeclaration is rejected rather than
-// silently shadowing.
-func registerLocalGenericFunction(name lexer.Token, typeParameters []lexer.Token, synthesized parser.FunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment) (*openGenericFunction, compilerTypes.Diagnostics) {
-	diagnostics := validateGenericParameters(typeParameters)
-	for _, parameter := range typeParameters {
-		if _, active := names.generics.frame[parameter.Lexeme]; active {
-			diagnostics = append(diagnostics, typeErrorAt(parameter, "generic parameter "+parameter.Lexeme+" is already declared by an enclosing function"))
-		}
-	}
-	if len(diagnostics) > 0 {
-		return nil, diagnostics
-	}
-	identity := names.newBindingID()
-	open := &openGenericFunction{
-		Name:        name.Lexeme,
-		Parameters:  append([]lexer.Token(nil), typeParameters...),
-		Declaration: synthesized,
-		local:       true,
-		identity:    identity,
-	}
-	generic := typeEnvironment.DeclareGeneric(open.templateKey(), len(typeParameters), parameterNamesOf(typeParameters))
-	if generic == nil {
-		diagnostic := unknownAt(name, "could not declare the generic template for "+name.Lexeme)
-		return nil, compilerTypes.Diagnostics{diagnostic}
-	}
-	open.Generic = generic
-	names.define(name.Lexeme, binding{typ: compilerTypes.Type{}, use: compilerTypes.NewTypeUse(compilerTypes.Type{}), kind: genericFunctionBinding, genericFunction: open})
-	return open, nil
 }
 
 // isGenericReceiver reports whether an impl receiver is a generic type use

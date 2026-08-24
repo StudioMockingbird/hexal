@@ -2015,6 +2015,7 @@ func TestGenerateFunctionDefinition(t *testing.T) {
 	program := checker.Program{Statements: []checker.Statement{identityDeclaration(fun, &result)}}
 
 	want := "#include \"modules/app.h\"\n\n" +
+		"static int32_t hex_f_m3_app_identity(int32_t);\n\n" +
 		"static int32_t hex_f_m3_app_identity(const int32_t hex_v_x) {\n" +
 		"    return hex_v_x;\n" +
 		"}\n\n" +

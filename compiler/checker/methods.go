@@ -184,11 +184,17 @@ func nonCallableMemberDiagnostic(token lexer.Token, member *compilerTypes.Object
 	return typeErrorAt(token, fmt.Sprintf("member %s is not callable; its type is %s", member.Name, member.Type.Name))
 }
 
-// checkImplDeclaration follows the same single-pass order as a function:
-// resolve the target and the signature, register the method, then check the
-// body. Registering first is what makes self-recursion resolve while keeping a
-// later method invisible.
-func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, typeEnvironment *compilerTypes.Environment, analyzeReturns bool) (MethodDeclaration, compilerTypes.Diagnostics) {
+// collectMethodSignature resolves a method's receiver and signature and
+// registers it in names.methods before any module-level body is checked:
+// this is what lets a forward or mutually recursive method or function call
+// resolve, since every method this pass registers is visible to every body
+// checkMethodBody later checks, in either source-order direction. The
+// returned MethodDeclaration carries every collected field except
+// SelfBinding, Body, and Defers, which checkMethodBody fills in. A generic
+// method is registered as an open template by registerGenericMethod before
+// any receiver resolution and returns a zero declaration; its body is
+// checked only lazily at specialization time.
+func collectMethodSignature(declaration parser.ImplDeclaration, names *scope, typeEnvironment *compilerTypes.Environment) (MethodDeclaration, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	checked := MethodDeclaration{
 		Name:         name,
@@ -201,19 +207,19 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 	// A generic method is registered as an open template before any receiver
 	// resolution: the receiver names the generic owner's parameters.
 	if len(declaration.TypeParameters) > 0 || isGenericReceiver(declaration.SelfType) {
-		return checked, registerGenericMethod(declaration, names, typeEnvironment)
+		return MethodDeclaration{}, registerGenericMethod(declaration, names, typeEnvironment)
 	}
 
 	targetUse, targetDiagnostic := resolveTypeUse(declaration.SelfType, declaration.Keyword, typeEnvironment, names.generics)
 	if targetDiagnostic != nil {
-		return checked, compilerTypes.Diagnostics{*targetDiagnostic}
+		return MethodDeclaration{}, compilerTypes.Diagnostics{*targetDiagnostic}
 	}
 	target := targetUse.Type
 	// Method rule 1 admits T, Ptr<T>, and MutPtr<T>. A nullable union is not
 	// a receiver form: `self` would hold the union and every use would need a
 	// narrowing the method body can never prove, so the target is rejected.
 	if compilerTypes.IsNullable(target) {
-		return checked, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
+		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
 			fmt.Sprintf("impl requires T, Ptr<T>, or MutPtr<T>; got %s", target.Name))}
 	}
 	// Method rule 1: the target is T, Ptr<T>, or MutPtr<T> for a declared
@@ -223,7 +229,7 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 		object = target.Element.Object
 	}
 	if object == nil {
-		return checked, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
+		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
 			target.Name+" is not a nominal object type; impl requires an object")}
 	}
 	// Only the type's defining module may declare its methods. An imported
@@ -232,7 +238,7 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 	// it, qualified or not. Builtins carry an empty id and keep their
 	// compiler-owned behavior.
 	if object.ModuleID != "" && object.ModuleID != names.moduleID {
-		return checked, compilerTypes.Diagnostics{typeErrorAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
+		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
 			"cannot declare methods for imported type "+receiverSpelling(declaration.SelfType, object.Name))}
 	}
 	checked.Object = object
@@ -259,19 +265,30 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 	checked.Parameters = parameters
 
 	if len(diagnostics) > 0 {
-		return checked, diagnostics
+		return MethodDeclaration{}, diagnostics
 	}
 
 	names.methods.define(&checked)
+	return checked, nil
+}
+
+// checkMethodBody checks a method's body against its already-collected
+// signature (collectMethodSignature). It runs in the module's second pass,
+// after every module-level function and method signature is registered, so
+// a call to any other module function or method - earlier, later, or
+// mutually recursive - resolves.
+func checkMethodBody(declaration parser.ImplDeclaration, checked MethodDeclaration, names *scope, typeEnvironment *compilerTypes.Environment, analyzeReturns bool) (MethodDeclaration, compilerTypes.Diagnostics) {
+	diagnostics := make(compilerTypes.Diagnostics, 0)
+	parameters := checked.Parameters
 
 	selfID := names.newBindingID()
 	checked.SelfBinding = selfID
 	body := &scope{
 		module:     names.module,
 		local:      make(map[string]binding, len(parameters)),
-		owner:      name,
-		result:     result,
-		resultUse:  resultUse,
+		owner:      checked.Name,
+		result:     checked.Result,
+		resultUse:  checked.ResultUse,
 		methods:    names.methods,
 		self:       &checked.SelfType,
 		selfID:     selfID,
@@ -302,9 +319,9 @@ func checkImplDeclaration(declaration parser.ImplDeclaration, names *scope, type
 	checked.Body = statements
 	checked.Defers = append(checked.Defers, body.defers...)
 
-	if analyzeReturns && result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
+	if analyzeReturns && checked.Result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.End,
-			fmt.Sprintf("returning %s may fall through without returning %s", name, result.Name)))
+			fmt.Sprintf("returning %s may fall through without returning %s", checked.Name, checked.Result.Name)))
 	}
 	return checked, diagnostics
 }

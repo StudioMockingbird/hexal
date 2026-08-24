@@ -120,7 +120,7 @@ func TestFunTypesAreCanonicalAndInterned(t *testing.T) {
 	}
 }
 
-// 3. Single-pass source-order declaration order.
+// 3. Order-independent module-level visibility.
 
 func TestSelfRecursionResolves(t *testing.T) {
 	requireAccepted(t, "fun factorial(value: Int32): Int32 do\n    return value * factorial(value - 1)\nend\n")
@@ -130,10 +130,65 @@ func TestEarlierFunctionIsVisible(t *testing.T) {
 	requireAccepted(t, "fun double(value: Int32): Int32 do\n    return value + value\nend\nfun quadruple(value: Int32): Int32 do\n    return double(double(value))\nend\n")
 }
 
-func TestLaterFunctionIsNotVisible(t *testing.T) {
-	requireDiagnostic(t,
-		"fun is_even(value: Int32): Int32 do\n    return is_odd(value - 1)\nend\nfun is_odd(value: Int32): Int32 do\n    return value\nend\n",
-		"unknown function is_odd; functions must be declared before use")
+// A function may call a later function in the same module: every
+// module-level signature is collected before any body is checked.
+func TestLaterFunctionIsVisible(t *testing.T) {
+	requireAccepted(t, "fun is_even(value: Int32): Int32 do\n    return is_odd(value - 1)\nend\nfun is_odd(value: Int32): Int32 do\n    return value\nend\n")
+}
+
+// Two functions may call one another recursively.
+func TestMutuallyRecursiveFunctionsResolve(t *testing.T) {
+	requireAccepted(t, "fun is_even(value: Int32): Bool do\n    if value == 0 then\n        return true\n    end\n    return is_odd(value - 1)\nend\nfun is_odd(value: Int32): Bool do\n    if value == 0 then\n        return false\n    end\n    return is_even(value - 1)\nend\n")
+}
+
+// A root executable statement may call a module-level function declared
+// later; root statements still execute in written order, which this
+// checker-level test cannot observe on its own (see the generator-level
+// ordering test for that half).
+func TestRootStatementCallsLaterFunction(t *testing.T) {
+	requireAccepted(t, "result: Int32 := later()\nfun later(): Int32 do\n    return 1\nend\n")
+}
+
+// Generic forward calls and same-argument recursive specialization compile:
+// collecting every open template before any body is checked is what lets a
+// generic function call another generic function declared later.
+func TestGenericForwardCallResolves(t *testing.T) {
+	requireAccepted(t, "fun a<T>(value: T): T do\n    return b(value)\nend\nfun b<T>(value: T): T do\n    return value\nend\nresult: Int32 := a(1)\n")
+}
+
+// A function/value collision reports the declaration later in source order,
+// independent of collection order: reversing the declarations reverses
+// which one owns the diagnostic. Precollection binds every function
+// signature before any root value is checked, so a function declared
+// before a same-named root value must still not silently win.
+func TestFunctionValueCollisionOwnershipFollowsSourceOrder(t *testing.T) {
+	requireDiagnostic(t, "x: Int32 := 5\nfun x(): Int32 do\n    return 1\nend\n", "x is already declared")
+	requireDiagnostic(t, "fun x(): Int32 do\n    return 1\nend\nx: Int32 := 5\n", "variable x is already declared in this scope; use '=' for reassignment")
+}
+
+func TestFunctionTypeCollisionOwnershipFollowsSourceOrder(t *testing.T) {
+	requireDiagnostic(t, "type X = { a: Int32, }\nfun X(): Int32 do\n    return 1\nend\n", "value X is already declared as a type")
+	requireDiagnostic(t, "fun X(): Int32 do\n    return 1\nend\ntype X = { a: Int32, }\n", "type X is already declared as a value")
+}
+
+// A function signature and a function body may both name a module type
+// declared later, since pass 1 fully resolves every type before any
+// signature is collected in pass 2. A type declaration itself keeps its own
+// existing source-order resolution: it may not name a type not yet declared.
+func TestFunctionSignatureAndBodyMayUseALaterType(t *testing.T) {
+	requireAccepted(t, "fun make(): Later do\n    return 1\nend\ntype Later = Int32\n")
+	requireAccepted(t, "fun make(): Int32 do\n    value: Later := 1\n    return value\nend\ntype Later = Int32\n")
+	requireDiagnostic(t, "type Early = Later\ntype Later = Int32\n", "unknown type Later")
+}
+
+// A root declaration's own type annotation keeps its pre-existing
+// source-order restriction even though function signatures and bodies
+// gained forward visibility into every module type: pass 1 populating
+// typeEnvironment ahead of pass 3 would otherwise let a root declaration see
+// every type regardless of position.
+func TestRootDeclarationCannotNameALaterType(t *testing.T) {
+	requireDiagnostic(t, "value: Later := 1\ntype Later = Int32\n", "unknown type Later")
+	requireAccepted(t, "type Earlier = Int32\nvalue: Earlier := 1\n")
 }
 
 // 4. Function scope.
@@ -421,11 +476,20 @@ func TestMethodSelfRecursionResolves(t *testing.T) {
 	requireAccepted(t, point+"impl Point.countdown(value: Int32): Int32 do\n    return self.countdown(value - 1)\nend\n")
 }
 
-func TestLaterMethodIsNotVisible(t *testing.T) {
-	requireDiagnostic(t, point+
+// A method may call a later method visible in the same module: every
+// module-level method signature is collected before any body is checked.
+func TestLaterMethodIsVisible(t *testing.T) {
+	requireAccepted(t, point+
 		"impl Point.magnitude(): Int32 do\n    return self.length_squared()\nend\n"+
-		"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n",
-		"Point has no method named length_squared")
+		"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
+}
+
+// A method may call a later module-level function visible in the same
+// module.
+func TestMethodCallsLaterModuleLevelFunction(t *testing.T) {
+	requireAccepted(t, point+
+		"impl Point.magnitude(): Int32 do\n    return square(self.x)\nend\n"+
+		"fun square(value: Int32): Int32 do\n    return value * value\nend\n")
 }
 
 // The four ordered receiver adaptations.

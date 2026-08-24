@@ -6,11 +6,12 @@
 - Scope: data-race safety, task-handle ownership, foreign-thread entry, and
   Arena interaction with concurrent tasks
 - Depends on: RFC 0027 (Arena and Pool), RFC 0039 (C interoperability), RFC
-  0052 (target profiles), RFC 0091 (blocking-syscall boundary), RFC 0110
-  (affine ownership), and the existing Task, Channel, Mutex, and Atomic
-  contracts in `docs/reference.md`
+  0052 (target profiles), RFC 0110 (affine ownership), and the existing Task,
+  Channel, Mutex, Atomic, and synchronous IO contracts in
+  `docs/reference.md`
 - Coordinates with: RFC 0055 (build and validation driver), RFC 0108 (I/O),
-  native module storage RFC 0116, `docs/reference.md`, and `docs/status.md`
+  RFC 0121 (scheduler-aware blocking), native module storage RFC 0116,
+  `docs/reference.md`, and `docs/status.md`
 
 ## Summary
 
@@ -114,18 +115,23 @@ inter-thread synchronization and does not satisfy this rule.
 
 ## Blocking operations
 
-RFC 0091 owns the mechanism for pollable and non-pollable blocking calls. This
-RFC imposes the safety contract around that mechanism:
+RFC 0091 was discarded after RFC 0108 settled synchronous descriptor IO. A
+native IO operation may block its current OS worker; other workers continue,
+and all-worker blocking can delay ready Tasks until one operation returns.
+This RFC does not change that scheduling contract.
 
-- A safe blocking operation must be declared to the scheduler with its
-  blocking class; an undeclared foreign call is unsafe.
+- RFC 0039 must classify a foreign call whose blocking behavior affects its
+  ownership, callback, or synchronization contract; the current runtime does
+  not use that classification to park a Task.
 - A blocking operation must not hold a Mutex or other scheduler-critical guard
   across the operation unless its owning specification explicitly permits it.
-- The selected implementation must park, hand off, or otherwise account for
-  the worker so a safe blocking call cannot silently turn all scheduler
-  progress into an unspecified stall.
-- The I/O signatures in RFC 0108 remain independent of the chosen mechanism,
-  but RFC 0108 cannot claim complete safe-task behavior until RFC 0091 closes.
+- Worker blocking is documented behavior rather than a data-race proof or an
+  implicit scheduling point.
+- An IO operation does not satisfy the visible `Task.yield()` requirement for
+  a task-reachable literal `while true`, because the operation may complete
+  immediately.
+- RFC 0121 replaces this backend after it lands without changing IO
+  signatures; it is not a dependency of this safety RFC.
 
 ## Foreign-thread entry
 
@@ -152,8 +158,8 @@ Target-profile facts for atomics, threads, TLS, and OS facilities come from RFC
 - Preemptive scheduling or a change to the existing M:N model.
 - Making arbitrary C callbacks, device registers, or foreign thread pools safe
   without an explicit RFC 0039 contract.
-- Choosing the readiness, blocking-pool, or thread-handoff mechanism owned by
-  RFC 0091.
+- Adding a readiness poller, blocking pool, or thread-handoff mechanism inside
+  this RFC; RFC 0121 owns the separate blocking-pool change.
 
 ## Validation
 
@@ -172,8 +178,9 @@ passes:
   Pool storage.
 - Arena reset/destroy and Pool slot release reject locally decidable live-task
   access and accept valid ownership transfer.
-- Blocking operations are classified and reject undeclared foreign blocking
-  calls; the selected RFC 0091 mechanism preserves scheduler progress.
+- Foreign blocking declarations obey RFC 0039's eventual ABI and ownership
+  contract. Current synchronous IO remains permitted to block its OS worker and
+  does not count as `Task.yield()`.
 - Foreign-thread entry requires the explicit attach/ABI contract and obeys the
   same synchronization rules.
 - Generated C uses the selected C23 synchronization operations and never emits
@@ -199,21 +206,21 @@ passes:
    unsafe contract, or this RFC adds a general unsafe syntax.
 7. Whether cancellation and lock-order diagnostics remain separate future
    features.
-8. RFC 0091 owns the scheduler mechanism and RFC 0039 owns foreign blocking
-   annotations; this RFC consumes those decisions rather than choosing them.
+8. RFC 0039 owns foreign blocking annotations. RFC 0121 owns scheduler-aware
+   waiting for the native operations it names and does not block this RFC.
 
 ## Implementation readiness
 
 This RFC is not implementation-ready. Its ownership checks depend on RFC 0110,
-its safe blocking validation depends on RFC 0091, and questions 1-7 above alter
-source-visible behavior or the builtin API. A detailed implementation plan must
-be added after those decisions are settled; writing one now would hide design
-choices inside implementation steps.
+and questions 1-7 above alter source-visible behavior or the builtin API. A
+detailed implementation plan must be added after those decisions are settled;
+writing one now would hide design choices inside implementation steps.
 
 ## Reference synchronization
 
 After implementation stabilizes, update `docs/reference.md` with the safe data-
 race rule, task-handle affine rules, task transfer and detach lifetimes, Arena
-and Pool cross-task restrictions, blocking-call classification, and
-foreign-thread entry contract. Remove the current “data races have no
-guarantee” rule in the same change.
+and Pool cross-task restrictions, and foreign-thread entry contract. Preserve
+the current synchronous-IO worker-blocking rule only until RFC 0121 lands;
+afterward preserve RFC 0121's Task-parking contract. Remove the current “data
+races have no guarantee” rule in the same change.

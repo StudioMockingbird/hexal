@@ -379,9 +379,9 @@ type Expression struct {
 }
 
 // FunctionLiteral is the checked signature and body shared by every
-// function form: a module FunctionDeclaration, a LocalFunctionDeclaration,
-// and a FunctionLiteralExpression all check their parameters, result, and
-// body through the same path and store the result in this shape.
+// function form: a module FunctionDeclaration and a FunctionLiteralExpression
+// both check their parameters, result, and body through the same path and
+// store the result in this shape.
 type FunctionLiteral struct {
 	Parameters []FunctionParameter
 	Result     *compilerTypes.Type
@@ -390,8 +390,8 @@ type FunctionLiteral struct {
 	Body       []Statement
 	Defers     []DeferredAction
 	// HelperOrdinal is this literal's compiler-owned identity, assigned once
-	// at check time from the same shared BindingID counter LocalFunctionDeclaration
-	// draws from. The two share one hex_fun_<ordinal> stream.
+	// at check time from the shared BindingID counter, in the hex_fun_<ordinal>
+	// stream.
 	HelperOrdinal BindingID
 	SourceLine    int
 	SourceColumn  int

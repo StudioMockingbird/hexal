@@ -56,11 +56,10 @@ func TestFunTypeMismatchIsReported(t *testing.T) {
 		"handler requires Fun<(Int32) : Int32>; got Fun<(UInt32) : UInt32>")
 }
 
-func TestDeclarationOrderIsSourceOrder(t *testing.T) {
+func TestSelfRecursionAndForwardCallsResolve(t *testing.T) {
 	assertChecked(t, "fun factorial(value: Int32): Int32 do\n    return value * factorial(value - 1)\nend\n")
-	assertRejectsAnyDiagnostic(t,
-		"fun is_even(value: Int32): Int32 do\n    return is_odd(value - 1)\nend\nfun is_odd(value: Int32): Int32 do\n    return value\nend\n",
-		"unknown function is_odd; functions must be declared before use")
+	assertChecked(t,
+		"fun is_even(value: Int32): Int32 do\n    return is_odd(value - 1)\nend\nfun is_odd(value: Int32): Int32 do\n    return value\nend\n")
 }
 
 func TestFunctionScopeIsClosed(t *testing.T) {
@@ -242,12 +241,11 @@ func TestMethodRulesAreEnforced(t *testing.T) {
 		"Point has no method named rotate")
 }
 
-func TestMethodDeclarationOrderIsSourceOrder(t *testing.T) {
+func TestMethodSelfRecursionAndForwardCallsResolve(t *testing.T) {
 	assertChecked(t, pointType+"impl Point.countdown(value: Int32): Int32 do\n    return self.countdown(value - 1)\nend\n")
-	assertRejectsAnyDiagnostic(t, pointType+
+	assertChecked(t, pointType+
 		"impl Point.magnitude(): Int32 do\n    return self.length_squared()\nend\n"+
-		"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n",
-		"Point has no method named length_squared")
+		"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
 }
 
 func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
@@ -313,7 +311,7 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {
 	assertGeneratedC(t,
 		"fun identity(value: Int32): Int32 do\n    return value\nend\n",
-		"#include \"modules/app.h\"\n\nstatic int32_t hex_f_m3_app_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint main(void) {\n")
+		"#include \"modules/app.h\"\n\nstatic int32_t hex_f_m3_app_identity(int32_t);\n\nstatic int32_t hex_f_m3_app_identity(const int32_t hex_v_value) {\n    return hex_v_value;\n}\n\nint main(void) {\n")
 }
 
 func TestGeneratedNoReturnFunctionIsVoid(t *testing.T) {
@@ -359,12 +357,91 @@ func TestGeneratedCallExpressionAndCallStatement(t *testing.T) {
 		"    hex_f_m3_app_reset(&hex_v_count);\n")
 }
 
-func TestGeneratedSelfRecursionNeedsNoPrototype(t *testing.T) {
+// Every private module-level function gets a static prototype ahead of its
+// definition, self-recursive or not: module-level visibility is
+// order-independent, so the generator cannot special-case self-recursion as
+// the one case needing no forward declaration.
+func TestGeneratedPrivateFunctionGetsAPrototype(t *testing.T) {
 	source := "fun countdown(value: Int32): Int32 do\n    return countdown(value)\nend\n"
-	assertGeneratedC(t, source,
-		"static int32_t hex_f_m3_app_countdown(const int32_t hex_v_value) {\n    return hex_f_m3_app_countdown(hex_v_value);\n}\n")
-	if got := rootC(t, compileSource(source)); strings.Contains(got, "hex_f_m3_app_countdown(const int32_t hex_v_value);") {
-		t.Fatalf("modules/app.c = %q, want no forward prototype region", got)
+	body := withoutLineDirectives(rootC(t, compileSource(source)))
+	prototype := "static int32_t hex_f_m3_app_countdown(int32_t);"
+	definition := "static int32_t hex_f_m3_app_countdown(const int32_t hex_v_value) {\n    return hex_f_m3_app_countdown(hex_v_value);\n}\n"
+	prototypeIndex := strings.Index(body, prototype)
+	definitionIndex := strings.Index(body, definition)
+	if prototypeIndex < 0 || definitionIndex < 0 {
+		t.Fatalf("modules/app.c = %q, want both %q and %q", body, prototype, definition)
+	}
+	if prototypeIndex >= definitionIndex {
+		t.Fatalf("prototype at %d must precede definition at %d", prototypeIndex, definitionIndex)
+	}
+}
+
+// A function calling a later private function compiles: the earlier
+// definition's own prototype region gives the later function's symbol a
+// declaration before it is used.
+func TestGeneratedForwardCallCompiles(t *testing.T) {
+	body := withoutLineDirectives(rootC(t, compileSource(
+		"fun is_even(value: Int32): Int32 do\n    return is_odd(value - 1)\nend\nfun is_odd(value: Int32): Int32 do\n    return value\nend\n")))
+	for _, want := range []string{
+		"static int32_t hex_f_m3_app_is_even(int32_t);",
+		"static int32_t hex_f_m3_app_is_odd(int32_t);",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("modules/app.c = %q, want %q", body, want)
+		}
+	}
+	if strings.Index(body, "static int32_t hex_f_m3_app_is_even(int32_t);") >= strings.Index(body, "static int32_t hex_f_m3_app_is_even(const int32_t hex_v_value) {") {
+		t.Fatalf("modules/app.c = %q, want is_even's own prototype before its own definition", body)
+	}
+}
+
+// Two mutually recursive private functions each get exactly one prototype
+// and one definition, with both prototypes ahead of both definitions.
+func TestGeneratedMutualRecursionCompiles(t *testing.T) {
+	body := withoutLineDirectives(rootC(t, compileSource(
+		"fun is_even(value: Int32): Bool do\n    if value == 0 then\n        return true\n    end\n    return is_odd(value - 1)\nend\n"+
+			"fun is_odd(value: Int32): Bool do\n    if value == 0 then\n        return false\n    end\n    return is_even(value - 1)\nend\n")))
+	firstDefinition := strings.Index(body, "static bool hex_f_m3_app_is_even(const int32_t hex_v_value) {")
+	secondDefinition := strings.Index(body, "static bool hex_f_m3_app_is_odd(const int32_t hex_v_value) {")
+	for _, symbol := range []string{"hex_f_m3_app_is_even", "hex_f_m3_app_is_odd"} {
+		if strings.Count(body, symbol) != 3 {
+			// One prototype, one definition, one call from the other
+			// function's own body.
+			t.Fatalf("generated C = %q, want exactly 3 occurrences of %q", body, symbol)
+		}
+	}
+	prototype := "static bool hex_f_m3_app_is_even(int32_t);"
+	if index := strings.Index(body, prototype); index < 0 || index >= firstDefinition || index >= secondDefinition {
+		t.Fatalf("generated C = %q, want %q before both definitions", body, prototype)
+	}
+}
+
+// Repeated compilations of mutually recursive functions produce identical
+// generated C, including prototype ordering: collectedFunctions is keyed by
+// item index and prototypes are emitted by a single source-order walk, never
+// by iterating a name-keyed map, so nothing here can vary between runs.
+func TestGeneratedMutualRecursionIsDeterministic(t *testing.T) {
+	source := "fun is_even(value: Int32): Bool do\n    if value == 0 then\n        return true\n    end\n    return is_odd(value - 1)\nend\n" +
+		"fun is_odd(value: Int32): Bool do\n    if value == 0 then\n        return false\n    end\n    return is_even(value - 1)\nend\n"
+	first := rootC(t, compileSource(source))
+	for attempt := range 8 {
+		next := rootC(t, compileSource(source))
+		if next != first {
+			t.Fatalf("compile %d changed modules/app.c:\nfirst:\n%s\nlater:\n%s", attempt+2, first, next)
+		}
+	}
+}
+
+// An exported function's prototype comes from the module header only; the
+// module C file never duplicates it as a static prototype.
+func TestGeneratedExportedFunctionPrototypeIsNotDuplicated(t *testing.T) {
+	result := assertCompiles(t, "export fun square(value: Int32): Int32 do\n    return value * value\nend\n")
+	body := rootC(t, result)
+	if strings.Contains(body, "static int32_t hex_f_m3_app_square") {
+		t.Fatalf("modules/app.c = %q, want no static prototype or definition for an exported function", body)
+	}
+	if !strings.Contains(rootH(t, result), "int32_t hex_f_m3_app_square(int32_t);") {
+		t.Fatalf("modules/app.h = %q, want the exported prototype", rootH(t, result))
 	}
 }
 
@@ -426,95 +503,6 @@ func TestSpecializedBodyCallStatementWithStringLiteralArgument(t *testing.T) {
 	}
 }
 
-// Two local generic functions that reuse a source name in disjoint scopes
-// must specialize to distinct C symbols: the generator's specialization
-// discovery already handles any FunctionDeclaration uniformly, so a local
-// template's compiler-owned identity is what keeps its generated name from
-// colliding with a same-named sibling elsewhere.
-func TestTwoLocalGenericsWithSameNameProduceDistinctSymbols(t *testing.T) {
-	result := assertCompiles(t,
-		"fun first(): Int32 do\n"+
-			"    fun identity<T>(value: T): T do\n"+
-			"        return value\n"+
-			"    end\n"+
-			"    return identity(1)\n"+
-			"end\n"+
-			"fun second(): Bool do\n"+
-			"    fun identity<T>(value: T): T do\n"+
-			"        return value\n"+
-			"    end\n"+
-			"    return identity(true)\n"+
-			"end\n")
-	body := rootC(t, result)
-	if !strings.Contains(body, "identity_local") {
-		t.Fatalf("generated C = %q, want an identity-qualified local generic symbol", body)
-	}
-	if strings.Count(body, "hex_f_m3_app_identity_local") < 2 || strings.Contains(body, "hex_f_m3_app_identity_Int32(") {
-		t.Fatalf("generated C = %q, want two distinct local generic symbols, no bare identity_Int32", body)
-	}
-}
-
-// A local named generic function with self-recursion lowers to one file-scope
-// static C function with a prototype before its use, recursing through its
-// own generated symbol.
-func TestLocalGenericSelfRecursionGeneratesOneHelper(t *testing.T) {
-	result := assertCompiles(t,
-		"fun outer(): Int32 do\n"+
-			"    fun fact<T>(value: Int32): Int32 do\n"+
-			"        if value == 0 then\n"+
-			"            return 1\n"+
-			"        end\n"+
-			"        return value * fact<Int32>(value - 1)\n"+
-			"    end\n"+
-			"    return fact<Int32>(5)\n"+
-			"end\n")
-	body := rootC(t, result)
-	prototype := "static int32_t hex_f_m3_app_fact_local1_Int32(int32_t);"
-	definition := "static int32_t hex_f_m3_app_fact_local1_Int32(const int32_t hex_v_value) {"
-	prototypeIndex := strings.Index(body, prototype)
-	definitionIndex := strings.Index(body, definition)
-	if prototypeIndex < 0 || definitionIndex < 0 {
-		t.Fatalf("generated C = %q, want both %q and %q", body, prototype, definition)
-	}
-	if prototypeIndex >= definitionIndex {
-		t.Fatalf("prototype at %d must precede definition at %d", prototypeIndex, definitionIndex)
-	}
-	if strings.Count(body, "hex_f_m3_app_fact_local1_Int32") != 4 {
-		// One prototype, one definition, one call from outer, one recursive
-		// call inside fact's own body.
-		t.Fatalf("generated C = %q, want exactly 4 occurrences of the generated symbol", body)
-	}
-}
-
-// A local named function lowers to one file-scope static hex_fun_<ordinal>
-// helper with a prototype before its use, no closure environment, and no C
-// nested function.
-func TestLocalFunctionGeneratesOneStaticHelper(t *testing.T) {
-	result := assertCompiles(t,
-		"fun outer(): Int32 do\n"+
-			"    fun inner(value: Int32): Int32 do\n"+
-			"        return value + 1\n"+
-			"    end\n"+
-			"    return inner(1)\n"+
-			"end\n")
-	body := rootC(t, result)
-	prototype := "static int32_t hex_fun_1(int32_t);"
-	definition := "static int32_t hex_fun_1(const int32_t hex_v_value) {"
-	prototypeIndex := strings.Index(body, prototype)
-	definitionIndex := strings.Index(body, definition)
-	if prototypeIndex < 0 || definitionIndex < 0 {
-		t.Fatalf("generated C = %q, want both %q and %q", body, prototype, definition)
-	}
-	if prototypeIndex >= definitionIndex {
-		t.Fatalf("prototype at %d must precede definition at %d", prototypeIndex, definitionIndex)
-	}
-	for _, forbidden := range []string{"struct hex_closure", "typedef struct hex_env", "(void *)inner", "nested"} {
-		if strings.Contains(body, forbidden) {
-			t.Fatalf("generated C = %q, must contain no closure/environment artifact %q", body, forbidden)
-		}
-	}
-}
-
 // A bare anonymous literal passed directly as a call argument lowers to a
 // direct function pointer reference with no wrapper, dispatcher, or
 // allocation.
@@ -560,41 +548,18 @@ func TestSiblingLiteralsGetDistinctDeterministicOrdinals(t *testing.T) {
 	}
 }
 
-// A non-generic local function nested inside a generic function's body is
-// re-checked once per concrete enclosing specialization, and each
-// specialization's own copy receives a distinct helper identity.
-func TestLocalFunctionInsideGenericGetsDistinctHelperPerSpecialization(t *testing.T) {
-	result := assertCompiles(t,
-		"fun apply<T>(value: T): T do\n"+
-			"    fun identity(input: T): T do\n"+
-			"        return input\n"+
-			"    end\n"+
-			"    return identity(value)\n"+
-			"end\n"+
-			"x: Int32 := apply<Int32>(5)\n"+
-			"y: Bool := apply<Bool>(true)\n")
-	body := rootC(t, result)
-	// Each specialization's copy of identity gets its own prototype (one
-	// occurrence) and definition (a second), so a distinct symbol shows up
-	// exactly twice; the same symbol appearing under both return types
-	// would mean the two specializations collided onto one helper.
-	if strings.Count(body, "static int32_t hex_fun_") != 2 || strings.Count(body, "static bool hex_fun_") != 2 {
-		t.Fatalf("generated C = %q, want one Int32 helper and one Bool helper, each with its own ordinal", body)
-	}
-}
-
-// A local function nested in module-level control flow (not inside any
-// enclosing function) compiles: nesting inside a conditional or loop block
-// is exactly where a local function is meant to live, not only inside a
-// function body.
-func TestLocalFunctionInsideModuleLevelControlFlow(t *testing.T) {
+// A named function declaration is rejected wherever it is nested: directly
+// inside a function body, inside module-level control flow, and inside a
+// loop, each with the exact module-scope-only diagnostic.
+func TestNamedFunctionDeclarationRejectedWhenNested(t *testing.T) {
 	for _, source := range []string{
+		"fun apply(value: Int32): Int32 do\n    fun identity(input: Int32): Int32 do\n        return input\n    end\n    return identity(value)\nend\n",
 		"cond: Bool := true\nif cond then\n    fun helper(): Int32 do\n        return 1\n    end\n    x: Int32 := helper()\nend\n",
 		"mut i: Int32 := 0\nwhile i < 1 do\n    fun helper(): Int32 do\n        return 1\n    end\n    i = i + helper()\nend\n",
 	} {
 		result := compileSource(source)
-		if result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("Compile(%q) rejected: %v", source, result.Stderr)
+		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "named function declarations are only valid at module scope") {
+			t.Fatalf("Compile(%q) = %#v, want the module-scope-only diagnostic", source, result.Stderr)
 		}
 	}
 }

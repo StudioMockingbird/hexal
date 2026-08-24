@@ -231,11 +231,13 @@ func (parser *Parser) consume(kind lexer.TokenKind, expected string) (lexer.Toke
 func (parser *Parser) statement() (Statement, error) {
 	switch {
 	case parser.check(lexer.Fun):
-		// At statement position, `fun` followed by an identifier is a local
-		// named function declaration. `fun (` and `fun<` begin an anonymous
-		// literal which is not a statement - it must be bound first.
+		// At statement position, `fun` followed by an identifier used to
+		// begin a local named function declaration; named function
+		// declarations are now module-scope only. `fun (` and `fun<` begin
+		// an anonymous literal which is not a statement - it must be bound
+		// first.
 		if parser.tokenAfterFun() == lexer.Identifier {
-			return parser.localFunctionDeclaration()
+			return nil, parser.errorAt(parser.peek(), "named function declarations are only valid at module scope")
 		}
 		if parser.funBeginsAnonymousLiteral() {
 			return nil, parser.errorAt(parser.peek(), "anonymous functions cannot begin statements; bind the function first")

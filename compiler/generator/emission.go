@@ -692,10 +692,13 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	moduleBody.WriteString("#include \"modules/" + canonicalID + ".h\"\n\n")
 
 	// Function definitions sit at file scope in source order, after the
-	// object definitions the header already carries. Only self-recursion and
-	// calls to earlier definitions are legal, so no prototype region is
-	// needed. Functions the module's own spawn prologues name keep external
-	// linkage; everything else stays static inside the module C file.
+	// object definitions the header already carries. Module-level
+	// visibility is order-independent, so a private function or method may
+	// call or mutually recurse with another declared later; writeModulePrototypes
+	// below gives every one of them a static prototype ahead of the
+	// definitions for that to compile. Functions the module's own spawn
+	// prologues name keep external linkage; everything else stays static
+	// inside the module C file.
 	spawned := make(map[string]bool)
 	if emission.concurrencyState != nil {
 		for _, site := range emission.concurrencyState.spawns {
@@ -724,6 +727,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	if err := writeLocalHelperPrototypes(&moduleBody, localHelpers, typeState); err != nil {
 		return "", "", err
 	}
+	writeModulePrototypes(&moduleBody, program, owner)
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:

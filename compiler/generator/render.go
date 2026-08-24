@@ -248,12 +248,6 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if len(state.activeScopes) > 1 {
 				return unknownExpressionDiagnostic("method declaration inside a module-level control-flow block")
 			}
-		case checker.LocalFunctionDeclaration:
-			// A local function declaration is a checked declaration, not an
-			// executable statement: its file-scope static helper is emitted
-			// separately by writeLocalHelperDefinitions, so this position
-			// renders nothing, exactly like a module function encountered
-			// here already does.
 		default:
 			return unknownExpressionDiagnostic("unsupported checked statement")
 		}

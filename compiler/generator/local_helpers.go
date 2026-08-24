@@ -9,10 +9,8 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// localHelper is one discovered local named function or anonymous function
-// literal, normalized to one shape regardless of its checked source kind so
-// prototype and definition emission need only one code path. Local named
-// functions and literals share this one hex_fun_<ordinal> stream; a local
+// localHelper is one discovered anonymous function literal, normalized to
+// one shape so prototype and definition emission need only one code path. A
 // source name is checker metadata carried only for diagnostics and is never
 // a C symbol.
 type localHelper struct {
@@ -26,45 +24,23 @@ type localHelper struct {
 	sourceName string
 }
 
-// localHelperCName is the one file-scope C symbol a local named function or
-// anonymous literal ever lowers to. It carries no owner encoding: local
-// helpers are module-local by construction, and the ordinal alone is unique
-// within the module.
+// localHelperCName is the one file-scope C symbol an anonymous literal ever
+// lowers to. It carries no owner encoding: local helpers are module-local by
+// construction, and the ordinal alone is unique within the module.
 func localHelperCName(ordinal checker.BindingID) string {
 	return fmt.Sprintf("hex_fun_%d", ordinal)
 }
 
 // collectLocalHelpers walks the whole checked program - module statements
 // and every specialized function and method body, at every nesting depth -
-// and returns every local named function declaration and anonymous function
-// literal it finds, sorted by ordinal. Checking assigns ordinals in exactly
-// one linear preorder pass, so the sort only defends determinism; it never
-// reorders relative to a second, independent counter.
+// and returns every anonymous function literal it finds, sorted by ordinal.
+// Checking assigns ordinals in exactly one linear preorder pass, so the sort
+// only defends determinism; it never reorders relative to a second,
+// independent counter.
 func collectLocalHelpers(program checker.Program) ([]localHelper, error) {
 	var helpers []localHelper
 	seen := make(map[checker.BindingID]bool)
 	visitor := &programVisitor{
-		Statement: func(statement checker.Statement) error {
-			local, ok := statement.(checker.LocalFunctionDeclaration)
-			if !ok {
-				return nil
-			}
-			if seen[local.HelperOrdinal] {
-				return unknownExpressionDiagnostic("local function helper discovered more than once")
-			}
-			seen[local.HelperOrdinal] = true
-			helpers = append(helpers, localHelper{
-				ordinal:    local.HelperOrdinal,
-				parameters: local.Parameters,
-				result:     local.Result,
-				body:       local.Body,
-				defers:     local.Defers,
-				typ:        local.Type,
-				sourceLine: local.SourceLine,
-				sourceName: local.Name,
-			})
-			return nil
-		},
 		Expression: func(node checker.Expression) error {
 			if node.Kind != checker.FunctionLiteralExpression || node.Function == nil {
 				return nil

@@ -274,8 +274,13 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Functions and methods are file-scope declarations. Nested functions and closures do not exist;
   functions cannot capture root or lexical locals.
 - `return` is valid only inside a function or method body. The root program has no declared result.
-- Declarations become visible in source order. A function may call itself or an earlier function;
-  forward calls and mutual recursion are unavailable.
+- Type declarations become visible in source order: a type may name itself or an earlier type, not
+  a later one. A module-level function or method signature is visible throughout its module
+  regardless of declaration order: a function or method may call itself, an earlier declaration, a
+  later declaration, or take part in mutual recursion, and its signature and body may name a module
+  type declared later. Root executable statements execute in written source order and may call a
+  function declared later, but a root declaration's own type annotation keeps the same source-order
+  restriction as a type declaration: it cannot name a type not yet declared.
 - Type and value names share one namespace. Protected names cannot be redeclared or shadowed.
   Protected types are every scalar plus `Size`, `Byte`, `Rune`, `String`, `Strand`, `Nil`, `EoS`,
   `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, and constructors `Ptr`,
@@ -329,9 +334,10 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   receivers, members, and ADT payloads. Private types may remain inside an exported function or
   generic body when absent from its interface.
 - Qualified types, functions, ADT variants, and exported methods retain the defining module's
-  identity; renaming an import alias changes no identity. Within each module, declarations retain
-  source-order visibility. Successfully checked exports are available to importers regardless of
-  the export's textual position in the defining module.
+  identity; renaming an import alias changes no identity. Within each module, type declarations
+  retain source-order visibility; function and method visibility is order-independent (see
+  Programs, names, and bindings). Successfully checked exports are available to importers
+  regardless of the export's textual position in the defining module.
 - Only a nominal type's defining module may declare implementations for it. Imported types and
   transparent aliases of imported types may call exported methods but cannot receive new methods.
 - Generated module artifacts, symbol linkage, header ownership, and source mapping are specified
@@ -510,7 +516,7 @@ HeapAllocation
   `<type> has no method named <name>` when the name is neither a method nor a member.
 - There is no overloading, default/named/variadic argument syntax, static method, or closure.
 
-#### Anonymous function literals and local named functions
+#### Anonymous function literals and local literal bindings
 
 - `fun (p1: T1, p2: T2): R do ... end` is a non-capturing function value with type
   `Fun<(T1, T2) : R>`; omitting `: R` gives `Fun<(T1, T2)>` and forbids a value-returning `return`.
@@ -518,37 +524,45 @@ HeapAllocation
   The literal is a postfix base: a same-line call suffix invokes it directly, valid only where an
   expression is expected, never as a call statement. It declares no source name and cannot use `export`.
 - `fun name(...) do ... end` at statement position (inside a function or method body, or nested
-  inside module-level control flow) is a local named function declaration: the same syntax as a
-  module function without `export`. `export fun` remains rejected outside module scope.
+  inside a branch, loop, or bare block) is rejected: Syntax Error, named function declarations are
+  only valid at module scope. `export fun` remains rejected outside module scope.
 - An inferred fixed declaration (`name := ...`) whose initializer is directly a function literal,
-  after stripping only grouping-only parentheses, is declaration sugar over the same function form
-  as a named declaration: it emits the helper function and no function-pointer storage, is fixed
-  and self-recursive, and is accepted in a declaration-only imported module. It remains private,
-  since `export` prefixes only the named function-declaration form. A written type, `mut`, a call
-  or other suffix on the initializer, or a binding initialized from an existing function value all
-  remain ordinary runtime data with no self-recursion name.
-- Named functions, local named functions, and anonymous literals share one signature, body,
-  return-flow, defer, and generic-specialization implementation; they differ only in how their own
-  name and result are bound. A literal or local function is checked in a fresh closed scope: it may
-  use its own parameters, bindings it declares, named functions visible at its source position
-  (module functions and earlier local functions in an enclosing block, including its own body when
-  it has a self-recursion name), and Fun values it receives or declares. It cannot read an enclosing
-  local, parameter, `self`, or root Fun/data binding; no environment, capture, or heap allocation is
-  generated for this. A mutable receiving binding cannot supply a stable self-recursion identity, so
-  referring to it from the literal's own body remains an invalid capture.
-- A local named function or a direct inferred fixed literal binding is visible from its declaration
-  onward in its containing lexical block, including from later local declarations in that same
-  block, and is hidden outside the block. A call to a not-yet-declared later local function in the
-  same block is rejected; mutual recursion through a later declaration is unavailable. Two
-  same-named local declarations in disjoint blocks are distinct.
-- A literal or local function may itself declare generic type parameters. Its own parameter names
-  must be distinct from every generic parameter active in an enclosing generic function, method, or
-  local declaration; redeclaring an enclosing name is a duplicate-parameter error, while an
-  unshadowed enclosing parameter remains usable in the inner signature and body. Every open generic
-  function, named or local, has a compiler-owned template identity distinct from its source name, so
-  two local generic declarations that reuse a name in disjoint scopes specialize independently.
-  Contextual specialization (an exact expected `Fun<...>` type, or a call's own arguments) applies
-  to a generic literal exactly as it does to a named generic function.
+  after stripping only grouping-only parentheses, behaves differently by scope. At module scope it
+  is declaration sugar over the same function form as a named declaration: it emits the helper
+  function and no function-pointer storage, is fixed and self-recursive, participates in forward
+  calls and mutual recursion with every other module-level function and method exactly like a named
+  declaration, and is accepted in a declaration-only imported module. It remains private, since
+  `export` prefixes only the named function-declaration form. At local scope the same syntax is
+  ordinary source-ordered runtime data: fixed by default, mutable with `mut`, receives no
+  self-recursion name, and cannot be called before its own declaration is reached in its enclosing
+  block. A written type, a call or other suffix on the initializer, or a binding initialized from an
+  existing function value are ordinary runtime data with no self-recursion name at either scope.
+- Module-level named functions, module-level direct inferred fixed literal declarations, and
+  anonymous literals share one signature, body, return-flow, defer, and generic-specialization
+  implementation; they differ only in how their own name and result are bound. Every module-level
+  function and method signature is collected before any body is checked, which is what makes
+  forward calls and mutual recursion between module-level declarations resolve regardless of
+  source position.
+- An anonymous literal, and a local direct inferred fixed literal binding, are checked in a fresh
+  closed scope: each may use its own parameters, bindings it declares, every module-level function
+  and method regardless of source position, and Fun values it receives or declares. It cannot read
+  an enclosing local, parameter, `self`, or root Fun/data binding; no environment, capture, or heap
+  allocation is generated for this. A mutable receiving binding at module scope cannot supply a
+  stable self-recursion identity, so referring to it from the literal's own body remains an invalid
+  capture.
+- A local direct inferred fixed literal binding is visible from its declaration onward in its
+  containing lexical block, including from later local declarations in that same block, and is
+  hidden outside the block, exactly like any other local value binding. Two same-named local
+  declarations in disjoint blocks are distinct.
+- An anonymous literal or a module-level direct inferred fixed literal declaration may itself
+  declare generic type parameters. Its own parameter names must be distinct from every generic
+  parameter active in an enclosing generic function or method; redeclaring an enclosing name is a
+  duplicate-parameter error, while an unshadowed enclosing parameter remains usable in the inner
+  signature and body. Every open generic function, module-level or anonymous, has a compiler-owned
+  template identity distinct from its source name. Contextual specialization (an exact expected
+  `Fun<...>` type, or a call's own arguments) applies to a generic literal exactly as it does to a
+  named generic function; an inferred local declaration whose initializer is a generic literal has
+  no open-template mechanism at local scope and is rejected.
 
 ### Generics
 
@@ -1193,11 +1207,15 @@ MutPtr<T>.write_volatile(value: T) -> no value
   specifier, the recursive spelling uses C23 `typeof` around the same declarator
   (`typeof(int32_t (*)(int32_t))`); no function-pointer typedef family is generated. A fixed binding
   reached through `typeof` qualifies the pointer value (`typeof(...) const name`); a mutable one
-  omits that qualifier. Named module functions, local named functions, and anonymous literals all
-  lower to ordinary C functions with no closure, environment, or dispatcher. A local named function
-  or literal is file-scope `static` and named `hex_fun_<ordinal>`, sharing one module-local ordinal
-  stream in checked-tree preorder; its source name is checker metadata, never a C symbol. Every
-  helper's prototype is emitted before any definition can reference it.
+  omits that qualifier. Named module functions and anonymous literals all lower to ordinary C
+  functions with no closure, environment, or dispatcher. An anonymous literal, including one bound
+  directly to a local name, is file-scope `static` and named `hex_fun_<ordinal>`, sharing one
+  module-local ordinal stream in checked-tree preorder; its binding name, if any, is checker
+  metadata, never a C symbol. A private module-level function or method gets a `static` prototype
+  in the module C file, emitted before every definition in source order, so a forward call or
+  mutual recursion between module-level declarations compiles; an anonymous literal helper's own
+  prototype is emitted the same way. An exported function or method's prototype is declared once,
+  in the module header, and never duplicated as a static prototype in the module C file.
 - Pointer qualification follows type layers only: Ptr adds pointee `const`, MutPtr does not, and a
   fixed binding adds trailing `const`. Object members themselves are unqualified. No
   qualifier-discarding cast is emitted.
@@ -1285,10 +1303,12 @@ MutPtr<T>.write_volatile(value: T) -> no value
   `HEX_MODULE_<encoded-owner>_H`; it includes no module header and declares no `main()`. C consumers
   include the desired module header, not `hexal.h` directly.
 - `modules/<canonical>.c` is one module's translation unit: it includes only its own module
-  header, and defines its private functions and methods with internal `static` linkage, its exported
-  functions and methods and spawned functions with external linkage, its monomorphized
-  specializations, and its spawn entry adapters (external linkage, declared in the concurrency
-  component). The selected root module's C file owns `int main(void)`, which executes the root
+  header, and declares a `static` prototype for each of its private functions and methods, in
+  source order, before any of that module's function or method definitions. It then defines its
+  private functions and methods with internal `static` linkage, its exported functions and methods
+  and spawned functions with external linkage, its monomorphized specializations, and its spawn
+  entry adapters (external linkage, declared in the concurrency component). The selected root
+  module's C file owns `int main(void)`, which executes the root
   module's executable statements and returns `0`, C's successful termination status (RFC 0062);
   with concurrency it initializes the scheduler first and completes the
   root task before returning. The root module C file is not the runtime container: process-wide

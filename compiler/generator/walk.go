@@ -30,9 +30,7 @@ import (
 //     Addressable) rather than just a type and a node.
 //   - Expression fires for every non-invalid checked expression node.
 //   - Statement fires for every checked statement, at every nesting depth,
-//     before that statement's own type-directed descent. It is the hook
-//     local named function and literal discovery uses to find every
-//     LocalFunctionDeclaration regardless of how deeply nested it is.
+//     before that statement's own type-directed descent.
 //
 // Callbacks are optional; nil callbacks are ignored. A callback error stops
 // the walk and surfaces through walkProgram, so discovery reports a
@@ -205,7 +203,7 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 		return walkStatementOperand(statement.Source, visit)
 	case checker.WhileStatement:
 		return walkStatementOperand(statement.Condition, visit)
-	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration, checker.MethodDeclaration, checker.LocalFunctionDeclaration:
+	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration, checker.MethodDeclaration:
 		// No expressions reachable directly from these shapes; nested
 		// bodies are the caller's recursion.
 	default:
@@ -606,10 +604,6 @@ func (state *walkState) walkStatements(statements []checker.Statement) error {
 			}
 		case checker.MethodDeclaration:
 			if err := state.walkMethodBody(statement.SelfType, statement.Parameters, statement.Result, statement.Body); err != nil {
-				return err
-			}
-		case checker.LocalFunctionDeclaration:
-			if err := state.walkFunctionBody(statement.Type, statement.Parameters, statement.Result, statement.Body); err != nil {
 				return err
 			}
 		default:

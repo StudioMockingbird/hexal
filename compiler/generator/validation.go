@@ -303,12 +303,6 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				return unknownExpressionDiagnostic("method declaration inside a module-level control-flow block")
 			}
 			continue
-		case checker.LocalFunctionDeclaration:
-			// Unlike a module function or method, nesting inside control
-			// flow is exactly where a local function is meant to live; its
-			// own body is validated separately, not through this sweep for
-			// concrete generic specializations' substituted types.
-			continue
 		default:
 			return unknownExpressionDiagnostic("unsupported checked statement")
 		}

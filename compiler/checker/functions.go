@@ -29,34 +29,6 @@ type FunctionDeclaration struct {
 
 func (FunctionDeclaration) statementNode() {}
 
-// LocalFunctionDeclaration is a named function declared inside another
-// function's body. It shares its Fun<...> type, parameters,
-// result, body, and self-recursion mechanism with FunctionDeclaration; it
-// differs only in scope: it is visible from its declaration onward in its
-// containing lexical block and hidden outside it. It is a checked
-// declaration, not an executable statement: generation emits one file-scope
-// static helper and no block-local function-pointer object.
-type LocalFunctionDeclaration struct {
-	Name       string
-	Parameters []FunctionParameter
-	Result     *compilerTypes.Type
-	ResultUse  *compilerTypes.TypeUse
-	Type       compilerTypes.Type
-	Body       []Statement
-	Defers     []DeferredAction
-	// HelperOrdinal is this declaration's compiler-owned identity, assigned
-	// once at check time in checked-tree preorder - the same shared
-	// BindingID counter every parameter and local binding draws from, not a
-	// second counter kept only for local functions. Generation spells it
-	// hex_fun_<HelperOrdinal>; the source Name above is checker metadata
-	// used only for diagnostics.
-	HelperOrdinal BindingID
-	SourceLine    int
-	SourceColumn  int
-}
-
-func (LocalFunctionDeclaration) statementNode() {}
-
 // FunctionParameter is one resolved parameter. Parameters are fixed bindings,
 // so no mutability field exists.
 type FunctionParameter struct {
@@ -68,18 +40,24 @@ type FunctionParameter struct {
 	SourceColumn int
 }
 
-// checkFunctionDeclaration follows the single-pass order exactly:
-// resolve the complete signature, bind the name, then check the body with
-// everything visible at this source position. Binding before the body is what
-// makes direct self-recursion work; no later signature is collected.
-func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment, analyzeReturns bool) (FunctionDeclaration, compilerTypes.Diagnostics) {
+// collectFunctionSignature validates a function declaration's name and
+// resolves its signature, binding it into names before any module-level
+// body is checked: this is what lets a forward or mutually recursive call
+// resolve, since every signature this pass binds is visible to every body
+// checkFunctionBody later checks, in either source-order direction. A
+// generic declaration is registered as an open template by
+// registerGenericFunction and returns a zero signature; its body is never
+// checked here, only lazily at specialization time, which needs no separate
+// "check body later" step of its own.
+//
+// rootValueNamesSoFar names every root value declared earlier in source but
+// not yet bound in names, because root values are checked in the module's
+// later pass while signature collection runs first: this set is what lets a
+// function collide correctly against a root value declared earlier in
+// source but not yet processed, keeping diagnostic ownership on whichever
+// declaration is actually later regardless of which pass reaches it first.
+func collectFunctionSignature(declaration parser.FunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment, rootValueNamesSoFar map[string]bool) (functionSignature, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
-	checked := FunctionDeclaration{
-		Name:         name,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
-		Exported:     declaration.Exported,
-	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
 	if name == "print" {
@@ -94,7 +72,7 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 	}
 	if compilerTypes.IsProtectedTypeName(name) || typeEnvironment.Contains(name) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+name+" is already declared as a type"))
-	} else if names.declaredHere(name) {
+	} else if names.declaredHere(name) || rootValueNamesSoFar[name] {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, name+" is already declared"))
 	} else if method, taken := names.methods.cNames[name]; taken {
 		// hex_f_ is not injective: Point_translate and impl Point.translate
@@ -103,20 +81,18 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 	}
 
 	if len(diagnostics) == 0 && len(declaration.TypeParameters) > 0 {
-		return checked, registerGenericFunction(declaration, names, typeEnvironment)
+		return functionSignature{}, registerGenericFunction(declaration, names, typeEnvironment)
 	}
-
-	signature, signatureDiagnostics := checkFunctionSignature(declaration.Parameters, declaration.Return, declaration.Name, names.generics, typeEnvironment)
-	diagnostics = append(diagnostics, signatureDiagnostics...)
 	// An incomplete signature cannot be bound, so the body is not checked
 	// either: every name in it would resolve against a fiction.
 	if len(diagnostics) > 0 {
-		return checked, diagnostics
+		return functionSignature{}, diagnostics
 	}
-	checked.Parameters = signature.parameters
-	checked.Result = signature.result
-	checked.ResultUse = signature.resultUse
-	checked.Type = signature.functionType
+
+	signature, signatureDiagnostics := checkFunctionSignature(declaration.Parameters, declaration.Return, declaration.Name, names.generics, typeEnvironment)
+	if len(signatureDiagnostics) > 0 {
+		return functionSignature{}, signatureDiagnostics
+	}
 
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(signature.parameters))
 	for _, parameter := range signature.parameters {
@@ -124,6 +100,27 @@ func checkFunctionDeclaration(declaration parser.FunctionDeclaration, names *sco
 	}
 	functionUse := compilerTypes.FunctionTypeUse(signature.functionType, parameterUses, signature.resultUse)
 	names.module[name] = binding{typ: signature.functionType, use: functionUse, kind: functionBinding}
+	return signature, nil
+}
+
+// checkFunctionBody checks a module function's body against its
+// already-collected signature (collectFunctionSignature). It runs in the
+// module's second pass, after every module-level signature is bound, so a
+// call to any other module function or method - earlier, later, or mutually
+// recursive - resolves.
+func checkFunctionBody(declaration parser.FunctionDeclaration, signature functionSignature, names *scope, typeEnvironment *compilerTypes.Environment, analyzeReturns bool) (FunctionDeclaration, compilerTypes.Diagnostics) {
+	name := declaration.Name.Lexeme
+	checked := FunctionDeclaration{
+		Name:         name,
+		Parameters:   signature.parameters,
+		Result:       signature.result,
+		ResultUse:    signature.resultUse,
+		Type:         signature.functionType,
+		SourceLine:   declaration.Name.Line,
+		SourceColumn: declaration.Name.Column,
+		Exported:     declaration.Exported,
+	}
+	diagnostics := make(compilerTypes.Diagnostics, 0)
 
 	body := names.closureRootScope(name)
 	body.result = signature.result
@@ -151,10 +148,9 @@ type functionSignature struct {
 
 // checkFunctionSignature resolves one written parameter list and optional
 // result against typeEnvironment and generics. It is the one shared
-// implementation behind a module FunctionDeclaration, a
-// LocalFunctionDeclaration, and a FunctionLiteralExpression: all three
-// resolve their signature identically and differ only in how their own name,
-// if any, is bound around the call.
+// implementation behind a module FunctionDeclaration and a
+// FunctionLiteralExpression: both resolve their signature identically and
+// differ only in how their own name, if any, is bound around the call.
 func checkFunctionSignature(written []parser.Parameter, resultExpr parser.TypeExpression, fallback lexer.Token, generics *genericTable, typeEnvironment *compilerTypes.Environment) (functionSignature, compilerTypes.Diagnostics) {
 	parameters, diagnostics := checkParameters(written, typeEnvironment, generics)
 	parameterTypes := make([]compilerTypes.Type, 0, len(parameters))
@@ -293,106 +289,4 @@ func asFunctionDeclaration(name lexer.Token, literal parser.AnonymousFunctionLit
 		End:             literal.End,
 		HasSyntaxErrors: literal.HasSyntaxErrors,
 	}
-}
-
-// asLocalFunctionDeclaration synthesizes the local named-function form that
-// a direct function-literal declaration is sugar for.
-func asLocalFunctionDeclaration(name lexer.Token, literal parser.AnonymousFunctionLiteral) parser.LocalFunctionDeclaration {
-	return parser.LocalFunctionDeclaration{
-		Keyword:         literal.FunKeyword,
-		Name:            name,
-		TypeParameters:  literal.TypeParameters,
-		Parameters:      literal.Parameters,
-		Return:          literal.Return,
-		Body:            literal.Body,
-		End:             literal.End,
-		HasSyntaxErrors: literal.HasSyntaxErrors,
-	}
-}
-
-// checkLocalFunctionDeclaration checks a named function declared inside
-// another function's body. It follows the same single-pass order as a module
-// FunctionDeclaration - resolve the signature, bind the name, then check the
-// body - so self-recursion resolves the same way; it differs only in binding
-// the name into the current lexical block instead of the module frame, which
-// gives it that block's visibility instead of the whole module's.
-func checkLocalFunctionDeclaration(declaration parser.LocalFunctionDeclaration, names *scope, typeEnvironment *compilerTypes.Environment) (LocalFunctionDeclaration, compilerTypes.Diagnostics) {
-	name := declaration.Name.Lexeme
-	checked := LocalFunctionDeclaration{
-		Name:         name,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
-	}
-	diagnostics := make(compilerTypes.Diagnostics, 0)
-
-	if name == "print" {
-		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, "print is a protected built-in name"))
-	}
-	if layoutBuiltins[name] {
-		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, name+" is a protected built-in name"))
-	}
-	if compilerTypes.IsProtectedTypeName(name) || typeEnvironment.Contains(name) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+name+" is already declared as a type"))
-	} else if names.declaredHere(name) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, name+" is already declared"))
-	} else if method, taken := names.methods.cNames[name]; taken {
-		diagnostics = append(diagnostics, collisionDiagnostic(name, method, declaration.Name))
-	}
-	if len(diagnostics) > 0 {
-		return checked, diagnostics
-	}
-
-	if len(declaration.TypeParameters) > 0 {
-		synthesized := parser.FunctionDeclaration{
-			Keyword:         declaration.Keyword,
-			Name:            declaration.Name,
-			TypeParameters:  declaration.TypeParameters,
-			Parameters:      declaration.Parameters,
-			Return:          declaration.Return,
-			Body:            declaration.Body,
-			End:             declaration.End,
-			HasSyntaxErrors: declaration.HasSyntaxErrors,
-		}
-		_, registerDiagnostics := registerLocalGenericFunction(declaration.Name, declaration.TypeParameters, synthesized, names, typeEnvironment)
-		return checked, registerDiagnostics
-	}
-
-	signature, signatureDiagnostics := checkFunctionSignature(declaration.Parameters, declaration.Return, declaration.Name, names.generics, typeEnvironment)
-	diagnostics = append(diagnostics, signatureDiagnostics...)
-	if len(diagnostics) > 0 {
-		return checked, diagnostics
-	}
-	checked.Parameters = signature.parameters
-	checked.Result = signature.result
-	checked.ResultUse = signature.resultUse
-	checked.Type = signature.functionType
-
-	parameterUses := make([]compilerTypes.TypeUse, 0, len(signature.parameters))
-	for _, parameter := range signature.parameters {
-		parameterUses = append(parameterUses, parameter.TypeUse)
-	}
-	functionUse := compilerTypes.FunctionTypeUse(signature.functionType, parameterUses, signature.resultUse)
-	// The ordinal is assigned here, before the body is checked, from the
-	// same shared counter every binding draws from: checking proceeds in
-	// exactly one linear preorder pass, so this is already checked-tree
-	// preorder without a second counter.
-	ordinal := names.newBindingID()
-	checked.HelperOrdinal = ordinal
-	// Registered before the body is checked, exactly like a module function:
-	// this is what makes direct self-recursion resolve.
-	names.define(name, binding{typ: signature.functionType, use: functionUse, kind: functionBinding, localHelperOrdinal: ordinal})
-
-	body := names.closureRootScope(name)
-	body.result = signature.result
-	body.resultUse = signature.resultUse
-	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, declaration.Body, names, body, typeEnvironment)
-	diagnostics = append(diagnostics, bodyDiagnostics...)
-	checked.Body = statements
-	checked.Defers = append(checked.Defers, body.defers...)
-
-	if signature.result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.End,
-			fmt.Sprintf("returning %s may fall through without returning %s", name, signature.result.Name)))
-	}
-	return checked, diagnostics
 }

@@ -408,6 +408,53 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 	walkProgram(program, visitor)
 }
 
+// writeModulePrototypes emits one static prototype per private module-level
+// function and method, in source order, before any definition: module-level
+// visibility is order-independent, so a definition may call another
+// declared later or mutually recurse with it, and C requires a prototype or
+// earlier definition for that to compile. An exported declaration is
+// skipped here; its prototype is already supplied by the module header
+// (writeExportedPrototypes) and is not duplicated in the C file.
+func writeModulePrototypes(body *strings.Builder, program checker.Program, owner string) {
+	emitted := 0
+	for _, statement := range program.Statements {
+		switch declared := statement.(type) {
+		case checker.FunctionDeclaration:
+			if declared.Exported {
+				continue
+			}
+			resultSpelling := "void"
+			if declared.Result != nil {
+				resultSpelling = standaloneResultSpelling(*declared.Result)
+			}
+			parameters := make([]string, len(declared.Parameters))
+			for index, parameter := range declared.Parameters {
+				parameters[index] = typeSpelling(parameter.Type)
+			}
+			fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
+			emitted++
+		case checker.MethodDeclaration:
+			if declared.Exported {
+				continue
+			}
+			resultSpelling := "void"
+			if declared.Result != nil {
+				resultSpelling = standaloneResultSpelling(*declared.Result)
+			}
+			parameters := make([]string, 0, len(declared.Parameters)+1)
+			parameters = append(parameters, typeSpelling(declared.SelfType))
+			for _, parameter := range declared.Parameters {
+				parameters = append(parameters, typeSpelling(parameter.Type))
+			}
+			fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
+			emitted++
+		}
+	}
+	if emitted > 0 {
+		body.WriteString("\n")
+	}
+}
+
 // writeSpecializedPrototypes emits one static prototype per concrete
 // specialization so definitions can reference later specializations.
 func writeSpecializedPrototypes(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, typeState *generatedTypeValidation, owner string) error {

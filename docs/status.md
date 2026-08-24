@@ -24,7 +24,6 @@ other.
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
-| Blocking-syscall boundary — what the scheduler does at a blocking call; gates sockets and readiness-based I/O | [0091](specs/0091-blocking-syscall-boundary.md) |
 | Language surface audit dispositions — 34 findings; promote/reject/accept per finding | [0103](specs/0103-language-surface-audit.md) |
 | Affine ownership and Arena/Pool lifetimes | [0110](specs/0110-affine-ownership-and-arenas.md) |
 | Native module storage and linkage | [0116](specs/0116-native-module-storage-and-linkage.md) |
@@ -35,9 +34,9 @@ other.
 
 | Work | Spec |
 |---|---|
-| Order-independent function visibility — 0094 landed; reconcile its three visibility cases | [0112](specs/0112-order-independent-function-visibility.md) |
 | Refactoring audit residue — R21 coverage matrix, R25 checker context bundle, R47 API docs; R22-R24 split-or-drop decided here | [0119](specs/0119-refactor-audit-residue.md) |
 | Explicit binary grouping — reject mixed unparenthesized binary operators | [0120](specs/0120-explicit-binary-grouping.md) |
+| Scheduler-aware blocking pool — park Tasks while bounded native threads perform synchronous operations | [0121](specs/0121-scheduler-aware-blocking.md) |
 
 ### Design settled; implementation blocked
 

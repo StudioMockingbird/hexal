@@ -97,7 +97,7 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 		checker.Declaration, checker.Assignment, checker.CallStatement, checker.TryStatement,
 		checker.ReturnStatement, checker.BreakStatement, checker.ContinueStatement,
 		checker.DeferStatement, checker.ErrdeferStatement, checker.FunctionDeclaration,
-		checker.MethodDeclaration, checker.LocalFunctionDeclaration:
+		checker.MethodDeclaration:
 		// Block statements carry no expressions beyond their own operands,
 		// and leaf statements none; nested bodies hoist at their own
 		// statement list.

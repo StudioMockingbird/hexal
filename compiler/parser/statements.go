@@ -103,40 +103,6 @@ func (parser *Parser) functionDeclaration(exported bool) (FunctionDeclaration, e
 	}, nil
 }
 
-func (parser *Parser) localFunctionDeclaration() (LocalFunctionDeclaration, error) {
-	keyword := parser.advance()
-	name, err := parser.consume(lexer.Identifier, "a function name after 'fun'")
-	if err != nil {
-		return LocalFunctionDeclaration{}, err
-	}
-	typeParameters, err := parser.genericParameterList()
-	if err != nil {
-		return LocalFunctionDeclaration{}, err
-	}
-	parameters, returnType, err := parser.signature()
-	if err != nil {
-		return LocalFunctionDeclaration{}, err
-	}
-	if err := parser.requireDelimiter(lexer.Do, "'do' after function signature"); err != nil {
-		return LocalFunctionDeclaration{}, err
-	}
-	diagnosticsBeforeBody := len(parser.diagnostics)
-	body, end, err := parser.body("function " + name.Lexeme)
-	if err != nil {
-		return LocalFunctionDeclaration{}, err
-	}
-	return LocalFunctionDeclaration{
-		Keyword:         keyword,
-		Name:            name,
-		TypeParameters:  typeParameters,
-		Parameters:      parameters,
-		Return:          returnType,
-		Body:            body,
-		End:             end,
-		HasSyntaxErrors: len(parser.diagnostics) > diagnosticsBeforeBody,
-	}, nil
-}
-
 func (parser *Parser) anonymousFunctionLiteral() (AnonymousFunctionLiteral, error) {
 	keyword := parser.advance()
 	typeParameters, err := parser.genericParameterList()

@@ -1,7 +1,9 @@
 package checker
 
-// Anonymous function literals, local named function declarations, and the
-// direct-inferred-literal declaration-sugar boundary between them.
+// Anonymous function literals and the direct-inferred-literal
+// declaration-sugar boundary. Named local function declarations no longer
+// exist as syntax; only an ordinary Fun<...> value produced by a literal
+// remains legal inside a function body.
 
 import "testing"
 
@@ -107,59 +109,34 @@ func TestMutableLiteralBindingIsNotSelfRecursive(t *testing.T) {
 		"unknown function op; functions must be declared before use")
 }
 
-func TestLocalNamedFunctionChecksAsLocalFunctionDeclaration(t *testing.T) {
-	checked := requireAccepted(t,
+func TestLocalLiteralBindingCannotBeUsedBeforeItsDeclaration(t *testing.T) {
+	// Local bindings stay ordinary source-ordered runtime data even though
+	// module-level function visibility became order-independent: an earlier
+	// statement in the same function body cannot forward-reference a local
+	// binding a later statement declares, unlike a module-level function.
+	requireDiagnostic(t,
 		"fun outer(): Int32 do\n"+
-			"    fun inner(value: Int32): Int32 do\n"+
-			"        return value + 1\n"+
+			"    x: Int32 := helper()\n"+
+			"    helper: Fun<(): Int32> := fun(): Int32 do\n"+
+			"        return 1\n"+
 			"    end\n"+
-			"    return inner(1)\n"+
-			"end\n")
-	outer, ok := checked.Statements[0].(FunctionDeclaration)
-	if !ok {
-		t.Fatalf("statement 0 = %T, want FunctionDeclaration", checked.Statements[0])
-	}
-	local, ok := outer.Body[0].(LocalFunctionDeclaration)
-	if !ok {
-		t.Fatalf("outer body[0] = %T, want LocalFunctionDeclaration", outer.Body[0])
-	}
-	if local.Name != "inner" || len(local.Parameters) != 1 {
-		t.Fatalf("local = %#v, want inner with one parameter", local)
-	}
+			"    return x\n"+
+			"end\n",
+		"unknown function helper; functions must be declared before use")
 }
 
-func TestLocalFunctionSelfRecursion(t *testing.T) {
-	requireAccepted(t,
-		"fun outer(): Int32 do\n"+
-			"    fun fact(value: Int32): Int32 do\n"+
-			"        if value == 0 then\n"+
-			"            return 1\n"+
-			"        end\n"+
-			"        return value * fact(value - 1)\n"+
+func TestFunctionLiteralInsideAFunctionRejectsParameterCapture(t *testing.T) {
+	// Declaration-sugar literal: a local binding directly initialized by a
+	// literal is ordinary runtime data, not a named declaration, and still
+	// closes over nothing from its enclosing function.
+	requireDiagnostic(t,
+		"fun calculate(factor: Int32): Int32 do\n"+
+			"    operation := fun (value: Int32): Int32 do\n"+
+			"        return value * factor\n"+
 			"    end\n"+
-			"    return fact(5)\n"+
-			"end\n")
-}
-
-func TestLocalFunctionAndLiteralRejectEnclosingParameterCapture(t *testing.T) {
-	for _, source := range []string{
-		// Declaration-sugar literal.
-		"fun calculate(factor: Int32): Int32 do\n" +
-			"    operation := fun (value: Int32): Int32 do\n" +
-			"        return value * factor\n" +
-			"    end\n" +
-			"    return operation(2)\n" +
+			"    return operation(2)\n"+
 			"end\n",
-		// Local named function.
-		"fun calculate(factor: Int32): Int32 do\n" +
-			"    fun operation(value: Int32): Int32 do\n" +
-			"        return value * factor\n" +
-			"    end\n" +
-			"    return operation(2)\n" +
-			"end\n",
-	} {
-		requireDiagnostic(t, source, "unknown variable factor")
-	}
+		"unknown variable factor")
 }
 
 func TestLiteralInsideMethodRejectsSelf(t *testing.T) {
@@ -174,117 +151,16 @@ func TestLiteralInsideMethodRejectsSelf(t *testing.T) {
 		"self is not bound outside an impl body")
 }
 
-func TestLocalFunctionSourceOrderIsAuthoritative(t *testing.T) {
-	// A local function may call itself and earlier visible local functions,
-	// but a call to a later local function in the same block is rejected.
-	requireDiagnostic(t,
-		"fun outer(): Int32 do\n"+
-			"    fun a(): Int32 do\n"+
-			"        return b()\n"+
-			"    end\n"+
-			"    fun b(): Int32 do\n"+
-			"        return 1\n"+
-			"    end\n"+
-			"    return a()\n"+
-			"end\n",
-		"unknown function b; functions must be declared before use")
-}
-
-func TestLocalFunctionVisibleToLaterLocalFunctionAndLiteral(t *testing.T) {
-	for _, source := range []string{
-		"fun outer(): Int32 do\n" +
-			"    fun helper(): Int32 do\n" +
-			"        return 1\n" +
-			"    end\n" +
-			"    fun caller(): Int32 do\n" +
-			"        return helper()\n" +
-			"    end\n" +
-			"    return caller()\n" +
-			"end\n",
-		"fun outer(): Int32 do\n" +
-			"    fun helper(): Int32 do\n" +
-			"        return 1\n" +
-			"    end\n" +
-			"    inner := fun (): Int32 do\n" +
-			"        return helper()\n" +
-			"    end\n" +
-			"    return inner()\n" +
-			"end\n",
-	} {
-		requireAccepted(t, source)
-	}
-}
-
-func TestNestedLiteralRejectsEnclosingLocalFunctionParameter(t *testing.T) {
-	requireDiagnostic(t,
-		"fun outer() do\n"+
-			"    fun middle(value: Int32) do\n"+
-			"        inner := fun (): Int32 do\n"+
-			"            return value\n"+
-			"        end\n"+
-			"        return\n"+
-			"    end\n"+
-			"end\n",
-		"unknown variable value")
-}
-
-func TestLocalFunctionHiddenOutsideItsBlock(t *testing.T) {
-	requireDiagnostic(t,
-		"fun outer(cond: Bool): Int32 do\n"+
-			"    if cond then\n"+
-			"        fun helper(): Int32 do\n"+
-			"            return 1\n"+
-			"        end\n"+
-			"        return helper()\n"+
-			"    end\n"+
-			"    return helper()\n"+
-			"end\n",
-		"unknown function helper; functions must be declared before use")
-}
-
-func TestDuplicateLocalFunctionNameInSameBlockRejected(t *testing.T) {
-	requireDiagnostic(t,
-		"fun outer(): Int32 do\n"+
-			"    fun helper(): Int32 do\n"+
-			"        return 1\n"+
-			"    end\n"+
-			"    fun helper(): Int32 do\n"+
-			"        return 2\n"+
-			"    end\n"+
-			"    return helper()\n"+
-			"end\n",
-		"helper is already declared")
-}
-
-func TestLocalFunctionAndModuleDataShareTheClosedFunctionRule(t *testing.T) {
+func TestFunctionLiteralAndModuleDataShareTheClosedFunctionRule(t *testing.T) {
 	requireDiagnostic(t,
 		"count: Int32 := 5\n"+
 			"fun outer(): Int32 do\n"+
-			"    fun inner(): Int32 do\n"+
+			"    inner := fun (): Int32 do\n"+
 			"        return count\n"+
 			"    end\n"+
 			"    return inner()\n"+
 			"end\n",
-		"function inner cannot access module data binding count; pass it as a parameter")
-}
-
-func TestGenericLocalFunctionExplicitAndInferredCalls(t *testing.T) {
-	for _, source := range []string{
-		"fun outer(): Int32 do\n" +
-			"    fun identity<T>(value: T): T do\n" +
-			"        return value\n" +
-			"    end\n" +
-			"    return identity<Int32>(5)\n" +
-			"end\n",
-		"fun outer(): Int32 do\n" +
-			"    fun identity<T>(value: T): T do\n" +
-			"        return value\n" +
-			"    end\n" +
-			"    return identity(5)\n" +
-			"end\n",
-	} {
-		requireAccepted(t, source)
-	}
+		"function function literal cannot access module data binding count; pass it as a parameter")
 }
 
 func TestGenericAnonymousLiteralContextualSpecialization(t *testing.T) {
@@ -321,54 +197,18 @@ func TestGenericLiteralDirectInvocationInfersFromArguments(t *testing.T) {
 	}
 }
 
-func TestTwoLocalGenericsWithSameNameInDisjointScopesAreIndependent(t *testing.T) {
-	checked := requireAccepted(t,
-		"fun first(): Int32 do\n"+
-			"    fun identity<T>(value: T): T do\n"+
-			"        return value\n"+
-			"    end\n"+
-			"    return identity(1)\n"+
-			"end\n"+
-			"fun second(): Bool do\n"+
-			"    fun identity<T>(value: T): T do\n"+
-			"        return value\n"+
-			"    end\n"+
-			"    return identity(true)\n"+
-			"end\n")
-	first := checked.Statements[0].(FunctionDeclaration)
-	second := checked.Statements[1].(FunctionDeclaration)
-	firstCall := first.Body[0].(ReturnStatement).Value.Node
-	secondCall := second.Body[0].(ReturnStatement).Value.Node
-	if firstCall.Operand.Name == secondCall.Operand.Name {
-		t.Fatalf("both local generics specialized to the same C name %q; want distinct identities", firstCall.Operand.Name)
-	}
-}
-
 func TestNestedGenericLiteralUsesEnclosingTypeParameter(t *testing.T) {
+	// A literal with an exact contextual Fun<...> type may use the
+	// enclosing generic function's own type parameter, exactly like any
+	// other type name visible at that point in the body.
 	requireAccepted(t,
 		"fun apply<T>(value: T): T do\n"+
-			"    operation := fun<U>(input: U): U do\n"+
-			"        return input\n"+
-			"    end\n"+
 			"    holder: Fun<(T) : T> := fun (input: T): T do\n"+
 			"        return input\n"+
 			"    end\n"+
-			"    ignored: Int32 := operation(1)\n"+
 			"    return holder(value)\n"+
 			"end\n"+
 			"x: Int32 := apply<Int32>(5)\n")
-}
-
-func TestNestedGenericRejectsEnclosingTypeParameterName(t *testing.T) {
-	requireDiagnostic(t,
-		"fun outer<T>(value: T): T do\n"+
-			"    fun inner<T>(value: T): T do\n"+
-			"        return value\n"+
-			"    end\n"+
-			"    return inner(value)\n"+
-			"end\n"+
-			"x: Int32 := outer<Int32>(5)\n",
-		"generic parameter T is already declared by an enclosing function")
 }
 
 func TestGenericLiteralRejectsEnclosingTypeParameterName(t *testing.T) {
@@ -407,39 +247,4 @@ func TestCallingANonFunctionExpressionIsStillRejected(t *testing.T) {
 	requireDiagnostic(t,
 		"x: Int32 := (5)(3)\n",
 		"a call's callee must be a function name or a method selection")
-}
-
-func TestLocalGenericSameArgumentRecursionAllowed(t *testing.T) {
-	requireAccepted(t,
-		"fun outer(): Int32 do\n"+
-			"    fun fact<T>(value: Int32): Int32 do\n"+
-			"        if value == 0 then\n"+
-			"            return 1\n"+
-			"        end\n"+
-			"        return value * fact<Int32>(value - 1)\n"+
-			"    end\n"+
-			"    return fact<Int32>(5)\n"+
-			"end\n")
-}
-
-func TestLocalGenericArgumentChangingRecursionRejected(t *testing.T) {
-	requireDiagnostic(t,
-		"fun outer(): Int32 do\n"+
-			"    fun bad<T>(value: T): Int32 do\n"+
-			"        return bad(1.5)\n"+
-			"    end\n"+
-			"    return bad(1)\n"+
-			"end\n",
-		"recursive specialization changes generic arguments")
-}
-
-func TestLocalGenericRejectsEnclosingParameterCapture(t *testing.T) {
-	requireDiagnostic(t,
-		"fun calculate(factor: Int32): Int32 do\n"+
-			"    fun scale<T>(value: T): Int32 do\n"+
-			"        return factor\n"+
-			"    end\n"+
-			"    return scale<Int32>(2)\n"+
-			"end\n",
-		"unknown variable factor")
 }

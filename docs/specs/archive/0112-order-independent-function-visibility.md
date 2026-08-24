@@ -1,7 +1,54 @@
 # RFC 0112: Order-Independent Function Visibility
 
 - Kind: Language Semantics (ISO/IEC Language Standard Format)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented 2026-08-24. Stage 1 removed nested named
+  function declarations from the parser (`localFunctionDeclaration` and
+  `LocalFunctionDeclaration` deleted) and made `fun name(...)` at statement
+  position a Syntax Error ("named function declarations are only valid at
+  module scope"). Stage 2 restructured `checkModule` from one single-pass
+  loop into three: pass 1 resolves imports and type declarations in source
+  order unchanged; pass 2 collects every module-level function and method
+  signature via new `collectFunctionSignature`/`collectMethodSignature`,
+  binding every signature before any body is checked, which is what lets a
+  forward or mutually recursive call resolve regardless of source order;
+  pass 3 checks bodies via `checkFunctionBody`/`checkMethodBody` plus every
+  root statement, unchanged in shape from the old single pass. Diagnostic
+  ownership required two extra tracking structures, both found only by
+  deliberately probing the reversed direction of every collision rule before
+  trusting it: `rootValueNames` (built incrementally as pass 2 walks source
+  order) keeps a function/root-value name collision attributed to whichever
+  declaration is actually later, and `functionIndexByName` (a pre-pass 1
+  scan) plus `typeIndexByName` (built as pass 1 walks) fixed two real
+  regressions the naive two-pass split introduced: a function declared
+  before a colliding type used to blame the earlier function instead of the
+  later type, and a root declaration's own type annotation could see a type
+  declared later than itself, which the language deliberately does not
+  allow even though function signatures and bodies now do. `generics.go`'s
+  `registerLocalGenericFunction` was deleted as orphaned; RFC 0094's shared
+  `openGenericFunction`/`openGenericLiteral` machinery was confirmed
+  unrelated and left untouched. Stage 3 added `writeModulePrototypes` in
+  `compiler/generator/declarations.go`, emitting a `static` prototype for
+  every private module-level function and method in source order before any
+  definition, wired into `emission.go` alongside the existing
+  `writeLocalHelperPrototypes`; every `LocalFunctionDeclaration` case was
+  removed from the generator's statement switches
+  (`concurrency.go`/`errors.go`/`sequencing.go`/`walk.go`/`render.go`/
+  `validation.go`) and `local_helpers.go` now discovers only
+  `FunctionLiteralExpression`. Stage 4 rebuilt the snippet manifest
+  (`workbench/snippets/testdata/generated-c-sha256.json`): 103 `modules/*.c`
+  entries changed to include the new prototypes, zero `.h` entries changed.
+  Stage 5's exhaustive validation sweep against every bullet below caught
+  both diagnostic-ownership bugs described above before they shipped, by
+  writing a temporary probe for each reversed-order case and reading its
+  actual output rather than assuming the two-pass split preserved the old
+  attribution rule. Reference synchronization updated `docs/reference.md`'s
+  Programs/Modules section (order-independent function and method
+  visibility, retained type and root-declaration source-order rules), the
+  anonymous-literal section (removed local named functions, documented the
+  module-vs-local split for direct inferred fixed literal declarations,
+  documented the local-scope rejection of an inferred generic literal), the
+  C-lowering section, and the generated-artifact-split section (module C
+  file prototype ordering).
 - Updated: 2026-08-24
 - Features: module-level forward function references and mutual recursion;
   removal of nested named function declarations
@@ -226,6 +273,129 @@ After implementation stabilizes:
 - update the generated artifact contract for prototype collection.
 
 ## Implementation plan
+
+### Baseline findings
+
+Probed against the checker/generator at HEAD before executing this plan:
+
+- **`checkModule`** (`compiler/checker/checker.go:349-521`) is one loop over
+  `program.Items` in source order: for `parser.FunctionDeclaration` and
+  `parser.ImplDeclaration` it checks the *whole* declaration (signature and
+  body) inline before moving to the next item, confirmed by
+  `checkFunctionDeclaration`'s own doc comment
+  (`compiler/checker/functions.go:71-74`): "resolve the complete signature,
+  bind the name, then check the body ... no later signature is collected."
+  This is the single pass Stage 2/3 splits into signature collection then
+  body checking.
+- **`checkFunctionDeclaration`** (`functions.go:75-141`) does, in order: name
+  validation -> (if generic) `registerGenericFunction` and return early ->
+  `checkFunctionSignature` -> bind `names.module[name]` -> `bindParametersAndCheckBody`
+  -> the `FallsThrough` return-analysis diagnostic. The signature-resolution
+  and name-binding half (through the `names.module[name] = ...` line) is
+  Stage 2's "collect" phase; `bindParametersAndCheckBody` plus the
+  `FallsThrough` check is Stage 3's "check body" phase. `checkImplDeclaration`
+  (`methods.go:191-310`) has the identical shape (receiver resolution and
+  name/collision checks, then `names.methods.define(&checked)`, is the
+  collect half; parameter binding through the body check is the body half).
+  A generic declaration (function or method) is fully handled by
+  `registerGenericFunction`/`registerGenericMethod` alone — it registers an
+  open template and returns before any body is touched, so it needs no
+  separate "check body later" step: its body is checked lazily, at
+  specialization time, whenever a call site with concrete arguments is
+  itself checked in Stage 3. Splitting registration (Stage 2) from every
+  concrete body check (Stage 3, including specialization-triggering calls)
+  is what makes "a generic function may call another generic function
+  declared later" hold, with no additional generic-specific machinery.
+- **Local named functions** (RFC 0094, being removed) are recognized in
+  `Parser.statement()` (`compiler/parser/parser.go:231-243`, the
+  `parser.tokenAfterFun() == lexer.Identifier` branch calling
+  `parser.localFunctionDeclaration()`), parsed by `localFunctionDeclaration`
+  (`compiler/parser/statements.go:106-138`) into the AST node
+  `parser.LocalFunctionDeclaration` (`compiler/parser/ast.go:124-139`), and
+  checked by `checkLocalFunctionDeclaration` (`compiler/checker/functions.go:319-398`,
+  dispatched from `compiler/checker/control_flow.go:104-117,154-165`) into
+  the checked node `checker.LocalFunctionDeclaration`
+  (`compiler/checker/functions.go:39-58`). Local generic templates use a
+  dedicated `local`-flagged path on `openGenericFunction`
+  (`compiler/checker/generics.go:72-115`) and `registerLocalGenericFunction`
+  (`generics.go:350-385`), which name-mangles the generated symbol
+  (`_local<N>`, visible in `compiler/tests/integration/functions_test.go:472`
+  as `hex_f_m3_app_fact_local1_Int32`). All of the above is deleted; the
+  *module-level* direct-inferred-literal sugar path
+  (`directFunctionLiteralSugar`/`asFunctionDeclaration`,
+  `functions.go:267-296`, dispatched from `checker.go:385-397`) stays and
+  becomes order-independent along with ordinary named module functions.
+  `asLocalFunctionDeclaration` (`functions.go:298-311`) and its dispatch from
+  `control_flow.go`'s `parser.Declaration` case are deleted; that local
+  binding path folds into ordinary `checkDeclaration`.
+- **Anonymous literal helper emission** (`compiler/generator/local_helpers.go`)
+  stays untouched except deleting the dead `checker.LocalFunctionDeclaration`
+  branch of `collectLocalHelpers`'s statement visitor (lines 46-67); the
+  `checker.FunctionLiteralExpression` branch (68-88), `hex_fun_<ordinal>`
+  naming, and the prototype/definition writers are RFC 0094's and are not
+  part of this sweep.
+- **No forward-prototype mechanism exists today for ordinary module
+  functions/methods.** `compiler/generator/emission.go`'s definition-emission
+  loop states this outright in its own comment: "Only self-recursion and
+  calls to earlier definitions are legal, so no prototype region is needed."
+  Two existing, directly reusable patterns already emit `static ...;`
+  prototypes ahead of definitions: `writeSpecializedPrototypes`
+  (`compiler/generator/declarations.go:411-463`, for generic specializations)
+  and `writeLocalHelperPrototypes` (`compiler/generator/local_helpers.go:97-128`,
+  for anonymous-literal helpers). Stage 4's new private-module-prototype pass
+  is built the same way: iterate `program.Statements` for
+  `checker.FunctionDeclaration`/`checker.MethodDeclaration` where
+  `!declared.Exported`, emit one `static` prototype per declaration in
+  source order, then let the existing definition-emission loop run
+  unchanged. Exported prototypes already exist via `writeExportedPrototypes`
+  (`declarations.go:320-355`, emitted into the module header) and need no
+  change beyond confirming the C file never duplicates them.
+- **The import-prefix diagnostic** (`"imports must precede all other top-level
+  items"`, `compiler/parser/parser.go:96-103`) and its three test sites
+  (`compiler/parser/parser_test.go:408-449`,
+  `compiler/checker/modules_test.go:52-65`,
+  `compiler/tests/integration/modules_resolution_test.go:135,158`) are
+  confirmed unrelated to function visibility and stay byte-for-byte.
+- **Tests to delete** (test the removed local-named-function/local-generic-template
+  feature): `compiler/parser/parser_test.go` — `TestParseLocalFunctionDeclaration`,
+  `TestParseLocalFunctionDeclarationIsAStatement`,
+  `TestParseGenericLocalFunctionDeclaration` (all three deleted outright;
+  `TestParseBareReturnThenLocalFunctionOnNextLine` rewritten to assert the
+  new syntax-error diagnostic instead of successful parsing).
+  `compiler/checker/function_literals_test.go` —
+  `TestLocalNamedFunctionChecksAsLocalFunctionDeclaration`,
+  `TestLocalFunctionSelfRecursion`, `TestLocalFunctionSourceOrderIsAuthoritative`,
+  `TestLocalFunctionVisibleToLaterLocalFunctionAndLiteral` (local-function half),
+  `TestNestedLiteralRejectsEnclosingLocalFunctionParameter`,
+  `TestLocalFunctionHiddenOutsideItsBlock`,
+  `TestDuplicateLocalFunctionNameInSameBlockRejected`,
+  `TestLocalFunctionAndModuleDataShareTheClosedFunctionRule` (local-function
+  half), `TestGenericLocalFunctionExplicitAndInferredCalls`,
+  `TestTwoLocalGenericsWithSameNameInDisjointScopesAreIndependent`,
+  `TestNestedGenericRejectsEnclosingTypeParameterName`,
+  `TestLocalGenericSameArgumentRecursionAllowed`,
+  `TestLocalGenericArgumentChangingRecursionRejected`,
+  `TestLocalGenericRejectsEnclosingParameterCapture`,
+  `TestLocalFunctionAndLiteralRejectEnclosingParameterCapture` (local-function
+  case only, literal case stays). `compiler/tests/integration/functions_test.go` —
+  `TestTwoLocalGenericsWithSameNameProduceDistinctSymbols`,
+  `TestLocalGenericSelfRecursionGeneratesOneHelper`,
+  `TestLocalFunctionGeneratesOneStaticHelper`,
+  `TestLocalFunctionInsideGenericGetsDistinctHelperPerSpecialization`,
+  `TestLocalFunctionInsideModuleLevelControlFlow` (rewritten to assert the
+  new syntax error), `TestGeneratedSelfRecursionNeedsNoPrototype` (deleted:
+  Stage 4 gives every private module function a prototype, contradicting
+  this test's premise).
+- **Tests to flip** (currently assert the source-order restriction as a
+  diagnostic; RFC 0112 makes the forward call succeed):
+  `compiler/checker/functions_test.go`'s `TestLaterFunctionIsNotVisible` and
+  `TestLaterMethodIsNotVisible`; `compiler/tests/integration/functions_test.go`'s
+  `TestDeclarationOrderIsSourceOrder` and `TestMethodDeclarationOrderIsSourceOrder`
+  (each test's self-recursion half already passes today and stays; only the
+  forward-reference half flips). Confirmed NOT a flip candidate despite a
+  similar diagnostic string: `TestUnqualifiedUseOfExportedNameFails`/
+  `TestUnqualifiedUseOfExportedNameRejected` fail on missing import
+  qualification, unrelated to declaration order.
 
 ### Stage 0 — baseline and sweep inventory
 

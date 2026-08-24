@@ -9,8 +9,9 @@
   (allocation and cleanup), RFC 0027 (Arena and Pool allocators), RFC 0035
   (copying and manual lifetimes), RFC 0039 (C interoperability), and RFC 0069
   (C23-backed compiler simplification)
-- Coordinates with: RFC 0091 (blocking-syscall boundary), RFC 0108
-  (descriptor and memory streams), and `docs/reference.md`
+- Coordinates with: implemented RFC 0108 (synchronous descriptor and memory
+  streams), a future scheduler-aware native-operation proposal, and
+  `docs/reference.md`
 
 ## Summary
 
