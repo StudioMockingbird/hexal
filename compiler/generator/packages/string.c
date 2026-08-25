@@ -87,6 +87,7 @@ size_t hex_utf8_encode(uint8_t *out, uint32_t value) {
 }
 
 const hex_string *hex_string_from_bytes(hex_heap h, const uint8_t *data, size_t length) {
+    (void)h;
     // The complete sequence validates before any allocation.
     size_t index = 0;
     size_t runes = 0;
@@ -102,7 +103,7 @@ const hex_string *hex_string_from_bytes(hex_heap h, const uint8_t *data, size_t 
         ckd_add(&total, total, 1)) {
         hex_runtime_trap("[Runtime Error] string allocation size overflow\n");
     }
-    hex_string_storage *storage = hex_heap_raw_allocate(h.identity, total, _Alignof(hex_string_storage));
+    hex_string_storage *storage = hex_heap_allocate(total);
     storage->header = (hex_string){ .data = storage->bytes, .byte_length = length, .rune_length = runes };
     // A zero-length payload skips the guarded memcpy so a possibly invalid
     // source pointer is never passed to a standard memory function.
@@ -114,6 +115,7 @@ const hex_string *hex_string_from_bytes(hex_heap h, const uint8_t *data, size_t 
 }
 
 const hex_string *hex_string_from_runes(hex_heap h, const uint32_t *data, size_t length) {
+    (void)h;
     // Every scalar validates as the byte count accumulates with ckd_add,
     // so the single allocation below encodes a validated result.
     size_t bytes = 0;
@@ -143,7 +145,7 @@ const hex_string *hex_string_from_runes(hex_heap h, const uint32_t *data, size_t
         ckd_add(&total, total, 1)) {
         hex_runtime_trap("[Runtime Error] string allocation size overflow\n");
     }
-    hex_string_storage *storage = hex_heap_raw_allocate(h.identity, total, _Alignof(hex_string_storage));
+    hex_string_storage *storage = hex_heap_allocate(total);
     size_t out = 0;
     for (size_t index = 0; index < length; index++) {
         out += hex_utf8_encode(storage->bytes + out, data[index]);
@@ -158,6 +160,7 @@ const hex_string *hex_string_to_string(hex_heap h, const hex_string *text) {
 }
 
 const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const hex_string *right) {
+    (void)h;
     // The combined payload, header, and terminator chain is checked
     // with ckd_add before the raw allocator sees any sum; every stage
     // traps with the same concatenation-length message.
@@ -170,7 +173,7 @@ const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const he
         ckd_add(&total, total, 1)) {
         hex_runtime_trap("[Runtime Error] string concatenation length overflow\n");
     }
-    hex_string_storage *storage = hex_heap_raw_allocate(h.identity, total, _Alignof(hex_string_storage));
+    hex_string_storage *storage = hex_heap_allocate(total);
     storage->header = (hex_string){ .data = storage->bytes, .byte_length = length, .rune_length = left->rune_length + right->rune_length };
     // Each input copies with a guarded memcpy; the freshly allocated
     // destination cannot overlap the immutable inputs.
@@ -185,19 +188,11 @@ const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const he
 }
 
 void hex_string_free(hex_heap h, const hex_string *text) {
-    if (text == nullptr) {
-        hex_runtime_trap("[Runtime Error] double deallocation\n");
-    }
-    size_t offset = *((size_t *)((unsigned char *)text - sizeof(size_t)));
-    hex_heap_header *header = (hex_heap_header *)((unsigned char *)text - offset);
-    if (header->allocator != h.identity) {
-        hex_runtime_trap("[Runtime Error] deallocation used the wrong allocator\n");
-    }
-    if (!header->live) {
-        hex_runtime_trap("[Runtime Error] double deallocation\n");
-    }
-    header->live = false;
-    free(header);
+    (void)h;
+    // hex_string is the first member of hex_string_storage, so the member
+    // pointer and the allocation base share an address. The uintptr_t round
+    // trip recovers that base without a const-qualified pointer conversion.
+    hex_heap_free((hex_string_storage *)(void *)(uintptr_t)text);
 }
 
 hex_rune_cursor hex_string_rune_cursor(const hex_string *text) {

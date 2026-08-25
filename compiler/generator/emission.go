@@ -382,11 +382,11 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		}
 		heapState := module.heapState
 		if heapState != nil && (heapState.required || len(heapState.elements) > 0) {
-			// hex_heap_raw_allocate/free: malloc/free from <stdlib.h>,
-			// uintptr_t from <stdint.h>, size_t from <stddef.h>, and the
-			// ckd_add checked arithmetic from <stdckdint.h>. Diagnostic
-			// traps report through the one program-wide hex_runtime_trap.
-			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h")
+			// The Heap operations use malloc/calloc/free from <stdlib.h>,
+			// size_t from <stddef.h>, and the ckd_mul checked arithmetic
+			// from <stdckdint.h>. Diagnostic traps report through the one
+			// program-wide hex_runtime_trap.
+			requirements.add("stdckdint.h", "stddef.h", "stdlib.h")
 			requirements.trap = true
 		}
 		if module.viewState != nil && len(module.viewState.views) > 0 {

@@ -255,8 +255,8 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		}
 		// The captures hold the receiver (the Heap) first and the freed
 		// pointer second; the helper takes them in the opposite order, with
-		// the heap's identity token.
-		return "hex_heap_free(" + arguments[1] + ", " + arguments[0] + ".identity)", nil
+		// the heap token.
+		return "((void)(" + arguments[0] + "), hex_heap_free(" + arguments[1] + "))", nil
 	case checker.StringMethodCallExpression:
 		if node.Name != "free" || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred string free without captured arguments")
@@ -279,8 +279,8 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return "", unknownExpressionDiagnostic("deferred channel free without captured arguments")
 		}
 		// The captures hold the receiver (the Channel handle) first and the
-		// heap second; the helper takes the heap's identity token.
-		return "hex_chan_free_" + channelSuffix(node.OperandType) + "(" + arguments[1] + ".identity, " + arguments[0] + ")", nil
+		// heap second; the helper takes the heap token.
+		return "hex_chan_free_" + channelSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.MutexMethodCallExpression:
 		switch node.Name {
 		case "lock":
@@ -289,8 +289,8 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return "hex_mutex_unlock(" + arguments[0] + ")", nil
 		case "free":
 			// The captures hold the receiver (the Mutex handle) first and
-			// the heap second; the adapter takes the heap's identity token.
-			return "hex_mutex_free_hex_mutex(" + arguments[1] + ".identity, " + arguments[0] + ")", nil
+			// the heap second; the adapter takes the heap token.
+			return "hex_mutex_free_hex_mutex(" + arguments[1] + ", " + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred mutex method without a captured receiver")
 	case checker.TaskMethodCallExpression:

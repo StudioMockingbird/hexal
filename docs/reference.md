@@ -350,7 +350,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Every value is stored inline. Every copy copies the C representation. Scalars and
   inline aggregates (`Strand`, Array, objects, ADTs) copy all inline bytes. Pointers and
   `String`, List, Dict, Task, Channel, Mutex copy their handle representation. View copies
-  its pointer-length descriptor. Heap copies a compile-time allocator identity.
+  its pointer-length descriptor. Heap copies a stateless token that selects the one default allocator.
 - Assignment, arguments, returns, object/ADT construction, collection insertion, union injection,
   and Task capture are shallow copies. Copying does not invalidate the source.
 - Values referring to external state include String, List, Dict, Task, Channel, Mutex,
@@ -771,19 +771,21 @@ Heap.free<T>(pointer: MutPtr<T>) -> no value
 ```
 
 - `Heap.new()` selects the default allocator without runtime allocation; Heap operations are
-  thread-safe.
+  thread-safe. There is exactly one default allocator: Heap is a value token with no runtime
+  state, and no Heap value selects different storage from any other.
 - `h.allocate<T>(initial)` allocates and initializes one complete finite T, returning non-owning
   `MutPtr<T>`. T must be valid in HeapAllocation; direct Atomic allocation is invalid. Failure or
   unrepresentable size traps.
-- `h.free(ptr)` accepts Ptr/MutPtr and requires the matching allocator.
+- `h.free(ptr)` accepts Ptr/MutPtr. With one default allocator there is no allocator to
+  mismatch, and none is compared.
 - Heap-backed library values receive their Heap explicitly; allocation and cleanup never choose a
   hidden allocator.
 - Freeing a container releases only its own header/backing region. It never frees allocations its
   elements or nested handles refer to. Referenced owned allocations require cleanup before loss of
   reachability, exactly once per distinct allocation rather than per alias or slot.
 - The shallow rule applies at every depth. Replacing/dropping the last handle may leak; freeing one
-  alias dangles all others. Runtime metadata may catch live mismatch or double-free, but later
-  lifetime misuse is not guaranteed to be detected.
+  alias dangles all others. No runtime metadata records allocation state, so a repeated or invalid
+  release has no guaranteed diagnostic; only the compile-time rules below reject cleanup misuse.
 - Cleanup misuse is rejected at compile time wherever a local analysis decides it. Three are
   rejected: freeing a pointer traceable to `ref`, freeing a local binding already freed on every
   path to that point, and reading through one. Misuse requiring interprocedural, alias, or escape

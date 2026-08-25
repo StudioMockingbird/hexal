@@ -9,7 +9,6 @@ typedef struct {{.CName}} {
     {{.EntryName}} *buckets;
     size_t length;
     size_t capacity;
-    uintptr_t allocator;
     size_t version;
 } {{.CName}};
 {{if .EmitHash}}{{if .StrandKey}}
@@ -45,11 +44,11 @@ static inline uint64_t hex_dict_probe_{{.Suffix}}(const {{.CName}} *dict, {{.Key
     return index;
 }
 static inline {{.CName}} *hex_dict_new_{{.Suffix}}(hex_heap h) {
-    {{.CName}} *header = hex_heap_raw_allocate(h.identity, sizeof({{.CName}}), _Alignof({{.CName}}));
+    (void)h;
+    {{.CName}} *header = hex_heap_allocate(sizeof({{.CName}}));
     header->buckets = nullptr;
     header->length = 0;
     header->capacity = 0;
-    header->allocator = h.identity;
     header->version = 0;
     return header;
 }
@@ -64,8 +63,11 @@ static inline void hex_dict_grow_{{.Suffix}}({{.CName}} *dict) {
     if (ckd_mul(&bytes, next, sizeof({{.EntryName}}))) {
         hex_runtime_trap("[Runtime Error] dictionary capacity is not representable\n");
     }
-    {{.EntryName}} *region = hex_heap_raw_allocate(dict->allocator, bytes, _Alignof({{.EntryName}}));
-    memset(region, 0, bytes);
+    // An empty bucket is the all-zero representation, so the region is
+    // allocated zeroed rather than allocated and then cleared. The checked
+    // multiplication above owns the capacity message, so the checked total
+    // is passed through as one count.
+    {{.EntryName}} *region = hex_heap_allocate_zeroed(1, bytes);
     for (size_t index = 0; index < dict->capacity; index++) {
         if (dict->buckets[index].active) {
             uint64_t probe = hex_dict_probe_{{.Suffix}}_region(region, next, dict->buckets[index].key);
@@ -73,7 +75,7 @@ static inline void hex_dict_grow_{{.Suffix}}({{.CName}} *dict) {
         }
     }
     if (dict->buckets != nullptr) {
-        hex_heap_free(dict->buckets, dict->allocator);
+        hex_heap_free(dict->buckets);
     }
     dict->buckets = region;
     dict->capacity = next;
@@ -146,13 +148,11 @@ static inline {{.ValueSpelling}} hex_dict_remove_{{.Suffix}}({{.CName}} *dict, {
     return value;
 }
 static inline void hex_dict_free_{{.Suffix}}(hex_heap h, {{.CName}} *dict) {
-    if (dict == nullptr || dict->allocator != h.identity) {
-        hex_runtime_trap("[Runtime Error] deallocation used the wrong allocator\n");
-    }
+    (void)h;
     if (dict->buckets != nullptr) {
-        hex_heap_free(dict->buckets, dict->allocator);
+        hex_heap_free(dict->buckets);
     }
-    hex_heap_free(dict, h.identity);
+    hex_heap_free(dict);
 }
 {{end}}
 {{- end -}}

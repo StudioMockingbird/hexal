@@ -55,7 +55,11 @@ func writeHeapAllocateHelpers(result *strings.Builder, state *heapHelpers) {
 	for _, element := range state.elements {
 		helper := "hex_heap_allocate_" + compilerTypes.SanitizeIdentifier(element.Name)
 		fmt.Fprintf(result, "\nstatic %s %s(hex_heap h, %s initial) {\n", typeSpelling(compilerTypes.MutPtrType(element)), helper, typeSpelling(element))
-		fmt.Fprintf(result, "    %s *pointer = hex_heap_raw_allocate(h.identity, sizeof(%s), _Alignof(%s));\n", typeSpelling(element), typeSpelling(element), typeSpelling(element))
+		// The token is unused: one default allocator has nothing to select.
+		// The parameter stays so the source Heap expression still evaluates
+		// once, in its written position.
+		fmt.Fprintf(result, "    (void)h;\n")
+		fmt.Fprintf(result, "    %s *pointer = hex_heap_allocate(sizeof(%s));\n", typeSpelling(element), typeSpelling(element))
 		fmt.Fprintf(result, "    *pointer = initial;\n")
 		fmt.Fprintf(result, "    return pointer;\n}\n")
 	}
@@ -92,5 +96,8 @@ func renderHeapFree(node checker.Expression, state *expressionValidation) (strin
 	if err != nil {
 		return "", err
 	}
-	return "hex_heap_free(" + value + ", " + receiver + ".identity)", nil
+	// The one stateless allocator makes the receiver operationally
+	// irrelevant, but a Heap expression may still have effects, so it is
+	// evaluated in its source position ahead of the pointer argument.
+	return "((void)(" + receiver + "), hex_heap_free(" + value + "))", nil
 }

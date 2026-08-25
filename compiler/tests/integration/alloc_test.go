@@ -11,7 +11,7 @@ func TestHeapNewPerformsNoAllocation(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if strings.Contains(rootC(t, result), "malloc") || !strings.Contains(rootC(t, result), "HEX_HEAP_DEFAULT") {
+	if strings.Contains(rootC(t, result), "malloc") || !strings.Contains(rootC(t, result), "((hex_heap)0)") {
 		t.Fatalf("generated C = %q, want no allocation in Heap.new()", rootC(t, result))
 	}
 	if !strings.Contains(rootH(t, result), "#include \"hexal/heap.h\"") {
@@ -29,34 +29,49 @@ func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
 	}
 }
 
-func TestHeapRawAllocateUsesCheckedArithmetic(t *testing.T) {
+// A typed allocation reaches the non-zeroing operation and writes its
+// initializer once. Nothing recovers a header, offset, or allocator, and no
+// zeroing precedes an initializer that writes the complete value.
+func TestHeapAllocationIsHeaderlessAndUnzeroed(t *testing.T) {
 	result := compileSource("h: Heap := Heap.new() p: MutPtr<Int32> := h.allocate<Int32>(0)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	heapC := moduleFile(t, result, "hexal/heap.c")
-	start := strings.Index(heapC, "hex_heap_raw_allocate")
-	end := strings.Index(heapC, "void hex_heap_free")
-	if start < 0 || end < 0 || end <= start {
-		t.Fatalf("hexal/heap.c = %q, want hex_heap_raw_allocate before hex_heap_free", heapC)
-	}
-	raw := heapC[start:end]
-	if got := strings.Count(raw, "ckd_add"); got != 2 {
-		t.Fatalf("hex_heap_raw_allocate uses ckd_add %d times, want 2: %q", got, raw)
-	}
 	for _, want := range []string{
-		"align == 0",
-		"ckd_add(&padded, sizeof(hex_heap_header), align - 1)",
-		"ckd_add(&total, offset, size)",
+		"void *hex_heap_allocate(size_t size) {",
+		"malloc(size)",
+		"[Runtime Error] heap allocation failed",
+		"void hex_heap_free(void *pointer) {",
 	} {
-		if !strings.Contains(raw, want) {
-			t.Fatalf("hex_heap_raw_allocate does not contain %q: %q", want, raw)
+		if !strings.Contains(heapC, want) {
+			t.Fatalf("hexal/heap.c does not contain %q: %q", want, heapC)
 		}
 	}
-	for _, bad := range []string{"total < size", "(align & (align - 1))"} {
-		if strings.Contains(raw, bad) {
-			t.Fatalf("hex_heap_raw_allocate retains obsolete pattern %q: %q", bad, raw)
+	for _, bad := range []string{
+		"hex_heap_header", "hex_heap_raw_allocate", "offset", "->live",
+		"uintptr_t", "[Runtime Error] double deallocation",
+		"[Runtime Error] deallocation used the wrong allocator",
+	} {
+		if strings.Contains(heapC, bad) {
+			t.Fatalf("hexal/heap.c retains %q: %q", bad, heapC)
 		}
+	}
+	// The typed helper takes the token so the source Heap expression still
+	// evaluates, voids it, and allocates exactly the value's size.
+	rootH := rootH(t, result)
+	for _, want := range []string{
+		"hex_heap_allocate_Int32(hex_heap h, int32_t initial)",
+		"(void)h;",
+		"int32_t *pointer = hex_heap_allocate(sizeof(int32_t));",
+		"*pointer = initial;",
+	} {
+		if !strings.Contains(rootH, want) {
+			t.Fatalf("modules/app.h does not contain %q: %q", want, rootH)
+		}
+	}
+	if strings.Contains(rootH, "_Alignof(int32_t)") {
+		t.Fatalf("modules/app.h passes an alignment the operation no longer takes: %q", rootH)
 	}
 	// hexal.h owns none of the migrated heap machinery.
 	if strings.Contains(hexalH(t, result), "hex_heap") {

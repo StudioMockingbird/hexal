@@ -33,7 +33,7 @@ other.
 
 | Work | Spec |
 |---|---|
-| Arena and Pool allocators; Heap-only library boundary and stateless checked-`calloc` default Heap | [0027](specs/0027-arena-and-pool-allocators.md) |
+| Arena and Pool allocators; Heap-only library boundary | [0027](specs/0027-arena-and-pool-allocators.md) |
 
 ### Design settled; implementation blocked
 
@@ -67,11 +67,16 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   missing Dict key, out-of-bounds index, zero divisor, shift count, float
   overflow, allocation failure, malformed UTF-8, close failure, Mutex misuse,
   task stack overflow, and others) and `print`'s exact output forms fire only
-  in an executed generated binary. The runtime templates carry **39 distinct
+  in an executed generated binary. The runtime templates carry **45 distinct
   `[Runtime Error]` messages**, derived by regex over every
-  `compiler/generator/packages/*.c` and `*.h` template (70 occurrences total).
-  An earlier revision of this entry said thirteen, which was never sourced and
-  is wrong. Do not re-introduce a count without deriving it. Per policy, no
+  `compiler/generator/packages/*.c` and `*.h` template (71 occurrences total).
+  RFC 0123 removed two of them with the allocation header: `double
+  deallocation` and `deallocation used the wrong allocator`. The count this
+  entry carried before that measurement was 39 distinct and 70 occurrences,
+  which was already stale against a tree measuring 47 and 79. An earlier
+  revision said thirteen, which was never sourced and is wrong. Re-measure
+  rather than adjusting the number by hand, and do not re-introduce a count
+  without deriving it. Per policy, no
   test may execute one: the retained
   `compiler/tests/c23validation/c23_*_test.go`
   files are pure Go and have no runnable entry points, so trap firing and

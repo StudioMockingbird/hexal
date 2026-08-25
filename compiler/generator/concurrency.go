@@ -401,7 +401,7 @@ func writeSpawnArgFrames(result *strings.Builder, sites []spawnSite) {
 // writeChannelInlineHelpers emits the per-element Channel adapters into the
 // module header: new, send, and receive build the checked result unions
 // (Channel | Error, Nil | Error, and T | EoS) around the shared core, and
-// free adapts the checked Heap identity argument. close, length, capacity,
+// free adapts the checked Heap token argument. close, length, capacity,
 // and is_closed lower directly to the core and need no inline wrapper.
 func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry, tags *tagRegistry) error {
 	if len(state.channels) == 0 {
@@ -422,7 +422,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 				channelMember, _ := unionMembers.At(channelIndex)
 				errorMember, _ := unionMembers.At(errorIndex)
 				message := state.messageLiteral(literals, state.channelCreationFailed)
-				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(uintptr_t heap_identity, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = channel };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
+				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(hex_heap h, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)h;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = channel };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
 					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(channelMember), tags.unionPayloadField(channelMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), message)
 			}
 		}
@@ -442,7 +442,7 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 		// The receive union is emitted for every used Channel<T>: receive
 		// needs the T | EoS union. close, length, capacity, is_closed, and
 		// free lower directly to the core; the free adapter is emitted here
-		// because it adapts the checked Heap identity argument.
+		// because it adapts the checked Heap token argument.
 		receiveUnion := state.channelReceiveUnions[channel.CName]
 		if receiveUnion != (compilerTypes.Type{}) {
 			receiveMembers := compilerTypes.UnionMembers(receiveUnion)
@@ -453,14 +453,14 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 			fmt.Fprintf(result, "\nstatic inline %s hex_chan_recv_%s(hex_chan *channel) {\n    %s value;\n    if (hex_chan_receive(channel, &value)) {\n        return (%s){ .tag = %s, .payload.%s = value };\n    }\n    return (%s){ .tag = %s };\n}\n",
 				receiveUnion.CName, suffix, elementSpelling, receiveUnion.CName, tags.unionMemberTag(elementMember), tags.unionPayloadField(elementMember), receiveUnion.CName, tags.unionMemberTag(eosMember))
 		}
-		fmt.Fprintf(result, "\nstatic inline void hex_chan_free_%s(uintptr_t heap_identity, hex_chan *channel) {\n    (void)heap_identity;\n    hex_chan_free(channel);\n}\n", suffix)
+		fmt.Fprintf(result, "\nstatic inline void hex_chan_free_%s(hex_heap h, hex_chan *channel) {\n    (void)h;\n    hex_chan_free(channel);\n}\n", suffix)
 	}
 	return nil
 }
 
 // writeMutexInlineHelpers emits the Mutex adapters into the module header:
 // the constructor/Error union adapter and the free adapter, which evaluates
-// and accepts the checked Heap identity even though the current runtime
+// and accepts the checked Heap token even though the current runtime
 // ignores it. lock and unlock lower directly to the core and need no inline
 // wrapper.
 func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrencyState, literals *literalRegistry, tags *tagRegistry) error {
@@ -476,11 +476,11 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 			mutexMember, _ := mutexMembers.At(mutexIndex)
 			errorMember, _ := mutexMembers.At(errorIndex)
 			message := state.messageLiteral(literals, state.mutexCreationFailed)
-			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(uintptr_t heap_identity, size_t line, size_t column, const hex_string *message) {\n    (void)heap_identity;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = mutex };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
+			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(hex_heap h, size_t line, size_t column, const hex_string *message) {\n    (void)h;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = mutex };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
 				union.CName, union.CName, tags.unionMemberTag(mutexMember), tags.unionPayloadField(mutexMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), message)
 		}
 	}
-	fmt.Fprintf(result, "\nstatic inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex) {\n    (void)heap_identity;\n    hex_mutex_free(mutex);\n}\n")
+	fmt.Fprintf(result, "\nstatic inline void hex_mutex_free_hex_mutex(hex_heap h, hex_mutex *mutex) {\n    (void)h;\n    hex_mutex_free(mutex);\n}\n")
 	return nil
 }
 
@@ -678,7 +678,7 @@ func renderChannelConstructor(node checker.Expression, state *expressionValidati
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("hex_chan_new_%s((%s).identity, (size_t)(%s), %d, %d, &%s)",
+	return fmt.Sprintf("hex_chan_new_%s(%s, (size_t)(%s), %d, %d, &%s)",
 		channelSuffix(node.OperandType), heap, capacity, node.SourceLine, node.SourceColumn, message), nil
 }
 
@@ -724,7 +724,7 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return fmt.Sprintf("hex_chan_free_%s((%s).identity, %s)", suffix, heap, receiver), nil
+		return fmt.Sprintf("hex_chan_free_%s(%s, %s)", suffix, heap, receiver), nil
 	}
 	return "", unknownExpressionDiagnostic("unknown channel method " + node.Name)
 }
@@ -742,7 +742,7 @@ func renderMutexConstructor(node checker.Expression, state *expressionValidation
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("hex_mutex_new_mutex((%s).identity, %d, %d, &%s)", heap, node.SourceLine, node.SourceColumn, message), nil
+	return fmt.Sprintf("hex_mutex_new_mutex(%s, %d, %d, &%s)", heap, node.SourceLine, node.SourceColumn, message), nil
 }
 
 // renderMutexMethod renders one Mutex handle method call.
@@ -767,7 +767,7 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return fmt.Sprintf("hex_mutex_free_hex_mutex((%s).identity, %s)", heap, receiver), nil
+		return fmt.Sprintf("hex_mutex_free_hex_mutex(%s, %s)", heap, receiver), nil
 	}
 	return "", unknownExpressionDiagnostic("unknown mutex method " + node.Name)
 }

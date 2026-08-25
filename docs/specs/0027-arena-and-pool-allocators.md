@@ -1,18 +1,23 @@
 # RFC 0027: Arena and Pool Allocators
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Implementation-ready; RFC 0123 implemented
 - Features: explicit Arena allocation, typed Pool allocation, region release,
-  allocator passing, and default-Heap runtime simplification
+  and allocator passing
 - Created: 2026-08-11
-- Updated: 2026-08-24
-- Depends on: the current Heap, pointer, collection, cleanup, and shallow-copy
-  contracts in `docs/reference.md`
+- Updated: 2026-08-25
+- Depends on: RFC 0123 (stateless default Heap) and the current pointer,
+  collection, cleanup, and shallow-copy contracts in `docs/reference.md`
 - Coordinates with: RFC 0039 (C interoperability), RFC 0052 (target profiles),
   RFC 0110 (affine ownership and allocator lifetimes), and RFC 0118
   (concurrency safety)
 - Changes the protected type set and allocator APIs; reference synchronization
   is required only after implementation stabilizes
+- Accepted Pool cost: one live byte plus one `Size` free-stack entry per slot,
+  in addition to T storage; the uniform O(1) representation is preferred over
+  type-dependent reuse of free-slot payload bytes
+- Accepted Arena cost: `reset()` retains and rewinds the complete high-water
+  block chain; only `destroy()` releases it
 
 ## Summary
 
@@ -22,10 +27,10 @@ Hexal adds two concrete allocator families alongside `Heap`:
 h: Heap := Heap.new()
 
 arena: Arena := Arena.new(h)
-defer arena.destroy(h)
+defer arena.destroy()
 
 nodes: Pool<Node> := Pool<Node>.new(h, 128)
-defer nodes.destroy(h)
+defer nodes.destroy()
 ```
 
 `Arena` serves variable-size allocations and releases all of its storage as one
@@ -42,15 +47,15 @@ capability syntax, virtual dispatch, or user-defined allocator implementation.
 3. Make region allocation cheap and simple.
 4. Make fixed-type, fixed-capacity allocation predictable.
 5. Keep existing String, List, Dict, Channel, and Mutex allocation Heap-only.
-6. Remove runtime identity and per-allocation headers from the sole default Heap.
+6. Build directly on RFC 0123's stateless default allocation operations.
 
 ## Current compatibility boundary
 
-The current language has exactly one allocator type, `Heap`. `String`, List,
-Dict, Channel, and Mutex signatures accept `Heap` exactly; their generated C
-stores only the default Heap identity and calls Heap-owned helpers. There is no
-allocator trait, descriptor, union, overload, or allocator type parameter to
-which `Arena` can be passed.
+Before RFC 0123, the current tree has exactly one allocator type, `Heap`, whose
+generated C carries default-Heap identity metadata. RFC 0123 removes that
+metadata before this RFC begins. `String`, List, Dict, Channel, and Mutex still
+accept `Heap` exactly. There is no allocator trait, descriptor, union, overload,
+or allocator type parameter to which `Arena` can be passed.
 
 The current language also uses shallow copies and local freed-state checking.
 It has no affine owner, generation-bearing Pool slot, general unsafe boundary,
@@ -67,7 +72,7 @@ An Arena is a runtime owner whose storage comes from the one default `Heap`:
 ```hexal
 h: Heap := Heap.new()
 arena: Arena := Arena.new(h)
-defer arena.destroy(h)
+defer arena.destroy()
 ```
 
 `Arena.new(h)` allocates its control state and defers its first data block until
@@ -89,12 +94,15 @@ arena.free(node)
 ```
 
 `arena.reset()` invalidates every allocation made since construction or the
-previous reset. The initial block is rewound and retained; later blocks are
-returned to the backing Heap. This bounds retained peak storage without adding
-a tuning surface or block cache.
-`arena.destroy(h)` invalidates every remaining allocation and releases all
-arena storage through its backing Heap. The programmer must ensure that no
-allocation or View from the Arena is used after reset or destroy.
+previous reset. It rewinds every allocated block and retains all of them for
+reuse; it neither zeroes nor releases payload storage. Repeated frame/request
+workloads therefore reuse their high-water allocation without a free/reallocate
+cycle. Retained peak memory is an accepted Arena cost; `destroy()` is the
+operation that releases it.
+
+`arena.destroy()` invalidates every remaining allocation and releases every
+block plus control state. The programmer must ensure that no allocation or View
+from the Arena is used after reset or destroy.
 
 Arena allocations are aligned for their concrete allocated type. Construction,
 growth, unrepresentable size/alignment, and allocation failure trap under the
@@ -105,7 +113,9 @@ tracked Arena allocation or View, including all-path branch facts. Aliased,
 escaped, parameter-reached, member-reached, and collection-reached pointers use
 the current undecided-case policy: they are not proven safe and receive no
 guaranteed runtime stale-pointer diagnostic. Arena dereferences gain no runtime
-generation check.
+generation check. Because reset deliberately does not zero retained blocks, an
+unchecked stale alias may appear to observe an old value until that storage is
+reused; no stale-read result or detection is guaranteed.
 
 ## Library-allocation boundary
 
@@ -135,7 +145,7 @@ type and one fixed runtime `Size` capacity:
 ```hexal
 h: Heap := Heap.new()
 nodes: Pool<Node> := Pool<Node>.new(h, 128)
-defer nodes.destroy(h)
+defer nodes.destroy()
 ```
 
 Capacity must be positive and fit the implementation's supported allocation
@@ -160,10 +170,9 @@ distinguished after that slot is reused. Locally proved use/release after
 `pool.free` is rejected; aliases beyond those local facts follow the current
 undecided-case policy and gain no generation check.
 
-`nodes.destroy(h)` requires every slot to have been freed. It then releases the
-Pool's storage through the same backing Heap and invalidates every copied Pool
-handle. Destroying a non-empty Pool is a defined runtime allocation-state
-failure.
+`nodes.destroy()` requires every slot to have been freed. It then releases the
+Pool's storage and logically invalidates every copied Pool handle. Destroying a
+non-empty Pool is a defined runtime allocation-state failure.
 
 `Pool<T>` is not a general variable-size allocator. It cannot back String,
 List, Dict, Channel, Mutex, Arena blocks, or a `Pool<U>` where `U` differs
@@ -191,16 +200,32 @@ tracks only the reference's current local lifetime facts, not general aliases.
 `mut` controls whether an allocator binding can be reassigned. It does not
 create ownership and does not change allocator behavior.
 
+## Thread safety
+
+- Heap is thread-safe; Arena and Pool are not. One Arena's bump state and one
+  Pool's slot/free-stack state must not be mutated concurrently by multiple
+  Tasks unless an external synchronization operation orders every access.
+- Shallow copying an Arena or Pool handle does not add synchronization.
+  Cooperative scheduling does not make a shared handle safe because Tasks may
+  run in parallel on different scheduler workers.
+- This RFC adds no cross-task alias analysis and no runtime race detector. A
+  cross-task conflict that the current checker cannot prove receives no
+  diagnostic from this RFC.
+- RFC 0118 owns the later concurrency rule: locally provable conflicting
+  sharing, reset, destroy, or slot release is rejected, and undecidable sharing
+  requires its explicit unsafe boundary. This RFC adds no temporary syntax or
+  checker mechanism that RFC 0118 would later remove.
+
 ## Deferred cleanup
 
 Allocator cleanup uses ordinary `defer`:
 
 ```hexal
 arena: Arena := Arena.new(h)
-defer arena.destroy(h)
+defer arena.destroy()
 
 pool: Pool<Node> := Pool<Node>.new(h, 64)
-defer pool.destroy(h)
+defer pool.destroy()
 ```
 
 Direct-call capture, reverse ordering, branch scopes, and loop scopes remain
@@ -214,12 +239,12 @@ same state again.
 Arena.new(heap: Heap) -> Arena
 Arena.allocate<T>(initial: T) -> MutPtr<T>
 Arena.reset() -> no value
-Arena.destroy(heap: Heap) -> no value
+Arena.destroy() -> no value
 
 Pool<T>.new(heap: Heap, capacity: Size) -> Pool<T>
 Pool<T>.allocate(initial: T) -> MutPtr<T>
 Pool<T>.free(pointer: Ptr<T> | MutPtr<T>) -> no value
-Pool<T>.destroy(heap: Heap) -> no value
+Pool<T>.destroy() -> no value
 ```
 
 - `Arena` and `Pool` become protected names; `Pool` requires exactly one type
@@ -232,34 +257,11 @@ Pool<T>.destroy(heap: Heap) -> no value
   traps. Unrepresentable capacity/size and construction failure trap.
 - Arena/Pool handles are pointer-sized, shallow-copyable aliases under the
   current language contract. `mut` changes only binding reassignment.
-- `destroy(heap)` ends allocator state. It is distinct from
+- `destroy()` ends allocator state. It is distinct from
   `Pool.free(pointer)`, which releases one slot.
-
-## Default Heap simplification
-
-The one default Heap no longer gives each allocation a compiler-owned header.
-Generated allocation uses checked `calloc`; release uses C `free` directly.
-
-- `Heap` remains a source value passed explicitly, but has no runtime allocator
-  identity. All Heap values select the same default allocator.
-- Heap lowers to `typedef unsigned char hex_heap`; `Heap.new()` lowers to
-  `(hex_heap)0`. The byte is a C value representation, not an allocator ID.
-- The runtime core is exactly
-  `void *hex_heap_allocate(size_t bytes)` plus
-  `void hex_heap_free(void *pointer)`. The first calls `calloc(1, bytes)` after
-  its caller has checked every byte calculation; the second calls `free`.
-- `Heap.allocate<T>(initial)` checks the byte count, calls `calloc(1, bytes)`,
-  traps on null, and writes the initializer exactly once.
-- Heap-backed runtime values use the same checked `calloc` helper for dynamic
-  byte counts and C `free` for release.
-- Hexal has no over-aligned source type. The supported targets guarantee that
-  `calloc` satisfies every alignment expressible by a current Hexal type.
-- Remove `hex_heap_header`, offset markers, allocator/live fields, alignment
-  rounding, wrong-allocator branches, and the claim that released metadata can
-  safely diagnose an escaped double free.
-- Existing local freed-state diagnostics remain. Escaped/aliased invalid frees
-  retain the current manual-lifetime boundary; this RFC adds no allocation
-  registry or generation table.
+- The Heap argument belongs only to construction, where source code explicitly
+  selects the allocation source. Destruction needs only the owning Arena/Pool
+  state; repeating the one stateless Heap token could not affect cleanup.
 
 ## C23 representation
 
@@ -269,15 +271,20 @@ Generated allocation uses checked `calloc`; release uses C `free` directly.
   checked capacity satisfying that allocation, whichever is greater.
 - Later growth doubles the previous block capacity until it satisfies the
   checked request; if doubling is unrepresentable, it uses the exact checked
-  required capacity. Every block comes from checked `calloc`.
+  required capacity. Blocks use RFC 0123's non-zeroing allocation because every
+  returned T receives an explicit initializer.
 - Allocation aligns the bump position for `T`, checks every addition, writes
   the initializer exactly once, and advances the bump position.
-- Reset rewinds and zeroes the retained first block, then frees every later
-  block. Destroy frees every block and the control state.
+- Reset rewinds every block, sets the current block to the first, and retains
+  the complete block chain without zeroing. Allocation reuses retained blocks
+  in chain order before growing. Destroy frees every block and the control state.
 - `Pool<T>` is a monomorphized pointer-sized handle to state containing its
   fixed capacity, free count, contiguous aligned `T` slots, one live byte per
   slot, and a `Size` free-index stack. Construction initializes the stack so
   allocation and release are O(1).
+- Pool control, slot, and free-index storage use non-zeroing allocation followed
+  by explicit initialization. The live-byte region uses zeroed allocation
+  because zero is its initial all-free state.
 - Pool allocation pops one index, marks it live, writes `T` once, and returns
   its address. Release converts addresses through `uintptr_t`, validates range,
   slot alignment, and live state before pushing the index.
@@ -309,7 +316,7 @@ Generated allocation uses checked `calloc`; release uses C `free` directly.
 [Runtime Error] heap allocation failed
 [Runtime Error] pool capacity must be positive
 [Runtime Error] pool exhausted
-[Runtime Error] pointer does not name a slot in this Pool
+[Runtime Error] pointer does not name a slot in this pool
 [Runtime Error] pool slot is not live
 [Runtime Error] pool destroy with live slots
 ```
@@ -330,12 +337,8 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
 
 ## Required sweep
 
-- Replace the default Heap header allocator with checked `calloc`/`free` and
-  remove every identity/header/offset/live-field dependency from Heap,
-  collections, IO, concurrency adapters, deferred cleanup, and generated tests.
-- Preserve source evaluation of every explicit Heap argument even where its C
-  value is operationally irrelevant.
-- Do not retain a second Heap allocation path for artifact stability.
+- Treat RFC 0123's implemented stateless Heap as this RFC's baseline. Do not
+  repeat, amend, or partially reimplement its runtime migration here.
 - Keep String/List/Dict/Channel/Mutex signatures Heap-only and reject Arena or
   Pool arguments; add no allocator descriptor scaffolding.
 - Reuse existing constructed-type interning, C-name collision handling,
@@ -356,34 +359,23 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
 | `compiler/types` | Register protected Arena and canonical `Pool<T>` construction, eligibility, identity, C names, and ownership classification. |
 | `compiler/checker/alloc.go` and flow state | Check all APIs, reuse HeapAllocation rules, record reset/release/destroy effects, integrate defer and branch merges, and preserve the local-analysis boundary. |
 | checker/generator dispatch coverage | Add explicit nodes for every new operation and fail closed for invalid metadata. |
-| `compiler/generator/heap_component.go` and `generator/packages/heap.*` | Collapse Heap to stateless checked `calloc`/direct `free` and remove header identity machinery. |
 | new Arena/Pool component models and `generator/packages/arena.*`, `pool.*` | Emit demand-driven runtime cores and typed helpers with existing component ownership. |
-| collection, text, concurrency, IO, and defer generators | Remove Heap identity/header adaptation while retaining exact Heap-only APIs and evaluation order. |
 | unit/integration/component tests | Cover type construction, flow diagnostics, generated layouts, component selection, C ordering, deterministic output, and every Validation item. |
-| workbench snippets and manifest | Add focused Arena/Pool snippets and attribute every changed existing hash to the Heap collapse. |
+| workbench snippets and manifest | Add focused Arena/Pool snippets; existing entries must not change. |
 
 ### Phase 0: baseline and migration inventory
 
-1. Record the green test/vet baseline and snippet manifest.
-2. Record Heap-only, direct allocation, deferred free, String/List/Dict,
-   Channel/Mutex, IO, and no-allocation artifacts.
-3. Inventory every `hex_heap_header`, identity, raw allocate/free, allocator
-   field, typed helper, adapter, and assertion in checker and generator code.
+1. Verify RFC 0123 is implemented and record the green test/vet baseline and
+   snippet manifest.
+2. Record Heap-only collection, concurrency, IO, and no-allocation artifacts as
+   unchanged controls.
+3. Inventory allocator type registration, HeapAllocation eligibility,
+   constructed-type ownership, lifetime flow, cleanup capture, and component
+   discovery paths that Arena or Pool must reuse.
 4. Add focused rejected-source probes for Arena/Pool names before registration,
    then retain them as the before/after language boundary.
 
-### Phase 1: collapse the default Heap runtime
-
-1. Update `compiler/generator/packages/heap.h` and `heap.c` to the stateless Heap
-   value plus checked `calloc`/`free` core.
-2. Update `heap_component.go`, typed module helpers, collection/runtime package
-   templates, concurrency adapters, IO, and deferred cleanup to remove runtime
-   identity/header arguments while preserving Heap-expression evaluation.
-3. Update `compiler/checker/alloc.go` only where checked metadata no longer
-   carries an allocator identity; preserve every current local lifetime error.
-4. Remove swept code and regenerate only Heap-affected manifest entries.
-
-### Phase 2: register Arena and Pool types
+### Phase 1: register Arena and Pool types
 
 1. Add protected `Arena` and constructed `Pool<T>` identities in
    `compiler/types`, including canonical keys, display/C names, placement,
@@ -394,7 +386,7 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
    free, and destroy; include them in fail-closed checker/generator dispatch.
 4. Reuse HeapAllocation eligibility after generic substitution.
 
-### Phase 3: checker lifetime and diagnostics
+### Phase 2: checker lifetime and diagnostics
 
 1. Extend the existing freed-state lattice with Arena reset/destroy facts and
    Pool slot/pool-destroy facts for directly tracked bindings.
@@ -405,16 +397,16 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
    cleanup, and library constructors receiving non-Heap allocators.
 4. Verify copied/escaped aliases retain the documented undecided acceptance.
 
-### Phase 4: Arena runtime and lowering
+### Phase 3: Arena runtime and lowering
 
 1. Add `arena.h/.c` templates with control/block lifecycle, checked block growth,
-   bump alignment, reset retention, zeroing, and destruction.
+   bump alignment, whole-chain reset retention, and destruction.
 2. Add typed Arena allocation helpers at the module/program location selected
    by the allocated type.
 3. Add the Arena render model, demand discovery, include ordering, and component
    tests; no Arena use emits Pool or collection allocator machinery.
 
-### Phase 5: Pool runtime and lowering
+### Phase 4: Pool runtime and lowering
 
 1. Add `pool.h/.c` templates for non-specialized core validation and ownership.
 2. Emit monomorphized `Pool<T>` state/allocate/release helpers using existing
@@ -424,15 +416,14 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
 4. Add demand/include tests for builtin, nominal, imported, and same-named
    module-owned T without duplicate definitions.
 
-### Phase 6: conformance and canonical docs
+### Phase 5: conformance and canonical docs
 
 1. Implement every Validation item below and no additional behavior.
-2. Rebuild the snippet manifest once; unchanged no-allocation artifacts remain
-   byte-identical and every moved family is attributed to Heap collapse or new
-   Arena/Pool snippets.
+2. Rebuild the snippet manifest once. No existing entry changes hash; the
+   manifest gains entries only for new Arena/Pool snippets.
 3. Update `docs/reference.md` once with the grammar/type/API/lifetime/C23 rules;
-   remove Arena/Pool from Excluded features and replace superseded Heap
-   header/identity statements.
+   remove Arena/Pool from Excluded features without restating RFC 0123's Heap
+   contract.
 4. Run `gofmt`, `go test ./...`, `go vet ./...`, and
    `go vet -tags c23 ./...`.
 5. Rebuild and restart the workbench.
@@ -469,24 +460,20 @@ This section is exhaustive.
 - Copied, parameter, member, collection, and escaped pointer/handle aliases
   remain outside local tracking and are accepted consistently with current Heap
   policy; no diagnostic claims generation safety.
+- This RFC introduces no concurrency-specific rejection: sharing one Arena or
+  Pool across Tasks remains governed by the documented unsynchronized-conflict
+  boundary until RFC 0118 supplies its static ownership/unsafe rules.
 - String/List/Dict/Channel/Mutex constructors and cleanup reject Arena and Pool
   and continue to accept Heap exactly.
-- `defer arena.destroy(h)`, `defer pool.destroy(h)`, and deferred Pool slot free
+- `defer arena.destroy()`, `defer pool.destroy()`, and deferred Pool slot free
   capture receiver and arguments once and participate in existing duplicate
   cleanup checking.
 
 ### Generated-C validation
 
-- Heap allocation uses checked `calloc`, writes its initializer once, and uses
-  direct C `free`; generated artifacts contain no `hex_heap_header`, offset
-  marker, allocator identity, or live flag.
-- Every explicit Heap source expression is evaluated once even when no runtime
-  identity is passed.
-- Checked multiplication/addition precedes every `calloc`; null traps through
-  the existing allocation-failure message.
 - Arena emits one component pair only when selected, uses the specified 4096
-  minimum/doubling policy, retains and zeroes only the first block on reset,
-  and frees all state on destroy.
+  minimum/doubling policy, retains and rewinds every block without zeroing on
+  reset, reuses retained blocks before growth, and frees all state on destroy.
 - Arena allocation applies `_Alignof(T)` and `sizeof(T)`, checks padding and
   capacity before pointer formation, and evaluates/writes the initializer once.
 - Pool emits one core component and exactly one correctly owned specialization
@@ -498,9 +485,9 @@ This section is exhaustive.
   handles contained by T.
 - No allocator descriptor, function-pointer dispatch, family tag, Pool
   generation, Arena-backed collection path, or hidden Heap fallback is emitted.
-- Heap-only collection, concurrency, and IO behavior is otherwise unchanged.
-- Unaffected manifest entries remain byte-identical; repeated compilation is
-  byte-identical.
+- Existing Heap, collection, concurrency, and IO artifacts remain
+  byte-identical. The manifest gains entries only for new Arena/Pool snippets;
+  repeated compilation is byte-identical.
 - Ordinary tests remain pure Go. Runtime trap firing remains a known coverage
   gap until RFC 0055 can execute generated programs.
 - `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass.
@@ -512,9 +499,9 @@ After behavior stabilizes, update `docs/reference.md` once to:
 - add Arena and Pool to protected/core types and remove them from exclusions;
 - add the exact APIs, type eligibility, shallow-copy, local invalidation,
   allocator-family restrictions, Pool alias limitation, and trap contracts;
+- state that Arena and Pool are not thread-safe, shallow copies add no
+  synchronization, and RFC 0118 owns cross-task rejection/unsafe rules;
 - state that library allocations remain Heap-only;
-- replace the Heap runtime-identity/header description with one stateless
-  default Heap using checked `calloc` and direct `free`; and
 - record Arena and Pool C23 representation contracts without implementation
   walkthroughs or examples.
 

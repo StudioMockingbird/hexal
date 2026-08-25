@@ -1,19 +1,18 @@
 package generator
 
-// heapHeaderModel is the render model for packages/heap.h: the hex_heap
-// handle, its default initializer, the allocation-header layout, and the raw
-// operation declarations are static machine-width-independent C, so the model
-// carries no per-program fields and the template owns all C text.
+// heapHeaderModel is the render model for packages/heap.h: the hex_heap token
+// and the three allocation operation declarations are static
+// machine-width-independent C, so the model carries no per-program fields and
+// the template owns all C text.
 type heapHeaderModel struct{}
 
-// heapSourceModel is the render model for packages/heap.c: the raw
-// allocation and release bodies are static C with no per-program fields.
+// heapSourceModel is the render model for packages/heap.c: the allocation and
+// release bodies are static C with no per-program fields.
 type heapSourceModel struct{}
 
 // heapComponents returns the generated hexal/heap.h and hexal/heap.c
-// artifacts when Heap machinery is selected. The representation and raw
-// allocation runtime migrate here from hexal.h; typed allocation helpers
-// remain module-owned.
+// artifacts when Heap machinery is selected. The representation and the
+// allocation runtime live here; typed allocation helpers remain module-owned.
 func heapComponents(merged *programEmission) ([]componentArtifact, error) {
 	state := merged.heapState
 	if state == nil || (!state.required && len(state.elements) == 0) {

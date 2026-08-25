@@ -144,7 +144,7 @@ func TestGenerateSchedulerTrapAndDirectLowering(t *testing.T) {
 			t.Fatalf("generated output retains %q: C := %q H=%q conc=%q", gone, rootC, rootH, concurrencyC)
 		}
 	}
-	if !strings.Contains(rootH, "static inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex)") {
-		t.Fatalf("generated header lacks the identity-adapting free: %q", rootH)
+	if !strings.Contains(rootH, "static inline void hex_mutex_free_hex_mutex(hex_heap h, hex_mutex *mutex)") {
+		t.Fatalf("generated header lacks the token-adapting free: %q", rootH)
 	}
 }

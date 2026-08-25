@@ -1652,10 +1652,10 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 		if compilerTypes.IsEoS(source.Type) {
 			return "((hex_eos){ 0 })", nil
 		}
-		// Heap is a singleton handle: Heap.new() selects the default
-		// allocator identity and performs no allocation.
+		// Heap is a value token: one default allocator, no runtime state to
+		// select, and no allocation performed by Heap.new() itself.
 		if compilerTypes.IsHeap(source.Type) {
-			return "((hex_heap){ .identity = HEX_HEAP_DEFAULT })", nil
+			return "((hex_heap)0)", nil
 		}
 		if source.Constant == nil {
 			return "", unknownExpressionDiagnostic("constant operand without a checked value")

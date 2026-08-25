@@ -64,7 +64,6 @@ typedef struct hex_dict_Int32_Int32 {
     hex_dict_entry_Int32_Int32 *buckets;
     size_t length;
     size_t capacity;
-    uintptr_t allocator;
     size_t version;
 } hex_dict_Int32_Int32;
 
@@ -91,11 +90,11 @@ static inline uint64_t hex_dict_probe_Int32_Int32(const hex_dict_Int32_Int32 *di
     return index;
 }
 static inline hex_dict_Int32_Int32 *hex_dict_new_Int32_Int32(hex_heap h) {
-    hex_dict_Int32_Int32 *header = hex_heap_raw_allocate(h.identity, sizeof(hex_dict_Int32_Int32), _Alignof(hex_dict_Int32_Int32));
+    (void)h;
+    hex_dict_Int32_Int32 *header = hex_heap_allocate(sizeof(hex_dict_Int32_Int32));
     header->buckets = nullptr;
     header->length = 0;
     header->capacity = 0;
-    header->allocator = h.identity;
     header->version = 0;
     return header;
 }
@@ -110,8 +109,11 @@ static inline void hex_dict_grow_Int32_Int32(hex_dict_Int32_Int32 *dict) {
     if (ckd_mul(&bytes, next, sizeof(hex_dict_entry_Int32_Int32))) {
         hex_runtime_trap("[Runtime Error] dictionary capacity is not representable\n");
     }
-    hex_dict_entry_Int32_Int32 *region = hex_heap_raw_allocate(dict->allocator, bytes, _Alignof(hex_dict_entry_Int32_Int32));
-    memset(region, 0, bytes);
+    // An empty bucket is the all-zero representation, so the region is
+    // allocated zeroed rather than allocated and then cleared. The checked
+    // multiplication above owns the capacity message, so the checked total
+    // is passed through as one count.
+    hex_dict_entry_Int32_Int32 *region = hex_heap_allocate_zeroed(1, bytes);
     for (size_t index = 0; index < dict->capacity; index++) {
         if (dict->buckets[index].active) {
             uint64_t probe = hex_dict_probe_Int32_Int32_region(region, next, dict->buckets[index].key);
@@ -119,7 +121,7 @@ static inline void hex_dict_grow_Int32_Int32(hex_dict_Int32_Int32 *dict) {
         }
     }
     if (dict->buckets != nullptr) {
-        hex_heap_free(dict->buckets, dict->allocator);
+        hex_heap_free(dict->buckets);
     }
     dict->buckets = region;
     dict->capacity = next;
@@ -192,13 +194,11 @@ static inline int32_t hex_dict_remove_Int32_Int32(hex_dict_Int32_Int32 *dict, in
     return value;
 }
 static inline void hex_dict_free_Int32_Int32(hex_heap h, hex_dict_Int32_Int32 *dict) {
-    if (dict == nullptr || dict->allocator != h.identity) {
-        hex_runtime_trap("[Runtime Error] deallocation used the wrong allocator\n");
-    }
+    (void)h;
     if (dict->buckets != nullptr) {
-        hex_heap_free(dict->buckets, dict->allocator);
+        hex_heap_free(dict->buckets);
     }
-    hex_heap_free(dict, h.identity);
+    hex_heap_free(dict);
 }
 
 typedef struct hex_dict_entry_Strand_Int32 {
@@ -210,7 +210,6 @@ typedef struct hex_dict_Strand_Int32 {
     hex_dict_entry_Strand_Int32 *buckets;
     size_t length;
     size_t capacity;
-    uintptr_t allocator;
     size_t version;
 } hex_dict_Strand_Int32;
 
@@ -239,11 +238,11 @@ static inline uint64_t hex_dict_probe_Strand_Int32(const hex_dict_Strand_Int32 *
     return index;
 }
 static inline hex_dict_Strand_Int32 *hex_dict_new_Strand_Int32(hex_heap h) {
-    hex_dict_Strand_Int32 *header = hex_heap_raw_allocate(h.identity, sizeof(hex_dict_Strand_Int32), _Alignof(hex_dict_Strand_Int32));
+    (void)h;
+    hex_dict_Strand_Int32 *header = hex_heap_allocate(sizeof(hex_dict_Strand_Int32));
     header->buckets = nullptr;
     header->length = 0;
     header->capacity = 0;
-    header->allocator = h.identity;
     header->version = 0;
     return header;
 }
@@ -258,8 +257,11 @@ static inline void hex_dict_grow_Strand_Int32(hex_dict_Strand_Int32 *dict) {
     if (ckd_mul(&bytes, next, sizeof(hex_dict_entry_Strand_Int32))) {
         hex_runtime_trap("[Runtime Error] dictionary capacity is not representable\n");
     }
-    hex_dict_entry_Strand_Int32 *region = hex_heap_raw_allocate(dict->allocator, bytes, _Alignof(hex_dict_entry_Strand_Int32));
-    memset(region, 0, bytes);
+    // An empty bucket is the all-zero representation, so the region is
+    // allocated zeroed rather than allocated and then cleared. The checked
+    // multiplication above owns the capacity message, so the checked total
+    // is passed through as one count.
+    hex_dict_entry_Strand_Int32 *region = hex_heap_allocate_zeroed(1, bytes);
     for (size_t index = 0; index < dict->capacity; index++) {
         if (dict->buckets[index].active) {
             uint64_t probe = hex_dict_probe_Strand_Int32_region(region, next, dict->buckets[index].key);
@@ -267,7 +269,7 @@ static inline void hex_dict_grow_Strand_Int32(hex_dict_Strand_Int32 *dict) {
         }
     }
     if (dict->buckets != nullptr) {
-        hex_heap_free(dict->buckets, dict->allocator);
+        hex_heap_free(dict->buckets);
     }
     dict->buckets = region;
     dict->capacity = next;
@@ -340,13 +342,11 @@ static inline int32_t hex_dict_remove_Strand_Int32(hex_dict_Strand_Int32 *dict, 
     return value;
 }
 static inline void hex_dict_free_Strand_Int32(hex_heap h, hex_dict_Strand_Int32 *dict) {
-    if (dict == nullptr || dict->allocator != h.identity) {
-        hex_runtime_trap("[Runtime Error] deallocation used the wrong allocator\n");
-    }
+    (void)h;
     if (dict->buckets != nullptr) {
-        hex_heap_free(dict->buckets, dict->allocator);
+        hex_heap_free(dict->buckets);
     }
-    hex_heap_free(dict, h.identity);
+    hex_heap_free(dict);
 }
 
 #endif

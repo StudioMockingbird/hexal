@@ -126,8 +126,15 @@ At minimum, a usable C-interoperability profile carries:
   support;
 - volatile/device-memory semantics;
 - thread, TLS, signal, and process-entry capabilities;
-- available C23 headers and builtins relied on by generated code; and
-- the operating-system facilities required by selected runtime components.
+- available C23 headers and builtins relied on by generated code;
+- the operating-system facilities required by selected runtime components; and
+- the fundamental alignment guaranteed by `malloc` and `calloc`, which must be
+  at least the strictest alignment of any representation the profile admits.
+  RFC 0123 removed the generated alignment argument from default allocation
+  because no current Hexal type is over-aligned; a profile that admits an
+  over-aligned representation must either supply aligned allocation or reject
+  that representation, and cannot rely on a generated assertion to make the
+  fact safe.
 
 Unsupported or unverified facts are not silently assigned a host default. A
 profile either supplies the fact or the compiler rejects the feature that needs

@@ -60,7 +60,6 @@ typedef struct hex_list_Int32 {
     int32_t *data;
     size_t length;
     size_t capacity;
-    uintptr_t allocator;
     size_t version;
 } hex_list_Int32;
 static inline void hex_list_grow_Int32(hex_list_Int32 *list) {
@@ -74,19 +73,19 @@ static inline void hex_list_grow_Int32(hex_list_Int32 *list) {
     if (ckd_mul(&bytes, next, sizeof(int32_t))) {
         hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
     }
-    int32_t *region = hex_heap_raw_allocate(list->allocator, bytes, _Alignof(int32_t));
+    int32_t *region = hex_heap_allocate(bytes);
     if (list->length != 0) {
         memcpy(region, list->data, list->length * sizeof(int32_t));
     }
     if (list->data != nullptr) {
-        hex_heap_free(list->data, list->allocator);
+        hex_heap_free(list->data);
     }
     list->data = region;
     list->capacity = next;
 }
 static inline void hex_list_reserve_at_least_Int32(hex_list_Int32 *list, size_t minimum) {
     // The stream backends' internal reservation: one allocation grown by the
-    // same checked doubling formula and allocator path as push growth, never
+    // same checked doubling formula and allocation path as push growth, never
     // exposed as a source-visible method.
     if (minimum == 0 || minimum <= list->capacity) {
         return;
@@ -101,22 +100,22 @@ static inline void hex_list_reserve_at_least_Int32(hex_list_Int32 *list, size_t 
     if (ckd_mul(&bytes, next, sizeof(int32_t))) {
         hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
     }
-    int32_t *region = hex_heap_raw_allocate(list->allocator, bytes, _Alignof(int32_t));
+    int32_t *region = hex_heap_allocate(bytes);
     if (list->length != 0) {
         memcpy(region, list->data, list->length * sizeof(int32_t));
     }
     if (list->data != nullptr) {
-        hex_heap_free(list->data, list->allocator);
+        hex_heap_free(list->data);
     }
     list->data = region;
     list->capacity = next;
 }
 static inline hex_list_Int32 *hex_list_new_Int32(hex_heap h) {
-    hex_list_Int32 *header = hex_heap_raw_allocate(h.identity, sizeof(hex_list_Int32), _Alignof(hex_list_Int32));
+    (void)h;
+    hex_list_Int32 *header = hex_heap_allocate(sizeof(hex_list_Int32));
     header->data = nullptr;
     header->length = 0;
     header->capacity = 0;
-    header->allocator = h.identity;
     header->version = 0;
     return header;
 }
@@ -153,13 +152,11 @@ static inline int32_t *hex_list_at_mut_Int32(hex_list_Int32 *list, size_t index)
     return &list->data[index];
 }
 static inline void hex_list_free_Int32(hex_heap h, hex_list_Int32 *list) {
-    if (list == nullptr || list->allocator != h.identity) {
-        hex_runtime_trap("[Runtime Error] deallocation used the wrong allocator\n");
-    }
+    (void)h;
     if (list->data != nullptr) {
-        hex_heap_free(list->data, list->allocator);
+        hex_heap_free(list->data);
     }
-    hex_heap_free(list, h.identity);
+    hex_heap_free(list);
 }
 static inline hex_view_Int32 hex_list_slice_Int32(const hex_list_Int32 *list, uint64_t start, uint64_t end) {
     if (!(start <= end && end <= list->length)) {

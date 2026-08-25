@@ -319,7 +319,7 @@ func TestChannelDirectCoreCalls(t *testing.T) {
 // Both the direct and the deferred Mutex free evaluate the Heap argument
 // once and pass its identity token to the same retained adapter; neither
 // path drops the argument.
-func TestMutexFreePassesHeapIdentity(t *testing.T) {
+func TestMutexFreePassesHeapToken(t *testing.T) {
 	source := "fun run(): Int32 | Error do\n" +
 		"    h: Heap := Heap.new()\n" +
 		"    m: Mutex := try Mutex.new(h)\n" +
@@ -332,20 +332,20 @@ func TestMutexFreePassesHeapIdentity(t *testing.T) {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
 	rootC := rootC(t, result)
-	// The direct call passes the Heap's identity token, never the whole Heap
-	// object; the identity comes from the binding read of h.
-	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex((hex_v_h).identity, hex_v_m)") {
-		t.Fatalf("direct mutex free does not pass the heap identity:\n%s", rootC)
+	// The direct call passes the Heap token so the binding read of h still
+	// evaluates; the token itself selects nothing.
+	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex(hex_v_h, hex_v_m)") {
+		t.Fatalf("direct mutex free does not pass the heap token:\n%s", rootC)
 	}
 	if strings.Contains(rootC, "hex_mutex_free_hex_mutex(hex_v_m)") {
 		t.Fatalf("direct mutex free drops the checked Heap argument:\n%s", rootC)
 	}
-	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex(hex_defer_capture_2.identity, hex_defer_capture_1)") {
-		t.Fatalf("deferred mutex free does not pass the captured heap identity:\n%s", rootC)
+	if !strings.Contains(rootC, "hex_mutex_free_hex_mutex(hex_defer_capture_2, hex_defer_capture_1)") {
+		t.Fatalf("deferred mutex free does not pass the captured heap token:\n%s", rootC)
 	}
 	rootH := rootH(t, result)
-	if !strings.Contains(rootH, "static inline void hex_mutex_free_hex_mutex(uintptr_t heap_identity, hex_mutex *mutex)") {
-		t.Fatalf("mutex free adapter lacks the heap identity parameter:\n%s", rootH)
+	if !strings.Contains(rootH, "static inline void hex_mutex_free_hex_mutex(hex_heap h, hex_mutex *mutex)") {
+		t.Fatalf("mutex free adapter lacks the heap token parameter:\n%s", rootH)
 	}
 	if !strings.Contains(rootH, "hex_mutex_free(mutex);") {
 		t.Fatalf("mutex free adapter does not reach the core free:\n%s", rootH)

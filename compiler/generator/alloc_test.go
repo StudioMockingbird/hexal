@@ -15,11 +15,17 @@ func TestGenerateHeapAllocationAndFree(t *testing.T) {
 	if heapH == "" || heapC == "" {
 		t.Fatalf("heap program emitted no component pair: %v", files)
 	}
-	// The representation, default initializer, and raw declarations own
-	// hexal/heap.h; the typed helper stays in the module header.
-	for _, want := range []string{"typedef struct hex_heap", "HEX_HEAP_DEFAULT", "hex_heap_header", "hex_heap_raw_allocate", "hex_heap_free"} {
+	// The token and the three operation declarations own hexal/heap.h; the
+	// typed helper stays in the module header.
+	for _, want := range []string{"typedef unsigned char hex_heap;", "void *hex_heap_allocate(size_t size);", "void *hex_heap_allocate_zeroed(size_t count, size_t size);", "void hex_heap_free(void *pointer);"} {
 		if !strings.Contains(heapH, want) {
 			t.Fatalf("hexal/heap.h does not contain %q: %q", want, heapH)
+		}
+	}
+	// No allocator identity, header, offset marker, or live flag remains.
+	for _, forbidden := range []string{"struct hex_heap", "HEX_HEAP_DEFAULT", "hex_heap_header", "hex_heap_raw_allocate", "uintptr_t", "live"} {
+		if strings.Contains(heapH, forbidden) {
+			t.Fatalf("hexal/heap.h retains %q: %q", forbidden, heapH)
 		}
 	}
 	if !strings.Contains(rootH, "hex_heap_allocate_Int32") {
@@ -35,8 +41,9 @@ func TestGenerateHeapAllocationAndFree(t *testing.T) {
 		t.Fatalf("hexal/heap.c = %q, want its matching header first", heapC)
 	}
 	for _, definition := range []string{
-		"void *hex_heap_raw_allocate(uintptr_t allocator, size_t size, size_t align) {",
-		"void hex_heap_free(void *pointer, uintptr_t allocator) {",
+		"void *hex_heap_allocate(size_t size) {",
+		"void *hex_heap_allocate_zeroed(size_t count, size_t size) {",
+		"void hex_heap_free(void *pointer) {",
 	} {
 		if strings.Count(heapC, definition) != 1 {
 			t.Fatalf("hexal/heap.c = %q, want exactly one %q", heapC, definition)
@@ -51,39 +58,69 @@ func TestGenerateHeapAllocationAndFree(t *testing.T) {
 	if strings.Contains(rootC, "free(") && !strings.Contains(rootC, "hex_heap_free(") {
 		t.Fatalf("generated C = %q, want only checked deallocation", rootC)
 	}
-	assertRawAllocateCheckedArithmetic(t, heapC)
+	assertHeapOperationsCheckedAndTrapping(t, heapC)
 }
 
-// assertRawAllocateCheckedArithmetic verifies the hexal/heap.c definition of
-// hex_heap_raw_allocate: both size additions go through ckd_add with size_t
-// destinations, zero alignment is rejected before align - 1 is evaluated, and
-// no wrap-detection pattern superseded by the checked arithmetic remains.
-func assertRawAllocateCheckedArithmetic(t *testing.T, heapC string) {
+// assertHeapOperationsCheckedAndTrapping verifies that the two allocating
+// operations trap on a null result, that only the zeroing one separates an
+// unrepresentable product from exhaustion with ckd_mul, and that release adds
+// no check of its own. The non-zeroing operation must not zero: its callers
+// write every byte they read.
+func assertHeapOperationsCheckedAndTrapping(t *testing.T, heapC string) {
 	t.Helper()
-	start := strings.Index(heapC, "hex_heap_raw_allocate")
-	end := strings.Index(heapC, "void hex_heap_free")
-	if start < 0 || end < 0 || end <= start {
-		t.Fatalf("hexal/heap.c = %q, want hex_heap_raw_allocate before hex_heap_free", heapC)
+	plain := heapOperationBody(t, heapC, "void *hex_heap_allocate(size_t size) {")
+	zeroed := heapOperationBody(t, heapC, "void *hex_heap_allocate_zeroed(size_t count, size_t size) {")
+	release := heapOperationBody(t, heapC, "void hex_heap_free(void *pointer) {")
+
+	if !strings.Contains(plain, "malloc(size)") || strings.Contains(plain, "calloc") || strings.Contains(plain, "memset") {
+		t.Fatalf("hex_heap_allocate = %q, want an unzeroed malloc", plain)
 	}
-	raw := heapC[start:end]
-	if got := strings.Count(raw, "ckd_add"); got != 2 {
-		t.Fatalf("hex_heap_raw_allocate uses ckd_add %d times, want 2: %q", got, raw)
+	if strings.Contains(plain, "ckd_") {
+		t.Fatalf("hex_heap_allocate = %q, want no size arithmetic on a single size", plain)
 	}
-	for _, want := range []string{
-		"align == 0",
-		"ckd_add(&padded, sizeof(hex_heap_header), align - 1)",
-		"size_t total;",
-		"ckd_add(&total, offset, size)",
-	} {
-		if !strings.Contains(raw, want) {
-			t.Fatalf("hex_heap_raw_allocate does not contain %q: %q", want, raw)
+	if !strings.Contains(zeroed, "ckd_mul(&total, count, size)") {
+		t.Fatalf("hex_heap_allocate_zeroed = %q, want the checked product", zeroed)
+	}
+	if !strings.Contains(zeroed, "calloc(count, size)") {
+		t.Fatalf("hex_heap_allocate_zeroed = %q, want calloc", zeroed)
+	}
+	if strings.Index(zeroed, "ckd_mul") > strings.Index(zeroed, "calloc") {
+		t.Fatalf("hex_heap_allocate_zeroed = %q, want the overflow check before calloc", zeroed)
+	}
+	for name, body := range map[string]string{"hex_heap_allocate": plain, "hex_heap_allocate_zeroed": zeroed} {
+		if !strings.Contains(body, "[Runtime Error] heap allocation failed") {
+			t.Fatalf("%s = %q, want the allocation-failure trap", name, body)
 		}
 	}
-	for _, bad := range []string{"total < size", "(align & (align - 1))"} {
-		if strings.Contains(raw, bad) {
-			t.Fatalf("hex_heap_raw_allocate retains obsolete pattern %q: %q", bad, raw)
+	if !strings.Contains(zeroed, "[Runtime Error] allocation size is not representable") {
+		t.Fatalf("hex_heap_allocate_zeroed = %q, want the size trap distinct from failure", zeroed)
+	}
+	// Release owns no null, identity, liveness, or ownership check.
+	if strings.Count(release, "if") != 0 || !strings.Contains(release, "free(pointer)") {
+		t.Fatalf("hex_heap_free = %q, want an unconditional free", release)
+	}
+	// Nothing recovers a header, offset, or allocator from an allocation.
+	for _, bad := range []string{"hex_heap_header", "offset", "->allocator", "->live", "uintptr_t allocator"} {
+		if strings.Contains(heapC, bad) {
+			t.Fatalf("hexal/heap.c retains %q: %q", bad, heapC)
 		}
 	}
+}
+
+// heapOperationBody returns the text of one hexal/heap.c definition, from its
+// signature to the closing brace in column zero.
+func heapOperationBody(t *testing.T, heapC, signature string) string {
+	t.Helper()
+	start := strings.Index(heapC, signature)
+	if start < 0 {
+		t.Fatalf("hexal/heap.c = %q, want the definition %q", heapC, signature)
+	}
+	rest := heapC[start:]
+	end := strings.Index(rest, "\n}")
+	if end < 0 {
+		t.Fatalf("hexal/heap.c definition %q is unterminated: %q", signature, rest)
+	}
+	return rest[:end]
 }
 
 // A bare Heap handle selects the raw machinery without any typed allocation;
@@ -168,7 +205,7 @@ func TestGenerateListAndDictCheckedGrowth(t *testing.T) {
 		"size_t next = 8;",
 		"ckd_mul(&next, dict->capacity, 2)",
 		"ckd_mul(&bytes, next, sizeof(hex_dict_entry_Int32_Int32))",
-		"memset(region, 0, bytes);",
+		"hex_heap_allocate_zeroed(1, bytes);",
 		"ckd_add(&length_plus_one, dict->length, 1)",
 		"ckd_mul(&load_times_10, length_plus_one, 10)",
 		"ckd_mul(&capacity_times_7, dict->capacity, 7)",
@@ -183,6 +220,9 @@ func TestGenerateListAndDictCheckedGrowth(t *testing.T) {
 	for _, forbid := range []string{
 		"uint64_t next", "SIZE_MAX /", "(dict->length + 1) * 10 >= dict->capacity * 7",
 		"hex_dict_key_equal_", "fputs(", "NULL", "region[index].active = false",
+		// The zeroed allocation replaces the clear; no allocator identity,
+		// header, or post-allocation memset survives in either family.
+		"memset(region", "hex_heap_raw_allocate", "->allocator", "h.identity",
 	} {
 		if strings.Contains(listH, forbid) || strings.Contains(dictH, forbid) {
 			t.Fatalf("component header retains %q:\n%s\n%s", forbid, listH, dictH)

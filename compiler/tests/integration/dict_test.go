@@ -79,10 +79,10 @@ func TestDictInt32Lifecycle(t *testing.T) {
 		"size_t next = 8;",
 		"ckd_mul(&next, dict->capacity, 2)",
 		"ckd_mul(&bytes, next, sizeof(hex_dict_entry_Int32_Int32))",
-		"memset(region, 0, bytes);",
 		"ckd_add(&length_plus_one, dict->length, 1)",
 		"ckd_mul(&load_times_10, length_plus_one, 10)",
 		"ckd_mul(&capacity_times_7, dict->capacity, 7)",
+		"hex_heap_allocate_zeroed(1, bytes);",
 		"hex_runtime_trap(\"[Runtime Error] dictionary key not found\\n\")",
 		"hex_runtime_trap(\"[Runtime Error] dictionary capacity is not representable\\n\")",
 	} {
@@ -90,7 +90,7 @@ func TestDictInt32Lifecycle(t *testing.T) {
 			t.Fatalf("hexal/dict.h does not contain %q:\n%s", want, header)
 		}
 	}
-	for _, forbid := range []string{"uint64_t next", "SIZE_MAX /", "(dict->length + 1) * 10 >= dict->capacity * 7", "fputs(", "NULL", "region[index].active = false"} {
+	for _, forbid := range []string{"uint64_t next", "SIZE_MAX /", "(dict->length + 1) * 10 >= dict->capacity * 7", "fputs(", "NULL", "region[index].active = false", "memset(region", "->allocator", "h.identity"} {
 		if strings.Contains(header, forbid) {
 			t.Fatalf("hexal/dict.h retains %q:\n%s", forbid, header)
 		}

@@ -5,7 +5,6 @@ typedef struct {{.CName}} {
     {{.ElementSpelling}} *data;
     size_t length;
     size_t capacity;
-    uintptr_t allocator;
     size_t version;
 } {{.CName}};
 static inline void hex_list_grow_{{.Suffix}}({{.CName}} *list) {
@@ -19,19 +18,19 @@ static inline void hex_list_grow_{{.Suffix}}({{.CName}} *list) {
     if (ckd_mul(&bytes, next, sizeof({{.ElementSpelling}}))) {
         hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
     }
-    {{.ElementSpelling}} *region = hex_heap_raw_allocate(list->allocator, bytes, _Alignof({{.ElementSpelling}}));
+    {{.ElementSpelling}} *region = hex_heap_allocate(bytes);
     if (list->length != 0) {
         memcpy(region, list->data, list->length * sizeof({{.ElementSpelling}}));
     }
     if (list->data != nullptr) {
-        hex_heap_free(list->data, list->allocator);
+        hex_heap_free(list->data);
     }
     list->data = region;
     list->capacity = next;
 }
 static inline void hex_list_reserve_at_least_{{.Suffix}}({{.CName}} *list, size_t minimum) {
     // The stream backends' internal reservation: one allocation grown by the
-    // same checked doubling formula and allocator path as push growth, never
+    // same checked doubling formula and allocation path as push growth, never
     // exposed as a source-visible method.
     if (minimum == 0 || minimum <= list->capacity) {
         return;
@@ -46,22 +45,22 @@ static inline void hex_list_reserve_at_least_{{.Suffix}}({{.CName}} *list, size_
     if (ckd_mul(&bytes, next, sizeof({{.ElementSpelling}}))) {
         hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
     }
-    {{.ElementSpelling}} *region = hex_heap_raw_allocate(list->allocator, bytes, _Alignof({{.ElementSpelling}}));
+    {{.ElementSpelling}} *region = hex_heap_allocate(bytes);
     if (list->length != 0) {
         memcpy(region, list->data, list->length * sizeof({{.ElementSpelling}}));
     }
     if (list->data != nullptr) {
-        hex_heap_free(list->data, list->allocator);
+        hex_heap_free(list->data);
     }
     list->data = region;
     list->capacity = next;
 }
 static inline {{.CName}} *hex_list_new_{{.Suffix}}(hex_heap h) {
-    {{.CName}} *header = hex_heap_raw_allocate(h.identity, sizeof({{.CName}}), _Alignof({{.CName}}));
+    (void)h;
+    {{.CName}} *header = hex_heap_allocate(sizeof({{.CName}}));
     header->data = nullptr;
     header->length = 0;
     header->capacity = 0;
-    header->allocator = h.identity;
     header->version = 0;
     return header;
 }
@@ -98,13 +97,11 @@ static inline {{.ElementSpelling}} *hex_list_at_mut_{{.Suffix}}({{.CName}} *list
     return &list->data[index];
 }
 static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
-    if (list == nullptr || list->allocator != h.identity) {
-        hex_runtime_trap("[Runtime Error] deallocation used the wrong allocator\n");
-    }
+    (void)h;
     if (list->data != nullptr) {
-        hex_heap_free(list->data, list->allocator);
+        hex_heap_free(list->data);
     }
-    hex_heap_free(list, h.identity);
+    hex_heap_free(list);
 }
 {{if .ViewCName}}static inline {{.ViewCName}} hex_list_slice_{{.Suffix}}(const {{.CName}} *list, uint64_t start, uint64_t end) {
     if (!(start <= end && end <= list->length)) {
