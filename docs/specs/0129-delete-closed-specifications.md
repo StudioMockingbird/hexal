@@ -318,6 +318,21 @@ This section is exhaustive.
   and present in exactly one matching `docs/status.md` section.
 - No tracked live file references a deleted specification number, deleted spec
   path, `docs/specs/archive/`, or an archive-on-close workflow.
+
+  The check runs against the **deleted** set from the Phase 0 snapshot, never
+  against every four-digit number. References between surviving active
+  specifications are correct and must not be flagged; a check that cannot tell
+  an active number from a deleted one fails on legitimate text and gets
+  weakened or ignored, which is worse than not having it.
+
+  Two live-text classes are explicitly preserved rather than swept:
+
+  - `AGENTS.md`'s `//go:build c23`, `compiler/tests/c23validation/`, and
+    `go vet -tags c23` material documents RFC 0125's **active** lifecycle. It is
+    not terminal-spec provenance and does not name a deleted number.
+  - `docs/reference.md`'s C23 output contract -- `<stdckdint.h>`, `nullptr`,
+    `typeof`, target qualification -- states live language behavior. Provenance
+    removal strips citations, never contracts.
 - `docs/reference.md` contains every verified surviving language/ABI contract,
   contains each rule once, and contains no RFC/ADR provenance citation,
   tutorial, migration narrative, or historical example.

@@ -406,6 +406,23 @@ so these are gates rather than coverage gaps:
 - No toolchain in the matrix reports a warning under
   `-std=c23 -Wall -Wextra -Werror`.
 
+### Canonical documentation
+
+The reference edit is a completion gate, not a follow-up. This RFC falsifies a
+normative sentence, so leaving it unedited ships a false contract:
+
+- `docs/reference.md` no longer conditions supported Task targets on "verified
+  C23 `<threads.h>`", and states the Windows and POSIX primitive contracts
+  instead.
+- The same sentence's `Unsupported Error` clause is gone. That diagnostic does
+  not exist in the compiler and never did -- no non-test Go emits it -- so the
+  clause was already false before this RFC and must not survive the edit that
+  touches its sentence. Removing it changes no behavior because no behavior
+  implements it.
+- No other Task, Channel, Mutex, Atomic, scheduling, or synchronization rule in
+  `docs/reference.md` changes wording. This RFC replaces the primitives beneath
+  those contracts, never the contracts.
+
 ### Runtime behavior retained as a coverage gap
 
 Ordinary tests cannot execute generated C, so these remain unverified until
@@ -424,8 +441,10 @@ RFC 0055 or RFC 0125 can run programs:
 
 ## Reference synchronization
 
-After implementation stabilizes, replace the statement that supported Task
-targets require verified C23 `<threads.h>`. State instead that Windows x64 uses
+Required, not deferred: the Validation gate above depends on it. Replace the
+statement that supported Task targets require verified C23 `<threads.h>`, and
+delete its `Unsupported Error` clause, which names a diagnostic the compiler
+has never emitted. State instead that Windows x64 uses
 verified SRW locks, condition variables, and `_beginthreadex`, while POSIX
 x86-64 uses verified pthread mutexes, condition variables, and detached
 threads. Task, Channel, Mutex, Atomic, scheduling, and synchronization semantics

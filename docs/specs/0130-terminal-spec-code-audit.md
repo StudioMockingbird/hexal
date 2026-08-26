@@ -1,7 +1,9 @@
 # RFC 0130: Terminal Specification Code Audit
 
 - Kind: Architecture Decision Record
-- Status: Implementation-ready; audit complete, remediation not started
+- Status: Implementation-ready; audit complete, remediation partially landed
+  (the `docs/status.md` trap record and its derivation method are already
+  corrected in the tree; the remaining phases have not run)
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: whether the implementation claims made by terminal specifications
@@ -219,8 +221,13 @@ below:
 2. Run `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...`.
 3. Verify the snippet manifest is unchanged; this RFC touches no generated
    output.
-4. Remove this RFC's `docs/status.md` row and delete this RFC under RFC 0129's
-   lifecycle rule once every item passes.
+4. Remove this RFC's `docs/status.md` row once every item passes. This RFC is
+   then **terminal but not yet deleted**.
+
+   Its own completion does not depend on its deletion. RFC 0129 is blocked on
+   this RFC's remediation, so requiring deletion here would make each RFC wait
+   on the other. Deletion happens later, on RFC 0129's ordinary sweep, which
+   treats this RFC exactly like any other terminal specification.
 
 ## Non-goals
 
@@ -235,6 +242,10 @@ below:
 
 This section is exhaustive.
 
+- This RFC becomes terminal when its remediation items pass. Deletion is not a
+  completion condition here and is not listed below: RFC 0129 owns it, is
+  blocked on this remediation, and would otherwise be waiting on a step that
+  waits on it.
 - The production trap set is re-derived from package templates and non-test Go
   generator files only; test fixtures and checker files contribute nothing.
 - `docs/status.md` names both production emission sources and no longer carries

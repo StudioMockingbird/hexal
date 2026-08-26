@@ -51,6 +51,7 @@ other.
 | Bug | Owning spec |
 |---|---|
 | Generated concurrency runtime does not compile on Windows: `<threads.h>` is unavailable under MinGW-w64 UCRT, `windows-gnu`, and `windows-msvc`, and the `__STDC_NO_THREADS__` guard does not fire because none of those toolchains defines the macro | [0127](specs/0127-native-threading-primitives.md) |
+| `reference.md` promises Task features produce an `Unsupported Error` on targets without verified C23 `<threads.h>`, but no such diagnostic exists in the compiler and never did; RFC 0127 deletes the clause with the threads.h requirement it qualifies | [0127](specs/0127-native-threading-primitives.md) |
 | An unvalidated module path injects text into generated `#line` directives, the module `#include`, and header guards; the compilation exits successfully with no diagnostic | [0126](specs/0126-compiler-boundary-hardening.md) |
 | An unvalidated module path escapes the output tree: `../../../etc/passwd.hex` yields the artifact name `modules/../../../etc/passwd.c` | [0126](specs/0126-compiler-boundary-hardening.md) |
 | Unbounded parser recursion terminates the process: 100,000 nested parentheses produce `fatal error: stack overflow`, which is fatal rather than a panic and so cannot be recovered | [0126](specs/0126-compiler-boundary-hardening.md) |

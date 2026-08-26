@@ -59,8 +59,11 @@ not lower this bar.
 
 `Compile` returns a `CompilationResult` for every input. A panic is a compiler
 defect. Fatal Go runtime failures such as stack overflow cannot be observed by
-a fuzz oracle; RFC 0126's parser-depth bound must land before any
-arbitrary-input target is enabled.
+a fuzz oracle, so RFC 0126's parser-depth bound must land before **any** of the
+four targets is enabled -- `FuzzLex` and `FuzzParse` included. Both reach the
+same recursive productions, so neither is exempt because it stops before
+checking; a mutated input deep enough to overflow the stack kills the test
+process from the lexer or parser exactly as it does from `Compile`.
 
 The compiler's dispatch is fail-closed by design: unreachable metadata reports
 an Unknown Error rather than crashing. A panic means one dispatch path missed
