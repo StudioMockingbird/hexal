@@ -23,6 +23,7 @@ other.
 
 | Work | Spec |
 |---|---|
+| C11 target — retarget generated C from C23; decide whether the latest-C policy survives the measurement | [0128](specs/0128-c11-target.md) |
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
@@ -36,6 +37,7 @@ other.
 
 | Work | Spec |
 |---|---|
+| Native threading primitives — replace C11 `<threads.h>` with SRWLOCK/CONDITION_VARIABLE and pthreads | [0127](specs/0127-native-threading-primitives.md) |
 | Arena and Pool allocators; Heap-only library boundary | [0027](specs/0027-arena-and-pool-allocators.md) |
 
 ### Design settled; implementation blocked
@@ -47,7 +49,7 @@ other.
 
 | Bug | Owning spec |
 |---|---|
-| Generated concurrency runtime does not compile on Windows: `<threads.h>` is unavailable under MinGW-w64 UCRT, `windows-gnu`, and `windows-msvc`, and the `__STDC_NO_THREADS__` guard does not fire because none of those toolchains defines the macro | [0125](specs/0125-external-c23-validation.md) |
+| Generated concurrency runtime does not compile on Windows: `<threads.h>` is unavailable under MinGW-w64 UCRT, `windows-gnu`, and `windows-msvc`, and the `__STDC_NO_THREADS__` guard does not fire because none of those toolchains defines the macro | [0127](specs/0127-native-threading-primitives.md) |
 | An unvalidated module path injects text into generated `#line` directives, the module `#include`, and header guards; the compilation exits successfully with no diagnostic | [0126](specs/0126-compiler-boundary-hardening.md) |
 | An unvalidated module path escapes the output tree: `../../../etc/passwd.hex` yields the artifact name `modules/../../../etc/passwd.c` | [0126](specs/0126-compiler-boundary-hardening.md) |
 | Unbounded parser recursion terminates the process: 100,000 nested parentheses produce `fatal error: stack overflow`, which is fatal rather than a panic and so cannot be recovered | [0126](specs/0126-compiler-boundary-hardening.md) |
