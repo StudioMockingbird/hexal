@@ -6,9 +6,9 @@
 - Updated: 2026-08-26
 - Scope: replace the generated runtime's dependency on C11 `<threads.h>` with
   the platform primitives the same file already uses for fiber contexts
-- Depends on: the implemented M:N Task runtime, RFC 0122 (safe Task parking and
-  reclamation), RFC 0121 (scheduler-aware blocking pool), and
-  `docs/reference.md`
+- Depends on: the implemented M:N Task runtime, the implemented Task
+  park/commit/wake protocol, the implemented scheduler-aware blocking pool,
+  and `docs/reference.md`
 - Coordinates with: RFC 0052 (target profiles), RFC 0055 (build driver), and
   RFC 0125 (external C23 validation), which reproduces the defect this RFC
   fixes
@@ -195,10 +195,10 @@ value, so the per-Task cost is the platform primitive's size:
 - POSIX: one `pthread_mutex_t`, which is what `mtx_t` already resolves to on
   glibc, so the size is unchanged.
 
-At RFC 0085's stated target of 10,000 concurrently live Tasks the Windows cost
-is roughly 80 KB, and the POSIX cost is exactly what it is today. Windows moves
-from "does not compile" to a smaller per-Task footprint than the header would
-have given it.
+At a target of 10,000 concurrently live Tasks the Windows cost is roughly
+80 KB, and the POSIX cost is exactly what it is today. Windows moves from
+"does not compile" to a smaller per-Task footprint than the header would have
+given it.
 
 The scheduler's ready queue and blocking pool each retain one program-wide
 primitive. Each runtime Channel and Mutex control retains its own primitive;
@@ -210,12 +210,13 @@ No source surface changes.
 
 - Task, Channel, Mutex, Atomic, `spawn`, `Task.yield()`, join, and detach keep
   their exact signatures, semantics, traps, and Error results.
-- RFC 0122's park/commit/wake protocol is unchanged. This RFC replaces the
-  primitives the protocol is built on, never the protocol.
-- RFC 0121's blocking pool is unchanged for the same reason.
-- Lock ordering, wake counts, and every ordering rule in RFC 0122 hold exactly
-  as written. `SRWLOCK` in exclusive mode and `pthread_mutex_t` both provide
-  the mutual exclusion those rules assume.
+- The implemented Task park/commit/wake protocol is unchanged. This RFC
+  replaces the primitives the protocol is built on, never the protocol.
+- The implemented scheduler-aware blocking pool is unchanged for the same
+  reason.
+- Lock ordering, wake counts, and every ordering rule the park/commit/wake
+  protocol establishes hold exactly as written. `SRWLOCK` in exclusive mode and
+  `pthread_mutex_t` both provide the mutual exclusion those rules assume.
 - No fairness or acquisition-order guarantee is added. Neither platform
   primitive promises one, and no Hexal rule depends on one.
 - Source cannot observe which primitive implements a wait.
@@ -246,7 +247,7 @@ No source surface changes.
   reader-writer semantics, or priority control.
 - Replacing the fiber context layer, the guard-page handler, or the scheduler
   worker model.
-- Reworking RFC 0122's parking protocol or RFC 0121's pool.
+- Reworking the Task park/commit/wake protocol or the blocking pool.
 - Adding a third implementation for any other platform.
 - Making `Atomic<T>` independent of `<stdatomic.h>`. That header is not
   optional in the way `<threads.h>` is, and every toolchain in RFC 0125's
@@ -262,7 +263,8 @@ No source surface changes.
 - Keep `_Thread_local` exactly as it is.
 - Implement each operation twice, inside the platform split already present;
   do not introduce a second `#ifdef _WIN32` region elsewhere in the file.
-- Preserve every lock order, wake count, and ordering rule RFC 0122 states.
+- Preserve every lock order, wake count, and ordering rule the Task
+  park/commit/wake protocol states.
 - Keep runtime C in `compiler/generator/packages/*.c` and `*.h`, not Go
   strings.
 - Preserve the POSIX lifecycle-mutex initialization failure path. The Windows
@@ -295,7 +297,7 @@ No source surface changes.
    it blocks the migration until the table is corrected.
 4. Record that generated concurrency programs do not compile on any Windows
    target, and that `zig cc -target x86_64-linux-gnu` is the one configuration
-   in which they do, as the before state RFC 0125's matrix measures against.
+   in which they do. That is the before state this RFC must improve on.
 
 ### Phase 1: the layer
 
@@ -328,17 +330,22 @@ No source surface changes.
 1. Implement every validation item below and no additional behavior.
 2. Rebuild the snippet manifest once; movement is confined to programs
    selecting the scheduler runtime.
-3. Compile a generated concurrency program with each toolchain in RFC 0125's
-   proposed matrix, on the host and on at least one cross target, and record the
-   result. This RFC owns the focused commands needed for its gate; RFC 0125
-   later makes the same matrix a permanent reusable harness, so neither RFC
-   waits on the other.
-4. Run `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...`.
-5. Rebuild and restart the workbench.
-6. Update `docs/reference.md` after behavior stabilizes: supported Task targets
+3. Compile a generated concurrency program with each toolchain on the host, and
+   record the result. This RFC owns the focused one-off commands needed for its
+   own gate; RFC 0125 later makes the host matrix a permanent reusable harness,
+   so neither RFC waits on the other.
+4. Compile and link the POSIX branch once through
+   `zig cc -target x86_64-linux-gnu`. This RFC rewrites POSIX threading code,
+   and on a Windows machine nothing else can compile it; landing that branch
+   with no compiler having read it repeats the defect this RFC exists to fix.
+   This is a one-off implementation check, not a suite capability: RFC 0125 is
+   host-only and adds no cross-target tier.
+5. Run `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...`.
+6. Rebuild and restart the workbench.
+7. Update `docs/reference.md` after behavior stabilizes: supported Task targets
    use the verified native Windows and POSIX primitives defined here, not C23
    `<threads.h>`.
-7. Remove this RFC from open status and clear its bug entry only after code,
+8. Remove this RFC from open status and clear its bug entries only after code,
    tests, artifacts, and canonical docs agree.
 
 ## Validation
@@ -398,9 +405,10 @@ so these are gates rather than coverage gaps:
 
 - A generated concurrency program compiles and links under GCC on Windows.
 - The same program compiles and links under Clang and under `zig cc`.
-- The same program still compiles and links for a POSIX target through
-  `zig cc -target x86_64-linux-gnu`, which is the configuration that works
-  today and must not regress.
+- The POSIX branch compiles and links once through
+  `zig cc -target x86_64-linux-gnu`, the configuration that works today and
+  must not regress. This is a one-off gate for this RFC, not a tier RFC 0125
+  inherits; that suite is host-only.
 - POSIX compilation and linking use the toolchain's pthread option; a driver
   that omits that option does not satisfy this component's link contract.
 - No toolchain in the matrix reports a warning under
@@ -428,7 +436,7 @@ normative sentence, so leaving it unedited ships a false contract:
 Ordinary tests cannot execute generated C, so these remain unverified until
 RFC 0055 or RFC 0125 can run programs:
 
-- RFC 0122's park/commit/wake orderings behave identically on both primitives.
+- The Task park/commit/wake orderings behave identically on both primitives.
 - A contended Mutex, a full Channel, and a saturated blocking pool each block
   and wake correctly on Windows.
 - Detached worker and pool threads terminate with the process under the

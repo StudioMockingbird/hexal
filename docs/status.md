@@ -11,12 +11,6 @@ other.
 
 ## Open TODOs
 
-### Design in progress
-
-| Work | Spec |
-|---|---|
-| External C23 validation — dual GCC/Clang tagged suite closing the generated-C coverage gap | [0125](specs/0125-external-c23-validation.md) |
-
 ### Design decisions required
 
 | Work | Spec |
@@ -36,15 +30,15 @@ other.
 |---|---|
 | Native threading primitives — replace C11 `<threads.h>` with SRWLOCK/CONDITION_VARIABLE and pthreads | [0127](specs/0127-native-threading-primitives.md) |
 | Arena and Pool allocators; Heap-only library boundary | [0027](specs/0027-arena-and-pool-allocators.md) |
-| Terminal-spec code audit — remove the stale runtime-trap count and correct its derivation ownership | [0130](specs/0130-terminal-spec-code-audit.md) |
 | Compiler boundary hardening — module-path allowlist, 128-level nesting bound, panic containment, local-only workbench bind | [0126](specs/0126-compiler-boundary-hardening.md) |
+| Delete all terminal specifications after a complete reference/code knowledge sweep; make Git the sole archive | [0129](specs/0129-delete-closed-specifications.md) |
 
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
 |---|---|---|
 | Compiler property testing and fuzzing — reject-path oracles over arbitrary input, accept-path metamorphic properties over generated valid programs | Compiler boundary hardening | [0124](specs/0124-compiler-fuzzing.md) |
-| Delete all terminal specifications after a complete reference/code knowledge sweep; make Git the sole archive | Terminal-spec code-audit remediation | [0129](specs/0129-delete-closed-specifications.md) |
+| External C23 validation — host-only GCC/Clang/zig cc tagged suite closing the generated-C coverage gap | Native threading primitives | [0125](specs/0125-external-c23-validation.md) |
 
 ## Open bugs
 
@@ -66,11 +60,10 @@ deleted:
 - **Terminating self-recursive object construction.** Pointer-indirect
   self-recursion compiles and is valid per `reference.md`, so what this tracked
   is unclear. Assign it a spec or delete it.
-- **Parser expression-start classification is scattered.** Raised during the
-  refactor audit alongside RFC 0077's literal table as the same class of
-  scattered classification. It shares no code with the literal table and is not
-  covered by RFC 0074. Recorded here rather than left implied-homed. Assign it a
-  spec or delete it.
+- **Parser expression-start classification is scattered.** Raised during a
+  refactor audit alongside the literal-interning table as the same class of
+  scattered classification. It shares no code with the literal table. Recorded
+  here rather than left implied-homed. Assign it a spec or delete it.
 
 ## Known coverage gaps
 
@@ -90,55 +83,38 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   has been lifted, so the remaining obstacle is that the suite does not exist,
   not that it is disallowed.
 - **Defects in generated C are invisible to the whole suite.** No test invokes a
-  toolchain and the c23 canaries are dormant, so generated C that is wrong — in
-  either of two ways — passes `go test ./...`, `go vet ./...`, and
-  `go vet -tags c23` alike.
+  toolchain and the c23 canaries are dormant, so generated C that is wrong —
+  either malformed enough to not compile, or compiling but behaving wrongly —
+  passes `go test ./...`, `go vet ./...`, and `go vet -tags c23` alike. Past
+  instances of both kinds were found only by hand-writing example programs or
+  by external review, never by the suite; each was fixed narrowly, and the
+  class of risk stays open until generated C is routinely compiled and
+  executed. A textual assertion can catch an undeclared identifier, but
+  nothing short of running the binary catches a task that is spawned twice.
 
-  *Does not compile:* 0073 D2 (handle types reachable only through a
-  declaration) and D33 (`uint64_t` in a Size-only program), each found by a
-  different external review.
+  The Task guard-page fault is a standing instance: no test executes generated
+  C, so nothing observes a fiber overflow hitting the `PROT_NONE` page. Also
+  unverified for the same reason: resident cost per Task, 10,000 concurrently
+  live Tasks, the `[Runtime Error] task stack overflow` trap firing and
+  process exit on both platforms, the unchanged re-raise of a fault outside
+  any Task guard page, a 64 KiB reserve overflowing sooner than 1 MiB, and a
+  POSIX Task using more than the 8 KiB initial commit without faulting. What
+  is verified textually: the reserve and commit spellings reach both platform
+  allocation sites, and the POSIX site documents the commit as unused there.
 
-  *Compiles and behaves wrongly:* RFC 0084's C1 (a `try` in a nested block
-  ran its operand twice, and `try spawn` in a loop spawned one task too many
-  and leaked it) and C3 (POSIX fiber stacks lacked the guard page
-  `reference.md` promises, so an overflow corrupted the heap silently). Both
-  were found while hand-writing one example program and are fixed; the class
-  stays open. The guard-page fault itself remains unverified: no test
-  executes generated C, so nothing observes a fiber overflow hitting the
-  `PROT_NONE` page.
+  Also unverified for the same reason: that a String slice over multi-byte
+  input is byte-identical to the scanning version, and that a concatenated
+  count matches an independent scan of the result. What is verified textually:
+  every construction path sets `rune_length`, a multi-byte literal gets a rune
+  count rather than a byte count, and `length()` and `slice` read the field
+  instead of scanning.
 
-  RFC 0085's runnable validation also remains unverified for the same reason:
-  resident cost per Task before and after the stack rework, 10,000
-  concurrently live Tasks, the `[Runtime Error] task stack overflow` trap
-  firing and process exit on both platforms, the unchanged re-raise of a
-  fault outside any Task guard page, a 64 KiB reserve overflowing sooner than
-  1 MiB, and a POSIX Task using more than the 8 KiB initial commit without
-  faulting. What is verified: the reserve and commit spellings reach both
-  platform allocation sites, the POSIX site documents the commit as unused
-  there, and the snippet manifest moved only the ten task-spawning snippets —
-  all by textual assertion, which is the only mechanism available.
-
-  RFC 0087's runtime validation is unverified for the same reason: that a
-  slice over multi-byte input is byte-identical to the scanning version, and
-  that a concatenated count matches an independent scan of the result. What is
-  verified textually: every one of the five construction paths sets
-  `rune_length`, a multi-byte literal gets a rune count rather than a byte
-  count, `length()` and `slice` read the field instead of scanning, and the
-  `List<String>` element is still one pointer.
-
-  An earlier revision of this entry also claimed the generated concurrency
-  runtime compiles under an external `-std=c23` toolchain. That claim was
-  withdrawn because producing it was a manual one-off that nothing in the
-  repository reproduces. Invoking a toolchain is no longer prohibited, but the
-  claim stays withdrawn on the same grounds: it is reproducible evidence or it
-  is not evidence. RFC 0125 makes it reproducible under both GCC and Clang.
-  Until then the compile status of that runtime is unverified, like every
-  other generated artifact.
-
-  The second kind is the worse one: a textual assertion can catch an undeclared
-  identifier, but nothing short of running the binary catches a task that is
-  spawned twice. Each instance is fixed narrowly; the class stays open until
-  generated C is compiled and executed.
+  The generated concurrency runtime's compile status under an external
+  `-std=c23` toolchain is likewise unverified, like every other generated
+  artifact; a prior claim that it compiles was withdrawn because producing it
+  required a manual one-off nothing in the repository reproduces, and
+  reproducible evidence is the only kind that counts. RFC 0125 makes it
+  reproducible under both GCC and Clang.
 - The generator emits helper families wholesale — equality, print, union,
   heap, io — so a small program's C contains many unused `static` helpers.
   Demand-driven helper emission would remove the dead code. The C23 harness

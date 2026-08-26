@@ -1,15 +1,16 @@
 # RFC 0125: External C23 Validation
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; blocked on RFC 0127 and RFC 0130 remediation
+- Status: Implementation-ready; blocked on RFC 0127
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: compiling, running, and trapping generated C under GCC, Clang, and
   `zig cc` in a tagged suite that closes the standing generated-C coverage gap
-- Depends on: RFC 0127 (native threading primitives), RFC 0130's verified
-  production-source boundary for runtime traps, the dormant harness in
-  `compiler/tests/c23validation`, and the runtime templates in
-  `compiler/generator/packages`
+- Depends on: RFC 0127 (native threading primitives), the verified
+  production-source boundary for runtime traps (both
+  `compiler/generator/packages/*.c`/`*.h` templates and non-test Go generator
+  code), the dormant harness in `compiler/tests/c23validation`, and the
+  runtime templates in `compiler/generator/packages`
 - Coordinates with: ADR 0055 (filesystem and build driver), RFC 0052 (target
   profiles), RFC 0124 (compiler fuzzing), and `docs/status.md` known coverage
   gaps
@@ -50,7 +51,8 @@ the heap silently. All were found while hand-writing one example program.
 The second kind is the one that matters. A textual assertion catches an
 undeclared identifier; nothing short of executing the binary catches a task
 spawned twice. Every runtime claim this project has made -- the production
-`[Runtime Error]` inventory derived after RFC 0130, `print`'s exact output,
+`[Runtime Error]` inventory derived from both production emission sources,
+`print`'s exact output,
 Task lifetime behavior, rune counts, iterator traps, and the Task parking
 protocol -- is currently asserted textually because that was the only
 mechanism available.
@@ -90,30 +92,34 @@ independent opinions:
 |---|---|---|---|
 | GCC | GNU | MinGW-w64 UCRT | the only non-LLVM frontend; different diagnostics and different extension tolerance |
 | Clang | LLVM | `x86_64-pc-windows-msvc` | the MSVC ABI and the MSVC/Windows SDK header set |
-| `zig cc` | LLVM (bundled Clang) | `x86_64-unknown-windows-gnu` | hermetic bundled headers, no external SDK, and cross-target compilation |
+| `zig cc` | LLVM (bundled Clang) | `x86_64-unknown-windows-gnu` | hermetic bundled headers and libc, needing no external SDK |
 
 Clang and `zig cc` share the LLVM frontend, so their *diagnostic* overlap is
 high. Their value is not a third opinion on syntax: it is that they compile the
 same source against three different libc and header sets. Most portability
 defects in generated C are header and ABI defects, not parse defects.
 
-### Cross-target compilation
+### Host-only, for now
 
-`zig cc` compiles for a target other than the host without a cross toolchain,
-because it ships its own headers and libc for each target. That makes it the
-only member of the matrix that can compile-check a platform-specific runtime
-path from a machine that is not that platform.
+Every tier builds and runs for the host target only. The suite adds no
+cross-target tier.
 
-This matters immediately: the POSIX fiber runtime (`ucontext`, `mmap`,
-`mprotect`, the `PROT_NONE` guard page) has never been compiled by anything,
-and on a Windows development machine nothing else here can compile it.
+`zig cc` can compile for other targets without a cross toolchain, and that
+capability is real and useful -- it is currently the only way to compile-check
+the POSIX fiber runtime from a Windows machine. It is nevertheless deferred: it
+widens the matrix, needs a per-host mandatory-target policy, and would make the
+first version of this suite larger than the gap it closes.
 
-The suite therefore adds a compile-and-link tier that builds every program for
-at least one non-host target. Linking is required, not just compiling: the
-POSIX finding below is a link error that a compile-only check misses entirely.
+The consequence is stated rather than hidden. **A platform-conditional path is
+verified only where the suite is run.** On a Windows-only workflow the POSIX
+fiber runtime (`ucontext`, `mmap`, `mprotect`, the `PROT_NONE` guard page)
+stays uncompiled by this suite, and vice versa on POSIX. `docs/status.md`
+carries that as a standing half-verified record until a run on the other
+platform closes it.
 
-Cross-target builds are compiled and linked, never executed. Running a
-cross-built binary needs an emulator or a remote runner, which is out of scope.
+A future RFC may add cross-target compile-and-link. If it does, linking is
+required rather than compiling alone: the musl finding recorded below is a link
+error that a compile-only check misses entirely.
 
 ### Measured toolchain facts
 
@@ -131,8 +137,8 @@ recorded because they determine what the suite can assert today.
   `swapcontext`.
 - `zig cc -target x86_64-linux-gnu` compiles **and links** the full concurrency
   runtime clean under `-Werror`. This is the only configuration in which that
-  runtime has ever been shown to build, and it is what the cross-target tier
-  exists to keep working.
+  runtime has ever been shown to build. It was a one-off measurement, and no
+  tier in this suite reproduces it while cross-target work stays deferred.
 
 The concurrency tier is consequently glibc-Linux-only until the Windows
 threading defect is resolved. That is a limit to record, not to hide: a suite
@@ -317,8 +323,9 @@ validated by its dedicated runtime fixture rather than claimed as an ASan heap
 diagnostic.
 
 **ThreadSanitizer is deliberately excluded, with a reason.** TSan is the tool
-that would have found the four Task parking defects RFC 0122 fixed -- one fiber
-running on two OS threads is exactly its specialty. But the Hexal scheduler
+that would have found the four Task parking defects the park/commit/wake
+protocol rework fixed -- one fiber running on two OS threads is exactly its
+specialty. But the Hexal scheduler
 switches fibers with `swapcontext`, and TSan does not model user-space context
 switching: without `__tsan_switch_to_fiber` annotations threaded through every
 switch site, it reports the scheduler's own stack reuse as a race and produces
@@ -336,8 +343,8 @@ validated where its code runs:
 - Windows fibers, `GetStdHandle`, and the structured-exception stack-overflow
   handler are Windows-only.
 
-The suite runs what the host supports and reports the rest as unrun, not as
-passed. A claim that is only ever validated on one platform stays recorded in
+The suite runs what the host supports. A fixture whose platform code cannot
+run here is not collected here. A claim that is only ever validated on one platform stays recorded in
 `docs/status.md` as half-verified until the other runs it.
 
 ## Coverage backlog
@@ -369,27 +376,34 @@ moves out of the coverage-gap entry as its test lands.
 - Allocation failure traps; the removed double-free and wrong-allocator
   messages do not appear.
 
-## Cross-target and unrun policy
+## Test lifecycle
 
-The mandatory `zig cc` compile-and-link target is:
+Every tier is host-only. There is no cross-target tier and no mandatory
+non-host target; see Host-only, for now.
 
-| Host | Non-host target |
-|---|---|
-| Windows | `x86_64-linux-gnu` |
-| Linux | `x86_64-windows-gnu` |
-| macOS | `x86_64-linux-gnu` |
+Two situations look alike and are not, so they get different mechanisms.
 
-The harness records each fixture/runner result as exactly `passed`, `failed`,
-or `unrun`. `unrun` is permitted only when a runtime fixture cannot execute
-because its platform code or cross-built target differs from the host, and it
-must carry a non-empty reason. It is not implemented with `t.Skip`: the tagged
-test runs to completion, validates the complete result ledger, logs every
-unrun item, and fails on any missing result. Missing tools, failed compilation,
-and unsupported required targets are `failed`, never `unrun`.
+**A missing toolchain is an environment defect and fails.** An explicitly
+requested tagged run is strict. A missing or unusable toolchain fails by name,
+and the message states which tool, which discovery locations were tried, and
+what the run needed it for, so it is actionable without reading this RFC.
+There is no skip, no opt-out, and no degraded mode. Failed compilation and a
+toolchain below the supported floor fail the same way. The ordinary untagged
+suite remains toolchain-independent and is unaffected.
 
-An explicitly requested tagged run is strict: every required toolchain must be
-present and runnable. Missing tools fail by name; there is no local skip or
-opt-out mode. The ordinary untagged suite remains toolchain-independent.
+**A platform-conditional fixture is a property of the fixture, not a defect.**
+POSIX guard-page faults cannot run on Windows and Windows fibers cannot run on
+POSIX. Such a fixture declares the platforms it applies to and is not collected
+on the others.
+
+Together those give one rule with no third state: **a tagged run either passes
+everything it collected, or fails by name.** There is no `unrun` result, no
+ledger of unrun items, and no `t.Skip` to interpret -- a fixture that does not
+apply to the host is not part of the run, and every other absence is a failure.
+
+What a host cannot verify stays recorded in `docs/status.md` as half-verified
+until a run on the other platform closes it. Aggregating results across runs
+and machines is a CI concern and is out of scope.
 
 The suite remains C23 permanently. GCC older than 15 and Clang older than 18
 fail discovery as unsupported even if they accept an earlier `c2x` spelling;
@@ -405,7 +419,7 @@ header, builtin, target, runtime, and linker probes.
 - Remove `-Wno-maybe-uninitialized` and fix every finding instead of replacing
   it with another class-wide suppression.
 - Do not preserve fixed runtime-trap counts; derive the production inventory
-  after RFC 0130.
+  directly from both emission sources when building executable fixtures.
 - Rewrite terminal-spec provenance in the coverage backlog as present-tense
   behavior before terminal specifications are deleted.
 
@@ -413,7 +427,7 @@ header, builtin, target, runtime, and linker probes.
 
 ### Phase 0: prerequisites and measured baseline
 
-1. Land RFC 0127 and complete RFC 0130's remaining remediation.
+1. Land RFC 0127.
 2. Record the green ordinary and tagged-suite baseline and the current snippet
    manifest.
 3. Re-run the toolchain/version/target probes and correct stale measured facts
@@ -443,9 +457,8 @@ header, builtin, target, runtime, and linker probes.
 2. Implement compile, exact-output, and trap runners for all three toolchains.
 3. Execute generated `main` directly, normalize stdout line endings, capture
    stderr separately, and assert the complete exit/output contract.
-4. Add the fixed cross-target compile-and-link matrix and three-state result
-   ledger; never execute a
-   cross-built binary.
+4. Declare each fixture's platform applicability and collect only the fixtures
+   that apply to the host. Add no cross-target build and no third result state.
 
 ### Phase 3: runtime and sanitizer backlog
 
@@ -473,13 +486,11 @@ header, builtin, target, runtime, and linker probes.
 - A build driver, project files, linking against foreign objects, or artifact
   materialization outside a temp directory. ADR 0055 owns that layer; this
   suite writes to `t.TempDir()` and nothing else.
+- Cross-target compilation of any kind. Every tier is host-only; a future RFC
+  may add compile-and-link for non-host targets.
 - General user-facing cross-compilation, target profiles, or arbitrary
-  non-host ABIs. RFC 0052 owns those. This test suite still compile-links the
-  one fixed non-host validation target required above; that is validation, not
-  a compiler target-profile surface.
+  non-host ABIs. RFC 0052 owns those.
 - `clang-cl`, MSVC's own `cl.exe`, or any fourth toolchain.
-- Executing cross-built binaries. The cross-target tier compiles and links; an
-  emulator or remote runner is out of scope.
 - Fixing the Windows `<threads.h>` defect. RFC 0127 must land first and owns the
   fix; this RFC makes the repaired runtime continuously reproducible.
 - ThreadSanitizer, for the reason recorded above.
@@ -502,12 +513,10 @@ This section is exhaustive. RFC 0125 is complete only when every item passes:
   recorded as a divergence. The sanitizer tier is Clang-only.
 - The discovered toolchain versions and their default targets appear in the run
   log.
-- The cross-target tier compiles and links the exact host-specific target in
-  the matrix above; a compile-only check does not satisfy it, because the musl
-  finding above is a link error.
+- No tier builds for a non-host target, and the suite emits no third result
+  state: a collected fixture passes or fails.
 - After RFC 0127, the concurrency compile tier runs under every required
-  toolchain. Runtime-only platform cases still report **unrun** where their
-  platform code cannot execute, never passed.
+  toolchain on the host.
 - Every tool resolves through a spec carrying an override variable, candidate
   `PATH` names, and fallback paths; a tool present at a standard install
   location but absent from `PATH` is found, not reported missing.
@@ -536,12 +545,12 @@ This section is exhaustive. RFC 0125 is complete only when every item passes:
 - The sanitizer tier runs under a supported host Clang configuration and fails
   on any report or non-zero exit. Every runnable host fixture receives UBSan;
   only artifact sets omitting `hexal/concurrency.c` receive ASan. A scheduler
-  fixture is recorded as ASan-unrun with the fiber-annotation reason, never as
-  address-sanitized.
+  fixture is excluded from ASan by its declared fiber-annotation reason, never
+  reported as address-sanitized.
 - No test writes outside `t.TempDir()`.
-- Platform-specific claims run where their code exists. Elsewhere the result
-  ledger records `unrun` with a reason, never `passed` or `t.Skip`; every
-  fixture/runner pair has exactly one ledger result.
+- Platform-specific claims run where their code exists. A fixture declares the
+  platforms it applies to and is not collected elsewhere, so no `t.Skip` and no
+  third result state is emitted. A missing toolchain fails by name instead.
 - Every backlog item above has a test or an explicit recorded reason it cannot
   have one yet.
 - `docs/status.md`'s generated-C coverage-gap entry shrinks to exactly what

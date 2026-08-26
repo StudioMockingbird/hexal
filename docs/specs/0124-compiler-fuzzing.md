@@ -10,8 +10,9 @@
 - Depends on: RFC 0126 (compiler boundary hardening), the string-in/string-out
   compiler surface in `compiler/compile.go`, and the snippet catalog in
   `workbench/snippets`
-- Coordinates with: RFC 0111 (deterministic evaluation order), RFC 0125
-  (external C23 validation), and `docs/status.md` known coverage gaps
+- Coordinates with: the deterministic-evaluation-order contract in
+  `docs/reference.md`, RFC 0125 (external C23 validation), and
+  `docs/status.md` known coverage gaps
 - Prior art: the Pixel compiler at `Forge/agents/pixel`, a prior attempt at
   this language, shipped a working version of much of this. Findings adopted
   from it are attributed inline.
@@ -82,11 +83,12 @@ at least one `modules/*.c` entry.
 Compiling identical input twice produces byte-identical `Files` and an
 identical diagnostic sequence.
 
-This is the highest-value invariant. RFC 0111 requires that "the checker and
-generator must not rely on map iteration order for source evaluation", and the
-generator deduplicates constructed types, tags, and components through maps
-throughout. A map-order leak is invisible to a single-run assertion and shows
-up as a flaky artifact hash months later.
+This is the highest-value invariant. `docs/reference.md` requires that for
+identical source and entrypoint, generated file contents are deterministic and
+`Files` map iteration order has no meaning; the generator deduplicates
+constructed types, tags, and components through maps throughout. A map-order
+leak is invisible to a single-run assertion and shows up as a flaky artifact
+hash months later.
 
 ### 4. No Unknown Error
 
@@ -249,8 +251,8 @@ almost never.
 The generator is where the defect history lives. Every defect found by review
 rather than by the suite -- the union name collision, the ADT collision across
 two modules, union order-dependence, the empty member name in Array equality,
-`Error.new` recording the wrong module, the RFC 0088 accessor-demand miss --
-was downstream of a program that typechecked cleanly.
+`Error.new` recording the wrong module, an accessor-demand miss -- was
+downstream of a program that typechecked cleanly.
 
 So tier 2 generates *valid* programs from a structured model and asserts
 properties that relate two compilations rather than inspecting one.

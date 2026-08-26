@@ -9,12 +9,12 @@
 - Depends on: RFC 0019 (generics), RFC 0020 (collections), RFC 0026
   (allocation and cleanup), RFC 0027 (Arena and Pool allocators), RFC 0035
   (copying and manual lifetimes), RFC 0039 (C interoperability), RFC 0069
-  (C23-backed compiler simplification), and implemented RFC 0123 (stateless
-  default Heap), whose explicit-allocator contract decides the destructor
-  question below
-- Coordinates with: implemented RFC 0108 (synchronous descriptor and memory
-  streams), a future scheduler-aware native-operation proposal, and
-  `docs/reference.md`
+  (C23-backed compiler simplification), and the implemented stateless default
+  Heap (see `docs/reference.md`'s Allocation and lifetime section), whose
+  explicit-allocator contract decides the destructor question below
+- Coordinates with: the implemented synchronous descriptor and memory streams
+  and the implemented scheduler-aware blocking pool (both in
+  `docs/reference.md`), and `docs/reference.md` generally
 
 ## Summary
 
@@ -68,10 +68,11 @@ cleanup operation in the language takes that argument: `list.free(h)`,
 arguments, which leaves exactly two ways to supply one:
 
 - **Store the allocator in every owning value.** This is the per-allocation
-  header RFC 0123 removed. Worse, it goes from vestigial to mandatory the
-  moment RFC 0027 lands, because Arena and Pool make "which allocator" a real
-  question rather than a formality. Adopting destructors therefore means
-  reverting RFC 0123 and paying a pointer per owning value.
+  identity header the stateless-Heap migration removed. Worse, it goes from
+  vestigial to mandatory the moment RFC 0027 lands, because Arena and Pool make
+  "which allocator" a real question rather than a formality. Adopting
+  destructors therefore means reintroducing that per-allocation identity
+  header and paying a pointer per owning value.
 - **Let cleanup choose an allocator implicitly.** Directly forbidden by the
   sentence above.
 

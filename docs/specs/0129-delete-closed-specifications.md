@@ -1,7 +1,7 @@
 # RFC 0129: Delete Closed Specifications
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implementation-ready; blocked on RFC 0130 remediation
+- Status: Implementation-ready; RFC 0130 remediation landed, unblocked
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: every terminal specification, the `docs/specs/archive/` directory,

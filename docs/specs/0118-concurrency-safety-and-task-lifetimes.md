@@ -9,9 +9,11 @@
   0052 (target profiles), RFC 0110 (affine ownership), and the existing Task,
   Channel, Mutex, Atomic, and synchronous IO contracts in
   `docs/reference.md`
-- Coordinates with: RFC 0055 (build and validation driver), RFC 0108 (I/O),
-  RFC 0121 (scheduler-aware blocking), RFC 0122 (safe Task parking), native
-  module storage RFC 0116, `docs/reference.md`, and `docs/status.md`
+- Coordinates with: RFC 0055 (build and validation driver), the implemented
+  synchronous descriptor and memory streams, the implemented scheduler-aware
+  blocking pool, and the implemented Task park/commit/wake protocol (all in
+  `docs/reference.md`), native module storage RFC 0116, `docs/reference.md`,
+  and `docs/status.md`
 
 ## Summary
 
@@ -115,28 +117,28 @@ inter-thread synchronization and does not satisfy this rule.
 
 ## Blocking operations
 
-RFC 0091 was discarded after RFC 0108 settled synchronous descriptor IO. A
-native IO operation may block its current OS worker; other workers continue,
-and all-worker blocking can delay ready Tasks until one operation returns.
-This RFC does not change that scheduling contract.
+A synchronous native IO operation invoked from a running Task parks that Task
+on the program-wide blocking pool rather than blocking its scheduler worker;
+the pool grows on demand and retires idle overflow workers afterward. A call
+made outside any Task remains direct. This RFC does not change that scheduling
+contract.
 
 - RFC 0039 must classify a foreign call whose blocking behavior affects its
   ownership, callback, or synchronization contract; the current runtime does
   not use that classification to park a Task.
 - A blocking operation must not hold a Mutex or other scheduler-critical guard
   across the operation unless its owning specification explicitly permits it.
-- Worker blocking is documented behavior rather than a data-race proof or an
-  implicit scheduling point.
+- Parking a Task on the blocking pool is documented behavior rather than a
+  data-race proof or an implicit scheduling point.
 - An IO operation does not satisfy the visible `Task.yield()` requirement for
   a task-reachable literal `while true`, because the operation may complete
   immediately.
 - An outstanding `IO.read` destination or `IO.write` source remains shared
   memory. Concurrent mutation, resize, or free is an unsynchronized conflict;
-  this RFC owns rejection when local analysis proves it. RFC 0121's Task
-  parking neither creates nor removes that aliasing rule.
-- RFC 0122 first corrects Task parking, joining, and reclamation without
-  changing IO. RFC 0121 then replaces this backend without changing IO
-  signatures; neither is a dependency of this safety RFC.
+  this RFC owns rejection when local analysis proves it. The blocking pool's
+  Task parking neither creates nor removes that aliasing rule.
+- The Task park/commit/wake protocol and the blocking pool it now carries are
+  both implemented; neither is a dependency of this safety RFC.
 
 ## Foreign-thread entry
 
@@ -163,8 +165,9 @@ Target-profile facts for atomics, threads, TLS, and OS facilities come from RFC
 - Preemptive scheduling or a change to the existing M:N model.
 - Making arbitrary C callbacks, device registers, or foreign thread pools safe
   without an explicit RFC 0039 contract.
-- Adding a readiness poller, blocking pool, or thread-handoff mechanism inside
-  this RFC; RFC 0122 owns safe parking and RFC 0121 owns the separate pool.
+- Adding a readiness poller or thread-handoff mechanism inside this RFC; the
+  Task park/commit/wake protocol and the blocking pool are both implemented
+  separately.
 
 ## Validation
 
@@ -184,8 +187,9 @@ passes:
 - Arena reset/destroy and Pool slot release reject locally decidable live-task
   access and accept valid ownership transfer.
 - Foreign blocking declarations obey RFC 0039's eventual ABI and ownership
-  contract. Current synchronous IO remains permitted to block its OS worker and
-  does not count as `Task.yield()`.
+  contract. Current synchronous IO parks its calling Task on the blocking pool
+  rather than blocking an OS worker, and that parking does not count as
+  `Task.yield()`.
 - Foreign-thread entry requires the explicit attach/ABI contract and obeys the
   same synchronization rules.
 - Generated C uses the selected C23 synchronization operations and never emits
@@ -211,9 +215,9 @@ passes:
    unsafe contract, or this RFC adds a general unsafe syntax.
 7. Whether cancellation and lock-order diagnostics remain separate future
    features.
-8. RFC 0039 owns foreign blocking annotations. RFC 0122 owns the parking
-   primitive and RFC 0121 owns scheduler-aware execution for the native
-   operations it names; neither blocks this RFC.
+8. RFC 0039 owns foreign blocking annotations. The Task parking primitive and
+   scheduler-aware execution for native operations are both already
+   implemented and do not block this RFC.
 
 ## Implementation readiness
 
@@ -227,6 +231,5 @@ writing one now would hide design choices inside implementation steps.
 After implementation stabilizes, update `docs/reference.md` with the safe data-
 race rule, task-handle affine rules, task transfer and detach lifetimes, Arena
 and Pool cross-task restrictions, and foreign-thread entry contract. Preserve
-the current synchronous-IO worker-blocking rule only until RFC 0121 lands;
-afterward preserve RFC 0121's Task-parking contract. Remove the current “data
-races have no guarantee” rule in the same change.
+the current Task-parking contract for native operations. Remove the current
+"data races have no guarantee" rule in the same change.

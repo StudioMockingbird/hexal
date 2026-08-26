@@ -9,7 +9,7 @@
   specified by `docs/reference.md`; evaluated against the project goals in
   `AGENTS.md`. Compiler implementation quality is out of scope.
 - Coordinates with: `docs/reference.md`, `docs/status.md`, RFC 0039 (C interop),
-  RFC 0094 (anonymous function literals), RFC 0027 (Arena/Pool)
+  RFC 0027 (Arena/Pool)
 - Companion: none. This RFC originates the findings; successor RFCs carry
   individual designs.
 
@@ -177,7 +177,8 @@ Composite/user-hashed keys stay excluded with the existing no-user-hash-
 protocol stance.
 
 Open question: generated hash specializations per key width — naming and
-component placement under the RFC 0095/0100 component regime.
+component placement under the current generated-C naming and
+component-ownership regime.
 
 #### F5 — Strand/String comparison allocates
 
@@ -712,7 +713,7 @@ Open question: does sequencing object initializers in source order or declaratio
 
 Evidence: "`Strand` is immutable literal-only inline 32 bytes: at most 31 UTF-8 bytes … Strand has no room for a count and scans, bounded by its 31 payload bytes. … Neither is indexable … `Strand` exposes no View into inline bytes."
 
-Problem: `Strand` cannot be sliced or viewed without `to_string(heap)` allocation (`Strand.to_string(heap) -> String` then `String.bytes()`). Iterating runes via `rune_cursor` is gone (now on `String` only after 0087). Zero-cost literal story forces heap for read-only window.
+Problem: `Strand` cannot be sliced or viewed without `to_string(heap)` allocation (`Strand.to_string(heap) -> String` then `String.bytes()`). Iterating runes via `rune_cursor` is gone (now on `String` only). Zero-cost literal story forces heap for read-only window.
 
 Direction: add `Strand.bytes() -> View<Byte>` borrowing inline storage (like `String.bytes()`) or `Strand.slice`, or document as intentional small loss to keep `Strand` 32 bytes. F5's `Strand/String` comparison fix may subsume part of this.
 

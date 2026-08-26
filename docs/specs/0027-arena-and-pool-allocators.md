@@ -1,13 +1,15 @@
 # RFC 0027: Arena and Pool Allocators
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; RFC 0123 implemented
+- Status: Implementation-ready; its stateless-Heap prerequisite is implemented
 - Features: explicit Arena allocation, typed Pool allocation, region release,
   and allocator passing
 - Created: 2026-08-11
 - Updated: 2026-08-25
-- Depends on: RFC 0123 (stateless default Heap) and the current pointer,
-  collection, cleanup, and shallow-copy contracts in `docs/reference.md`
+- Depends on: the implemented stateless default Heap (`hex_heap`, a one-byte
+  token with no runtime identity; see `docs/reference.md`'s Allocation and
+  lifetime section) and the current pointer, collection, cleanup, and
+  shallow-copy contracts in `docs/reference.md`
 - Coordinates with: RFC 0039 (C interoperability), RFC 0052 (target profiles),
   RFC 0110 (affine ownership and allocator lifetimes), and RFC 0118
   (concurrency safety)
@@ -47,15 +49,16 @@ capability syntax, virtual dispatch, or user-defined allocator implementation.
 3. Make region allocation cheap and simple.
 4. Make fixed-type, fixed-capacity allocation predictable.
 5. Keep existing String, List, Dict, Channel, and Mutex allocation Heap-only.
-6. Build directly on RFC 0123's stateless default allocation operations.
+6. Build directly on the stateless default Heap's allocation operations
+   (`hex_heap_allocate`, `hex_heap_allocate_zeroed`, `hex_heap_free`).
 
 ## Current compatibility boundary
 
-Before RFC 0123, the current tree has exactly one allocator type, `Heap`, whose
-generated C carries default-Heap identity metadata. RFC 0123 removes that
-metadata before this RFC begins. `String`, List, Dict, Channel, and Mutex still
-accept `Heap` exactly. There is no allocator trait, descriptor, union, overload,
-or allocator type parameter to which `Arena` can be passed.
+The current tree has exactly one allocator type, `Heap`, represented as a
+stateless one-byte token (`hex_heap`) with no runtime identity metadata.
+`String`, List, Dict, Channel, and Mutex still accept `Heap` exactly. There is
+no allocator trait, descriptor, union, overload, or allocator type parameter to
+which `Arena` can be passed.
 
 The current language also uses shallow copies and local freed-state checking.
 It has no affine owner, generation-bearing Pool slot, general unsafe boundary,
@@ -271,8 +274,9 @@ Pool<T>.destroy() -> no value
   checked capacity satisfying that allocation, whichever is greater.
 - Later growth doubles the previous block capacity until it satisfies the
   checked request; if doubling is unrepresentable, it uses the exact checked
-  required capacity. Blocks use RFC 0123's non-zeroing allocation because every
-  returned T receives an explicit initializer.
+  required capacity. Blocks use the Heap's non-zeroing allocation operation
+  (`hex_heap_allocate`) because every returned T receives an explicit
+  initializer.
 - Allocation aligns the bump position for `T`, checks every addition, writes
   the initializer exactly once, and advances the bump position.
 - Reset rewinds every block, sets the current block to the first, and retains
@@ -337,8 +341,9 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
 
 ## Required sweep
 
-- Treat RFC 0123's implemented stateless Heap as this RFC's baseline. Do not
-  repeat, amend, or partially reimplement its runtime migration here.
+- Treat the stateless Heap (`hex_heap`, a one-byte token; see
+  `docs/reference.md`) as this RFC's baseline. Do not repeat, amend, or
+  partially reimplement its runtime representation here.
 - Keep String/List/Dict/Channel/Mutex signatures Heap-only and reject Arena or
   Pool arguments; add no allocator descriptor scaffolding.
 - Reuse existing constructed-type interning, C-name collision handling,
@@ -365,8 +370,8 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
 
 ### Phase 0: baseline and migration inventory
 
-1. Verify RFC 0123 is implemented and record the green test/vet baseline and
-   snippet manifest.
+1. Confirm the tree's stateless-Heap representation and record the green
+   test/vet baseline and snippet manifest.
 2. Record Heap-only collection, concurrency, IO, and no-allocation artifacts as
    unchanged controls.
 3. Inventory allocator type registration, HeapAllocation eligibility,
@@ -422,13 +427,14 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
 2. Rebuild the snippet manifest once. No existing entry changes hash; the
    manifest gains entries only for new Arena/Pool snippets.
 3. Update `docs/reference.md` once with the grammar/type/API/lifetime/C23 rules;
-   remove Arena/Pool from Excluded features without restating RFC 0123's Heap
-   contract.
+   remove Arena/Pool from Excluded features without restating the Heap
+   contract already stated there.
 4. Run `gofmt`, `go test ./...`, `go vet ./...`, and
    `go vet -tags c23 ./...`.
 5. Rebuild and restart the workbench.
-6. Remove this RFC from open status, mark it implemented, and archive it only
-   after code, tests, artifacts, and canonical docs agree.
+6. Remove this RFC from open status, mark it Closed with an execution summary,
+   and delete it in the same change only after code, tests, artifacts, and
+   canonical docs agree.
 
 ## Validation
 

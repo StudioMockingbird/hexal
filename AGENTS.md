@@ -71,8 +71,9 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   Architecture, Rationale, or Edge fact that the code, type, or name does not
   already convey; pure narration, provenance, and stale coordinates are
   deleted. Comments are self-contained, present-tense, and never cite an
-  internal RFC, ADR, plan, spec number, spec title, or `docs/specs/` path:
-  closed specs are historical records, not the language authority. Comments
+  internal RFC, ADR, plan, spec number, spec title, or `docs/specs/` path: a
+  closed spec is deleted once its knowledge is swept into current authorities,
+  so citing one leaves a dangling reference. Comments
   contain only ASCII characters. Complex subsystems expose a short narrative
   spine at their entrypoint; safety reasoning sits adjacent to the operation
   it protects. Prefer an accurate name over a comment, and a deletion over a
@@ -204,17 +205,16 @@ secondarily a lookup document for humans. Optimize it for precise retrieval:
 - Keep each rule in one authoritative location. Prefer explicit, dense wording
   over explanatory prose while preserving every semantic edge case.
 
-Closed specs are historical records, superseded wherever they disagree with
-`docs/reference.md`. Some contain syntax the language never had — blanket `:=`
-inference in older proposals; do not reintroduce it. The current declaration
-operator is `:=` for both typed and inferred value bindings. Inference still
-rejects initializers that provide neither a type nor a usable contextual type.
-Other closed specs
-predate RFC 0061 and show the old delimiter-free forms (`fun f()` or
-`if cond` without the mandatory `do`/`then`); the language now requires those
-block openers, so treat their absence in a closed spec as superseded, not as
-authority. Do not copy a rule out of a spec without checking it against
-`reference.md` first.
+A spec closes by having every current-behavior claim it makes verified and
+relocated to its correct owner — a rule into `docs/reference.md`, open work
+into an active spec plus a `docs/status.md` row, a local invariant into code,
+a type, a test, or a CARE comment — then the spec file is deleted in the same
+change. Git history holds the deleted text and its reasoning; nothing on disk
+requires recovering it to understand current behavior. `docs/reference.md` is
+therefore the sole current-language authority: the declaration operator is
+`:=` for both typed and inferred value bindings, and every block opener
+(`do`/`then`) is mandatory. A rule believed to come from a spec that is no
+longer on disk must be checked against `reference.md`, never assumed.
 
 ## Testing
 
@@ -225,8 +225,8 @@ authority. Do not copy a rule out of a spec without checking it against
   `operators_test.go`). They are package `integration`, import `hexal/compiler`,
   and exercise only its exported API. Never name a test file after a spec, and
   never put a spec number in a test function name or comment — state the
-  behavior or edge condition the test protects; provenance belongs in git and
-  the spec archive. Together these files must verify the public compiler
+  behavior or edge condition the test protects; provenance belongs in git.
+  Together these files must verify the public compiler
   behavior end to end.
 - External C23 validation lives in `compiler/tests/c23validation/`
   (`package c23validation`), gated by `//go:build c23`. RFC 0125 owns it. The
@@ -305,4 +305,14 @@ its kind in the header:
 - Architecture Decisions: ADR (Architecture Decision Record)
 - Execution Plans: named `...-plan.md`, header links the spec they implement
 
-- Note: a Spec once closed is immutable. Do not make any changes to it, even if the feature it refers to is updated.
+A spec's `Status:` header is the only completion record while it exists. A
+terminal status (Closed, Discarded, Superseded, or Rejected) means every
+current-behavior claim the spec makes has been verified and relocated to its
+correct owner; the spec is deleted from `docs/specs/` in that same change,
+never moved to an archive. Its number is permanently reserved: never
+renumbered, never reused, and a new spec always takes a number greater than
+every number ever assigned, resolved from Git history when the current tree
+is insufficient. An active spec must never depend on a deleted one to be
+understood — replace such a dependency with the current rule in
+`docs/reference.md`, a current implementation invariant, or an active spec
+that actually owns the remaining work.

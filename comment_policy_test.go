@@ -100,9 +100,9 @@ func TestCommentPolicyRejectsSpecCitations(t *testing.T) {
 		comment string
 		want    string
 	}{
-		{"// RFC 0074 defines this.", "RFC 0074"},
-		{"// The table lives in ADR 0003.", "ADR 0003"},
-		{"// See docs/specs/0099 for the plan.", "docs/specs/"},
+		{"// RFC 9001 defines this.", "RFC 9001"},
+		{"// The table lives in ADR 9002.", "ADR 9002"},
+		{"// See docs/specs/9003 for the plan.", "docs/specs/"},
 	} {
 		fset := token.NewFileSet()
 		file, err := parser.ParseFile(fset, "synthetic.go", "package p\n"+testCase.comment+"\n", parser.ParseComments)
