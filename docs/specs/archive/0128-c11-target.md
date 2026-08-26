@@ -1,7 +1,7 @@
 # RFC 0128: C11 Target
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; decision required before implementation
+- Status: Discarded; C23 retained, no implementation performed
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: retarget generated C from C23 to C11, and decide whether the latest-C
@@ -25,6 +25,20 @@ gcc and clang shipped in the last decade, which is the guarantee a bundled
 compiler was being considered to provide.
 
 This RFC proposes that change and states the decision it forces.
+
+## Disposition
+
+Discarded. Hexal-generated translation units remain ISO C23. The proposed
+fallback was not portable ISO C11: checked arithmetic, `typeof`, and
+unreachable lowering became GCC/Clang extensions, excluding toolchains cited
+as the portability rationale. With Hexal shipping a pinned compiler, linker,
+and compatible C library, supporting older GCC/Clang versions does not justify
+the compatibility layer.
+
+ADR 0055 owns the bundled-toolchain rationale and foreign-source dialect
+separation. RFC 0052 owns the minimum supported GCC/Clang versions and selected
+C23 facility evidence. RFC 0125 enforces that floor. The measurement below is
+retained as historical evidence, not as an implementation plan.
 
 ## Motivation
 
@@ -83,7 +97,8 @@ contradict it, so the decision is explicit and belongs to the project owner:
 **Option A — retarget to C11.** Generated C targets `-std=c11`. The policy
 sentence in `AGENTS.md` is rewritten to name C11 as the floor and to require
 that any newer feature earn its place by carrying semantic content unavailable
-in C11.
+in C11. The precise dialect is **GCC/Clang C11 with the two documented GNU
+facilities below**, not implementation-independent ISO C11 and not MSVC C.
 
 **Option B — stay on C23.** The policy stands, and the bundling RFC must
 justify itself on reproducibility and cross-compilation alone, with the
@@ -93,13 +108,26 @@ The remainder of this RFC specifies Option A. It is written to be
 implementation-ready the moment that option is chosen, and to be archived
 unimplemented if Option B is.
 
+## Open question
+
+Choose exactly one:
+
+- **A:** adopt the GCC/Clang C11 dialect specified by the remainder of this
+  RFC, rename the external validation lifecycle to a standard-neutral name,
+  and replace the latest-C policy; or
+- **B:** retain C23, keep the current policy, and discard this RFC without code
+  changes.
+
+No implementation or manifest rebaseline starts before that choice.
+
 ## Substitutions
 
 Each is mechanical and total. None is conditional on a compiler test.
 
 - **`nullptr` to `NULL`.** 107 sites in templates, 40 in the Go generator.
-  `NULL` comes from `<stddef.h>`, which is already demanded wherever `size_t`
-  is.
+  `NULL` comes from `<stddef.h>`. Demand that header wherever selected output
+  spells `NULL`; pointer-only programs do not necessarily use `size_t`, so the
+  existing Size-triggered demand is not sufficient.
 - **`bool` / `true` / `false`.** Add `<stdbool.h>` to the include demand of
   every component that spells them. C99 and later provide it.
 - **`static_assert` to `_Static_assert`.** Same semantics, same operands, no
@@ -111,7 +139,9 @@ Each is mechanical and total. None is conditional on a compiler test.
   where an integer constant expression is required, so file-scope `static const`
   is exact. Implementation must confirm that property still holds rather than
   assume it: a `constexpr` that later reaches a case label or array bound needs
-  `#define` or an enumerator instead.
+  `#define` or an enumerator instead. The fallback rule is exact: a value used
+  in a case label, array bound, bit-field width, enumerator, or static assertion
+  becomes a compiler-owned macro or enumerator rather than `static const`.
 - **`unreachable()` to `__builtin_unreachable()`.** One site.
 
 ### Checked arithmetic
@@ -182,12 +212,17 @@ MSVC target must revisit it, and the same is true today under C23.
   `*.h`, and the Go generator. No C23-only spelling survives outside historical
   specs.
 - Add `hexal/checked.h`; remove `<stdckdint.h>` from every include demand.
+- Add `<stddef.h>` to every demand path that can spell `NULL`, including
+  pointer-only output with no Size use.
 - Add `<stdbool.h>` to the demand of every component spelling `bool`.
 - Preserve every trap message, check order, and overflow behavior exactly.
   A substitution that changes when a trap fires is a defect, not a migration.
 - Preserve `hex_io_status` field layout.
 - Change the standard flag in RFC 0125's harness and in every documented
   compile command from `-std=c23` to `-std=c11`.
+- Rename `compiler/tests/c23validation`, its package, build tag, helper names,
+  and documented commands to a standard-neutral external-C validation
+  lifecycle. Do not retain `c23` as a historical alias.
 - Rewrite the generated-C policy sentence in `AGENTS.md` to name C11 as the
   floor and require newer features to carry semantic content.
 - Keep runtime C in `compiler/generator/packages/*.c` and `*.h`, not Go
@@ -200,8 +235,8 @@ MSVC target must revisit it, and the same is true today under C23.
 1. Record the green test/vet baseline and snippet manifest.
 2. Re-derive the feature table above against the current tree. A count that
    has moved changes the argument and must be corrected before proceeding.
-3. Confirm no `constexpr` has reached a context requiring an integer constant
-   expression.
+3. Classify every `constexpr` use. Apply the macro/enumerator fallback above to
+   any integer-constant-expression consumer rather than forcing `static const`.
 4. Compile one generated program per family under `-std=c23` with each RFC 0125
    toolchain and keep the results as the before state.
 
@@ -215,7 +250,8 @@ MSVC target must revisit it, and the same is true today under C23.
 
 ### Phase 2: mechanical substitution
 
-1. `nullptr`, `bool` include demand, `static_assert`, `[[noreturn]]`,
+1. `nullptr` plus `<stddef.h>` demand, `bool` include demand, `static_assert`,
+   `[[noreturn]]`,
    `constexpr`, `unreachable()`, `typeof`, in that order, each as its own
    reviewable step.
 2. `ckd_*` to `hex_ckd_*` across all 72 sites.
@@ -225,17 +261,21 @@ MSVC target must revisit it, and the same is true today under C23.
 
 1. Change `-std=c23` to `-std=c11` in the RFC 0125 harness and every documented
    command.
-2. Rewrite the `AGENTS.md` policy sentence.
-3. Update `docs/reference.md` where it names C23 as the output standard.
+2. Rename the external suite, package, build tag, and every repository command
+   to the standard-neutral name settled with RFC 0125.
+3. Rewrite the `AGENTS.md` policy sentence.
+4. Update `docs/reference.md` where it names C23 as the output standard.
 
 ### Phase 4: conformance
 
 1. Implement every validation item below and no additional behavior.
-2. Rebuild the snippet manifest once. Every artifact moves; that is expected
-   and is the whole diff.
+2. Rebuild the snippet manifest once. Only artifacts that select a migrated
+   spelling may move; every unaffected artifact hash remains byte-identical. A
+   minimal Int32-only program is an explicit unchanged control.
 3. Compile one generated program per family under `-std=c11` with each RFC 0125
    toolchain, on the host and on at least one cross target.
-4. Run `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...`.
+4. Run `gofmt`, `go test ./...`, `go vet ./...`, and the renamed external-suite
+   vet command.
 5. Rebuild and restart the workbench.
 6. Remove this RFC from open status only after code, tests, artifacts, and
    canonical docs agree.
@@ -251,6 +291,10 @@ This section is exhaustive.
   `static_assert`, or an enum with a fixed underlying type.
 - `NULL`, `_Static_assert`, `_Noreturn`, `static const`,
   `__builtin_unreachable`, and `__typeof__` appear in their place.
+- Every artifact spelling `NULL` obtains `<stddef.h>` through its owning
+  program/component include demand, including pointer-only programs.
+- `_Noreturn` appears in the C11 declaration-specifier position before the
+  function return type; a substring-only replacement does not satisfy this.
 - `hexal/checked.h` is emitted exactly where `<stdckdint.h>` was demanded, and
   nowhere else.
 - Every `hex_ckd_*` call has the same operand order and destination as the
@@ -262,7 +306,10 @@ This section is exhaustive.
 - `<stdatomic.h>` and `_Thread_local` are untouched.
 - Repeated compilation produces byte-identical artifacts.
 - Ordinary tests remain pure Go.
-- `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass.
+- `go test ./...`, `go vet ./...`, and the renamed external-suite vet command
+  pass; no active package, tag, directory, or command retains `c23` as a stale
+  lifecycle name.
+- Manifest hashes for C11/C23-neutral artifacts remain unchanged.
 
 ### External compilation
 

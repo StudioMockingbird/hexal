@@ -1,13 +1,15 @@
 # RFC 0125: External C23 Validation
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; design proposed, implementation not started
+- Status: Implementation-ready; blocked on RFC 0127 and RFC 0130 remediation
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: compiling, running, and trapping generated C under GCC, Clang, and
   `zig cc` in a tagged suite that closes the standing generated-C coverage gap
-- Depends on: the dormant harness in `compiler/tests/c23validation` and the
-  runtime templates in `compiler/generator/packages`
+- Depends on: RFC 0127 (native threading primitives), RFC 0130's verified
+  production-source boundary for runtime traps, the dormant harness in
+  `compiler/tests/c23validation`, and the runtime templates in
+  `compiler/generator/packages`
 - Coordinates with: ADR 0055 (filesystem and build driver), RFC 0052 (target
   profiles), RFC 0124 (compiler fuzzing), and `docs/status.md` known coverage
   gaps
@@ -36,23 +38,22 @@ external toolchain installed.
 `docs/status.md` records this as the project's largest coverage gap, in two
 severities:
 
-*Does not compile* -- RFC 0073's D2 (handle types reachable only through a
-declaration) and D33 (`uint64_t` in a Size-only program), each found by an
-external reviewer reading generated C by hand.
+*Does not compile* -- handle types reachable only through a declaration and a
+`uint64_t` use in a Size-only program each produced invalid C; both were found
+by an external reviewer reading generated C by hand.
 
-*Compiles and behaves wrongly* -- RFC 0084's C1 (a `try` in a nested block ran
-its operand twice; `try spawn` in a loop spawned one task too many and leaked
-it) and C3 (POSIX fiber stacks lacked their guard page, so an overflow
-corrupted the heap silently). Both were found while hand-writing one example
-program.
+*Compiles and behaves wrongly* -- a `try` in a nested block once ran its
+operand twice; `try spawn` in a loop spawned one task too many and leaked it;
+and POSIX fiber stacks once lacked their guard page, so an overflow corrupted
+the heap silently. All were found while hand-writing one example program.
 
 The second kind is the one that matters. A textual assertion catches an
 undeclared identifier; nothing short of executing the binary catches a task
-spawned twice. Every runtime claim this project has made -- 45 distinct
-`[Runtime Error]` messages, `print`'s exact output forms, RFC 0085's task
-lifetime behavior, RFC 0087's rune counts, RFC 0115's iterator traps, RFC
-0122's parking protocol -- is currently asserted textually because that was the
-only mechanism available.
+spawned twice. Every runtime claim this project has made -- the production
+`[Runtime Error]` inventory derived after RFC 0130, `print`'s exact output,
+Task lifetime behavior, rune counts, iterator traps, and the Task parking
+protocol -- is currently asserted textually because that was the only
+mechanism available.
 
 ## What already exists
 
@@ -69,10 +70,12 @@ second toolchain, and extends coverage.
 
 ## Decision
 
-### Three toolchains, always
+### Three toolchains for the portable tiers
 
-Every tier runs under GCC, Clang, and `zig cc`. None is a fallback for another,
-and the suite does not pick whichever is installed.
+The compile, run, and trap tiers run under GCC, Clang, and `zig cc`. None is a
+fallback for another, and the suite does not pick whichever is installed. The
+sanitizer tier is Clang-only because the selected sanitizers are a Clang runner,
+not a fourth portable-C opinion.
 
 `AGENTS.md` already sets dual-toolchain compatibility as the target: generated
 C uses the latest C features "as long as the latest gcc & clang versions
@@ -151,10 +154,11 @@ absent from the inherited `PATH`, so a `LookPath`-only suite would have
 reported it missing and failed a machine that had it.
 
 Each tool is therefore data, not a hardcoded path -- a spec carrying a name, an
-override environment variable, candidate `PATH` names, and explicit fallback
-paths, resolved in that order. A spec as data means a machine can redirect one
-tool without editing a test, and a missing tool is reported by name rather than
-as an opaque exec failure.
+override environment variable (`HEXAL_GCC`, `HEXAL_CLANG`, or `HEXAL_ZIG`),
+candidate `PATH` names, and explicit platform-specific fallback paths, resolved
+in that order. A spec as data means a machine can redirect one tool without
+editing a test, and a missing tool is reported by name rather than as an opaque
+exec failure.
 
 The fallback lists must include the locations these toolchains actually install
 to on Windows: the WinGet package directories under
@@ -162,31 +166,30 @@ to on Windows: the WinGet package directories under
 and `C:\Program Files\LLVM\bin` for LLVM. Versioned `PATH` names
 (`clang-22` alongside `clang`) belong in the candidate list.
 
+On Linux and macOS, discovery uses the explicit override, then `PATH`, then the
+conventional absolute roots `/usr/bin`, `/usr/local/bin`, and
+`/opt/homebrew/bin`, plus `$HOME/.local/bin` for user-installed zig. It does not
+recursively search a home directory or infer a package manager database.
+
 The discovered path and version of every tool is reported in the test log, so a
 passing run says what it passed under.
 
 ### Three tiers
 
-**Tier 1 -- compiles clean.** `-std=c23 -Wall -Wextra -Werror` under both
+**Tier 1 -- compiles clean.** `-std=c23 -Wall -Wextra -Werror` under all three
 toolchains. This catches the D2/D33 class directly.
 
 **Tier 2 -- runs and produces exact output.** The program executes, exits zero,
 and its stdout matches exactly. This is the only mechanism that can verify
 `print`'s output forms.
 
-Two mechanics this tier needs, both learned the hard way in the prior Pixel
-compiler:
-
-- **Rename the generated entry point.** The harness declares the generated main
-  under a compiler-owned name and supplies its own `main` that returns it, so a
-  program's exit code arrives as a return value rather than through the C
-  runtime's own `main`.
-- **Normalize line endings before comparing.** A C runtime in text mode on
-  Windows translates `\n` to `\r\n` on the way through a pipe. A fixture
-  asserts the bytes the program wrote, not the platform's line-ending habits,
-  so stdout is normalized before the exact match. Without this every
-  multi-line expectation fails on Windows for a reason unrelated to the
-  compiler.
+The tier runs the generated program's existing `main` directly; Hexal programs
+return successful process status and no harness-owned replacement entrypoint is
+needed. Capture stdout and stderr separately. Stdout is normalized before exact
+comparison because a C runtime in text mode on Windows translates `\n` to
+`\r\n` on the way through a pipe. A fixture asserts the bytes the program
+wrote, not the platform's line-ending habits. Stderr must be empty for a
+non-terminating fixture; combining the streams cannot prove either contract.
 
 **Tier 3 -- traps.** The program exits non-zero and its stderr contains the
 exact `[Runtime Error]` text. `hex_runtime_trap` writes the message to stderr
@@ -197,8 +200,8 @@ non-terminating fixture asserts stderr is otherwise silent. Both forms are
 needed: without the second, a program that traps spuriously while still
 producing correct stdout passes.
 
-Tier 3 is the largest single win available: 45 distinct messages, none of them
-verified today.
+Tier 3 is the largest single win available: a broad production trap inventory,
+none of it executed today. Its size is derived rather than copied here.
 
 ### Every fixture must be executed by some runner
 
@@ -208,18 +211,36 @@ exactly that -- fixtures registered for a runtime tier that only the sanitizer
 executor ran, so their expectations went unchecked until a gate was added that
 runs the whole tagged set by definition.
 
-The suite therefore derives each tier's fixture set from the catalog rather
-than from a hand-maintained registration list, so a fixture cannot be
-registered outside a runner. This is the same class as RFC 0124's generator
-construct checklist: assert that the suite covers what it claims.
+The suite owns one test-only Go catalog inside
+`compiler/tests/c23validation`; it does not extend the workbench `Snippet`
+schema. A fixture contains:
+
+- one stable name;
+- exactly one program source: either a workbench snippet ID, resolved through
+  `snippets.Load()`, or an inline `Sources` map plus entrypoint;
+- an optional process expectation containing zero/non-zero exit mode, exact
+  normalized stdout, and empty-or-required-substring stderr mode;
+- the host operating systems on which that expectation can execute; and
+- for trap coverage, the derived message classification, reason, and owner
+  when no safe fixture exists.
+
+Every fixture enters Tier 1. A zero-exit process expectation derives Tier 2;
+a non-zero expectation derives Tier 3. No separate tier-registration slices
+exist. Workbench snippets are compile fixtures automatically; focused runtime
+fixtures may reference one by ID rather than duplicate its source. A catalog
+guard fails on duplicate names, an unknown snippet ID, both/neither source
+forms, an impossible expectation, or a fixture selected by no runner.
 
 ### Cost control: dedup by generated artifact
 
 Invoking a C compiler per candidate is three orders of magnitude slower than an
 in-process check and finds less. The interesting axis is distinct *generated
 C*, not distinct sources: many inputs collapse onto the same output. Every
-compiler-invoking tier therefore keys on a hash of the generated artifact set
-and compiles each distinct output exactly once per run.
+compiler-invoking tier therefore keys on SHA-256 over a canonical stream:
+artifact names sorted bytewise, with each filename length, filename bytes,
+content length, and content bytes encoded in sequence. It compiles each
+distinct output exactly once per toolchain, target, flag set, and test run. The
+cache is in-memory; generated files and executables remain under `t.TempDir()`.
 
 This is what makes the tier affordable enough to connect to RFC 0124's fuzzing
 later, and it is why the gate stays behind the `c23` tag rather than defaulting
@@ -238,12 +259,13 @@ Each suppression must name the gap that requires it, in a comment at the flag:
   wholesale -- equality, print, union, heap, io -- which `docs/status.md`
   already records as an open gap. They stay until demand-driven helper emission
   lands, and narrowing them is that gap's job.
-- `-Wno-maybe-uninitialized` is different in kind and should not survive. The
+- `-Wno-maybe-uninitialized` is different in kind and does not survive. The
   other four suppress warnings about code that is provably harmless; this one
   suppresses a warning about reading storage that may never have been written,
   which is precisely a "compiles and behaves wrongly" defect. Remove it,
-  measure what fires, and record each remaining instance rather than
-  re-suppressing the class.
+  measure what fires, and fix each reported generated-C defect in its owning
+  generator path. A finding blocks this RFC; recording it without fixing it
+  cannot satisfy `-Werror`, and the warning class is never re-suppressed.
 
 A suppression added later requires the same treatment: a named owning gap, or
 it does not go in.
@@ -271,12 +293,28 @@ An unlabelled suppression is neither and does not go in.
 
 ### Sanitizers
 
-Add a fourth tier under Clang: `-fsanitize=address,undefined`.
+Add a fourth tier under a supported host Clang configuration. Every runnable
+host fixture receives UndefinedBehaviorSanitizer with
+`-fsanitize=undefined -fno-sanitize-recover=all -O1 -g`. An artifact set that
+does not contain `hexal/concurrency.c` additionally receives AddressSanitizer
+through `-fsanitize=address,undefined`. Any sanitizer diagnostic or non-zero
+process result fails the fixture. Cross-built binaries do not run this tier,
+and a host without the required sanitizer runtime is reported according to the
+tagged-suite missing-tool policy rather than passed.
 
-This is the tier that catches the second severity. ASan would have caught the
-RFC 0084 C3 guard-page fault as a heap overflow at the moment of corruption
-rather than as silent damage; UBSan catches signed overflow, misaligned access,
-and invalid enum values in generated arithmetic that `-Werror` cannot see.
+Scheduler artifact sets are deliberately excluded from ASan, not silently
+treated as covered. LLVM requires a custom fiber runtime to call
+`__sanitizer_start_switch_fiber` before every stack switch and
+`__sanitizer_finish_switch_fiber` after it. Hexal emits no such annotations.
+Adding conditional sanitizer machinery to the runtime is a separate design;
+this validation RFC does not change generated output merely to widen one test
+tier. Scheduler fixtures still receive UBSan and their ordinary runtime tests.
+
+This tier catches ordinary generated heap misuse, signed overflow, misaligned
+access, and invalid enum values that `-Werror` cannot see. A custom
+`mmap`/`mprotect` Task guard-page fault may appear only as a fatal signal and is
+validated by its dedicated runtime fixture rather than claimed as an ASan heap
+diagnostic.
 
 **ThreadSanitizer is deliberately excluded, with a reason.** TSan is the tool
 that would have found the four Task parking defects RFC 0122 fixed -- one fiber
@@ -308,23 +346,126 @@ The required target list is the set of claims `docs/status.md` currently
 records as textually asserted only. Implementation works through it; each item
 moves out of the coverage-gap entry as its test lands.
 
-- Every `[Runtime Error]` message fires from a program that provokes it, with
-  its exact text. This is the tier-3 backlog and the largest item.
+- Every `[Runtime Error]` message is derived directly from `.c`/`.h` templates
+  under `compiler/generator/packages/` and non-test Go files directly under
+  `compiler/generator/`, then classified as one of: deterministically triggerable,
+  resource-failure requiring an explicit injection seam, platform-only, or an
+  internal invariant unreachable from valid source. Triggerable messages fire
+  with exact text; the other classes retain an explicit reason and owner rather
+  than gaining an unsafe or nondeterministic fixture.
 - `print`'s exact output forms for every printable type.
-- RFC 0084: a `try` in a nested block evaluates its operand once; `try spawn`
-  in a loop spawns exactly one task per iteration and leaks none.
-- RFC 0085: a fiber overflow reaches the guard page and traps; resident cost
-  per Task; 10,000 concurrently live Tasks; a 64 KiB reserve overflowing sooner
-  than 1 MiB.
-- RFC 0087: a slice over multi-byte input is byte-identical to the scanning
-  version; a concatenated rune count matches an independent scan.
-- RFC 0115: `push`, `free`, and Dict `insert` during traversal trap with the
+- A `try` in a nested block evaluates its operand once; `try spawn` in a loop
+  spawns exactly one task per iteration and leaks none.
+- A fiber overflow reaches the guard page and traps; resident cost per Task is
+  measured; 10,000 Tasks can be live concurrently; and a 64 KiB reserve
+  overflows sooner than 1 MiB.
+- A String slice over multi-byte input is byte-identical to the scanning
+  definition; a concatenated rune count matches an independent scan.
+- `push`, `free`, and Dict `insert` during traversal trap with the
   collection-modified message rather than looping or reading freed memory.
-- RFC 0122: immediate yield, join completion, Channel wake, and Mutex wake
-  never run one fiber on two workers and never lose a wake; a contended Mutex
-  transfers ownership without trapping its selected waiter.
-- RFC 0123: allocation failure traps; the removed double-free and
-  wrong-allocator messages do not appear.
+- Immediate yield, join completion, Channel wake, and Mutex wake never run one
+  fiber on two workers and never lose a wake; a contended Mutex transfers
+  ownership without trapping its selected waiter.
+- Allocation failure traps; the removed double-free and wrong-allocator
+  messages do not appear.
+
+## Cross-target and unrun policy
+
+The mandatory `zig cc` compile-and-link target is:
+
+| Host | Non-host target |
+|---|---|
+| Windows | `x86_64-linux-gnu` |
+| Linux | `x86_64-windows-gnu` |
+| macOS | `x86_64-linux-gnu` |
+
+The harness records each fixture/runner result as exactly `passed`, `failed`,
+or `unrun`. `unrun` is permitted only when a runtime fixture cannot execute
+because its platform code or cross-built target differs from the host, and it
+must carry a non-empty reason. It is not implemented with `t.Skip`: the tagged
+test runs to completion, validates the complete result ledger, logs every
+unrun item, and fails on any missing result. Missing tools, failed compilation,
+and unsupported required targets are `failed`, never `unrun`.
+
+An explicitly requested tagged run is strict: every required toolchain must be
+present and runnable. Missing tools fail by name; there is no local skip or
+opt-out mode. The ordinary untagged suite remains toolchain-independent.
+
+The suite remains C23 permanently. GCC older than 15 and Clang older than 18
+fail discovery as unsupported even if they accept an earlier `c2x` spelling;
+each accepted toolchain must additionally pass the selected RFC 0052 profile's
+header, builtin, target, runtime, and linker probes.
+
+## Required sweep
+
+- Remove `CombinedOutput` from run and trap assertions; capture stdout and
+  stderr separately.
+- Remove the harness-owned replacement entrypoint; execute generated `main`
+  directly.
+- Remove `-Wno-maybe-uninitialized` and fix every finding instead of replacing
+  it with another class-wide suppression.
+- Do not preserve fixed runtime-trap counts; derive the production inventory
+  after RFC 0130.
+- Rewrite terminal-spec provenance in the coverage backlog as present-tense
+  behavior before terminal specifications are deleted.
+
+## Implementation plan
+
+### Phase 0: prerequisites and measured baseline
+
+1. Land RFC 0127 and complete RFC 0130's remaining remediation.
+2. Record the green ordinary and tagged-suite baseline and the current snippet
+   manifest.
+3. Re-run the toolchain/version/target probes and correct stale measured facts
+   before using them as gates.
+4. Remove `-Wno-maybe-uninitialized`, inventory every warning it exposes, and
+   fix those generator defects before proceeding.
+
+### Phase 1: harness and toolchain model
+
+1. Replace the GCC-only helper with data records for GCC, Clang, and `zig cc`,
+   including the three named overrides, PATH candidates, platform fallbacks,
+   version command, default target, and standard flag.
+2. Parse and enforce GCC 15 and Clang 18 as the minimum frontend versions;
+   reject an older discovered compiler by name and version.
+3. Materialize every artifact and compile every `.c` translation unit under
+   `t.TempDir()` in sorted order, with the platform's required pthread/link
+   options.
+4. Add the canonical artifact-set hash and per-run cache keyed by artifact,
+   toolchain, target, and flags.
+5. Add a focused executable check that every suppression is classified as Debt
+   or Principle and names its current owner.
+
+### Phase 2: portable runners
+
+1. Restore runnable test entrypoints and derive fixture membership from the
+   test-only catalog above rather than parallel registration lists.
+2. Implement compile, exact-output, and trap runners for all three toolchains.
+3. Execute generated `main` directly, normalize stdout line endings, capture
+   stderr separately, and assert the complete exit/output contract.
+4. Add the fixed cross-target compile-and-link matrix and three-state result
+   ledger; never execute a
+   cross-built binary.
+
+### Phase 3: runtime and sanitizer backlog
+
+1. Classify the derived trap inventory and add every safe deterministic trap
+   fixture.
+2. Add exact print-output and the remaining runtime-behavior fixtures listed
+   above, preserving platform ownership.
+3. Add the Clang UBSan runner for every runnable host fixture and add ASan only
+   when the generated artifact set omits `hexal/concurrency.c`; fail on every
+   sanitizer report.
+4. Re-derive `docs/status.md`'s remaining coverage gaps from what the runners
+   actually execute.
+
+### Phase 4: conformance
+
+1. Implement every Validation item below and no additional behavior.
+2. Run `gofmt`, `go test ./...`, the resolved tagged suite, `go vet ./...`, and
+   the matching tagged vet command.
+3. Verify no test writes outside `t.TempDir()` and no ordinary test invokes an
+   external process.
 
 ## Non-goals
 
@@ -332,13 +473,18 @@ moves out of the coverage-gap entry as its test lands.
 - A build driver, project files, linking against foreign objects, or artifact
   materialization outside a temp directory. ADR 0055 owns that layer; this
   suite writes to `t.TempDir()` and nothing else.
-- Cross-compilation, target profiles, or non-host ABIs. RFC 0052 owns those.
+- General user-facing cross-compilation, target profiles, or arbitrary
+  non-host ABIs. RFC 0052 owns those. This test suite still compile-links the
+  one fixed non-host validation target required above; that is validation, not
+  a compiler target-profile surface.
 - `clang-cl`, MSVC's own `cl.exe`, or any fourth toolchain.
 - Executing cross-built binaries. The cross-target tier compiles and links; an
   emulator or remote runner is out of scope.
-- Fixing the Windows `<threads.h>` defect. This RFC records and reproduces it;
-  its own spec owns the fix.
+- Fixing the Windows `<threads.h>` defect. RFC 0127 must land first and owns the
+  fix; this RFC makes the repaired runtime continuously reproducible.
 - ThreadSanitizer, for the reason recorded above.
+- ASan fiber-switch annotations or a claim that scheduler fixtures are
+  address-sanitized.
 - Performance benchmarking of generated code.
 - Fixing the generated dead-code emission that the `unused-*` suppressions
   tolerate.
@@ -351,41 +497,51 @@ This section is exhaustive. RFC 0125 is complete only when every item passes:
   invokes no external process.
 - `go test -tags c23 ./...` fails with a clear message when any of the three
   toolchains is missing, and never skips.
-- Every tier runs under all three toolchains; a program accepted by one and
-  rejected by another fails the suite and is recorded as a divergence.
+- The compile, exact-output, and trap tiers run under all three toolchains; a
+  program accepted by one and rejected by another fails the suite and is
+  recorded as a divergence. The sanitizer tier is Clang-only.
 - The discovered toolchain versions and their default targets appear in the run
   log.
-- The cross-target tier compiles **and links** at least one non-host target;
-  a compile-only check does not satisfy it, because the musl finding above is a
-  link error.
-- The concurrency tier runs where `<threads.h>` exists and is reported as unrun
-  elsewhere, never as passed.
+- The cross-target tier compiles and links the exact host-specific target in
+  the matrix above; a compile-only check does not satisfy it, because the musl
+  finding above is a link error.
+- After RFC 0127, the concurrency compile tier runs under every required
+  toolchain. Runtime-only platform cases still report **unrun** where their
+  platform code cannot execute, never passed.
 - Every tool resolves through a spec carrying an override variable, candidate
   `PATH` names, and fallback paths; a tool present at a standard install
   location but absent from `PATH` is found, not reported missing.
 - A missing tool is reported by name.
-- Tier 2 renames the generated entry point and normalizes line endings before
-  comparing stdout; a multi-line expectation passes on Windows.
+- Tier 2 executes generated `main`, captures stdout and stderr separately, and
+  normalizes stdout line endings before comparison; a multi-line expectation
+  passes on Windows and unexpected stderr fails.
 - Tier 3 asserts terminating fixtures by required stderr substring and
   non-terminating fixtures by stderr silence.
-- Each tier's fixture set derives from the catalog, so a fixture cannot be
-  registered without a runner executing it. Adding a fixture to a tier and no
-  runner fails the suite.
+- The test-only catalog has the exact schema and derivation rules above. It
+  rejects duplicate names, invalid source selection, unknown snippet IDs,
+  impossible expectations, and fixtures selected by no runner. The workbench
+  `Snippet` schema is unchanged.
 - Every compiler-invoking tier compiles each distinct generated artifact set
-  once per run, keyed by hash.
+  once per toolchain, target, and flag set, keyed by the canonical hash defined
+  above.
 - Every warning suppression is labelled Debt or Principle and names either its
-  owning gap or the language guarantee it protects.
+  owning gap or the language guarantee it protects; an executable guard fails
+  when a compiler flag suppressing a warning lacks the adjacent classification.
 - Tier 1 uses `-std=c23 -Wall -Wextra -Werror` and every suppression names its
   owning gap in a comment.
 - `-Wno-maybe-uninitialized` is removed and every instance it was hiding is
-  either fixed or individually recorded.
+  fixed; recording a warning without fixing it does not satisfy this RFC.
 - Tier 2 asserts exact stdout, not a substring or an exit code alone.
 - Tier 3 asserts both a non-zero exit and the exact `[Runtime Error]` text.
-- The sanitizer tier runs under Clang with `-fsanitize=address,undefined` and
-  fails on any report.
+- The sanitizer tier runs under a supported host Clang configuration and fails
+  on any report or non-zero exit. Every runnable host fixture receives UBSan;
+  only artifact sets omitting `hexal/concurrency.c` receive ASan. A scheduler
+  fixture is recorded as ASan-unrun with the fiber-annotation reason, never as
+  address-sanitized.
 - No test writes outside `t.TempDir()`.
-- Platform-specific claims run where their code exists and are reported as
-  unrun, never as passed, elsewhere.
+- Platform-specific claims run where their code exists. Elsewhere the result
+  ledger records `unrun` with a reason, never `passed` or `t.Skip`; every
+  fixture/runner pair has exactly one ledger result.
 - Every backlog item above has a test or an explicit recorded reason it cannot
   have one yet.
 - `docs/status.md`'s generated-C coverage-gap entry shrinks to exactly what

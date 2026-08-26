@@ -11,19 +11,16 @@ other.
 
 ## Open TODOs
 
-### Design not started
+### Design in progress
 
 | Work | Spec |
 |---|---|
-| Compiler property testing and fuzzing — reject-path oracles over arbitrary input, accept-path metamorphic properties over generated valid programs | [0124](specs/0124-compiler-fuzzing.md) |
 | External C23 validation — dual GCC/Clang tagged suite closing the generated-C coverage gap | [0125](specs/0125-external-c23-validation.md) |
-| Compiler boundary hardening — module-path allowlist, nesting bound, panic containment, workbench input limits | [0126](specs/0126-compiler-boundary-hardening.md) |
 
 ### Design decisions required
 
 | Work | Spec |
 |---|---|
-| C11 target — retarget generated C from C23; decide whether the latest-C policy survives the measurement | [0128](specs/0128-c11-target.md) |
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
@@ -37,15 +34,17 @@ other.
 
 | Work | Spec |
 |---|---|
-| Terminal-spec code audit — verify implementation claims before deletion; correct the trap-count method | [0130](specs/0130-terminal-spec-code-audit.md) |
-| Delete all terminal specifications after a complete reference/code knowledge sweep; make Git the sole archive | [0129](specs/0129-delete-closed-specifications.md) |
 | Native threading primitives — replace C11 `<threads.h>` with SRWLOCK/CONDITION_VARIABLE and pthreads | [0127](specs/0127-native-threading-primitives.md) |
 | Arena and Pool allocators; Heap-only library boundary | [0027](specs/0027-arena-and-pool-allocators.md) |
+| Terminal-spec code audit — remove the stale runtime-trap count and correct its derivation ownership | [0130](specs/0130-terminal-spec-code-audit.md) |
+| Compiler boundary hardening — module-path allowlist, 128-level nesting bound, panic containment, local-only workbench bind | [0126](specs/0126-compiler-boundary-hardening.md) |
 
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
 |---|---|---|
+| Compiler property testing and fuzzing — reject-path oracles over arbitrary input, accept-path metamorphic properties over generated valid programs | Compiler boundary hardening | [0124](specs/0124-compiler-fuzzing.md) |
+| Delete all terminal specifications after a complete reference/code knowledge sweep; make Git the sole archive | Terminal-spec code-audit remediation | [0129](specs/0129-delete-closed-specifications.md) |
 
 ## Open bugs
 
@@ -56,7 +55,7 @@ other.
 | An unvalidated module path escapes the output tree: `../../../etc/passwd.hex` yields the artifact name `modules/../../../etc/passwd.c` | [0126](specs/0126-compiler-boundary-hardening.md) |
 | Unbounded parser recursion terminates the process: 100,000 nested parentheses produce `fatal error: stack overflow`, which is fatal rather than a panic and so cannot be recovered | [0126](specs/0126-compiler-boundary-hardening.md) |
 | `compiler.Compile` has no panic containment, so a panic in any pass escapes to the caller; a non-HTTP embedder crashes | [0126](specs/0126-compiler-boundary-hardening.md) |
-| The workbench reads request bodies with no size limit or timeout and binds every interface while its startup log claims loopback | [0126](specs/0126-compiler-boundary-hardening.md) |
+| The temporary workbench binds every interface while its startup log claims loopback | [0126](specs/0126-compiler-boundary-hardening.md) |
 
 ## Unowned
 
@@ -80,16 +79,10 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   missing Dict key, out-of-bounds index, zero divisor, shift count, float
   overflow, allocation failure, malformed UTF-8, close failure, Mutex misuse,
   task stack overflow, and others) and `print`'s exact output forms fire only
-  in an executed generated binary. The runtime templates carry **45 distinct
-  `[Runtime Error]` messages**, derived by regex over every
-  `compiler/generator/packages/*.c` and `*.h` template (71 occurrences total).
-  RFC 0123 removed two of them with the allocation header: `double
-  deallocation` and `deallocation used the wrong allocator`. The count this
-  entry carried before that measurement was 39 distinct and 70 occurrences,
-  which was already stale against a tree measuring 47 and 79. An earlier
-  revision said thirteen, which was never sourced and is wrong. Re-measure
-  rather than adjusting the number by hand, and do not re-introduce a count
-  without deriving it. Nothing executes one yet: the retained
+  in an executed generated binary. Runtime traps are emitted by both
+  `compiler/generator/packages/` templates and non-test Go generator code; any
+  executable fixture inventory must be derived from both production sources.
+  Nothing executes one yet: the retained
   `compiler/tests/c23validation/c23_*_test.go` files have no runnable entry
   points, so trap firing and exact runtime output stay unverified. RFC 0125
   owns closing this; the earlier prohibition on invoking an external toolchain

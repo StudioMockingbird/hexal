@@ -1,14 +1,15 @@
 # RFC 0124: Compiler Property Testing and Fuzzing
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; design proposed, implementation not started
+- Status: Implementation-ready; blocked on RFC 0126
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: two generated-input tiers over the in-memory compiler -- unstructured
   fuzzing of the reject path, and structured generation of valid programs for
   the accept path
-- Depends on: the string-in/string-out compiler surface in `compiler/compile.go`
-  and the snippet catalog in `workbench/snippets`
+- Depends on: RFC 0126 (compiler boundary hardening), the string-in/string-out
+  compiler surface in `compiler/compile.go`, and the snippet catalog in
+  `workbench/snippets`
 - Coordinates with: RFC 0111 (deterministic evaluation order), RFC 0125
   (external C23 validation), and `docs/status.md` known coverage gaps
 - Prior art: the Pixel compiler at `Forge/agents/pixel`, a prior attempt at
@@ -56,8 +57,10 @@ not lower this bar.
 
 ### 1. No panic
 
-`Compile` returns a `CompilationResult` for every input. A panic, including a
-stack overflow from unbounded recursion, is a compiler defect.
+`Compile` returns a `CompilationResult` for every input. A panic is a compiler
+defect. Fatal Go runtime failures such as stack overflow cannot be observed by
+a fuzz oracle; RFC 0126's parser-depth bound must land before any
+arbitrary-input target is enabled.
 
 The compiler's dispatch is fail-closed by design: unreachable metadata reports
 an Unknown Error rather than crashing. A panic means one dispatch path missed
@@ -98,6 +101,21 @@ Every diagnostic in a failing result is non-empty and carries a source
 position within the supplied input. A rejection that cannot say where is a
 defect even though it fails closed.
 
+For a source-attributed diagnostic, `Module` names one supplied logical key and
+line/column fall within that source. Compilation-level diagnostics that do not
+belong to source text, such as a missing entrypoint or invalid `Project`, may
+leave `Module` empty but still carry normalized 1-based coordinates.
+
+The public result exposes rendered `Stderr`, not structured diagnostics. The
+compile-target oracle therefore parses only the renderer's anchored location
+suffix: the final ` at ` followed by either `line:column` or
+`module:line:column`. It parses the two final colon-delimited fields as positive
+decimal integers; any preceding field is the complete module key and must equal
+one supplied source key. RFC 0126's key allowlist excludes `:`, making this
+suffix unambiguous. The helper is test-only and round-trips focused diagnostics
+whose messages themselves contain ` at `; it does not change the public result
+contract.
+
 ## Tier 0: corpus-wide guards, no fuzzing required
 
 Two of the five invariants can be asserted over the existing 145-snippet
@@ -108,11 +126,13 @@ leak checks are ad hoc per feature rather than a marker list.
 
 - **No Unknown Error for any snippet.** An Unknown Error means the compiler is
   at fault, so it must never fire for a program in the catalog.
-- **Dispatch tripwire.** No generated `.c` or `.h` contains source-language
-  text. A lowering path that emits Hexal spelling instead of failing closed
-  produces C that cannot compile, and nothing detects it today. The marker set
-  is at minimum `= ;`, `/* Cannot generate`, `List<`, `Dict<`, `Fun<`,
-  `.push(`, `.new()`.
+- **Dispatch tripwire.** No generated `.c` or `.h` contains any exact byte
+  substring in this closed list: `= ;`, `/* Cannot generate`, `List<`,
+  `Dict<`, `Fun<`, `.push(`, `.new()`. A lowering path that emits Hexal
+  spelling instead of failing closed produces C that cannot compile, and
+  nothing detects it today. Changing the list is a deliberate test-policy
+  change; implementations do not append ad hoc markers while executing this
+  RFC.
 
 ### The principle behind every guard here
 
@@ -143,30 +163,39 @@ sufficient:
 
 This pairing applies to every guard this RFC adds, not only these two.
 
-## Targets
+## Tier 1: arbitrary-input fuzzing
+
+### Targets
 
 One target per stage so a failure attributes itself without bisection.
 
 | Target | Input | Asserts |
 |---|---|---|
 | `FuzzLex` | one source string | invariants 1 and 5; the token stream terminates and positions are non-decreasing |
-| `FuzzParse` | one source string | invariants 1, 2, and 5 |
+| `FuzzParse` | one source string | invariants 1 and 5; parsing terminates with a program or diagnostics |
 | `FuzzCompile` | one source string as `app.hex` | all five |
 | `FuzzCompileMultiModule` | several sources plus an entrypoint | all five, plus import-graph handling |
 
-`FuzzCompileMultiModule` needs structured input. Encode the module set as one
-fuzzed string split on a delimiter that cannot occur in Hexal source, and
-derive module names positionally. Do not add a serialization format, a
-generator library, or a grammar-aware input model.
+`FuzzCompileMultiModule` takes three independent fuzz strings and assigns them
+to fixed positional keys: `app.hex`, `a.hex`, and `b.hex`; the entrypoint is
+always `app.hex`. Every byte may occur in a Go fuzz string, so no delimiter or
+escaping convention can encode this safely. Fixed arguments exercise missing,
+duplicate, cyclic, malformed, and successful imports without adding a
+serialization format or filesystem behavior.
+
+Both compile targets use `Project{}`. Project-setting fuzzing is a separate
+domain and remains a Non-goal.
 
 ## Seed corpus
 
-The seed corpus is derived, not written:
+The accepted seed corpus is derived, not duplicated:
 
-- every snippet in `workbench/snippets` supplies its sources; and
-- the rejected-source strings already embedded in checker and integration
-  diagnostic tests supply the near-miss inputs that reach the most interesting
-  rejection paths.
+- every snippet in `workbench/snippets` supplies its sources through the
+  importable `workbench/snippets` package, so adding a snippet adds a seed
+  without editing this package; and
+- a small committed rejected corpus is added directly with `f.Add`. Existing
+  Go test literals are not runtime fixture data and are not scraped from Go
+  source files merely to avoid repeating focused fuzz seeds.
 
 Go's native fuzzing runs the seed corpus on an ordinary `go test ./...` run.
 That is the point: the corpus becomes a permanent property-regression suite
@@ -280,12 +309,13 @@ A generator silently narrowing its output is the characteristic failure of this
 approach: the suite stays green, the search shrinks, and nothing says so. Three
 meta-tests guard the generator itself. They are required, not optional.
 
-- **Construct coverage.** A checklist names every construct the generator must
-  emit -- each declaration form, each operator, each control form, each
-  collection operation, each identity-bearing declaration -- and a corpus of
-  several hundred generated programs must contain all of them. A construct the
-  generator cannot emit is a construct this fuzzing never tests, so the claim
-  is asserted rather than assumed.
+- **Construct coverage.** A closed checklist names every construct this
+  identity-focused generator claims to emit: nominal objects, ADTs, unions,
+  generic declarations and specializations, constructed collections, imports,
+  and the declaration/reference forms required to compose them. It does not
+  claim every operator, control form, or collection operation. A corpus of
+  generated programs must contain every listed construct; anything outside the
+  list is outside this generator's coverage claim.
 
   A marker that cannot fail is worse than no marker. `==` as a substring is
   satisfied by any comparison at all, so a checklist entry for String equality
@@ -319,6 +349,86 @@ counts per depth, and how many names carry a module owner -- and every property
 is confirmed to fail against a deliberate mutation of the mechanism it guards
 before it is trusted.
 
+## Test policy
+
+- Tier 2 generates candidates from monotonically increasing unsigned seeds
+  starting at zero. It retains the shortest candidate prefix whose *accepted
+  subset* exercises every construct in its closed checklist. This pins both
+  iteration order and the unique shortest prefix without map iteration or a
+  separately maintained seed list.
+- At least 90 percent of the candidate prefix must compile successfully. Its
+  accepted subset is the valid-program corpus used by the properties. A
+  lower rate means the generator is spending too much ordinary-suite time on
+  invalid programs and fails the test with its first rejection.
+- The median duration of five warm `go test ./...` runs after implementation
+  may be at most 10 percent above the median of five warm baseline runs on the
+  same machine. This is an implementation acceptance measurement, not a
+  permanently timing-sensitive test.
+- The dispatch-tripwire list above is closed and every entry is an exact byte
+  substring.
+
+Extended local fuzz duration is caller-selected through `-fuzztime`; this RFC
+does not impose one CI duration because extended mutation is not a default
+gate.
+
+## Required sweep
+
+- Do not retain the impossible delimiter-based multi-module encoding.
+- Do not add source scraping, `go generate`, or a second copy of the snippet
+  catalog to obtain seeds.
+- Keep fail-closed artifact assertions at the public `Compile` targets; lexer
+  and parser targets assert only contracts observable at those stages.
+- Keep the structured generator's checklist equal to its stated domain rather
+  than widening it into a full-language coverage claim.
+
+## Implementation plan
+
+### Phase 0: safety and baseline
+
+1. Confirm RFC 0126's recursive-parser bound is implemented and its deep-input
+   regression passes before enabling any of the four arbitrary-input targets.
+2. Record the green test/vet baseline and measure the current ordinary-suite
+   duration.
+3. Record the fixed tripwire list, 90 percent acceptance floor, and 10 percent
+   ordinary-suite median-duration budget in the test helpers that own them.
+
+### Phase 1: shared oracles and Tier 0
+
+1. Add test-only helpers for fail-closed results, determinism, Unknown Error,
+   anchored rendered-diagnostic positions, and generated-source tripwires.
+2. Run the Unknown Error and tripwire corpus halves over every snippet.
+3. Add focused injected-metadata tests that prove each Tier 0 guard fires.
+
+### Phase 2: arbitrary-input targets
+
+1. Add `compiler/tests/fuzz` and the four independently runnable targets.
+2. Load accepted seeds from `workbench/snippets` and add the focused rejected
+   seeds directly with `f.Add`.
+3. Implement the fixed three-source multi-module target.
+4. Commit minimized crashers under the matching Go fuzz corpus directories.
+
+### Phase 3: structured valid-program generation
+
+1. Widen the existing union property domain to cover module ownership, member
+   order, and depth three.
+2. Add the deterministic identity-focused program model and model-aware
+   shrinker.
+3. Add construct-coverage, domain-composition, acceptance-rate, and generation-
+   determinism guards.
+4. Test each property implementation through an explicit test seam containing
+   a deliberately broken comparator or naming function; ordinary tests do not
+   rewrite production source to perform mutation testing.
+
+### Phase 4: conformance
+
+1. Measure the ordinary-suite cost and keep it within the resolved budget.
+   Record the five raw before durations, five raw after durations, and both
+   medians in the implementation handoff; timing is evidence for this change,
+   not a permanent repository baseline.
+2. Implement every Validation item below and no additional behavior.
+3. Run `gofmt`, `go test ./...`, `go vet ./...`, and
+   `go vet -tags c23 ./...`.
+
 ## Non-goals
 
 - Fuzzing generated C, executing it, or differential testing against a C
@@ -332,7 +442,9 @@ before it is trusted.
   runtime behavior rather than naming and identity.
 - Any third-party property-testing or shrinking library.
 - libFuzzer, AFL, or any non-stdlib fuzzing engine.
-- Coverage percentage targets, mutation scores, or a CI time budget.
+- Source-coverage percentage targets, mutation scores, or an extended-fuzz CI
+  duration. The Tier 2 acceptance-rate floor is a generator-quality guard, not
+  a source-coverage target.
 - Grammar-aware or type-aware input generation **in tier 1**. Tier 1 is byte
   mutation and stays that way; tier 2 is type-aware by construction, which is
   the whole reason it exists.
@@ -345,13 +457,15 @@ This section is exhaustive. RFC 0124 is complete only when every item passes:
 
 - Each of the four targets exists, is independently runnable, and fails on a
   deliberately injected violation of each invariant it asserts.
-- `ExitSuccess` and failure results are both asserted; a target that only ever
-  observes rejection is not exercising invariants 2 and 3.
+- The public compile targets assert failure results. Tier 2 supplies accepted
+  programs and asserts successful results; together they exercise both sides
+  of invariant 2 and determinism on the accept path.
 - The determinism check compares complete `Files` maps and the full diagnostic
   slice, not a summary or a count.
 - The Unknown Error oracle fails the target rather than accepting the input.
-- The seed corpus is derived from the snippet catalog rather than duplicated,
-  so a new snippet becomes a new seed with no edit here.
+- Accepted seeds are derived from the snippet catalog, so a new snippet becomes
+  a seed with no edit here. Rejected seeds are a small committed `f.Add` corpus;
+  no test source is scraped.
 - `go test ./...` passes with no external toolchain and without invoking
   extended fuzzing.
 - Committed crashers under `testdata/fuzz/` run as ordinary seeds.
@@ -359,10 +473,9 @@ This section is exhaustive. RFC 0124 is complete only when every item passes:
   covers two modules declaring one source name, both member orders, and depth
   three. Nominal objects in it are completed, so they are valid union members
   rather than inert bases.
-- **Tier 2:** each property fails against a deliberate mutation of the
-  mechanism it guards -- removing the arena's union-name disambiguation must
-  fail injectivity, and removing canonical member ordering must fail order
-  independence.
+- **Tier 2:** each property is observed failing through its explicit test seam
+  when given a deliberately broken naming or ordering implementation. Tests do
+  not edit or rewrite production source.
 - **Tier 2:** every generated domain reports its own composition, so a
   degenerate domain is visible rather than passing silently.
 - **Tier 2:** no third-party property-testing or shrinking dependency is added.
@@ -374,9 +487,16 @@ This section is exhaustive. RFC 0124 is complete only when every item passes:
 - **Generator:** the construct checklist exists, names every construct the
   generator claims to emit, and fails when the generator stops emitting one.
   No checklist entry is a substring that a different construct also satisfies.
-- **Generator:** the acceptance-rate floor exists, is asserted against a corpus
-  of several hundred programs, and reports the first rejection on failure.
+- **Generator:** monotonically increasing seeds starting at zero produce one
+  deterministic candidate sequence; its shortest prefix has an accepted
+  subset covering the closed construct checklist, at least 90 percent of the
+  prefix compiles, and the guard reports the first rejection on failure.
 - **Generator:** the same seed produces the same program.
+- **Diagnostics:** the test-only anchored-suffix parser accepts both rendered
+  location forms, rejects zero/malformed coordinates and unknown modules, and
+  still parses a diagnostic whose message contains ` at `.
+- Five warm before/after measurements on the same machine show that the median
+  duration of `go test ./...` increases by no more than 10 percent.
 - Ordinary tests remain pure Go.
 - `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass.
 

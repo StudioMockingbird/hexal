@@ -3,7 +3,7 @@
 - Kind: Architecture Decision Record (ADR)
 - Status: Draft; design proposed, implementation not started
 - Created: 2026-08-14
-- Updated: 2026-08-22
+- Updated: 2026-08-26
 - Scope: filesystem, project discovery, artifact materialization, external C
   builds, and linking outside the core compiler
 - Depends on: RFC 0034 (modules and imports), RFC 0039 (C interop), RFC 0052
@@ -32,6 +32,10 @@ responsibilities do not leak into compiler language specifications.
   compiler.
 - Materialize every generated C/header string returned by the compiler.
 - Compile generated and supplied C sources.
+- Compile Hexal-generated translation units as ISO C23 and each foreign C
+  translation unit under the dialect declared by its project or binding
+  configuration. A C99 or C11 library is not retargeted merely because it
+  links with Hexal-generated objects.
 - Link generated objects with configured foreign objects and libraries.
 - Report filesystem, toolchain, build-system, and linker failures separately
   from compiler diagnostics.
@@ -65,8 +69,9 @@ each stage:
    generated C/header artifacts and diagnostics.
 5. Materialize generated artifacts in an isolated output tree, preserving the
    compiler's logical names and source-map metadata.
-6. Compile every generated and configured C translation unit as C23 with the
-   selected target/profile/compiler options.
+6. Compile every Hexal-generated C translation unit as C23 and every configured
+   foreign C translation unit under its declared dialect, using the selected
+   target/profile/compiler options.
 7. Link objects and libraries with the selected linker and platform settings.
 8. Optionally execute declared runtime validation programs in a controlled
    validation environment; normal compiler tests do not execute external
@@ -101,11 +106,37 @@ artifact. Host absolute paths are not semantic inputs.
 
 ## Toolchain and target selection
 
-The driver selects a named RFC 0052 target profile and a C23-capable compiler
+Hexal distributions ship a pinned C23-capable GCC or Clang toolchain, linker,
+and compatible C library for every supported target profile. The bundled
+toolchain is the default and defines the reproducible supported environment;
+using an externally installed toolchain is an explicit override that must
+satisfy the same RFC 0052 profile.
+
+Bundling is justified by reproducible builds, hermetic cross-compilation,
+known headers and runtime behavior, and control of the linker. It is not
+justified by claiming that C23 syntax alone requires a large distribution: a
+measured inventory found that roughly 70 percent of current C23 spellings are
+cosmetic, while the proposed C11 replacements for the substantive facilities
+were GCC/Clang extensions rather than portable ISO C11. Since both choices
+still select the GCC/Clang family, C11 would buy only support for older compiler
+versions while retaining compatibility machinery.
+
+The driver selects a named RFC 0052 target profile and the matching bundled
 toolchain. Native defaults may be convenient, but cross-compilation requires
 an explicit profile and toolchain. The driver must verify compiler version,
 required C23 headers, target architecture, ABI options, atomics, threading,
-and linker support before accepting the build.
+and linker support before accepting the build. If Hexal ever stops shipping
+the toolchain and compatible C library, the C23 floor must be reconsidered as
+an explicit architecture decision.
+
+The C dialect is a translation-unit property, not a link-unit property.
+Imported C99/C11 projects compile separately under their required dialect and
+link with C23-generated objects through the selected target ABI. Prebuilt
+objects and libraries are accepted only when their architecture, ABI, calling
+conventions, and C-runtime contract match the selected profile. A foreign
+header that cannot be consumed by a C23 translation unit requires a separately
+compiled bridge using that library's dialect; the core compiler does not
+rewrite foreign source.
 
 The core compiler remains incapable of host probing. The driver may probe or
 invoke tools, then passes the selected evidence as build-time settings. A

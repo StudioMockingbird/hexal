@@ -77,11 +77,14 @@ generator code:
 
 The true count is **47 distinct messages**, not the 45 recorded.
 
-The count is the smaller problem. The *method* is wrong, so the number will
-drift again for the same reason, and the entry instructs future readers to
-re-derive it using the method that produced the error. Both the count and the
-method must be corrected, the method naming both emission sites, and the number
-re-derived at remediation time rather than copied from this RFC.
+The count is the smaller problem, and it is cited here only as evidence that
+the method is blind to one source. The *method* is wrong, so any number it
+produces drifts again for the same reason, and the entry instructs future
+readers to re-derive using the method that produced the error.
+
+The response is not to correct the number. See Decision below: no count is
+retained at all, because a number that must be re-derived to be trusted is not
+worth recording between derivations.
 
 The record was last corrected during the stateless-Heap migration by this
 author, who reproduced the flawed method rather than questioning it. That is
@@ -136,27 +139,34 @@ RFC 0129 may migrate with confidence.
 
 ## Decision
 
-Terminal specifications may be deleted without further code verification beyond
-the remediation below.
-
-The reasoning: an implemented spec's claims are either already true of the
-code, in which case the code is the better record, or they are false, in which
-case preserving them is harmful. This audit found no instance of the second
-kind other than F1, which is a defect in a live document rather than in a
-terminal one.
+The findings verified here are safe inputs to RFC 0129; they are not a clean
+bill of health for claims this audit did not examine. RFC 0129 still verifies
+every current-behavior claim it considers migrating. A true claim is better
+owned by current code or authority, while a false historical claim remains in
+Git history only.
 
 What this audit cannot say is that the other thirty-seven specs' Validation
 sections all pass. That is the standing generated-C coverage gap, and RFC 0125
 owns closing it by compiling and running generated programs. Deleting the specs
 does not widen that gap: nothing was executing those assertions anyway.
 
+## Decision: do not retain an exact trap count
+
+`docs/status.md` records only that runtime traps arise from package templates
+and non-test Go generator emission. The number is neither a language contract
+nor a useful temporary invariant, and it has already drifted repeatedly.
+RFC 0125 derives the current message set directly from both production sources
+when building executable fixtures. No source test parses prose or preserves an
+intermediate count.
+
 ## Required sweep
 
 Invariants the implementation holds throughout, distinct from the ordered steps
 below:
 
-- Derive every count from the tree. No number in this RFC is authoritative over
-  the code, including 47.
+- Derive the trap set from the tree during remediation. No number in this RFC
+  is authoritative over the code, including 47, and no derived count is
+  retained afterward.
 - Change no runtime message, trap site, check order, or generated output. This
   RFC corrects a record about the code, never the code.
 - Correct the derivation method wherever it appears, not only its result. A
@@ -172,60 +182,38 @@ below:
 ### Phase 0: re-derive, do not copy
 
 1. Record the green test/vet baseline.
-2. Derive the distinct trap set from **both** emission sites:
-
-```bash
-grep -rohE '\[Runtime Error\][^"\\]*' compiler/generator/packages/*.c compiler/generator/packages/*.h compiler/generator/*.go compiler/checker/*.go | sed 's/[[:space:]]*$//' | grep -v '^\[Runtime Error\]$' | sort -u
-```
-
-3. Compare the derived count against the number recorded in `docs/status.md`
-   and against the 47 stated in this RFC.
-4. If the derived count differs from 47, **the derived count wins**. Record the
-   discrepancy in the change; do not edit this RFC to match, and do not edit
-   the tree to match this RFC. A spec number that has gone stale is the
-   ordinary case, and treating the document as authoritative over the tree is
-   the exact error this RFC documents.
+2. Use a temporary Go probe under `.tmp/` to derive the distinct trap set from
+   production emission sources only:
+   - `.c` and `.h` templates directly under
+     `compiler/generator/packages/`; and
+   - non-`_test.go` Go files directly under `compiler/generator/`.
+   Test fixtures, generated-output assertions, archive text, and checker files
+   are not emission sources and are excluded. Unquote Go string literals before
+   extracting their generated runtime text rather than counting source escapes.
+3. Compare the derived set with the claims recorded in `docs/status.md` and
+   this RFC only to confirm the audit scope. The tree wins on any mismatch; do
+   not edit code to match a historical count.
 
 ### Phase 1: correct the record and the method
 
-1. Replace the count in `docs/status.md`'s coverage-gap entry with the Phase 0
-   derived number.
-2. Rewrite the derivation sentence to name both emission sites: the runtime
-   templates under `compiler/generator/packages/`, and the Go generator, which
-   emits traps into generated C at the call site rather than into a template.
-3. Delete the instruction to re-derive by a template-only regex. It is the
-   mechanism that produced three successive wrong numbers.
-4. Preserve every other fact in that entry. Only the count, the method, and the
-   correction history change.
+1. Remove the exact count and correction history; state only that the
+   unexecuted trap set is emitted by runtime templates and non-test Go generator
+   code and will be derived by RFC 0125.
+2. Delete the template-only derivation instruction and the
+   completed history of thirteen, thirty-nine, and forty-five. `docs/status.md`
+   records the current gap, not its correction narrative.
 
-### Phase 2: make the invariant executable
-
-The count has been wrong three times — thirteen, then thirty-nine, then
-forty-five — each time because it was derived by hand against an incomplete
-denominator. `AGENTS.md` already prefers an executable guard over a comment for
-exactly this shape of claim, and `comment_policy_test.go` is the precedent for
-a repository-root policy test.
-
-1. Add `trap_inventory_test.go` at the repository root as package `hexal_test`.
-2. Derive the distinct `[Runtime Error]` set from both emission sites by
-   walking the files, not by shelling out.
-3. Parse the recorded count out of `docs/status.md`.
-4. Fail when the two disagree, with a message naming the derived count, the
-   recorded count, and the messages present in one set and not the other.
-5. The test asserts agreement between the tree and the record, never a fixed
-   number. Adding a trap then updates one line of documentation instead of
-   silently invalidating the record.
-
-### Phase 3: hand off to RFC 0129
+### Phase 2: hand off to RFC 0129
 
 1. Add to RFC 0129's Phase 1 the rule that a claim which is historically true
    and currently false reaches Git history only, never `docs/reference.md`.
 2. Confirm RFC 0129's Phase 1 consumes this RFC's Verified sound section rather
    than re-deriving those three claims.
-3. Confirm RFC 0129's Phase 3 disposes of the RFC 0127 instruction, which this
-   RFC does not own.
+3. Confirm RFC 0127 now owns its native-initialization fact directly and RFC
+   0129 uses that corrected case as the precedent for finding similar dangling
+   instructions.
 
-### Phase 4: conformance
+### Phase 3: conformance
 
 1. Implement every validation item below and no additional behavior.
 2. Run `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...`.
@@ -247,21 +235,12 @@ a repository-root policy test.
 
 This section is exhaustive.
 
-- `docs/status.md`'s trap count equals the count derived from both emission
-  sites at the time of the change, and was re-derived rather than copied from
-  this RFC.
-- That record names both the runtime templates and the Go generator as
-  emission sites, and no longer instructs re-derivation by a template-only
-  regex.
-- `trap_inventory_test.go` exists at the repository root, derives the distinct
-  set from both `compiler/generator/packages/` and the Go generator, and fails
-  when the recorded count disagrees with the derived one.
-- That test asserts agreement between tree and record, not a hard-coded number;
-  adding a trap fails it with a message naming the new message, and updating
-  the record alone makes it pass.
-- Deliberately breaking the record by one, and separately adding a trap without
-  updating the record, each fail the test. A guard that has never been observed
-  to fail is not known to work.
+- The production trap set is re-derived from package templates and non-test Go
+  generator files only; test fixtures and checker files contribute nothing.
+- `docs/status.md` names both production emission sources and no longer carries
+  the old template-only method or count-correction history.
+- `docs/status.md` carries no exact trap count and no `trap_inventory_test.go`
+  is added; RFC 0125 derives the set for fixtures.
 - RFC 0129's Phase 1 states that a historically-true, currently-false claim
   reaches Git history only, and consumes this RFC's Verified sound section
   rather than re-deriving it.

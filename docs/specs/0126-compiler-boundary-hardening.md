@@ -1,7 +1,7 @@
 # RFC 0126: Compiler Boundary Hardening
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; design proposed, implementation not started
+- Status: Implementation-ready; implementation not started
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: what must hold at the public `compiler.Compile` boundary when its
@@ -14,8 +14,8 @@
 - Prior art: the Pixel compiler at `Forge/agents/pixel`, a prior attempt at
   this language, validates module paths and contains panics at its boundary.
   Its mechanisms are adopted here and attributed inline.
-- Adds one language rule: which characters may appear in a module path.
-  Everything else is implementation containment with no source-visible effect.
+- Adds one language rule: the complete logical source-key grammar. Everything
+  else is implementation containment with no source-visible effect.
 
 ## Summary
 
@@ -75,11 +75,10 @@ a panic**. `recover()` cannot catch it, so panic containment does not address
 it and no boundary guard can. The only fix is refusing the input before the
 recursion happens.
 
-The workbench compounds it. `json.NewDecoder(request.Body).Decode(&input)` runs
-with no `MaxBytesReader`, no `LimitReader`, and no read timeout, and the server
-binds `:8080` -- every interface -- while its startup log claims
-`http://localhost:8080`. A request body of about 100 KB ends the process from
-any machine that can reach the port.
+The workbench compounds the exposure by binding `:8080` -- every interface --
+while its startup log claims `http://localhost:8080`. It is a temporary local
+debug component, so this RFC corrects that misleading exposure without
+designing a production HTTP service around it.
 
 ### Missing: panic containment
 
@@ -116,37 +115,61 @@ here so a later change does not trade them away for readability.
 
 ### 1. Module paths are validated by allowlist
 
-A module path is legal only if, after removing a single trailing `.hex`
-extension, it is non-empty, contains only ASCII letters, digits, `_`, and `/`,
-and does not begin with a digit.
+A source-map logical key is legal only when it:
+
+- is relative and ends in exactly one `.hex` extension;
+- uses `/` as its only separator;
+- contains one or more non-empty path components before the extension; and
+- each component is a Hexal identifier: an ASCII letter first, then ASCII
+  letters, digits, or `_`.
+
+`app.hex` and `graphics/shapes_2.hex` are legal. `/app.hex`, `app`,
+`a//b.hex`, `a/1b.hex`, `a/../b.hex`, `my-module.hex`, and
+`foo.bar/baz.hex` are rejected. This deliberately matches the reference's
+identifier-component import grammar rather than accepting arbitrary host
+filesystem names; logical keys are compiler identities, not host paths.
 
 Allowlist, not blocklist. A blocklist over `..`, quotes, newlines, and
 backslashes invites the next unlisted character; an allowlist is closed by
 construction and its diagnostic can state the whole rule. This is Pixel's
 `analysis.ValidateModulePath` and it is adopted as-is.
 
-Validation happens once per reachable module, before lexing, and rejects the
-compilation. The diagnostic names the offending path and states the rule.
+Only reachable keys are validated, preserving the rule that unreachable
+source-map entries are ignored. The entrypoint key is validated before its
+source is lexed. Each import literal is checked by the existing relative-path
+grammar and above-root rejection; once it resolves to a supplied logical key,
+that key is validated immediately before its source is lexed. A violation is a
+Module Error naming the offending key and the complete rule.
 
 This is the one part of this RFC with a source-visible effect, so it is the one
 part `docs/reference.md` records.
 
 ### 2. Nesting is bounded
 
-The parser enforces a maximum expression and type nesting depth and reports
-exceeding it as an ordinary diagnostic. The bound is a compiler limit, not a
-language rule: a program that reaches it is rejected with a clear message
-rather than terminating the process.
+The parser enforces one maximum recursive-syntax depth across every recursively
+entered production, including expressions, type expressions, aggregate
+literals, patterns, and nested statement blocks. Counting only parentheses or
+types leaves equivalent `if`/`match`/literal recursion able to exhaust the Go
+stack. Exceeding the bound reports one Syntax Error at the token that would
+enter the first disallowed level. The bound is a compiler limit, not a language
+rule: a program that reaches it is rejected clearly rather than terminating the
+process.
 
-The limit's value is chosen so that no plausible program reaches it and no
-input can exhaust the goroutine stack, and it is stated in one place rather
-than duplicated per production.
+The maximum recursive-syntax depth is 128. This remains far beyond reasonable
+handwritten nesting while leaving substantially more stack headroom than 256.
+The value is one compiler-owned constant rather than duplicated per
+production. Because every checker and generator tree originates from an
+accepted parse tree, this parser bound also transitively bounds their structural
+recursion; they do not add duplicate depth limits.
 
 ### 3. The public boundary contains panics
 
-`Compile` recovers, converting a panic into a failed `CompilationResult`
-carrying one Unknown Error diagnostic and zero artifacts, so it obeys the same
-fail-closed contract every other failure does.
+`Compile` recovers, discards any partial stage state, and returns a fresh failed
+`CompilationResult` carrying exactly one Unknown Error diagnostic, a non-nil
+empty `Files` map, and finalized project-level statistics. The diagnostic uses
+a fixed compiler-defect message; it never exposes the panic value, Go stack,
+or host paths. Ordinary returned diagnostics never pass through this recovery
+path and remain unchanged.
 
 A recovered panic is a compiler defect, never a user error. It is reported as
 such, and RFC 0124's fuzzing continues to assert that it never happens rather
@@ -155,15 +178,80 @@ does not lower the bar.
 
 Recovery does not catch stack overflow, which is why rule 2 exists separately.
 
-### 4. The workbench bounds its own input
+### 4. The workbench is local-only
 
-- Bind loopback by default. The flag may widen it, but the default must match
-  what the startup log claims.
-- Wrap the request body in `http.MaxBytesReader` with a stated limit.
-- Set read, write, and idle timeouts on the server.
+The temporary debug workbench binds `127.0.0.1:8080` directly, matching its
+startup log. It gains no public bind flag, request-size policy, timeout policy,
+or production-server abstraction. If the workbench ever becomes a shipped
+service, its complete HTTP boundary requires a separate design.
 
-These are the workbench's obligations, not the compiler's, and are included
-here because they share one root cause and one fix window.
+## Required sweep
+
+- Keep one module-key validator and call it immediately before lexing each
+  reachable logical key; do not duplicate path rules in the generator.
+- Preserve the existing relative import resolution, above-root rejection,
+  canonical-identity ambiguity check, and unreachable-source behavior.
+- Apply the recursion budget at the parser's recursive entry boundary rather
+  than scattering unrelated constants through individual productions.
+- Add no public panic-injection hook. The recovery wrapper is tested through a
+  private function seam in package `compiler`.
+- Keep workbench networking out of the core compiler. The compiler remains a
+  pure in-memory transformation and gains no source-size, HTTP, or filesystem
+  policy.
+
+## Implementation plan
+
+### Phase 0: baseline
+
+1. Record the green test/vet baseline and current snippet manifest.
+2. Preserve focused reproductions for preprocessor injection, artifact
+   traversal, parser stack exhaustion, escaped panic, and non-loopback binding.
+
+### Phase 1: logical-key boundary
+
+1. Add one validator implementing the exact component grammar above.
+2. Validate the entrypoint and each newly reached source key immediately before
+   lexing it; leave unreachable entries untouched.
+3. Return a deterministic Module Error naming the key and rule, with no
+   artifacts and no partial statistics from later stages.
+4. Add accepted/rejected key tests, including empty components, extension,
+   leading separator, leading digit, punctuation, traversal, and canonical-key
+   ambiguity.
+
+### Phase 2: parser recursion budget
+
+1. Inventory every mutually recursive parser entry and place one shared budget
+   at the boundary that covers all of them.
+2. Increment before recursive descent, decrement on every return path, and
+   report the fixed Syntax Error at the first disallowed token.
+3. Test depth 128 and depth 129 for parentheses, type
+   constructors, aggregate literals, and nested blocks; retain the 100,000-
+   parenthesis process-survival regression.
+
+### Phase 3: public panic containment
+
+1. Split `Compile` into a public recovery wrapper and an unexported pipeline
+   function without changing the public signature.
+2. Use a named result or equivalent single exit so recovery always replaces
+   partial output with the exact failure result above.
+3. Add a private injected-stage test proving the recovery path fires, plus a
+   normal-diagnostic test proving ordinary errors are untouched.
+
+### Phase 4: local workbench bind
+
+1. Replace the all-interface listener with the fixed loopback address
+   `127.0.0.1:8080`.
+2. Test that the listener address and startup log name the same loopback
+   endpoint.
+
+### Phase 5: conformance
+
+1. Implement every Validation item below and no additional behavior.
+2. Update `docs/reference.md` once for the logical-key rule only, after
+   behavior stabilizes.
+3. Run `gofmt`, `go test ./...`, `go vet ./...`, and
+   `go vet -tags c23 ./...`.
+4. Rebuild and restart the workbench because its server behavior changes.
 
 ## Non-goals
 
@@ -172,6 +260,8 @@ here because they share one root cause and one fix window.
 - Filesystem access of any kind in the compiler. It stays string-in,
   string-out; ADR 0055 owns materialization.
 - Authentication or authorization for the workbench.
+- Production HTTP hardening, request-size limits, timeouts, or configurable
+  bind addresses for the temporary workbench.
 - A configurable nesting limit, or exposing the limit as a `Project` setting.
 - Making the compiler resistant to memory exhaustion generally. Rule 2 closes
   the reproduced stack case, not every resource question.
@@ -191,37 +281,37 @@ of `CompilationResult` exposed, and there will be more of them.
 
 This section is exhaustive. RFC 0126 is complete only when every item passes:
 
-- A module path containing `"`, a newline, a backslash, `.`, `..`, or any
-  character outside the allowlist is rejected with a diagnostic naming the path
+- A logical key without `.hex`, with more than one terminal `.hex`, with an
+  absolute/leading separator, with an empty component, or with any component
+  that is not a Hexal identifier is rejected with a Module Error naming the key
   and the rule.
 - `../../../etc/passwd.hex` is rejected, and no artifact name produced by any
   accepted compilation contains `..` as a path segment.
 - The injection reproduction above is rejected rather than compiled.
-- A legal module path with `/` separators, `_`, digits after the first
-  character, and mixed case still compiles, and the existing module snippets
-  are unaffected.
-- A path that is empty after removing `.hex`, or that starts with a digit, is
-  rejected.
-- Nesting beyond the limit produces an ordinary diagnostic; 100,000 nested
+- `app.hex`, `graphics/shapes_2.hex`, and mixed-case identifier components
+  compile, and the existing module snippets are unaffected.
+- Invalid unreachable source-map entries remain ignored and produce no
+  diagnostic, artifact, or statistic.
+- Nesting beyond the limit in expressions, types, aggregate literals, patterns,
+  and statement blocks produces the specified Syntax Error; 100,000 nested
   parentheses no longer terminates the process.
 - A program at the limit compiles; a program one level past it is rejected.
-- A panic injected into a compiler pass produces a failed result with one
-  Unknown Error and zero artifacts, and does not escape `Compile`.
+- A panic injected through the private compiler seam produces a failed result
+  with the fixed Unknown Error, a non-nil empty `Files`, no exposed panic text
+  or stack, finalized statistics, and no escape from `Compile`.
 - Panic containment does not swallow ordinary diagnostics: a normal rejection
   still reports its own diagnostics unchanged.
 - The workbench binds loopback by default and its startup log matches the bind.
-- A request body over the workbench's limit is refused with a 4xx status rather
-  than read.
-- Every guard above is paired with a test proving it fires, per RFC 0124's
-  funnel contract.
+- Every guard above has a focused positive and firing test in this RFC; RFC
+  0124 consumes these guards but is not required to implement them.
 - Ordinary tests remain pure Go.
 - `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass.
 
 ## Reference synchronization
 
 After implementation stabilizes, update `docs/reference.md` once to state the
-module-path rule: the legal character set, the no-leading-digit rule, and that
-a violation is a compile-time rejection.
+logical-key rule: required `.hex`, identifier path components, `/` separators,
+reachable-only validation, and Module Error rejection.
 
 Record nothing else there. The nesting bound is a compiler limit, panic
 containment is an implementation guarantee, and the workbench is not part of

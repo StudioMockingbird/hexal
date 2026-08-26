@@ -1,13 +1,14 @@
 # RFC 0129: Delete Closed Specifications
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implementation-ready; deletion and knowledge migration not started
+- Status: Implementation-ready; blocked on RFC 0130 remediation
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: every terminal specification, the `docs/specs/archive/` directory,
   canonical-document provenance, active-spec dependencies, and the permanent
   closed-spec lifecycle
-- Depends on: `docs/reference.md` as the sole language authority,
+- Depends on: RFC 0130 (terminal-spec code audit) completing first,
+  `docs/reference.md` as the sole language authority,
   `docs/status.md` as the open-work board, Git history as the historical record,
   and the CARE comment policy in `AGENTS.md`
 - Does not change language behavior or generated artifacts
@@ -70,28 +71,13 @@ Implementation snapshots the exact terminal-file set before migration rather
 than relying on the counts above; concurrent specification work may change the
 counts without changing this decision.
 
-## Audit findings
+## Audit finding already reconciled
 
-RFC 0130 audits the archived specs against the code and owns every finding
-about whether their implementation claims still hold. One result from that
-audit is a knowledge problem rather than a code problem and belongs here.
-
-### An active RFC instructs an edit to a terminal spec
-
-RFC 0127 requires that "RFC 0122's Failure behavior gains one sentence" noting
-that lifecycle-mutex initialization failure becomes statically unreachable on
-Windows, because `InitializeSRWLock` cannot fail. It carries a matching
-Required sweep item.
-
-This is not a citation and Active-spec reconciliation does not dispose of it.
-It is an undischargeable action whose target is about to disappear, and the
-fact it carries describes live behavior of the code RFC 0127 will produce. The
-fact moves into RFC 0127's own text and both the instruction and its sweep item
-are deleted.
-
-Phase 1 must look for instructions of this shape, not only for references. An
-active spec that tells someone to edit a deleted file is worse than one that
-merely cites it.
+RFC 0130 audits archived-spec implementation claims. Its link-graph pass found
+that RFC 0127 instructed an edit to a terminal Task-parking spec. RFC 0127 now
+owns that native-initialization fact directly and no longer instructs the edit.
+The migration must still search every other active spec for the same class: an
+instruction targeting a deleted document is worse than a historical citation.
 
 ## Knowledge disposition
 
@@ -254,9 +240,9 @@ historical cross-references.
 6. Consume RFC 0130's Verified sound section rather than re-deriving those
    claims. Two of the three read as defects on first inspection, and the
    evidence for each is recorded there.
-7. Look for instructions, not only references. An active specification that
-   tells a reader to edit a terminal one, as RFC 0127 does, is undischargeable
-   after deletion and is disposed of in Phase 3.
+7. Look for instructions, not only references. RFC 0127's corrected case is the
+   precedent: an active specification cannot tell a reader to edit a terminal
+   one after deletion.
 8. Stop and ask the user when a conflict would require choosing new language
    behavior rather than documenting existing behavior.
 
@@ -265,8 +251,10 @@ historical cross-references.
 1. Apply the minimal `docs/reference.md` changes for verified missing current
    rules, keeping grammar and semantics synchronized and removing historical
    provenance citations.
-2. Add or strengthen code names, guards, tests, or CARE comments only for
-   verified implementation invariants that otherwise have no current owner.
+2. Add or strengthen a CARE comment only for a verified local invariant that
+   already holds and otherwise has no current owner. A discovered behavior bug,
+   missing guard, refactor, or test requirement receives a new active spec and
+   `docs/status.md` row; this deletion migration does not implement it.
 3. Create or update an active spec and `docs/status.md` row for verified open
    work that would otherwise disappear.
 4. Re-run focused tests for every code or test change made during preservation.
@@ -275,11 +263,14 @@ historical cross-references.
 
 1. Rewrite active specs so no dependency, coordination rule, ancestry note, or
    implementation instruction requires a terminal spec.
-2. Rewrite `docs/status.md` and `AGENTS.md` according to the policy above.
-3. Search all non-archive tracked files for every terminal identifier and
+2. Rewrite RFC 0125's load-bearing generated-C coverage backlog in particular:
+   its terminal-spec citations become present-tense runnable contracts without
+   losing any required fixture.
+3. Rewrite `docs/status.md` and `AGENTS.md` according to the policy above.
+4. Search all non-archive tracked files for every terminal identifier and
    archive path. Classify every remaining match as an error; terminal specs have
    no valid live citation after deletion.
-4. Re-read every modified active spec to ensure the replacement is complete and
+5. Re-read every modified active spec to ensure the replacement is complete and
    does not silently broaden or narrow its design.
 
 ### Phase 4: deletion
@@ -288,13 +279,15 @@ historical cross-references.
 2. Verify the deletion set exactly equals the Phase 0 snapshot plus any spec
    that became terminal during the migration; do not delete an active spec.
 3. Remove `docs/specs/archive/` after it is empty.
-4. Remove this ADR's `docs/status.md` row, mark its ledger complete, and delete
-   this ADR last.
+4. Run the full validation/search/test set once while this ADR still exists and
+   its ledger can be inspected. Then remove this ADR's `docs/status.md` row,
+   mark its ledger complete, and delete this ADR last in the same change.
 5. Delete all scratch inventories and probes; `.tmp/` is empty at handoff.
 
 ### Phase 5: final conformance
 
-1. Search the complete tracked tree for terminal identifiers, archive paths,
+1. After the final deletion, repeat the complete tracked-tree search for
+   terminal identifiers, archive paths,
    dangling Markdown links, and instructions to archive completed specs.
 2. Verify that every remaining spec has a nonterminal status and appears in the
    correct `docs/status.md` section.

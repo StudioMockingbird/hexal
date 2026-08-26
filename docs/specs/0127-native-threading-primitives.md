@@ -13,6 +13,9 @@
   RFC 0125 (external C23 validation), which reproduces the defect this RFC
   fixes
 - Changes no Hexal grammar, type, function signature, or result contract
+- Accepted cost: one short-lived start record per native thread creation on
+  Windows, one generic internal native-operation trap, and platform-local
+  pthread attributes for detached creation
 
 ## Summary
 
@@ -39,8 +42,8 @@ bare `threads.h: No such file or directory` instead of the intended diagnostic.
 The situation does not improve by waiting. `<threads.h>` was optional in C11 —
 that is why `__STDC_NO_THREADS__` exists — and remains something an
 implementation may omit. Availability is a property of each target's C library,
-not of the language version, so no choice of `-std=` fixes it. RFC 0128's move
-to C11 does not fix it either; the two RFCs are independent.
+not of the language version, so no choice of `-std=` fixes it. Hexal remains on
+C23, but that choice does not make the header appear.
 
 The asymmetry that hid the defect is worth naming. The file *looks*
 platform-split: its first 260 lines are `#ifdef _WIN32` around fiber creation,
@@ -69,9 +72,8 @@ split already present in `hexal/concurrency.c`:
 ```c
 typedef struct hex_mutex_raw hex_mutex_raw;
 typedef struct hex_cond hex_cond;
-typedef struct hex_thread hex_thread;
 
-static void hex_mutex_raw_init(hex_mutex_raw *mutex);   /* traps on failure */
+static bool hex_mutex_raw_init(hex_mutex_raw *mutex);
 static void hex_mutex_raw_lock(hex_mutex_raw *mutex);
 static void hex_mutex_raw_unlock(hex_mutex_raw *mutex);
 static void hex_mutex_raw_destroy(hex_mutex_raw *mutex);
@@ -87,8 +89,12 @@ Hexal-owned names, never the standard spellings. Defining `mtx_t` would collide
 on every platform that does provide the header, which is the one failure mode a
 compatibility layer must not introduce.
 
-The surface is closed and small. The current runtime uses exactly three types
-and ten functions:
+The replacement surface is closed and small: two stored primitive types and ten
+operations. No thread-handle type exists because every created native thread is
+detached before the spawn operation reports success and no caller retains its
+handle.
+
+The current runtime uses these standard names:
 
 | Used today | Count |
 |---|---|
@@ -112,33 +118,70 @@ mutex, or a joinable thread arrives with the RFC that needs it.
 |---|---|---|
 | mutex | `SRWLOCK` + `AcquireSRWLockExclusive` / `ReleaseSRWLockExclusive` | `pthread_mutex_t` |
 | condition variable | `CONDITION_VARIABLE` + `SleepConditionVariableSRW` / `WakeConditionVariable` / `WakeAllConditionVariable` | `pthread_cond_t` |
-| thread | `_beginthreadex` then `CloseHandle` | `pthread_create` then `pthread_detach` |
+| thread | `_beginthreadex` then immediate `CloseHandle` | `pthread_create` with `PTHREAD_CREATE_DETACHED` attributes |
 
 `_beginthreadex` rather than `CreateThread`: the runtime calls `malloc` and
 `free` on its worker and pool threads, and only `_beginthreadex` initializes
 the per-thread CRT state those require. It is declared in `<process.h>` and its
 entry point is `unsigned __stdcall`, so the Windows side wraps the shared
-`int (*)(void *)` entry in one trampoline.
+`int (*)(void *)` entry in one trampoline. The wrapper allocates one private
+start record containing the shared entry and argument. Allocation or
+`_beginthreadex` failure frees that record and returns `false`; on success the
+trampoline copies both fields, frees the record, calls the shared entry, and
+returns its result as `unsigned`. Closing the returned handle immediately does
+not stop the running thread.
+
+The POSIX side initializes a local `pthread_attr_t`, selects
+`PTHREAD_CREATE_DETACHED`, creates the thread with those attributes, and
+destroys the attribute object. Preparation or creation failure returns `false`
+before any live thread is published. An attribute-destroy failure after a
+successful create is an internal runtime failure and traps; it must not report
+spawn failure after a detached thread has begun using the caller's argument.
+At successful `pthread_create`, ownership of the argument has already
+transferred to the new thread; attribute cleanup never frees, reclaims, or
+returns that argument to the caller, including on cleanup failure.
 
 `SRWLOCK` and `CONDITION_VARIABLE` rather than `CRITICAL_SECTION`: both
 initialize without allocating, cannot fail to initialize, need no destroy, and
 are pointer-sized. That last property matters — see the cost below.
+The Windows `hex_mutex_raw_destroy` and `hex_cond_destroy` operations therefore
+remain present as empty inline operations so the closed vocabulary is uniform;
+they are not omitted and call no native destroy API.
 
 `_Thread_local` is a language keyword, not a `<threads.h>` symbol. It is
 supported by every toolchain in RFC 0125's matrix and is unaffected.
 
-### Initialization failure
+### Failure ownership
 
 `InitializeSRWLock` and `InitializeConditionVariable` return `void` and cannot
 fail. `pthread_mutex_init` and `pthread_cond_init` can.
 
-The layer therefore traps on failure rather than reporting it, and the trap is
-unreachable on Windows by construction. This is a real consequence for RFC
-0122, which specifies that "lifecycle-mutex initialization failure follows the
-existing owner: root initialization traps; spawned Task creation fails through
-its existing Error path". That failure path remains live on POSIX and becomes
-statically unreachable on Windows. RFC 0122's Failure behavior gains one
-sentence saying so; no behavior is removed on the platform where it can occur.
+`hex_mutex_raw_init` therefore returns `bool`, preserving the existing caller's
+failure owner:
+
+- root scheduler and blocking-pool initialization trap;
+- spawned Task creation follows its existing `Error` result;
+- Channel and Mutex construction follow their existing allocation/construction
+  `Error` result; and
+- Windows always returns `true` after its infallible initializer.
+
+`hex_cond_init` is used only by program-wide scheduler/pool initialization and
+traps on POSIX failure; its Windows branch is statically infallible. These facts
+live here and beside the wrappers as local contracts. No terminal specification
+is edited.
+
+Every other POSIX operation checks its result. An unexpected lock, unlock,
+wait, signal, broadcast, or destroy failure is an internal runtime failure and
+traps. The Windows wait wrapper checks `SleepConditionVariableSRW` and traps on
+`FALSE`; the untimed wrapper never treats timeout as a normal result. Existing
+predicate loops remain mandatory because both condition-variable APIs permit
+spurious or stolen wakeups.
+
+All unexpected native-operation failures, including POSIX attribute cleanup
+and Windows `CloseHandle`, use one exact diagnostic:
+`[Runtime Error] native threading operation failed`. Caller-owned initialization
+and thread-creation failures retain their existing Error/trap messages and do
+not use this catch-all.
 
 `hex_thread_spawn_detached` returns `bool` because thread creation can fail on
 both platforms and the existing callers already have Error paths for it.
@@ -157,8 +200,9 @@ is roughly 80 KB, and the POSIX cost is exactly what it is today. Windows moves
 from "does not compile" to a smaller per-Task footprint than the header would
 have given it.
 
-The scheduler's own state gains nothing: the ready-queue, blocking-pool,
-Channel, and Mutex primitives are one instance each.
+The scheduler's ready queue and blocking pool each retain one program-wide
+primitive. Each runtime Channel and Mutex control retains its own primitive;
+their per-instance count and ownership are unchanged.
 
 ## Source-language contract
 
@@ -180,8 +224,11 @@ No source surface changes.
 
 - The layer lives in `hexal/concurrency.h` and `hexal/concurrency.c`. No new
   component pair is introduced.
-- `concurrency.h` declares the three types, because `struct hex_task` embeds a
-  lifecycle mutex by value and Channel and Mutex controls embed one each.
+- `concurrency.h` declares the two primitive types, because `struct hex_task`
+  embeds a lifecycle mutex by value and Channel and Mutex controls embed one
+  each. `hex_mutex_raw` is internal storage and is distinct from the
+  source-visible `Mutex` control type; neither primitive name appears in
+  `hexal.h` as a public language API.
 - Windows adds `<windows.h>` and `<process.h>` to the concurrency component's
   include demand; POSIX adds `<pthread.h>`. Neither reaches any other
   component, and `<threads.h>` is demanded by nothing.
@@ -192,8 +239,9 @@ No source surface changes.
 
 ## Non-goals
 
-- Changing the C standard the generated code targets. RFC 0128 owns that, and
-  neither RFC depends on the other.
+- Changing the C standard the generated code targets. Hexal-generated
+  translation units remain C23; this design does not depend on lowering that
+  floor.
 - Timeouts, recursive mutexes, joinable threads, thread-local storage APIs,
   reader-writer semantics, or priority control.
 - Replacing the fiber context layer, the guard-page handler, or the scheduler
@@ -221,7 +269,8 @@ No source surface changes.
   wrappers have no corresponding branch because the selected native
   initialization operations cannot fail; state that local implementation fact
   beside those wrappers as a CARE comment rather than editing a closed RFC.
-- Move the open bug this RFC fixes off RFC 0125 in `docs/status.md`.
+- Remove this RFC's Windows-compilation bug from `docs/status.md` only after
+  the external compile/link gates pass.
 
 ## Implementation plan
 
@@ -235,7 +284,7 @@ No source surface changes.
 | `compiler/generator/concurrency_component_test.go` | Assert exact platform includes, two implementations, complete call-site migration, absence of C11 thread spellings, and unchanged component selection. |
 | existing generator/integration tests | Preserve Task, Channel, Mutex, IO, failure, ordering, and deterministic-output contracts; update expected C only where the primitive spellings legitimately change. |
 | snippet manifest | Rebaseline only snippets selecting the scheduler runtime and prove every other existing artifact hash is unchanged. |
-| `docs/status.md` and canonical review | Remove the owned Windows compilation bug after external gates pass; verify that `docs/reference.md` needs no semantic edit. |
+| `docs/reference.md` and `docs/status.md` | Replace the obsolete verified-`<threads.h>` target contract with the native Windows/POSIX primitive contract, then remove the owned Windows compilation bug after external gates pass. |
 
 ### Phase 0: baseline and inventory
 
@@ -250,12 +299,15 @@ No source surface changes.
 
 ### Phase 1: the layer
 
-1. Add the three types and ten operations to `packages/concurrency.h` and
+1. Add the two stored primitive types and ten operations to
+   `packages/concurrency.h` and
    `packages/concurrency.c`, each implemented in both branches of the existing
    platform split.
-2. Add the Windows `unsigned __stdcall` trampoline over the shared entry
-   signature.
-3. Add component tests asserting both implementations exist, that neither
+2. Add the Windows start record and `unsigned __stdcall` trampoline over the
+   shared entry signature, with the allocation/ownership rules above.
+3. Add POSIX detached-at-creation attributes; do not create a joinable thread
+   and detach it afterward.
+4. Add component tests asserting both implementations exist, that neither
    standard spelling appears, and that the include demand differs per platform.
 
 ### Phase 2: migrate every site
@@ -267,6 +319,9 @@ No source surface changes.
 5. Migrate all three thread-creation sites to `hex_thread_spawn_detached`,
    preserving their existing failure handling.
 6. Delete the guard, the `#error`, and the include.
+7. Check every fallible POSIX operation and Windows condition wait, preserving
+   caller-owned initialization failures and trapping internal operation
+   failures.
 
 ### Phase 3: conformance
 
@@ -274,11 +329,15 @@ No source surface changes.
 2. Rebuild the snippet manifest once; movement is confined to programs
    selecting the scheduler runtime.
 3. Compile a generated concurrency program with each toolchain in RFC 0125's
-   matrix, on the host and on at least one cross target, and record the result.
+   proposed matrix, on the host and on at least one cross target, and record the
+   result. This RFC owns the focused commands needed for its gate; RFC 0125
+   later makes the same matrix a permanent reusable harness, so neither RFC
+   waits on the other.
 4. Run `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...`.
 5. Rebuild and restart the workbench.
-6. Update `docs/reference.md` only if implementation exposes a genuine
-   mismatch; this RFC introduces no language rule.
+6. Update `docs/reference.md` after behavior stabilizes: supported Task targets
+   use the verified native Windows and POSIX primitives defined here, not C23
+   `<threads.h>`.
 7. Remove this RFC from open status and clear its bug entry only after code,
    tests, artifacts, and canonical docs agree.
 
@@ -290,13 +349,23 @@ This section is exhaustive.
 
 - No generated artifact contains `<threads.h>`, `__STDC_NO_THREADS__`,
   `mtx_t`, `cnd_t`, `thrd_t`, or any `mtx_`, `cnd_`, or `thrd_` prefixed call.
-- The three types and ten operations are each defined exactly twice, once per
+- The two stored primitive types and ten operations are each defined exactly
+  twice, once per
   platform branch, inside the existing `#ifdef _WIN32` split.
 - The Windows branch names `SRWLOCK`, `CONDITION_VARIABLE`,
   `SleepConditionVariableSRW`, and `_beginthreadex`, and declares one
-  `unsigned __stdcall` trampoline.
-- The POSIX branch names `pthread_mutex_t`, `pthread_cond_t`, and
-  `pthread_create` followed by `pthread_detach`.
+  `unsigned __stdcall` trampoline. Its start record is freed on every failure
+  and success path exactly once, and no closed thread handle is retained.
+- Windows destroy wrappers exist as empty operations in the platform branch;
+  no native destroy call is invented for SRW locks or condition variables.
+- Every `SleepConditionVariableSRW` result is checked; `FALSE` traps through
+  the native-operation catch-all. The wrapper is untimed and has no timeout
+  result to reinterpret.
+- The POSIX branch names `pthread_mutex_t`, `pthread_cond_t`,
+  `pthread_attr_setdetachstate`, `PTHREAD_CREATE_DETACHED`, and
+  `pthread_create`; it does not call `pthread_detach`.
+- After successful `pthread_create`, the new detached thread exclusively owns
+  its argument even if `pthread_attr_destroy` subsequently traps.
 - Windows adds `<windows.h>` and `<process.h>` to concurrency include demand;
   POSIX adds `<pthread.h>`. No other component's demand changes.
 - `_Thread_local` still appears and is unchanged.
@@ -305,8 +374,15 @@ This section is exhaustive.
   present before the migration is present after it, in the same order.
 - Thread creation reaches `hex_thread_spawn_detached` at exactly three sites,
   and each retains its existing failure handling.
-- Initialization traps on failure and returns no status; thread spawning
-  returns `bool`.
+- Mutex initialization returns `bool` and each caller preserves its existing
+  trap-or-Error owner; condition initialization traps; thread spawning returns
+  `bool`. Every other fallible native operation is checked and traps on an
+  internal failure.
+- The native-operation catch-all appears exactly once as the defined message
+  above; no standard API failure is silently discarded.
+- Every Channel, Mutex, and scheduler/pool wait remains in a predicate loop
+  under the corresponding mutex, so a spurious wake cannot bypass its state
+  check.
 - Task-only, Channel-only, Mutex-only, and Task-plus-IO programs emit the
   layer; an `Atomic<T>`-only program emits no scheduler and no layer.
 - Unaffected manifest entries remain byte-identical; changed entries are
@@ -325,6 +401,8 @@ so these are gates rather than coverage gaps:
 - The same program still compiles and links for a POSIX target through
   `zig cc -target x86_64-linux-gnu`, which is the configuration that works
   today and must not regress.
+- POSIX compilation and linking use the toolchain's pthread option; a driver
+  that omits that option does not satisfy this component's link contract.
 - No toolchain in the matrix reports a warning under
   `-std=c23 -Wall -Wextra -Werror`.
 
@@ -339,12 +417,16 @@ RFC 0055 or RFC 0125 can run programs:
 - Detached worker and pool threads terminate with the process under the
   existing lifetime rule.
 - Thread-creation failure reaches the existing Error path on both platforms.
-- POSIX mutex or condition-variable initialization failure traps.
+- POSIX condition initialization and internal-operation failure paths are
+  present textually. Runtime fault injection for those native APIs remains a
+  coverage gap; caller-owned mutex initialization paths are verified by their
+  generated branches rather than claimed as externally forced failures.
 
 ## Reference synchronization
 
-`docs/reference.md` describes Task, Channel, Mutex, and Atomic semantics, not
-the primitives beneath them, and this RFC changes none of those. Verify after
-implementation that the preserved contracts still read correctly and record
-that no reference edit was required; edit only if implementation exposes a
-genuine mismatch.
+After implementation stabilizes, replace the statement that supported Task
+targets require verified C23 `<threads.h>`. State instead that Windows x64 uses
+verified SRW locks, condition variables, and `_beginthreadex`, while POSIX
+x86-64 uses verified pthread mutexes, condition variables, and detached
+threads. Task, Channel, Mutex, Atomic, scheduling, and synchronization semantics
+remain unchanged.

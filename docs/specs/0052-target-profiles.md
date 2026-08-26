@@ -5,7 +5,7 @@
 - Features: a named target profile, representation evidence beyond C constant
   expressions, and the trusted-metadata boundary for cross-compilation
 - Created: 2026-08-13
-- Updated: 2026-08-22
+- Updated: 2026-08-26
 - Depends on: RFC 0003 (scalar layouts), RFC 0036 (`Size`), RFC 0037 (task
   runtime targets), RFC 0042 (layout queries), and RFC 0062 (supported
   toolchain contract; generated probes removed)
@@ -127,6 +127,9 @@ At minimum, a usable C-interoperability profile carries:
 - volatile/device-memory semantics;
 - thread, TLS, signal, and process-entry capabilities;
 - available C23 headers and builtins relied on by generated code;
+- compiler family and version, with a minimum of GCC 15 or Clang 18 for the
+  supported `-std=c23` frontend contract; a profile may require a newer version
+  for its selected target or library;
 - the operating-system facilities required by selected runtime components; and
 - the fundamental alignment guaranteed by `malloc` and `calloc`, which must be
   at least the strictest alignment of any representation the profile admits.
@@ -184,6 +187,11 @@ RFC 0062 settled the generated-assertion side of sections 1 and 2:
   metadata (a build-driver/target-profile concern) and must not reintroduce
   them as generated C assertions. RFC 0055's future driver and this RFC's
   profile mechanism own toolchain selection and qualification.
+- The supported frontend floor is GCC 15 or Clang 18. Version alone is not
+  sufficient: the profile must also qualify every C23 header, builtin, target,
+  runtime, and linker facility selected by the generated program. RFC 0055's
+  bundled distribution provides the default qualified toolchain; an external
+  override must satisfy the identical profile.
 
 ## 6. RFC 0069 evidence
 
