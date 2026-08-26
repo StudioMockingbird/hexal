@@ -1,7 +1,50 @@
 # RFC 0123: Stateless Default Heap
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implemented
+- Status: Closed; implemented 2026-08-25. `hexal/heap.h` collapsed to
+  `typedef unsigned char hex_heap` plus three checked operations
+  (`hex_heap_allocate`, `hex_heap_allocate_zeroed`, `hex_heap_free`);
+  `hexal/heap.c` implements them with checked `malloc`, `ckd_mul`-checked
+  `calloc`, and unconditional `free`, deleting the five-field header,
+  `HEX_HEAP_DEFAULT`, the offset marker, allocator identity, and the live
+  flag entirely. `Heap.new()` lowers to `((hex_heap)0)`. Allocation selection
+  follows the RFC's table by representation need, not a blanket policy: List
+  headers/regions, String storage, Dict headers, and `Heap.allocate<T>` use
+  the non-zeroing operation because their callers write every readable byte
+  first; Dict buckets use the zeroed operation, replacing the old
+  allocate-plus-`memset` pair, since zero is the required empty-bucket
+  representation; Channel control and Mutex control keep their pre-existing
+  `calloc` and Channel slots their `malloc`, since that runtime state is not
+  Heap-backed and sits outside this migration. Every generated helper that
+  took `uintptr_t heap_identity` now takes `hex_heap h` and voids it, so the
+  source Heap expression still evaluates exactly once in its written
+  position; `Heap.free`, the one call site with no owning helper, renders as
+  `((void)(receiver), hex_heap_free(pointer))`. `hex_string_free` recovers
+  its allocation base by converting the first-member `hex_string *` back to
+  `hex_string_storage *`, relying on C's guarantee that a struct and its
+  first member share an address. The `double deallocation` and
+  `deallocation used the wrong allocator` runtime messages were deleted with
+  the header they depended on, along with the null-receiver guard that rode
+  in the same identity compare in `hex_list_free`, `hex_dict_free`, and
+  `hex_string_free` (a null handle cannot arise from checked source, and
+  `free(nullptr)` is a defined no-op, so no reachable behavior was lost).
+  Component-specific overflow messages were untouched. RFC 0052 was updated
+  to own the fundamental-alignment assumption the removed generated
+  assertion used to carry, since no current Hexal type is over-aligned.
+  Verified: no forbidden identifier or removed message remains anywhere in
+  the generated templates or their callers (repo-wide grep); the checker's
+  local `ref`-free, repeated-free, and use-after-free diagnostics are
+  unchanged; focused component and integration tests assert the generated-C
+  properties directly (headerless representation, correct zeroing per
+  component, checked-then-trap ordering, exactly-once Heap-expression
+  evaluation) rather than only compilation success; the re-measured
+  `[Runtime Error]` message count recorded in `docs/status.md` (45 distinct,
+  71 occurrences) was independently re-derived and matches; and the rebuilt
+  snippet manifest's moved artifacts are confined to the migrated families
+  (`heap.h`/`heap.c`/`string.c`/`list.h`/`dict.h` and the root module files
+  that reference them), with every no-allocation snippet byte-identical.
+  `gofmt`, `go build ./...`, `go vet ./...`, `go vet -tags c23 ./...`, and
+  `go test -count=1 ./...` all pass.
 - Features: headerless default allocation, component-specific initialization,
   and removal of runtime allocator identity
 - Created: 2026-08-25

@@ -228,10 +228,12 @@ authority. Do not copy a rule out of a spec without checking it against
   behavior or edge condition the test protects; provenance belongs in git and
   the spec archive. Together these files must verify the public compiler
   behavior end to end.
-- Dormant compile-only C23 canaries live in `compiler/tests/c23validation/`
-  (`package c23validation`), gated by `//go:build c23`. They have no runnable
-  entry points and must not be given any; tagged runs type-check the package
-  but execute no tests and no external processes.
+- External C23 validation lives in `compiler/tests/c23validation/`
+  (`package c23validation`), gated by `//go:build c23`. RFC 0125 owns it. The
+  canaries there are currently dormant — their entry points are named in lower
+  camel case, so Go collects none of them — and giving them runnable names is
+  0125's job, not an incidental edit. Until 0125 lands, tagged runs type-check
+  the package and execute no tests and no external processes.
 - Ordinary tests never invoke an external tool — gcc, clang, or anything else.
   All ordinary tests are pure Go.
 - **A green suite does not mean the generated C is correct.** No test compiles

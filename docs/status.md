@@ -15,6 +15,8 @@ other.
 
 | Work | Spec |
 |---|---|
+| Compiler fuzzing — panic-free, fail-closed, deterministic, Unknown-Error-free over arbitrary input | [0124](specs/0124-compiler-fuzzing.md) |
+| External C23 validation — dual GCC/Clang tagged suite closing the generated-C coverage gap | [0125](specs/0125-external-c23-validation.md) |
 
 ### Design decisions required
 
@@ -76,11 +78,12 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   which was already stale against a tree measuring 47 and 79. An earlier
   revision said thirteen, which was never sourced and is wrong. Re-measure
   rather than adjusting the number by hand, and do not re-introduce a count
-  without deriving it. Per policy, no
-  test may execute one: the retained
-  `compiler/tests/c23validation/c23_*_test.go`
-  files are pure Go and have no runnable entry points, so trap firing and
-  exact runtime output stay unverified.
+  without deriving it. Nothing executes one yet: the retained
+  `compiler/tests/c23validation/c23_*_test.go` files have no runnable entry
+  points, so trap firing and exact runtime output stay unverified. RFC 0125
+  owns closing this; the earlier prohibition on invoking an external toolchain
+  has been lifted, so the remaining obstacle is that the suite does not exist,
+  not that it is disallowed.
 - **Defects in generated C are invisible to the whole suite.** No test invokes a
   toolchain and the c23 canaries are dormant, so generated C that is wrong — in
   either of two ways — passes `go test ./...`, `go vet ./...`, and
@@ -119,12 +122,13 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   `List<String>` element is still one pointer.
 
   An earlier revision of this entry also claimed the generated concurrency
-  runtime compiles under an external `-std=c23` toolchain. That claim is
-  withdrawn, not because it was false but because producing it required
-  invoking a compiler, which this project does not do. It was a manual
-  one-off, nothing in the repository reproduces it, and leaving it recorded
-  would present a prohibited action as an available one. The compile status of
-  that runtime is unverified, like every other generated artifact.
+  runtime compiles under an external `-std=c23` toolchain. That claim was
+  withdrawn because producing it was a manual one-off that nothing in the
+  repository reproduces. Invoking a toolchain is no longer prohibited, but the
+  claim stays withdrawn on the same grounds: it is reproducible evidence or it
+  is not evidence. RFC 0125 makes it reproducible under both GCC and Clang.
+  Until then the compile status of that runtime is unverified, like every
+  other generated artifact.
 
   The second kind is the worse one: a textual assertion can catch an undeclared
   identifier, but nothing short of running the binary catches a task that is
@@ -132,9 +136,10 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   generated C is compiled and executed.
 - The generator emits helper families wholesale — equality, print, union,
   heap, io — so a small program's C contains many unused `static` helpers.
-  Demand-driven helper emission would remove the dead code. (The old C23
-  harness that tolerated `unused-*` warnings is retained but has no entry
-  point.)
+  Demand-driven helper emission would remove the dead code. The C23 harness
+  tolerates the resulting `unused-*` warnings; RFC 0125 keeps those
+  suppressions pointed at this entry as their owning gap, so narrowing them is
+  this item's job rather than the suite's.
 - **The redesigned Task park/commit/wake protocol is unverified at runtime**,
   for the same reason as every other generated-C claim: no test executes
   generated C. What is verified textually (exact generated-C structure,
