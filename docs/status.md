@@ -15,7 +15,7 @@ other.
 
 | Work | Spec |
 |---|---|
-| Compiler fuzzing — panic-free, fail-closed, deterministic, Unknown-Error-free over arbitrary input | [0124](specs/0124-compiler-fuzzing.md) |
+| Compiler property testing and fuzzing — reject-path oracles over arbitrary input, accept-path metamorphic properties over generated valid programs | [0124](specs/0124-compiler-fuzzing.md) |
 | External C23 validation — dual GCC/Clang tagged suite closing the generated-C coverage gap | [0125](specs/0125-external-c23-validation.md) |
 
 ### Design decisions required

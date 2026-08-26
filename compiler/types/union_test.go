@@ -1,6 +1,7 @@
 package types
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
@@ -67,43 +68,100 @@ func TestTypeUsePreservesCandidatesAndNestedElement(t *testing.T) {
 	}
 }
 
-// Definition-keying generated C names are unique per distinct canonical type.
-// The deleted encoder was injective over its own encoding but not over type
-// identity: Rune and UInt32 share the C spelling uint32_t, so Rune | Nil and
-// UInt32 | Nil receives one shared hex_t_ wrapper name and one program-wide tag.
-// defined the same struct tag twice. The arena registry must keep distinct
-// types on distinct names. Builtins are enumerated from the package registry,
-// not a list written here, plus one specialization of every constructed
-// family and every binary union of the two; the pair construction is what
-// makes this test fire on the historical collision. Ptr is excluded: a
-// pointer names no definition, and Ptr<Rune> and Ptr<UInt32> legitimately
-// share the spelling uint32_t*.
-func TestDefinitionKeyingCNamesNeverCollide(t *testing.T) {
-	environment := NewEnvironment()
-	bases := make([]Type, 0, len(builtinTypes)+9)
-	for _, typ := range builtinTypes {
-		bases = append(bases, typ)
+// collisionDomain builds the generated type domain the two properties below
+// share: every builtin from the package registry, one specialization of every
+// constructed family, the same three source names declared by two different
+// modules over one shared arena, every ordered pair of those as a union in
+// both directions, and one depth-three union per pair.
+//
+// The domain is generated rather than listed because each of its three
+// dimensions carried a defect a hand-written list missed. Two modules
+// declaring one name (an ADT named Shape in each of two modules defined the
+// same struct tag twice), both member orders (M.Point | S.Point and the
+// reverse produced two types and a spurious widen helper), and depth three
+// (a union reached through a nested spelling must flatten to the same
+// canonical type). A list covering only the first two levels of one module
+// reaches none of them.
+func collisionDomain(t *testing.T) ([]Type, *Environment) {
+	t.Helper()
+	// One arena across several module scopes is the real compilation shape:
+	// constructed types intern once per compilation, not once per module.
+	arena := NewArena()
+	builtin := NewCompilationEnvironment(arena, "")
+	app := NewCompilationEnvironment(arena, "app")
+	graphics := NewCompilationEnvironment(arena, "graphics")
+
+	names := make([]string, 0, len(builtinTypes))
+	for name := range builtinTypes {
+		names = append(names, name)
+	}
+	// builtinTypes is a map; sorting keeps the generated domain, and so any
+	// failure message, identical from run to run.
+	sort.Strings(names)
+
+	bases := make([]Type, 0, len(names)+13)
+	for _, name := range names {
+		bases = append(bases, builtinTypes[name])
 	}
 	bases = append(bases,
-		environment.BeginObject("Shape", 1, 1),
-		environment.BeginADT("Option", 1, 1),
-		environment.ListType(Int32),
-		environment.ViewType(Int32),
-		environment.ArrayType(Int32, 4),
-		environment.DictType(Int32, StringType),
-		environment.TaskType(Int32),
-		environment.ChannelType(Int32),
-		environment.AtomicType(Int32),
+		builtin.ListType(Int32),
+		builtin.ViewType(Int32),
+		builtin.ArrayType(Int32, 4),
+		builtin.DictType(Int32, StringType),
+		builtin.TaskType(Int32),
+		builtin.ChannelType(Int32),
+		builtin.AtomicType(Int32),
 	)
-	types := make([]Type, 0, len(bases)+len(bases)*len(bases))
+	// The same source spellings from two modules. These are distinct
+	// canonical types that any name scheme keyed on the source spelling
+	// alone collapses onto one definition.
+	for _, environment := range []*Environment{app, graphics} {
+		// Objects must be completed to take part: an incomplete nominal is
+		// not a valid union member, so a domain that only calls BeginObject
+		// contributes inert bases and silently loses this dimension.
+		environment.BeginObject("Shape", 1, 1)
+		environment.BeginObject("Point", 1, 1)
+		bases = append(bases,
+			environment.CompleteObject("Shape", []ObjectMember{{Name: "sides", Type: Int32}}),
+			environment.CompleteObject("Point", []ObjectMember{{Name: "x", Type: Int32}}),
+			environment.BeginADT("Option", 1, 1),
+		)
+	}
+
+	types := make([]Type, 0, len(bases)*len(bases))
 	types = append(types, bases...)
-	for index := 0; index < len(bases); index++ {
-		for other := index + 1; other < len(bases); other++ {
-			if union := environment.UnionType([]Type{bases[index], bases[other]}); union != (Type{}) {
-				types = append(types, union)
+	for left := range bases {
+		for right := range bases {
+			if left == right {
+				continue
+			}
+			union := builtin.UnionType([]Type{bases[left], bases[right]})
+			if union == (Type{}) {
+				continue
+			}
+			types = append(types, union)
+			// Depth three: one member added to the pair. The nested
+			// spelling flattens, so this reaches the three-member canonical
+			// types a two-level domain never constructs.
+			third := bases[(left+right+1)%len(bases)]
+			if nested := builtin.UnionType([]Type{union, third}); nested != (Type{}) {
+				types = append(types, nested)
 			}
 		}
 	}
+	return types, builtin
+}
+
+// Definition-keying generated C names are unique per distinct canonical type.
+// The deleted encoder was injective over its own encoding but not over type
+// identity: Rune and UInt32 share the C spelling uint32_t, so Rune | Nil and
+// UInt32 | Nil received one shared hex_t_ wrapper name and one program-wide
+// tag, defining the same struct tag twice. The arena registry must keep
+// distinct types on distinct names. Ptr is excluded: a pointer names no
+// definition, and Ptr<Rune> and Ptr<UInt32> legitimately share the spelling
+// uint32_t*.
+func TestDefinitionKeyingCNamesNeverCollide(t *testing.T) {
+	types, _ := collisionDomain(t)
 	seen := make(map[string]Type, len(types))
 	for _, typ := range types {
 		// Only definition-keying names participate: a scalar builtin such as
@@ -116,6 +174,32 @@ func TestDefinitionKeyingCNamesNeverCollide(t *testing.T) {
 			t.Fatalf("distinct types %s and %s share definition-keying C name %q", previous.Name, typ.Name, typ.CName)
 		}
 		seen[typ.CName] = typ
+	}
+}
+
+// A union's canonical identity and generated name do not depend on the order
+// its members were written. This is the metamorphic half of the property
+// above: injectivity keeps distinct types apart, and this keeps two spellings
+// of one type together. Both are required, and a domain that builds each pair
+// in only one direction can satisfy the first while violating this one.
+func TestUnionNamingIsOrderIndependent(t *testing.T) {
+	types, environment := collisionDomain(t)
+	for _, typ := range types {
+		members := unionMembers(typ)
+		if len(members) < 2 {
+			continue
+		}
+		reversed := make([]Type, len(members))
+		for index, member := range members {
+			reversed[len(members)-1-index] = member
+		}
+		other := environment.UnionType(reversed)
+		if !Equal(typ, other) {
+			t.Fatalf("union %s reversed is a different canonical type %s", typ.Name, other.Name)
+		}
+		if typ.CName != other.CName {
+			t.Fatalf("union %s has name %q written forward and %q written reversed", typ.Name, typ.CName, other.CName)
+		}
 	}
 }
 

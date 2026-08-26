@@ -1,11 +1,12 @@
-# RFC 0124: Compiler Fuzzing
+# RFC 0124: Compiler Property Testing and Fuzzing
 
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Draft; design proposed, implementation not started
 - Created: 2026-08-26
 - Updated: 2026-08-26
-- Scope: property-based fuzzing of the in-memory compiler against its
-  fail-closed, deterministic, panic-free contract
+- Scope: two generated-input tiers over the in-memory compiler -- unstructured
+  fuzzing of the reject path, and structured generation of valid programs for
+  the accept path
 - Depends on: the string-in/string-out compiler surface in `compiler/compile.go`
   and the snippet catalog in `workbench/snippets`
 - Coordinates with: RFC 0111 (deterministic evaluation order), RFC 0125
@@ -143,10 +144,90 @@ Recorded so they are recognized as predicted rather than alarming.
 - **Determinism under many same-named constructed types.** The exact shape that
   produced the union and ADT name collisions found earlier by review.
 
+## Tier 2: structured generation over valid programs
+
+Tier 1 above guards the reject path. It cannot guard the accept path, because
+**byte mutation almost never produces a program that typechecks.** Seeded from
+the snippet corpus it produces near-misses that mostly break, so tier 1 will
+exercise the lexer, parser, and rejection paths hard and reach the generator
+almost never.
+
+The generator is where the defect history lives. Every defect found by review
+rather than by the suite -- the union name collision, the ADT collision across
+two modules, union order-dependence, the empty member name in Array equality,
+`Error.new` recording the wrong module, the RFC 0088 accessor-demand miss --
+was downstream of a program that typechecked cleanly.
+
+So tier 2 generates *valid* programs from a structured model and asserts
+properties that relate two compilations rather than inspecting one.
+
+### Why a hand-written domain is not enough
+
+`compiler/types/union_test.go` already carried the right property --
+definition-keying C names are injective over canonical type identity -- with a
+hand-listed domain: registry builtins, nine constructed types, and every
+binary union of the two, all in one module.
+
+That domain misses three dimensions, each of which carried a shipped defect:
+two modules declaring one source name, both member orders, and depth three. It
+is a correct property whose domain could not reach the bugs it was written for.
+
+Widening that one test to generate those dimensions is the first deliverable
+and is independent of the rest of this RFC.
+
+### Properties
+
+Metamorphic, not single-run. Each compares two artifacts that must agree.
+
+- **C-name injectivity.** Distinct canonical types never share a
+  definition-keying C name.
+- **Order independence.** A union's canonical identity and generated name do
+  not depend on the order its members were written. This is the complement of
+  injectivity: one keeps distinct types apart, the other keeps two spellings of
+  one type together, and a domain that builds each pair in one direction only
+  can satisfy the first while violating the second.
+- **Rename invariance.** Renaming a module renames its C symbols consistently
+  and changes nothing else structurally.
+- **Monomorphization uniqueness.** One generic instantiated through different
+  paths yields exactly one specialization.
+
+### Generator and shrinking
+
+The generator produces programs over the constructs where canonical identity
+matters: nominal objects, ADTs, unions, generics, collections, and several
+modules with deliberately colliding source names. It is not a full-language
+generator and does not need to be.
+
+Shrinking is hand-written against that model -- drop a declaration, drop a
+union member, shorten a name -- and adds no dependency. A generic shrinking
+library is the wrong tool here: shrinking a Hexal AST toward smaller inputs
+mostly produces programs that no longer compile, which reports nothing. A
+model-aware shrinker shrinks toward *still-valid* programs.
+
+### A generated domain must be probed, not trusted
+
+A property test that passes because its domain is degenerate is worse than no
+test. Two failure modes are specific to this domain and both were observed
+while widening the existing test:
+
+- An incomplete nominal object is not a valid union member, so a domain built
+  with `BeginObject` alone contributes inert bases and silently loses the
+  cross-module dimension. Objects must be completed.
+- A base that no constructor accepts produces a zero Type that the domain skips
+  without comment.
+
+Every generated domain therefore reports its own composition -- total types,
+counts per depth, and how many names carry a module owner -- and every property
+is confirmed to fail against a deliberate mutation of the mechanism it guards
+before it is trusted.
+
 ## Non-goals
 
 - Fuzzing generated C, executing it, or differential testing against a C
   toolchain. RFC 0125 owns external validation; a later RFC may connect the two.
+- A full-language program generator, or generating programs that exercise
+  runtime behavior rather than naming and identity.
+- Any third-party property-testing or shrinking library.
 - libFuzzer, AFL, or any non-stdlib fuzzing engine.
 - Coverage percentage targets, mutation scores, or a CI time budget.
 - Grammar-aware or type-aware input generation.
@@ -169,6 +250,17 @@ This section is exhaustive. RFC 0124 is complete only when every item passes:
 - `go test ./...` passes with no external toolchain and without invoking
   extended fuzzing.
 - Committed crashers under `testdata/fuzz/` run as ordinary seeds.
+- **Tier 2:** the union-naming domain in `compiler/types` is generated and
+  covers two modules declaring one source name, both member orders, and depth
+  three. Nominal objects in it are completed, so they are valid union members
+  rather than inert bases.
+- **Tier 2:** each property fails against a deliberate mutation of the
+  mechanism it guards -- removing the arena's union-name disambiguation must
+  fail injectivity, and removing canonical member ordering must fail order
+  independence.
+- **Tier 2:** every generated domain reports its own composition, so a
+  degenerate domain is visible rather than passing silently.
+- **Tier 2:** no third-party property-testing or shrinking dependency is added.
 - Ordinary tests remain pure Go.
 - `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass.
 
