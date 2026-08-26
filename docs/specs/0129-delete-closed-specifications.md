@@ -31,7 +31,7 @@ knowledge has been verified and moved to the correct current owner.
   never reused. Git history resolves the highest deleted number when the current
   tree is insufficient.
 - This ADR deletes itself last after every validation condition passes. Its
-  number remains reserved, so the next specification number is at least 0130.
+  number remains reserved, so the next specification number is at least 0131.
 
 ## Rationale
 
@@ -69,6 +69,29 @@ The 2026-08-26 inventory found:
 Implementation snapshots the exact terminal-file set before migration rather
 than relying on the counts above; concurrent specification work may change the
 counts without changing this decision.
+
+## Audit findings
+
+RFC 0130 audits the archived specs against the code and owns every finding
+about whether their implementation claims still hold. One result from that
+audit is a knowledge problem rather than a code problem and belongs here.
+
+### An active RFC instructs an edit to a terminal spec
+
+RFC 0127 requires that "RFC 0122's Failure behavior gains one sentence" noting
+that lifecycle-mutex initialization failure becomes statically unreachable on
+Windows, because `InitializeSRWLock` cannot fail. It carries a matching
+Required sweep item.
+
+This is not a citation and Active-spec reconciliation does not dispose of it.
+It is an undischargeable action whose target is about to disappear, and the
+fact it carries describes live behavior of the code RFC 0127 will produce. The
+fact moves into RFC 0127's own text and both the instruction and its sweep item
+are deleted.
+
+Phase 1 must look for instructions of this shape, not only for references. An
+active spec that tells someone to edit a deleted file is worse than one that
+merely cites it.
 
 ## Knowledge disposition
 
@@ -280,6 +303,9 @@ historical cross-references.
 
 This section is exhaustive.
 
+- No active specification instructs an edit to a deleted specification. RFC
+  0127 states the Windows unreachability of lifecycle-mutex initialization
+  failure in its own text.
 - Every Phase 0 terminal spec has one complete temporary ledger row and is
   deleted only after all extracted claims receive a verified disposition.
 - No file remains under `docs/specs/archive/`; the directory is absent.

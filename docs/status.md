@@ -37,7 +37,7 @@ other.
 
 | Work | Spec |
 |---|---|
-| Archive retirement — inline load-bearing citations, fix the trap-count methodology, then delete `docs/specs/archive/` | [0129](specs/0129-archive-retirement-audit.md) |
+| Terminal-spec code audit — verify implementation claims before deletion; correct the trap-count method | [0130](specs/0130-terminal-spec-code-audit.md) |
 | Delete all terminal specifications after a complete reference/code knowledge sweep; make Git the sole archive | [0129](specs/0129-delete-closed-specifications.md) |
 | Native threading primitives — replace C11 `<threads.h>` with SRWLOCK/CONDITION_VARIABLE and pthreads | [0127](specs/0127-native-threading-primitives.md) |
 | Arena and Pool allocators; Heap-only library boundary | [0027](specs/0027-arena-and-pool-allocators.md) |
