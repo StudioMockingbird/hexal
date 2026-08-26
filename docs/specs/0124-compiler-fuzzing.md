@@ -11,6 +11,9 @@
   and the snippet catalog in `workbench/snippets`
 - Coordinates with: RFC 0111 (deterministic evaluation order), RFC 0125
   (external C23 validation), and `docs/status.md` known coverage gaps
+- Prior art: the Pixel compiler at `Forge/agents/pixel`, a prior attempt at
+  this language, shipped a working version of much of this. Findings adopted
+  from it are attributed inline.
 - Changes no Hexal grammar, type, function signature, or result contract
 - Accepted cost: one new test package, one seed corpus derived from existing
   snippets, and committed crasher inputs as permanent regression seeds
@@ -87,6 +90,34 @@ Every diagnostic in a failing result is non-empty and carries a source
 position within the supplied input. A rejection that cannot say where is a
 defect even though it fails closed.
 
+## Tier 0: corpus-wide guards, no fuzzing required
+
+Two of the five invariants can be asserted over the existing 145-snippet
+catalog today, in pure Go, with no fuzzing engine and no generator. They are
+the first deliverable because they cost nothing and are currently absent:
+Hexal tests invariant 4 per feature but nowhere across the corpus, and its
+leak checks are ad hoc per feature rather than a marker list.
+
+- **No Unknown Error for any snippet.** An Unknown Error means the compiler is
+  at fault, so it must never fire for a program in the catalog.
+- **Dispatch tripwire.** No generated `.c` or `.h` contains source-language
+  text. A lowering path that emits Hexal spelling instead of failing closed
+  produces C that cannot compile, and nothing detects it today. The marker set
+  is at minimum `= ;`, `/* Cannot generate`, `List<`, `Dict<`, `Fun<`,
+  `.push(`, `.new()`.
+
+### The funnel contract
+
+A tripwire nobody has ever seen fire is indistinguishable from a broken one.
+Each guard is therefore asserted in two halves, and neither half alone is
+sufficient:
+
+- **Corpus half.** The guard stays dormant for every snippet.
+- **Injection half.** The guard demonstrably fires when fed deliberately
+  invalid checked metadata.
+
+This pairing applies to every guard this RFC adds, not only these two.
+
 ## Targets
 
 One target per stage so a failure attributes itself without bisection.
@@ -161,6 +192,14 @@ was downstream of a program that typechecked cleanly.
 So tier 2 generates *valid* programs from a structured model and asserts
 properties that relate two compilations rather than inspecting one.
 
+**This conclusion has independent support.** The prior Pixel compiler built the
+same thing and recorded the same reason: its generator "aims for programs the
+compiler ACCEPTS", because "only accepted programs reach code generation, and
+code generation is where every invalid-C defect this project has found has
+lived." Two projects reaching that from separate defect histories is the
+strongest evidence available that the accept path is where the generator budget
+belongs.
+
 ### Why a hand-written domain is not enough
 
 `compiler/types/union_test.go` already carried the right property --
@@ -204,6 +243,34 @@ library is the wrong tool here: shrinking a Hexal AST toward smaller inputs
 mostly produces programs that no longer compile, which reports nothing. A
 model-aware shrinker shrinks toward *still-valid* programs.
 
+### The generator is a coverage claim, and the claim is asserted
+
+A generator silently narrowing its output is the characteristic failure of this
+approach: the suite stays green, the search shrinks, and nothing says so. Three
+meta-tests guard the generator itself. They are required, not optional.
+
+- **Construct coverage.** A checklist names every construct the generator must
+  emit -- each declaration form, each operator, each control form, each
+  collection operation, each identity-bearing declaration -- and a corpus of
+  several hundred generated programs must contain all of them. A construct the
+  generator cannot emit is a construct this fuzzing never tests, so the claim
+  is asserted rather than assumed.
+
+  A marker that cannot fail is worse than no marker. `==` as a substring is
+  satisfied by any comparison at all, so a checklist entry for String equality
+  written that way keeps passing after the generator stops emitting String
+  equality entirely. Entries whose construct is not identifiable by a fixed
+  substring use a pattern that pins the operand types instead.
+
+- **Acceptance rate.** A floor on the fraction of generated programs the
+  compiler accepts, failing below it and reporting the first rejection. A
+  generator whose output is mostly rejected is testing diagnostics, not code
+  generation, and code generation is the point. This is the guard that keeps
+  tier 2 honest about the reason it exists.
+
+- **Generation determinism.** The same seed produces the same program. Without
+  it a failing seed is not a bug report.
+
 ### A generated domain must be probed, not trusted
 
 A property test that passes because its domain is degenerate is worse than no
@@ -224,13 +291,20 @@ before it is trusted.
 ## Non-goals
 
 - Fuzzing generated C, executing it, or differential testing against a C
-  toolchain. RFC 0125 owns external validation; a later RFC may connect the two.
+  toolchain. RFC 0125 owns external validation; a later RFC may connect the
+  two. When they are connected, the unit of work is one *distinct generated C
+  artifact*, not one fuzz input: thousands of seeds collapse onto the same
+  output, so a compiler-invoking tier keys on a hash of the generated C and
+  compiles each distinct output once. Without that rule the tier is
+  unaffordable, which is how the prior Pixel project made this viable.
 - A full-language program generator, or generating programs that exercise
   runtime behavior rather than naming and identity.
 - Any third-party property-testing or shrinking library.
 - libFuzzer, AFL, or any non-stdlib fuzzing engine.
 - Coverage percentage targets, mutation scores, or a CI time budget.
-- Grammar-aware or type-aware input generation.
+- Grammar-aware or type-aware input generation **in tier 1**. Tier 1 is byte
+  mutation and stays that way; tier 2 is type-aware by construction, which is
+  the whole reason it exists.
 - Fuzzing the workbench, the snippet loader, or `Project` configuration.
 - Changing any compiler behavior except defects the fuzzer finds.
 
@@ -261,6 +335,17 @@ This section is exhaustive. RFC 0124 is complete only when every item passes:
 - **Tier 2:** every generated domain reports its own composition, so a
   degenerate domain is visible rather than passing silently.
 - **Tier 2:** no third-party property-testing or shrinking dependency is added.
+- **Tier 0:** the Unknown Error guard and the dispatch tripwire each run over
+  the whole snippet catalog, and each is paired with an injection test proving
+  it fires. A guard with only a corpus half does not satisfy this.
+- **Tier 0:** the tripwire's marker set is a named list, not a per-feature
+  check, so a new leak class is added in one place.
+- **Generator:** the construct checklist exists, names every construct the
+  generator claims to emit, and fails when the generator stops emitting one.
+  No checklist entry is a substring that a different construct also satisfies.
+- **Generator:** the acceptance-rate floor exists, is asserted against a corpus
+  of several hundred programs, and reports the first rejection on failure.
+- **Generator:** the same seed produces the same program.
 - Ordinary tests remain pure Go.
 - `gofmt`, `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass.
 

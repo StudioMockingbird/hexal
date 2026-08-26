@@ -11,8 +11,11 @@
 - Coordinates with: ADR 0055 (filesystem and build driver), RFC 0052 (target
   profiles), RFC 0124 (compiler fuzzing), and `docs/status.md` known coverage
   gaps
+- Prior art: the Pixel compiler at `Forge/agents/pixel`, a prior attempt at
+  this language, shipped a working version of much of this. Findings adopted
+  from it are attributed inline.
 - Changes no Hexal grammar, type, function signature, or result contract
-- Accepted cost: a tagged suite that requires two installed toolchains, runs
+- Accepted cost: a tagged suite that requires three installed toolchains, runs
   outside the default gate, and is platform-conditional for platform-specific
   runtime paths
 
@@ -140,9 +143,27 @@ likely to be wrong.
 - `go test -tags c23 ./...` **fails** when a toolchain is missing. It never
   skips. A suite that silently skips reports success for work it did not do,
   which is the failure mode this RFC exists to remove.
-- Toolchain paths resolve through `exec.LookPath` once per run, with the
-  discovered versions reported in the test log so a passing run says what it
-  passed under.
+### Toolchain discovery
+
+`exec.LookPath` alone is insufficient, as this RFC's own authoring proved:
+clang was installed and working at `C:\Program Files\LLVM\bin\clang.exe` while
+absent from the inherited `PATH`, so a `LookPath`-only suite would have
+reported it missing and failed a machine that had it.
+
+Each tool is therefore data, not a hardcoded path -- a spec carrying a name, an
+override environment variable, candidate `PATH` names, and explicit fallback
+paths, resolved in that order. A spec as data means a machine can redirect one
+tool without editing a test, and a missing tool is reported by name rather than
+as an opaque exec failure.
+
+The fallback lists must include the locations these toolchains actually install
+to on Windows: the WinGet package directories under
+`%LOCALAPPDATA%\Microsoft\WinGet\Packages` for the MinGW-w64 and zig packages,
+and `C:\Program Files\LLVM\bin` for LLVM. Versioned `PATH` names
+(`clang-22` alongside `clang`) belong in the candidate list.
+
+The discovered path and version of every tool is reported in the test log, so a
+passing run says what it passed under.
 
 ### Three tiers
 
@@ -153,12 +174,57 @@ toolchains. This catches the D2/D33 class directly.
 and its stdout matches exactly. This is the only mechanism that can verify
 `print`'s output forms.
 
+Two mechanics this tier needs, both learned the hard way in the prior Pixel
+compiler:
+
+- **Rename the generated entry point.** The harness declares the generated main
+  under a compiler-owned name and supplies its own `main` that returns it, so a
+  program's exit code arrives as a return value rather than through the C
+  runtime's own `main`.
+- **Normalize line endings before comparing.** A C runtime in text mode on
+  Windows translates `\n` to `\r\n` on the way through a pipe. A fixture
+  asserts the bytes the program wrote, not the platform's line-ending habits,
+  so stdout is normalized before the exact match. Without this every
+  multi-line expectation fails on Windows for a reason unrelated to the
+  compiler.
+
 **Tier 3 -- traps.** The program exits non-zero and its stderr contains the
 exact `[Runtime Error]` text. `hex_runtime_trap` writes the message to stderr
 and calls `abort()`, so both halves are observable.
 
+A terminating fixture asserts its message as a required stderr substring; a
+non-terminating fixture asserts stderr is otherwise silent. Both forms are
+needed: without the second, a program that traps spuriously while still
+producing correct stdout passes.
+
 Tier 3 is the largest single win available: 45 distinct messages, none of them
 verified today.
+
+### Every fixture must be executed by some runner
+
+A fixture that declares an expected exit code which no runner ever executes is
+worse than no fixture: it reports coverage that does not exist. Pixel shipped
+exactly that -- fixtures registered for a runtime tier that only the sanitizer
+executor ran, so their expectations went unchecked until a gate was added that
+runs the whole tagged set by definition.
+
+The suite therefore derives each tier's fixture set from the catalog rather
+than from a hand-maintained registration list, so a fixture cannot be
+registered outside a runner. This is the same class as RFC 0124's generator
+construct checklist: assert that the suite covers what it claims.
+
+### Cost control: dedup by generated artifact
+
+Invoking a C compiler per candidate is three orders of magnitude slower than an
+in-process check and finds less. The interesting axis is distinct *generated
+C*, not distinct sources: many inputs collapse onto the same output. Every
+compiler-invoking tier therefore keys on a hash of the generated artifact set
+and compiles each distinct output exactly once per run.
+
+This is what makes the tier affordable enough to connect to RFC 0124's fuzzing
+later, and it is why the gate stays behind the `c23` tag rather than defaulting
+on -- see Gating above. Pixel defaulted its equivalent gate to on and paid for
+it in day-to-day iteration speed.
 
 ### The warning-suppression list is a debt ledger
 
@@ -181,6 +247,27 @@ Each suppression must name the gap that requires it, in a comment at the flag:
 
 A suppression added later requires the same treatment: a named owning gap, or
 it does not go in.
+
+**One suppression is not debt, and the distinction matters.** A warning that
+fires on *correct* generated C for a construct the language guarantees is
+permanently suppressed, and its comment names the guarantee rather than a gap.
+The prior Pixel compiler's case was `-Wno-tautological-compare`: a program may
+legitimately compare a value with itself, the emitted C is valid and does
+exactly what the source asked, and leaving the warning as an error "would make
+`x == x` a program that compiles in Pixel and fails in C, which is the one
+thing the language promises cannot happen". Self-comparison is also the
+standard NaN test, so the warning is simply wrong for floating-point.
+
+Hexal's current list has no entry of this kind. It will acquire them if
+`-Wconversion` or `-Wshadow` are ever added, since both fire on correct
+generated C. Each suppression is therefore labelled as one of exactly two
+kinds:
+
+- **Debt** -- names the open gap that requires it and is removed when that gap
+  closes.
+- **Principle** -- names the language guarantee it protects and is permanent.
+
+An unlabelled suppression is neither and does not go in.
 
 ### Sanitizers
 
@@ -273,6 +360,21 @@ This section is exhaustive. RFC 0125 is complete only when every item passes:
   link error.
 - The concurrency tier runs where `<threads.h>` exists and is reported as unrun
   elsewhere, never as passed.
+- Every tool resolves through a spec carrying an override variable, candidate
+  `PATH` names, and fallback paths; a tool present at a standard install
+  location but absent from `PATH` is found, not reported missing.
+- A missing tool is reported by name.
+- Tier 2 renames the generated entry point and normalizes line endings before
+  comparing stdout; a multi-line expectation passes on Windows.
+- Tier 3 asserts terminating fixtures by required stderr substring and
+  non-terminating fixtures by stderr silence.
+- Each tier's fixture set derives from the catalog, so a fixture cannot be
+  registered without a runner executing it. Adding a fixture to a tier and no
+  runner fails the suite.
+- Every compiler-invoking tier compiles each distinct generated artifact set
+  once per run, keyed by hash.
+- Every warning suppression is labelled Debt or Principle and names either its
+  owning gap or the language guarantee it protects.
 - Tier 1 uses `-std=c23 -Wall -Wextra -Werror` and every suppression names its
   owning gap in a comment.
 - `-Wno-maybe-uninitialized` is removed and every instance it was hiding is
