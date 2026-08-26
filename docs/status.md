@@ -17,6 +17,7 @@ other.
 |---|---|
 | Compiler property testing and fuzzing — reject-path oracles over arbitrary input, accept-path metamorphic properties over generated valid programs | [0124](specs/0124-compiler-fuzzing.md) |
 | External C23 validation — dual GCC/Clang tagged suite closing the generated-C coverage gap | [0125](specs/0125-external-c23-validation.md) |
+| Compiler boundary hardening — module-path allowlist, nesting bound, panic containment, workbench input limits | [0126](specs/0126-compiler-boundary-hardening.md) |
 
 ### Design decisions required
 
@@ -47,6 +48,11 @@ other.
 | Bug | Owning spec |
 |---|---|
 | Generated concurrency runtime does not compile on Windows: `<threads.h>` is unavailable under MinGW-w64 UCRT, `windows-gnu`, and `windows-msvc`, and the `__STDC_NO_THREADS__` guard does not fire because none of those toolchains defines the macro | [0125](specs/0125-external-c23-validation.md) |
+| An unvalidated module path injects text into generated `#line` directives, the module `#include`, and header guards; the compilation exits successfully with no diagnostic | [0126](specs/0126-compiler-boundary-hardening.md) |
+| An unvalidated module path escapes the output tree: `../../../etc/passwd.hex` yields the artifact name `modules/../../../etc/passwd.c` | [0126](specs/0126-compiler-boundary-hardening.md) |
+| Unbounded parser recursion terminates the process: 100,000 nested parentheses produce `fatal error: stack overflow`, which is fatal rather than a panic and so cannot be recovered | [0126](specs/0126-compiler-boundary-hardening.md) |
+| `compiler.Compile` has no panic containment, so a panic in any pass escapes to the caller; a non-HTTP embedder crashes | [0126](specs/0126-compiler-boundary-hardening.md) |
+| The workbench reads request bodies with no size limit or timeout and binds every interface while its startup log claims loopback | [0126](specs/0126-compiler-boundary-hardening.md) |
 
 ## Unowned
 

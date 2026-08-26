@@ -144,6 +144,22 @@ claims that emitted C compiles, links, or behaves correctly. A green
 - Language checking and C ABI compatibility remain compiler responsibilities;
   file discovery, tool invocation, and linking remain driver responsibilities.
 
+### Artifact paths arrive already validated
+
+The compiler currently accepts any caller-supplied module path, so a path of
+`../../../etc/passwd.hex` yields an artifact named
+`modules/../../../etc/passwd.c`. A driver that materializes `result.Files`
+naively writes outside its output root.
+
+**RFC 0126 owns that fix**, at the compile boundary, because every consumer of
+a `CompilationResult` is exposed and there will be more than this driver. The
+driver must be able to treat returned paths as already safe.
+
+The driver still refuses to write outside its output root. Defense in depth is
+correct for the one component that touches a filesystem -- but that check is a
+backstop and must not be mistaken for the fix, or the exposure simply moves to
+the next consumer.
+
 ## Deferred design
 
 - Driver package and public API.

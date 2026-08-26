@@ -46,6 +46,14 @@ fuzzable class, and nothing in the suite currently searches it.
 
 These are the oracles. A fuzz failure means one of them is false.
 
+RFC 0126 adds panic containment at the public boundary, converting a panic into
+a failed result. That is containment; these invariants are detection, and the
+two are complementary. **No invariant here is relaxed because containment
+exists.** A recovered panic still fails the target: an Unknown Error produced by
+recovery is a compiler defect reported through the ordinary channel, not an
+acceptable outcome. Containment bounds the blast radius for embedders; it does
+not lower this bar.
+
 ### 1. No panic
 
 `Compile` returns a `CompilationResult` for every input. A panic, including a
@@ -105,6 +113,23 @@ leak checks are ad hoc per feature rather than a marker list.
   produces C that cannot compile, and nothing detects it today. The marker set
   is at minimum `= ;`, `/* Cannot generate`, `List<`, `Dict<`, `Fun<`,
   `.push(`, `.new()`.
+
+### The principle behind every guard here
+
+Pixel's most transferable idea is not any single test but the rule they share:
+**a coverage claim is asserted, not conventional.** Its generator checklist, its
+fixture-registration gate, and its test-suite registry are three applications of
+one principle -- "which tests cover this?" must be a checked fact, because when
+it is tribal knowledge it silently goes wrong. Pixel records the concrete
+failure: a test needing Clang sat in a group that ran without it.
+
+Hexal needs less machinery than Pixel did for the gate half of that, because
+`//go:build c23` is compiler-enforced -- a toolchain test physically cannot run
+in the default suite, which is the failure their registry existed to prevent.
+What does not follow for free is completeness: that every guard this RFC adds is
+actually reached by some runner. Every new guard therefore carries its own
+firing test, below, rather than relying on a registry to notice it was never
+wired up.
 
 ### The funnel contract
 
@@ -169,6 +194,12 @@ Recorded so they are recognized as predicted rather than alarming.
   nested parentheses, blocks, or type constructors. The fix is a depth limit
   producing an ordinary diagnostic, not a larger stack. This is invariant 1 and
   will almost certainly be the first failure.
+
+  This one is already reproduced: 100,000 nested parentheses terminates the
+  process with `fatal error: stack overflow`. RFC 0126 owns the depth limit.
+  Note that a Go stack overflow is a fatal runtime error rather than a panic,
+  so invariant 1 cannot be satisfied by recovering -- the target will die with
+  the process, and only the depth limit fixes it.
 - **Unknown Error on malformed-but-parseable input.** Checked metadata
   combinations that no hand-written test produces. Each is a real fail-closed
   gap.
