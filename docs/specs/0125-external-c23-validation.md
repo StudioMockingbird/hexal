@@ -4,8 +4,8 @@
 - Status: Draft; design proposed, implementation not started
 - Created: 2026-08-26
 - Updated: 2026-08-26
-- Scope: compiling, running, and trapping generated C under both GCC and Clang
-  in a tagged suite that closes the standing generated-C coverage gap
+- Scope: compiling, running, and trapping generated C under GCC, Clang, and
+  `zig cc` in a tagged suite that closes the standing generated-C coverage gap
 - Depends on: the dormant harness in `compiler/tests/c23validation` and the
   runtime templates in `compiler/generator/packages`
 - Coordinates with: ADR 0055 (filesystem and build driver), RFC 0052 (target
@@ -66,18 +66,72 @@ second toolchain, and extends coverage.
 
 ## Decision
 
-### Both toolchains, always
+### Three toolchains, always
 
-Every tier runs under GCC and under Clang. Neither is a fallback for the other,
+Every tier runs under GCC, Clang, and `zig cc`. None is a fallback for another,
 and the suite does not pick whichever is installed.
 
 `AGENTS.md` already sets dual-toolchain compatibility as the target: generated
 C uses the latest C features "as long as the latest gcc & clang versions
-support that". A construct one accepts and the other rejects violates that rule
-whichever way it fails.
+support that". A construct one accepts and another rejects violates that rule
+whichever way it fails. A divergence is a finding, recorded and fixed, never
+resolved by preferring one compiler's judgment.
 
-A divergence between the two is a finding, not a configuration choice. It is
-recorded and fixed, never resolved by preferring one compiler's judgment.
+**What each one actually adds**, stated honestly rather than implying three
+independent opinions:
+
+| Toolchain | Frontend | Default target | Adds |
+|---|---|---|---|
+| GCC | GNU | MinGW-w64 UCRT | the only non-LLVM frontend; different diagnostics and different extension tolerance |
+| Clang | LLVM | `x86_64-pc-windows-msvc` | the MSVC ABI and the MSVC/Windows SDK header set |
+| `zig cc` | LLVM (bundled Clang) | `x86_64-unknown-windows-gnu` | hermetic bundled headers, no external SDK, and cross-target compilation |
+
+Clang and `zig cc` share the LLVM frontend, so their *diagnostic* overlap is
+high. Their value is not a third opinion on syntax: it is that they compile the
+same source against three different libc and header sets. Most portability
+defects in generated C are header and ABI defects, not parse defects.
+
+### Cross-target compilation
+
+`zig cc` compiles for a target other than the host without a cross toolchain,
+because it ships its own headers and libc for each target. That makes it the
+only member of the matrix that can compile-check a platform-specific runtime
+path from a machine that is not that platform.
+
+This matters immediately: the POSIX fiber runtime (`ucontext`, `mmap`,
+`mprotect`, the `PROT_NONE` guard page) has never been compiled by anything,
+and on a Windows development machine nothing else here can compile it.
+
+The suite therefore adds a compile-and-link tier that builds every program for
+at least one non-host target. Linking is required, not just compiling: the
+POSIX finding below is a link error that a compile-only check misses entirely.
+
+Cross-target builds are compiled and linked, never executed. Running a
+cross-built binary needs an emulator or a remote runner, which is out of scope.
+
+### Measured toolchain facts
+
+These were measured against real generated output, not assumed. They are
+recorded because they determine what the suite can assert today.
+
+- Non-concurrency programs compile clean under `-std=c23 -Wall -Wextra -Werror`
+  and run correctly under all three toolchains on Windows.
+- `<stdckdint.h>` and `<stdatomic.h>` are available everywhere tested.
+- **`<threads.h>` is unavailable on every Windows target tested** -- MinGW-w64
+  UCRT, `windows-gnu`, and `windows-msvc` alike. Generated concurrency programs
+  therefore do not compile on Windows at all. See the open bug below.
+- `zig cc -target x86_64-linux-musl` compiles the concurrency runtime but fails
+  to link: musl does not implement `getcontext`, `makecontext`, or
+  `swapcontext`.
+- `zig cc -target x86_64-linux-gnu` compiles **and links** the full concurrency
+  runtime clean under `-Werror`. This is the only configuration in which that
+  runtime has ever been shown to build, and it is what the cross-target tier
+  exists to keep working.
+
+The concurrency tier is consequently glibc-Linux-only until the Windows
+threading defect is resolved. That is a limit to record, not to hide: a suite
+that quietly skips the concurrency runtime reports success for the code most
+likely to be wrong.
 
 ### Gating
 
@@ -192,7 +246,11 @@ moves out of the coverage-gap entry as its test lands.
   materialization outside a temp directory. ADR 0055 owns that layer; this
   suite writes to `t.TempDir()` and nothing else.
 - Cross-compilation, target profiles, or non-host ABIs. RFC 0052 owns those.
-- MSVC, `clang-cl`, or any third toolchain.
+- `clang-cl`, MSVC's own `cl.exe`, or any fourth toolchain.
+- Executing cross-built binaries. The cross-target tier compiles and links; an
+  emulator or remote runner is out of scope.
+- Fixing the Windows `<threads.h>` defect. This RFC records and reproduces it;
+  its own spec owns the fix.
 - ThreadSanitizer, for the reason recorded above.
 - Performance benchmarking of generated code.
 - Fixing the generated dead-code emission that the `unused-*` suppressions
@@ -204,11 +262,17 @@ This section is exhaustive. RFC 0125 is complete only when every item passes:
 
 - `go test ./...` passes on a machine with neither GCC nor Clang installed and
   invokes no external process.
-- `go test -tags c23 ./...` fails with a clear message when either toolchain is
-  missing, and never skips.
-- Every tier runs under both toolchains; a program accepted by one and rejected
-  by the other fails the suite and is recorded as a divergence.
-- The discovered toolchain versions appear in the run log.
+- `go test -tags c23 ./...` fails with a clear message when any of the three
+  toolchains is missing, and never skips.
+- Every tier runs under all three toolchains; a program accepted by one and
+  rejected by another fails the suite and is recorded as a divergence.
+- The discovered toolchain versions and their default targets appear in the run
+  log.
+- The cross-target tier compiles **and links** at least one non-host target;
+  a compile-only check does not satisfy it, because the musl finding above is a
+  link error.
+- The concurrency tier runs where `<threads.h>` exists and is reported as unrun
+  elsewhere, never as passed.
 - Tier 1 uses `-std=c23 -Wall -Wextra -Werror` and every suppression names its
   owning gap in a comment.
 - `-Wno-maybe-uninitialized` is removed and every instance it was hiding is

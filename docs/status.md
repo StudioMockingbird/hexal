@@ -46,6 +46,7 @@ other.
 
 | Bug | Owning spec |
 |---|---|
+| Generated concurrency runtime does not compile on Windows: `<threads.h>` is unavailable under MinGW-w64 UCRT, `windows-gnu`, and `windows-msvc`, and the `__STDC_NO_THREADS__` guard does not fire because none of those toolchains defines the macro | [0125](specs/0125-external-c23-validation.md) |
 
 ## Unowned
 
