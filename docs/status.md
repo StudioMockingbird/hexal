@@ -28,7 +28,7 @@ other.
 | Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
 | Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
 | Language surface audit dispositions — 34 findings; promote/reject/accept per finding | [0103](specs/0103-language-surface-audit.md) |
-| Affine ownership and Arena/Pool lifetimes | [0110](specs/0110-affine-ownership-and-arenas.md) |
+| Affine ownership and Arena/Pool lifetimes — destructors rejected and cleanup obligations settled; `share`, Arena reset scope, Pool slot syntax, and handle classification remain | [0110](specs/0110-affine-ownership-and-arenas.md) |
 | Native module storage and linkage | [0116](specs/0116-native-module-storage-and-linkage.md) |
 | Restricted compile-time evaluation | [0117](specs/0117-compile-time-evaluation.md) |
 | Concurrency safety and task lifetimes | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
