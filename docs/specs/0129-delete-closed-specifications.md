@@ -247,7 +247,17 @@ historical cross-references.
    under `.tmp/`. Quote the evidence in the temporary ledger.
 4. Mark contradicted or superseded claims explicitly so the same claim is not
    rediscovered and migrated later in the pass.
-5. Stop and ask the user when a conflict would require choosing new language
+5. A claim that is historically true and currently false reaches Git history
+   only. It never reaches `docs/reference.md`. Migrating a stale claim into the
+   normative contract is worse than deleting the specification unread, because
+   the reference is what every later reader trusts.
+6. Consume RFC 0130's Verified sound section rather than re-deriving those
+   claims. Two of the three read as defects on first inspection, and the
+   evidence for each is recorded there.
+7. Look for instructions, not only references. An active specification that
+   tells a reader to edit a terminal one, as RFC 0127 does, is undischargeable
+   after deletion and is disposed of in Phase 3.
+8. Stop and ask the user when a conflict would require choosing new language
    behavior rather than documenting existing behavior.
 
 ### Phase 2: preserve current authority
