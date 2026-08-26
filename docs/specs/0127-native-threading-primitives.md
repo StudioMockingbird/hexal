@@ -217,11 +217,25 @@ No source surface changes.
 - Preserve every lock order, wake count, and ordering rule RFC 0122 states.
 - Keep runtime C in `compiler/generator/packages/*.c` and `*.h`, not Go
   strings.
-- Update RFC 0122's Failure behavior with the Windows unreachability of
-  lifecycle-mutex initialization failure.
+- Preserve the POSIX lifecycle-mutex initialization failure path. The Windows
+  wrappers have no corresponding branch because the selected native
+  initialization operations cannot fail; state that local implementation fact
+  beside those wrappers as a CARE comment rather than editing a closed RFC.
 - Move the open bug this RFC fixes off RFC 0125 in `docs/status.md`.
 
 ## Implementation plan
+
+### Implementation map
+
+| Area | Required work |
+|---|---|
+| `compiler/generator/packages/concurrency.h` | Remove `<threads.h>` and its guard; declare the closed Hexal-owned threading vocabulary and platform-backed embedded types. |
+| `compiler/generator/packages/concurrency.c` | Implement both native branches in the existing platform region; migrate ready queue, blocking pool, Channel, Mutex, Task lifecycle, and detached-thread creation without changing their protocols. |
+| `compiler/generator/concurrency_component.go` | Preserve demand-driven component rendering and provide only the platform-dependent template data actually needed by the package files. |
+| `compiler/generator/concurrency_component_test.go` | Assert exact platform includes, two implementations, complete call-site migration, absence of C11 thread spellings, and unchanged component selection. |
+| existing generator/integration tests | Preserve Task, Channel, Mutex, IO, failure, ordering, and deterministic-output contracts; update expected C only where the primitive spellings legitimately change. |
+| snippet manifest | Rebaseline only snippets selecting the scheduler runtime and prove every other existing artifact hash is unchanged. |
+| `docs/status.md` and canonical review | Remove the owned Windows compilation bug after external gates pass; verify that `docs/reference.md` needs no semantic edit. |
 
 ### Phase 0: baseline and inventory
 
