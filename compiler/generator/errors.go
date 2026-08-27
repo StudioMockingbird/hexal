@@ -128,9 +128,20 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 	errorIndex := node.MemberIndex
 	operandMembers := compilerTypes.UnionMembers(operandUnion)
 	errorMember, _ := operandMembers.At(errorIndex)
+	// The temp copies the operand's real C variable, which keeps its
+	// original (unnarrowed) declared type; declaring temp as the
+	// flow-narrowed OperandType would initialize it from an incompatible
+	// struct type whenever narrowing shrank the union. Tag values and
+	// payload field names are shared across every union containing a given
+	// member, so reading errorMember/success members off the widened temp
+	// below still works unchanged.
+	physicalType := operandUnion
+	if node.OperandStorageType != (compilerTypes.Type{}) {
+		physicalType = node.OperandStorageType
+	}
 
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, operandUnion.CName, temp, operand)
+	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, physicalType.CName, temp, operand)
 	resultType := node.Element
 	resultErrorIndex := -1
 	if compilerTypes.IsError(resultType) {
@@ -170,30 +181,39 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 		return nil
 	}
 	// Multiple success members: a switch materializes the narrowed success
-	// union into one named temporary.
+	// union into one named temporary. The prologue above is rebuilt from
+	// scratch below with the union-result return shape instead of reused,
+	// so the accumulated single-return-shape copy is discarded first.
 	state.tryCounter++
 	resultTemp := fmt.Sprintf("hex_try_result_%d", state.tryCounter)
-	fmt.Fprintf(&builder, "%s%s %s;\n", indent, declaration(success, resultTemp, false), "")
 	builder.Reset()
-	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, operandUnion.CName, temp, operand)
-	if compilerTypes.IsError(resultType) {
-		fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(errorMember))
-		fmt.Fprintf(&builder, "%s    return %s.payload.%s;\n", indent, temp, state.tags.unionPayloadField(errorMember))
-	} else {
-		resultErrorIndex := unionMemberIndex(resultType, compilerTypes.ErrorType)
+	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, physicalType.CName, temp, operand)
+	resultErrorIndex = -1
+	if !compilerTypes.IsError(resultType) {
+		resultErrorIndex = unionMemberIndex(resultType, compilerTypes.ErrorType)
 		if resultErrorIndex < 0 {
 			return unknownExpressionDiagnostic("try result does not accept Error")
 		}
-		resultMembers := compilerTypes.UnionMembers(resultType)
-		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
-		fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(errorMember))
-		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultType.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(resultErrorMember), temp, state.tags.unionPayloadField(errorMember))
 	}
+	fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(errorMember))
+	// The unwind must precede the return so it executes; see the identical
+	// note on the first Error check above.
 	if err := unwindAllDefers(&builder, state, indent, "true"); err != nil {
 		return err
 	}
+	if compilerTypes.IsError(resultType) {
+		fmt.Fprintf(&builder, "%s    return %s.payload.%s;\n", indent, temp, state.tags.unionPayloadField(errorMember))
+	} else {
+		resultMembers := compilerTypes.UnionMembers(resultType)
+		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
+		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultType.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(resultErrorMember), temp, state.tags.unionPayloadField(errorMember))
+	}
 	fmt.Fprintf(&builder, "%s}\n", indent)
-	fmt.Fprintf(&builder, "%s%s;\n", indent, declaration(success, resultTemp, false))
+	// mutable: every switch case below assigns resultTemp exactly once at
+	// runtime, but a const declaration can't express that statically, and
+	// the switch's own default: abort() is what makes every other case
+	// unreachable, not something a const-then-assign pattern could express.
+	fmt.Fprintf(&builder, "%s%s;\n", indent, declaration(success, resultTemp, true))
 	fmt.Fprintf(&builder, "%sswitch (%s.tag) {\n", indent, temp)
 	successMembers := compilerTypes.UnionMembers(success)
 	for index := 0; index < successMembers.Len(); index++ {

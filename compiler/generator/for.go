@@ -132,7 +132,7 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 	if len(statement.Binders) == 2 {
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], indexVariable)
 	}
-	fmt.Fprintf(body, "%s    const %s %s = %s;\n", indent, valueBinder.Type.CName, binderNames[len(binderNames)-1], elementAccess)
+	fmt.Fprintf(body, "%s    %s = %s;\n", indent, declaration(valueBinder.Type, binderNames[len(binderNames)-1], false), elementAccess)
 	body.WriteString(bodyText.String())
 	fmt.Fprintf(body, "%s}\n", indent)
 	return nil
@@ -221,8 +221,8 @@ func renderForDict(body *strings.Builder, statement checker.ForStatement, render
 	if hasIndex {
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
 	}
-	fmt.Fprintf(body, "%s    const %s %s = %s->buckets[%s].key;\n", indent, keyType.CName, binderNames[len(binderNames)-2], loop, bucketVariable)
-	fmt.Fprintf(body, "%s    const %s %s = %s->buckets[%s].value;\n", indent, valueType.CName, binderNames[len(binderNames)-1], loop, bucketVariable)
+	fmt.Fprintf(body, "%s    %s = %s->buckets[%s].key;\n", indent, declaration(keyType, binderNames[len(binderNames)-2], false), loop, bucketVariable)
+	fmt.Fprintf(body, "%s    %s = %s->buckets[%s].value;\n", indent, declaration(valueType, binderNames[len(binderNames)-1], false), loop, bucketVariable)
 	body.WriteString(bodyText.String())
 	fmt.Fprintf(body, "%s}\n", indent)
 	return nil

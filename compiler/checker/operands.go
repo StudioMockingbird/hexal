@@ -137,9 +137,11 @@ const (
 	// from) and Arguments carries the bytes for from.
 	EndianConversionExpression
 	// TryExpression propagates an Error from the enclosing function.
-	// OperandType is the source union; MemberIndex is the Error
-	// member's index; ResultType is the normalized success value or union;
-	// Element is the enclosing function's declared result type.
+	// OperandType is the source union (possibly flow-narrowed);
+	// OperandStorageType is the operand's real declared type when narrowing
+	// applied; MemberIndex is the Error member's index; ResultType is the
+	// normalized success value or union; Element is the enclosing function's
+	// declared result type.
 	TryExpression
 	// PrintExpression is one checked print call; it produces no value and
 	// carries the ordered argument operands.
@@ -344,14 +346,24 @@ type Expression struct {
 	// declaration order: there it is declaration order, matching the
 	// generated struct's field layout, and EvaluationOrder separately
 	// carries the written order for sequencing.
-	Arguments    []Operand
-	Operator     Operator
-	OperandType  compilerTypes.Type
-	ResultType   compilerTypes.Type
-	MemberIndex  int
-	VariantIndex int
-	TestType     compilerTypes.Type
-	MemberMap    []int
+	Arguments   []Operand
+	Operator    Operator
+	OperandType compilerTypes.Type
+	// OperandStorageType is TryExpression-only: the operand's real declared
+	// storage type, when it differs from OperandType because flow narrowing
+	// shrank the union. The generated C variable a narrowed read refers to
+	// keeps its original (wider) declared type -- C has no notion of
+	// shrinking a union's storage to match a narrower static fact -- so the
+	// generator hoists the try's operand using this type rather than the
+	// narrowed OperandType, which would declare an incompatible C struct
+	// type for a plain copy-initialization. Zero when the operand is not a
+	// place or was never narrowed, in which case it equals OperandType.
+	OperandStorageType compilerTypes.Type
+	ResultType         compilerTypes.Type
+	MemberIndex        int
+	VariantIndex       int
+	TestType           compilerTypes.Type
+	MemberMap          []int
 	// EvaluationOrder is non-nil only for AdtConstructExpression: the
 	// indices into Arguments (declaration order) in the order the payload
 	// fields were actually written, for evaluation sequencing.

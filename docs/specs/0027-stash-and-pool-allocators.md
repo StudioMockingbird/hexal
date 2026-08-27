@@ -1,11 +1,11 @@
-# RFC 0027: Arena and Pool Allocators
+# RFC 0027: Typed Stash and Pool Allocators
 
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Implementation-ready; its stateless-Heap prerequisite is implemented
-- Features: explicit Arena allocation, typed Pool allocation, region release,
-  and allocator passing
+- Features: independent typed Stash allocation, typed Pool allocation, and
+  bulk region release
 - Created: 2026-08-11
-- Updated: 2026-08-25
+- Updated: 2026-08-27
 - Depends on: the implemented stateless default Heap (`hex_heap`, a one-byte
   token with no runtime identity; see `docs/reference.md`'s Allocation and
   lifetime section) and the current pointer, collection, cleanup, and
@@ -18,35 +18,46 @@
 - Accepted Pool cost: one live byte plus one `Size` free-stack entry per slot,
   in addition to T storage; the uniform O(1) representation is preferred over
   type-dependent reuse of free-slot payload bytes
-- Accepted Arena cost: `reset()` retains and rewinds the complete high-water
-  block chain; only `destroy()` releases it
+- Accepted Stash cost: `reset()` retains and rewinds the complete high-water
+  block chain; only `destroy()` releases it. A union-typed Stash allocates every
+  entry at that union's maximum payload size and alignment.
 
 ## Summary
 
-Hexal adds two concrete allocator families alongside `Heap`:
+Hexal adds two independent concrete allocator families alongside `Heap`:
 
 ```hexal
-h: Heap := Heap.new()
+stash := Stash<Node>.new()
+defer stash.destroy()
 
-arena: Arena := Arena.new(h)
-defer arena.destroy()
-
-nodes: Pool<Node> := Pool<Node>.new(h, 128)
+nodes := Pool<Node>.new(128)
 defer nodes.destroy()
 ```
 
-`Arena` serves variable-size allocations and releases all of its storage as one
-region. `Pool<T>` owns a fixed number of reusable slots for one concrete `T`
-and supports individual allocation and release.
+`Stash<T>` grows as needed, allocates only one canonical `T`, and releases all
+of its storage as one region. `Pool<T>` owns a fixed number of reusable slots
+for one concrete `T` and supports individual allocation and release.
+
+A Stash becomes heterogeneous only through an explicit sum type:
+
+```hexal
+type Item = Node | Edge
+items := Stash<Item>.new()
+```
+
+Every allocation still stores one `Item` and returns `MutPtr<Item>`. Normal
+union injection, narrowing, and matching govern the concrete member. This
+keeps the allocator type honest and makes the broader representation cost
+visible in the source type.
 
 The allocators are built-in concrete types. This RFC adds no allocator trait,
 capability syntax, virtual dispatch, or user-defined allocator implementation.
 
 ## Goals
 
-1. Preserve explicit allocator passing.
+1. Keep Stash and Pool construction independent of an explicit parent Heap.
 2. Reuse the reference's current initialization, provenance, and cleanup rules.
-3. Make region allocation cheap and simple.
+3. Make typed bulk-lifetime allocation cheap and simple.
 4. Make fixed-type, fixed-capacity allocation predictable.
 5. Keep existing String, List, Dict, Channel, and Mutex allocation Heap-only.
 6. Build directly on the stateless default Heap's allocation operations
@@ -57,87 +68,93 @@ capability syntax, virtual dispatch, or user-defined allocator implementation.
 The current tree has exactly one allocator type, `Heap`, represented as a
 stateless one-byte token (`hex_heap`) with no runtime identity metadata.
 `String`, List, Dict, Channel, and Mutex still accept `Heap` exactly. There is
-no allocator trait, descriptor, union, overload, or allocator type parameter to
-which `Arena` can be passed.
+no allocator trait, descriptor, overload, or allocator type parameter to which
+`Stash<T>` can be passed.
 
 The current language also uses shallow copies and local freed-state checking.
 It has no affine owner, generation-bearing Pool slot, general unsafe boundary,
 or proof that every alias dies before reset, release, or destroy. This RFC must
 not claim stronger stale-pointer detection than that model can implement.
 
-`Arena` and `Pool` remain excluded from the language until this RFC is
+`Stash<T>` and `Pool<T>` remain excluded from the language until this RFC is
 implemented and synchronized into `docs/reference.md`.
 
-## Arena
+## Stash<T>
 
-An Arena is a runtime owner whose storage comes from the one default `Heap`:
+A Stash is an independent, type-specific runtime owner backed internally by
+Hexal's default allocation primitives:
 
 ```hexal
-h: Heap := Heap.new()
-arena: Arena := Arena.new(h)
-defer arena.destroy()
+stash := Stash<Node>.new()
+defer stash.destroy()
 ```
 
-`Arena.new(h)` allocates its control state and defers its first data block until
-the first allocation. Heap is a stateless default-allocator token; the Arena
-retains no allocator descriptor or function table. The explicit Heap argument
-is evaluated and type-checked but has no runtime identity.
+`Stash<T>.new()` allocates control state for exactly one complete canonical T
+and defers its first data block until the first allocation. The state records
+T's size and alignment once. The Stash retains no parent Heap, allocator
+descriptor, or function table. Default allocation is the constructor's fixed
+internal backing policy, not a user-selectable fallback.
 
 Allocation uses the current explicit initialized form:
 
 ```hexal
-node: MutPtr<Node> := arena.allocate<Node>(Node { value = 1 })
+node := stash.allocate(Node { value = 1 })
 ```
 
-An Arena allocation cannot be individually released:
+`allocate(initial)` accepts a value assignable to T and returns `MutPtr<T>`.
+The method accepts no type arguments; the receiver fixes the allocation type.
+For union T, ordinary contextual union injection admits one member value while
+the result remains `MutPtr<T>`.
+
+A Stash allocation cannot be individually released:
 
 ```hexal
-arena.free(node)
-// Error: Arena allocations are released by reset or destroy
+stash.free(node)
+// Error: Stash allocations are released by reset or destroy
 ```
 
-`arena.reset()` invalidates every allocation made since construction or the
+`stash.reset()` invalidates every allocation made since construction or the
 previous reset. It rewinds every allocated block and retains all of them for
 reuse; it neither zeroes nor releases payload storage. Repeated frame/request
 workloads therefore reuse their high-water allocation without a free/reallocate
-cycle. Retained peak memory is an accepted Arena cost; `destroy()` is the
+cycle. Retained peak memory is an accepted Stash cost; `destroy()` is the
 operation that releases it.
 
-`arena.destroy()` invalidates every remaining allocation and releases every
+`stash.destroy()` invalidates every remaining allocation and releases every
 block plus control state. The programmer must ensure that no allocation or View
-from the Arena is used after reset or destroy.
+from the Stash is used after reset or destroy.
 
-Arena allocations are aligned for their concrete allocated type. Construction,
-growth, unrepresentable size/alignment, and allocation failure trap under the
-same policy as `Heap.allocate`; this RFC adds no recoverable allocation Error.
+Stash allocations are aligned for T. Construction, growth, unrepresentable
+size/alignment, and allocation failure trap under the same policy as
+`Heap.allocate`; this RFC adds no recoverable allocation Error.
 
 The checker rejects a reset/destroy followed by a use through the same locally
-tracked Arena allocation or View, including all-path branch facts. Aliased,
+tracked Stash allocation or View, including all-path branch facts. Aliased,
 escaped, parameter-reached, member-reached, and collection-reached pointers use
 the current undecided-case policy: they are not proven safe and receive no
-guaranteed runtime stale-pointer diagnostic. Arena dereferences gain no runtime
+guaranteed runtime stale-pointer diagnostic. Stash dereferences gain no runtime
 generation check. Because reset deliberately does not zero retained blocks, an
 unchecked stale alias may appear to observe an old value until that storage is
 reused; no stale-read result or detection is guaranteed.
 
 ## Library-allocation boundary
 
-V1 does not make Arena a general library allocator. These remain Type Errors:
+V1 does not make Stash a general library allocator. These remain Type Errors:
 
 ```hexal
-List<Int32>.new(arena)
-Dict<Int32, Int32>.new(arena)
-"text".to_string(arena)
-Channel<Int32>.new(arena, 4)
-Mutex.new(arena)
+List<Int32>.new(stash)
+Dict<Int32, Int32>.new(stash)
+"text".to_string(stash)
+Channel<Int32>.new(stash, 4)
+Mutex.new(stash)
 ```
 
 String, List, Dict, Channel, and Mutex keep their exact Heap signatures and C
 representations. No allocator trait, function-pointer descriptor, family tag,
 constructor overload, or allocator type parameter is introduced.
 
-An Arena allocation may contain handles to separately owned resources. Reset
-and destroy release only Arena bytes; they do not invoke cleanup for stored
+A Stash allocation may contain handles to separately owned resources. Reset
+and destroy release only Stash bytes; they do not invoke cleanup for stored
 values. The programmer cleans those resources before invalidating the region.
 
 ## Pool<T>
@@ -146,14 +163,13 @@ values. The programmer cleans those resources before invalidating the region.
 type and one fixed runtime `Size` capacity:
 
 ```hexal
-h: Heap := Heap.new()
-nodes: Pool<Node> := Pool<Node>.new(h, 128)
+nodes := Pool<Node>.new(128)
 defer nodes.destroy()
 ```
 
 Capacity must be positive and fit the implementation's supported allocation
-size. Pool construction allocates its control state and slot storage through
-the supplied Heap.
+size. Pool construction allocates its control state and slot storage directly
+through Hexal's default allocation primitives. It retains no parent Heap.
 
 ```hexal
 node: MutPtr<Node> := nodes.allocate(Node { value = 1 })
@@ -178,7 +194,7 @@ Pool's storage and logically invalidates every copied Pool handle. Destroying a
 non-empty Pool is a defined runtime allocation-state failure.
 
 `Pool<T>` is not a general variable-size allocator. It cannot back String,
-List, Dict, Channel, Mutex, Arena blocks, or a `Pool<U>` where `U` differs
+List, Dict, Channel, Mutex, Stash blocks, or a `Pool<U>` where `U` differs
 canonically from `T`. This avoids hidden fallback allocations and variable-size
 behavior in a fixed-slot abstraction.
 
@@ -189,7 +205,7 @@ or destroys stored T values.
 
 ## Copying and lifetime
 
-Arena and Pool follow the reference's current shallow-copy rule. Assignment,
+Stash and Pool follow the reference's current shallow-copy rule. Assignment,
 argument passing, return, and aggregate storage copy the handle; all copies
 refer to the same allocator state. No copy owns the state independently.
 
@@ -205,10 +221,10 @@ create ownership and does not change allocator behavior.
 
 ## Thread safety
 
-- Heap is thread-safe; Arena and Pool are not. One Arena's bump state and one
+- Heap is thread-safe; Stash and Pool are not. One Stash's bump state and one
   Pool's slot/free-stack state must not be mutated concurrently by multiple
   Tasks unless an external synchronization operation orders every access.
-- Shallow copying an Arena or Pool handle does not add synchronization.
+- Shallow copying a Stash or Pool handle does not add synchronization.
   Cooperative scheduling does not make a shared handle safe because Tasks may
   run in parallel on different scheduler workers.
 - This RFC adds no cross-task alias analysis and no runtime race detector. A
@@ -224,10 +240,10 @@ create ownership and does not change allocator behavior.
 Allocator cleanup uses ordinary `defer`:
 
 ```hexal
-arena: Arena := Arena.new(h)
-defer arena.destroy()
+stash := Stash<Node>.new()
+defer stash.destroy()
 
-pool: Pool<Node> := Pool<Node>.new(h, 64)
+pool := Pool<Node>.new(64)
 defer pool.destroy()
 ```
 
@@ -239,46 +255,50 @@ same state again.
 ## Exact source API
 
 ```text
-Arena.new(heap: Heap) -> Arena
-Arena.allocate<T>(initial: T) -> MutPtr<T>
-Arena.reset() -> no value
-Arena.destroy() -> no value
+Stash<T>.new() -> Stash<T>
+Stash<T>.allocate(initial: T) -> MutPtr<T>
+Stash<T>.reset() -> no value
+Stash<T>.destroy() -> no value
 
-Pool<T>.new(heap: Heap, capacity: Size) -> Pool<T>
+Pool<T>.new(capacity: Size) -> Pool<T>
 Pool<T>.allocate(initial: T) -> MutPtr<T>
 Pool<T>.free(pointer: Ptr<T> | MutPtr<T>) -> no value
 Pool<T>.destroy() -> no value
 ```
 
-- `Arena` and `Pool` become protected names; `Pool` requires exactly one type
-  argument wherever used.
-- `Arena.allocate<T>` applies the exact `HeapAllocation` eligibility and
-  explicit-initializer rules of `Heap.allocate<T>`.
-- `Pool<T>` requires complete, finite, copyable `T` valid for HeapAllocation;
-  direct Atomic and function-value slots remain invalid.
+- `Stash` and `Pool` become protected names; each requires exactly one type
+  argument wherever used. Bare `Stash` and bare `Pool` are invalid types.
+- `Stash<T>` and `Pool<T>` require complete, finite, copyable `T` valid for
+  HeapAllocation; direct Atomic and function-value elements remain invalid.
+- `Stash<T>.allocate` has no explicit type arguments. Its initializer must be T
+  or contextually inject into union T, and its result is always `MutPtr<T>`.
 - A constant zero Pool capacity is rejected statically. A dynamic zero capacity
   traps. Unrepresentable capacity/size and construction failure trap.
-- Arena/Pool handles are pointer-sized, shallow-copyable aliases under the
+- Stash/Pool handles are pointer-sized, shallow-copyable aliases under the
   current language contract. `mut` changes only binding reassignment.
 - `destroy()` ends allocator state. It is distinct from
   `Pool.free(pointer)`, which releases one slot.
-- The Heap argument belongs only to construction, where source code explicitly
-  selects the allocation source. Destruction needs only the owning Arena/Pool
-  state; repeating the one stateless Heap token could not affect cleanup.
+- Construction always uses Hexal's default allocation primitives. Stash and
+  Pool expose no parent-allocator argument and retain no parent allocator.
+- Constructor calls determine their result types, so an explicit binding type
+  is unnecessary: `stash := Stash<Node>.new()` and
+  `nodes := Pool<Node>.new(capacity)` infer `Stash<Node>` and `Pool<Node>`.
 
 ## C23 representation
 
-- `Arena` is `hex_arena *`. Its control block owns a linked list of blocks and
-  the current bump position.
+- Every `Stash<T>` value is `hex_stash *`. Its control block owns a linked list
+  of blocks, the current bump position, and the one immutable size/alignment
+  pair established for T by the typed constructor.
 - The first allocation creates a 4096-byte data block or the smallest larger
   checked capacity satisfying that allocation, whichever is greater.
 - Later growth doubles the previous block capacity until it satisfies the
   checked request; if doubling is unrepresentable, it uses the exact checked
-  required capacity. Blocks use the Heap's non-zeroing allocation operation
+  required capacity. Blocks use the default non-zeroing allocation operation
   (`hex_heap_allocate`) because every returned T receives an explicit
   initializer.
-- Allocation aligns the bump position for `T`, checks every addition, writes
-  the initializer exactly once, and advances the bump position.
+- Allocation uses the state’s fixed T alignment and size, checks every
+  addition, writes the T initializer exactly once, and advances the bump
+  position. No allocation call supplies or changes a runtime type descriptor.
 - Reset rewinds every block, sets the current block to the first, and retains
   the complete block chain without zeroing. Allocation reuses retained blocks
   in chain order before growing. Destroy frees every block and the control state.
@@ -294,11 +314,12 @@ Pool<T>.destroy() -> no value
   slot alignment, and live state before pushing the index.
 - Pool destroy traps when `free_count != capacity`; otherwise it frees slot,
   live-state, free-index, and control allocations.
-- Arena and Pool runtime cores live in `generator/packages/arena.c/.h` and
-  `pool.c/.h`; typed allocation/Pool helpers follow existing constructed-type
-  ownership so module-owned `T` never leaks into a program-wide header.
-- No allocator descriptor, virtual dispatch, hidden fallback allocation, or
-  runtime generation check is emitted.
+- Stash and Pool runtime cores live in `generator/packages/stash.c/.h` and
+  `pool.c/.h`; typed Stash constructor/allocation helpers and Pool helpers
+  follow existing constructed-type ownership so module-owned `T` never leaks
+  into a program-wide header.
+- No parent-allocator state, allocator descriptor, virtual dispatch, alternate
+  backing path, or runtime generation check is emitted.
 - Every size multiplication, alignment calculation, block growth, and pointer
   offset is checked before allocation or pointer formation.
 
@@ -307,8 +328,14 @@ Pool<T>.destroy() -> no value
 - Invalid type arguments, missing initializers, wrong allocator families,
   unsupported methods, and locally proved stale uses are Type Errors owned by
   the checker.
-- `arena.free(pointer)` reports `Arena allocations are released by reset or
+- `stash.free(pointer)` reports `Stash allocations are released by reset or
   destroy`.
+- Bare or wrongly parameterized Stash reports
+  `Stash requires exactly one element type`.
+- `stash.allocate<U>(value)` reports
+  `Stash allocation accepts no type arguments; its element type is fixed by the receiver`.
+- An initializer that cannot initialize T reports the ordinary expected-T type
+  mismatch; union T first applies ordinary contextual union injection.
 - Constant zero Pool capacity reports `Pool capacity must be positive`.
 - Destroy with a directly tracked live Pool slot reports `Pool cannot be
   destroyed while a locally tracked slot is live`; unknown aliases remain a
@@ -325,31 +352,37 @@ Pool<T>.destroy() -> no value
 [Runtime Error] pool destroy with live slots
 ```
 
-Each generated message ends with `\n`. Arena allocation uses the existing Heap
-size/failure messages. No allocation, reset, release, or destroy returns Error.
+Each generated message ends with `\n`. Stash and Pool use the existing default
+allocation size/failure messages. No allocation, reset, release, or destroy
+returns Error.
 
 ## Deferred work
 
 - Recoverable allocation exhaustion through Error values.
-- Arena construction backed by another Arena.
 - Dynamically growing Pools.
-- Thread-safe Arena and Pool variants.
+- Thread-safe Stash and Pool variants.
 - Region-owned typed destructor registration.
 - User-defined allocators and a public allocator interface.
-- Stack-backed Arena storage.
+- Stack-backed Stash storage.
 - Pool iteration and diagnostics exposing live slots.
+
+`Stash<T>.new()` permanently denotes default-backed construction. Any later
+stack-backed Stash uses a distinct constructor name; it does not overload or
+change the zero-argument constructor.
 
 ## Required sweep
 
 - Treat the stateless Heap (`hex_heap`, a one-byte token; see
   `docs/reference.md`) as this RFC's baseline. Do not repeat, amend, or
   partially reimplement its runtime representation here.
-- Keep String/List/Dict/Channel/Mutex signatures Heap-only and reject Arena or
+- Reuse the default Heap allocation primitives internally, but expose no Heap
+  argument in Stash or Pool construction and store no parent allocator.
+- Keep String/List/Dict/Channel/Mutex signatures Heap-only and reject Stash or
   Pool arguments; add no allocator descriptor scaffolding.
 - Reuse existing constructed-type interning, C-name collision handling,
   component ownership, position eligibility, freed-state flow, and defer
   capture machinery instead of parallel implementations.
-- Extend cleanup flow only with Arena reset/destroy and Pool free/destroy
+- Extend cleanup flow only with Stash reset/destroy and Pool free/destroy
   invalidation facts. Do not infer aliases beyond the reference's current local
   boundary.
 - Keep runtime templates as `.c`/`.h` files under `generator/packages`, never Go
@@ -361,12 +394,12 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
 
 | Area | Required work |
 |---|---|
-| `compiler/types` | Register protected Arena and canonical `Pool<T>` construction, eligibility, identity, C names, and ownership classification. |
+| `compiler/types` | Register protected names and canonical `Stash<T>`/`Pool<T>` construction, eligibility, identity, C names, and ownership classification. |
 | `compiler/checker/alloc.go` and flow state | Check all APIs, reuse HeapAllocation rules, record reset/release/destroy effects, integrate defer and branch merges, and preserve the local-analysis boundary. |
 | checker/generator dispatch coverage | Add explicit nodes for every new operation and fail closed for invalid metadata. |
-| new Arena/Pool component models and `generator/packages/arena.*`, `pool.*` | Emit demand-driven runtime cores and typed helpers with existing component ownership. |
+| new Stash/Pool component models and `generator/packages/stash.*`, `pool.*` | Emit demand-driven runtime cores and typed helpers with existing component ownership. |
 | unit/integration/component tests | Cover type construction, flow diagnostics, generated layouts, component selection, C ordering, deterministic output, and every Validation item. |
-| workbench snippets and manifest | Add focused Arena/Pool snippets; existing entries must not change. |
+| workbench snippets and manifest | Add focused Stash/Pool snippets; existing entries must not change. |
 
 ### Phase 0: baseline and migration inventory
 
@@ -376,40 +409,44 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
    unchanged controls.
 3. Inventory allocator type registration, HeapAllocation eligibility,
    constructed-type ownership, lifetime flow, cleanup capture, and component
-   discovery paths that Arena or Pool must reuse.
-4. Add focused rejected-source probes for Arena/Pool names before registration,
+   discovery paths that Stash or Pool must reuse.
+4. Add focused rejected-source probes for Stash/Pool names before registration,
    then retain them as the before/after language boundary.
 
-### Phase 1: register Arena and Pool types
+### Phase 1: register Stash and Pool types
 
-1. Add protected `Arena` and constructed `Pool<T>` identities in
+1. Add constructed `Stash<T>` and `Pool<T>` identities in
    `compiler/types`, including canonical keys, display/C names, placement,
    copyability, equality/print rejection, and program/module ownership.
-2. Extend type-use resolution for exactly one Pool argument and reserve both
-   protected names in every environment.
+2. Extend type-use resolution for exactly one argument on both families and
+   reserve both protected names in every environment. Reject bare Stash/Pool.
 3. Add checked expression kinds and metadata for constructors, allocate, reset,
    free, and destroy; include them in fail-closed checker/generator dispatch.
 4. Reuse HeapAllocation eligibility after generic substitution.
 
 ### Phase 2: checker lifetime and diagnostics
 
-1. Extend the existing freed-state lattice with Arena reset/destroy facts and
+1. Extend the existing freed-state lattice with Stash reset/destroy facts and
    Pool slot/pool-destroy facts for directly tracked bindings.
 2. Integrate the new effects with branch merges, loops, assignment versions,
    `defer`, and use-after-release checks without adding alias analysis.
-3. Add exact diagnostics for invalid methods, wrong arguments, zero capacity,
-   Arena individual release, Pool element mismatch, local stale use, repeated
-   cleanup, and library constructors receiving non-Heap allocators.
+3. Add exact diagnostics for invalid methods, Stash/Pool type-argument and
+   constructor errors, explicit type arguments on Stash allocation, Stash or
+   Pool element mismatch, zero Pool capacity, Stash individual release, local
+   stale use, repeated cleanup, and library constructors receiving non-Heap
+   allocators.
 4. Verify copied/escaped aliases retain the documented undecided acceptance.
 
-### Phase 3: Arena runtime and lowering
+### Phase 3: Stash runtime and lowering
 
-1. Add `arena.h/.c` templates with control/block lifecycle, checked block growth,
-   bump alignment, whole-chain reset retention, and destruction.
-2. Add typed Arena allocation helpers at the module/program location selected
-   by the allocated type.
-3. Add the Arena render model, demand discovery, include ordering, and component
-   tests; no Arena use emits Pool or collection allocator machinery.
+1. Add `stash.h/.c` templates with immutable element size/alignment, control and
+   block lifecycle, checked block growth, bump alignment, whole-chain reset
+   retention, and destruction.
+2. Add typed Stash constructor/allocation helpers at the module/program
+   location selected by T. Construction records `sizeof(T)` and `_Alignof(T)`
+   once; allocation supplies only the initializer.
+3. Add the Stash render model, demand discovery, include ordering, and component
+   tests; no Stash use emits Pool or collection allocator machinery.
 
 ### Phase 4: Pool runtime and lowering
 
@@ -425,16 +462,16 @@ size/failure messages. No allocation, reset, release, or destroy returns Error.
 
 1. Implement every Validation item below and no additional behavior.
 2. Rebuild the snippet manifest once. No existing entry changes hash; the
-   manifest gains entries only for new Arena/Pool snippets.
+   manifest gains entries only for new Stash/Pool snippets.
 3. Update `docs/reference.md` once with the grammar/type/API/lifetime/C23 rules;
-   remove Arena/Pool from Excluded features without restating the Heap
+   remove Stash/Pool from Excluded features without restating the Heap
    contract already stated there.
 4. Run `gofmt`, `go test ./...`, `go vet ./...`, and
    `go vet -tags c23 ./...`.
 5. Rebuild and restart the workbench.
 6. Remove this RFC from open status, mark it Closed with an execution summary,
-   and delete it in the same change only after code, tests, artifacts, and
-   canonical docs agree.
+   and move it to `docs/specs/archive/` in the same change only after code,
+   tests, artifacts, and canonical docs agree.
 
 ## Validation
 
@@ -442,15 +479,27 @@ This section is exhaustive.
 
 ### Type and checker validation
 
-- `Arena` and `Pool` are protected; Pool requires exactly one complete finite
-  copyable HeapAllocation-valid type after substitution.
-- Arena/Pool handles copy shallowly and remain invalid for equality, ordering,
+- `Stash` and `Pool` are protected; each requires exactly one complete, finite,
+  copyable HeapAllocation-valid type after substitution. Bare Stash/Pool,
+  zero/multiple arguments, Unknown, direct Atomic, and function elements are
+  rejected.
+- `Stash<T>.new()` accepts no arguments and infers `Stash<T>` for an inferred
+  binding; passing a Heap or any other value argument is rejected.
+- `Pool<T>.new(capacity)` accepts exactly one `Size` argument and infers
+  `Pool<T>` for an inferred binding; the former Heap-plus-capacity shape and
+  every other arity are rejected.
+- Stash/Pool handles copy shallowly and remain invalid for equality, ordering,
   hashing, and print.
-- Arena allocate requires one explicit initializer and rejects Unknown, direct
-  Atomic, function values, and every existing HeapAllocation-invalid type.
-- Arena has only `allocate`, `reset`, and `destroy`; individual `free(pointer)`
-  is rejected with `Arena allocations are released by reset or destroy`.
-- Arena reset permits later allocation. Directly tracked old allocations and
+- `Stash<T>.allocate(initial)` requires one initializer assignable to T,
+  accepts no explicit method type arguments, and always returns `MutPtr<T>`.
+- A union-typed Stash accepts each union member through ordinary contextual
+  injection, rejects values outside that union, and still returns a pointer to
+  the union rather than a pointer to the injected member.
+- `Stash<Int32>` and `Stash<Int64>` are distinct Hexal types; handles and
+  allocations cannot cross between them.
+- Stash has only `allocate`, `reset`, and `destroy`; individual `free(pointer)`
+  is rejected with `Stash allocations are released by reset or destroy`.
+- Stash reset permits later allocation. Directly tracked old allocations and
   Views reject use after reset/destroy; directly tracked handles reject use or
   repeated destroy after destroy.
 - Pool construction rejects constant zero capacity; dynamic zero,
@@ -466,33 +515,46 @@ This section is exhaustive.
 - Copied, parameter, member, collection, and escaped pointer/handle aliases
   remain outside local tracking and are accepted consistently with current Heap
   policy; no diagnostic claims generation safety.
-- This RFC introduces no concurrency-specific rejection: sharing one Arena or
+- This RFC introduces no concurrency-specific rejection: sharing one Stash or
   Pool across Tasks remains governed by the documented unsynchronized-conflict
   boundary until RFC 0118 supplies its static ownership/unsafe rules.
-- String/List/Dict/Channel/Mutex constructors and cleanup reject Arena and Pool
+- Stash and Pool operations emit no lock, atomic, or other synchronization
+  primitive; adding implicit synchronization violates this RFC.
+- String/List/Dict/Channel/Mutex constructors and cleanup reject Stash and Pool
   and continue to accept Heap exactly.
-- `defer arena.destroy()`, `defer pool.destroy()`, and deferred Pool slot free
+- `defer stash.destroy()`, `defer pool.destroy()`, and deferred Pool slot free
   capture receiver and arguments once and participate in existing duplicate
   cleanup checking.
 
 ### Generated-C validation
 
-- Arena emits one component pair only when selected, uses the specified 4096
+- Stash and Pool construction calls the default allocation primitives directly;
+  neither generated state nor generated constructor signatures contain a Heap
+  value or parent-allocator field.
+- Each Stash constructor records exactly one immutable `sizeof(T)` and
+  `_Alignof(T)` pair in the state. Allocation reuses that pair and emits no
+  per-allocation type tag, descriptor, size, or alignment argument.
+- Distinct `Stash<T>` source types may share the `hex_stash *` handle
+  representation, but typed constructor/allocation helper identities include
+  canonical T. Same-named nominal types from different modules never collide.
+- Stash emits one component pair only when selected, uses the specified 4096
   minimum/doubling policy, retains and rewinds every block without zeroing on
   reset, reuses retained blocks before growth, and frees all state on destroy.
-- Arena allocation applies `_Alignof(T)` and `sizeof(T)`, checks padding and
-  capacity before pointer formation, and evaluates/writes the initializer once.
+- Stash allocation uses the recorded `_Alignof(T)` and `sizeof(T)`, checks
+  padding and capacity before pointer formation, and evaluates/writes the
+  initializer once.
 - Pool emits one core component and exactly one correctly owned specialization
   per canonical T; same-named types from different modules never collide.
 - Pool construction uses checked sizes; allocation/release are O(1); release
   validates Pool range, slot boundary, and live byte before changing state.
 - Pool exhaustion and non-empty destroy emit distinct defined runtime traps.
-- Arena reset/destroy and Pool free/destroy never invoke cleanup for stored T or
+- Stash reset/destroy and Pool free/destroy never invoke cleanup for stored T or
   handles contained by T.
-- No allocator descriptor, function-pointer dispatch, family tag, Pool
-  generation, Arena-backed collection path, or hidden Heap fallback is emitted.
+- No parent-allocator state, allocator descriptor, function-pointer dispatch,
+  family tag, Pool generation, Stash-backed collection path, or alternate
+  backing path is emitted.
 - Existing Heap, collection, concurrency, and IO artifacts remain
-  byte-identical. The manifest gains entries only for new Arena/Pool snippets;
+  byte-identical. The manifest gains entries only for new Stash/Pool snippets;
   repeated compilation is byte-identical.
 - Ordinary tests remain pure Go. Runtime trap firing remains a known coverage
   gap until RFC 0055 can execute generated programs.
@@ -502,13 +564,21 @@ This section is exhaustive.
 
 After behavior stabilizes, update `docs/reference.md` once to:
 
-- add Arena and Pool to protected/core types and remove them from exclusions;
+- add `Stash<T>` and `Pool<T>` to protected/core types and remove them from
+  exclusions;
 - add the exact APIs, type eligibility, shallow-copy, local invalidation,
   allocator-family restrictions, Pool alias limitation, and trap contracts;
-- state that Arena and Pool are not thread-safe, shallow copies add no
+- state that each Stash has one canonical T, `allocate` has no type arguments,
+  and heterogeneous storage requires an explicit union T;
+- state that Stash and Pool constructors take no Heap argument and always use
+  the default allocation primitives internally;
+- narrow the existing no-hidden-allocator rule to Heap-backed library values;
+  Stash and Pool are independent allocator roots, not Heap-backed library
+  values;
+- state that Stash and Pool are not thread-safe, shallow copies add no
   synchronization, and RFC 0118 owns cross-task rejection/unsafe rules;
 - state that library allocations remain Heap-only;
-- record Arena and Pool C23 representation contracts without implementation
+- record Stash and Pool C23 representation contracts without implementation
   walkthroughs or examples.
 
 No canonical documentation changes before implementation.

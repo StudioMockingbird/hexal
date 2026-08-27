@@ -536,15 +536,15 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 		}
 		if state.seekIO {
 			emit("hex_io_", "hex_io",
-				"hex_io_seek_start(stream, to.payload.hex_m_position)",
-				"hex_io_seek_current(stream, to.payload.hex_m_offset)",
-				"hex_io_seek_end(stream, to.payload.hex_m_offset)")
+				"hex_io_seek_start(stream, to.payload.Start.hex_m_position)",
+				"hex_io_seek_current(stream, to.payload.Current.hex_m_offset)",
+				"hex_io_seek_end(stream, to.payload.End.hex_m_offset)")
 		}
 		if state.seekBytes {
 			emit("hex_bytes_", "hex_bytes *",
-				"hex_bytes_seek_from(stream, 0u, (int64_t)to.payload.hex_m_position)",
-				"hex_bytes_seek_from(stream, 1u, to.payload.hex_m_offset)",
-				"hex_bytes_seek_from(stream, 2u, to.payload.hex_m_offset)")
+				"hex_bytes_seek_from(stream, 0u, (int64_t)to.payload.Start.hex_m_position)",
+				"hex_bytes_seek_from(stream, 1u, to.payload.Current.hex_m_offset)",
+				"hex_bytes_seek_from(stream, 2u, to.payload.End.hex_m_offset)")
 		}
 	}
 

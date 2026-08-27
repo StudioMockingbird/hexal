@@ -234,6 +234,67 @@
       ]},
       "features": ["errors", "try-errdefer", "defer"],
       "reservedWords": ["fun", "defer", "errdefer", "if", "then", "return", "nil", "end", "do"]
+    },
+    {
+      "id": "errors-try-multi-union",
+      "name": "Try with multiple successes",
+      "description": "Use try on a union with several success members; Error is stripped and the full success union is preserved.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun fetch(): Int32 | Float32 | Error do",
+        "    return 1",
+        "end",
+        "fun handle(): Int32 | Error do",
+        "    value: Int32 | Float32 := try fetch()",
+        "    if value is Int32 then",
+        "        return value",
+        "    end",
+        "    return 0",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer", "unions"],
+      "reservedWords": ["fun", "return", "end", "do", "try", "is", "if", "then"]
+    },
+    {
+      "id": "errors-try-statement-payload",
+      "name": "Try statement discards payload",
+      "description": "Use try as a statement to propagate Error while discarding a payload success value.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun read_value(): Int32 | Error do",
+        "    return 7",
+        "end",
+        "fun run(): Int32 | Error do",
+        "    try read_value()",
+        "    return 1",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer"],
+      "reservedWords": ["fun", "return", "end", "do", "try"]
+    },
+    {
+      "id": "errors-try-unwinds-through-cleanup",
+      "name": "Try unwinds through cleanup",
+      "description": "Propagating try runs both errdefer and defer in reverse order on the Error path.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun cleanup(value: Int32) do",
+        "end",
+        "fun risky(fail: Bool): Int32 | Error do",
+        "    if fail then",
+        "        return Error.new(\"Risk\", \"failed\")",
+        "    end",
+        "    return 10",
+        "end",
+        "fun demo(): Int32 | Error do",
+        "    errdefer cleanup(1)",
+        "    defer cleanup(2)",
+        "    value: Int32 := try risky(true)",
+        "    return value",
+        "end"
+      ]},
+      "features": ["errors", "try-errdefer", "defer"],
+      "reservedWords": ["fun", "return", "end", "do", "if", "then", "try", "errdefer", "defer"]
     }
   ]
 }

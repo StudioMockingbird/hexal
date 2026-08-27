@@ -53,7 +53,7 @@ func arrayComponentRecordFor(array compilerTypes.Type, viewState *generatedViewS
 	return arrayComponentRecord{
 		CName:           array.CName,
 		Suffix:          arrayAccessorSuffix(array),
-		ElementSpelling: pointerSpelling(element),
+		ElementSpelling: typeSpelling(element),
 		Length:          array.Array.Length,
 		ViewCName:       viewCName,
 		NeedsAt:         demand.read,

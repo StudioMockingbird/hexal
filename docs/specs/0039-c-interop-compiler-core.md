@@ -12,8 +12,8 @@
   source pointer arithmetic), RFC 0034 (modules), RFC 0035 (copying and manual
   lifetimes), RFC 0036 (`Size`), RFC 0038 (conversion), RFC 0043
   (pointer-length View bridge), and RFC 0044 (String/Byte conformance)
-- Coordinates with: RFC 0052 (target profiles), RFC 0110 (affine ownership and
-  arenas), and ADR 0055 (filesystem and build driver)
+- Coordinates with: RFC 0052 (C compiler backend and target profiles), RFC 0110
+  (affine ownership and Stashes), and ADR 0055 (filesystem and build driver)
 
 ## Author note for the detailed design pass
 
@@ -89,9 +89,9 @@ contract fails closed or requires an unsafe declaration. Unsafe code may call
 safe code, but safe code cannot silently acquire an unsafe pointer, layout, or
 ownership capability.
 
-Foreign ownership annotations must compose with the affine ownership and arena
+Foreign ownership annotations must compose with the affine ownership and stash
 rules introduced by RFC 0110. A foreign allocator may transfer ownership only
-through a declared deallocator contract; Hexal `Heap`, `Arena`, and `Pool`
+through a declared deallocator contract; Hexal `Heap`, `Stash<T>`, and `Pool<T>`
 never reclaim foreign storage by accident, and foreign deallocators never
 receive Hexal-managed storage without an explicit compatibility contract.
 
@@ -413,7 +413,7 @@ Default mapping without a trusted non-null contract:
   allocator translation.
 - Foreign allocations must be released through their matching foreign
   deallocator.
-- Heap, Arena, Pool, and collection cleanup never release foreign allocations
+- Heap, Stash, Pool, and collection cleanup never release foreign allocations
   unless a future explicit allocator-compatibility contract permits it.
 - Imported C deallocators never receive Hexal-managed storage by default.
 - Foreign pointers and records follow the affine ownership rules once RFC 0110
@@ -556,5 +556,5 @@ this RFC closes:
 - add C export and generated-header contracts;
 - add foreign diagnostics and C23 lowering rules; and
 - add the explicit unsafe-boundary contract and its interaction with affine
-  ownership, arenas, foreign globals, raw layouts, and target-specific code;
+  ownership, stashs, foreign globals, raw layouts, and target-specific code;
 - remove only implemented C-interoperability items from Excluded features.

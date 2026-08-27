@@ -210,8 +210,12 @@ func TestSeekLowersThroughTheADT(t *testing.T) {
 		"end\n" +
 		"done: Nil | Error := demo()\n"
 	result := assertCompiles(t, source)
+	seekHeader := moduleFile(t, result, "hexal/seek.h")
+	if !strings.Contains(seekHeader, "typedef struct hex_t_Seek") {
+		t.Fatalf("seek adapter missing typedef struct hex_t_Seek:\n%s", seekHeader)
+	}
 	header := rootH(t, result)
-	for _, want := range []string{"typedef struct hex_t_Seek", "payload.hex_m_position", "payload.hex_m_offset"} {
+	for _, want := range []string{"payload.Start.hex_m_position", "payload.Current.hex_m_offset", "payload.End.hex_m_offset"} {
 		if !strings.Contains(header, want) {
 			t.Fatalf("seek adapter missing %s:\n%s", want, header)
 		}

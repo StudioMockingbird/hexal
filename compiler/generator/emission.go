@@ -244,6 +244,12 @@ type programEmission struct {
 	// ioState merges every module's stream families; selecting IO, Bytes, or
 	// print emits the component pair once program-wide.
 	ioState *generatedStreamState
+	// seekUsed is true when any module's stream state reaches Bytes.seek or
+	// IO.seek, selecting hexal/seek.h once program-wide. It is tracked
+	// separately from ioState's own four merged flags, which exist only for
+	// the blocking pool's native-descriptor demand fact and deliberately
+	// exclude seekBytes (an in-memory seek never blocks).
+	seekUsed bool
 	// requirements is the demand-driven standard-header and hex_eos set built
 	// from every reachable module's checked types and selected helper
 	// families.
@@ -311,6 +317,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 			merged.ioState.writeIO = merged.ioState.writeIO || module.ioState.writeIO
 			merged.ioState.seekIO = merged.ioState.seekIO || module.ioState.seekIO
 			merged.ioState.closeIO = merged.ioState.closeIO || module.ioState.closeIO
+			merged.seekUsed = merged.seekUsed || module.ioState.seekIO || module.ioState.seekBytes
 		}
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
@@ -425,7 +432,7 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			// Byte-compare helpers use memcmp over size_t lengths; union
 			// equality helpers abort directly on an impossible tag.
 			requirements.add("stddef.h", "string.h")
-			if unionEqualityUsed(module.equalityState) {
+			if abortingEqualityUsed(module.equalityState) {
 				requirements.add("stdlib.h")
 			}
 		}
@@ -532,14 +539,20 @@ func equalityStateUsed(state *generatedEqualityState) bool {
 	return state != nil && len(state.order) > 0
 }
 
-// unionEqualityUsed reports whether any emitted equality helper is a union
-// equality (the only equality shape that aborts).
-func unionEqualityUsed(state *generatedEqualityState) bool {
+// abortingEqualityUsed reports whether any emitted equality helper is a
+// union or ADT equality: both switch over the program-wide hex_tag enum and
+// carry a default: abort() catch-all, since a switch exhaustive over one
+// type's own tags still omits every other reachable type's tags as far as
+// -Wswitch can tell.
+func abortingEqualityUsed(state *generatedEqualityState) bool {
 	if state == nil {
 		return false
 	}
 	for _, typ := range state.order {
 		if typ.Union != nil && unionSupportsEquality(typ) {
+			return true
+		}
+		if typ.Adt != nil {
 			return true
 		}
 	}
@@ -675,10 +688,13 @@ func routeSpawnSites(merged *generatedConcurrencyState) map[string][]spawnSite {
 // program-wide table.
 //
 // Definition order within the module body: local named function and
-// anonymous literal helper prototypes first (so an ordinary definition
-// below can already call one), then ordinary module function and method
-// definitions in source order, then concrete generic specialization
-// prototypes and definitions, then the local/anonymous helper definitions
+// anonymous literal helper prototypes first, then ordinary module function
+// and method prototypes, then concrete generic specialization prototypes --
+// every prototype the module can need exists before any definition, so an
+// ordinary definition's body may already call a specialization a later
+// ordinary definition is the first to require -- then ordinary module
+// function and method definitions in source order, then concrete generic
+// specialization definitions, then the local/anonymous helper definitions
 // themselves, then (root only) the entry point. A helper may therefore call
 // its enclosing named function - already fully defined by the time helpers
 // are emitted - and an enclosing function may call its own helper through
@@ -738,6 +754,17 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		return "", "", err
 	}
 	writeModulePrototypes(&moduleBody, program, owner)
+	// Concrete specialization prototypes are emitted here, before any
+	// definition: an ordinary function's body (drain<S>'s caller, say) may
+	// call a specialization that only a later ordinary function first
+	// demands, and C23 rejects a call with no declaration in scope. Their
+	// definitions still follow every ordinary definition, since a
+	// specialization's body can call a function declared before its generic
+	// template (already defined by then) or another specialization (any
+	// order via its own prototype here).
+	if err := writeSpecializedPrototypes(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, typeState, owner); err != nil {
+		return "", "", err
+	}
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
@@ -751,13 +778,6 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		}
 	}
 
-	// Concrete specializations are emitted after the regular definitions.
-	// Their bodies can call functions declared before their generic template
-	// (already emitted) or other specializations (any order), so each gets a
-	// prototype first and the definitions follow in cache order.
-	if err := writeSpecializedPrototypes(&moduleBody, program.SpecializedFunctions, program.SpecializedMethods, typeState, owner); err != nil {
-		return "", "", err
-	}
 	if err := definitions.writeSpecializedDefinitions(program.SpecializedFunctions, program.SpecializedMethods); err != nil {
 		return "", "", err
 	}
@@ -882,9 +902,16 @@ func routedFrames(emission *moduleEmission, sites []spawnSite) []spawnSite {
 
 // moduleComponentHeaders returns the path-qualified component headers this
 // module's header includes, in dependency order: wrap, heap, view,
-// string, error, list, dict, array, concurrency. Each migrated family selects
-// itself here; a family still owned by hexal.h during the component
+// string, error, seek, concurrency, list, dict, array. Each migrated family
+// selects itself here; a family still owned by hexal.h during the component
 // migration contributes nothing.
+//
+// concurrency precedes the generic containers (list, dict, array) because a
+// List<Task<T>>, Dict<K, Channel<T>>, or Array<Task<T>, N> specialization
+// spells its element type as Task/Channel's per-instantiation typedef
+// (hex_task_T / hex_chan_T), and that typedef is declared in
+// hexal/concurrency.h, not defined by the container itself; the container's
+// header must be able to see it.
 func moduleComponentHeaders(emission *moduleEmission) []string {
 	var components []string
 	components = append(components, moduleWrapComponent(emission)...)
@@ -892,6 +919,8 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, moduleViewComponent(emission)...)
 	components = append(components, moduleStringComponent(emission)...)
 	components = append(components, moduleErrorComponent(emission)...)
+	components = append(components, moduleSeekComponent(emission)...)
+	components = append(components, moduleConcurrencyComponent(emission)...)
 	components = append(components, moduleListComponent(emission)...)
 	components = append(components, moduleDictComponent(emission)...)
 	components = append(components, moduleArrayComponent(emission)...)
@@ -899,7 +928,6 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, modulePrintComponent(emission)...)
 	components = append(components, moduleStreamComponent(emission)...)
 	components = append(components, moduleEqualityComponent(emission)...)
-	components = append(components, moduleConcurrencyComponent(emission)...)
 	return components
 }
 

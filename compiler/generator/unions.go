@@ -290,8 +290,16 @@ func validateUnionWiden(node checker.Expression, expected *compilerTypes.Type, s
 		return unknownExpressionDiagnostic("union widening map does not match its source members")
 	}
 	for index, destinationIndex := range node.MemberMap {
+		if destinationIndex == -1 {
+			// A physical-representation widen (source is a flow-narrowed
+			// binding's real, pre-narrowing storage type) legitimately maps
+			// a member with no destination counterpart when the narrowing
+			// that produced this binding already proved it unreachable; the
+			// generated switch's own default: abort() covers it.
+			continue
+		}
 		sourceMember, _ := sourceMembers.At(index)
-		if destinationIndex < 0 || destinationIndex >= destinationMembers.Len() {
+		if destinationIndex < -1 || destinationIndex >= destinationMembers.Len() {
 			return unknownExpressionDiagnostic("union widening map contains an invalid member conversion")
 		}
 		destinationMember, _ := destinationMembers.At(destinationIndex)

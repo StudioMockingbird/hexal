@@ -85,6 +85,8 @@ func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalit
 		model.Includes = appendUnique(model.Includes, "hexal/string.h")
 		model.NeedStddef = true
 		model.NeedString = true
+	case compilerTypes.IsSeek(typ):
+		model.Includes = appendUnique(model.Includes, "hexal/seek.h")
 	case typ.Array != nil:
 		model.Includes = appendUnique(model.Includes, "hexal/array.h")
 		collectEqualityComponentDependencies(typ.Array.Element, model, seen)
@@ -127,6 +129,7 @@ func equalityComponentIncludes(model equalityComponentModel) []string {
 	order := []string{
 		"hexal/string.h",
 		"hexal/error.h",
+		"hexal/seek.h",
 		"hexal/view.h",
 		"hexal/list.h",
 		"hexal/array.h",

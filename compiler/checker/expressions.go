@@ -61,6 +61,9 @@ func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.T
 	if len(initializerDiagnostics(checked)) == 0 && expectedUse.Type.Name != "" && compilerTypes.IsUnion(expectedUse.Type) && !compilerTypes.Equal(expectedUse.Type, checked.typ) {
 		checked = injectIntoUnion(checked, expectedUse.Type)
 	}
+	if len(initializerDiagnostics(checked)) == 0 && expectedUse.Type.Name != "" {
+		checked = reconcilePhysicalRepresentation(checked, expectedUse.Type)
+	}
 	if checked.token.Line == 0 {
 		checked.token = fallback
 	}

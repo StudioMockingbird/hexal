@@ -37,6 +37,16 @@ func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
 		return
 	}
 	for _, adtType := range state.order {
+		if compilerTypes.IsSeek(adtType) {
+			// Seek is a fixed, module-ownerless built-in ADT; its struct is
+			// emitted once, by seekComponents/moduleSeekComponent, into a
+			// shared header instead of repeated inline per module. It still
+			// participates in this same discovery walk so the program-wide
+			// tag registry (built from adtState.order) assigns its variants
+			// a hex_tag value; only the per-module struct text is skipped
+			// here.
+			continue
+		}
 		adt := adtType.Adt
 		name := adt.CName
 		result.WriteString("\n")
@@ -131,6 +141,25 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 	}
 	fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(node.OperandType, temp, false), scrutinee)
 	fmt.Fprintf(body, "%s%s;\n", indent, declaration(node.ResultType, result, true))
+	// An arm body that names the scrutinee (shape.radius, say) renders its
+	// own separate reference to the original binding, not to temp above. GCC
+	// cannot always prove the two copies' payloads agree, and warns
+	// -Wmaybe-uninitialized on the arm's payload read even though the tag
+	// check that guards it passed on temp. Rebinding the scrutinee's name to
+	// temp for the arms keeps every read within one match on the same C
+	// value the tag was just checked against, which is also simply the more
+	// direct rendering: no need for a reader to know the two names agree.
+	if node.Operand.Binding != 0 {
+		previous, hadPrevious := state.bindingNames[node.Operand.Binding]
+		state.bindingNames[node.Operand.Binding] = temp
+		defer func() {
+			if hadPrevious {
+				state.bindingNames[node.Operand.Binding] = previous
+			} else {
+				delete(state.bindingNames, node.Operand.Binding)
+			}
+		}()
+	}
 	scrutineeMembers := compilerTypes.UnionMembers(node.OperandType)
 	emittedIf := false
 	for armIndex, arm := range node.Arguments {

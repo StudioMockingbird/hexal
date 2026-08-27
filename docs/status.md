@@ -5,9 +5,7 @@ a spec's `Status:` header is the record that something is done, and
 `reference.md` is the record of what the language means.
 
 Every entry names its owning spec. An item without a spec either gets one or
-gets deleted; the Unowned section below is the staging area for items whose
-meaning or home is undetermined, and each entry there commits to one or the
-other.
+gets deleted.
 
 ## Open TODOs
 
@@ -16,10 +14,11 @@ other.
 | Work | Spec |
 |---|---|
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
-| Target profiles and representation evidence | [0052](specs/0052-target-profiles.md) |
+| C compiler backend, target packs, and trusted target profiles | [0052](specs/0052-target-profiles.md) |
 | Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
-| Language surface audit dispositions — 34 findings; promote/reject/accept per finding | [0103](specs/0103-language-surface-audit.md) |
-| Affine ownership and Arena/Pool lifetimes — destructors rejected and cleanup obligations settled; `share`, Arena reset scope, Pool slot syntax, and handle classification remain | [0110](specs/0110-affine-ownership-and-arenas.md) |
+| Scalar value matching beyond Bool | [0135](specs/0135-scalar-value-match.md) |
+| Expanded scalar Dict key types | [0136](specs/0136-expanded-dict-key-types.md) |
+| Affine ownership and Stash/Pool lifetimes — destructors rejected and cleanup obligations settled; `share`, Stash reset scope, Pool slot syntax, and handle classification remain | [0110](specs/0110-affine-ownership-and-stashes.md) |
 | Native module storage and linkage | [0116](specs/0116-native-module-storage-and-linkage.md) |
 | Restricted compile-time evaluation | [0117](specs/0117-compile-time-evaluation.md) |
 | Concurrency safety and task lifetimes | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
@@ -28,7 +27,10 @@ other.
 
 | Work | Spec |
 |---|---|
-| Arena and Pool allocators; Heap-only library boundary | [0027](specs/0027-arena-and-pool-allocators.md) |
+| Typed Stash and Pool allocators; Heap-only library boundary | [0027](specs/0027-stash-and-pool-allocators.md) |
+| Allocation-free String/Strand mixed comparison | [0139](specs/0139-string-strand-comparison.md) |
+| Local fallback recovery with `catch` | [0134](specs/0134-error-recovery-with-catch.md) |
+| `TestC23SnippetCatalogCompiles` does not complete a full run on the authoring host (toolchain rediscovery per snippet, no parallelism) | [0140](specs/0140-c23-catalog-sweep-performance-plan.md) |
 
 ### Design settled; implementation blocked
 
@@ -39,122 +41,11 @@ other.
 
 | Bug | Owning spec |
 |---|---|
-
-## Unowned
-
-Items without a determinable meaning, staged here until each gets a spec or is
-deleted:
-
-- **Terminating self-recursive object construction.** Pointer-indirect
-  self-recursion compiles and is valid per `reference.md`, so what this tracked
-  is unclear. Assign it a spec or delete it.
-- **Parser expression-start classification is scattered.** Raised during a
-  refactor audit alongside the literal-interning table as the same class of
-  scattered classification. It shares no code with the literal table. Recorded
-  here rather than left implied-homed. Assign it a spec or delete it.
-- **The scheduler never runs the root Task's own code: every concurrency
-  program hangs at startup.** `hex_scheduler_init` creates the root Task and
-  every worker, then switches from the root fiber into worker zero's dispatch
-  loop and never pushes the root Task onto the ready queue. Every worker
-  (verified with a debug build compiled and run under GCC on Windows: worker
-  zero plus eleven others, matching the host's logical processor count) finds
-  the ready queue empty, calls `hex_cond_wait`, and blocks forever; nothing
-  ever signals it, because nothing has run the root statements that would
-  spawn a Task, and nothing runs the root statements because
-  `hex_scheduler_init` never returns to its caller. The process hangs on
-  every program that reaches `hex_scheduler_init`, unconditionally. This
-  predates and is independent of the native-threading-primitive migration:
-  the reproduction used `hex_mutex_raw`/`hex_cond` (SRWLOCK/CONDITION_VARIABLE)
-  with call sites and ordering otherwise unchanged from the prior C11
-  `<threads.h>` implementation, so the same hang exists there too. It was
-  found only because that migration required actually compiling and running
-  generated concurrency C for the first time; no test before it ever executed
-  generated C. Fixing this needs a considered addition to the park/commit/wake
-  protocol (how root's own fiber gets scheduled without a chicken-and-egg
-  dependency on the ready queue it isn't in), not a one-line patch, and
-  belongs in its own spec rather than improvised inside an unrelated one.
-  Assign it a spec; this is not a documentation gap. The external C23 suite's
-  Tier 2/3 runners bound every process they execute to a 10-second timeout for
-  exactly this reason: a fixture that spawns, joins, or locks a Task would
-  otherwise hang the whole tagged run rather than failing cleanly. The three
-  such fixtures (`concurrency-spawn-channel-compiles`, `concurrency-task-join-compiles`,
-  `concurrency-mutex-compiles`) are consequently compile-only, never run.
-- **`List<Task<T>>` and `List<Channel<T>>` do not compile.** `hexal/list.h`'s
-  generic specialization spells the element type through `typeSpelling`, which
-  returns Task's and Channel's bare `CName` (`hex_task_Int64`,
-  `hex_channel_Int32`) for a plain binding -- correct there, because binding
-  declarations for Task and Channel are rendered through a separate,
-  already-correct path elsewhere that knows they are pointer-sized handles.
-  `list.h`'s own generated storage (`hex_task_Int64 *data`, its growth
-  helpers, `push`/`pop`/`at`) needs that same pointer knowledge and does not
-  have it, so gcc/clang/zig cc all reject the result
-  (`unknown type name 'hex_task_Int64'`, later `use of undeclared identifier`
-  once storage is declared without a defining include in scope). A fix
-  attempted during the external C23 suite's own construction -- adding a
-  `typ.Task != nil || typ.Channel != nil` case to `typeSpelling`/`declaration`
-  mirroring Mutex's -- was reverted: Task's own bare-variable rendering
-  path already assumes `typeSpelling` returns the unwrapped `CName`, so the
-  change produced `hex_task_Int32 **` (a double pointer) at every ordinary
-  Task binding, breaking `concurrency-task-join-compiles`. The real fix needs
-  to reconcile the two rendering paths, not extend one to match the other's
-  assumption. Reproduced by `tasks-and-concurrency/concurrency-cpu-saturating-fibers`
-  under `go test -tags c23 -run TestC23SnippetCatalogCompiles`. Assign it a
-  spec; this is not a documentation gap.
-- **The built-in `Seek` ADT does not compile when a program uses `Bytes.seek`.**
-  `hexal/equality.h` references `hex_t_Seek` before anything defines it
-  (`unknown type name 'hex_t_Seek'`), and the payload field names the seek
-  dispatch in `hexal/bytes.c` reads (`.payload.hex_m_position`,
-  `.payload.hex_m_offset`) do not match the names the ADT's own generated
-  union actually carries (`no member named 'hex_m_position'`), so every
-  toolchain rejects it. Reproduced by
-  `streams/streams-seek-and-eos` and `streams/streams-bytes-memory` under
-  `go test -tags c23 -run TestC23SnippetCatalogCompiles`. Not investigated
-  past confirming the mismatch; assign it a spec or fold it into the
-  generator's `Seek`/`Bytes.seek` owning area.
-- **A generic function specialized only through another module's call site
-  is used before it is declared.** `streams/streams-generic-drain` calls a
-  generic `drain<S>` from `app.hex` with `S` bound to `IO` and to
-  `MutPtr<Bytes>`; the generated C calls
-  `hex_f_m3_app_drain_IO(...)`/`hex_f_m3_app_drain_MutPtr_Bytes_(...)` before
-  either specialization's definition or a forward declaration exists
-  (`implicit declaration of function`, C23 makes this a hard error). Every
-  other generic-specialization fixture in the corpus apparently specializes
-  from a call site the definition-ordering pass already accounts for; this
-  is the first case reached where the caller precedes the specialization
-  textually. Reproduced under `go test -tags c23 -run TestC23SnippetCatalogCompiles`.
-  Assign it a spec; this is not a documentation gap.
-- **A `match` lowered to a C `switch` does not enumerate every tag the
-  program-wide `hex_tag` enum defines, so `-Wswitch` fires under `-Werror`.**
-  `hex_tag` is one enum spanning every ADT and union tag in the whole
-  program, not just the ones a given `match` discriminates; gcc, clang, and
-  zig cc all warn when a `switch` over it does not mention every enumerator,
-  including ones structurally unreachable at that specific match (a
-  same-program but semantically unrelated ADT's tags, or `EoS`). Reproduced
-  by `text/text-protocol-parser` under
-  `go test -tags c23 -run TestC23SnippetCatalogCompiles`. The likely fix is a
-  `default: __builtin_unreachable();`-style catch-all on every generated
-  match switch, not enumerating the unrelated cases; not attempted. Assign it
-  a spec or fold it into match lowering's owning area.
-- **Two more collection/equality generator defects surfaced by the same
-  suite, not yet root-caused**: `collections/collections-handle-elements`
-  passes an argument of the wrong type to `hex_equal_hex_string` from
-  generated equality code (`incompatible type for argument 1 of
-  'hex_equal_hex_string'`); `collections/collections-nested-list` dereferences
-  a pointer where `->` was needed (`'*(left->data + ...)' is a pointer; did
-  you mean to use '->'?`) in `hexal/equality.h`'s nested-list comparison, then
-  fails a downstream initializer. Both reproduced under
-  `go test -tags c23 -run TestC23SnippetCatalogCompiles`; assign a spec or
-  fold into equality generation's owning area.
-- **A real `-Wmaybe-uninitialized` finding, not yet fixed.**
-  `types-and-matching/types-shape-area` reads
-  `hex_v_shape.payload.Rect.hex_m_height` in a path gcc's flow analysis
-  cannot prove always follows a `Rect` construction, even though Hexal's own
-  match exhaustiveness guarantees it does. `-Wno-maybe-uninitialized` was
-  never added to the external C23 suite's flag set in the first place (the
-  suite carries only the four `unused-*` suppressions, each labelled Debt),
-  so this finding was never hidden; the fix -- proving the flow to the
-  compiler, or restructuring the generated access -- has not been attempted.
-  Assign it a spec or fold it into ADT payload access's owning area.
+| Scheduler initialization enters worker zero before root statements run, leaving every worker asleep on an empty ready queue | [0132](specs/0132-root-task-scheduler-bootstrap.md) |
+| Match misclassifies imported dotted patterns, keys union coverage by short type name, and accepts duplicate exact-type arms or unreachable final `else` arms | [0133](specs/0133-match-exhaustiveness-and-qualified-patterns.md) |
+| Returned inline aggregates can hide a View that borrows a local of the returning function | [0137](specs/0137-nested-view-return-safety.md) |
+| Mutable List/Dict storage can retain a local-rooted View beyond that local's lifetime; safe handling needs container mutation and alias rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
+| `String.free` accepts literal-backed static storage and passes it to the heap deallocator | [0138](specs/0138-string-literal-free-safety.md) |
 
 ## Known coverage gaps
 
@@ -175,25 +66,29 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   `Atomic<T>`'s full operation set. `TestC23SnippetCatalogCompiles` separately
   Tier-1-compiles every workbench snippet under all three toolchains with no
   hand-listed fixture per snippet. None of this executes a Task, Channel, or
-  Mutex operation: the scheduler-hang bug above means doing so would hang the
-  process, so those three fixtures are compile-only. What remains unverified:
+  Mutex operation: RFC 0132's scheduler-startup bug would hang the process, so
+  those three fixtures are compile-only. What remains unverified:
   the rest of `reference.md`'s trap inventory (shift count, close failure,
   Mutex misuse, task stack overflow, and others) has no fixture yet, and
   `print`'s output forms are not exhaustive over every printable type. The
   sanitizer tier (UBSan on every runnable host fixture, ASan where the
   artifact set excludes `hexal/concurrency.c`) does not exist yet.
-- **Compiling real generated C surfaced seven distinct, previously-unknown
-  generator defects across the snippet catalog**, recorded individually
-  above (this section's opening bullets): the built-in `Seek` ADT does not
-  compile, `List<Task<T>>`/`List<Channel<T>>` do not compile, a
-  cross-call-site generic specialization can be used before its forward
-  declaration exists, a match-lowered `switch` can fail `-Wswitch` over
-  `hex_tag` values structurally unrelated to that match, and two further
-  equality-generation defects (a wrong-typed `hex_equal_hex_string` argument,
-  a `nested-list` dereference needing `->`) are reproduced but not yet
-  root-caused. Eight further, similarly-shaped defects reached the same way
-  in this same pass were fixed and verified compiling and running clean
-  under all three toolchains rather than left open: `hexal/list.h` and
+- **Compiling real generated C surfaced multiple generator defects across the
+  snippet catalog.** Every failure reproduced so far is now fixed and
+  re-verified compiling clean under all three toolchains, most recently (RFC
+  0131, closed 2026-08-27) handle-valued Array/View element storage,
+  handle-aware nested equality and for-in binders, generic specialization
+  prototype ordering, flow-narrowed union returns and `try` operands, and the
+  ADT equality `abort()` missing `<stdlib.h>`; see the archived spec for the
+  full root-cause account. That closure's targeted and combined probes are
+  green, but a full untargeted sweep of the entire ~150-snippet catalog was
+  not re-run to completion afterward: on the authoring host it exceeded 50
+  minutes and roughly 450 external toolchain invocations without asserting a
+  single failure before the test runner's own timeout killed it. Making that
+  sweep completable is now [0140](specs/0140-c23-catalog-sweep-performance-plan.md)'s
+  job; any snippet it turns up failing gets filed as a fresh finding once it
+  runs. Earlier defects fixed and verified
+  compiling and running clean under all three toolchains include `hexal/list.h` and
   `hexal/array.h` omitting `hexal/string.h` for a String element (and
   `hexal/view.h`'s equivalent forward-declaration, needed instead of a full
   include because `hexal/string.h` itself unconditionally needs

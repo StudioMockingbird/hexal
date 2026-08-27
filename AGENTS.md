@@ -8,7 +8,7 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 - Methods on objects
 - Generics
 - in built datastructures like `List<T>`, `Dict<T, U>`
-- in built memory allocation primitives like general purpose alocator (sack!), Arena and Pool
+- in built memory allocation primitives like general purpose allocator (sack!), Stash and Pool
 - Zig's allocator passing model
 
 ## Critical Directives

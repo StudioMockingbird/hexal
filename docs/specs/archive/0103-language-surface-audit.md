@@ -1,10 +1,9 @@
 # RFC 0103: Language Surface Audit
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Draft; findings catalog. Not implementation-ready as a whole — each
-  finding is disposed of by promotion to its own RFC, explicit rejection, or
-  recorded acceptance. Dispositions are recorded in the Disposition section.
+- Status: Closed; all findings re-audited and disposed 2026-08-27
 - Created: 2026-08-21
+- Updated: 2026-08-27
 - Scope: syntax, semantics, and builtin API surface of the language as
   specified by `docs/reference.md`; evaluated against the project goals in
   `AGENTS.md`. Compiler implementation quality is out of scope.
@@ -29,9 +28,9 @@ inconsistency between two otherwise-good rules, not a wrong mechanism.
 Findings are numbered F1–F46 in one flat sequence, grouped by class. Each
 finding states its evidence as quoted reference text, the goal it conflicts
 with, a proposed direction, and the open question its successor RFC must
-answer. Nothing here changes the language until a successor RFC closes. F35–F46
-were added by the 2026-08-23 resurface audit; they extend the original thirty-four
-without altering their text or dispositions.
+answer. The original finding text is historical evidence, not a current claim.
+The 2026-08-27 disposition re-audit below governs every finding. F35–F46 were
+added by the 2026-08-23 resurface audit.
 
 ## Severity ordering
 
@@ -779,6 +778,24 @@ Direction: keep in `Project` but hide Windows-only knob behind `target` profile 
 
 Open question: does the POSIX guard-page implementation need a commit knob at all, or can it be removed?
 
+## 2026-08-27 re-audit evidence
+
+Focused in-memory probes against the current compiler produced:
+
+```text
+Array<UInt8, 1> and View<UInt8>       exit=0
+nested local-rooted View return       exit=0
+String literal followed by free       exit=0
+String == Strand                      exit=1; identical canonical types required
+Dict<UInt64, Int32>                   exit=1; key must be Int32 or Strand
+```
+
+The first result invalidates F37. The next two reproduce the safety defects
+promoted to RFCs 0137 and 0138. The final two confirm that F5 and F4 remain
+documented feature restrictions rather than implementation drift. Reference
+and implementation inspection separately verified the resolved findings in
+the disposition table.
+
 ## Disposition
 
 Each finding resolves to exactly one of:
@@ -786,57 +803,57 @@ Each finding resolves to exactly one of:
 - **Promote**: a successor RFC carries the design. Recorded here by number.
 - **Reject**: with rationale, so the same finding does not return.
 - **Accept**: the cost is acknowledged and the current design stands.
+- **Resolved**: current code and reference already close the finding.
+- **Invalid**: the reported behavior does not reproduce.
 
-| # | Disposition | Successor |
+| # | Disposition | Current decision or successor |
 | --- | --- | --- |
-| F1 | Promote | TBD |
-| F2 | Promote | TBD |
-| F3 | Promote | TBD |
-| F4 | Promote | TBD |
-| F5 | Promote | TBD |
-| F6 | Promote | TBD |
-| F7 | Promote | TBD |
-| F8 | Undecided | — |
-| F9 | Undecided | — |
-| F10 | Accept (provisional) | — |
-| F11 | Undecided | — |
-| F12 | Undecided | — |
-| F13 | Undecided | — |
-| F14 | Promote | TBD |
-| F15 | Undecided | — |
-| F16 | Undecided | — |
-| F17 | Undecided | — |
-| F18 | Accept (diagnostic-only) | — |
-| F19 | Promote | TBD |
-| F20 | Undecided | — |
-| F21 | Accept (diagnostic-only) | — |
-| F22 | Undecided | — |
-| F23 | Promote | TBD |
-| F24 | Undecided | — |
-| F25 | Undecided | — |
-| F26 | Accept (docs-only) | — |
-| F27 | Undecided | — |
-| F28 | Undecided | — |
-| F29 | Undecided | — |
-| F30 | Undecided | — |
-| F31 | Undecided | — |
-| F32 | Cross-reference | RFC 0039 |
-| F33 | Promote | TBD |
-| F34 | Fold into F19; AGENTS.md rewording | — |
-| F35 | Undecided | — |
-| F36 | Undecided | — |
-| F37 | Undecided | — |
-| F38 | Undecided | — |
-| F39 | Fold into F23 | — |
-| F40 | Undecided | — |
-| F41 | Undecided | — |
-| F42 | Undecided | — |
-| F43 | Undecided | — |
-| F44 | Undecided | — |
-| F45 | Accept (docs-only) | — |
-| F46 | Undecided | — |
-
-Undecided entries await the author's call; this RFC does not decide them.
+| F1 | Resolved | Module-level functions and methods now support forward and mutual recursion. |
+| F2 | Promote | RFC 0135; scalar value match is a substantial switch-like language feature, not a bug. |
+| F3 | Reject | `match` already provides conditional values; a second conditional-expression form violates the one-obvious-way goal. |
+| F4 | Promote | RFC 0136; expanded Dict keys require hashing and representation design. |
+| F5 | Promote | RFC 0139; mixed String/Strand comparison removes an otherwise mandatory allocation. |
+| F6 | Resolved | List and Dict carry mutation versions; traversal rejects provable mutation and traps live invalidation. |
+| F7 | Reject | Root scope has no Error result to receive propagation; explicit `match` keeps process policy visible. |
+| F8 | Accept | Lua-like truthiness is deliberate, uniform, and precisely limited to `false` and `nil`. |
+| F9 | Accept | `Task.yield()` is a protected builtin namespace operation, not a user-defined static-method facility. |
+| F10 | Resolved | EoS now consistently represents end-of-sequence for Channel and IO reads; the one-use premise is stale. |
+| F11 | Reject | `== nil` is the sole null test; adding `is Nil` would create a synonym without new capability. |
+| F12 | Reject | Rune is a Unicode scalar, not an arithmetic integer; explicit conversion preserves intent and scalar validation. |
+| F13 | Reject | Literal-specific escape sets protect UTF-8 and scalar validity; uniform byte escapes would weaken those contracts. |
+| F14 | Reject | Nested block comments add lexer state and little capability; line comments and non-nested block comments suffice. |
+| F15 | Accept | Atomic's allowlist reflects supported lock/representation contracts; broaden only for a concrete use and verified targets. |
+| F16 | Reject | `first() -> T | Nil` is ambiguous when T contains Nil; `length()` plus checked indexing is explicit and complete. |
+| F17 | Resolved | Heap is now a stateless default-allocation token; the stored-allocator identity premise no longer exists. |
+| F18 | Accept | Narrowing remains direct-local flow analysis; aliases require an ownership/alias model rather than ad hoc propagation. |
+| F19 | Promote | RFC 0137 fixes inline aggregates; RFC 0110 owns mutable List/Dict element lifetimes and aliasing. |
+| F20 | Accept | The literal-loop check is a bounded syntactic guarantee, not a claim to decide arbitrary starvation. |
+| F21 | Accept | The generic-angle heuristic is deterministic and fails with syntax diagnostics; no reproduced ambiguity remains. |
+| F22 | Accept | Parentheses explicitly disambiguate a union type pattern from match-arm separators. |
+| F23 | Resolved | The reference now specifies receiver, argument, operand, initializer, and assignment evaluation order. |
+| F24 | Reject | Existing print spelling and quoting are deterministic; separator/newline variants add convenience surface only. |
+| F25 | Accept | Error remains a flat value; recursive causes would add allocation, ownership, formatting, and cleanup policy. |
+| F26 | Resolved | Function values are now returnable and storable in aggregates and collections subject to their explicit exceptions. |
+| F27 | Cross-reference | RFC 0117 owns all restricted compile-time expressions, including future computed Array lengths. |
+| F28 | Reject | One method per `impl` keeps declarations uniform and avoids a second grouped spelling. |
+| F29 | Reject | Repeated arms are explicit; alternation adds pattern grammar without adding expressiveness. |
+| F30 | Reject | Labeled loops are low-ROI surface; flags, functions, and returns already express the control flow. |
+| F31 | Reject | Qualified variants preserve nominal clarity and avoid import-dependent lookup ambiguity. |
+| F32 | Cross-reference | RFC 0039 owns compiler-core C interoperability. |
+| F33 | Resolved | Iterator invalidation and Task join/detach terminal claims now close the reproduced no-UB cases. |
+| F34 | Resolved | The project goal and reference now state the exact local-analysis boundary and its deliberate limitations. |
+| F35 | Accept | Same-line call syntax is a deliberate lexical boundary with explicit diagnostics. |
+| F36 | Accept | Import paths are logical source-map keys with a small `/`-only grammar independent of host filesystems. |
+| F37 | Invalid | `Array<UInt8, N>` and `View<UInt8>` compile; Byte is a contextual canonical spelling, not a type restriction. |
+| F38 | Reject | Size stays target-dependent and isolated; contextual integer literals already avoid unnecessary conversion ceremony. |
+| F39 | Resolved | Folded into the complete evaluation-order contract that resolves F23. |
+| F40 | Reject | Strand-to-View would introduce borrowing and lifetime rules for negligible benefit over its bounded 32-byte operations. |
+| F41 | Promote | RFC 0138; freeing a literal String currently reaches the heap deallocator and is a runtime safety bug. |
+| F42 | Reject | Same decision as F24; variadic separator policy and `println` are convenience APIs, not missing primitives. |
+| F43 | Accept | `View.from_pointer` keeps function-local provenance; caller propagation requires interprocedural borrow analysis. |
+| F44 | Reject | The exact binder table is small and unambiguous; `_` would add discard-binding syntax solely for convenience. |
+| F45 | Accept | `defer` is cleanup on language exits, discarded cleanup results are explicit, and fatal runtime traps do not unwind. |
+| F46 | Reject | `Project` contains build-time target settings and is not part of the Hexal language surface. |
 
 ## Invariants
 
@@ -846,6 +863,8 @@ Undecided entries await the author's call; this RFC does not decide them.
 3. Every successor RFC cites its finding number and must answer that finding's
    open question.
 4. Rejected findings stay recorded with rationale; silence is not rejection.
+5. Resolved and invalid findings were checked against the 2026-08-27 tree and
+   normative reference before this catalog closed.
 
 ## Validation
 
@@ -855,15 +874,14 @@ This section is exhaustive for THIS RFC (a findings catalog):
   quote is invalid and is removed.
 - Every finding names the goal it conflicts with or states "none" explicitly.
 - The disposition table covers all forty-six findings with no gaps.
-- Reference quotations were verified verbatim against `docs/reference.md` at
-  creation time; a quotation that no longer matches indicates the reference
-  moved and the finding must be re-verified before promotion.
+- Every finding has a terminal disposition, named successor, or active owner.
+- Resolved claims and the invalid F37 claim were re-probed or verified against
+  the current reference and tree on 2026-08-27.
 - Successor RFCs inherit validation obligations from their findings' open
   questions; this RFC adds no tests.
 
 ## Non-goals
 
-- Deciding any Undecided disposition.
 - Designing any promoted feature.
 - Auditing compiler implementation quality, generated-C correctness, or
   performance (prior audits cover those).

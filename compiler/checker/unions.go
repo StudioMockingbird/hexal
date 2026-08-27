@@ -159,6 +159,43 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 	return checkedExpression{source: result, typ: destination, token: source.token}
 }
 
+// reconcilePhysicalRepresentation inserts an explicit widen node when a
+// flow-narrowed binding's checked type already equals destination but its
+// underlying C variable keeps the wider pre-narrowing declared type.
+// injectIntoUnion alone misses this: it compares only the checker's logical
+// types, which already match here, so it leaves the value untouched. C has
+// no notion of shrinking a union's storage to match a narrower static fact,
+// so a plain copy would initialize destination's C struct type from an
+// incompatible one even though the checker considers the types equal. The
+// widen helper's generated switch is built from every member the physical
+// type can actually hold; a member with no destination counterpart (proven
+// unreachable by the narrowing that produced this binding, like EoS here)
+// gets no case and falls to the helper's own default: abort().
+func reconcilePhysicalRepresentation(source checkedExpression, destination compilerTypes.Type) checkedExpression {
+	if source.storageType == (compilerTypes.Type{}) || compilerTypes.Equal(source.storageType, destination) {
+		return source
+	}
+	if !compilerTypes.IsUnion(destination) || !compilerTypes.IsUnion(source.storageType) {
+		return source
+	}
+	node := expressionNode(source.source)
+	sourceMembers := compilerTypes.UnionMembers(source.storageType)
+	mapping := make([]int, 0, sourceMembers.Len())
+	for index := 0; index < sourceMembers.Len(); index++ {
+		sourceMember, _ := sourceMembers.At(index)
+		mapping = append(mapping, unionDestinationIndex(destination, sourceMember))
+	}
+	checkedNode := Expression{
+		Kind:        UnionWidenExpression,
+		Operand:     &node,
+		OperandType: source.storageType,
+		ResultType:  destination,
+		MemberMap:   mapping,
+	}
+	result := Operand{Kind: ExpressionOperand, Type: destination, Node: checkedNode}
+	return checkedExpression{source: result, typ: destination, token: source.token}
+}
+
 func unionDestinationIndex(destination, source compilerTypes.Type) int {
 	destinationMembers := compilerTypes.UnionMembers(destination)
 	for index := 0; index < destinationMembers.Len(); index++ {

@@ -7,7 +7,8 @@
 - Scope: filesystem, project discovery, artifact materialization, external C
   builds, and linking outside the core compiler
 - Depends on: RFC 0034 (modules and imports), RFC 0039 (C interop), RFC 0052
-  (target profiles), RFC 0117 (compile-time evaluation), and RFC 0118
+  (C compiler backend and target profiles), RFC 0117 (compile-time evaluation),
+  and RFC 0118
   (concurrency safety)
 - Coordinates with: the workbench, generated-C artifact manifests, and future
   package/dependency specifications
@@ -106,11 +107,12 @@ artifact. Host absolute paths are not semantic inputs.
 
 ## Toolchain and target selection
 
-Hexal distributions ship a pinned C23-capable GCC or Clang toolchain, linker,
-and compatible C library for every supported target profile. The bundled
-toolchain is the default and defines the reproducible supported environment;
-using an externally installed toolchain is an explicit override that must
-satisfy the same RFC 0052 profile.
+Hexal distributions ship RFC 0052's pinned, trimmed Clang/LLVM host backend and
+the compatible target pack for every bundled target profile. The bundled
+backend is the default and defines the reproducible supported environment;
+using an externally installed Clang or GCC is an explicit override that must
+satisfy the same RFC 0052 profile. The driver invokes Clang as a child process;
+the Go compiler does not statically link Clang's C++ libraries.
 
 Bundling is justified by reproducible builds, hermetic cross-compilation,
 known headers and runtime behavior, and control of the linker. It is not
@@ -121,8 +123,8 @@ were GCC/Clang extensions rather than portable ISO C11. Since both choices
 still select the GCC/Clang family, C11 would buy only support for older compiler
 versions while retaining compatibility machinery.
 
-The driver selects a named RFC 0052 target profile and the matching bundled
-toolchain. Native defaults may be convenient, but cross-compilation requires
+The driver selects a named RFC 0052 target profile and matching installed target
+pack. Native defaults may be convenient, but cross-compilation requires
 an explicit profile and toolchain. The driver must verify compiler version,
 required C23 headers, target architecture, ABI options, atomics, threading,
 and linker support before accepting the build. If Hexal ever stops shipping

@@ -287,7 +287,7 @@ func valueFromPlace(place checkedExpression) checkedExpression {
 				MemberIndex: memberIndex,
 			}
 			source := Operand{Kind: ExpressionOperand, Type: place.typ, Node: node}
-			return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token}
+			return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token, storageType: place.storageType}
 		}
 	}
 	// An ordinary read of a named binding keeps the binding's variable read
@@ -298,7 +298,7 @@ func valueFromPlace(place checkedExpression) checkedExpression {
 	source := place.source
 	source.Addressable = false
 	source.Writable = false
-	return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token, known: place.known}
+	return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token, known: place.known, storageType: place.storageType}
 }
 
 // nullableAccessDiagnostic reports member or .value access through a nullable

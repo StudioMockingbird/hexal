@@ -4,8 +4,8 @@
 - Status: Draft; design proposed, implementation not started
 - Created: 2026-08-22
 - Scope: data-race safety, task-handle ownership, foreign-thread entry, and
-  Arena interaction with concurrent tasks
-- Depends on: RFC 0027 (Arena and Pool), RFC 0039 (C interoperability), RFC
+  Stash interaction with concurrent tasks
+- Depends on: RFC 0027 (Stash and Pool), RFC 0039 (C interoperability), RFC
   0052 (target profiles), RFC 0110 (affine ownership), and the existing Task,
   Channel, Mutex, Atomic, and synchronous IO contracts in
   `docs/reference.md`
@@ -74,7 +74,7 @@ inter-thread synchronization and does not satisfy this rule.
 - `join` transfers the result and any ownership explicitly returned by the
   task. `detach` relinquishes observation and requires the task's remaining
   state to satisfy its lifetime contract.
-- A task cannot retain a borrow of a stack binding, a local View, or an Arena
+- A task cannot retain a borrow of a stack binding, a local View, or a Stash
   region that may end before the task. Moving an affine owner into a task is
   permitted only when the task consumes it or returns it through `join`.
 - A task handle that reaches scope exit without a terminal operation is a
@@ -96,15 +96,15 @@ inter-thread synchronization and does not satisfy this rule.
   sender cannot use it afterward.
 - A mutable module `static` is shared state, not an implicit atomic. RFC 0116
   supplies storage and this RFC supplies its access requirements.
-- An Arena or Pool is not a synchronization primitive. Concurrent access to
+- A `Stash<T>` or `Pool<T>` is not a synchronization primitive. Concurrent access to
   its region or slots requires ownership transfer, a lock, atomic access where
   applicable, or an explicit unsafe contract.
 
-## Arena and Pool interaction
+## Stash and Pool interaction
 
-- A task may own an Arena or Pool and must consume or explicitly return it
+- A task may own a `Stash<T>` or `Pool<T>` and must consume or explicitly return it
   before `join` completes, unless a shared allocator contract says otherwise.
-- A task may not receive a borrow or View rooted in an Arena or Pool whose
+- A task may not receive a borrow or View rooted in a Stash or Pool whose
   lifetime does not provably cover the task's entire execution.
 - `reset`, `destroy`, and slot release are rejected while another live task may
   access the affected region and the checker can prove that relation.
@@ -112,7 +112,7 @@ inter-thread synchronization and does not satisfy this rule.
   unsafe operation; it is not treated as safe because the scheduler is
   cooperative.
 - A task that outlives its creator after `detach` must own or otherwise retain
-  every resource it can access. Creator-stack borrows and creator-owned Arena
+  every resource it can access. Creator-stack borrows and creator-owned Stash
   regions cannot remain reachable.
 
 ## Blocking operations
@@ -182,9 +182,9 @@ passes:
   without the specified contract.
 - Affine task arguments move exactly once, and joined results transfer exactly
   the declared ownership.
-- Detached tasks cannot retain creator-stack borrows or creator-owned Arena or
+- Detached tasks cannot retain creator-stack borrows or creator-owned Stash or
   Pool storage.
-- Arena reset/destroy and Pool slot release reject locally decidable live-task
+- Stash reset/destroy and Pool slot release reject locally decidable live-task
   access and accept valid ownership transfer.
 - Foreign blocking declarations obey RFC 0039's eventual ABI and ownership
   contract. Current synchronous IO parks its calling Task on the blocking pool
@@ -229,7 +229,7 @@ writing one now would hide design choices inside implementation steps.
 ## Reference synchronization
 
 After implementation stabilizes, update `docs/reference.md` with the safe data-
-race rule, task-handle affine rules, task transfer and detach lifetimes, Arena
+race rule, task-handle affine rules, task transfer and detach lifetimes, Stash
 and Pool cross-task restrictions, and foreign-thread entry contract. Preserve
 the current Task-parking contract for native operations. Remove the current
 "data races have no guarantee" rule in the same change.

@@ -38,7 +38,7 @@ func viewComponentRecordFor(view compilerTypes.Type) viewComponentRecord {
 	return viewComponentRecord{
 		CName:           view.CName,
 		Suffix:          strings.TrimPrefix(view.CName, "hex_view_"),
-		ElementSpelling: pointerSpelling(view.View.Element),
+		ElementSpelling: typeSpelling(view.View.Element),
 		NeedsHeapString: compilerTypes.IsString(view.View.Element),
 	}
 }

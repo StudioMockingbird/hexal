@@ -128,12 +128,13 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires a union containing Error and a success member; got "+operand.typ.Name))}
 	}
 	node := Expression{
-		Kind:        TryExpression,
-		Operand:     &operand.source.Node,
-		OperandType: operand.typ,
-		ResultType:  success,
-		Element:     *ctx.names.result,
-		MemberIndex: memberIndex,
+		Kind:               TryExpression,
+		Operand:            &operand.source.Node,
+		OperandType:        operand.typ,
+		OperandStorageType: operand.storageType,
+		ResultType:         success,
+		Element:            *ctx.names.result,
+		MemberIndex:        memberIndex,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: success, Name: "try", Node: node}
 	return checkedExpression{source: source, typ: success, token: expression.Keyword}
