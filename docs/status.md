@@ -30,7 +30,6 @@ gets deleted.
 | Typed Stash and Pool allocators; Heap-only library boundary | [0027](specs/0027-stash-and-pool-allocators.md) |
 | Allocation-free String/Strand mixed comparison | [0139](specs/0139-string-strand-comparison.md) |
 | Local fallback recovery with `catch` | [0134](specs/0134-error-recovery-with-catch.md) |
-| `TestC23SnippetCatalogCompiles` does not complete a full run on the authoring host (toolchain rediscovery per snippet, no parallelism) | [0140](specs/0140-c23-catalog-sweep-performance-plan.md) |
 
 ### Design settled; implementation blocked
 
@@ -80,14 +79,17 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   handle-aware nested equality and for-in binders, generic specialization
   prototype ordering, flow-narrowed union returns and `try` operands, and the
   ADT equality `abort()` missing `<stdlib.h>`; see the archived spec for the
-  full root-cause account. That closure's targeted and combined probes are
-  green, but a full untargeted sweep of the entire ~150-snippet catalog was
-  not re-run to completion afterward: on the authoring host it exceeded 50
-  minutes and roughly 450 external toolchain invocations without asserting a
-  single failure before the test runner's own timeout killed it. Making that
-  sweep completable is now [0140](specs/0140-c23-catalog-sweep-performance-plan.md)'s
-  job; any snippet it turns up failing gets filed as a fresh finding once it
-  runs. Earlier defects fixed and verified
+  full root-cause account. A full untargeted sweep of the complete 140-snippet
+  catalog now runs to completion and passes: `go test -count=1 -timeout=10m
+  -parallel=8 -tags c23 -run TestC23SnippetCatalogCompiles
+  ./compiler/tests/c23validation` finishes in 151s with 140/140 snippets
+  passing under all three toolchains — before RFC 0140 (closed 2026-08-27)
+  fixed a redundant-toolchain-discovery-per-snippet cost and parallelized the
+  loop (plus two related correctness bugs the fix required: a compile-cache
+  data race and a cache-entry-outliving-its-`t.TempDir()` bug, both latent
+  and not triggered by today's catalog, per the archived spec), this same
+  sweep ran past 50 minutes without asserting a single failure and never
+  completed. Earlier defects fixed and verified
   compiling and running clean under all three toolchains include `hexal/list.h` and
   `hexal/array.h` omitting `hexal/string.h` for a String element (and
   `hexal/view.h`'s equivalent forward-declaration, needed instead of a full
@@ -106,7 +108,7 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   of parentheses, which is flagged, not merely stylistic, under
   `-Werror=parentheses-equality`. The corpus-wide sweep that found all of
   this was `go test -tags c23 -run TestC23SnippetCatalogCompiles`, run once
-  over the full ~150-snippet catalog; it had never been run to completion
+  over the full 140-snippet catalog; it had never been run to completion
   under a real toolchain before.
 - The generator emits helper families wholesale — equality, print, union,
   heap, io — so a small program's C contains many unused `static` helpers.

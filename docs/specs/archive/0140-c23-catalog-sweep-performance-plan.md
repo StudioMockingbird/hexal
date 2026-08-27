@@ -1,7 +1,62 @@
 # RFC 0140: C23 Catalog Sweep Performance
 
 - Kind: Execution Plan
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented 2026-08-27. The full 140-snippet, 3-toolchain
+  Tier-1 sweep (`go test -count=1 -timeout=10m -parallel=8 -tags c23 -run
+  TestC23SnippetCatalogCompiles ./compiler/tests/c23validation`) went from
+  not completing in 50+ minutes to completing in 151.4s (2m31s), well under
+  the 5-minute target set from the pre-implementation projection, with
+  140/140 snippets passing under all three toolchains and 0 failures.
+  Implemented exactly the four "Blocking correctness issues" and five
+  "Required changes" this RFC's review pass identified, in the order its
+  "Detailed implementation plan" specified: (1) `toolchain_test.go`'s
+  `discoverToolchain` was split into a `*testing.T`-free `resolveToolchain`
+  and a `sync.Once`-cached `discoverAllToolchains`, so all three toolchains
+  resolve exactly once per test binary run instead of once per snippet,
+  while every caller — cache hit or not — still reports a missing or
+  below-floor toolchain by name through its own `t.Fatal`, preserving the
+  original per-fixture failure contract a naive `sync.Once` around the old
+  `t.Fatalf`-calling function would have silently broken. (2)
+  `c23_harness_test.go`'s compile cache gained `buildRoot` in
+  `compileCacheKey` (a cache entry can no longer outlive the `t.TempDir()`
+  it points into) and switched from a check-then-act lock to a per-key
+  `sync.Once` via a new `compileCacheEntry{once, result}`, with the actual
+  build split into a `*testing.T`-free `doBuild` so exactly one caller per
+  key performs it and every caller (including that one) reads the same
+  published result — closing a data race that today's 140 snippets don't
+  trigger (all produce distinct artifact hashes, verified) but that
+  `t.Parallel()` would have made live the moment any two builds ever shared
+  a key. (3) `doBuild`'s `exec.Command` became `exec.CommandContext` under a
+  new `buildProcessTimeout` (2 minutes), naming the failing subtest (via
+  `t.Name()`, threaded through as a plain string since `doBuild` itself
+  takes no `*testing.T`) and the artifact hash on timeout, distinct from the
+  pre-existing `runProcessTimeout` (10s, bounds running the built binary, not
+  compiling it). (4) `workbench/snippets/compile_test.go` gained
+  `TestCatalogProgramsCompileConcurrently`, compiling every catalog snippet
+  from its own goroutine and asserting success under `go test -race` — a
+  source audit during this RFC's review found no currently-reachable
+  concurrency hazard in `compiler.Compile`'s call graph (two mutated
+  package-level variables exist, `panicSeam` and `ringKeepEveryGrouping`,
+  both confined to their own unrelated packages' own test binaries), but a
+  permanent regression test outlives any one audit. (5)
+  `runner_test.go`'s `TestC23SnippetCatalogCompiles` snippet loop calls
+  `t.Parallel()`; no loop-variable capture was needed (`go.mod` pins Go
+  1.26, past Go 1.22's per-iteration loop variables) but a redundant
+  `snippet := snippet` was kept for a reader without the Go version in
+  mind. `TestC23Suite` and the inner per-toolchain `t.Run` loop inside
+  `compileGeneratedC` were deliberately left sequential and re-verified
+  passing (204.4s, unaffected by this RFC's scope) rather than parallelized,
+  matching the RFC's own reasoning: only the compile-only catalog sweep
+  needed it. One unplanned fix along the way: two new doc comments named
+  this spec by number and were rejected by the repo's own
+  `TestCommentPolicyAppliesToCompilerAndWorkbench`; both were reworded to
+  describe the behavior instead of citing a spec number, matching the
+  project's standing test-comment convention. Full gate green:
+  `gofmt -l .`, `go build ./...`, `go vet ./...`, `go vet -tags c23 ./...`,
+  `go test -count=1 ./...`, `go test -race ./workbench/snippets/...`, and
+  `go test -tags c23 -run TestC23Suite ./compiler/tests/c23validation/...`
+  all pass. No change landed outside `compiler/tests/c23validation` and the
+  one new test in `workbench/snippets`.
 - Created: 2026-08-27
 - Updated: 2026-08-27
 - Implements: no language, checker, or generator change; a test-harness
@@ -506,13 +561,15 @@ Raised by review but not code this RFC should write:
 
 ## Validation
 
-- **Performance target**: `go test -count=1 -timeout=10m -parallel=8 -tags c23 -run TestC23SnippetCatalogCompiles ./compiler/tests/c23validation -v` completes uncached (the `-count=1` forces this) within 5 minutes on the authoring host. This target is a projection from the measured 16.31s/9-compile sample (≈1.8s/compile; 420 compiles sequential ≈13 minutes, divided by up to 8-way parallelism ≈2 minutes, with the 5-minute figure leaving headroom for the still-unattributed remainder from "Root cause") — record the actual elapsed time achieved in this section once implemented. If missed, follow Detailed implementation plan step 5 rather than declaring success anyway.
-- `discoverAllToolchains` resolves each of gcc/clang/zig exactly once for the whole run (verify via a counter or by confirming exactly one `t.Logf`/log line per toolchain, not 140).
-- All 140 snippets reach all three toolchains and the run reports a real pass or fail for every one — not killed by an external timeout.
-- Any snippet that fails this newly-completed sweep is filed as a finding for a separate RFC (or an existing owner) to fix — this RFC's own validation is that the sweep completes and reports a real result, not that every snippet passes.
-- `go test -race ./workbench/snippets/...` passes, including the new `TestCatalogProgramsCompileConcurrently`.
-- `go test -tags c23 -run TestC23Suite ./compiler/tests/c23validation/...` still passes — the discovery-cache change touches its call path too, not just the catalog sweep.
-- `go test ./...` (untagged) neither compiles nor runs anything in `compiler/tests/c23validation`, by the existing `//go:build c23` tag — no test invokes an external toolchain outside a `-tags c23` run.
-- `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` continue to pass.
-- `gofmt -l .` reports nothing.
-- No Go implementation change lands outside `compiler/tests/c23validation` and the one new test in `workbench/snippets`; this RFC's own lifecycle edits (this file's `Status:` header, its move to `docs/specs/archive/`, and its `docs/status.md` entry) and any separately-owned finding a completed sweep surfaces are exempt from that scope, not violations of it.
+All items below are confirmed, not projected.
+
+- **Performance target — met.** `go test -count=1 -timeout=10m -parallel=8 -tags c23 -run TestC23SnippetCatalogCompiles ./compiler/tests/c23validation -v` completed uncached in **151.4s (2m31s)**, against a 5-minute target. All 140 snippets passed under all three toolchains, 0 failures. (The projection in the pre-implementation draft of this RFC — ≈13 minutes sequential, ≈2 minutes at 8-way parallelism — landed almost exactly on the measured result, suggesting the two fixes in "Root cause" were in fact sufficient and the unattributed remainder was mostly the redundant discovery overhead, not AV scanning or `zig cc` cold-start.)
+- `discoverAllToolchains` resolving each of gcc/clang/zig exactly once for the whole run is a `sync.Once` language guarantee, not something re-verified by counting log lines; the elapsed-time result above is the empirical confirmation that the redundant per-snippet discovery (and its subprocess spawns) is actually gone, not just theoretically fixed.
+- All 140 snippets reach all three toolchains and the run reports a real pass or fail for every one — confirmed: 140/140 passed, 0 failures, not killed by any timeout.
+- No snippet failed this newly-completed sweep, so there is nothing to file as a separate finding.
+- `go test -race ./workbench/snippets/...` passes, including the new `TestCatalogProgramsCompileConcurrently` — confirmed clean under `-race`.
+- `go test -tags c23 -run TestC23Suite ./compiler/tests/c23validation/...` still passes — confirmed, all fixtures green (204.4s; this test intentionally stays sequential, so its runtime is not this RFC's concern).
+- `go test ./...` (untagged) neither compiles nor runs anything in `compiler/tests/c23validation`, by the existing `//go:build c23` tag — unaffected by this change, structurally guaranteed.
+- `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` all pass — confirmed.
+- `gofmt -l .` reports nothing — confirmed.
+- No Go implementation change landed outside `compiler/tests/c23validation` and the one new test in `workbench/snippets` — confirmed by the actual diff (`toolchain_test.go`, `c23_harness_test.go`, `runner_test.go`, `workbench/snippets/compile_test.go`); this RFC's own lifecycle edits (this file's `Status:` header, its move to `docs/specs/archive/`, and its `docs/status.md` entry) are exempt from that scope, not violations of it. One unplanned same-scope fix: the repo's own comment-policy test (`TestCommentPolicyAppliesToCompilerAndWorkbench`) rejected two doc comments in this change that named this spec by number; both were reworded to describe the behavior instead, matching the project's standing convention that provenance belongs in git and the spec archive, not test comments.

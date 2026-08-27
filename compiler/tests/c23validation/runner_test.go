@@ -70,11 +70,18 @@ func TestC23Suite(t *testing.T) {
 // TestC23SnippetCatalogCompiles gives every workbench snippet Tier 1
 // coverage automatically -- "workbench snippets are compile fixtures
 // automatically" -- without hand-listing each one in fixtureCatalog. A new
-// snippet becomes a compile fixture with no edit here.
+// snippet becomes a compile fixture with no edit here. Snippets run in
+// parallel (bounded by -parallel, default GOMAXPROCS, not by the snippet
+// count): discoverAllToolchains and the compile cache are both safe for
+// this (see toolchain_test.go and c23_harness_test.go), and this is the
+// only one of the two top-level tests in this package that needs it -- 140
+// snippets do not complete sequentially in a reasonable time.
 func TestC23SnippetCatalogCompiles(t *testing.T) {
 	buildRoot := t.TempDir()
 	for _, snippet := range allSnippets(t) {
+		snippet := snippet
 		t.Run(snippet.ID, func(t *testing.T) {
+			t.Parallel()
 			result := assertCompilesSources(t, snippet.Sources, snippet.Entrypoint)
 			compileGeneratedC(t, result, buildRoot)
 		})

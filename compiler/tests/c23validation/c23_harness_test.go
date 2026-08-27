@@ -49,6 +49,15 @@ func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 // tagged run.
 const runProcessTimeout = 10 * time.Second
 
+// buildProcessTimeout bounds one compiler invocation (compiling and linking
+// one artifact set under one toolchain), distinct from runProcessTimeout
+// above: that one bounds running the already-built binary. A hung gcc,
+// clang, zig, or linker process would otherwise block its exec.Command call
+// forever, and the only thing that would eventually stop it is go test's
+// own outer -timeout, which discards every already-passing result along
+// with it.
+const buildProcessTimeout = 2 * time.Minute
+
 // runProcess runs path with a hard timeout, returning stdout and stderr
 // captured separately (never combined: Tier 2 and Tier 3 both depend on
 // telling the two apart) and whether it exited zero.
@@ -94,23 +103,46 @@ func canonicalArtifactHash(files map[string]string) string {
 }
 
 // compileCacheKey identifies one build: a distinct generated artifact set
-// compiled by one toolchain under one flag set. The target is folded into
-// the toolchain's own cache entry via its Command+Version, since this suite
-// never varies target independent of toolchain (host-only, see the RFC).
+// compiled by one toolchain under one flag set, scoped to the buildRoot that
+// owns it. The target is folded into the toolchain's own cache entry via its
+// Command+Version, since this suite never varies target independent of
+// toolchain (host-only, see the RFC). buildRoot is part of the key -- not
+// just a place the result happens to live -- because compileCache is a
+// package-level map shared by every top-level test in this binary, while
+// each top-level test's buildRoot is its own t.TempDir(), deleted when that
+// top-level test returns: without buildRoot in the key, a cache hit from one
+// top-level test could hand back an executable path another top-level test
+// already deleted.
 type compileCacheKey struct {
 	artifactHash string
 	toolchain    string
 	flags        string
+	buildRoot    string
 }
 
-type compileCacheEntry struct {
+// buildResult is the outcome of one build: either an executable path or the
+// error the toolchain rejected it with.
+type buildResult struct {
 	exe string
 	err error
 }
 
+// compileCacheEntry lets exactly one caller per key perform the build while
+// every other caller for that same key -- including the one that
+// performed it -- waits on and then reads the same published result.
+// sync.Once.Do's own happens-before guarantee makes the plain field read
+// below safe with no further locking: check-then-act on a bare map (lock,
+// check, unlock, build, lock, write) would let two callers that miss the
+// cache for the same key build concurrently into the same directory and the
+// same output path.
+type compileCacheEntry struct {
+	once   sync.Once
+	result buildResult
+}
+
 var (
 	compileCacheMu sync.Mutex
-	compileCache   = map[compileCacheKey]compileCacheEntry{}
+	compileCache   = map[compileCacheKey]*compileCacheEntry{}
 )
 
 // warningFlags is the complete Tier 1 warning-suppression list. Every entry
@@ -127,47 +159,65 @@ var warningFlags = []string{
 // buildGeneratedC materializes every artifact under a fresh subdirectory of
 // buildRoot and compiles every .c translation unit with the harness warning
 // policy under toolchain, returning the executable path. The build is
-// cached by canonical artifact hash, toolchain, and flag set, so the same
-// generated output is never compiled twice by the same toolchain in one
-// run. buildRoot is the calling top-level test's own t.TempDir(), threaded
-// down rather than requested here again: an executable this cache hands out
-// must outlive the specific subtest that first built it, and a per-call
-// t.TempDir() is removed as soon as that one subtest returns.
+// cached by canonical artifact hash, toolchain, flag set, and buildRoot, so
+// the same generated output is never compiled twice by the same toolchain
+// under the same buildRoot. buildRoot is the calling top-level test's own
+// t.TempDir(), threaded down rather than requested here again: an
+// executable this cache hands out must outlive the specific subtest that
+// first built it but not the top-level test that owns buildRoot, since Go
+// deletes a t.TempDir() when its owning top-level test returns -- buildRoot
+// is part of the cache key specifically so a cache hit can never outlive it.
 func buildGeneratedC(t *testing.T, tc toolchain, result compiler.CompilationResult, buildRoot string) string {
 	t.Helper()
 	flags := []string{"-std=c23", "-Wall", "-Wextra", "-Werror"}
 	flags = append(flags, warningFlags...)
-	key := compileCacheKey{artifactHash: canonicalArtifactHash(result.Files), toolchain: tc.Name, flags: strings.Join(flags, " ")}
+	key := compileCacheKey{artifactHash: canonicalArtifactHash(result.Files), toolchain: tc.Name, flags: strings.Join(flags, " "), buildRoot: buildRoot}
 
 	compileCacheMu.Lock()
-	if cached, ok := compileCache[key]; ok {
-		compileCacheMu.Unlock()
-		if cached.err != nil {
-			t.Fatalf("%s rejected generated C (cached): %v", tc.Name, cached.err)
-		}
-		return cached.exe
+	entry, ok := compileCache[key]
+	if !ok {
+		entry = &compileCacheEntry{}
+		compileCache[key] = entry
 	}
 	compileCacheMu.Unlock()
 
-	dir := filepath.Join(buildRoot, key.artifactHash, tc.Name)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		t.Fatal(err)
+	entry.once.Do(func() {
+		entry.result = doBuild(tc, result.Files, flags, buildRoot, key.artifactHash, t.Name())
+	})
+	if entry.result.err != nil {
+		t.Fatalf("%s rejected generated C: %v", tc.Name, entry.result.err)
 	}
-	for name, content := range result.Files {
+	return entry.result.exe
+}
+
+// doBuild materializes one artifact set under a fresh subdirectory of
+// buildRoot and compiles every .c translation unit with the harness warning
+// policy under tc. It takes no *testing.T: compileCacheEntry.once may run it
+// from any one of several waiting subtests' goroutines, and only
+// buildGeneratedC's own caller reports failure, through its own t.
+// subtestName is t.Name() from whichever caller happened to run the build --
+// identifying, not necessarily the specific caller that later reads the
+// cached result, an accepted imprecision of any dedup cache.
+func doBuild(tc toolchain, files map[string]string, flags []string, buildRoot, artifactHash, subtestName string) buildResult {
+	dir := filepath.Join(buildRoot, artifactHash, tc.Name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return buildResult{err: err}
+	}
+	for name, content := range files {
 		path := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			t.Fatal(err)
+			return buildResult{err: err}
 		}
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			t.Fatal(err)
+			return buildResult{err: err}
 		}
 	}
 	exe := filepath.Join(dir, "hexal.exe")
 	args := append([]string{}, tc.Command[1:]...)
 	args = append(args, flags...)
 	args = append(args, "-I", dir)
-	names := make([]string, 0, len(result.Files))
-	for name := range result.Files {
+	names := make([]string, 0, len(files))
+	for name := range files {
 		names = append(names, name)
 	}
 	slices.Sort(names)
@@ -184,21 +234,17 @@ func buildGeneratedC(t *testing.T, tc toolchain, result compiler.CompilationResu
 		args = append(args, "-lpthread")
 	}
 	args = append(args, "-o", exe)
-	command := exec.Command(tc.Command[0], args...)
-	output, err := command.CombinedOutput()
 
-	compileCacheMu.Lock()
-	if err != nil {
-		compileCache[key] = compileCacheEntry{err: fmt.Errorf("%v\n%s", err, output)}
-	} else {
-		compileCache[key] = compileCacheEntry{exe: exe}
+	ctx, cancel := context.WithTimeout(context.Background(), buildProcessTimeout)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, tc.Command[0], args...).CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return buildResult{err: fmt.Errorf("%s did not finish within %s (artifact %s)", subtestName, buildProcessTimeout, artifactHash)}
 	}
-	compileCacheMu.Unlock()
-
 	if err != nil {
-		t.Fatalf("%s rejected generated C: %v\n%s", tc.Name, err, output)
+		return buildResult{err: fmt.Errorf("%v\n%s", err, output)}
 	}
-	return exe
+	return buildResult{exe: exe}
 }
 
 // compileGeneratedC (Tier 1) writes every generated artifact and compiles

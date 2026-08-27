@@ -17,6 +17,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -161,14 +162,13 @@ func resolveExecutable(spec toolchainSpec) (string, error) {
 	return "", fmt.Errorf("%s not found; tried %s, and override variable %s", spec.name, strings.Join(tried, ", "), spec.envVar)
 }
 
-// discoverToolchain resolves, invokes, and version-checks one toolchain.
-// Failure is fatal by name: the tagged suite never skips a missing or
-// unsupported toolchain.
-func discoverToolchain(t *testing.T, spec toolchainSpec) toolchain {
-	t.Helper()
+// resolveToolchain resolves, invokes, and version-checks one toolchain,
+// returning an error rather than calling t.Fatalf so it is safe to run
+// inside sync.Once (see discoverAllToolchains).
+func resolveToolchain(spec toolchainSpec) (toolchain, error) {
 	path, err := resolveExecutable(spec)
 	if err != nil {
-		t.Fatalf("c23 suite requires %s: %v", spec.name, err)
+		return toolchain{}, fmt.Errorf("c23 suite requires %s: %w", spec.name, err)
 	}
 	command := []string{path}
 	if spec.subcommand != "" {
@@ -179,31 +179,54 @@ func discoverToolchain(t *testing.T, spec toolchainSpec) toolchain {
 	// subcommand prefix later used to invoke it as a compiler.
 	output, err := exec.Command(path, spec.versionArgs...).CombinedOutput()
 	if err != nil {
-		t.Fatalf("%s found at %s but failed to report its version: %v\n%s", spec.name, path, err, output)
+		return toolchain{}, fmt.Errorf("%s found at %s but failed to report its version: %v\n%s", spec.name, path, err, output)
 	}
 	match := spec.versionPattern.FindStringSubmatch(string(output))
 	if match == nil {
-		t.Fatalf("%s at %s produced an unrecognized version banner: %s", spec.name, path, output)
+		return toolchain{}, fmt.Errorf("%s at %s produced an unrecognized version banner: %s", spec.name, path, output)
 	}
 	major, convErr := strconv.Atoi(match[1])
 	if convErr != nil {
-		t.Fatalf("%s at %s produced a non-numeric version %q", spec.name, path, match[1])
+		return toolchain{}, fmt.Errorf("%s at %s produced a non-numeric version %q", spec.name, path, match[1])
 	}
 	if major < spec.minimumMajor {
-		t.Fatalf("%s at %s is version %d, below the required minimum %d", spec.name, path, major, spec.minimumMajor)
+		return toolchain{}, fmt.Errorf("%s at %s is version %d, below the required minimum %d", spec.name, path, major, spec.minimumMajor)
 	}
-	resolved := toolchain{Name: spec.name, Command: command, Version: strings.TrimSpace(strings.SplitN(string(output), "\n", 2)[0]), DefaultTarget: spec.defaultTarget}
-	t.Logf("discovered %s at %s: %s (default target %s)", spec.name, path, resolved.Version, spec.defaultTarget)
-	return resolved
+	return toolchain{Name: spec.name, Command: command, Version: strings.TrimSpace(strings.SplitN(string(output), "\n", 2)[0]), DefaultTarget: spec.defaultTarget}, nil
 }
 
+var (
+	toolchainsOnce      sync.Once
+	cachedGCC           toolchain
+	cachedClang         toolchain
+	cachedZig           toolchain
+	cachedToolchainsErr error
+)
+
 // discoverAllToolchains resolves and version-checks all three required
-// toolchains for one test. Each call re-resolves rather than caching across
-// tests: a cached failure would otherwise report clearly for the first
-// fixture that hit it and confusingly (a zero-value toolchain) for every
-// fixture after, which fails the requirement that a missing tool is
-// reported by name.
+// toolchains exactly once per test binary run, however many subtests call
+// it. resolveToolchain takes no *testing.T so it is safe to run inside
+// sync.Once; every caller here -- the one that ran Once.Do and every one
+// that didn't -- reports the same cached error by name through its own t.
+// A naive sync.Once around a t.Fatalf-calling function would not work: t's
+// Fatalf unwinds the calling goroutine via runtime.Goexit rather than a
+// normal return, but sync.Once still marks itself done regardless (its
+// internal doSlow sets the done flag via a defer), so every later caller
+// would silently receive a zero-value toolchain with no error at all,
+// failing the requirement that a missing tool is reported by name.
 func discoverAllToolchains(t *testing.T) (gcc, clang, zig toolchain) {
 	t.Helper()
-	return discoverToolchain(t, gccSpec), discoverToolchain(t, clangSpec), discoverToolchain(t, zigSpec)
+	toolchainsOnce.Do(func() {
+		cachedGCC, cachedToolchainsErr = resolveToolchain(gccSpec)
+		if cachedToolchainsErr == nil {
+			cachedClang, cachedToolchainsErr = resolveToolchain(clangSpec)
+		}
+		if cachedToolchainsErr == nil {
+			cachedZig, cachedToolchainsErr = resolveToolchain(zigSpec)
+		}
+	})
+	if cachedToolchainsErr != nil {
+		t.Fatal(cachedToolchainsErr)
+	}
+	return cachedGCC, cachedClang, cachedZig
 }

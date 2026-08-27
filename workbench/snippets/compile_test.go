@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"sync"
 	"testing"
 
 	"hexal/compiler"
@@ -64,6 +65,33 @@ func TestCatalogProgramsCompile(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestCatalogProgramsCompileConcurrently establishes that independent
+// compiler.Compile calls share no mutable state. Run under `go test -race`,
+// this is the prerequisite compiler/tests/c23validation needs before it is
+// allowed to call Compile from parallel snippet subtests.
+func TestCatalogProgramsCompileConcurrently(t *testing.T) {
+	catalog, err := snippets.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for _, category := range catalog {
+		for _, snippet := range category.Snippets {
+			wg.Add(1)
+			go func(snippet snippets.Snippet) {
+				defer wg.Done()
+				// t.Errorf (never t.Fatalf) is the documented safe
+				// testing.T call from a non-test goroutine.
+				result := compiler.Compile(snippet.Sources, snippet.Entrypoint, compiler.Project{})
+				if result.ExitCode != compiler.ExitSuccess {
+					t.Errorf("snippet %s did not compile concurrently: %v", snippet.ID, result.Stderr)
+				}
+			}(snippet)
+		}
+	}
+	wg.Wait()
 }
 
 // loadGeneratedManifest reads the committed baseline of every catalog
