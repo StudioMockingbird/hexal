@@ -643,7 +643,16 @@ func Lex(source string) ([]Token, error) {
 				if !terminated {
 					diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated module path literal"))
 				}
-				if strings.ContainsRune(source[pathPayloadStart:index-1], '\\') {
+				// index-1 excludes the closing quote or line terminator that
+				// stopped the scan above. An opening quote at the very end of
+				// source leaves nothing to scan (index == pathPayloadStart),
+				// which would make index-1 precede pathPayloadStart; clamp to
+				// an empty payload rather than slicing out of range.
+				payloadEnd := index - 1
+				if payloadEnd < pathPayloadStart {
+					payloadEnd = pathPayloadStart
+				}
+				if strings.ContainsRune(source[pathPayloadStart:payloadEnd], '\\') {
 					diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid module-path literal"))
 				}
 				// Keep a recovery token even when the path is malformed so

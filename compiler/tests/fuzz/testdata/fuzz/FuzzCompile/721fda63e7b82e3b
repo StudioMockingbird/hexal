@@ -1,0 +1,2 @@
+go test fuzz v1
+string("fun A(r:MutPtr<Int32>)do r.read_volatile()end")

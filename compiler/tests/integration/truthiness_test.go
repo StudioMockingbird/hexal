@@ -16,10 +16,10 @@ func TestTruthinessConditions(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"if 0 then end", "if (((void)(0), true)) {"},
-		{"p: Ptr<Int32> | Nil := nil if p then end", "if ((hex_v_p != nullptr)) {"},
+		{"if 0 then end", "if ((void)(0), true) {"},
+		{"p: Ptr<Int32> | Nil := nil if p then end", "if (hex_v_p != nullptr) {"},
 		{"if true then end", "if (true) {"},
-		{"mut count: Int32 := 1 if count then count = count - 1 end", "if (((void)(hex_v_count), true)) {"},
+		{"mut count: Int32 := 1 if count then count = count - 1 end", "if ((void)(hex_v_count), true) {"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
@@ -38,7 +38,7 @@ func TestTruthinessConditionLoweringPreservesBranches(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want successful nil-condition program", result)
 	}
-	if !strings.Contains(rootC(t, result), "if ((hex_v_p != nullptr)) {") || !strings.Contains(rootC(t, result), "const int32_t hex_v_missing = 1;") {
+	if !strings.Contains(rootC(t, result), "if (hex_v_p != nullptr) {") || !strings.Contains(rootC(t, result), "const int32_t hex_v_missing = 1;") {
 		t.Fatalf("modules/app.c = %q, want the nil branch emitted verbatim", rootC(t, result))
 	}
 }
@@ -53,8 +53,8 @@ func TestNullableTruthinessCondition(t *testing.T) {
 	}
 	for _, want := range []string{
 		"int32_t *hex_v_maybe = &hex_v_value;",
-		"if ((hex_v_maybe != nullptr)) {",
-		"} else if ((hex_v_maybe != nullptr)) {",
+		"if (hex_v_maybe != nullptr) {",
+		"} else if (hex_v_maybe != nullptr) {",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)

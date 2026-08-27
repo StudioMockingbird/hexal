@@ -1,0 +1,2 @@
+go test fuzz v1
+string("type Event as|A|Move{A0:Int32,A:Int32}end A:=Event.Move")

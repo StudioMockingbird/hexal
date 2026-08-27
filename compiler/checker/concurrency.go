@@ -340,6 +340,11 @@ func checkAtomicMethodCall(call parser.CallExpression, callee parser.PropertyExp
 	name := callee.Property.Lexeme
 	atomicType := receiver.typ
 	element := atomicType.Atomic.Element
+	switch name {
+	case "load", "store", "exchange", "fetch_add", "fetch_sub", "compare_exchange":
+	default:
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("%s has no method named %s", atomicType.Name, name)))}
+	}
 	argumentCount := 1
 	if name == "load" {
 		argumentCount = 0

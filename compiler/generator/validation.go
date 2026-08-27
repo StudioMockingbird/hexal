@@ -834,7 +834,15 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		if err := validateExpressionChildWithState(node.Left, node.OperandType, state); err != nil {
 			return err
 		}
-		return validateExpressionChildWithState(node.Right, node.OperandType, state)
+		// A shift count keeps its own integer type; it never takes the left
+		// operand's type, unlike every other binary operator here.
+		rightExpected := node.OperandType
+		if node.Operator == checker.ShiftLeftOperator || node.Operator == checker.ShiftRightOperator {
+			if rightType, ok := expressionTypeWithState(*node.Right, state); ok {
+				rightExpected = rightType
+			}
+		}
+		return validateExpressionChildWithState(node.Right, rightExpected, state)
 	case checker.NullTestExpression:
 		// == nil and != nil test a nullable operand's active member. The
 		// operand carries the pre-test nullable type; the result is Bool.

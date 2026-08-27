@@ -2,19 +2,32 @@
 
 package c23validation
 
-// C23 harness: the single compile/run path for every C23-tagged test.
-// The tag gates the suite; an explicitly requested tagged run fails when
-// the toolchain is missing instead of skipping.
+// C23 harness: the compile/run/trap execution engine shared by every fixture
+// in catalog_test.go. It runs generated C under all three discovered
+// toolchains, caches each distinct generated artifact set per
+// toolchain/target/flags so the suite invokes each compiler once per
+// distinct output, and bounds every process it runs with a hard timeout so a
+// fixture that reaches a known runtime hang fails cleanly instead of
+// blocking the whole run.
 
 import (
-	"slices"
-
-	"hexal/compiler"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"hexal/compiler"
 )
 
 // assertCompiles requires the source to compile and returns the result.
@@ -29,23 +42,117 @@ func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 	return result
 }
 
-// c23Compiler resolves the gcc toolchain once per call. Failure is fatal:
-// the tagged suite must not silently skip.
-func c23Compiler(t *testing.T) string {
+// runProcessTimeout bounds every generated binary this suite executes. The
+// scheduler is separately known to hang the root Task forever on every
+// concurrency program (docs/status.md, Unowned); this bound
+// turns that into a clean, fast test failure instead of blocking the whole
+// tagged run.
+const runProcessTimeout = 10 * time.Second
+
+// runProcess runs path with a hard timeout, returning stdout and stderr
+// captured separately (never combined: Tier 2 and Tier 3 both depend on
+// telling the two apart) and whether it exited zero.
+func runProcess(t *testing.T, path string) (stdout, stderr string, exitedZero bool) {
 	t.Helper()
-	command, err := exec.LookPath("gcc")
-	if err != nil {
-		t.Fatalf("c23 suite requires gcc: %v", err)
+	ctx, cancel := context.WithTimeout(context.Background(), runProcessTimeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, path)
+	var outBuf, errBuf bytes.Buffer
+	command.Stdout = &outBuf
+	command.Stderr = &errBuf
+	err := command.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Fatalf("generated program at %s did not exit within %s (a known scheduler defect hangs every concurrency program at startup; see docs/status.md)", path, runProcessTimeout)
 	}
-	return command
+	exitedZero = err == nil
+	return outBuf.String(), errBuf.String(), exitedZero
 }
 
-// buildGeneratedC materializes every artifact in Files (hexal.h, each module
-// C/header pair, and the demand-driven hexal/ component files) under dir and
-// compiles every .c translation unit with the harness warning policy,
-// returning the executable path.
-func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string) string {
+// canonicalArtifactHash is the cache key: SHA-256 over artifact names sorted
+// bytewise, each filename length, filename bytes, content length, and
+// content bytes encoded in sequence. Distinct sources routinely collapse
+// onto identical generated C, and invoking a compiler is three orders of
+// magnitude slower than the in-process checks it would otherwise duplicate.
+func canonicalArtifactHash(files map[string]string) string {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	hasher := sha256.New()
+	var lengthBuffer [8]byte
+	for _, name := range names {
+		binary.BigEndian.PutUint64(lengthBuffer[:], uint64(len(name)))
+		hasher.Write(lengthBuffer[:])
+		hasher.Write([]byte(name))
+		content := files[name]
+		binary.BigEndian.PutUint64(lengthBuffer[:], uint64(len(content)))
+		hasher.Write(lengthBuffer[:])
+		hasher.Write([]byte(content))
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+// compileCacheKey identifies one build: a distinct generated artifact set
+// compiled by one toolchain under one flag set. The target is folded into
+// the toolchain's own cache entry via its Command+Version, since this suite
+// never varies target independent of toolchain (host-only, see the RFC).
+type compileCacheKey struct {
+	artifactHash string
+	toolchain    string
+	flags        string
+}
+
+type compileCacheEntry struct {
+	exe string
+	err error
+}
+
+var (
+	compileCacheMu sync.Mutex
+	compileCache   = map[compileCacheKey]compileCacheEntry{}
+)
+
+// warningFlags is the complete Tier 1 warning-suppression list. Every entry
+// is labelled Debt (names the open gap it tolerates, removed when that gap
+// closes) or Principle (names the language guarantee it protects,
+// permanent); an unlabelled suppression does not belong here.
+var warningFlags = []string{
+	"-Wno-unused-function",         // Debt: the generator emits whole helper families (equality, print, union, heap, io) demand-independently; narrowing this is that gap's job, not this suite's.
+	"-Wno-unused-variable",         // Debt: same generator over-emission gap as above, for module-scope helper state rather than functions.
+	"-Wno-unused-parameter",        // Debt: same generator over-emission gap, for helper parameters unused by a given instantiation.
+	"-Wno-unused-but-set-variable", // Debt: same generator over-emission gap, for a helper local written but never read by a given instantiation.
+}
+
+// buildGeneratedC materializes every artifact under a fresh subdirectory of
+// buildRoot and compiles every .c translation unit with the harness warning
+// policy under toolchain, returning the executable path. The build is
+// cached by canonical artifact hash, toolchain, and flag set, so the same
+// generated output is never compiled twice by the same toolchain in one
+// run. buildRoot is the calling top-level test's own t.TempDir(), threaded
+// down rather than requested here again: an executable this cache hands out
+// must outlive the specific subtest that first built it, and a per-call
+// t.TempDir() is removed as soon as that one subtest returns.
+func buildGeneratedC(t *testing.T, tc toolchain, result compiler.CompilationResult, buildRoot string) string {
 	t.Helper()
+	flags := []string{"-std=c23", "-Wall", "-Wextra", "-Werror"}
+	flags = append(flags, warningFlags...)
+	key := compileCacheKey{artifactHash: canonicalArtifactHash(result.Files), toolchain: tc.Name, flags: strings.Join(flags, " ")}
+
+	compileCacheMu.Lock()
+	if cached, ok := compileCache[key]; ok {
+		compileCacheMu.Unlock()
+		if cached.err != nil {
+			t.Fatalf("%s rejected generated C (cached): %v", tc.Name, cached.err)
+		}
+		return cached.exe
+	}
+	compileCacheMu.Unlock()
+
+	dir := filepath.Join(buildRoot, key.artifactHash, tc.Name)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
 	for name, content := range result.Files {
 		path := filepath.Join(dir, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -56,7 +163,9 @@ func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string
 		}
 	}
 	exe := filepath.Join(dir, "hexal.exe")
-	command := exec.Command(c23Compiler(t), "-std=c23", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function", "-Wno-unused-variable", "-Wno-unused-parameter", "-Wno-unused-but-set-variable", "-Wno-maybe-uninitialized", "-I", dir)
+	args := append([]string{}, tc.Command[1:]...)
+	args = append(args, flags...)
+	args = append(args, "-I", dir)
 	names := make([]string, 0, len(result.Files))
 	for name := range result.Files {
 		names = append(names, name)
@@ -64,50 +173,106 @@ func buildGeneratedC(t *testing.T, result compiler.CompilationResult, dir string
 	slices.Sort(names)
 	for _, name := range names {
 		if strings.HasSuffix(name, ".c") {
-			command.Args = append(command.Args, filepath.Join(dir, name))
+			args = append(args, filepath.Join(dir, name))
 		}
 	}
-	command.Args = append(command.Args, "-o", exe)
+	// The scheduler and blocking-pool runtime need a real thread library on
+	// POSIX targets; the Windows primitives this suite's own host targets
+	// need nothing extra (SRWLOCK/CONDITION_VARIABLE/_beginthreadex are
+	// libc/kernel32, not a separate link dependency).
+	if runtime.GOOS != "windows" && strings.Contains(strings.Join(names, " "), "concurrency.c") {
+		args = append(args, "-lpthread")
+	}
+	args = append(args, "-o", exe)
+	command := exec.Command(tc.Command[0], args...)
 	output, err := command.CombinedOutput()
+
+	compileCacheMu.Lock()
 	if err != nil {
-		t.Fatalf("gcc rejected generated C: %v\n%s", err, output)
+		compileCache[key] = compileCacheEntry{err: fmt.Errorf("%v\n%s", err, output)}
+	} else {
+		compileCache[key] = compileCacheEntry{exe: exe}
+	}
+	compileCacheMu.Unlock()
+
+	if err != nil {
+		t.Fatalf("%s rejected generated C: %v\n%s", tc.Name, err, output)
 	}
 	return exe
 }
 
-// compileGeneratedC writes every generated artifact and compiles every .c
-// translation unit with -std=c23 -Wall -Wextra -Werror: any warning or error
-// fails the test. The -Wno-unused-function, -Wno-unused-variable, and
-// -Wno-unused-parameter flags tolerate generator helper-family emission and
-// legally-unused bindings; const-discards and other warnings still fail.
-func compileGeneratedC(t *testing.T, result compiler.CompilationResult) {
+// compileGeneratedC (Tier 1) writes every generated artifact and compiles
+// every .c translation unit with -std=c23 -Wall -Wextra -Werror under every
+// discovered toolchain: any warning or error fails the test. A program
+// accepted by one toolchain and rejected by another is a real divergence and
+// fails the fixture rather than being resolved by preferring one compiler's
+// judgment.
+func compileGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot string) {
 	t.Helper()
-	buildGeneratedC(t, result, t.TempDir())
+	gcc, clang, zig := discoverAllToolchains(t)
+	for _, tc := range []toolchain{gcc, clang, zig} {
+		t.Run(tc.Name, func(t *testing.T) {
+			buildGeneratedC(t, tc, result, buildRoot)
+		})
+	}
 }
 
-// runGeneratedC compiles and runs the program with the same warning policy
-// and returns its stdout with line endings normalized.
-func runGeneratedC(t *testing.T, result compiler.CompilationResult) string {
+// runGeneratedC (Tier 2) compiles under every toolchain, runs the resulting
+// binary, and returns its normalized stdout for the caller to assert
+// exactly. Stdout is normalized here because a C runtime in text mode on
+// Windows translates '\n' to '\r\n' on the way through a pipe; a fixture
+// asserts the bytes the program wrote, not the platform's line-ending
+// habits. Stderr must be empty and the process must exit zero, or the
+// fixture fails -- a run that produced correct stdout while also writing to
+// stderr or trapping is not a passing Tier 2 result.
+func runGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot string) string {
 	t.Helper()
-	exe := buildGeneratedC(t, result, t.TempDir())
-	run, err := exec.Command(exe).CombinedOutput()
-	if err != nil {
-		t.Fatalf("generated program failed: %v\n%s", err, run)
+	gcc, clang, zig := discoverAllToolchains(t)
+	var normalized string
+	first := true
+	for _, tc := range []toolchain{gcc, clang, zig} {
+		t.Run(tc.Name, func(t *testing.T) {
+			exe := buildGeneratedC(t, tc, result, buildRoot)
+			stdout, stderr, exitedZero := runProcess(t, exe)
+			if !exitedZero {
+				t.Fatalf("generated program exited non-zero; stdout=%q stderr=%q", stdout, stderr)
+			}
+			if stderr != "" {
+				t.Fatalf("generated program wrote to stderr: %q", stderr)
+			}
+			out := strings.ReplaceAll(stdout, "\r\n", "\n")
+			if first {
+				normalized = out
+				first = false
+				return
+			}
+			if out != normalized {
+				t.Fatalf("output diverges across toolchains: %s produced %q, an earlier toolchain produced %q", tc.Name, out, normalized)
+			}
+		})
 	}
-	return strings.ReplaceAll(string(run), "\r\n", "\n")
+	return normalized
 }
 
-// trapGeneratedC compiles and runs a program that must terminate by a
-// runtime trap: a successful exit fails the test, and the trap must carry
-// the generated runtime's diagnostic text.
-func trapGeneratedC(t *testing.T, result compiler.CompilationResult) {
+// trapGeneratedC (Tier 3) compiles under every toolchain and runs a program
+// that must terminate by a runtime trap: a successful exit fails the test,
+// and stderr must contain requiredSubstring, the fixture's exact expected
+// "[Runtime Error] ..." text. Stdout up to the trap point is not
+// constrained by this helper; callers with output expectations before the
+// trap assert it themselves.
+func trapGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot, requiredSubstring string) {
 	t.Helper()
-	exe := buildGeneratedC(t, result, t.TempDir())
-	run, err := exec.Command(exe).CombinedOutput()
-	if err == nil {
-		t.Fatalf("program must trap but exited successfully: %s", run)
-	}
-	if !strings.Contains(string(run), "[Runtime Error]") {
-		t.Fatalf("program failed without a runtime diagnostic: %v\n%s", err, run)
+	gcc, clang, zig := discoverAllToolchains(t)
+	for _, tc := range []toolchain{gcc, clang, zig} {
+		t.Run(tc.Name, func(t *testing.T) {
+			exe := buildGeneratedC(t, tc, result, buildRoot)
+			_, stderr, exitedZero := runProcess(t, exe)
+			if exitedZero {
+				t.Fatalf("program must trap but exited successfully")
+			}
+			if !strings.Contains(stderr, requiredSubstring) {
+				t.Fatalf("program's stderr = %q, want it to contain %q", stderr, requiredSubstring)
+			}
+		})
 	}
 }

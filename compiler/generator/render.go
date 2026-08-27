@@ -32,8 +32,36 @@ func writeStatements(body *strings.Builder, statements []checker.Statement, stat
 	return writeStatementsAt(body, statements, state, statementFrame{result: result, inFunction: inFunction, defers: defers}, "    ")
 }
 
+// isFullyParenthesized reports whether expr is exactly one top-level,
+// balanced parenthesis pair spanning its entire length -- the shape every
+// comparison and logical-operator rendering produces. writeControlHeader
+// uses this to avoid wrapping it in a second pair: "((x == y))" is exactly
+// what -Wparentheses-equality flags under -Werror, one paren pair is all
+// C's if/while grammar needs, and the inner one already supplies it.
+func isFullyParenthesized(expr string) bool {
+	if len(expr) < 2 || expr[0] != '(' || expr[len(expr)-1] != ')' {
+		return false
+	}
+	depth := 0
+	for index, char := range expr {
+		switch char {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 && index != len(expr)-1 {
+				return false
+			}
+		}
+	}
+	return depth == 0
+}
+
 func writeControlHeader(body *strings.Builder, indent, prefix, condition string, keywordLine, conditionLine int, filename string) {
 	writeLineDirective(body, keywordLine, filename)
+	if isFullyParenthesized(condition) {
+		condition = condition[1 : len(condition)-1]
+	}
 	if conditionLine > 0 && conditionLine != keywordLine {
 		fmt.Fprintf(body, "%s%s (\n", indent, prefix)
 		writeLineDirective(body, conditionLine, filename)
@@ -261,16 +289,29 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 }
 
 func renderCallStatement(statement checker.CallStatement, state *expressionValidation) (string, error) {
+	if statement.Call.Kind == checker.ObjectOperand {
+		// Error.new(...) checks to an ObjectOperand rather than a Node-carrying
+		// ExpressionOperand; discarding it (like any other call result) is
+		// legal, but it has no Node for the switch below to dispatch on.
+		if statement.Call.Object == nil || !compilerTypes.Equal(statement.Call.Type, statement.Call.Object.Type) {
+			return "", unknownExpressionDiagnostic("call statement object operand has mismatched checked types")
+		}
+		return objectLiteralWithState(statement.Call.Object, state)
+	}
 	switch statement.Call.Node.Kind {
 	case checker.CallExpression, checker.MethodCallExpression, checker.StringMethodCallExpression, checker.CollectionMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
-		checker.VolatileWriteExpression,
-		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression:
-		// Discarding a constructor result is legal; it simply leaks the
-		// allocation, which is the programmer's choice.
+		checker.VolatileReadExpression, checker.VolatileWriteExpression,
+		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
+		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
+		checker.LayoutExpression, checker.ViewBridgeExpression, checker.BytesOverExpression,
+		checker.StreamConstructorExpression, checker.StreamMethodCallExpression:
+		// Discarding a constructor or a pure computation's result is legal;
+		// at worst it leaks an allocation or wastes a computation, both the
+		// programmer's choice.
 	default:
 		return "", unknownExpressionDiagnostic("call statement without a checked call")
 	}
@@ -600,6 +641,16 @@ func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 		}
 		return typ.CName + " *const " + name
 	}
+	if compilerTypes.IsMutex(typ) {
+		// A source Mutex value is a pointer-sized handle to a heap-backed
+		// control block, exactly like List and Dict; a non-mut binding still
+		// calls lock/unlock through it, so only the pointer variable itself
+		// gains the top-level const.
+		if mutable {
+			return typ.CName + " *" + name
+		}
+		return typ.CName + " *const " + name
+	}
 	if compilerTypes.IsRuneCursor(typ) {
 		// A RuneCursor is a mutable-through descriptor; next() advances its
 		// offset, so the binding carries no top-level const even without a
@@ -686,6 +737,9 @@ func typeSpelling(typ compilerTypes.Type) string {
 		return typ.CName + " *"
 	}
 	if compilerTypes.IsDict(typ) {
+		return typ.CName + " *"
+	}
+	if compilerTypes.IsMutex(typ) {
 		return typ.CName + " *"
 	}
 	if typ.Element != nil {

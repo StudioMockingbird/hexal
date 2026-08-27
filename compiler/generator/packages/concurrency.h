@@ -3,10 +3,23 @@
 
 #include "hexal.h"
 {{if .Scheduler}}
-#if defined(__STDC_NO_THREADS__)
-#error "Hexal Task runtime requires C23 threads (<threads.h>); this toolchain defines __STDC_NO_THREADS__"
+#if defined(_WIN32)
+#include <windows.h>
+#include <process.h>
+/* hex_mutex_raw and hex_cond are the closed Hexal-owned threading vocabulary
+   that replaces C11 <threads.h>: <threads.h> is optional in C11, absent on
+   every Windows target this compiler targets, and undetectable through
+   __STDC_NO_THREADS__ on a hosted implementation that simply omits it.
+   SRWLOCK and CONDITION_VARIABLE initialize without allocating and need no
+   destroy, so the Windows destroy operations (defined in hexal/concurrency.c)
+   are empty rather than omitted, keeping the vocabulary uniform. */
+typedef SRWLOCK hex_mutex_raw;
+typedef CONDITION_VARIABLE hex_cond;
+#else
+#include <pthread.h>
+typedef pthread_mutex_t hex_mutex_raw;
+typedef pthread_cond_t hex_cond;
 #endif
-#include <threads.h>
 /* Task, channel, and mutex handle typedefs. */
 typedef struct hex_task hex_task;
 typedef struct hex_chan hex_chan;
@@ -28,7 +41,7 @@ struct hex_task {
     uint8_t wake_result;
     uint8_t flags;
     void *pending_park;
-    mtx_t lifecycle_mutex;
+    hex_mutex_raw lifecycle_mutex;
     hex_task *joiner;
     void *fiber;
     void *scheduler_fiber;

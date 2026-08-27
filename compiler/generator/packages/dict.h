@@ -116,7 +116,7 @@ static inline {{.ValueSpelling}} hex_dict_get_{{.Suffix}}(const {{.CName}} *dict
     }
     return dict->buckets[index].value;
 }
-static inline const {{.ValueSpelling}} *hex_dict_find_{{.Suffix}}(const {{.CName}} *dict, {{.KeySpelling}} key) {
+static inline {{.FindValueSpelling}} *hex_dict_find_{{.Suffix}}(const {{.CName}} *dict, {{.KeySpelling}} key) {
     if (dict->capacity == 0) {
         return nullptr;
     }

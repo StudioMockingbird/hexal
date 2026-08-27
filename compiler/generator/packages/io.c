@@ -72,7 +72,7 @@ static hex_strand hex_io_header(const char *operation, bool windows_codes, long 
     if (used > 31) {
         hex_runtime_trap("[Runtime Error] IO error header exceeded its inline capacity\n");
     }
-    hex_strand header = {{0}};
+    hex_strand header = {{"{0}"}};
     for (size_t index = 0; index < used; index++) {
         header.data[index] = (uint8_t)composed[index];
     }

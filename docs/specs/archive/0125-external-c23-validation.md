@@ -1,7 +1,142 @@
 # RFC 0125: External C23 Validation
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; blocked on RFC 0127
+- Status: Closed; implemented 2026-08-27. `compiler/tests/c23validation` is no
+  longer dormant: `toolchain_test.go` resolves GCC, Clang, and `zig cc` each
+  from a spec (override env var, PATH candidates, platform fallback globs --
+  the LLVM fallback specifically confirmed necessary and sufficient on the
+  authoring machine, where `clang` was absent from `PATH` but present at
+  `C:\Program Files\LLVM\bin\clang.exe`), version-checks each against the
+  GCC-15/Clang-18 floor, and logs the resolved path and version. Measured on
+  this host: GCC 16.1.0 (MinGW-w64 UCRT), Clang 22.1.8 (default target
+  `x86_64-pc-windows-msvc`), zig 0.16.0 (`zig cc`, default target
+  `x86_64-windows-gnu`) -- all three, not a degraded subset, superseding this
+  RFC's own "Measured toolchain facts" section, which predates a standalone
+  Clang being located. `c23_harness_test.go` compiles every distinct
+  generated artifact set once per toolchain via a canonical SHA-256 cache
+  (sorted names, length-prefixed name and content bytes), and bounds every
+  process it executes to a 10-second timeout -- required because the
+  scheduler-hang defect below means a fixture that spawns, joins, or locks a
+  Task would otherwise hang the tagged run rather than failing cleanly. Tier
+  1 (`compileGeneratedC`) compiles under all three toolchains with
+  `-std=c23 -Wall -Wextra -Werror`; the four surviving `-Wno-unused-*` flags
+  are each labelled Debt against the generator's known wholesale
+  helper-emission gap in a comment at the flag, and `-Wno-maybe-uninitialized`
+  was never added in the first place rather than added and later removed.
+  Tier 2 (`runGeneratedC`) executes the compiled binary, captures stdout and
+  stderr separately (never `CombinedOutput`), normalizes stdout line endings,
+  asserts exact stdout, requires empty stderr, and asserts the same output
+  across all three toolchains, failing as a recorded divergence if they
+  disagree. Tier 3 (`trapGeneratedC`) asserts non-zero exit and an exact
+  required `[Runtime Error] ...` stderr substring, read from the owning
+  `compiler/generator/packages/*.c`/`*.h` template rather than guessed.
+  `catalog_test.go` is the fixture schema RFC 0125 specified (a name, exactly
+  one of an inline source or a workbench snippet ID, an optional
+  zero-exit-or-trap expectation, host applicability) plus
+  `TestCatalogIsWellFormed`, a guard rejecting duplicate names, both/neither
+  source forms, and an impossible expectation shape.
+  `fixtures_test.go` carries 27 hand-written fixtures (ported from the
+  dormant lower-case smoke tests this RFC restored, several rewritten where
+  the language had moved past what they assumed -- String/Strand are not
+  indexable, only `rune_cursor()`/`bytes()` reach individual elements, so the
+  text-conformance fixture no longer uses `text[n]`; `Atomic.exchange`
+  returns the value it replaced, not the value it just installed) spanning
+  array/view/list/dict/equality/string/error/bitwise/numeric compile
+  coverage, List/Dict/String/print/error-control-flow/text exact-output
+  coverage, eleven exact-trap fixtures, and four concurrency fixtures. Three
+  of those four (spawn+Channel, Task join, Mutex lock/unlock) are
+  deliberately compile-only rather than run: `docs/status.md`'s Unowned
+  section already recorded, independently of this RFC, that
+  `hex_scheduler_init` never returns, so running any of them would hang
+  every toolchain's process for the full timeout rather than exercising
+  anything. `Atomic<T>` touches no scheduler state and runs normally.
+  `runner_test.go`'s `TestC23Suite` is the single unified runner: one
+  `t.TempDir()` shared by every fixture and toolchain build under it (an
+  executable the cache hands out must outlive the specific subtest that
+  first built it, which a per-call `t.TempDir()` does not), Tier 1 always,
+  Tier 2 or 3 by the fixture's own declared expectation, no separate
+  tier-registration list. `TestC23SnippetCatalogCompiles` gives every
+  workbench snippet Tier 1 coverage automatically with no per-snippet entry,
+  satisfying "workbench snippets are compile fixtures automatically"
+  directly rather than as an unused code path.
+
+  Running that automatic sweep once over the full ~150-snippet catalog --
+  something nothing in this repository had ever done to completion under a
+  real toolchain before -- found eight previously-unknown generator defects,
+  each fixed and re-verified compiling and running clean under all three
+  toolchains: `hexal/list.h` and `hexal/array.h` omitting `#include
+  "hexal/string.h"` for a `List<String>`/`Array<String, N>` element
+  (`list_component.go`/`array_component.go` gained a `NeedsHeapString`
+  field); `hexal/view.h`'s equivalent case forward-declares `hex_string`
+  instead of including the file, because `hexal/string.h` itself
+  unconditionally needs `hex_view_UInt8`, and a full include cycles back
+  into `hexal/view.h`'s own guard before its body defines that
+  specialization -- confirmed safe both directions by compiling a forward-
+  declare-then-full-definition probe under all three toolchains first;
+  `emission.go`'s io/error/list/view/heap dependency propagation checked only
+  `ioState.used`, so a `print`-only program (which selects `hexal/io.c`
+  through `printUsed` alone, per `io_component.go`'s own selection OR-
+  condition) never got `hexal/error.h`, matching `docs/status.md`'s existing
+  standing note about this exact `printUsed`-vs-`ioState.used` class of gap;
+  `hexal/io.c`'s Go template wrote a literal `hex_strand header = {{0}};`,
+  where `{{0}}` is a Go template action evaluating to the text `0`, not the
+  intended C `{0}` struct initializer -- fixed as `{{"{0}"}}`; `Mutex`'s
+  `declaration`/`typeSpelling` had no case, so any non-bare-local Mutex
+  (an object member, a union payload) declared by value instead of by
+  pointer, an incomplete-type error confirmed by this RFC's own authoring
+  during RFC 0127 and deferred as out-of-scope then; `Atomic<T>.new`'s
+  generated constructor cast its argument to the `_Atomic` type inside a
+  plain-typed return (`return (hex_atomic_Int32)value;`), which gcc
+  tolerated and Clang/zig cc correctly rejected -- the intended `return
+  value;` needed no cast at all; `hex_dict_find` prefixed a literal `const `
+  onto an already-pointer `ValueSpelling` for `Dict<K, String>`, producing
+  `const const hex_string * *`, fixed with a `FindValueSpelling` field that
+  appends a trailing `const` (via the pre-existing `qualifyLastPointer`)
+  instead of a leading one when the value spelling is already a pointer; and
+  every `if`/`while` whose condition renders as a self-parenthesized
+  comparison or logical expression received a second, redundant wrapping
+  pair from `writeControlHeader`, which `-Werror=parentheses-equality` flags
+  as likely-mistaken-for-`=` -- fixed with `isFullyParenthesized`, a
+  balanced-depth scan that strips exactly one fully-spanning outer pair
+  before wrapping, verified against nested cases (`(a) && (b)` is correctly
+  left alone) and against nine now-corrected hardcoded test expectations
+  across `generator_test.go`, `control_flow_test.go`, `concurrency_test.go`,
+  and `truthiness_test.go` that had encoded the double-wrapped form as
+  "expected." A first attempt at a ninth fix -- adding a `typ.Task != nil ||
+  typ.Channel != nil` case alongside Mutex's, since Task and Channel are
+  documented as the same kind of pointer-sized handle -- was reverted after
+  it produced `hex_task_Int32 **` (a double pointer) at ordinary Task
+  bindings, breaking the two fixtures that were passing before the attempt;
+  Task and Channel's existing bare-variable rendering path already assumes
+  `typeSpelling` returns their unwrapped `CName`, so extending `typeSpelling`
+  itself was the wrong fix, not merely an incomplete one. `docs/status.md`
+  records this and six further defects the same sweep found but did not fix
+  (the built-in `Seek` ADT does not compile when `Bytes.seek` is used;
+  `List<Task<T>>`/`List<Channel<T>>` do not compile, per the reverted attempt
+  above; a generic function specialized only from another module's call site
+  can be used before its forward declaration exists; a match-lowered
+  `switch` can fail `-Wswitch` over `hex_tag` enumerators structurally
+  unrelated to that specific match; a wrong-typed `hex_equal_hex_string`
+  argument and a `nested-list` equality dereference needing `->` instead of
+  `*`, neither yet root-caused; and one confirmed, unfixed
+  `-Wmaybe-uninitialized` finding in ADT payload access) precisely, each
+  reproducible by name under `go test -tags c23 -run
+  TestC23SnippetCatalogCompiles`, so `-tags c23` now fails honestly rather
+  than silently passing over them -- exactly the RFC's own "a tagged run
+  either passes everything it collected, or fails by name" rule applied to
+  defects discovered by the suite itself, not only to a missing toolchain.
+
+  Not attempted: the sanitizer tier (UBSan/ASan) in its entirety; the
+  RFC-0052 target-profile header/builtin/target/runtime/linker probes cited
+  in Test lifecycle, since RFC 0052 itself is not implemented; the full
+  `reference.md` trap inventory beyond the eleven traps and dozen-odd
+  exact-output fixtures built (shift count, close failure, Mutex misuse,
+  task stack overflow, and others remain unfixtured); exhaustive `print`
+  output-form coverage over every printable type; the `try`-evaluates-once
+  and `try spawn`-in-loop-spawns-exactly-once behavioral claims (both would
+  need to actually run a Task); and cross-target compile-and-link, which
+  remains an explicit Non-goal. `go test ./...` (untagged) remains
+  toolchain-independent and unaffected throughout.
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: compiling, running, and trapping generated C under GCC, Clang, and

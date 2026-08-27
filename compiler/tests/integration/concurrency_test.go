@@ -23,10 +23,10 @@ func TestSpawnLoopEmitsOneSiteInsideBody(t *testing.T) {
 	if count := strings.Count(rootC, "hex_task_spawn("); count != 1 {
 		t.Fatalf("loop of 8 spawns emits %d spawn sites, want exactly one per iteration:\n%s", count, rootC)
 	}
-	if !strings.Contains(rootC, "while ((hex_v_n < INT64_C(8))) {\n") {
+	if !strings.Contains(rootC, "while (hex_v_n < INT64_C(8)) {\n") {
 		t.Fatalf("generated C lacks the loop header:\n%s", rootC)
 	}
-	if !strings.Contains(rootC[strings.Index(rootC, "while ((hex_v_n < INT64_C(8))) {"):], "hex_spawn_task_1 = hex_task_spawn(") {
+	if !strings.Contains(rootC[strings.Index(rootC, "while (hex_v_n < INT64_C(8)) {"):], "hex_spawn_task_1 = hex_task_spawn(") {
 		t.Fatalf("the one spawn site must live inside the loop body:\n%s", rootC)
 	}
 }
@@ -381,7 +381,7 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 	concurrencyC := moduleFile(t, result, "hexal/concurrency.c")
 	for _, trap := range []string{
 		"hex_runtime_trap(\"[Runtime Error] scheduler mutex initialization failed\\n\");",
-		"hex_runtime_trap(\"[Runtime Error] scheduler condition variable initialization failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] native threading operation failed\\n\");",
 		"hex_runtime_trap(\"[Runtime Error] scheduler allocation failed\\n\");",
 		"hex_runtime_trap(\"[Runtime Error] scheduler fiber initialization failed\\n\");",
 		"hex_runtime_trap(\"[Runtime Error] scheduler worker-zero context creation failed\\n\");",

@@ -22,5 +22,6 @@ static inline {{.CName}} hex_view_slice_{{.Suffix}}({{.CName}} view, uint64_t st
 #define HEXAL_VIEW_H
 
 #include "hexal.h"
-{{template "viewbody" .}}
+{{if .NeedsHeapString}}typedef struct hex_string hex_string;
+{{end}}{{template "viewbody" .}}
 #endif

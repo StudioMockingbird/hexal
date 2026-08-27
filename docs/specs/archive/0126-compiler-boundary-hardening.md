@@ -1,7 +1,51 @@
 # RFC 0126: Compiler Boundary Hardening
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented 2026-08-27. `compiler/compile.go` gained
+  `validateLogicalKey`, enforcing the exact allowlist grammar (relative,
+  `/`-separated, exactly one trailing `.hex`, every component a Hexal
+  identifier); it runs on the entrypoint in `Compile` and on each reachable
+  import target's resolved logical key in `reachState.visit`, immediately
+  before that source is lexed, returning a Module Error naming the key and
+  the complete rule. `compiler/parser/parser.go` gained a shared
+  `syntaxDepth` counter and `enterSyntax`/exit-closure pair enforcing one
+  `maxSyntaxDepth` of 128 across every recursively entered production;
+  `expression()`, `typeExpression()`, and `block()` each call it at entry,
+  plus `matchExpression`'s scrutinee and arm-result parses, which bypass
+  `expression()` directly at `orExpression` for the same reason RFC 0120 gave
+  them their own binary-operator-region push. Match patterns and aggregate
+  literals needed no separate guard: both recurse only through the already-
+  guarded `typeExpression`/`expression` entries. `compile.go` split `Compile`
+  into a public recovery wrapper (named return, deferred `recover()`) and an
+  unexported `compilePipeline`, with a private `panicSeam` variable (a no-op
+  in production) giving tests the seam RFC 0126 required without any
+  exported injection hook; a recovered panic returns exactly one fixed
+  `[Unknown Error] internal compiler error` diagnostic, a non-nil empty
+  `Files` map, and finalized statistics, never the panic value or a Go
+  stack. `workbench/main.go` replaced its configurable `-addr` flag (default
+  `:8080`, all interfaces) with a fixed `workbenchAddress = "127.0.0.1:8080"`
+  constant shared by the startup log and the `ListenAndServe` call, so the
+  two can never name different endpoints. Verified: accepted/rejected
+  logical-key tables including the exact injection and path-traversal
+  reproductions from this RFC's Motivation (`compiler/compile_test.go`,
+  `compiler/tests/integration/boundary_test.go`); depth-128 parses and
+  depth-129 rejects for parentheses, array literals, `MutPtr<...>` type
+  constructors, and nested `if` blocks, plus the original 100,000-parenthesis
+  process-survival regression, all in
+  `compiler/parser/recursion_depth_test.go` (the four production kinds share
+  one off-by-one shape: the outermost parse call is itself one budget entry,
+  so 127 repetitions of a construct lands exactly at the 128 limit and 128
+  repetitions is one past it); the injected-panic seam firing with no
+  exposed panic text and ordinary diagnostics passing through recovery
+  unchanged (`compiler/compile_test.go`); and the workbench binding
+  loopback with a real `net.Listen` (`workbench/main_test.go`). `gofmt`,
+  `go build ./...`, `go vet ./...`, `go vet -tags c23 ./...`, and
+  `go test -count=1 ./...` all pass; the snippet manifest is unchanged, since
+  every change here affects only rejection paths and workbench startup, not
+  any accepted program's generated output. `docs/reference.md`'s Modules
+  section gained the one source-visible rule this RFC adds: the logical-key
+  allowlist grammar and its reachable-only, Module-Error-on-violation
+  enforcement.
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: what must hold at the public `compiler.Compile` boundary when its

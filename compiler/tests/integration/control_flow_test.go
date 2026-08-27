@@ -17,7 +17,7 @@ func TestConditionalAndLoopLowering(t *testing.T) {
 		"if (hex_v_ready) {",
 		"} else if (false) {",
 		"} else {",
-		"while ((hex_v_count < 3)) {",
+		"while (hex_v_count < 3) {",
 		"continue;",
 		"break;",
 		"hex_v_count = hex_wrap_add_int32_t(",
@@ -67,7 +67,7 @@ func TestControlFlowEmptyBranchesAndZeroIterationLoops(t *testing.T) {
 		t.Fatalf("empty control-flow blocks failed: %#v", result)
 	}
 	for _, want := range []string{
-		"if (((true && false) || true)) {",
+		"if ((true && false) || true) {",
 		"} else if (false) {",
 		"} else {",
 		"while (false) {",
@@ -163,7 +163,7 @@ func TestMethodControlFlowLowering(t *testing.T) {
 	}
 	for _, want := range []string{
 		"static int32_t hex_f_m3_app_Counter_step",
-		"if ((hex_v_amount > 0)) {",
+		"if (hex_v_amount > 0) {",
 		"(*hex_v_self).hex_m_count =",
 		"hex_f_m3_app_Counter_step(&hex_v_counter, 2)",
 	} {

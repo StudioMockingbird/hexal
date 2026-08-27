@@ -29,5 +29,6 @@ static inline {{.ViewCName}} hex_array_slice_{{.Suffix}}(const {{.CName}} *array
 
 #include "hexal.h"
 {{if .NeedsView}}#include "hexal/view.h"
+{{end}}{{if .NeedsHeapString}}#include "hexal/string.h"
 {{end}}{{template "arraybody" .}}
 #endif

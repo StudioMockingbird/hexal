@@ -1,0 +1,2 @@
+go test fuzz v1
+string("fun A(h:Heap)do names:=Dict<Int32,Strand>.n%0(0)A00000000000(0%\"\")A00000000000(0%\"00\")end")

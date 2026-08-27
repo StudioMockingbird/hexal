@@ -113,6 +113,11 @@ func checkContextualUnion(expression parser.Expression, expected compilerTypes.T
 	}
 }
 
+func noUnionMemberDiagnostic(source checkedExpression, destination compilerTypes.Type) checkedExpression {
+	diagnostic := typeErrorAt(source.token, fmt.Sprintf("no member of %s accepts this expression", destination.Name))
+	return checkedExpression{token: source.token, diagnostic: &diagnostic}
+}
+
 func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) checkedExpression {
 	if !compilerTypes.IsUnion(destination) || compilerTypes.Equal(source.typ, destination) {
 		return source
@@ -123,7 +128,11 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 		mapping := make([]int, 0, sourceMembers.Len())
 		for index := 0; index < sourceMembers.Len(); index++ {
 			sourceMember, _ := sourceMembers.At(index)
-			mapping = append(mapping, unionDestinationIndex(destination, sourceMember))
+			destinationIndex := unionDestinationIndex(destination, sourceMember)
+			if destinationIndex < 0 {
+				return noUnionMemberDiagnostic(source, destination)
+			}
+			mapping = append(mapping, destinationIndex)
 		}
 		checkedNode := Expression{
 			Kind:        UnionWidenExpression,
@@ -135,12 +144,16 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 		result := Operand{Kind: ExpressionOperand, Type: destination, Node: checkedNode}
 		return checkedExpression{source: result, typ: destination, token: source.token}
 	}
+	memberIndex := unionDestinationIndex(destination, source.typ)
+	if memberIndex < 0 {
+		return noUnionMemberDiagnostic(source, destination)
+	}
 	checkedNode := Expression{
 		Kind:        UnionInjectionExpression,
 		Operand:     &node,
 		OperandType: source.typ,
 		ResultType:  destination,
-		MemberIndex: unionDestinationIndex(destination, source.typ),
+		MemberIndex: memberIndex,
 	}
 	result := Operand{Kind: ExpressionOperand, Type: destination, Node: checkedNode}
 	return checkedExpression{source: result, typ: destination, token: source.token}
@@ -267,6 +280,8 @@ func expressionToken(expression parser.Expression) (token lexer.Token) {
 		return expression.Operator
 	case parser.UnaryExpression:
 		return expression.Operator
+	case parser.CallExpression:
+		return expression.OpenParen
 	default:
 		return lexer.Token{}
 	}

@@ -1,7 +1,94 @@
 # RFC 0124: Compiler Property Testing and Fuzzing
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; blocked on RFC 0126
+- Status: Closed; implemented 2026-08-27. Tier 0 (`compiler/tests/fuzz/oracles_test.go`,
+  `tier0_test.go`) asserts the no-Unknown-Error and dispatch-tripwire guards over
+  the whole snippet catalog, each with a corpus half and an injection half
+  proving it fires; `dispatchTripwires` is the exact seven-entry closed list
+  specified. Tier 1 (`fuzz_test.go`) adds `FuzzLex`, `FuzzParse`, `FuzzCompile`,
+  and `FuzzCompileMultiModule` (fixed positional keys `app.hex`/`a.hex`/`b.hex`),
+  seeded from every source file in `workbench/snippets` plus a small
+  hand-written rejected corpus; each target independently asserts the
+  invariants the table specifies. Running the seed corpus and short
+  (15-60s) extended-mutation bursts against this infrastructure found and
+  fixed ten previously-unknown, real compiler defects, each verified against
+  its exact minimized crasher and the full suite: a lexer slice-bounds panic
+  on an unterminated module-path literal at end of input; a parser unchecked
+  type assertion panic when `genericVariantFollows` lookahead reached a
+  non-identifier receiver; a checker Unknown-Error fallback for assigning to
+  a call result instead of a place-context Type Error; a missing
+  payload-required check on ADT variant construction, present at three
+  independent call sites (`buildVariantConstructor`'s `QualifiedVariantExpression`
+  path, `checkModuleQualifiedReference`'s cross-module alias path, and
+  `checkUnitVariant`'s bare same-module `Owner.Variant` path -- the last is
+  what a bare, brace-less, payload-required variant reference actually
+  resolves through); five expression kinds
+  (`ArrayLiteralExpression`/`QualifiedVariantExpression`/`MatchExpression`/
+  `TypeTestExpression`/`AnonymousFunctionLiteral`) missing from
+  `inferExpressionType`'s operand-hint dispatch, panicking when one reached an
+  arithmetic operand position; `renderCallStatement`'s closed call-statement
+  vocabulary missing eleven legitimate call-shaped kinds
+  (`VolatileReadExpression`, `HeapAllocateExpression`, `BitCastExpression`,
+  `EndianConversionExpression`, `ConversionExpression`, `LayoutExpression`,
+  `ViewBridgeExpression`, `BytesOverExpression`, `StreamConstructorExpression`,
+  `StreamMethodCallExpression`) plus a wholly separate `ObjectOperand` render
+  path needed for `Error.new(...)` used as a bare statement; `integerInitializer`
+  and `floatInitializer` building a `ConstantOperand` without populating its
+  `.Node` (every sibling constant constructor already did), crashing
+  `bit_cast`/`to_le_bytes`/`to<T>()` when called directly on a numeric literal
+  receiver; the mixed Int/Float arithmetic-widening path folding `%` through
+  `go/constant.BinaryOp` without checking the common type stayed integer,
+  panicking on `10 % 10.0`; `injectIntoUnion` building `UnionInjectionExpression`/
+  `UnionWidenExpression` metadata without checking `unionDestinationIndex`
+  found a real member, producing invalid metadata instead of a Type Error when
+  a value of an unrelated type was coerced toward a union it cannot join; and
+  `checkAtomicMethodCall` never validating its method name against the closed
+  vocabulary its four sibling dispatchers (`checkTaskMethodCall`,
+  `checkChannelMethodCall`, `checkMutexMethodCall`) all validate, reaching the
+  generator's own closed-vocabulary backstop instead of an ordinary Type Error.
+  Every fix was verified by re-running its exact crasher and the full
+  `gofmt`/`go build`/`go vet`/`go vet -tags c23`/`go test` gate; every crasher
+  stays committed under `testdata/fuzz/<Target>/` as a permanent regression
+  seed. Tier 2 widens `compiler/types/union_test.go`'s existing
+  `collisionDomain` (already covering two modules declaring one name, both
+  member orders, and depth three) with an explicit test seam for each of its
+  two properties (`assertCNamesInjective`, `assertUnionOrderIndependent`, each
+  parameterized over plain `(Type, name)` data so an injection test proves the
+  check itself fires) and a domain-composition log line (type count by depth,
+  module-owned count). `compiler/tests/fuzz/generator_test.go` adds a
+  deterministic, seed-indexed two-module Hexal program generator over the
+  constructs where canonical identity matters (a nominal object and generic
+  function imported from one module; a local ADT matched over both variants,
+  a union-typed binding, and a constructed `List<Int32>` in the other); the
+  seed rotates only the generic specialization's concrete type and which ADT
+  variant is constructed, so every candidate is expected to compile.
+  `tier2_test.go` implements the required search exactly: seeds from zero,
+  retaining the shortest prefix whose accepted subset covers the six-entry
+  construct checklist (each entry a regex pinned to the operand types the
+  generator actually emits, not a substring any construct could satisfy),
+  checking the 90 percent acceptance floor and reporting domain composition
+  over that prefix; generation determinism (`assertSameProgram`); rename
+  invariance (`assertRenameInvariant`, verified by compiling one generated
+  program's imported module under two different names and checking that
+  substituting the old compile's module-symbol prefix and file stem for the
+  new one reproduces the new compile's files exactly -- the prefix itself is
+  hash-derived from the module name, so the substitution is discovered from
+  each compile's own include guard rather than assumed); and
+  monomorphization uniqueness (`assertSingleSpecialization`, verified by
+  calling one generic function through two independent call sites with the
+  same concrete type argument and checking exactly one specialization
+  definition exists for both call sites to reference). Every one of the four
+  Tier 2 properties, plus the checklist-coverage and acceptance-rate
+  meta-guards and the generation-determinism guard, has its own injection
+  test proving it fires on deliberately wrong data fed directly to the
+  property's own check function -- no production source was rewritten to
+  produce a failure. A formal isolated five-run before/after timing pair
+  bracketing only this RFC's changes was not captured separately from the
+  RFC 0126/0127 work done in the same session; five warm `go test ./...` runs
+  after every change in this RFC measured a 5.5-6.0s median for the whole
+  module, and the additions themselves are lightweight (no fuzzing loop runs
+  under ordinary `go test`; the Tier 2 search compiles a handful of
+  candidates).
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: two generated-input tiers over the in-memory compiler -- unstructured

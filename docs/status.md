@@ -28,29 +28,17 @@ other.
 
 | Work | Spec |
 |---|---|
-| Native threading primitives — replace C11 `<threads.h>` with SRWLOCK/CONDITION_VARIABLE and pthreads | [0127](specs/0127-native-threading-primitives.md) |
 | Arena and Pool allocators; Heap-only library boundary | [0027](specs/0027-arena-and-pool-allocators.md) |
-| Compiler boundary hardening — module-path allowlist, 128-level nesting bound, panic containment, local-only workbench bind | [0126](specs/0126-compiler-boundary-hardening.md) |
-| Delete all terminal specifications after a complete reference/code knowledge sweep; make Git the sole archive | [0129](specs/0129-delete-closed-specifications.md) |
 
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
 |---|---|---|
-| Compiler property testing and fuzzing — reject-path oracles over arbitrary input, accept-path metamorphic properties over generated valid programs | Compiler boundary hardening | [0124](specs/0124-compiler-fuzzing.md) |
-| External C23 validation — host-only GCC/Clang/zig cc tagged suite closing the generated-C coverage gap | Native threading primitives | [0125](specs/0125-external-c23-validation.md) |
 
 ## Open bugs
 
 | Bug | Owning spec |
 |---|---|
-| Generated concurrency runtime does not compile on Windows: `<threads.h>` is unavailable under MinGW-w64 UCRT, `windows-gnu`, and `windows-msvc`, and the `__STDC_NO_THREADS__` guard does not fire because none of those toolchains defines the macro | [0127](specs/0127-native-threading-primitives.md) |
-| `reference.md` promises Task features produce an `Unsupported Error` on targets without verified C23 `<threads.h>`, but no such diagnostic exists in the compiler and never did; RFC 0127 deletes the clause with the threads.h requirement it qualifies | [0127](specs/0127-native-threading-primitives.md) |
-| An unvalidated module path injects text into generated `#line` directives, the module `#include`, and header guards; the compilation exits successfully with no diagnostic | [0126](specs/0126-compiler-boundary-hardening.md) |
-| An unvalidated module path escapes the output tree: `../../../etc/passwd.hex` yields the artifact name `modules/../../../etc/passwd.c` | [0126](specs/0126-compiler-boundary-hardening.md) |
-| Unbounded parser recursion terminates the process: 100,000 nested parentheses produce `fatal error: stack overflow`, which is fatal rather than a panic and so cannot be recovered | [0126](specs/0126-compiler-boundary-hardening.md) |
-| `compiler.Compile` has no panic containment, so a panic in any pass escapes to the caller; a non-HTTP embedder crashes | [0126](specs/0126-compiler-boundary-hardening.md) |
-| The temporary workbench binds every interface while its startup log claims loopback | [0126](specs/0126-compiler-boundary-hardening.md) |
 
 ## Unowned
 
@@ -64,63 +52,172 @@ deleted:
   refactor audit alongside the literal-interning table as the same class of
   scattered classification. It shares no code with the literal table. Recorded
   here rather than left implied-homed. Assign it a spec or delete it.
+- **The scheduler never runs the root Task's own code: every concurrency
+  program hangs at startup.** `hex_scheduler_init` creates the root Task and
+  every worker, then switches from the root fiber into worker zero's dispatch
+  loop and never pushes the root Task onto the ready queue. Every worker
+  (verified with a debug build compiled and run under GCC on Windows: worker
+  zero plus eleven others, matching the host's logical processor count) finds
+  the ready queue empty, calls `hex_cond_wait`, and blocks forever; nothing
+  ever signals it, because nothing has run the root statements that would
+  spawn a Task, and nothing runs the root statements because
+  `hex_scheduler_init` never returns to its caller. The process hangs on
+  every program that reaches `hex_scheduler_init`, unconditionally. This
+  predates and is independent of the native-threading-primitive migration:
+  the reproduction used `hex_mutex_raw`/`hex_cond` (SRWLOCK/CONDITION_VARIABLE)
+  with call sites and ordering otherwise unchanged from the prior C11
+  `<threads.h>` implementation, so the same hang exists there too. It was
+  found only because that migration required actually compiling and running
+  generated concurrency C for the first time; no test before it ever executed
+  generated C. Fixing this needs a considered addition to the park/commit/wake
+  protocol (how root's own fiber gets scheduled without a chicken-and-egg
+  dependency on the ready queue it isn't in), not a one-line patch, and
+  belongs in its own spec rather than improvised inside an unrelated one.
+  Assign it a spec; this is not a documentation gap. The external C23 suite's
+  Tier 2/3 runners bound every process they execute to a 10-second timeout for
+  exactly this reason: a fixture that spawns, joins, or locks a Task would
+  otherwise hang the whole tagged run rather than failing cleanly. The three
+  such fixtures (`concurrency-spawn-channel-compiles`, `concurrency-task-join-compiles`,
+  `concurrency-mutex-compiles`) are consequently compile-only, never run.
+- **`List<Task<T>>` and `List<Channel<T>>` do not compile.** `hexal/list.h`'s
+  generic specialization spells the element type through `typeSpelling`, which
+  returns Task's and Channel's bare `CName` (`hex_task_Int64`,
+  `hex_channel_Int32`) for a plain binding -- correct there, because binding
+  declarations for Task and Channel are rendered through a separate,
+  already-correct path elsewhere that knows they are pointer-sized handles.
+  `list.h`'s own generated storage (`hex_task_Int64 *data`, its growth
+  helpers, `push`/`pop`/`at`) needs that same pointer knowledge and does not
+  have it, so gcc/clang/zig cc all reject the result
+  (`unknown type name 'hex_task_Int64'`, later `use of undeclared identifier`
+  once storage is declared without a defining include in scope). A fix
+  attempted during the external C23 suite's own construction -- adding a
+  `typ.Task != nil || typ.Channel != nil` case to `typeSpelling`/`declaration`
+  mirroring Mutex's -- was reverted: Task's own bare-variable rendering
+  path already assumes `typeSpelling` returns the unwrapped `CName`, so the
+  change produced `hex_task_Int32 **` (a double pointer) at every ordinary
+  Task binding, breaking `concurrency-task-join-compiles`. The real fix needs
+  to reconcile the two rendering paths, not extend one to match the other's
+  assumption. Reproduced by `tasks-and-concurrency/concurrency-cpu-saturating-fibers`
+  under `go test -tags c23 -run TestC23SnippetCatalogCompiles`. Assign it a
+  spec; this is not a documentation gap.
+- **The built-in `Seek` ADT does not compile when a program uses `Bytes.seek`.**
+  `hexal/equality.h` references `hex_t_Seek` before anything defines it
+  (`unknown type name 'hex_t_Seek'`), and the payload field names the seek
+  dispatch in `hexal/bytes.c` reads (`.payload.hex_m_position`,
+  `.payload.hex_m_offset`) do not match the names the ADT's own generated
+  union actually carries (`no member named 'hex_m_position'`), so every
+  toolchain rejects it. Reproduced by
+  `streams/streams-seek-and-eos` and `streams/streams-bytes-memory` under
+  `go test -tags c23 -run TestC23SnippetCatalogCompiles`. Not investigated
+  past confirming the mismatch; assign it a spec or fold it into the
+  generator's `Seek`/`Bytes.seek` owning area.
+- **A generic function specialized only through another module's call site
+  is used before it is declared.** `streams/streams-generic-drain` calls a
+  generic `drain<S>` from `app.hex` with `S` bound to `IO` and to
+  `MutPtr<Bytes>`; the generated C calls
+  `hex_f_m3_app_drain_IO(...)`/`hex_f_m3_app_drain_MutPtr_Bytes_(...)` before
+  either specialization's definition or a forward declaration exists
+  (`implicit declaration of function`, C23 makes this a hard error). Every
+  other generic-specialization fixture in the corpus apparently specializes
+  from a call site the definition-ordering pass already accounts for; this
+  is the first case reached where the caller precedes the specialization
+  textually. Reproduced under `go test -tags c23 -run TestC23SnippetCatalogCompiles`.
+  Assign it a spec; this is not a documentation gap.
+- **A `match` lowered to a C `switch` does not enumerate every tag the
+  program-wide `hex_tag` enum defines, so `-Wswitch` fires under `-Werror`.**
+  `hex_tag` is one enum spanning every ADT and union tag in the whole
+  program, not just the ones a given `match` discriminates; gcc, clang, and
+  zig cc all warn when a `switch` over it does not mention every enumerator,
+  including ones structurally unreachable at that specific match (a
+  same-program but semantically unrelated ADT's tags, or `EoS`). Reproduced
+  by `text/text-protocol-parser` under
+  `go test -tags c23 -run TestC23SnippetCatalogCompiles`. The likely fix is a
+  `default: __builtin_unreachable();`-style catch-all on every generated
+  match switch, not enumerating the unrelated cases; not attempted. Assign it
+  a spec or fold it into match lowering's owning area.
+- **Two more collection/equality generator defects surfaced by the same
+  suite, not yet root-caused**: `collections/collections-handle-elements`
+  passes an argument of the wrong type to `hex_equal_hex_string` from
+  generated equality code (`incompatible type for argument 1 of
+  'hex_equal_hex_string'`); `collections/collections-nested-list` dereferences
+  a pointer where `->` was needed (`'*(left->data + ...)' is a pointer; did
+  you mean to use '->'?`) in `hexal/equality.h`'s nested-list comparison, then
+  fails a downstream initializer. Both reproduced under
+  `go test -tags c23 -run TestC23SnippetCatalogCompiles`; assign a spec or
+  fold into equality generation's owning area.
+- **A real `-Wmaybe-uninitialized` finding, not yet fixed.**
+  `types-and-matching/types-shape-area` reads
+  `hex_v_shape.payload.Rect.hex_m_height` in a path gcc's flow analysis
+  cannot prove always follows a `Rect` construction, even though Hexal's own
+  match exhaustiveness guarantees it does. `-Wno-maybe-uninitialized` was
+  never added to the external C23 suite's flag set in the first place (the
+  suite carries only the four `unused-*` suppressions, each labelled Debt),
+  so this finding was never hidden; the fix -- proving the flow to the
+  compiler, or restructuring the generated access -- has not been attempted.
+  Assign it a spec or fold it into ADT payload access's owning area.
 
 ## Known coverage gaps
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
-- Runtime traps are unverifiable. The trap rules in `reference.md` (empty `pop`,
-  missing Dict key, out-of-bounds index, zero divisor, shift count, float
-  overflow, allocation failure, malformed UTF-8, close failure, Mutex misuse,
-  task stack overflow, and others) and `print`'s exact output forms fire only
-  in an executed generated binary. Runtime traps are emitted by both
-  `compiler/generator/packages/` templates and non-test Go generator code; any
-  executable fixture inventory must be derived from both production sources.
-  Nothing executes one yet: the retained
-  `compiler/tests/c23validation/c23_*_test.go` files have no runnable entry
-  points, so trap firing and exact runtime output stay unverified. RFC 0125
-  owns closing this; the earlier prohibition on invoking an external toolchain
-  has been lifted, so the remaining obstacle is that the suite does not exist,
-  not that it is disallowed.
-- **Defects in generated C are invisible to the whole suite.** No test invokes a
-  toolchain and the c23 canaries are dormant, so generated C that is wrong —
-  either malformed enough to not compile, or compiling but behaving wrongly —
-  passes `go test ./...`, `go vet ./...`, and `go vet -tags c23` alike. Past
-  instances of both kinds were found only by hand-writing example programs or
-  by external review, never by the suite; each was fixed narrowly, and the
-  class of risk stays open until generated C is routinely compiled and
-  executed. A textual assertion can catch an undeclared identifier, but
-  nothing short of running the binary catches a task that is spawned twice.
-
-  The Task guard-page fault is a standing instance: no test executes generated
-  C, so nothing observes a fiber overflow hitting the `PROT_NONE` page. Also
-  unverified for the same reason: resident cost per Task, 10,000 concurrently
-  live Tasks, the `[Runtime Error] task stack overflow` trap firing and
-  process exit on both platforms, the unchanged re-raise of a fault outside
-  any Task guard page, a 64 KiB reserve overflowing sooner than 1 MiB, and a
-  POSIX Task using more than the 8 KiB initial commit without faulting. What
-  is verified textually: the reserve and commit spellings reach both platform
-  allocation sites, and the POSIX site documents the commit as unused there.
-
-  Also unverified for the same reason: that a String slice over multi-byte
-  input is byte-identical to the scanning version, and that a concatenated
-  count matches an independent scan of the result. What is verified textually:
-  every construction path sets `rune_length`, a multi-byte literal gets a rune
-  count rather than a byte count, and `length()` and `slice` read the field
-  instead of scanning.
-
-  The generated concurrency runtime's compile status under an external
-  `-std=c23` toolchain is likewise unverified, like every other generated
-  artifact; a prior claim that it compiles was withdrawn because producing it
-  required a manual one-off nothing in the repository reproduces, and
-  reproducible evidence is the only kind that counts. RFC 0125 makes it
-  reproducible under both GCC and Clang.
+- **Runtime traps are verified for a curated dozen, not the full derived
+  inventory.** `compiler/tests/c23validation` now runs a real, tagged
+  (`go test -tags c23`) suite: `TestC23Suite` compiles every fixture under
+  GCC, Clang, and `zig cc`, runs the ones with a zero-exit expectation and
+  asserts their exact stdout, and runs the ones with a non-zero expectation
+  and asserts their exact `[Runtime Error]` stderr text. It currently covers
+  division/remainder-by-zero, conversion overflow, empty-list pop, missing
+  Dict key, list/array index-out-of-bounds, array/list/string slice bounds,
+  malformed UTF-8, and RuneCursor exhaustion, plus exact-output coverage for
+  List/Dict/String round-trips, `print`'s output forms and evaluation order,
+  `try`/`errdefer`/`defer` unwind ordering, float-to-integer truncation,
+  signed-MIN overflow wrapping, text/Strand/RuneCursor conformance, and
+  `Atomic<T>`'s full operation set. `TestC23SnippetCatalogCompiles` separately
+  Tier-1-compiles every workbench snippet under all three toolchains with no
+  hand-listed fixture per snippet. None of this executes a Task, Channel, or
+  Mutex operation: the scheduler-hang bug above means doing so would hang the
+  process, so those three fixtures are compile-only. What remains unverified:
+  the rest of `reference.md`'s trap inventory (shift count, close failure,
+  Mutex misuse, task stack overflow, and others) has no fixture yet, and
+  `print`'s output forms are not exhaustive over every printable type. The
+  sanitizer tier (UBSan on every runnable host fixture, ASan where the
+  artifact set excludes `hexal/concurrency.c`) does not exist yet.
+- **Compiling real generated C surfaced seven distinct, previously-unknown
+  generator defects across the snippet catalog**, recorded individually
+  above (this section's opening bullets): the built-in `Seek` ADT does not
+  compile, `List<Task<T>>`/`List<Channel<T>>` do not compile, a
+  cross-call-site generic specialization can be used before its forward
+  declaration exists, a match-lowered `switch` can fail `-Wswitch` over
+  `hex_tag` values structurally unrelated to that match, and two further
+  equality-generation defects (a wrong-typed `hex_equal_hex_string` argument,
+  a `nested-list` dereference needing `->`) are reproduced but not yet
+  root-caused. Eight further, similarly-shaped defects reached the same way
+  in this same pass were fixed and verified compiling and running clean
+  under all three toolchains rather than left open: `hexal/list.h` and
+  `hexal/array.h` omitting `hexal/string.h` for a String element (and
+  `hexal/view.h`'s equivalent forward-declaration, needed instead of a full
+  include because `hexal/string.h` itself unconditionally needs
+  `hex_view_UInt8`); `print`'s selection of `hexal/io.c` not carrying the
+  same error/list/view/heap dependency propagation a direct stream operation
+  gets; a Go-template `{{0}}` rendering as literal `0` instead of the
+  intended C `{0}` struct initializer in `hexal/io.c`; `Mutex` declared by
+  value instead of by pointer wherever it is not a bare local (object
+  members, union payloads); `Atomic<T>.new`'s constructor casting its
+  argument to the `_Atomic` type inside a plain-typed return (tolerated by
+  gcc, rejected by Clang and zig cc); a redundant `const` doubling when
+  `hex_dict_find` returns a value type that is itself already a pointer
+  (`Dict<K, String>`); and every `if`/`while` condition that is itself a bare
+  comparison or logical expression being wrapped in one redundant extra pair
+  of parentheses, which is flagged, not merely stylistic, under
+  `-Werror=parentheses-equality`. The corpus-wide sweep that found all of
+  this was `go test -tags c23 -run TestC23SnippetCatalogCompiles`, run once
+  over the full ~150-snippet catalog; it had never been run to completion
+  under a real toolchain before.
 - The generator emits helper families wholesale — equality, print, union,
   heap, io — so a small program's C contains many unused `static` helpers.
-  Demand-driven helper emission would remove the dead code. The C23 harness
-  tolerates the resulting `unused-*` warnings; RFC 0125 keeps those
-  suppressions pointed at this entry as their owning gap, so narrowing them is
-  this item's job rather than the suite's.
+  Demand-driven helper emission would remove the dead code. The external C23
+  suite's four `unused-*` warning suppressions are labelled Debt against this
+  entry; narrowing them is this item's job, not the suite's.
 - **The redesigned Task park/commit/wake protocol is unverified at runtime**,
   for the same reason as every other generated-C claim: no test executes
   generated C. What is verified textually (exact generated-C structure,

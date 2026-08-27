@@ -45,6 +45,11 @@ func (parser *Parser) recordBinaryOperator(token lexer.Token) error {
 // scrutinee and arm parses are the sole exception, since they enter the
 // precedence ladder directly at orExpression and so push their own regions.
 func (parser *Parser) expression() (Expression, error) {
+	exit, err := parser.enterSyntax()
+	defer exit()
+	if err != nil {
+		return nil, err
+	}
 	restore := parser.pushExpressionRegion()
 	defer restore()
 	return parser.orExpression()
@@ -532,6 +537,17 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 			call.TypeArguments = arguments
 			expression = call
 		case parser.check(lexer.Less) && parser.genericVariantFollows():
+			// Owner<Args>.Variant construction names its owner with a bare
+			// type name; genericVariantFollows is pure token lookahead and
+			// does not know the receiver's shape, so a prior postfix
+			// operation (A.B<T>.C) can reach here with a non-identifier
+			// receiver. That is not this construct: fall out of the postfix
+			// loop and let '<' parse as an ordinary comparison instead of
+			// misreading an owner name out of the wrong expression kind.
+			variable, isVariable := expression.(VariableExpression)
+			if !isVariable {
+				return expression, nil
+			}
 			arguments, err := parser.typeArgumentList()
 			if err != nil {
 				return nil, err
@@ -543,7 +559,7 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 			if err != nil {
 				return nil, err
 			}
-			constructor := QualifiedVariantExpression{Owner: expression.(VariableExpression).Name, OwnerArguments: arguments, Variant: variant}
+			constructor := QualifiedVariantExpression{Owner: variable.Name, OwnerArguments: arguments, Variant: variant}
 			if parser.check(lexer.LeftBrace) {
 				payload, err := parser.variantPayload(variant)
 				if err != nil {
@@ -755,9 +771,16 @@ func (parser *Parser) matchExpression() (Expression, error) {
 	// boundary.
 	outer := parser.matchBoundary
 	parser.matchBoundary = scrutineeBoundary
+	exit, err := parser.enterSyntax()
+	if err != nil {
+		exit()
+		parser.matchBoundary = outer
+		return nil, err
+	}
 	restoreRegion := parser.pushExpressionRegion()
 	scrutinee, err := parser.orExpression()
 	restoreRegion()
+	exit()
 	parser.matchBoundary = outer
 	if err != nil {
 		return nil, err
@@ -781,9 +804,16 @@ func (parser *Parser) matchExpression() (Expression, error) {
 		// The arm result uses the full expression grammar under a boundary
 		// that stops before an unparenthesized `|` (next arm separator).
 		parser.matchBoundary = armBoundary
+		armExit, armErr := parser.enterSyntax()
+		if armErr != nil {
+			armExit()
+			parser.matchBoundary = outer
+			return nil, armErr
+		}
 		restoreRegion := parser.pushExpressionRegion()
 		armExpression, err := parser.orExpression()
 		restoreRegion()
+		armExit()
 		parser.matchBoundary = outer
 		if err != nil {
 			return nil, err

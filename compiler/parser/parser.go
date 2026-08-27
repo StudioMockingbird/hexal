@@ -41,6 +41,32 @@ type Parser struct {
 	binaryOperatorRecorded bool
 	binaryOperatorKind     lexer.TokenKind
 	binaryOperatorToken    lexer.Token
+	// syntaxDepth is the one shared recursive-syntax budget covering every
+	// recursively entered production: expressions, type expressions, match
+	// patterns, and statement blocks. Counting only one production leaves the
+	// others able to exhaust the Go call stack, which a panic recovery cannot
+	// catch because a stack overflow is a fatal runtime error, not a panic.
+	syntaxDepth int
+}
+
+// maxSyntaxDepth bounds recursive-syntax nesting. It is a compiler limit, not
+// a language rule: a program that reaches it is rejected clearly with a
+// Syntax Error rather than terminating the process.
+const maxSyntaxDepth = 128
+
+// enterSyntax increments the shared recursive-syntax depth and returns the
+// matching exit function, which the caller must defer immediately so the
+// depth unwinds on every return path, including one already carrying this
+// call's own depth-exceeded error and including recovery paths that resume
+// parsing with the same Parser after an error. Call this at the start of
+// every production named on syntaxDepth, before any recursive descent.
+func (parser *Parser) enterSyntax() (func(), error) {
+	parser.syntaxDepth++
+	exit := func() { parser.syntaxDepth-- }
+	if parser.syntaxDepth > maxSyntaxDepth {
+		return exit, parser.errorAtCurrent("nesting exceeds the maximum depth of 128")
+	}
+	return exit, nil
 }
 
 // matchBoundaryKind selects which tokens terminate a match position's top-level

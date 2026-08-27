@@ -1,0 +1,2 @@
+go test fuzz v1
+string("fun A():Int32|Error do A00:=Error.new(\"\",\"\")return(\"\")end")

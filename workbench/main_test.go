@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -63,5 +64,26 @@ func TestCompileEndpointRequiresSourcesAndEntrypoint(t *testing.T) {
 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
+// The workbench is a temporary local debug component: it binds loopback only,
+// and main's startup log and its ListenAndServe call share this one constant
+// so they can never name different endpoints.
+func TestWorkbenchBindsLoopbackOnly(t *testing.T) {
+	if workbenchAddress != "127.0.0.1:8080" {
+		t.Fatalf("workbenchAddress = %q, want the fixed loopback endpoint 127.0.0.1:8080", workbenchAddress)
+	}
+	listener, err := net.Listen("tcp", workbenchAddress)
+	if err != nil {
+		t.Fatalf("failed to bind %s: %v", workbenchAddress, err)
+	}
+	defer listener.Close()
+	host, _, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("failed to split listener address: %v", err)
+	}
+	if host != "127.0.0.1" {
+		t.Fatalf("listener host = %q, want 127.0.0.1", host)
 	}
 }

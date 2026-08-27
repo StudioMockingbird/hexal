@@ -170,10 +170,12 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		literals.used = true
 		emission.stringUsed = true
 	}
-	if emission.ioState != nil && emission.ioState.used {
-		// The stream component names the Byte list, the byte View, the Error
-		// object with its String and Strand fields, heap allocation through
-		// List growth, and the shared trap.
+	if (emission.ioState != nil && emission.ioState.used) || (emission.printState != nil && emission.printState.used) {
+		// print's descriptor write-all sink selects hexal/io.c exactly like a
+		// direct stream operation does (see io_component.go's own selection
+		// condition), so it carries the identical dependency set: the Byte
+		// list, the byte View, the Error object with its String and Strand
+		// fields, heap allocation through List growth, and the shared trap.
 		ensureByteList(listState)
 		ensureViewUInt8(viewState)
 		literals.used = true

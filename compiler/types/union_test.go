@@ -1,10 +1,32 @@
 package types
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"testing"
 )
+
+// failer is the subset of *testing.T a property check needs: fail the
+// current check with a formatted message. Parameterizing over this rather
+// than *testing.T lets an injection test prove a check fires without
+// failing the test that proves it.
+type failer interface {
+	Helper()
+	Fatalf(format string, args ...any)
+}
+
+// recordingFailer satisfies failer without touching the real *testing.T.
+type recordingFailer struct {
+	fired   bool
+	message string
+}
+
+func (r *recordingFailer) Helper() {}
+func (r *recordingFailer) Fatalf(format string, args ...any) {
+	r.fired = true
+	r.message = fmt.Sprintf(format, args...)
+}
 
 func TestUnionTypeNormalizesIdentity(t *testing.T) {
 	environment := NewEnvironment()
@@ -130,6 +152,7 @@ func collisionDomain(t *testing.T) ([]Type, *Environment) {
 
 	types := make([]Type, 0, len(bases)*len(bases))
 	types = append(types, bases...)
+	depth2, depth3 := 0, 0
 	for left := range bases {
 		for right := range bases {
 			if left == right {
@@ -140,16 +163,60 @@ func collisionDomain(t *testing.T) ([]Type, *Environment) {
 				continue
 			}
 			types = append(types, union)
+			depth2++
 			// Depth three: one member added to the pair. The nested
 			// spelling flattens, so this reaches the three-member canonical
 			// types a two-level domain never constructs.
 			third := bases[(left+right+1)%len(bases)]
 			if nested := builtin.UnionType([]Type{union, third}); nested != (Type{}) {
 				types = append(types, nested)
+				depth3++
 			}
 		}
 	}
+	// A degenerate domain -- one that silently lost a dimension, such as an
+	// incomplete object contributing an inert base -- would otherwise pass
+	// every property below without comment. Reporting composition here makes
+	// that visible instead.
+	moduleOwned := 0
+	for _, typ := range types {
+		if typ.Object != nil && typ.Object.ModuleID != "" {
+			moduleOwned++
+		}
+		if typ.Adt != nil && typ.Adt.ModuleID != "" {
+			moduleOwned++
+		}
+	}
+	t.Logf("collisionDomain composition: %d types total (%d depth-1 bases, %d depth-2 unions, %d depth-3 unions), %d module-owned",
+		len(types), len(bases), depth2, depth3, moduleOwned)
 	return types, builtin
+}
+
+// Definition-keying generated C names are unique per distinct canonical type.
+// The deleted encoder was injective over its own encoding but not over type
+// identity: Rune and UInt32 share the C spelling uint32_t, so Rune | Nil and
+// UInt32 | Nil received one shared hex_t_ wrapper name and one program-wide
+// tag, defining the same struct tag twice. The arena registry must keep
+// distinct types on distinct names. Ptr is excluded: a pointer names no
+// definition, and Ptr<Rune> and Ptr<UInt32> legitimately share the spelling
+// uint32_t*.
+// assertCNamesInjective checks that no two distinct canonical types among
+// named share a definition-keying "hex_"-prefixed C name. It is
+// parameterized over (Type, name) pairs rather than closing over the type
+// registry so an injection test can hand it deliberately colliding names
+// without needing a broken registry to produce them.
+func assertCNamesInjective(t failer, named map[Type]string) {
+	t.Helper()
+	seen := make(map[string]Type, len(named))
+	for typ, name := range named {
+		if !strings.HasPrefix(name, "hex_") {
+			continue
+		}
+		if previous, ok := seen[name]; ok && !Equal(previous, typ) {
+			t.Fatalf("distinct types %s and %s share definition-keying C name %q", previous.Name, typ.Name, name)
+		}
+		seen[name] = typ
+	}
 }
 
 // Definition-keying generated C names are unique per distinct canonical type.
@@ -162,18 +229,54 @@ func collisionDomain(t *testing.T) ([]Type, *Environment) {
 // uint32_t*.
 func TestDefinitionKeyingCNamesNeverCollide(t *testing.T) {
 	types, _ := collisionDomain(t)
-	seen := make(map[string]Type, len(types))
+	named := make(map[Type]string, len(types))
 	for _, typ := range types {
 		// Only definition-keying names participate: a scalar builtin such as
 		// Rune and UInt32 legitimately shares the C spelling uint32_t, which
 		// introduces no typedef and starts no hex_ name, exactly like Ptr.
-		if !strings.HasPrefix(typ.CName, "hex_") {
-			continue
+		named[typ] = typ.CName
+	}
+	assertCNamesInjective(t, named)
+}
+
+// Injection half: the injectivity guard fires when two distinct types are
+// handed the same "hex_"-prefixed name, proving the check itself is not
+// vacuously passing.
+func TestCNameInjectivityGuardFires(t *testing.T) {
+	recorder := &recordingFailer{}
+	assertCNamesInjective(recorder, map[Type]string{
+		Int32: "hex_t_broken",
+		Bool:  "hex_t_broken",
+	})
+	if !recorder.fired {
+		t.Fatal("assertCNamesInjective did not fire on two distinct types sharing one name")
+	}
+}
+
+// orderPair is one union type built forward and the same members reversed,
+// with both canonical types and both generated names captured as plain
+// data.
+type orderPair struct {
+	label             string
+	forward, reversed Type
+	forwardCName      string
+	reversedCName     string
+}
+
+// assertUnionOrderIndependent checks that each pair's forward and reversed
+// spellings are one canonical type with one generated name. It takes
+// already-built pairs rather than closing over the registry so an injection
+// test can hand it a pair with mismatched names without needing a broken
+// union constructor to produce one.
+func assertUnionOrderIndependent(t failer, pairs []orderPair) {
+	t.Helper()
+	for _, pair := range pairs {
+		if !Equal(pair.forward, pair.reversed) {
+			t.Fatalf("union %s reversed is a different canonical type %s", pair.forward.Name, pair.reversed.Name)
 		}
-		if previous, ok := seen[typ.CName]; ok && !Equal(previous, typ) {
-			t.Fatalf("distinct types %s and %s share definition-keying C name %q", previous.Name, typ.Name, typ.CName)
+		if pair.forwardCName != pair.reversedCName {
+			t.Fatalf("union %s has name %q written forward and %q written reversed", pair.label, pair.forwardCName, pair.reversedCName)
 		}
-		seen[typ.CName] = typ
 	}
 }
 
@@ -184,6 +287,7 @@ func TestDefinitionKeyingCNamesNeverCollide(t *testing.T) {
 // in only one direction can satisfy the first while violating this one.
 func TestUnionNamingIsOrderIndependent(t *testing.T) {
 	types, environment := collisionDomain(t)
+	pairs := make([]orderPair, 0, len(types))
 	for _, typ := range types {
 		members := unionMembers(typ)
 		if len(members) < 2 {
@@ -194,12 +298,22 @@ func TestUnionNamingIsOrderIndependent(t *testing.T) {
 			reversed[len(members)-1-index] = member
 		}
 		other := environment.UnionType(reversed)
-		if !Equal(typ, other) {
-			t.Fatalf("union %s reversed is a different canonical type %s", typ.Name, other.Name)
-		}
-		if typ.CName != other.CName {
-			t.Fatalf("union %s has name %q written forward and %q written reversed", typ.Name, typ.CName, other.CName)
-		}
+		pairs = append(pairs, orderPair{label: typ.Name, forward: typ, reversed: other, forwardCName: typ.CName, reversedCName: other.CName})
+	}
+	assertUnionOrderIndependent(t, pairs)
+}
+
+// Injection half: the order-independence guard fires when a pair's forward
+// and reversed spellings carry different names, proving the check itself is
+// not vacuously passing.
+func TestUnionOrderIndependenceGuardFires(t *testing.T) {
+	recorder := &recordingFailer{}
+	union := NewEnvironment().UnionType([]Type{Int32, Bool})
+	assertUnionOrderIndependent(recorder, []orderPair{
+		{label: union.Name, forward: union, reversed: union, forwardCName: "hex_t_forward", reversedCName: "hex_t_reversed"},
+	})
+	if !recorder.fired {
+		t.Fatal("assertUnionOrderIndependent did not fire on a pair with mismatched names")
 	}
 }
 

@@ -287,6 +287,11 @@ func (parser *Parser) body(owner string) ([]Statement, lexer.Token, error) {
 // reached. Delimiters are left for the owner to consume, which preserves the
 // nearest-open construct during nested recovery.
 func (parser *Parser) block(owner string, stops ...lexer.TokenKind) ([]Statement, error) {
+	exit, err := parser.enterSyntax()
+	defer exit()
+	if err != nil {
+		return nil, err
+	}
 	parser.blockStack = append(parser.blockStack, blockOwner(owner))
 	defer func() { parser.blockStack = parser.blockStack[:len(parser.blockStack)-1] }()
 	statements := make([]Statement, 0)

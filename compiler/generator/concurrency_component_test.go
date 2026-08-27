@@ -84,7 +84,8 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 		"static _Thread_local hex_task *hex_current_task;",
 		"hex_ready_push",
 		"hex_context_switch(",
-		"#include <threads.h>",
+		"hex_mutex_raw_lock",
+		"hex_thread_spawn_detached",
 	} {
 		if strings.Contains(rootC, fragment) {
 			t.Fatalf("modules/app.c retains scheduler runtime text %q: %q", fragment, rootC)
@@ -380,7 +381,7 @@ func TestConcurrencyTaskLayoutOwnsParkingAndLifecycleFieldsOnce(t *testing.T) {
 	for _, want := range []string{
 		"_Atomic(uint8_t) park_phase;",
 		"void *pending_park;",
-		"mtx_t lifecycle_mutex;",
+		"hex_mutex_raw lifecycle_mutex;",
 		"uint8_t wake_result;",
 	} {
 		if strings.Count(header, want) != 1 {
@@ -555,7 +556,7 @@ func TestConcurrencyCompletionPublishesOnlyAfterDispositionSnapshot(t *testing.T
 	source := generateOne(t, program)["hexal/concurrency.c"]
 	snapshot := strings.Index(source, "bool root = (task->flags & HEX_TASK_ROOT) != 0;")
 	detached := strings.Index(source, "bool detached = task->terminal_claim == HEX_TASK_CLAIM_DETACH;")
-	unlock := strings.Index(source[snapshot:], "mtx_unlock(&task->lifecycle_mutex);") + snapshot
+	unlock := strings.Index(source[snapshot:], "hex_mutex_raw_unlock(&task->lifecycle_mutex);") + snapshot
 	wake := strings.Index(source[unlock:], "hex_task_wake(joiner);") + unlock
 	if snapshot < 0 || detached < snapshot || unlock < detached || wake < unlock {
 		t.Fatalf("completion must snapshot disposition under the lifecycle mutex before waking the joiner:\n%s", source)

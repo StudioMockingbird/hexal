@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+// workbenchAddress is fixed to loopback: this is a temporary local debug
+// component with no request-size policy, timeout policy, or production
+// hardening, so it gains no flag to bind a wider interface.
+const workbenchAddress = "127.0.0.1:8080"
+
 // indexHTML is the page as it was at build time. It is the fallback: the server
 // prefers the copy on disk so editing index.html needs a browser reload rather
 // than a rebuild and restart, and a binary run from anywhere still works.
@@ -50,7 +55,6 @@ type phaseStatus struct {
 }
 
 func main() {
-	address := flag.String("addr", ":8080", "workbench listen address")
 	flag.StringVar(&indexPath, "html", indexPath, "path to index.html; empty serves the copy embedded at build time")
 	flag.Parse()
 	catalog, err := snippets.Load()
@@ -58,8 +62,8 @@ func main() {
 		log.Fatal(err)
 	}
 	mux := routes(catalog)
-	log.Printf("Hexal workbench listening on http://localhost%s", *address)
-	if err := http.ListenAndServe(*address, mux); err != nil {
+	log.Printf("Hexal workbench listening on http://%s", workbenchAddress)
+	if err := http.ListenAndServe(workbenchAddress, mux); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -183,8 +183,15 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		literal := checkObjectLiteral(expression, compilerTypes.Type{}, ctx)
 		return checkedExpression{source: literal.source, typ: literal.typ, token: literal.token, diagnostic: literal.diagnostic}
 	default:
+		// Every other expression kind (a call, a binary or unary expression,
+		// a match, a function literal, and so on) computes a value rather
+		// than naming storage, so none of them is a place: assignment, ref,
+		// and every other place-context caller reports this as an ordinary
+		// rejection, not an internal dispatch gap.
+		token := expressionToken(expression)
 		return checkedExpression{
-			diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported place")),
+			token:      token,
+			diagnostic: diagnosticAt(typeErrorAt(token, "expression is not a place; assignment and ref require a variable, member, dereference, or index")),
 		}
 	}
 }
@@ -195,6 +202,10 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 // other name is the visibility failure.
 func checkModuleQualifiedReference(expression parser.PropertyExpression, target string, names *scope) checkedExpression {
 	if adtType, variant, ok := names.registry.findExportedADTVariant(target, expression.Property.Lexeme); ok {
+		if len(variant.Payload) > 0 {
+			diagnostic := typeErrorAt(expression.Property, fmt.Sprintf("%s.%s requires a payload", target, expression.Property.Lexeme))
+			return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
+		}
 		return adtUnitVariant(adtType, variant, expression.Property)
 	}
 	if function, ok := names.registry.exportedFunction(target, expression.Property.Lexeme); ok {

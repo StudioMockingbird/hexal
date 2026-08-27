@@ -185,6 +185,9 @@ func checkModuleVariantConstructor(expression parser.QualifiedVariantExpression,
 // resolved it.
 func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtType compilerTypes.Type, variant *compilerTypes.AdtVariant, ctx checkContext) initializerValue {
 	if expression.Payload == nil {
+		if len(variant.Payload) > 0 {
+			return initializerValue{token: expression.Variant, diagnostic: diagnosticAt(typeErrorAt(expression.Variant, fmt.Sprintf("%s.%s requires a payload", expression.Owner.Lexeme, expression.Variant.Lexeme)))}
+		}
 		return adtUnitVariant(adtType, variant, expression.Variant)
 	}
 	if len(variant.Payload) == 0 {
@@ -295,6 +298,10 @@ func checkUnitVariant(owner, variant lexer.Token, expectedType compilerTypes.Typ
 	}
 	if !ok {
 		return nil, nil
+	}
+	if len(adtVariant.Payload) > 0 {
+		diagnostic := typeErrorAt(variant, fmt.Sprintf("%s.%s requires a payload", owner.Lexeme, variant.Lexeme))
+		return nil, &diagnostic
 	}
 	value := adtUnitVariant(adtType, adtVariant, variant)
 	return &value, nil

@@ -78,6 +78,11 @@ type FunctionTypeExpression struct {
 func (FunctionTypeExpression) typeExpressionNode() {}
 
 func (parser *Parser) typeExpression() (TypeExpression, error) {
+	exit, enterErr := parser.enterSyntax()
+	defer exit()
+	if enterErr != nil {
+		return nil, enterErr
+	}
 	first, err := parser.primaryTypeExpression()
 	if err != nil {
 		return nil, err

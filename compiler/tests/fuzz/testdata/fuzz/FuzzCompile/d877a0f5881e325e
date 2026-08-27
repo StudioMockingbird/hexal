@@ -1,0 +1,2 @@
+go test fuzz v1
+string("fun A000(): Float64 do    A00000:A00000:=10%10.0 end ")

@@ -1,7 +1,83 @@
 # RFC 0127: Native Threading Primitives
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented 2026-08-27. `hexal/concurrency.h` declares
+  `hex_mutex_raw` (`SRWLOCK` on Windows, `pthread_mutex_t` on POSIX) and
+  `hex_cond` (`CONDITION_VARIABLE`/`pthread_cond_t`) before `struct hex_task`,
+  which now embeds `hex_mutex_raw lifecycle_mutex` in place of `mtx_t`; the
+  `<threads.h>` include and its `__STDC_NO_THREADS__` guard/`#error` are
+  gone entirely. `hexal/concurrency.c` implements the ten-operation closed
+  vocabulary twice, inside the existing `#if defined(_WIN32)` split: Windows
+  uses `InitializeSRWLock`/`AcquireSRWLockExclusive`/`ReleaseSRWLockExclusive`,
+  `InitializeConditionVariable`/`SleepConditionVariableSRW`/
+  `WakeConditionVariable`/`WakeAllConditionVariable` (checked, trapping on
+  `FALSE`), and `_beginthreadex` behind one `unsigned __stdcall` trampoline
+  over a private start record freed before the entry runs, closed with
+  `CloseHandle` immediately (the running thread is unaffected); POSIX uses
+  `pthread_mutex_*`/`pthread_cond_*` (every result checked, an unexpected
+  failure trapping through one shared `[Runtime Error] native threading
+  operation failed` message) and `pthread_create` with
+  `PTHREAD_CREATE_DETACHED` attributes set before creation, never a joinable
+  thread detached afterward; ownership of the start record transfers to the
+  new thread at a successful `pthread_create` and attribute cleanup after
+  that point never reclaims it, including on its own failure. All three
+  thread-creation call sites (`hex_scheduler_init`'s worker loop,
+  `hex_blocking_init`, and `hex_blocking_call`'s overflow-worker path) now
+  call `hex_thread_spawn_detached` directly with no separate detach step and
+  no retained handle. `hex_cond_init`'s own two callers (the ready queue and
+  the blocking pool) no longer check its result: the function traps
+  internally on POSIX and is statically infallible on Windows, so the two
+  previous call-site-specific messages ("scheduler condition variable
+  initialization failed", "blocking pool condition variable initialization
+  failed") are superseded by the one shared native-operation message, an
+  intentional reduction in message specificity traded for one centralized
+  failure owner. `hex_cond_destroy` is defined in both branches but currently
+  unused by any call site (the ready-queue and blocking-pool conds are
+  process-lifetime statics, and neither Channel nor Mutex embeds one) and is
+  marked `[[maybe_unused]]` rather than given an invented caller, keeping the
+  vocabulary a complete, symmetric ten. `docs/reference.md`'s Task section now
+  states the verified native primitive per platform in place of the "verified
+  C23 `<threads.h>`" clause and its `Unsupported Error` mention, which named a
+  diagnostic the compiler never emitted.
+
+  External compilation, the gate this RFC specifies (compiling and linking,
+  not executing) rather than a deferred coverage gap: a Task+Channel program
+  exercising the ready queue's mutex/cond, `Task.yield()`, join, and
+  `hex_thread_spawn_detached` compiled and linked warning-clean under
+  `-std=c23 -Wall -Wextra -Werror` (with the pre-existing, separately tracked
+  helper-over-emission warnings suppressed, per `docs/status.md`'s standing
+  note that the generator emits whole helper families demand-independently)
+  on GCC (MinGW-w64 UCRT) and on `zig cc` (bundled Clang 21, standing in for
+  both the RFC's Clang and zig cc rows since no standalone `clang` binary was
+  available in this environment); the POSIX branch cross-compiled and linked
+  clean under `zig cc -target x86_64-linux-gnu`, with and without an explicit
+  `-lpthread`. Mutex and the blocking pool could not be exercised through
+  real compilation: doing so surfaced three pre-existing defects entirely
+  unrelated to this RFC's own file changes -- a Mutex-in-union-payload field
+  declared by value instead of by pointer (incomplete-type compile error,
+  unlike Task/Channel which already use pointer typedefs), a `print`-only
+  program omitting `hexal/list.h` despite `hexal/io.c` needing it (a
+  `printUsed`-vs-`ioState.used` gap in the component-merge condition), and an
+  invalid `hex_strand header = 0;` scalar initializer for a struct type in
+  `hex_io_header`. None are touched by this RFC and none are fixed here;
+  each is a previously-undiscovered defect, invisible until something
+  actually invoked a toolchain, and is recorded in `docs/status.md`.
+
+  Compiling and running that same Task+Channel program surfaced a fourth,
+  far more consequential defect, also pre-existing and also outside this
+  RFC's scope: `hex_scheduler_init` never returns, because nothing ever
+  pushes the root Task onto the ready queue, so every worker blocks forever
+  on its first `hex_cond_wait` and the root statements that would spawn a
+  Task never run. Reproduced with the prior C11 primitives' exact call
+  sites and ordering (only the primitive types differ), confirming it is a
+  scheduler-bootstrap gap in the park/commit/wake protocol, not a
+  consequence of this migration. Fixing it is a protocol change this RFC's
+  own non-goals exclude ("Reworking the Task park/commit/wake protocol");
+  it is recorded in `docs/status.md`'s Unowned section for a future spec.
+  `gofmt`, `go build ./...`, `go vet ./...`, `go vet -tags c23 ./...`, and
+  `go test -count=1 ./...` all pass; the rebuilt snippet manifest moved
+  exactly the fifteen scheduler-selecting snippets' `hexal/concurrency.c`/
+  `.h` entries and nothing else. The workbench was rebuilt.
 - Created: 2026-08-26
 - Updated: 2026-08-26
 - Scope: replace the generated runtime's dependency on C11 `<threads.h>` with
@@ -434,7 +510,20 @@ normative sentence, so leaving it unedited ships a false contract:
 ### Runtime behavior retained as a coverage gap
 
 Ordinary tests cannot execute generated C, so these remain unverified until
-RFC 0055 or RFC 0125 can run programs:
+RFC 0055 or RFC 0125 can run programs, with one exception recorded honestly
+rather than left as merely unverified: a debug build compiled and run under
+GCC on Windows during this RFC's own external-compilation gate showed that
+`hex_scheduler_init` never returns. It switches from the root fiber into
+worker zero's dispatch loop without ever pushing the root Task onto the ready
+queue, so every worker blocks forever waiting for a ready task that never
+arrives, and the root statements that would spawn one never run. This is a
+pre-existing defect in the park/commit/wake protocol's bootstrap, independent
+of the primitive migration -- the same call sites and ordering reproduce it
+under the prior C11 primitives -- and is tracked as its own item in
+`docs/status.md` rather than fixed here, since a correct fix is a protocol
+change this RFC's non-goals exclude. Compiling and linking, the gate this RFC
+actually specifies, is unaffected: the defect is in scheduler control flow
+this RFC does not touch, not in generated syntax or types.
 
 - The Task park/commit/wake orderings behave identically on both primitives.
 - A contended Mutex, a full Channel, and a saturated blocking pool each block

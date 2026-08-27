@@ -1,0 +1,2 @@
+go test fuzz v1
+string("fun A()do bits: Int32:=0 bits.bit_cast<Float32>()end")

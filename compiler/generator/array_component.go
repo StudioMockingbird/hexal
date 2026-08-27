@@ -12,6 +12,11 @@ type arrayComponentModel struct {
 	// is the only content naming the view component. The include is guarded
 	// on it so a declared dependency is always a used one.
 	NeedsView bool
+	// NeedsHeapString is true when some specialization's element is String,
+	// whose spelling (hex_string) is defined by hexal/string.h -- a direct
+	// dependency of this file, not something a consumer's own include order
+	// can be relied on to supply first.
+	NeedsHeapString bool
 }
 
 // arrayComponentRecord is one reachable Array specialization's spelling
@@ -32,6 +37,8 @@ type arrayComponentRecord struct {
 	// reaches neither and gets the typedef alone.
 	NeedsAt    bool
 	NeedsAtMut bool
+	// NeedsHeapString is true when this specialization's element is String.
+	NeedsHeapString bool
 }
 
 // arrayComponentRecordFor builds the spelling record of one Array
@@ -51,6 +58,7 @@ func arrayComponentRecordFor(array compilerTypes.Type, viewState *generatedViewS
 		ViewCName:       viewCName,
 		NeedsAt:         demand.read,
 		NeedsAtMut:      demand.write,
+		NeedsHeapString: compilerTypes.IsString(element),
 	}
 }
 
@@ -76,7 +84,7 @@ func arrayComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/array.h",
 		template: "array.h",
-		model:    arrayComponentModel{Arrays: records, NeedsView: recordsNeedView(records)},
+		model:    arrayComponentModel{Arrays: records, NeedsView: recordsNeedView(records), NeedsHeapString: arrayRecordsNeedHeapString(records)},
 	}}, nil
 }
 
@@ -101,6 +109,17 @@ func moduleArrayComponent(emission *moduleEmission) []string {
 func recordsNeedView(records []arrayComponentRecord) bool {
 	for _, record := range records {
 		if record.ViewCName != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// arrayRecordsNeedHeapString reports whether any array record's element is
+// String, the only content in packages/array.h that names hex_string.
+func arrayRecordsNeedHeapString(records []arrayComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsHeapString {
 			return true
 		}
 	}

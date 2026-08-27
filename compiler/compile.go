@@ -64,6 +64,11 @@ type CompilationStats struct {
 	TotalDuration time.Duration
 }
 
+// panicSeam runs once per compilePipeline invocation and does nothing in
+// production. A test in this package may replace it to inject a panic and
+// prove Compile's recovery wrapper contains it; no exported API reaches it.
+var panicSeam = func() {}
+
 // Compile runs Hexal source through every stage and returns the generated
 // artifact map, std.err entries, and an EXIT_SUCCESS or EXIT_FAILURE-compatible
 // status.
@@ -76,8 +81,36 @@ type CompilationStats struct {
 // that are not part of the language; its zero value selects every default.
 // The compiler is exclusively an in-memory string transformation: it performs
 // no filesystem reads, writes, discovery, or working-directory lookup.
-func Compile(sources map[string]string, entrypoint string, project Project) CompilationResult {
+//
+// A panic in any stage is a compiler defect. Compile recovers it, discards
+// any partial stage output, and returns a failed result carrying one fixed
+// Unknown Error diagnostic that names no panic value, Go stack, or host path;
+// an ordinary rejection is a Diagnostic returned by a stage, never a panic,
+// and passes through unrecovered and unchanged.
+func Compile(sources map[string]string, entrypoint string, project Project) (result CompilationResult) {
 	compileStarted := time.Now()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			stats := CompilationStats{}
+			finalizeStats(&stats, compileStarted)
+			diagnostic := compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "compile", 0, 0,
+				"internal compiler error")
+			result = CompilationResult{
+				Files:    map[string]string{},
+				Stderr:   compilerTypes.ErrorMessages(diagnostic),
+				ExitCode: ExitFailure,
+				Stats:    stats,
+			}
+		}
+	}()
+	return compilePipeline(sources, entrypoint, project, compileStarted)
+}
+
+// compilePipeline is Compile's unexported body, run under Compile's recovery
+// deferral. It never returns partial output on its own: every early exit goes
+// through failureResult.
+func compilePipeline(sources map[string]string, entrypoint string, project Project, compileStarted time.Time) CompilationResult {
+	panicSeam()
 	stats := CompilationStats{}
 
 	// Configuration is validated before any stage runs and fails closed: an
@@ -90,6 +123,10 @@ func Compile(sources map[string]string, entrypoint string, project Project) Comp
 		err := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1,
 			"entrypoint "+entrypoint+" was not found in the supplied sources")
 		return failureResult(err, stats, compileStarted)
+	}
+	if err := validateLogicalKey(entrypoint); err != nil {
+		diagnostic := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1, err.Error())
+		return failureResult(diagnostic, stats, compileStarted)
 	}
 
 	started := time.Now()
@@ -139,6 +176,33 @@ func Compile(sources map[string]string, entrypoint string, project Project) Comp
 // node's LogicalKey instead of rebuilding it.
 func canonicalFromLogicalKey(logicalKey string) string {
 	return strings.TrimSuffix(logicalKey, ".hex")
+}
+
+// validateLogicalKey enforces the module-path allowlist on a source-map key:
+// relative, "/" as its only separator, exactly one trailing ".hex", and every
+// path component a Hexal identifier (an ASCII letter, then ASCII letters,
+// digits, or "_"). Logical keys are compiler identities, not host filesystem
+// paths, so this is deliberately narrower than what a filesystem would
+// accept: it closes preprocessor injection and path traversal through a
+// crafted key by construction rather than by blocking specific characters.
+func validateLogicalKey(key string) error {
+	const rule = `a logical key must be relative, use "/" as its only separator, end in exactly one ".hex" extension, and have every path component be a Hexal identifier`
+	const suffix = ".hex"
+	if !strings.HasSuffix(key, suffix) {
+		return fmt.Errorf("logical key %q is invalid: %s", key, rule)
+	}
+	stem := key[:len(key)-len(suffix)]
+	for _, component := range strings.Split(stem, "/") {
+		if component == "" || !lexer.IsIdentifierStart(component[0]) {
+			return fmt.Errorf("logical key %q is invalid: %s", key, rule)
+		}
+		for i := 1; i < len(component); i++ {
+			if !lexer.IsIdentifierPart(component[i]) {
+				return fmt.Errorf("logical key %q is invalid: %s", key, rule)
+			}
+		}
+	}
+	return nil
 }
 
 // resolveImportPath resolves a raw module-path literal relative to fromModule
@@ -284,6 +348,10 @@ func (s *reachState) visit(canonical string) error {
 			fmt.Sprintf("sources contain both %s and %s for module %s", keys[0], keys[1], canonical))
 	}
 	key := keys[0]
+	if err := validateLogicalKey(key); err != nil {
+		diagnostic := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1, err.Error()).InModule(key)
+		return diagnostic
+	}
 	tokens, lexErr := lexer.Lex(s.sources[key])
 	if lexErr != nil {
 		return stampModule(mergeDiagnostics(lexErr, nil), key)

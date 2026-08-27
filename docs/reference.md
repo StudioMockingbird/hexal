@@ -298,6 +298,11 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - `Compile` receives a source map and one entrypoint logical key. Source-map keys use `/`, are
   case-sensitive, and do not denote or inspect host filesystem paths. The entrypoint must exactly
   name one supplied source.
+- A legal logical key is relative, uses `/` as its only separator, ends in exactly one `.hex`
+  extension, and has one or more path components before it, each a Hexal identifier. Only the
+  entrypoint and each key a resolved import reaches are validated, immediately before that source is
+  lexed; an unreachable invalid key is ignored like any other unreachable entry. A violation is a
+  Module Error naming the offending key and the complete rule.
 - A module's canonical identity is its logical key without the trailing `.hex`. The logical key,
   not an absolute host path or import alias, determines nominal type, function, method, generic,
   specialization, generated-symbol, and artifact identity. Same-named declarations in distinct
@@ -986,8 +991,9 @@ Task.yield() -> no value
   point in one cooperative M:N scheduler over C23 worker threads. A native operation that parks its
   caller on the blocking pool (see IO) does not satisfy this explicit-yield rule; a `while true` loop
   containing only such an operation still requires its own `Task.yield()`.
-- Targets are Windows x64 and POSIX x86-64 with verified C23 `<threads.h>`; otherwise Task features
-  produce Unsupported Error. Root is pinned to worker zero; root return does not join tasks. Stacks
+- Targets are Windows x64, using verified SRW locks, condition variables, and `_beginthreadex`, and
+  POSIX x86-64, using verified pthread mutexes, condition variables, and detached threads. Root is
+  pinned to worker zero; root return does not join tasks. Stacks
   reserve 1 MiB by default with an 8 KiB initial commit, both `Project` build-time settings; the
   initial commit is a Windows-only knob, and the usable region is the reserve less one guard page.
   Exceeding the reserve traps with `[Runtime Error] task stack overflow` rather than corrupting

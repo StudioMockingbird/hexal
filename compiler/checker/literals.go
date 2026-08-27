@@ -57,6 +57,7 @@ func integerInitializer(token lexer.Token, typ compilerTypes.Type, negative ...b
 	source := constantOperand(typ, value, normalized)
 	source.Radix = literalRadix(token.Kind)
 	source.Negative = isNegative
+	source.Node = constantNode(source)
 	return initializerValue{source: source, typ: typ, token: token}
 }
 
@@ -113,6 +114,7 @@ func floatInitializer(token lexer.Token, typ compilerTypes.Type, negative ...boo
 		}
 		source.FloatBits = math.Float64bits(converted)
 	}
+	source.Node = constantNode(source)
 	return initializerValue{source: source, typ: typ, token: token}
 }
 

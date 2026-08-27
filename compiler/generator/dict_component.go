@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"strings"
+
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -24,9 +26,16 @@ type dictComponentRecord struct {
 	EntryName     string
 	KeySpelling   string
 	ValueSpelling string
-	HashHelper    string
-	StrandKey     bool
-	EmitHash      bool
+	// FindValueSpelling is find's return type: a read-only pointer to the
+	// stored value, for the caller to null-check. Appending "const *" to
+	// ValueSpelling directly, rather than the template prefixing a literal
+	// "const ", is required once ValueSpelling is itself already a pointer
+	// (String's "const hex_string *"): a textual "const " prefix there
+	// produces "const const hex_string * *", a duplicate qualifier.
+	FindValueSpelling string
+	HashHelper        string
+	StrandKey         bool
+	EmitHash          bool
 }
 
 // dictComponentRecordFor builds the spelling record of one Dict
@@ -40,15 +49,21 @@ func dictComponentRecordFor(dict compilerTypes.Type, hashEmitted map[string]bool
 		hashHelper = "hex_hash_Strand"
 	}
 	suffix := dictSuffix(dict)
+	valueSpelling := typeSpelling(dict.Dict.Value)
+	findValueSpelling := "const " + valueSpelling
+	if strings.HasSuffix(valueSpelling, "*") {
+		findValueSpelling = qualifyLastPointer(valueSpelling)
+	}
 	return dictComponentRecord{
-		CName:         dict.CName,
-		Suffix:        suffix,
-		EntryName:     "hex_dict_entry_" + suffix,
-		KeySpelling:   typeSpelling(key),
-		ValueSpelling: typeSpelling(dict.Dict.Value),
-		HashHelper:    hashHelper,
-		StrandKey:     strandKey,
-		EmitHash:      !hashEmitted[hashHelper],
+		CName:             dict.CName,
+		Suffix:            suffix,
+		EntryName:         "hex_dict_entry_" + suffix,
+		KeySpelling:       typeSpelling(key),
+		ValueSpelling:     valueSpelling,
+		FindValueSpelling: findValueSpelling,
+		HashHelper:        hashHelper,
+		StrandKey:         strandKey,
+		EmitHash:          !hashEmitted[hashHelper],
 	}
 }
 

@@ -503,8 +503,11 @@ func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyStat
 		fmt.Fprintf(result, "typedef _Atomic(%s) %s;\n", elementSpelling, atomicSpelling)
 		// The constructor returns the element value, not the _Atomic type:
 		// C ignores qualifiers on function return types, so an _Atomic
-		// return would warn under -Werror.
-		fmt.Fprintf(result, "static inline %s %s_new(%s value) {\n    return (%s)value;\n}\n", elementSpelling, atomicSpelling, elementSpelling, atomicSpelling)
+		// return would warn under -Werror. value already has that type, so
+		// no cast is needed; casting it to the _Atomic type here was
+		// returning exactly the mismatched type this comment says to avoid,
+		// which GCC tolerated but Clang and zig cc correctly rejected.
+		fmt.Fprintf(result, "static inline %s %s_new(%s value) {\n    return value;\n}\n", elementSpelling, atomicSpelling, elementSpelling)
 		fmt.Fprintf(result, "static inline %s %s_load(%s *atomic) {\n    return atomic_load_explicit(atomic, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling)
 		fmt.Fprintf(result, "static inline void %s_store(%s *atomic, %s value) {\n    atomic_store_explicit(atomic, value, memory_order_seq_cst);\n}\n", atomicSpelling, atomicSpelling, elementSpelling)
 		fmt.Fprintf(result, "static inline %s %s_exchange(%s *atomic, %s value) {\n    return atomic_exchange_explicit(atomic, value, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling, elementSpelling)

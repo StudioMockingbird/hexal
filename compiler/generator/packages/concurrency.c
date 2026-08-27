@@ -18,8 +18,9 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
-// hexal/concurrency.h already validated C23 thread support and included
-// <threads.h> before defining struct hex_task's mtx_t members.
+// hexal/concurrency.h already included <windows.h>/<process.h> or
+// <pthread.h> and declared hex_mutex_raw/hex_cond before defining struct
+// hex_task's lifecycle_mutex member.
 #include <stdatomic.h>
 #include <string.h>
 
@@ -107,6 +108,84 @@ static void hex_worker_guard_setup(void) {
     if (AddVectoredExceptionHandler(1, hex_stack_overflow_handler) == nullptr) {
         hex_runtime_trap("[Runtime Error] stack overflow handler installation failed\n");
     }
+}
+
+// The closed Hexal-owned threading vocabulary's Windows branch. SRWLOCK and
+// CONDITION_VARIABLE cannot fail to initialize and need no destroy, so
+// hex_mutex_raw_init always returns true and the destroy operations are
+// empty; they are defined rather than omitted so the vocabulary stays
+// uniform across platforms.
+static bool hex_mutex_raw_init(hex_mutex_raw *mutex) {
+    InitializeSRWLock(mutex);
+    return true;
+}
+static void hex_mutex_raw_lock(hex_mutex_raw *mutex) {
+    AcquireSRWLockExclusive(mutex);
+}
+static void hex_mutex_raw_unlock(hex_mutex_raw *mutex) {
+    ReleaseSRWLockExclusive(mutex);
+}
+static void hex_mutex_raw_destroy(hex_mutex_raw *mutex) {
+    (void)mutex;
+}
+static void hex_cond_init(hex_cond *cond) {
+    InitializeConditionVariable(cond);
+}
+static void hex_cond_wait(hex_cond *cond, hex_mutex_raw *mutex) {
+    if (!SleepConditionVariableSRW(cond, mutex, INFINITE, 0)) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+static void hex_cond_signal(hex_cond *cond) {
+    WakeConditionVariable(cond);
+}
+static void hex_cond_broadcast(hex_cond *cond) {
+    WakeAllConditionVariable(cond);
+}
+// No current call site tears down a condition variable: the ready-queue and
+// blocking-pool conds are process-lifetime statics, and neither Channel nor
+// Mutex embeds one. The operation is defined anyway to keep the mutex/cond
+// vocabulary complete and symmetric; [[maybe_unused]] records that honestly
+// instead of inventing a call site.
+[[maybe_unused]] static void hex_cond_destroy(hex_cond *cond) {
+    (void)cond;
+}
+
+// hex_thread_start carries the shared int(void*) entry across
+// _beginthreadex's unsigned(__stdcall*)(void*) boundary. The trampoline frees
+// it before calling entry, so the record's lifetime never crosses into
+// application code.
+typedef struct hex_thread_start {
+    int (*entry)(void *);
+    void *argument;
+} hex_thread_start;
+
+static unsigned __stdcall hex_thread_trampoline(void *raw) {
+    hex_thread_start *start = (hex_thread_start *)raw;
+    int (*entry)(void *) = start->entry;
+    void *argument = start->argument;
+    free(start);
+    return (unsigned)entry(argument);
+}
+
+// hex_thread_spawn_detached creates one detached native thread running entry
+// on a private record's copy of entry/argument, freed inside the trampoline
+// before entry runs. Closing the handle immediately does not stop the
+// running thread; no handle is retained because nothing ever joins it.
+static bool hex_thread_spawn_detached(int (*entry)(void *), void *argument) {
+    hex_thread_start *start = (hex_thread_start *)malloc(sizeof(hex_thread_start));
+    if (start == nullptr) {
+        return false;
+    }
+    start->entry = entry;
+    start->argument = argument;
+    uintptr_t handle = _beginthreadex(nullptr, 0, hex_thread_trampoline, start, 0, nullptr);
+    if (handle == 0) {
+        free(start);
+        return false;
+    }
+    CloseHandle((HANDLE)handle);
+    return true;
 }
 #else
 typedef struct hex_context_impl hex_context_impl;
@@ -257,19 +336,125 @@ static void hex_context_destroy(hex_context_impl *context) {
     }
 }
 typedef hex_context_impl *hex_context;
+
+// The closed Hexal-owned threading vocabulary's POSIX branch. Every
+// operation here checks its native result: an unexpected failure is an
+// internal runtime failure distinct from the caller-owned initialization
+// paths above, and traps through the one shared native-operation message.
+static bool hex_mutex_raw_init(hex_mutex_raw *mutex) {
+    return pthread_mutex_init(mutex, nullptr) == 0;
+}
+static void hex_mutex_raw_lock(hex_mutex_raw *mutex) {
+    if (pthread_mutex_lock(mutex) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+static void hex_mutex_raw_unlock(hex_mutex_raw *mutex) {
+    if (pthread_mutex_unlock(mutex) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+static void hex_mutex_raw_destroy(hex_mutex_raw *mutex) {
+    if (pthread_mutex_destroy(mutex) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+static void hex_cond_init(hex_cond *cond) {
+    if (pthread_cond_init(cond, nullptr) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+static void hex_cond_wait(hex_cond *cond, hex_mutex_raw *mutex) {
+    if (pthread_cond_wait(cond, mutex) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+static void hex_cond_signal(hex_cond *cond) {
+    if (pthread_cond_signal(cond) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+static void hex_cond_broadcast(hex_cond *cond) {
+    if (pthread_cond_broadcast(cond) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+// No current call site tears down a condition variable: the ready-queue and
+// blocking-pool conds are process-lifetime statics, and neither Channel nor
+// Mutex embeds one. The operation is defined anyway to keep the mutex/cond
+// vocabulary complete and symmetric; [[maybe_unused]] records that honestly
+// instead of inventing a call site.
+[[maybe_unused]] static void hex_cond_destroy(hex_cond *cond) {
+    if (pthread_cond_destroy(cond) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+}
+
+// hex_thread_start carries the shared int(void*) entry into
+// pthread_create's void*(void*) trampoline. The trampoline frees it before
+// calling entry, so the record's lifetime never crosses into application
+// code.
+typedef struct hex_thread_start {
+    int (*entry)(void *);
+    void *argument;
+} hex_thread_start;
+
+static void *hex_thread_trampoline(void *raw) {
+    hex_thread_start *start = (hex_thread_start *)raw;
+    int (*entry)(void *) = start->entry;
+    void *argument = start->argument;
+    free(start);
+    entry(argument);
+    return nullptr;
+}
+
+// hex_thread_spawn_detached creates one thread already configured detached,
+// never a joinable thread detached afterward. Ownership of start transfers
+// to the new thread at a successful pthread_create; attribute cleanup after
+// that point never frees, reclaims, or returns it, including on its own
+// failure, which is an internal runtime failure rather than a spawn failure
+// the caller already began using the thread.
+static bool hex_thread_spawn_detached(int (*entry)(void *), void *argument) {
+    hex_thread_start *start = (hex_thread_start *)malloc(sizeof(hex_thread_start));
+    if (start == nullptr) {
+        return false;
+    }
+    start->entry = entry;
+    start->argument = argument;
+    pthread_attr_t attributes;
+    if (pthread_attr_init(&attributes) != 0) {
+        free(start);
+        return false;
+    }
+    if (pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED) != 0) {
+        pthread_attr_destroy(&attributes);
+        free(start);
+        return false;
+    }
+    pthread_t thread;
+    if (pthread_create(&thread, &attributes, hex_thread_trampoline, start) != 0) {
+        pthread_attr_destroy(&attributes);
+        free(start);
+        return false;
+    }
+    if (pthread_attr_destroy(&attributes) != 0) {
+        hex_runtime_trap("[Runtime Error] native threading operation failed\n");
+    }
+    return true;
+}
 #endif
 
 static _Thread_local hex_task *hex_current_task;
 static hex_task *hex_ready_head;
 static hex_task *hex_ready_tail;
-static mtx_t hex_ready_mutex;
-static cnd_t hex_ready_cond;
+static hex_mutex_raw hex_ready_mutex;
+static hex_cond hex_ready_cond;
 static _Atomic int hex_shutdown;
 static _Atomic int64_t hex_next_task_id;
 hex_task *hex_root_task;
 
 static void hex_ready_push(hex_task *task) {
-    mtx_lock(&hex_ready_mutex);
+    hex_mutex_raw_lock(&hex_ready_mutex);
     task->ready_next = nullptr;
     if (hex_ready_tail != nullptr) {
         hex_ready_tail->ready_next = task;
@@ -277,8 +462,8 @@ static void hex_ready_push(hex_task *task) {
         hex_ready_head = task;
     }
     hex_ready_tail = task;
-    cnd_signal(&hex_ready_cond);
-    mtx_unlock(&hex_ready_mutex);
+    hex_cond_signal(&hex_ready_cond);
+    hex_mutex_raw_unlock(&hex_ready_mutex);
 }
 
 static hex_task *hex_ready_pop(void) {
@@ -364,7 +549,7 @@ void hex_task_release(hex_task *task) {
     if (task->fiber != nullptr) {
         hex_context_destroy((hex_context)task->fiber);
     }
-    mtx_destroy(&task->lifecycle_mutex);
+    hex_mutex_raw_destroy(&task->lifecycle_mutex);
     free(task->args);
     free(task->result);
     free(task);
@@ -379,9 +564,9 @@ void hex_task_release(hex_task *task) {
 // detached-reclamation steps. The trampoline and the root epilogue both end
 // here; the task's fiber never returns through an invalid stack.
 void hex_task_complete(hex_task *task) {
-    mtx_lock(&task->lifecycle_mutex);
+    hex_mutex_raw_lock(&task->lifecycle_mutex);
     task->life = HEX_LIFE_COMPLETING;
-    mtx_unlock(&task->lifecycle_mutex);
+    hex_mutex_raw_unlock(&task->lifecycle_mutex);
     hex_current_task = nullptr;
     hex_context_switch((hex_context)task->fiber, (hex_context)task->scheduler_fiber);
 }
@@ -403,19 +588,19 @@ static void hex_worker_loop(void *param) {
     const int is_worker_zero = (param != nullptr);
     hex_context loop_context = hex_context_current();
     for (;;) {
-        mtx_lock(&hex_ready_mutex);
+        hex_mutex_raw_lock(&hex_ready_mutex);
         while (hex_ready_head == nullptr && !atomic_load(&hex_shutdown)) {
-            cnd_wait(&hex_ready_cond, &hex_ready_mutex);
+            hex_cond_wait(&hex_ready_cond, &hex_ready_mutex);
         }
         if (atomic_load(&hex_shutdown)) {
-            mtx_unlock(&hex_ready_mutex);
+            hex_mutex_raw_unlock(&hex_ready_mutex);
             if (is_worker_zero) {
                 hex_context_switch(loop_context, (hex_context)hex_root_task->fiber);
             }
             return;
         }
         hex_task *task = hex_ready_pop();
-        mtx_unlock(&hex_ready_mutex);
+        hex_mutex_raw_unlock(&hex_ready_mutex);
         hex_current_task = task;
         task->scheduler_fiber = (void *)loop_context;
         hex_context_switch(loop_context, (hex_context)task->fiber);
@@ -428,22 +613,22 @@ static void hex_worker_loop(void *param) {
             hex_task_commit_park(task);
             continue;
         }
-        mtx_lock(&task->lifecycle_mutex);
+        hex_mutex_raw_lock(&task->lifecycle_mutex);
         task->life = HEX_LIFE_DONE;
         hex_task *joiner = task->joiner;
         task->joiner = nullptr;
         bool root = (task->flags & HEX_TASK_ROOT) != 0;
         bool detached = task->terminal_claim == HEX_TASK_CLAIM_DETACH;
-        mtx_unlock(&task->lifecycle_mutex);
+        hex_mutex_raw_unlock(&task->lifecycle_mutex);
         if (root) {
             // The root shutdown switch-back is handled by the ordinary
             // shutdown check at the top of this loop, not here: recording
             // shutdown and broadcasting is this branch's only job, and it is
             // not a ready publication or reclamation path.
             atomic_store(&hex_shutdown, 1);
-            mtx_lock(&hex_ready_mutex);
-            cnd_broadcast(&hex_ready_cond);
-            mtx_unlock(&hex_ready_mutex);
+            hex_mutex_raw_lock(&hex_ready_mutex);
+            hex_cond_broadcast(&hex_ready_cond);
+            hex_mutex_raw_unlock(&hex_ready_mutex);
         } else if (joiner != nullptr) {
             hex_task_wake(joiner);
         } else if (detached) {
@@ -473,12 +658,10 @@ void hex_scheduler_init(void) {
     // Worker zero is the initial process thread; its overflow handler and
     // alternate signal stack are established before any Task runs.
     hex_worker_guard_setup();
-    if (mtx_init(&hex_ready_mutex, mtx_plain) != thrd_success) {
+    if (!hex_mutex_raw_init(&hex_ready_mutex)) {
         hex_runtime_trap("[Runtime Error] scheduler mutex initialization failed\n");
     }
-    if (cnd_init(&hex_ready_cond) != thrd_success) {
-        hex_runtime_trap("[Runtime Error] scheduler condition variable initialization failed\n");
-    }
+    hex_cond_init(&hex_ready_cond);
     hex_root_task = (hex_task *)calloc(1, sizeof(hex_task));
     if (hex_root_task == nullptr) {
         hex_runtime_trap("[Runtime Error] scheduler allocation failed\n");
@@ -487,7 +670,7 @@ void hex_scheduler_init(void) {
     if (hex_root_task->fiber == nullptr) {
         hex_runtime_trap("[Runtime Error] scheduler fiber initialization failed\n");
     }
-    if (mtx_init(&hex_root_task->lifecycle_mutex, mtx_plain) != thrd_success) {
+    if (!hex_mutex_raw_init(&hex_root_task->lifecycle_mutex)) {
         hex_runtime_trap("[Runtime Error] scheduler lifecycle mutex initialization failed\n");
     }
     hex_root_task->id = atomic_fetch_add(&hex_next_task_id, 1);
@@ -502,11 +685,9 @@ void hex_scheduler_init(void) {
         logical = 1;
     }
     for (int index = 1; index < logical; index++) {
-        thrd_t thread;
-        if (thrd_create(&thread, hex_worker_thread, nullptr) != thrd_success) {
+        if (!hex_thread_spawn_detached(hex_worker_thread, nullptr)) {
             hex_runtime_trap("[Runtime Error] scheduler worker creation failed\n");
         }
-        thrd_detach(thread);
     }
 {{if .Blocking}}    hex_blocking_init();
 {{end}}    hex_context_switch((hex_context)hex_root_task->fiber, (hex_context)hex_root_task->scheduler_fiber);
@@ -561,7 +742,7 @@ hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_ali
         free(args_frame);
         return nullptr;
     }
-    if (mtx_init(&task->lifecycle_mutex, mtx_plain) != thrd_success) {
+    if (!hex_mutex_raw_init(&task->lifecycle_mutex)) {
         hex_context_destroy((hex_context)task->fiber);
         free(result_frame);
         free(task);
@@ -589,20 +770,20 @@ void *hex_task_join(hex_task *task) {
     if (task == self) {
         hex_runtime_trap("[Runtime Error] cannot join the current task\n");
     }
-    mtx_lock(&task->lifecycle_mutex);
+    hex_mutex_raw_lock(&task->lifecycle_mutex);
     if (task->terminal_claim != HEX_TASK_CLAIM_NONE) {
-        mtx_unlock(&task->lifecycle_mutex);
+        hex_mutex_raw_unlock(&task->lifecycle_mutex);
         hex_runtime_trap("[Runtime Error] Task already joined or detached\n");
     }
     task->terminal_claim = HEX_TASK_CLAIM_JOIN;
     if (task->life == HEX_LIFE_DONE) {
-        mtx_unlock(&task->lifecycle_mutex);
+        hex_mutex_raw_unlock(&task->lifecycle_mutex);
         return task->result;
     }
     self->pending_park = task;
     atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
     task->joiner = self;
-    mtx_unlock(&task->lifecycle_mutex);
+    hex_mutex_raw_unlock(&task->lifecycle_mutex);
     hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
     hex_task_resume_commit(self);
     return task->result;
@@ -613,14 +794,14 @@ void *hex_task_join(hex_task *task) {
 // or a completed target is reclaimed here. A later join or detach traps before
 // touching a reclaimed target because the claim is serialized first.
 void hex_task_detach(hex_task *task) {
-    mtx_lock(&task->lifecycle_mutex);
+    hex_mutex_raw_lock(&task->lifecycle_mutex);
     if (task->terminal_claim != HEX_TASK_CLAIM_NONE) {
-        mtx_unlock(&task->lifecycle_mutex);
+        hex_mutex_raw_unlock(&task->lifecycle_mutex);
         hex_runtime_trap("[Runtime Error] Task already joined or detached\n");
     }
     task->terminal_claim = HEX_TASK_CLAIM_DETACH;
     bool done = task->life == HEX_LIFE_DONE;
-    mtx_unlock(&task->lifecycle_mutex);
+    hex_mutex_raw_unlock(&task->lifecycle_mutex);
     if (done) {
         hex_task_release(task);
     }
@@ -640,12 +821,13 @@ typedef struct hex_blocking_job {
 
 static hex_blocking_job *hex_blocking_head;
 static hex_blocking_job *hex_blocking_tail;
-static mtx_t hex_blocking_mutex;
-static cnd_t hex_blocking_cond;
+static hex_mutex_raw hex_blocking_mutex;
+static hex_cond hex_blocking_cond;
 // Logical counts protected entirely by hex_blocking_mutex: baseline is fixed
 // at initialization, total is live-or-reserved workers (a reservation counts
-// before its thrd_create call, so a submission never double-reserves for one
-// unit of unmet demand), busy is workers currently running a job, and queued
+// before its hex_thread_spawn_detached call, so a submission never
+// double-reserves for one unit of unmet demand), busy is workers currently
+// running a job, and queued
 // is jobs waiting for a worker.
 static int hex_blocking_baseline;
 static int hex_blocking_total;
@@ -655,9 +837,9 @@ static int hex_blocking_queued;
 static int hex_blocking_worker(void *unused) {
     (void)unused;
     for (;;) {
-        mtx_lock(&hex_blocking_mutex);
+        hex_mutex_raw_lock(&hex_blocking_mutex);
         while (hex_blocking_head == nullptr) {
-            cnd_wait(&hex_blocking_cond, &hex_blocking_mutex);
+            hex_cond_wait(&hex_blocking_cond, &hex_blocking_mutex);
         }
         hex_blocking_job *job = hex_blocking_head;
         hex_blocking_head = job->next;
@@ -666,20 +848,20 @@ static int hex_blocking_worker(void *unused) {
         }
         hex_blocking_queued--;
         hex_blocking_busy++;
-        mtx_unlock(&hex_blocking_mutex);
+        hex_mutex_raw_unlock(&hex_blocking_mutex);
 
         // Neither the blocking mutex nor the ready-queue mutex is held here:
         // entry performs only its own synchronous native operation.
         job->entry(job->context);
         hex_task_wake(job->task);
 
-        mtx_lock(&hex_blocking_mutex);
+        hex_mutex_raw_lock(&hex_blocking_mutex);
         hex_blocking_busy--;
         bool retire = hex_blocking_head == nullptr && hex_blocking_total > hex_blocking_baseline;
         if (retire) {
             hex_blocking_total--;
         }
-        mtx_unlock(&hex_blocking_mutex);
+        hex_mutex_raw_unlock(&hex_blocking_mutex);
         if (retire) {
             return 0;
         }
@@ -691,12 +873,10 @@ static int hex_blocking_worker(void *unused) {
 // hex_scheduler_init; partial initialization traps rather than running the
 // program with a half-started pool.
 static void hex_blocking_init(void) {
-    if (mtx_init(&hex_blocking_mutex, mtx_plain) != thrd_success) {
+    if (!hex_mutex_raw_init(&hex_blocking_mutex)) {
         hex_runtime_trap("[Runtime Error] blocking pool mutex initialization failed\n");
     }
-    if (cnd_init(&hex_blocking_cond) != thrd_success) {
-        hex_runtime_trap("[Runtime Error] blocking pool condition variable initialization failed\n");
-    }
+    hex_cond_init(&hex_blocking_cond);
     int logical = hex_logical_processors();
     if (logical < 1) {
         logical = 1;
@@ -704,11 +884,9 @@ static void hex_blocking_init(void) {
     hex_blocking_baseline = logical;
     hex_blocking_total = logical;
     for (int index = 0; index < logical; index++) {
-        thrd_t thread;
-        if (thrd_create(&thread, hex_blocking_worker, nullptr) != thrd_success) {
+        if (!hex_thread_spawn_detached(hex_blocking_worker, nullptr)) {
             hex_runtime_trap("[Runtime Error] blocking pool worker creation failed\n");
         }
-        thrd_detach(thread);
     }
 }
 
@@ -726,7 +904,7 @@ void hex_blocking_call(hex_blocking_entry entry, void *context) {
         return;
     }
     hex_blocking_job job = {.entry = entry, .context = context, .task = self};
-    mtx_lock(&hex_blocking_mutex);
+    hex_mutex_raw_lock(&hex_blocking_mutex);
     self->pending_park = &job;
     atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
     job.next = nullptr;
@@ -739,26 +917,24 @@ void hex_blocking_call(hex_blocking_entry entry, void *context) {
     hex_blocking_queued++;
     bool need_worker = hex_blocking_total - hex_blocking_busy < hex_blocking_queued;
     if (need_worker) {
-        // The reserved slot counts as live capacity before thrd_create, so
-        // this submission's own accounting is already correct; a
+        // The reserved slot counts as live capacity before
+        // hex_thread_spawn_detached, so this submission's own accounting is
+        // already correct; a
         // concurrent submission sees the incremented total under this same
         // mutex and never reserves twice for one unit of unmet demand.
         hex_blocking_total++;
     }
-    cnd_signal(&hex_blocking_cond);
-    mtx_unlock(&hex_blocking_mutex);
+    hex_cond_signal(&hex_blocking_cond);
+    hex_mutex_raw_unlock(&hex_blocking_mutex);
     if (need_worker) {
-        thrd_t thread;
-        if (thrd_create(&thread, hex_blocking_worker, nullptr) != thrd_success) {
+        if (!hex_thread_spawn_detached(hex_blocking_worker, nullptr)) {
             // Thread-creation failure cancels only this reservation; the job
             // stays queued in FIFO order for existing workers, and no Error
             // or trap is added.
-            mtx_lock(&hex_blocking_mutex);
+            hex_mutex_raw_lock(&hex_blocking_mutex);
             hex_blocking_total--;
-            cnd_broadcast(&hex_blocking_cond);
-            mtx_unlock(&hex_blocking_mutex);
-        } else {
-            thrd_detach(thread);
+            hex_cond_broadcast(&hex_blocking_cond);
+            hex_mutex_raw_unlock(&hex_blocking_mutex);
         }
     }
     hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
@@ -766,7 +942,7 @@ void hex_blocking_call(hex_blocking_entry entry, void *context) {
 }
 {{end}}{{end}}{{if .Channels}}
 typedef struct hex_chan {
-    mtx_t mutex;
+    hex_mutex_raw mutex;
     hex_task *wait_send;
     hex_task *wait_recv;
     size_t capacity;
@@ -794,7 +970,7 @@ hex_chan *hex_chan_new(size_t capacity, size_t element_size) {
         free(channel);
         return nullptr;
     }
-    if (mtx_init(&channel->mutex, mtx_plain) != thrd_success) {
+    if (!hex_mutex_raw_init(&channel->mutex)) {
         free(channel->slots);
         free(channel);
         return nullptr;
@@ -809,9 +985,9 @@ hex_chan *hex_chan_new(size_t capacity, size_t element_size) {
 bool hex_chan_send(hex_chan *channel, const void *value) {
     hex_task *self = hex_current_task;
     for (;;) {
-        mtx_lock(&channel->mutex);
+        hex_mutex_raw_lock(&channel->mutex);
         if (channel->closed) {
-            mtx_unlock(&channel->mutex);
+            hex_mutex_raw_unlock(&channel->mutex);
             return false;
         }
         if (channel->length < channel->capacity) {
@@ -822,7 +998,7 @@ bool hex_chan_send(hex_chan *channel, const void *value) {
         atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
         self->wait_next = channel->wait_send;
         channel->wait_send = self;
-        mtx_unlock(&channel->mutex);
+        hex_mutex_raw_unlock(&channel->mutex);
         hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
         hex_task_resume_commit(self);
         if (self->wake_result) {
@@ -838,7 +1014,7 @@ bool hex_chan_send(hex_chan *channel, const void *value) {
         waiter->wake_result = 0;
         hex_task_wake(waiter);
     }
-    mtx_unlock(&channel->mutex);
+    hex_mutex_raw_unlock(&channel->mutex);
     return true;
 }
 
@@ -847,12 +1023,12 @@ bool hex_chan_send(hex_chan *channel, const void *value) {
 bool hex_chan_receive(hex_chan *channel, void *out) {
     hex_task *self = hex_current_task;
     for (;;) {
-        mtx_lock(&channel->mutex);
+        hex_mutex_raw_lock(&channel->mutex);
         if (channel->length > 0) {
             break;
         }
         if (channel->closed) {
-            mtx_unlock(&channel->mutex);
+            hex_mutex_raw_unlock(&channel->mutex);
             return false;
         }
         self->wake_result = 0;
@@ -860,7 +1036,7 @@ bool hex_chan_receive(hex_chan *channel, void *out) {
         atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
         self->wait_next = channel->wait_recv;
         channel->wait_recv = self;
-        mtx_unlock(&channel->mutex);
+        hex_mutex_raw_unlock(&channel->mutex);
         hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
         hex_task_resume_commit(self);
     }
@@ -873,7 +1049,7 @@ bool hex_chan_receive(hex_chan *channel, void *out) {
         waiter->wake_result = 0;
         hex_task_wake(waiter);
     }
-    mtx_unlock(&channel->mutex);
+    hex_mutex_raw_unlock(&channel->mutex);
     return true;
 }
 
@@ -883,7 +1059,7 @@ bool hex_chan_receive(hex_chan *channel, void *out) {
 // concurrent send or receive registration, so no waiter is ever left
 // notified without its dispatcher eventually observing and publishing it.
 void hex_chan_close(hex_chan *channel) {
-    mtx_lock(&channel->mutex);
+    hex_mutex_raw_lock(&channel->mutex);
     channel->closed = true;
     hex_task *waiter = channel->wait_send;
     while (waiter != nullptr) {
@@ -901,13 +1077,13 @@ void hex_chan_close(hex_chan *channel) {
         waiter = next;
     }
     channel->wait_recv = nullptr;
-    mtx_unlock(&channel->mutex);
+    hex_mutex_raw_unlock(&channel->mutex);
 }
 
 size_t hex_chan_length(hex_chan *channel) {
-    mtx_lock(&channel->mutex);
+    hex_mutex_raw_lock(&channel->mutex);
     size_t length = channel->length;
-    mtx_unlock(&channel->mutex);
+    hex_mutex_raw_unlock(&channel->mutex);
     return length;
 }
 
@@ -916,9 +1092,9 @@ size_t hex_chan_capacity(hex_chan *channel) {
 }
 
 bool hex_chan_is_closed(hex_chan *channel) {
-    mtx_lock(&channel->mutex);
+    hex_mutex_raw_lock(&channel->mutex);
     bool closed = channel->closed;
-    mtx_unlock(&channel->mutex);
+    hex_mutex_raw_unlock(&channel->mutex);
     return closed;
 }
 
@@ -931,13 +1107,13 @@ void hex_chan_free(hex_chan *channel) {
     if (!channel->closed || channel->length > 0) {
         hex_runtime_trap("[Runtime Error] channel free requires a closed, empty channel\n");
     }
-    mtx_destroy(&channel->mutex);
+    hex_mutex_raw_destroy(&channel->mutex);
     free(channel->slots);
     free(channel);
 }
 {{end}}{{if .Mutex}}
 struct hex_mutex_control {
-    mtx_t mutex;
+    hex_mutex_raw mutex;
     hex_task *owner;
     hex_task *wait_list;
 };
@@ -947,7 +1123,7 @@ hex_mutex *hex_mutex_new(void) {
     if (mutex == nullptr) {
         return nullptr;
     }
-    if (mtx_init(&mutex->mutex, mtx_plain) != thrd_success) {
+    if (!hex_mutex_raw_init(&mutex->mutex)) {
         free(mutex);
         return nullptr;
     }
@@ -962,14 +1138,14 @@ hex_mutex *hex_mutex_new(void) {
 void hex_mutex_lock(hex_mutex *mutex) {
     hex_task *self = hex_current_task;
     for (;;) {
-        mtx_lock(&mutex->mutex);
+        hex_mutex_raw_lock(&mutex->mutex);
         if (mutex->owner == nullptr) {
             mutex->owner = self;
-            mtx_unlock(&mutex->mutex);
+            hex_mutex_raw_unlock(&mutex->mutex);
             return;
         }
         if (mutex->owner == self) {
-            mtx_unlock(&mutex->mutex);
+            hex_mutex_raw_unlock(&mutex->mutex);
             hex_runtime_trap("[Runtime Error] recursive mutex lock\n");
         }
         self->wake_result = 0;
@@ -977,7 +1153,7 @@ void hex_mutex_lock(hex_mutex *mutex) {
         atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);
         self->wait_next = mutex->wait_list;
         mutex->wait_list = self;
-        mtx_unlock(&mutex->mutex);
+        hex_mutex_raw_unlock(&mutex->mutex);
         hex_context_switch((hex_context)self->fiber, (hex_context)self->scheduler_fiber);
         hex_task_resume_commit(self);
         if (self->wake_result) {
@@ -990,9 +1166,9 @@ void hex_mutex_lock(hex_mutex *mutex) {
 // serialized with the wake transition per the common protocol; a waiter
 // consumes that transfer in lock() above rather than re-entering acquisition.
 void hex_mutex_unlock(hex_mutex *mutex) {
-    mtx_lock(&mutex->mutex);
+    hex_mutex_raw_lock(&mutex->mutex);
     if (mutex->owner != hex_current_task) {
-        mtx_unlock(&mutex->mutex);
+        hex_mutex_raw_unlock(&mutex->mutex);
         hex_runtime_trap("[Runtime Error] mutex unlock by a non-owner\n");
     }
     hex_task *waiter = mutex->wait_list;
@@ -1004,14 +1180,14 @@ void hex_mutex_unlock(hex_mutex *mutex) {
     } else {
         mutex->owner = nullptr;
     }
-    mtx_unlock(&mutex->mutex);
+    hex_mutex_raw_unlock(&mutex->mutex);
 }
 
 void hex_mutex_free(hex_mutex *mutex) {
     if (mutex->owner != nullptr || mutex->wait_list != nullptr) {
         hex_runtime_trap("[Runtime Error] mutex free while locked or awaited\n");
     }
-    mtx_destroy(&mutex->mutex);
+    hex_mutex_raw_destroy(&mutex->mutex);
     free(mutex);
 }
 {{end}}

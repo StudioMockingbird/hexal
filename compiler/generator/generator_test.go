@@ -1822,7 +1822,7 @@ func TestRenderTruthinessConditions(t *testing.T) {
 				Literal:  "0",
 				Node:     checker.Expression{Kind: checker.ConstantExpression, ResultType: compilerTypes.Int32},
 			},
-			want: "if (((void)(0), true)) {",
+			want: "if ((void)(0), true) {",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -1853,7 +1853,7 @@ func TestRenderTruthinessConditions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writeStatementsAt() error = %v", err)
 	}
-	if !strings.Contains(body.String(), "if ((hex_v_maybe != nullptr)) {") {
+	if !strings.Contains(body.String(), "if (hex_v_maybe != nullptr) {") {
 		t.Fatalf("body = %q, want a nullable null-test condition", body.String())
 	}
 }

@@ -10,6 +10,14 @@ import (
 // pre-sorted record per reachable View specialization.
 type viewComponentModel struct {
 	Views []viewComponentRecord
+	// NeedsHeapString is true when some specialization's element is String,
+	// whose spelling is hex_string. This file forward-declares it rather
+	// than including hexal/string.h: that file itself unconditionally needs
+	// hex_view_UInt8, so a full #include here would cycle back into this
+	// file's own include guard whenever view.h is entered first. Every
+	// hex_string reference this file emits is through a pointer, so the
+	// forward declaration is all it needs.
+	NeedsHeapString bool
 }
 
 // viewComponentRecord is one reachable View specialization's spelling facts:
@@ -20,6 +28,8 @@ type viewComponentRecord struct {
 	CName           string
 	Suffix          string
 	ElementSpelling string
+	// NeedsHeapString is true when this specialization's element is String.
+	NeedsHeapString bool
 }
 
 // viewComponentRecordFor builds the spelling record of one View
@@ -29,7 +39,19 @@ func viewComponentRecordFor(view compilerTypes.Type) viewComponentRecord {
 		CName:           view.CName,
 		Suffix:          strings.TrimPrefix(view.CName, "hex_view_"),
 		ElementSpelling: pointerSpelling(view.View.Element),
+		NeedsHeapString: compilerTypes.IsString(view.View.Element),
 	}
+}
+
+// viewRecordsNeedHeapString reports whether any view record's element is
+// String, the only content in packages/view.h that names hex_string.
+func viewRecordsNeedHeapString(records []viewComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsHeapString {
+			return true
+		}
+	}
+	return false
 }
 
 // viewComponents returns the generated hexal/view.h artifact when builtin-
@@ -53,7 +75,7 @@ func viewComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/view.h",
 		template: "view.h",
-		model:    viewComponentModel{Views: records},
+		model:    viewComponentModel{Views: records, NeedsHeapString: viewRecordsNeedHeapString(records)},
 	}}, nil
 }
 

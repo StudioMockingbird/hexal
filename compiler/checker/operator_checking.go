@@ -140,6 +140,12 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 			diagnostic := typeErrorAt(expression.Operator, "numeric values have no unique lossless common type")
 			return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 		}
+		// Remainder is integer-only; a mixed Int/Float pair whose common type
+		// widens to Float is rejected here rather than folded or rendered,
+		// since go/constant has no float remainder operation.
+		if operator == RemainderOperator && !compilerTypes.IsInteger(common) {
+			return checkedExpression{token: expression.Operator, diagnostic: binaryOperatorDiagnostic(RemainderOperator, common, expression.Operator)}
+		}
 		if context.foldConstants && left.source.Kind == ConstantOperand && right.source.Kind == ConstantOperand {
 			return foldWidenedArithmetic(operator, left, right, common, expression.Operator)
 		}
@@ -836,6 +842,21 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 			return expressionTypeHint{token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, "unknown type "+expression.TypeName.Lexeme))}
 		}
 		return expressionTypeHint{typ: typ, token: expression.TypeName}
+	case parser.ArrayLiteralExpression:
+		checked := checkArrayLiteral(expression, expected, ctx)
+		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
+	case parser.QualifiedVariantExpression:
+		checked := checkQualifiedVariant(expression, expected, ctx)
+		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
+	case parser.MatchExpression:
+		checked := checkMatchExpression(expression, expressionContext{expected: compilerTypes.NewTypeUse(expected)}, ctx)
+		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
+	case parser.TypeTestExpression:
+		checked := checkUnionTypeTest(expression, ctx)
+		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
+	case parser.AnonymousFunctionLiteral:
+		checked := checkAnonymousFunctionLiteral(expression, expressionContext{expected: compilerTypes.NewTypeUse(expected)}, ctx)
+		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.RefExpression:
 		checked := checkReference(expression, ctx)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
