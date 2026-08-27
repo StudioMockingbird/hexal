@@ -67,6 +67,8 @@ type moduleEmission struct {
 	ioState          *generatedStreamState
 	concurrencyState *generatedConcurrencyState
 	wrapState        *generatedWrapState
+	stashState       *stashHelpers
+	poolState        *generatedPoolState
 	objects          []*compilerTypes.ObjectType
 }
 
@@ -117,6 +119,12 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		return nil, heapErr
 	}
 	emission.heapState = heapState
+	stashState, stashErr := discoverStashHelpers(program)
+	if stashErr != nil {
+		return nil, stashErr
+	}
+	emission.stashState = stashState
+	emission.poolState = discoverGeneratedPool(program)
 	emission.adtState = discoverGeneratedADTs(program)
 	arrayState := discoverGeneratedArrays(program)
 	emission.arrayState = arrayState
@@ -197,6 +205,11 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// machinery and the shared runtime trap.
 		heapState.required = true
 	}
+	if stashState.required || len(emission.poolState.order) > 0 {
+		// Both allocator cores back every block/slot allocation through
+		// hex_heap_allocate/hex_heap_free directly.
+		heapState.required = true
+	}
 	if collectionsNeedView(arrayState, listState, viewState) {
 		// Only a slice helper names the view component, and the templates
 		// guard those on the same fact. Selecting View for every program
@@ -250,6 +263,13 @@ type programEmission struct {
 	// the blocking pool's native-descriptor demand fact and deliberately
 	// exclude seekBytes (an in-memory seek never blocks).
 	seekUsed bool
+	// stashUsed is true when any module constructs or operates on a Stash,
+	// selecting the shared type-erased hexal/stash.h/.c core once
+	// program-wide.
+	stashUsed bool
+	// poolState merges every module's reachable Pool<T> specializations,
+	// each fully monomorphized like List<T> (see pool_component.go).
+	poolState *generatedPoolState
 	// requirements is the demand-driven standard-header and hex_eos set built
 	// from every reachable module's checked types and selected helper
 	// families.
@@ -276,6 +296,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		stringState: literals,
 		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool)},
 		dictState:   &generatedDictState{seen: make(map[*compilerTypes.DictInfo]bool)},
+		poolState:   &generatedPoolState{seen: make(map[*compilerTypes.PoolInfo]bool)},
 		arrayState:  &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool), demand: make(map[*compilerTypes.ArrayInfo]arrayAccessorDemand)},
 		concurrencyState: &generatedConcurrencyState{
 			taskTypes:            make(map[string]compilerTypes.Type),
@@ -294,6 +315,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 	arrayOrders := make([][]compilerTypes.Type, 0, len(modules))
 	listOrders := make([][]compilerTypes.Type, 0, len(modules))
 	dictOrders := make([][]compilerTypes.Type, 0, len(modules))
+	poolOrders := make([][]compilerTypes.Type, 0, len(modules))
 	unionOrders := make([][]compilerTypes.Type, 0, len(modules))
 	adtOrders := make([][]compilerTypes.Type, 0, len(modules))
 	sizeSeen := make(map[string]bool)
@@ -346,6 +368,12 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		if module.dictState != nil {
 			dictOrders = append(dictOrders, module.dictState.order)
 		}
+		if module.poolState != nil {
+			poolOrders = append(poolOrders, module.poolState.order)
+		}
+		if module.stashState != nil && module.stashState.required {
+			merged.stashUsed = true
+		}
 		for _, digits := range module.sizeLiterals {
 			if !sizeSeen[digits] {
 				sizeSeen[digits] = true
@@ -361,6 +389,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 	merged.arrayState.order = mergeTypeOrders(arrayOrders)
 	merged.listState.order = mergeTypeOrders(listOrders)
 	merged.dictState.order = mergeTypeOrders(dictOrders)
+	merged.poolState.order = mergeTypeOrders(poolOrders)
 	merged.adapterSites = routeSpawnSites(merged.concurrencyState)
 	// The discriminant registry finalizes before any file text renders, from
 	// the program-wide union and ADT reachability.
@@ -499,6 +528,22 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 				// are not required by this family alone.
 				requirements.add("stdatomic.h")
 			}
+		}
+		if module.stashState != nil && module.stashState.required {
+			// The bump-allocation core sizes and grows blocks with ckd_add
+			// and ckd_mul, spells sizes as size_t, and traps on an
+			// unrepresentable size; hex_heap_allocate/hex_heap_free back
+			// every block.
+			requirements.add("stdckdint.h", "stddef.h")
+			requirements.trap = true
+		}
+		if module.poolState != nil && len(module.poolState.order) > 0 {
+			// Pool state sizes its slot/live/free-index storage with
+			// ckd_mul, converts addresses through uintptr_t for the free
+			// range check, and traps on exhaustion, an out-of-range or
+			// not-live free, or a non-empty destroy.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h")
+			requirements.trap = true
 		}
 		if module.unionState != nil {
 			for _, union := range module.unionState.order {
@@ -869,6 +914,8 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		arrays:      emission.arrayState,
 		lists:       emission.listState,
 		dicts:       emission.dictState,
+		pools:       emission.poolState,
+		stash:       emission.stashState,
 		canonicalID: canonicalID,
 		prototypes:  headerPrototypes.String(),
 		extraFrames: extraFrames.String(),
@@ -902,9 +949,9 @@ func routedFrames(emission *moduleEmission, sites []spawnSite) []spawnSite {
 
 // moduleComponentHeaders returns the path-qualified component headers this
 // module's header includes, in dependency order: wrap, heap, view,
-// string, error, seek, concurrency, list, dict, array. Each migrated family
-// selects itself here; a family still owned by hexal.h during the component
-// migration contributes nothing.
+// string, error, seek, concurrency, stash, pool, list, dict, array. Each
+// migrated family selects itself here; a family still owned by hexal.h
+// during the component migration contributes nothing.
 //
 // concurrency precedes the generic containers (list, dict, array) because a
 // List<Task<T>>, Dict<K, Channel<T>>, or Array<Task<T>, N> specialization
@@ -921,6 +968,8 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, moduleErrorComponent(emission)...)
 	components = append(components, moduleSeekComponent(emission)...)
 	components = append(components, moduleConcurrencyComponent(emission)...)
+	components = append(components, moduleStashComponent(emission)...)
+	components = append(components, modulePoolComponent(emission)...)
 	components = append(components, moduleListComponent(emission)...)
 	components = append(components, moduleDictComponent(emission)...)
 	components = append(components, moduleArrayComponent(emission)...)
@@ -962,6 +1011,8 @@ type moduleHeaderInput struct {
 	arrays *generatedArrayState
 	lists  *generatedListState
 	dicts  *generatedDictState
+	pools  *generatedPoolState
+	stash  *stashHelpers
 
 	prototypes  string
 	extraFrames string
@@ -1031,6 +1082,7 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	// The typed heap allocation helpers reference module-owned element
 	// types, so they follow the object definitions.
 	writeHeapAllocateHelpers(&result, input.heaps)
+	writeStashHelpers(&result, input.stash)
 	writePrintDefinitions(&result, input.printState, input.tags)
 	writeEqualityDefinitions(&result, input.equality, input.tags)
 	if err := writeConcurrencyInlineHelpers(&result, input.concurrency, input.stringState, input.tags); err != nil {

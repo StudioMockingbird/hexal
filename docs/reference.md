@@ -255,7 +255,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   That names the mechanisms the language lacks, not a limit on what it diagnoses: see Allocation
   and lifetime for which cleanup misuses are rejected.
 - Native modules are implemented; each `.hex` source is one module.
-- C interop, Arena, and Pool remain draft features and are not part of this language.
+- C interop remains a draft feature and is not part of this language.
 
 ## Programs, names, and bindings
 
@@ -276,7 +276,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Type and value names share one namespace. Protected names cannot be redeclared or shadowed.
   Protected types are every scalar plus `Size`, `Byte`, `Rune`, `String`, `Strand`, `Nil`, `EoS`,
   `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, and constructors `Ptr`,
-  `MutPtr`, `Fun`, `Array`, `View`, `List`, `Dict`, `Task`, `Channel`, `Atomic`.
+  `MutPtr`, `Fun`, `Array`, `View`, `List`, `Dict`, `Task`, `Channel`, `Atomic`, `Stash`, `Pool`.
   Protected operations are `print`, `size_of`, and `align_of`.
 - Every value-binding declaration uses `:=` and states its type exactly once, on one side or the
   other. `name: T := initializer` states it on the left; `name := initializer` says the
@@ -344,8 +344,9 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 
 - **Representation follows ownership, not shape.** A type that owns an allocation is a
   pointer-sized handle: it is passed as a pointer and copies alias one allocation. These are
-  exactly the types exposing `free` — `String`, List, Dict, Channel, Mutex — plus Task, whose
-  storage the scheduler reclaims through join or detach. A type that is inline or borrows
+  exactly the types exposing `free` — `String`, List, Dict, Channel, Mutex, Pool — plus Task, whose
+  storage the scheduler reclaims through join or detach, and Stash, which exposes `reset`/`destroy`
+  in place of `free`. A type that is inline or borrows
   storage is a value: it is passed by value and a copy copies its region. These are scalars,
   `Strand`, Array, objects, ADTs, and View. A new type derives its representation from this
   rule rather than from resemblance to an existing one.
@@ -354,11 +355,12 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   borrows them. `String` is therefore a handle and a View is a descriptor value.
 - Every value is stored inline. Every copy copies the C representation. Scalars and
   inline aggregates (`Strand`, Array, objects, ADTs) copy all inline bytes. Pointers and
-  `String`, List, Dict, Task, Channel, Mutex copy their handle representation. View copies
-  its pointer-length descriptor. Heap copies a stateless token that selects the one default allocator.
+  `String`, List, Dict, Task, Channel, Mutex, Stash, Pool copy their handle representation. View
+  copies its pointer-length descriptor. Heap copies a stateless token that selects the one default
+  allocator.
 - Assignment, arguments, returns, object/ADT construction, collection insertion, union injection,
   and Task capture are shallow copies. Copying does not invalidate the source.
-- Values referring to external state include String, List, Dict, Task, Channel, Mutex,
+- Values referring to external state include String, List, Dict, Task, Channel, Mutex, Stash, Pool,
   RuneCursor, View, and aggregates containing them. Copies alias the same state. Freeing one
   alias leaves others dangling; losing the last handle can leak.
 - Every value is copyable except `Atomic<T>` and inline aggregates transitively containing one.
@@ -454,9 +456,10 @@ HeapAllocation
   storage layout only, never evaluation order.
 - Identity is canonical and recursive, never derived from display names: same-named nominal types
   in distinct modules are distinct, identical layouts included, and constructed builtin generic
-  types (pointer, nullable, function, Array, View, List, Dict, Task, Channel, Atomic, union) intern
-  once per compilation and are shared by every module. `List<Int32>` written in two modules is one
-  type, while `List<m.Point>` and `List<s.Point>` over same-named `Point` types are two.
+  types (pointer, nullable, function, Array, View, List, Dict, Task, Channel, Atomic, Stash, Pool,
+  union) intern once per compilation and are shared by every module. `List<Int32>` written in two
+  modules is one type, while `List<m.Point>` and `List<s.Point>` over same-named `Point` types are
+  two.
 - Direct and mutual by-value recursive layouts are invalid; pointer-indirect recursion is valid.
 - Pointer member access auto-dereferences. `.value` explicitly accesses the whole pointee and is
   required for non-object pointees.
@@ -474,7 +477,8 @@ HeapAllocation
 - String, List, Dict, and View cannot be Ptr/MutPtr pointees. Each already carries its own
   aliasing and invalidation rules over borrowed or allocated storage, and a pointer to one would add
   a second aliasing layer with no defined semantics. This is not a general handle exclusion:
-  `Task<R>`, `Channel<T>`, and `Mutex` are shared by handle copy and are valid pointees.
+  `Task<R>`, `Channel<T>`, `Mutex`, `Stash<T>`, and `Pool<T>` are shared by handle copy and are
+  valid pointees.
 - `Atomic<T>` cannot be a direct Ptr/MutPtr pointee. `Ptr<Atomic<T>>` and
   `MutPtr<Atomic<T>>` are invalid type expressions.
 - Pointers name one object. Arithmetic, indexing, ordering, subtraction, integer conversion,
@@ -796,6 +800,53 @@ Heap.free<T>(pointer: MutPtr<T>) -> no value
   analysis is never rejected — a pointer arriving as a parameter, read from a member or collection,
   or copied to a second binding is not tracked, and leaks are not diagnosed. An undecided case is
   always accepted.
+
+### `Stash<T>` and `Pool<T>`
+
+```text
+Stash<T>.new() -> Stash<T>
+Stash<T>.allocate(initial: T) -> MutPtr<T>
+Stash<T>.reset() -> no value
+Stash<T>.destroy() -> no value
+
+Pool<T>.new(capacity: Size) -> Pool<T>
+Pool<T>.allocate(initial: T) -> MutPtr<T>
+Pool<T>.free(pointer: Ptr<T> | MutPtr<T>) -> no value
+Pool<T>.destroy() -> no value
+```
+
+- Stash and Pool are independent allocator roots, not Heap-backed library values: both `.new()`
+  constructors take no Heap argument and always build on Heap's own allocation primitives
+  internally. The no-hidden-allocator rule above applies only to Heap-backed library values
+  (String, List, Dict, Channel, Mutex); those keep their exact Heap signatures and reject a Stash
+  or Pool argument.
+- `Stash<T>` grows as needed and allocates only one canonical T; `allocate` takes no explicit type
+  arguments and its result is always `MutPtr<T>`. A union-typed Stash accepts each union member
+  through ordinary contextual injection but still returns a pointer to the union, not to the
+  injected member. T must be complete, finite, and valid for HeapAllocation, exactly like Heap's
+  own eligibility rule; direct Atomic and function elements are invalid.
+- A Stash allocation cannot be individually released: `stash.free(pointer)` is rejected with
+  "Stash allocations are released by reset or destroy". `reset()` invalidates every allocation made
+  since construction or the previous reset, retaining and reusing the underlying storage without
+  zeroing it; `destroy()` invalidates every remaining allocation and releases all storage. The
+  checker rejects a reset/destroy followed by a use through the same locally tracked allocation or
+  View; aliased, escaped, parameter-reached, member-reached, and collection-reached pointers follow
+  the undecided-case policy above and receive no diagnostic.
+- `Pool<T>` owns a fixed number of reusable slots for one concrete T, sized by a runtime `Size`
+  capacity. A constant zero capacity is rejected statically ("Pool capacity must be positive"); a
+  dynamic zero capacity traps, as does exhaustion. `allocate` accepts exactly T; `free` accepts
+  Ptr/MutPtr of exactly T and validates that the address names an aligned, currently live slot in
+  that exact Pool, trapping otherwise. A pointer directly traceable to another Pool is rejected
+  before generation; unknown provenance reaches the runtime address check.
+- `destroy()` requires every Pool slot to have been freed first: a directly tracked live slot is
+  rejected at compile time ("Pool cannot be destroyed while a locally tracked slot is live");
+  otherwise a non-empty destroy traps at runtime. Pool release runs no cleanup for stored T; the
+  programmer cleans any resources T holds before releasing a slot.
+- Stash and Pool handles are pointer-sized, shallow-copyable aliases, exactly like List, Dict, and
+  Mutex; `mut` controls only binding reassignment, not allocator behavior, and neither type is
+  equality-, ordering-, hashing-, or print-eligible. Stash and Pool are not thread-safe: shallow
+  copying a handle adds no synchronization, and a cross-task conflict the checker cannot prove
+  locally receives no diagnostic.
 
 ## Collections
 
@@ -1364,7 +1415,7 @@ MutPtr<T>.write_volatile(value: T) -> no value
 
 - FFI: C imports/exports and foreign ABI remain draft and are not part of this language; native
   modules are implemented.
-- Memory: Arena, Pool, source pointer arithmetic/casts, `unsafe`, mutable View.
+- Memory: source pointer arithmetic/casts, `unsafe`, mutable View.
 - Control/iteration: ranges, counted loops, user iterators, mutable iteration binders, exceptions.
 - Functions/concurrency: closures, async/await, coroutines, user threads, task groups, `select`,
   unbounded/rendezvous Channels, nonblocking Channel operations, memory-order arguments.

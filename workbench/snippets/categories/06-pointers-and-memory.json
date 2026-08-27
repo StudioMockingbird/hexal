@@ -224,6 +224,65 @@
       ]},
       "features": ["pointers", "heap-allocation", "defer", "copying"],
       "reservedWords": ["fun", "return", "end", "defer", "do"]
+    },
+    {
+      "id": "memory-stash-bump-allocate",
+      "name": "Stash bump allocation",
+      "description": "Allocate a typed Stash region and release it as one block.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Node = { amount: Int32, }",
+        "fun demo(): Int32 do",
+        "    stash := Stash<Node>.new()",
+        "    defer stash.destroy()",
+        "    first: MutPtr<Node>:= stash.allocate(Node { amount = 1 })",
+        "    second: MutPtr<Node>:= stash.allocate(Node { amount = 2 })",
+        "    return first.value.amount + second.value.amount",
+        "end"
+      ]},
+      "features": ["stash", "heap-allocation", "pointers", "defer"],
+      "reservedWords": ["type", "fun", "defer", "return", "end", "do"]
+    },
+    {
+      "id": "memory-stash-reset-reuse",
+      "name": "Stash reset and reuse",
+      "description": "Reset a Stash to reuse its high-water allocation for a fresh batch.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Node = { amount: Int32, }",
+        "fun demo(): Int32 do",
+        "    stash := Stash<Node>.new()",
+        "    defer stash.destroy()",
+        "    first: MutPtr<Node>:= stash.allocate(Node { amount = 1 })",
+        "    result: Int32:= first.value.amount",
+        "    stash.reset()",
+        "    second: MutPtr<Node>:= stash.allocate(Node { amount = 2 })",
+        "    return result + second.value.amount",
+        "end"
+      ]},
+      "features": ["stash", "heap-allocation", "pointers", "defer"],
+      "reservedWords": ["type", "fun", "defer", "return", "end", "do"]
+    },
+    {
+      "id": "memory-pool-fixed-capacity",
+      "name": "Pool fixed capacity",
+      "description": "Allocate, free, and destroy slots in a fixed-capacity Pool.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Node = { amount: Int32, }",
+        "fun demo(): Int32 do",
+        "    pool := Pool<Node>.new(4)",
+        "    defer pool.destroy()",
+        "    first: MutPtr<Node>:= pool.allocate(Node { amount = 10 })",
+        "    second: MutPtr<Node>:= pool.allocate(Node { amount = 20 })",
+        "    result: Int32:= first.value.amount + second.value.amount",
+        "    pool.free(first)",
+        "    pool.free(second)",
+        "    return result",
+        "end"
+      ]},
+      "features": ["pool", "heap-allocation", "pointers", "defer"],
+      "reservedWords": ["type", "fun", "defer", "return", "end", "do"]
     }
   ]
 }

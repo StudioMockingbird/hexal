@@ -194,6 +194,26 @@ const (
 	// fetch_add, fetch_sub, or compare_exchange. Operand is the Atomic
 	// lvalue; OperandType is the Atomic type; Element is T.
 	AtomicMethodCallExpression
+	// StashConstructorExpression is Stash<T>.new(), which yields an
+	// independent typed bump-allocator handle. Takes no arguments;
+	// OperandType is the Stash type; Element is T.
+	StashConstructorExpression
+	// StashMethodCallExpression is one Stash handle method: allocate, reset,
+	// or destroy. Name selects the method; Operand is the handle;
+	// OperandType is the Stash type; Element is T. allocate's Arguments
+	// holds the initializer and ResultType is MutPtr<T>; reset and destroy
+	// take no arguments and yield no value.
+	StashMethodCallExpression
+	// PoolConstructorExpression is Pool<T>.new(capacity), which yields an
+	// independent typed fixed-capacity slot-allocator handle. Arguments
+	// holds the capacity; OperandType is the Pool type; Element is T.
+	PoolConstructorExpression
+	// PoolMethodCallExpression is one Pool handle method: allocate, free, or
+	// destroy. Name selects the method; Operand is the handle; OperandType
+	// is the Pool type; Element is T. allocate's Arguments holds the
+	// initializer and ResultType is MutPtr<T>; free's Arguments holds the
+	// pointer; destroy takes no arguments; free and destroy yield no value.
+	PoolMethodCallExpression
 	// LayoutExpression is size_of<T>() or align_of<T>(). Name
 	// selects the query; OperandType is the measured type; ResultType is
 	// Size.

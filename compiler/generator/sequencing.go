@@ -78,6 +78,8 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 		checker.ChannelConstructorExpression,
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
+		checker.StashConstructorExpression, checker.StashMethodCallExpression,
+		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.HeapAllocateExpression, checker.HeapFreeExpression, checker.VolatileWriteExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression,
 		checker.MatchExpression:

@@ -304,6 +304,8 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
+		checker.StashConstructorExpression, checker.StashMethodCallExpression,
+		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.VolatileReadExpression, checker.VolatileWriteExpression,
 		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
@@ -651,6 +653,16 @@ func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 		}
 		return typ.CName + " *const " + name
 	}
+	if compilerTypes.IsStash(typ) || compilerTypes.IsPool(typ) {
+		// A source Stash or Pool value is a pointer-sized owning handle to
+		// heap-backed allocator state, exactly like List, Dict, and Mutex; a
+		// non-mut binding still calls allocate/reset/free/destroy through
+		// it, so only the pointer variable itself gains the top-level const.
+		if mutable {
+			return typ.CName + " *" + name
+		}
+		return typ.CName + " *const " + name
+	}
 	if compilerTypes.IsRuneCursor(typ) {
 		// A RuneCursor is a mutable-through descriptor; next() advances its
 		// offset, so the binding carries no top-level const even without a
@@ -740,6 +752,9 @@ func typeSpelling(typ compilerTypes.Type) string {
 		return typ.CName + " *"
 	}
 	if compilerTypes.IsMutex(typ) {
+		return typ.CName + " *"
+	}
+	if compilerTypes.IsStash(typ) || compilerTypes.IsPool(typ) {
 		return typ.CName + " *"
 	}
 	if typ.Element != nil {
@@ -957,6 +972,14 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderAtomicConstructor(node, state)
 	case checker.AtomicMethodCallExpression:
 		return renderAtomicMethod(node, state)
+	case checker.StashConstructorExpression:
+		return renderStashConstructor(node, state)
+	case checker.StashMethodCallExpression:
+		return renderStashMethod(node, state)
+	case checker.PoolConstructorExpression:
+		return renderPoolConstructor(node, state)
+	case checker.PoolMethodCallExpression:
+		return renderPoolMethod(node, state)
 	case checker.StreamConstructorExpression:
 		return renderStreamConstructor(node, state)
 	case checker.BytesOverExpression:
@@ -1586,6 +1609,8 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
+		checker.StashConstructorExpression, checker.StashMethodCallExpression,
+		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.LayoutExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression, checker.ViewBridgeExpression:
 		return node.ResultType, true
 	case checker.HeapFreeExpression:

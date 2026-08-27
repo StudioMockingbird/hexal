@@ -70,6 +70,12 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		if expression.Name.Lexeme == "Atomic" {
 			return resolveAtomicTypeUse(expression, fallback, typeEnvironment, generics)
 		}
+		if expression.Name.Lexeme == "Stash" {
+			return resolveStashTypeUse(expression, fallback, typeEnvironment, generics)
+		}
+		if expression.Name.Lexeme == "Pool" {
+			return resolvePoolTypeUse(expression, fallback, typeEnvironment, generics)
+		}
 		return specializeTypeUse(expression, fallback, typeEnvironment, generics)
 	case parser.GroupedTypeExpression:
 		return resolveTypeUse(expression.Inner, fallback, typeEnvironment, generics)

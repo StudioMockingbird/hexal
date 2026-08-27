@@ -370,6 +370,40 @@ func (state *flowState) sourceReleased(id BindingID) bool {
 	return state.releasedSources[id]
 }
 
+// invalidateAllocationsFrom marks every directly tracked binding whose
+// provenance names source as freed. Stash.reset()/destroy() call this
+// eagerly at the reset/destroy call site: a later stash.allocate(...)
+// produces a fresh binding with its own provenance edge, so it is untouched
+// by an earlier reset's walk, while every allocation from before that reset
+// is now correctly proven stale.
+func (state *flowState) invalidateAllocationsFrom(source BindingID) {
+	if state == nil || source == 0 {
+		return
+	}
+	for derived, from := range state.provenance {
+		if from == source {
+			state.markFreed(derived)
+		}
+	}
+}
+
+// hasLiveTrackedAllocation reports whether any directly tracked binding
+// whose provenance names source is still live (not proven freed). Pool
+// destroy consults this to reject destroying a pool with a locally tracked
+// live slot; an escaped or aliased allocation is untracked and therefore
+// invisible here, matching the documented undecided-case policy.
+func (state *flowState) hasLiveTrackedAllocation(source BindingID) bool {
+	if state == nil || source == 0 {
+		return false
+	}
+	for derived, from := range state.provenance {
+		if from == source && state.tracked[derived] && !state.freed(derived) {
+			return true
+		}
+	}
+	return false
+}
+
 func (state *flowState) trackedVersion(id BindingID) (uint64, bool) {
 	if state == nil || !state.tracked[id] {
 		return 0, false

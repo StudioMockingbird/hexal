@@ -142,6 +142,16 @@ func walkTypeTreeSeen(typ compilerTypes.Type, visit func(compilerTypes.Type) err
 			return err
 		}
 	}
+	if typ.Stash != nil {
+		if err := walkTypeTreeSeen(typ.Stash.Element, visit, seenAdt, seenObject); err != nil {
+			return err
+		}
+	}
+	if typ.Pool != nil {
+		if err := walkTypeTreeSeen(typ.Pool.Element, visit, seenAdt, seenObject); err != nil {
+			return err
+		}
+	}
 	if typ.Object != nil {
 		if seenObject[typ.Object] {
 			return nil
@@ -381,6 +391,16 @@ func (state *walkState) walkType(typ compilerTypes.Type) error {
 	}
 	if typ.Atomic != nil {
 		if err := state.walkType(typ.Atomic.Element); err != nil {
+			return err
+		}
+	}
+	if typ.Stash != nil {
+		if err := state.walkType(typ.Stash.Element); err != nil {
+			return err
+		}
+	}
+	if typ.Pool != nil {
+		if err := state.walkType(typ.Pool.Element); err != nil {
 			return err
 		}
 	}

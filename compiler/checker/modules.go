@@ -454,6 +454,10 @@ func (registry *ModuleRegistry) privateTypeInUse(typ compilerTypes.Type, seenObj
 		return registry.privateTypeInUse(typ.Channel.Element, seenObjects, seenADTs)
 	case typ.Atomic != nil:
 		return registry.privateTypeInUse(typ.Atomic.Element, seenObjects, seenADTs)
+	case typ.Stash != nil:
+		return registry.privateTypeInUse(typ.Stash.Element, seenObjects, seenADTs)
+	case typ.Pool != nil:
+		return registry.privateTypeInUse(typ.Pool.Element, seenObjects, seenADTs)
 	default:
 		// Scalars, Nil, Unknown, heap handles, and generic parameters are
 		// never nominal and cannot be private.

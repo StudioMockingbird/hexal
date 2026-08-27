@@ -11,8 +11,12 @@ import (
 func trackablePointerBinding(bound binding) bool {
 	// IO bindings ride the freed machinery so close records a versioned
 	// closed state with the same rebinding and branch-merge semantics as
-	// Heap.free.
-	return bound.kind == dataBinding && !bound.parameter && !bound.loopBinder && (bound.typ.Element != nil || compilerTypes.IsIO(bound.typ))
+	// Heap.free. Stash and Pool handle bindings ride the same machinery so
+	// destroy (and, for Pool, a rejected destroy-while-live) records a
+	// versioned freed state for the handle itself, distinct from the
+	// provenance-tracked allocations it owns.
+	return bound.kind == dataBinding && !bound.parameter && !bound.loopBinder &&
+		(bound.typ.Element != nil || compilerTypes.IsIO(bound.typ) || compilerTypes.IsStash(bound.typ) || compilerTypes.IsPool(bound.typ))
 }
 
 func directPointerBinding(source Operand, target compilerTypes.Type) BindingID {

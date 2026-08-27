@@ -1,7 +1,130 @@
 # RFC 0027: Typed Stash and Pool Allocators
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; its stateless-Heap prerequisite is implemented
+- Status: Closed; implemented 2026-08-27. `Stash<T>` and `Pool<T>` are real,
+  independent allocator types, built and verified end to end.
+  **Types** (`compiler/types`): `StashInfo`/`PoolInfo` plus `Stash`/`Pool`
+  fields on `Type`; `Environment.StashType`/`PoolType` constructors reusing
+  `Eligible(element, PositionHeapAllocation)` verbatim (no new eligibility
+  rule); per-`Environment` arena maps keyed `"stash:"+element.CanonicalKey`
+  / `"pool:"+element.CanonicalKey`. `Stash<T>`'s `CName` is the single fixed
+  string `"hex_stash"` for every T — the runtime core is type-erased, so
+  unlike every other constructed generic in this codebase it deliberately
+  does *not* go through `uniqueCollectionCName`'s per-instantiation naming;
+  `Pool<T>`'s `CName` does, exactly like `List<T>`, because Pool is fully
+  monomorphized (a compile-time-typed slot array, not type-erased). Both
+  needed a canonical-signature case added to `isCanonicalForEnvironment`
+  (missing this was the first real bug the generator's own validation
+  caught: without it, a bare `Stash<Node>` binding fell through to
+  `isCanonicalScalar` and failed as "unsupported checked declaration
+  type") and a case added everywhere a type-family switch already
+  enumerated Task/Channel/Atomic: `nominalModuleOf` (arena.go),
+  `typeContainsPlaceholder` (generics.go), `privateTypeInUse` (modules.go),
+  and both of the generator's own recursive type walkers (`walk.go`).
+  `IsProtectedTypeName` and the generic-type-expression resolver dispatch
+  (`type_resolution.go`) gained `"Stash"`/`"Pool"` entries alongside
+  `List`/`Channel`/`Atomic`.
+  **Checker** (`compiler/checker/stash.go`, `pool.go`, new): constructor and
+  method dispatch mirrors `List`/`Channel`/`Atomic`'s established shape —
+  `checkStashTypeCall`/`checkPoolTypeCall` for `.new(...)`,
+  `checkStashMethodCall`/`checkPoolMethodCall` dispatching `allocate` /
+  `reset` / `destroy` / `free` by name — wired into `methods.go`'s existing
+  two dispatch points (bare-type-name and value-receiver) exactly like every
+  other builtin. Two new `ExpressionKind` pairs
+  (`Stash|PoolConstructorExpression`, `Stash|PoolMethodCallExpression`).
+  Lifetime tracking reuses the existing `tracked`/`freed`/`version` lattice
+  Heap.free already rides (extending `trackablePointerBinding` to admit
+  Stash/Pool *handle* bindings themselves, the same way IO's `close`
+  already does for a non-pointer handle) plus the existing
+  `provenance`/`setProvenance` single-source-borrow mechanism Bytes-over-List
+  already uses (extended in `io.go`'s `seedStreamBindingFacts`, which now
+  also records a fresh `Stash|PoolMethodCallExpression{Name:"allocate"}`
+  result's provenance edge back to its receiver). `Stash.reset()`/`destroy()`
+  and `Pool.destroy()`'s precondition check both walk that provenance map
+  (two new `flowState` methods, `invalidateAllocationsFrom` and
+  `hasLiveTrackedAllocation`) rather than introducing a generation/epoch
+  concept: reset eagerly marks every *currently* provenance-linked binding
+  freed, so a later `allocate` call — a new binding, a new provenance edge —
+  is untouched by an earlier reset's walk, which is what makes "reset, then
+  allocate again, then use the new allocation" work correctly (verified;
+  see below) without new per-pointer state. The existing deferred-capture
+  machinery (`alloc.go`) was generalized rather than duplicated: its
+  Heap-only `HeapFreeBinding`/`HeapFreeVersion` fields became
+  `TrackedFreeBinding`/`TrackedFreeVersion`, and `captureDeferredHeapFree`/
+  `validateDeferredActionsInState` route through a new small
+  `trackedReleaseTarget` helper recognizing `HeapFreeExpression`,
+  `PoolMethodCallExpression{Name:"free"|"destroy"}`, and
+  `StashMethodCallExpression{Name:"destroy"}` alike, so `defer stash.destroy()`
+  and `defer pool.free(node)` get the identical registration-time
+  binding+version capture Heap.free always had.
+  **Generator**: Stash and Pool intentionally use *different* emission
+  patterns because their C representations differ, per the RFC's own
+  wording (only Pool's validation text says "exactly one correctly owned
+  specialization per canonical T"). Stash (`stash.go`, `stash_component.go`,
+  `generator/packages/stash.h`/`.c`) is type-erased: one shared,
+  program-wide `hex_stash` bump-allocator core (block-chain growth,
+  4096-byte-or-larger first block, checked doubling via `ckd_mul`/`ckd_add`,
+  lazy reset that only rewinds to the first block and lets
+  `hex_stash_allocate` zero each later block's `used` field as it
+  re-enters it) plus tiny per-module, per-T typed constructor/allocate
+  wrappers (`hex_stash_new_<T CName>`, `hex_stash_alloc_<T CName>`,
+  Heap.allocate's own `heap.go` pattern, keyed by `element.CName` — not
+  `element.Name`, unlike Heap's own helper, specifically so two
+  same-named nominal types from different modules can't collide, closing a
+  latent gap Heap.allocate's own naming still has). Pool (`pool.go`,
+  `pool_component.go`, `generator/packages/pool.h`) is fully monomorphized
+  like `List<T>`: one struct per canonical T (slots/live-bytes/free-index
+  stack, each a separate heap allocation sized by the runtime capacity),
+  O(1) allocate (pop index, mark live, write T) and free (address range
+  and alignment check via `uintptr_t`, live-byte check, push index), reusing
+  `List`'s exact ownership-split machinery — `module_collections.go`'s
+  `typeIsModuleEmitted`/`collectionElementModuleTyped`/
+  `moduleCollectionDependencyOrder`/`writeModuleCollectionSpecializations`
+  all gained a `typ.Pool` case as a fifth family alongside
+  view/array/list/dict, and the same `componentArtifact{block: "poolbody"}`
+  fragment-render trick gives Pool both a shared `hexal/pool.h` (builtin T)
+  and a per-module inline fragment (module-owned T) from one template.
+  Both families needed `declaration()`/`typeSpelling()` cases (mirroring
+  `Mutex`'s, not `List`'s: `Stash`/`Pool` values are bare struct tags
+  needing a manually-appended `" *"`, not a pre-typedef'd pointer alias like
+  `Channel`/`Task`) — the second real bug the generator's own dispatch and
+  a build against real toolchains together caught: without them, a
+  `Stash<Node>` or `Pool<Node>` binding rendered with no pointer at all.
+  `defer.go`'s separate registration-time-capture rendering path
+  (`writeDeferStatement`/`renderDeferredCall`) needed its own new cases for
+  the same four method names.
+  **Runtime traps**: exactly the RFC's seven messages, verbatim, each at its
+  specified site (pool capacity, exhaustion, wrong-pool pointer, non-live
+  free, non-empty destroy; allocation-size and heap-allocation-failure reuse
+  Heap's own messages unchanged).
+  **Verified**: every checker-side rejection the RFC's Validation section
+  names — individual Stash free, explicit `allocate<U>` type argument,
+  constant-zero Pool capacity, Pool destroy with a directly tracked live
+  slot, use after Stash destroy, use of a pre-reset allocation after
+  `reset()`, Pool double-destroy, `List<T>.new` rejecting a Stash argument —
+  each reproduced with the RFC's exact message text via a scratch probe,
+  then formalized as `compiler/tests/integration/allocators_test.go`. A
+  union-typed Stash allocating through ordinary contextual injection while
+  still returning `MutPtr<Item>` compiles and was spot-checked directly. The
+  full generated C for a combined Stash+Pool program (allocate, reset,
+  allocate again, deferred destroy in each of two nesting orders) was
+  dumped and hand-verified, then compiled clean — zero warnings, zero
+  suppressions — under real GCC 16.1, Clang 22.1.8, and `zig cc` 0.16 with
+  `-std=c23 -Wall -Wextra -Werror`. Three new workbench snippets
+  (`memory-stash-bump-allocate`, `memory-stash-reset-reuse`,
+  `memory-pool-fixed-capacity`) were added to
+  `06-pointers-and-memory.json`; the manifest rebuild added only their 31
+  new hash entries — every one of the pre-existing 140 snippets' hashes is
+  byte-identical, confirming zero collateral change to any other generator
+  path. The full `-tags c23` catalog sweep (143 snippets × 3 toolchains,
+  RFC 0140's now-parallel `TestC23SnippetCatalogCompiles`) passed completely
+  in 185s. `docs/reference.md` gained a `Stash<T>` and `Pool<T>` section
+  under Allocation and lifetime plus updates to every list this RFC's
+  Validation section named (protected types, handle-copy/external-state
+  lists, canonical-interning list, valid-Ptr/MutPtr-pointee list) and had
+  "Arena, Pool" removed from two now-stale Excluded-features mentions.
+  Full gate green: `gofmt -l .`, `go build ./...`, `go vet ./...`,
+  `go vet -tags c23 ./...`, `go test -count=1 ./...`.
 - Features: independent typed Stash allocation, typed Pool allocation, and
   bulk region release
 - Created: 2026-08-11

@@ -27,7 +27,6 @@ gets deleted.
 
 | Work | Spec |
 |---|---|
-| Typed Stash and Pool allocators; Heap-only library boundary | [0027](specs/0027-stash-and-pool-allocators.md) |
 | Allocation-free String/Strand mixed comparison | [0139](specs/0139-string-strand-comparison.md) |
 | Local fallback recovery with `catch` | [0134](specs/0134-error-recovery-with-catch.md) |
 

@@ -1,7 +1,8 @@
 package generator
 
-// Module-owned collection specializations: a list, dict, view, or array over
-// a module-emitted element type is emitted into each consuming module header
+// Module-owned collection specializations: a list, dict, view, array, or pool
+// over a module-emitted element type is emitted into each consuming module
+// header
 // immediately after that module's type definitions. A component artifact is
 // program-wide: it cannot re-emit a per-module type and has no include path
 // to the module that owns one, so module headers are the only translation
@@ -48,6 +49,9 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 	if typ.Dict != nil {
 		return typeIsModuleEmitted(typ.Dict.Value)
 	}
+	if typ.Pool != nil {
+		return typeIsModuleEmitted(typ.Pool.Element)
+	}
 	if typ.Signature != nil {
 		if typ.Signature.Result != nil && typeIsModuleEmitted(*typ.Signature.Result) {
 			return true
@@ -63,8 +67,8 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 }
 
 // collectionElementModuleTyped reports whether one collection specialization
-// spells a module-emitted type: the element of a list, array, or view, or
-// the value of a dict (the key is always a builtin Int32 or Strand).
+// spells a module-emitted type: the element of a list, array, view, or pool,
+// or the value of a dict (the key is always a builtin Int32 or Strand).
 func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 	switch {
 	case typ.List != nil:
@@ -75,6 +79,8 @@ func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 		return typeIsModuleEmitted(typ.View.Element)
 	case typ.Dict != nil:
 		return typeIsModuleEmitted(typ.Dict.Value)
+	case typ.Pool != nil:
+		return typeIsModuleEmitted(typ.Pool.Element)
 	}
 	return false
 }
@@ -87,10 +93,10 @@ func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 // C-name-sorted family orders insufficient; the graph is small per module
 // and always acyclic because a specialization can only spell already-interned
 // types.
-func moduleCollectionDependencyOrder(views, arrays, lists, dicts []compilerTypes.Type, viewState *generatedViewState) []compilerTypes.Type {
+func moduleCollectionDependencyOrder(views, arrays, lists, dicts, pools []compilerTypes.Type, viewState *generatedViewState) []compilerTypes.Type {
 	byName := make(map[string]compilerTypes.Type)
 	all := make([]compilerTypes.Type, 0)
-	for _, order := range [][]compilerTypes.Type{views, arrays, lists, dicts} {
+	for _, order := range [][]compilerTypes.Type{views, arrays, lists, dicts, pools} {
 		for _, typ := range order {
 			if collectionElementModuleTyped(typ) {
 				byName[typ.CName] = typ
@@ -141,6 +147,9 @@ func spelledCollectionNames(typ compilerTypes.Type, viewState *generatedViewStat
 		case t.View != nil:
 			names = append(names, t.CName)
 			walk(t.View.Element)
+		case t.Pool != nil:
+			names = append(names, t.CName)
+			walk(t.Pool.Element)
 		case t.Element != nil:
 			walk(*t.Element)
 		}
@@ -155,6 +164,8 @@ func spelledCollectionNames(typ compilerTypes.Type, viewState *generatedViewStat
 		element = typ.Array.Element
 	case typ.View != nil:
 		element = typ.View.Element
+	case typ.Pool != nil:
+		element = typ.Pool.Element
 	}
 	walk(element)
 	if view := matchingView(viewState, element); view != (compilerTypes.Type{}) {
@@ -190,7 +201,11 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	if input.dicts != nil {
 		dicts = input.dicts.order
 	}
-	ordered := moduleCollectionDependencyOrder(views, arrays, lists, dicts, input.views)
+	pools := []compilerTypes.Type(nil)
+	if input.pools != nil {
+		pools = input.pools.order
+	}
+	ordered := moduleCollectionDependencyOrder(views, arrays, lists, dicts, pools, input.views)
 	if len(ordered) == 0 {
 		return nil
 	}
@@ -207,6 +222,8 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 			artifact = componentArtifact{key: "hexal/list.h", template: "list.h", block: "listbody", model: listComponentModel{Lists: []listComponentRecord{listComponentRecordFor(typ, input.views)}}}
 		case typ.Dict != nil:
 			artifact = componentArtifact{key: "hexal/dict.h", template: "dict.h", block: "dictbody", model: dictComponentModel{Dicts: []dictComponentRecord{dictComponentRecordFor(typ, hashEmitted)}}}
+		case typ.Pool != nil:
+			artifact = componentArtifact{key: "hexal/pool.h", template: "pool.h", block: "poolbody", model: poolComponentModel{Pools: []poolComponentRecord{poolComponentRecordFor(typ)}}}
 		}
 		fragment, renderErr := renderComponent(artifact)
 		if renderErr != nil {

@@ -427,6 +427,16 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Atomic" {
 		return checkAtomicTypeCall(call, variable.Name, ctx)
 	}
+	// Stash<T>.new() names the built-in generic Stash type, not a Stash value
+	// binding.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Stash" {
+		return checkStashTypeCall(call, variable.Name, ctx)
+	}
+	// Pool<T>.new(capacity) names the built-in generic Pool type, not a Pool
+	// value binding.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Pool" {
+		return checkPoolTypeCall(call, variable.Name, ctx)
+	}
 	// Int32.from_le_bytes(...) names a fixed-width integer type, not an
 	// integer value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable &&
@@ -510,6 +520,14 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	}
 	if receiver.typ.Atomic != nil {
 		return checkAtomicMethodCall(call, callee, receiver, ctx)
+	}
+	// Stash and Pool methods dispatch on their built-in allocator handle
+	// receiver types.
+	if receiver.typ.Stash != nil {
+		return checkStashMethodCall(call, callee, receiver, ctx)
+	}
+	if receiver.typ.Pool != nil {
+		return checkPoolMethodCall(call, callee, receiver, ctx)
 	}
 	// Stream operations dispatch on the built-in stream receivers: IO
 	// methods take the value; Bytes state-changing methods reach MutPtr<Bytes>

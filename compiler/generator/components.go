@@ -119,6 +119,8 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 		stringComponents,
 		errorComponents,
 		seekComponents,
+		stashComponents,
+		poolComponents,
 		listComponents,
 		dictComponents,
 		arrayComponents,

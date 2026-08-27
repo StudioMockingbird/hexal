@@ -52,22 +52,51 @@ func checkExitTimeExpression(expression parser.Expression, ctx checkContext) che
 	return checkExpression(expression, expressionContext{inCleanup: true}, checkContext{names: checking, typeEnvironment: ctx.typeEnvironment})
 }
 
+// captureDeferredHeapFree captures the tracked binding+version a deferred
+// release call targets, at registration time, so a later rebinding of the
+// same slot before the deferred call fires does not change which value it
+// validates against. Four call shapes release a tracked value: Heap.free and
+// Pool.free target their pointer argument; Stash.destroy and Pool.destroy
+// target their own receiver.
 func captureDeferredHeapFree(action *DeferredAction, names *scope) {
 	if action == nil || !action.IsCall || action.Call == nil || names == nil || names.flow == nil {
 		return
 	}
 	node := action.Call.Node
-	if node.Kind != HeapFreeExpression || len(node.Arguments) != 1 {
+	target, ok := trackedReleaseTarget(node)
+	if !ok {
 		return
 	}
-	argument := node.Arguments[0]
-	binding := directPointerBinding(argument, argument.Type)
+	binding := directPointerBinding(target, target.Type)
+	if binding == 0 && target.Node.Kind == VariableExpression {
+		// Stash/Pool handles are not pointer types, so directPointerBinding
+		// (which requires target.Element != nil) never matches their
+		// receiver; a bare variable read of the handle itself is enough.
+		binding = target.Node.Binding
+	}
 	version, ok := names.flow.trackedVersion(binding)
 	if !ok {
 		return
 	}
-	action.HeapFreeBinding = binding
-	action.HeapFreeVersion = version
+	action.TrackedFreeBinding = binding
+	action.TrackedFreeVersion = version
+}
+
+// trackedReleaseTarget identifies the operand one release call invalidates:
+// Heap.free/Pool.free's pointer argument, or Stash.destroy/Pool.destroy's
+// own receiver.
+func trackedReleaseTarget(node Expression) (Operand, bool) {
+	switch {
+	case node.Kind == HeapFreeExpression && len(node.Arguments) == 1:
+		return node.Arguments[0], true
+	case node.Kind == PoolMethodCallExpression && node.Name == "free" && len(node.Arguments) == 1:
+		return node.Arguments[0], true
+	case node.Kind == PoolMethodCallExpression && node.Name == "destroy" && node.Operand != nil:
+		return Operand{Kind: ExpressionOperand, Type: node.OperandType, Node: *node.Operand}, true
+	case node.Kind == StashMethodCallExpression && node.Name == "destroy" && node.Operand != nil:
+		return Operand{Kind: ExpressionOperand, Type: node.OperandType, Node: *node.Operand}, true
+	}
+	return Operand{}, false
 }
 
 // checkHeapTypeCall resolves a call written as Heap.<name>(...) where the
@@ -176,6 +205,20 @@ func checkTrackedHeapFreeInState(value Operand, token lexer.Token, state *flowSt
 	return nil
 }
 
+// checkHandleNotDestroyed rejects a Stash or Pool operation whose receiver is
+// a directly tracked binding already proven destroyed. Unlike
+// checkTrackedHeapFreeInState, this never marks anything freed: it is a pure
+// precondition read, shared by every Stash/Pool method (allocate, reset,
+// free) other than destroy itself, which instead marks the handle freed
+// through checkTrackedHeapFreeInState.
+func checkHandleNotDestroyed(receiver Operand, token lexer.Token, state *flowState) *compilerTypes.Diagnostic {
+	if state == nil || receiver.Node.Kind != VariableExpression || receiver.Node.Binding == 0 || !state.freed(receiver.Node.Binding) {
+		return nil
+	}
+	diagnostic := useAfterFreeDiagnostic(token)
+	return &diagnostic
+}
+
 func checkTrackedHeapFreeVersion(token lexer.Token, state *flowState, binding BindingID, version uint64) *compilerTypes.Diagnostic {
 	if state == nil || binding == 0 || version == 0 || !state.tracked[binding] {
 		return nil
@@ -227,14 +270,18 @@ func validateDeferredActionsInState(actions []DeferredAction, state *flowState) 
 		action := actions[index]
 		token := lexer.Token{Line: action.SourceLine, Column: action.SourceColumn}
 		if action.IsCall {
-			if action.Call == nil || action.Call.Node.Kind != HeapFreeExpression || len(action.Call.Node.Arguments) != 1 {
+			if action.Call == nil {
+				continue
+			}
+			target, ok := trackedReleaseTarget(action.Call.Node)
+			if !ok {
 				continue
 			}
 			var diagnostic *compilerTypes.Diagnostic
-			if action.HeapFreeBinding != 0 && action.HeapFreeVersion != 0 {
-				diagnostic = checkTrackedHeapFreeVersion(token, state, action.HeapFreeBinding, action.HeapFreeVersion)
+			if action.TrackedFreeBinding != 0 && action.TrackedFreeVersion != 0 {
+				diagnostic = checkTrackedHeapFreeVersion(token, state, action.TrackedFreeBinding, action.TrackedFreeVersion)
 			} else {
-				diagnostic = checkTrackedHeapFreeInState(action.Call.Node.Arguments[0], token, state)
+				diagnostic = checkTrackedHeapFreeInState(target, token, state)
 			}
 			if diagnostic != nil {
 				diagnostics = append(diagnostics, *diagnostic)

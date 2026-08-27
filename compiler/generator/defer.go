@@ -101,10 +101,12 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 			return err
 		}
 		captured = append(captured, name)
-	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression, checker.StreamMethodCallExpression:
-		// defer ch.free(h), mutex.unlock(), task.join(), or stream.close()
-		// captures the handle at registration so the cleanup always targets
-		// the exact handle the defer saw.
+	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression, checker.StreamMethodCallExpression,
+		checker.StashMethodCallExpression, checker.PoolMethodCallExpression:
+		// defer ch.free(h), mutex.unlock(), task.join(), stream.close(),
+		// stash.destroy(), or pool.free(node)/destroy() captures the handle
+		// at registration so the cleanup always targets the exact handle the
+		// defer saw.
 		if node.Operand == nil {
 			return unknownExpressionDiagnostic("deferred handle method without a receiver")
 		}
@@ -309,6 +311,41 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		}
 		return fmt.Sprintf("hex_io_close_%s(%s, %d, %d)",
 			streamAdapterSuffix(node.ResultType), arguments[0], node.SourceLine, node.SourceColumn), nil
+	case checker.StashMethodCallExpression:
+		if len(arguments) < 1 {
+			return "", unknownExpressionDiagnostic("deferred stash method without a captured receiver")
+		}
+		switch node.Name {
+		case "allocate":
+			if len(arguments) != 2 {
+				return "", unknownExpressionDiagnostic("deferred stash allocate without captured arguments")
+			}
+			return stashAllocateHelper(node.Element) + "(" + arguments[0] + ", " + arguments[1] + ")", nil
+		case "reset":
+			return "hex_stash_reset(" + arguments[0] + ")", nil
+		case "destroy":
+			return "hex_stash_destroy(" + arguments[0] + ")", nil
+		}
+		return "", unknownExpressionDiagnostic("deferred stash method without a captured receiver")
+	case checker.PoolMethodCallExpression:
+		if len(arguments) < 1 {
+			return "", unknownExpressionDiagnostic("deferred pool method without a captured receiver")
+		}
+		switch node.Name {
+		case "allocate":
+			if len(arguments) != 2 {
+				return "", unknownExpressionDiagnostic("deferred pool allocate without captured arguments")
+			}
+			return poolAllocHelper(node.OperandType) + "(" + arguments[0] + ", " + arguments[1] + ")", nil
+		case "free":
+			if len(arguments) != 2 {
+				return "", unknownExpressionDiagnostic("deferred pool free without captured arguments")
+			}
+			return poolFreeHelper(node.OperandType) + "(" + arguments[0] + ", " + arguments[1] + ")", nil
+		case "destroy":
+			return poolDestroyHelper(node.OperandType) + "(" + arguments[0] + ")", nil
+		}
+		return "", unknownExpressionDiagnostic("deferred pool method without a captured receiver")
 	default:
 		return "", unknownExpressionDiagnostic("unsupported deferred call node")
 	}

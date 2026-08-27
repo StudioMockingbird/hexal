@@ -87,6 +87,11 @@ type Type struct {
 	Mutex *MutexInfo
 	// Atomic holds the metadata of inline atomic wrapper types.
 	Atomic *AtomicInfo
+	// Stash holds the metadata of an independent typed bump-allocator handle.
+	Stash *StashInfo
+	// Pool holds the metadata of an independent typed fixed-capacity
+	// slot-allocator handle.
+	Pool *PoolInfo
 	// Generic, when non-nil, identifies this type as a generic parameter
 	// placeholder; GenericIndex is the parameter's position.
 	Generic      *GenericDeclaration
@@ -954,6 +959,18 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		}
 		return isCanonicalForEnvironment(environment, typ.Atomic.Element, state, false)
 	}
+	if typ.Stash != nil {
+		if typ.identity.signature != "stash:"+typ.Stash.Element.CanonicalKey {
+			return false
+		}
+		return isCanonicalForEnvironment(environment, typ.Stash.Element, state, false)
+	}
+	if typ.Pool != nil {
+		if typ.identity.signature != "pool:"+typ.Pool.Element.CanonicalKey {
+			return false
+		}
+		return isCanonicalForEnvironment(environment, typ.Pool.Element, state, false)
+	}
 	if IsUnknown(typ) {
 		// Unknown is canonical only behind a pointer layer: the erased
 		// object pointer types Ptr<Unknown> and MutPtr<Unknown>.
@@ -1161,7 +1178,7 @@ func IsProtectedTypeName(name string) bool {
 		return true
 	}
 	switch name {
-	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Task", "Channel", "Atomic":
+	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Task", "Channel", "Atomic", "Stash", "Pool":
 		return true
 	}
 	return false

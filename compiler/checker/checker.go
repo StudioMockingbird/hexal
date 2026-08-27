@@ -166,10 +166,12 @@ type DeferredAction struct {
 	// is validated at scope exit rather than at registration.
 	SourceLine   int
 	SourceColumn int
-	// HeapFreeBinding and HeapFreeVersion identify the pointer value captured
-	// by a deferred Heap.free call across later rebinding of the same slot.
-	HeapFreeBinding BindingID
-	HeapFreeVersion uint64
+	// TrackedFreeBinding and TrackedFreeVersion identify the tracked value
+	// (a Heap-allocated pointer, a Pool-allocated pointer, or a Stash/Pool
+	// handle) captured by a deferred Heap.free, Pool.free, Stash.destroy, or
+	// Pool.destroy call across later rebinding of the same slot.
+	TrackedFreeBinding BindingID
+	TrackedFreeVersion uint64
 	// Err marks an errdefer action: it runs only when the current
 	// function exits by returning Error.
 	Err bool

@@ -18,6 +18,8 @@ type Arena struct {
 	taskTypes     map[string]Type
 	channelTypes  map[string]Type
 	atomicTypes   map[string]Type
+	stashTypes    map[string]Type
+	poolTypes     map[string]Type
 	unionTypes    map[string]Type
 	// definitionNames owns cross-family uniqueness for definition-keying
 	// generated C names: a name that a typedef introduces a type under. The
@@ -47,6 +49,8 @@ func NewArena() *Arena {
 		taskTypes:        make(map[string]Type),
 		channelTypes:     make(map[string]Type),
 		atomicTypes:      make(map[string]Type),
+		stashTypes:       make(map[string]Type),
+		poolTypes:        make(map[string]Type),
 		unionTypes:       make(map[string]Type),
 		definitionNames:  make(map[string]Type),
 		collectionCNames: make(map[string]bool),
@@ -141,6 +145,10 @@ func nominalModuleOf(typ Type) string {
 		return nominalModuleOf(typ.Channel.Element)
 	case typ.Atomic != nil:
 		return nominalModuleOf(typ.Atomic.Element)
+	case typ.Stash != nil:
+		return nominalModuleOf(typ.Stash.Element)
+	case typ.Pool != nil:
+		return nominalModuleOf(typ.Pool.Element)
 	case typ.Union != nil:
 		for _, member := range typ.Union.Members {
 			if module := nominalModuleOf(member); module != "" {

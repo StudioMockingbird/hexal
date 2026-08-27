@@ -766,6 +766,12 @@ func typeContainsPlaceholder(typ, placeholder compilerTypes.Type) bool {
 	if typ.Atomic != nil && typeContainsPlaceholder(typ.Atomic.Element, placeholder) {
 		return true
 	}
+	if typ.Stash != nil && typeContainsPlaceholder(typ.Stash.Element, placeholder) {
+		return true
+	}
+	if typ.Pool != nil && typeContainsPlaceholder(typ.Pool.Element, placeholder) {
+		return true
+	}
 	if typ.Union != nil {
 		for _, member := range typ.Union.Members {
 			if typeContainsPlaceholder(member, placeholder) {

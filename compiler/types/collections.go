@@ -42,6 +42,20 @@ type AtomicInfo struct {
 	Element Type
 }
 
+// StashInfo is the metadata of one independent typed bump-allocator handle
+// type. Element is the one canonical T every allocation from this Stash
+// stores; the Stash retains no parent Heap.
+type StashInfo struct {
+	Element Type
+}
+
+// PoolInfo is the metadata of one independent typed fixed-capacity
+// slot-allocator handle type. Element is the one canonical T every slot
+// stores; the Pool retains no parent Heap.
+type PoolInfo struct {
+	Element Type
+}
+
 // IsList reports whether typ is an owning growable list.
 func IsList(typ Type) bool { return typ.List != nil }
 
@@ -57,6 +71,13 @@ func isManaged(typ Type) bool {
 
 // IsMutex reports whether typ is the canonical scheduler-aware Mutex handle.
 func IsMutex(typ Type) bool { return typ.identity != nil && typ.identity == MutexType.identity }
+
+// IsStash reports whether typ is an independent typed bump-allocator handle.
+func IsStash(typ Type) bool { return typ.Stash != nil }
+
+// IsPool reports whether typ is an independent typed fixed-capacity
+// slot-allocator handle.
+func IsPool(typ Type) bool { return typ.Pool != nil }
 
 // IsString reports whether typ is the canonical String type.
 func IsString(typ Type) bool { return typ.identity != nil && typ.identity == StringType.identity }
@@ -334,6 +355,66 @@ func (environment *Environment) ChannelType(element Type) Type {
 		identity:     identity,
 	}
 	environment.arena.channelTypes[canonicalKey] = typ
+	return typ
+}
+
+// StashType constructs or retrieves the canonical Stash<T> handle type. T
+// must be complete, finite, and valid for HeapAllocation -- the same
+// eligibility Heap.allocate<T> enforces, reused here rather than restated:
+// direct Atomic and function elements are rejected. Every Stash<T>, for
+// every T, shares the one CName "hex_stash": the runtime representation is
+// a type-erased bump allocator (see generator/packages/stash.h), so unlike
+// List<T>/Pool<T> there is no per-T C definition to keep collision-free
+// through the arena's uniqueCollectionCName -- only the typed constructor
+// and allocate helper identities vary by T, keyed separately by the
+// element's own CName.
+func (environment *Environment) StashType(element Type) Type {
+	if environment == nil ||
+		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		!Eligible(element, PositionHeapAllocation) {
+		return Type{}
+	}
+	canonicalKey := "stash:" + element.CanonicalKey
+	if cached, ok := environment.arena.stashTypes[canonicalKey]; ok {
+		return cached
+	}
+	identity := newTypeIdentity()
+	identity.signature = canonicalKey
+	typ := Type{
+		Name:         "Stash<" + element.Name + ">",
+		CName:        "hex_stash",
+		CanonicalKey: canonicalKey,
+		Stash:        &StashInfo{Element: element},
+		identity:     identity,
+	}
+	environment.arena.stashTypes[canonicalKey] = typ
+	return typ
+}
+
+// PoolType constructs or retrieves the canonical Pool<T> handle type. T must
+// be complete, finite, and valid for HeapAllocation -- the same eligibility
+// Heap.allocate<T> enforces, reused here rather than restated: direct Atomic
+// and function elements are rejected.
+func (environment *Environment) PoolType(element Type) Type {
+	if environment == nil ||
+		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		!Eligible(element, PositionHeapAllocation) {
+		return Type{}
+	}
+	canonicalKey := "pool:" + element.CanonicalKey
+	if cached, ok := environment.arena.poolTypes[canonicalKey]; ok {
+		return cached
+	}
+	identity := newTypeIdentity()
+	identity.signature = canonicalKey
+	typ := Type{
+		Name:         "Pool<" + element.Name + ">",
+		CName:        environment.arena.uniqueCollectionCName("hex_pool_"+SanitizeIdentifier(element.Name), element),
+		CanonicalKey: canonicalKey,
+		Pool:         &PoolInfo{Element: element},
+		identity:     identity,
+	}
+	environment.arena.poolTypes[canonicalKey] = typ
 	return typ
 }
 

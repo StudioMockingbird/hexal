@@ -345,8 +345,11 @@ func borrowedSourceDiagnostic(source Operand, token lexer.Token, state *flowStat
 }
 
 // seedStreamBindingFacts seeds what a completed declaration or assignment
-// proves about a fresh stream binding: the IO capability and close-tracking
-// registration, or the Bytes-to-List borrow edge.
+// proves about a fresh stream or allocator binding: the IO capability and
+// close-tracking registration, the Bytes-to-List borrow edge, or the
+// pointer-to-Stash/Pool borrow edge a fresh allocate result records so
+// reset/destroy (Stash) or a live-slot check (Pool) can find every locally
+// tracked allocation that traces back to one allocator handle.
 func seedStreamBindingFacts(flow *flowState, id BindingID, declaredType compilerTypes.Type, source Operand) {
 	if flow == nil {
 		return
@@ -358,7 +361,29 @@ func seedStreamBindingFacts(flow *flowState, id BindingID, declaredType compiler
 	}
 	if compilerTypes.IsBytes(declaredType) {
 		flow.setProvenance(id, bytesSourceBinding(flow, source.Node))
+		return
 	}
+	if declaredType.Element != nil {
+		flow.setProvenance(id, allocatorSourceBinding(source.Node))
+	}
+}
+
+// allocatorSourceBinding resolves the Stash or Pool handle binding a fresh
+// allocate result borrows from: the receiver of a direct
+// StashMethodCallExpression/PoolMethodCallExpression "allocate" call, or
+// zero for any other pointer-producing expression (Heap.allocate included --
+// Heap has no handle identity to track allocations against).
+func allocatorSourceBinding(node Expression) BindingID {
+	if node.Kind != StashMethodCallExpression && node.Kind != PoolMethodCallExpression {
+		return 0
+	}
+	if node.Name != "allocate" || node.Operand == nil {
+		return 0
+	}
+	if node.Operand.Kind == VariableExpression {
+		return node.Operand.Binding
+	}
+	return 0
 }
 
 // streamInitializerCapability reads what an initializing expression proves:

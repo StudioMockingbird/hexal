@@ -1035,6 +1035,10 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression, checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression, checker.MutexConstructorExpression, checker.MutexMethodCallExpression, checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression:
 		return validateConcurrencyExpression(node, expected, state)
+	case checker.StashConstructorExpression, checker.StashMethodCallExpression:
+		return validateStashExpression(node, expected, state)
+	case checker.PoolConstructorExpression, checker.PoolMethodCallExpression:
+		return validatePoolExpression(node, expected, state)
 	case checker.LayoutExpression:
 		if node.OperandType == (compilerTypes.Type{}) || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) || node.Name != "size_of" && node.Name != "align_of" {
 			return unknownExpressionDiagnostic("layout query has invalid checked metadata")
