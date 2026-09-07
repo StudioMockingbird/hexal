@@ -3,7 +3,7 @@
 - Kind: Language Semantics
 - Status: Implementation-ready; implementation not started
 - Created: 2026-08-27
-- Updated: 2026-08-27
+- Updated: 2026-09-08
 - Restores: the current `docs/reference.md` match contract; no new pattern
   family or match mode
 - Coordinates with: RFC 0103 findings F2, F29, and F31
@@ -48,7 +48,11 @@ reference currently lacks.
 
 ## Verified evidence
 
-The following in-memory compilations were run against the 2026-08-27 tree.
+The following in-memory compilations were run against the 2026-08-27 tree and
+re-verified unchanged against the 2026-09-08 tree, after the declaration-syntax
+and constructor changes landed. Every defect below still reproduces with the
+exact diagnostic shown, and `compiler/checker/adt.go` still keys coverage by
+`member.Name`.
 
 ### Imported nominal pattern is misclassified
 
@@ -241,6 +245,23 @@ The checker resolves the neutral form by scrutinee domain:
 - visibility and unknown-alias diagnostics remain owned by existing module
   resolution.
 
+A union scrutinee whose member is itself an ADT resolves `A.B` as a qualified
+type, never as a variant of that member. Matching `M.Circle` against
+`M.Shape | Nil` is therefore rejected: the arm must first narrow to `M.Shape`,
+and only a match on that narrowed scrutinee reaches its variants.
+
+The lookup fails because module `M` exports no type `Circle`, so the ordinary
+unknown-qualified-type diagnostic would name the wrong problem. When the
+resolved name is not an exported type of `A` but *is* a variant of an ADT
+member of the scrutinee union, report that instead:
+
+```text
+[Type Error] M.Circle is a variant of M.Shape; match M.Shape first
+```
+
+This is a diagnostic refinement, not a resolution rule. The scrutinee domain
+still decides meaning, and no arm ever matches a variant of a union member.
+
 Explicit generic ADT variant patterns retain their current spelling and
 semantics. This RFC does not add imported generic-type syntax.
 
@@ -255,6 +276,13 @@ semantics. This RFC does not add imported generic-type syntax.
   `Ptr<S.Point>`.
 - When more than one alias reaches the same module, diagnostic rendering uses
   the lexicographically first alias.
+- When **no** alias in the current module reaches the defining module, the case
+  renders as its bare short name. This is reachable: a union arrives from an
+  imported function whose result members are defined in modules the current
+  module never imports, so `H.Pair` may be `A.X | B.Y` with neither `A` nor `B`
+  imported here. Rendering must not invent an alias, borrow one from another
+  module, or fall back to `CanonicalKey`. A short name is imprecise but honest,
+  and the alternative names something the reader cannot write.
 - Missing-case rendering is diagnostic-only. It never participates in type
   identity or coverage.
 - `CanonicalKey` and generated C names are never exposed to the user.
@@ -305,12 +333,17 @@ checking for membership, reachability, and exhaustiveness.
 - Remove every match-coverage lookup keyed only by `Type.Name`.
 - Remove or rename AST/comments that claim a simple dotted pattern is always
   an ADT variant.
+- Remove the now-unreachable final `else` from the
+  `types-exhaustive-protocol` workbench snippet and remove `else` from that
+  snippet's reserved-word inventory. Regenerate and review only that snippet's
+  affected artifact hashes.
 - Reuse module alias, exported type, and exported ADT lookup; do not add a
   second import-resolution path.
 - Keep generic ADT specialization and explicit generic-owner tests green.
 - Keep union canonical ordering and same-named nominal identity tests green.
-- Do not change the generator's own switch exhaustiveness or strict-C warning
-  work owned by RFC 0131.
+- Do not change the generator's type-mode switch exhaustiveness or strict-C
+  warning work owned by RFC 0131. A later scalar value-mode switch may reuse
+  that machinery under RFC 0135 without expanding this RFC's scope.
 - Do not absorb RFC 0103's optional pattern-surface proposals.
 
 ## Detailed implementation plan
@@ -357,6 +390,9 @@ checking for membership, reachability, and exhaustiveness.
 3. Keep `else` reachable for an open value-mode domain.
 4. Add qualified missing-case rendering without exposing canonical or C names.
 5. Verify repeated compiles report the same first missing case and message.
+6. Repair the `types-exhaustive-protocol` snippet by deleting its dead final
+   `else`, update its reserved-word inventory, and regenerate only its changed
+   manifest entries.
 
 ### Phase 5: documentation and validation
 
@@ -406,15 +442,23 @@ This section is exhaustive.
   the deterministic first-missing rule.
 - The same complete and missing-arm assertions cover
   `Ptr<M.Point> | Ptr<S.Point>` and `M.Shape | S.Shape`.
+- A variant pattern against a union scrutinee containing that variant's ADT,
+  such as `M.Circle` against `M.Shape | Nil`, is rejected and names the ADT
+  member to narrow to rather than reporting an unknown type.
+- A missing case whose defining module has no alias in the current module
+  renders as its bare short name, and the compilation still fails as
+  non-exhaustive. The rendering invents no alias and emits no `CanonicalKey`.
 
 ### Architecture and regression gates
 
 - No coverage or duplicate test uses `Type.Name` as identity.
 - Parser tests prove simple dotted syntax remains neutral until checking.
 - Module resolution has one authoritative import/export path.
-- No existing snippet-manifest hash changes; this repair admits new programs
-  and rejects previously invalid ones but does not change output for an
-  already-valid equivalent program.
+- Catalog compilation remains green after removing the dead final `else` from
+  `types-exhaustive-protocol`.
+- Manifest movement is limited to that repaired snippet and any additional
+  artifact whose movement is separately explained by the canonical tag-order
+  change; every moved artifact is reviewed.
 - `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass.
 
 ## Reference synchronization
