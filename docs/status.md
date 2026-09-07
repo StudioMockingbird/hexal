@@ -25,6 +25,7 @@ gets deleted.
 | Concurrency safety and task lifetimes | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
 | High-throughput network runtime and HTTP-server foundations | [0144](specs/0144-high-throughput-network-runtime.md) |
 | libuv event-loop and blocking-worker runtime backend | [0145](specs/0145-libuv-async-runtime-backend.md) |
+| utf8proc Unicode backend | [0147](specs/0147-utf8proc-unicode-backend.md) |
 
 ### Implementation-ready
 
@@ -37,6 +38,7 @@ gets deleted.
 
 | Work | Blocked by | Spec |
 |---|---|---|
+| mimalloc allocation backend — architecture settled; no language-surface decision remains | Pinned-revision qualification in the C compiler backend and build driver | [0146](specs/0146-mimalloc-allocation-backend.md) |
 
 ## Open bugs
 
