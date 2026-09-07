@@ -98,7 +98,7 @@ func TestConversionGenericSpecialization(t *testing.T) {
 }
 
 func TestConversionAliasCanonicalizes(t *testing.T) {
-	result := compileSource("type Count = Int32\nfun demo() do\n    value: Int64 := 5\n    count: Count := value.to<Count>()\nend")
+	result := compileSource("type Count is Int32\nfun demo() do\n    value: Int64 := 5\n    count: Count := value.to<Count>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

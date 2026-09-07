@@ -7,7 +7,7 @@ import (
 )
 
 func TestUnionAliasesNormalizeAndInject(t *testing.T) {
-	result := compileSource("type Number = Int32 | Float64 mut value: Number := 1 value = 2.5")
+	result := compileSource("type Number is union Int32 | Float64 end mut value: Number := 1 value = 2.5")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -107,8 +107,8 @@ func TestGeneratedUnionNamesAreDeterministic(t *testing.T) {
 func TestSameUnionAcrossModulesProducesOneName(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module A = import \"./a\"\nmodule B = import \"./b\"\na_val: A.Result := true\nb_val: B.Result := 1\n",
-		"a.hex":   "export type Result = Int32 | Bool\n",
-		"b.hex":   "export type Result = Int32 | Bool\n",
+		"a.hex":   "export type Result is union Int32 | Bool end\n",
+		"b.hex":   "export type Result is union Int32 | Bool end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -123,8 +123,8 @@ func TestSameUnionAcrossModulesProducesOneName(t *testing.T) {
 func TestStructurallyDifferentModuleUnionsProduceDistinctNames(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nm_val: M.Point | Bool := true\ns_val: S.Point | Bool := true\n",
-		"m.hex":   "export type Point = { x: Int32, }\n",
-		"s.hex":   "export type Point = { x: Int32, }\n",
+		"m.hex":   "export type Point is struct x: Int32, end\n",
+		"s.hex":   "export type Point is struct x: Int32, end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -138,7 +138,7 @@ func TestStructurallyDifferentModuleUnionsProduceDistinctNames(t *testing.T) {
 }
 
 func TestNestedUnionEncodingIntegration(t *testing.T) {
-	result := compileSource("type Inner = Int32 | Bool\ntype Outer = Inner | Nil\nval: Outer := nil\n")
+	result := compileSource("type Inner is union Int32 | Bool end\ntype Outer is union Inner | Nil end\nval: Outer := nil\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nested union source: %v", result.Stderr)
 	}
@@ -180,7 +180,7 @@ func TestComposedUnionMemberSpellingIsIdentifierSafe(t *testing.T) {
 // Case is part of a Hexal type name, so a lowercasing scheme would collapse
 // distinct unions; both spellings must survive side by side.
 func TestCaseDistinctUnionMembersStayDistinct(t *testing.T) {
-	result := compileSource("type Foo = { a: Int32, }\ntype foo = { b: Int32, }\nu: Foo | Nil := nil\nv: foo | Nil := nil")
+	result := compileSource("type Foo is struct a: Int32, end\ntype foo is struct b: Int32, end\nu: Foo | Nil := nil\nv: foo | Nil := nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected case-distinct union source: %v", result.Stderr)
 	}
@@ -225,7 +225,7 @@ func TestTagFreeProgramHasNoTagEnum(t *testing.T) {
 // Two distinct identities whose labels collide resolve in identity order:
 // the first keeps the base, the later ones append _0, never _2.
 func TestTagCollisionSuffixesStartAtZero(t *testing.T) {
-	result := compileSource("type Direction as | North | East end type Direction_North = { a: Int32 } heading: Direction := Direction.North marker: Direction_North := Direction_North { a = 1 } u: Direction_North | Nil := marker")
+	result := compileSource("type Direction is union | North | East end type Direction_North is struct a: Int32 end heading: Direction := Direction.North() marker: Direction_North := Direction_North(a = 1) u: Direction_North | Nil := marker")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected tag-collision source: %v", result.Stderr)
 	}
@@ -265,7 +265,7 @@ func TestInt32NilWrapperUsesCorrectedStem(t *testing.T) {
 // Two unions whose sanitized member name sequences spell one string both
 // compile; the registry suffixes the second, and each is defined once.
 func TestSanitizedMemberCollisionsReceiveSuffixedNames(t *testing.T) {
-	result := compileSource("type Int32_Nil = { a: Int32, }\ntype Nil_Foo = { b: Int32, }\ntype Foo = { c: Int32, }\nfirst: Int32_Nil | Foo := Int32_Nil { a = 1 }\nsecond: Int32 | Nil_Foo := Nil_Foo { b = 1 }")
+	result := compileSource("type Int32_Nil is struct a: Int32, end\ntype Nil_Foo is struct b: Int32, end\ntype Foo is struct c: Int32, end\nfirst: Int32_Nil | Foo := Int32_Nil(a = 1)\nsecond: Int32 | Nil_Foo := Nil_Foo(b = 1)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected colliding-name union source: %v", result.Stderr)
 	}
@@ -279,7 +279,7 @@ func TestSanitizedMemberCollisionsReceiveSuffixedNames(t *testing.T) {
 // nominal keeps the base regardless of traversal order, the union is
 // suffixed.
 func TestUnionBaseCollidingWithNominalNameIsSuffixed(t *testing.T) {
-	result := compileSource("type m3_app = { a: Int32, }\ntype Point = { x: Int32, }\nu: m3_app | Point := m3_app { a = 1 }")
+	result := compileSource("type m3_app is struct a: Int32, end\ntype Point is struct x: Int32, end\nu: m3_app | Point := m3_app(a = 1)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nominal-colliding union source: %v", result.Stderr)
 	}
@@ -298,8 +298,8 @@ func TestUnionBaseCollidingWithNominalNameIsSuffixed(t *testing.T) {
 func TestReversedImportedObjectUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Point | S.Point := M.make()\nb: S.Point | M.Point := a\n",
-		"m.hex":   "export type Point = { x: Int32, }\nexport fun make(): Point do\n    return Point { x = 1, }\nend\n",
-		"s.hex":   "export type Point = { x: Int32, }\n",
+		"m.hex":   "export type Point is struct x: Int32, end\nexport fun make(): Point do\n    return Point(x = 1,)\nend\n",
+		"s.hex":   "export type Point is struct x: Int32, end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -320,8 +320,8 @@ func TestReversedImportedObjectUnionsInternTogether(t *testing.T) {
 func TestReversedImportedADTUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Shape | S.Shape := M.make()\nb: S.Shape | M.Shape := a\n",
-		"m.hex":   "export type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\nexport fun make(): Shape do\n    return Shape.Circle { r = 1 }\nend\n",
-		"s.hex":   "export type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\n",
+		"m.hex":   "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport fun make(): Shape do\n    return Shape.Circle(r = 1)\nend\n",
+		"s.hex":   "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -341,8 +341,8 @@ func TestReversedImportedADTUnionsInternTogether(t *testing.T) {
 func TestReversedImportedPointerUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nmut p: M.Point := M.make()\na: Ptr<M.Point> | Ptr<S.Point> := ref p\nb: Ptr<S.Point> | Ptr<M.Point> := a\n",
-		"m.hex":   "export type Point = { x: Int32, }\nexport fun make(): Point do\n    return Point { x = 1, }\nend\n",
-		"s.hex":   "export type Point = { x: Int32, }\n",
+		"m.hex":   "export type Point is struct x: Int32, end\nexport fun make(): Point do\n    return Point(x = 1,)\nend\n",
+		"s.hex":   "export type Point is struct x: Int32, end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -362,7 +362,7 @@ func TestReversedImportedPointerUnionsInternTogether(t *testing.T) {
 func TestCrossModuleUnionResultSpelledIdentically(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module M = import \"./m\"\nvalue: M.Maybe := M.make()\n",
-		"m.hex":   "export type Maybe = Int32 | Nil\nexport fun make(): Maybe do\n    return nil\nend\n",
+		"m.hex":   "export type Maybe is union Int32 | Nil end\nexport fun make(): Maybe do\n    return nil\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {

@@ -81,7 +81,7 @@ func TestCachedRuneLengthConsumersDoNotScan(t *testing.T) {
 // Invariant 1: the header grew, the handle did not. A List<String> element is
 // still one pointer, so element size, copying, and passing are unchanged.
 func TestCachedRuneLengthLeavesStringHandleSizeUnchanged(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): Size do\n    names: List<String> := List<String>.new(h)\n    names.push(\"hello\")\n    count: Size := names.length()\n    names.free(h)\n    return count\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): Size do\n    names: List<String> := List<String>(h)\n    names.push(\"hello\")\n    count: Size := names.length()\n    names.free(h)\n    return count\nend\n")
 	header := listH(t, result)
 	for _, want := range []string{
 		"const hex_string * *data;",

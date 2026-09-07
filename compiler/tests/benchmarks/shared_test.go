@@ -82,8 +82,8 @@ result: Int32 := sum_sequence(21)`,
 			"app.hex": `fun identity<T>(value: T): T do
     return value
 end
-type Box<T> = { value: T, }
-impl Box<T>.get(): T do
+type Box<T> is struct value: T end
+method Box<T>.get(): T do
     return self.value
 end
 i32: Int32 := 1
@@ -106,15 +106,15 @@ a7: Float32 := identity(f32)
 a8: Strand := identity(strand)
 a9: Bool := identity(flag)
 a10: Int16 := identity(i16)
-box1: Box<Int32> := Box { value = i32 }
+box1: Box<Int32> := Box(value = i32)
 b1: Int32 := box1.get()
-box2: Box<Int64> := Box { value = i64 }
+box2: Box<Int64> := Box(value = i64)
 b2: Int64 := box2.get()
-box3: Box<UInt32> := Box { value = u32 }
+box3: Box<UInt32> := Box(value = u32)
 b3: UInt32 := box3.get()
-box4: Box<Float64> := Box { value = f64 }
+box4: Box<Float64> := Box(value = f64)
 b4: Float64 := box4.get()
-box5: Box<Strand> := Box { value = strand }
+box5: Box<Strand> := Box(value = strand)
 b5: Strand := box5.get()`,
 		},
 		entrypoint: "app.hex",
@@ -138,11 +138,11 @@ end`,
 export fun run(): Int32 do
     return C.scale(2)
 end`,
-			"util/c.hex": `export type Point = { x: Int32, y: Int32 }
+			"util/c.hex": `export type Point is struct x: Int32, y: Int32 end
 export fun origin(): Point do
-    return Point { x = 10, y = 20 }
+    return Point(x = 10, y = 20)
 end
-export impl Point.width(): Int32 do
+export method Point.width(): Int32 do
     return self.x
 end
 export fun scale(multiplier: Int32): Int32 do
@@ -168,17 +168,17 @@ end`,
 		name: "collections",
 		sources: map[string]string{
 			"app.hex": `fun demo(h: Heap): Int32 do
-    values: List<Int32> := List<Int32>.new(h)
+    values: List<Int32> := List<Int32>(h)
     defer values.free(h)
     values.push(3)
     values.push(6)
-    totals: Dict<Int32, Int64> := Dict<Int32, Int64>.new(h)
+    totals: Dict<Int32, Int64> := Dict<Int32, Int64>(h)
     defer totals.free(h)
     totals.insert(1, 90)
     totals.insert(2, 75)
     fixed: Array<Float64, 4> := [1.5, 2.5, 3.5, 4.5]
     view: View<Float64> := fixed.slice(0, 4)
-    names: List<Strand> := List<Strand>.new(h)
+    names: List<Strand> := List<Strand>(h)
     defer names.free(h)
     names.push("alpha")
     names.push("beta")
@@ -221,13 +221,13 @@ end`,
 	{
 		name: "concurrency",
 		sources: map[string]string{
-			"app.hex": `type Shared = { count: Atomic<Int32>, }
+			"app.hex": `type Shared is struct count: Atomic<Int32> end
 fun square(value: Int32): Int32 do
     return value * value
 end
 fun run(h: Heap): Int32 | Error do
     task: Task<Int32> := try spawn square(6)
-    channel: Channel<Int32> := try Channel<Int32>.new(h, 4)
+    channel: Channel<Int32> := try Channel<Int32>(h, 4)
     defer channel.free(h)
     channel.send(task.join())
     channel.close()
@@ -236,10 +236,10 @@ fun run(h: Heap): Int32 | Error do
     if step is Int32 then
         total = total + step
     end
-    mutex: Mutex := try Mutex.new(h)
+    mutex: Mutex := try Mutex(h)
     defer mutex.free(h)
     mutex.lock()
-    mut shared: Shared := Shared { count = Atomic<Int32>.new(0) }
+    mut shared: Shared := Shared(count = Atomic<Int32>(0))
     shared.count.fetch_add(1)
     mutex.unlock()
     total = total + shared.count.load()
@@ -256,7 +256,7 @@ end
 fun rollback() do
 end
 fun level3(): Int32 | Error do
-    return Error.new("Level Three", "three")
+    return Error("Level Three", "three")
 end
 fun level2(): Int32 | Error do
     errdefer rollback()

@@ -108,7 +108,7 @@ func TestNoReturnCallStatementIsChecked(t *testing.T) {
 // 2. Fun<...> type resolution.
 
 func TestFunTypesAreCanonicalAndInterned(t *testing.T) {
-	checked := requireAccepted(t, "type Handler = Fun<(Int32) : Int32>\ntype Same = Fun<(Int32) : Int32>\ntype NoReturn = Fun<(Int32)>\n")
+	checked := requireAccepted(t, "type Handler is Fun<(Int32) : Int32>\ntype Same is Fun<(Int32) : Int32>\ntype NoReturn is Fun<(Int32)>\n")
 	if !compilerTypes.Equal(checked.TypeDeclarations[0].Type, checked.TypeDeclarations[1].Type) {
 		t.Fatal("identical Fun types were not interned to one identity")
 	}
@@ -167,8 +167,8 @@ func TestFunctionValueCollisionOwnershipFollowsSourceOrder(t *testing.T) {
 }
 
 func TestFunctionTypeCollisionOwnershipFollowsSourceOrder(t *testing.T) {
-	requireDiagnostic(t, "type X = { a: Int32, }\nfun X(): Int32 do\n    return 1\nend\n", "value X is already declared as a type")
-	requireDiagnostic(t, "fun X(): Int32 do\n    return 1\nend\ntype X = { a: Int32, }\n", "type X is already declared as a value")
+	requireDiagnostic(t, "type X is struct a: Int32, end\nfun X(): Int32 do\n    return 1\nend\n", "value X is already declared as a type")
+	requireDiagnostic(t, "fun X(): Int32 do\n    return 1\nend\ntype X is struct a: Int32, end\n", "type X is already declared as a value")
 }
 
 // A function signature and a function body may both name a module type
@@ -176,9 +176,9 @@ func TestFunctionTypeCollisionOwnershipFollowsSourceOrder(t *testing.T) {
 // signature is collected in pass 2. A type declaration itself keeps its own
 // existing source-order resolution: it may not name a type not yet declared.
 func TestFunctionSignatureAndBodyMayUseALaterType(t *testing.T) {
-	requireAccepted(t, "fun make(): Later do\n    return 1\nend\ntype Later = Int32\n")
-	requireAccepted(t, "fun make(): Int32 do\n    value: Later := 1\n    return value\nend\ntype Later = Int32\n")
-	requireDiagnostic(t, "type Early = Later\ntype Later = Int32\n", "unknown type Later")
+	requireAccepted(t, "fun make(): Later do\n    return 1\nend\ntype Later is Int32\n")
+	requireAccepted(t, "fun make(): Int32 do\n    value: Later := 1\n    return value\nend\ntype Later is Int32\n")
+	requireDiagnostic(t, "type Early is Later\ntype Later is Int32\n", "unknown type Later")
 }
 
 // A root declaration's own type annotation keeps its pre-existing
@@ -187,8 +187,8 @@ func TestFunctionSignatureAndBodyMayUseALaterType(t *testing.T) {
 // typeEnvironment ahead of pass 3 would otherwise let a root declaration see
 // every type regardless of position.
 func TestRootDeclarationCannotNameALaterType(t *testing.T) {
-	requireDiagnostic(t, "value: Later := 1\ntype Later = Int32\n", "unknown type Later")
-	requireAccepted(t, "type Earlier = Int32\nvalue: Earlier := 1\n")
+	requireDiagnostic(t, "value: Later := 1\ntype Later is Int32\n", "unknown type Later")
+	requireAccepted(t, "type Earlier is Int32\nvalue: Earlier := 1\n")
 }
 
 // 4. Function scope.
@@ -214,7 +214,7 @@ func TestParametersAreFixedBindings(t *testing.T) {
 func TestLocalShadowsModuleValueButNotType(t *testing.T) {
 	requireAccepted(t, "count: Int32 := 3\nfun scoped(): Int32 do\n    count: Int32 := 1\n    return count\nend\n")
 	requireDiagnostic(t,
-		"type Counter = Int32\nfun scoped(): Int32 do\n    Counter: Int32 := 1\n    return Counter\nend\n",
+		"type Counter is Int32\nfun scoped(): Int32 do\n    Counter: Int32 := 1\n    return Counter\nend\n",
 		"value Counter is already declared as a type")
 }
 
@@ -287,51 +287,51 @@ func TestSupportedFunPositionsAreAccepted(t *testing.T) {
 func TestReturningAFunTypeIsUnsupported(t *testing.T) {
 	// Fun is now valid as a function result and as a nested result.
 	requireAccepted(t, "fun helper(x: Int32): Int32 do\n    return x\nend\nfun maker(): Fun<(Int32) : Int32> do\n    return helper\nend\n")
-	requireAccepted(t, "type Bad = Fun<() : Fun<(Int32) : Int32>>\n")
+	requireAccepted(t, "type Bad is Fun<() : Fun<(Int32) : Int32>>\n")
 }
 
 func TestFunObjectMembersAreSupported(t *testing.T) {
-	requireAccepted(t, "type Holder = { callback: Fun<(Int32) : Int32>, }\n")
-	requireAccepted(t, "type Ops = { mut handler: Fun<(Int32) : Int32>, }\n")
-	requireAccepted(t, "type Handler = { callback: Fun<(Int32) : Int32> | Nil, }\n")
+	requireAccepted(t, "type Holder is struct callback: Fun<(Int32) : Int32>, end\n")
+	requireAccepted(t, "type Ops is struct mut handler: Fun<(Int32) : Int32>, end\n")
+	requireAccepted(t, "type Handler is struct callback: Fun<(Int32) : Int32> | Nil, end\n")
 }
 
 func TestDispatchTableCallsThroughFunMembers(t *testing.T) {
 	requireAccepted(t,
-		"type Ops = { callback: Fun<(Int32) : Int32>, }\n"+
+		"type Ops is struct callback: Fun<(Int32) : Int32>, end\n"+
 			"fun handler(value: Int32): Int32 do\n    return value\nend\n"+
-			"table: Ops := Ops { callback = handler, }\n"+
+			"table: Ops := Ops(callback = handler,)\n"+
 			"result: Int32 := table.callback(5)\n")
 	requireAccepted(t,
-		"type Ops = { mut callback: Fun<(Int32) : Int32>, }\n"+
+		"type Ops is struct mut callback: Fun<(Int32) : Int32>, end\n"+
 			"fun first(value: Int32): Int32 do\n    return value\nend\n"+
 			"fun second(value: Int32): Int32 do\n    return value + 1\nend\n"+
-			"mut table: Ops := Ops { callback = first, }\n"+
+			"mut table: Ops := Ops(callback = first,)\n"+
 			"table.callback = second\n"+
 			"result: Int32 := table.callback(5)\n")
 }
 
 func TestNullableFunMemberRequiresNarrowing(t *testing.T) {
 	requireDiagnostic(t,
-		"type Ops = { callback: Fun<(Int32) : Int32> | Nil, }\n"+
+		"type Ops is struct callback: Fun<(Int32) : Int32> | Nil, end\n"+
 			"fun handler(value: Int32): Int32 do\n    return value\nend\n"+
-			"table: Ops := Ops { callback = handler, }\n"+
+			"table: Ops := Ops(callback = handler,)\n"+
 			"result: Int32 := table.callback(5)\n",
 		"Fun<(Int32) : Int32> | Nil may be Nil; narrow it before calling it")
 	requireAccepted(t,
-		"type Ops = { callback: Fun<(Int32) : Int32> | Nil, }\n"+
+		"type Ops is struct callback: Fun<(Int32) : Int32> | Nil, end\n"+
 			"fun handler(value: Int32): Int32 do\n    return value\nend\n"+
-			"table: Ops := Ops { callback = handler, }\n"+
+			"table: Ops := Ops(callback = handler,)\n"+
 			"local: Fun<(Int32) : Int32> | Nil := table.callback\n"+
 			"if local != nil then\n    result: Int32 := local(5)\nend\n")
 }
 
 func TestPointersToFunAreUnsupported(t *testing.T) {
 	requireDiagnostic(t,
-		"type Bad = Ptr<Fun<(Int32) : Int32>>\n",
+		"type Bad is Ptr<Fun<(Int32) : Int32>>\n",
 		"Ptr<Fun<(Int32) : Int32>> is not supported")
 	requireDiagnostic(t,
-		"type Bad = MutPtr<Fun<(Int32) : Int32>>\n",
+		"type Bad is MutPtr<Fun<(Int32) : Int32>>\n",
 		"MutPtr<Fun<(Int32) : Int32>> is not supported")
 }
 
@@ -364,26 +364,26 @@ func TestFunctionNameIsNotAssignable(t *testing.T) {
 
 func TestFunctionNameCollidesWithVisibleNames(t *testing.T) {
 	requireDiagnostic(t,
-		"type Adder = Int32\nfun Adder(dx: Int32): Int32 do\n    return dx\nend\n",
+		"type Adder is Int32\nfun Adder(dx: Int32): Int32 do\n    return dx\nend\n",
 		"value Adder is already declared as a type")
 	requireDiagnostic(t,
 		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nfun adder(dx: Int32): Int32 do\n    return dx\nend\n",
 		"adder is already declared")
 }
 
-// 9. Methods: impl targets, self, and receiver adaptation.
+// 9. Methods: method targets, self, and receiver adaptation.
 
 // point is the shared object every method test implements against.
-const point = "type Point = { mut x: Int32, mut y: Int32, }\n"
+const point = "type Point is struct mut x: Int32, mut y: Int32, end\n"
 
 func TestSelfOutsideAnImplBodyIsRejected(t *testing.T) {
 	requireDiagnostic(t,
 		"fun broken(): Int32 do\n    return self\nend\n",
-		"self is not bound outside an impl body")
+		"self is not bound outside a method body")
 }
 
 func TestMethodDeclarationProducesCheckedIR(t *testing.T) {
-	checked := requireAccepted(t, point+"impl Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n")
+	checked := requireAccepted(t, point+"method Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n")
 	declaration, ok := checked.Statements[0].(MethodDeclaration)
 	if !ok {
 		t.Fatalf("statement = %T, want MethodDeclaration", checked.Statements[0])
@@ -400,11 +400,11 @@ func TestMethodDeclarationProducesCheckedIR(t *testing.T) {
 }
 
 func TestMethodControlFlowUsesStructuredScopesAndFlow(t *testing.T) {
-	requireAccepted(t, point+"impl Point.classify(value: Int32): Int32 do\n"+
+	requireAccepted(t, point+"method Point.classify(value: Int32): Int32 do\n"+
 		"    if value > 0 then\n"+
 		"        return value\n"+
 		"    else\n"+"        return 0\n"+"    end\n"+"end\n")
-	requireDiagnostic(t, point+"impl Point.partial(value: Int32): Int32 do\n"+"    if value > 0 then\n"+"        return value\n"+"    end\n"+"end\n",
+	requireDiagnostic(t, point+"method Point.partial(value: Int32): Int32 do\n"+"    if value > 0 then\n"+"        return value\n"+"    end\n"+"end\n",
 		"returning partial may fall through without returning Int32")
 }
 
@@ -412,9 +412,9 @@ func TestMethodControlFlowUsesStructuredScopesAndFlow(t *testing.T) {
 // names must be free on Point and self must carry the written target type.
 func TestAllThreeReceiverFormsBindSelf(t *testing.T) {
 	checked := requireAccepted(t, point+
-		"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"impl Ptr<Point>.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
-		"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n")
+		"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
+		"method Ptr<Point>.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
+		"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n")
 	want := []string{"Point", "Ptr<Point>", "MutPtr<Point>"}
 	for index, name := range want {
 		declaration, ok := checked.Statements[index].(MethodDeclaration)
@@ -431,107 +431,107 @@ func TestAllThreeReceiverFormsBindSelf(t *testing.T) {
 }
 
 func TestSelfCannotBeAssigned(t *testing.T) {
-	requireDiagnostic(t, point+"impl MutPtr<Point>.reset() do\n    self = self\nend\n",
+	requireDiagnostic(t, point+"method MutPtr<Point>.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
-	requireDiagnostic(t, point+"impl Point.reset() do\n    self = self\nend\n",
+	requireDiagnostic(t, point+"method Point.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
 }
 
 // A value receiver's self is fixed, so a member write fails; the workaround
 // is an explicit mutable copy.
 func TestValueReceiverSelfIsFixed(t *testing.T) {
-	requireDiagnostic(t, point+"impl Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
+	requireDiagnostic(t, point+"method Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
 		"cannot assign to read-only member self.x")
-	requireAccepted(t, point+"impl Point.moved(dx: Int32): Point do\n    mut result: Point := self\n    result.x = result.x + dx\n    return result\nend\n")
+	requireAccepted(t, point+"method Point.moved(dx: Int32): Point do\n    mut result: Point := self\n    result.x = result.x + dx\n    return result\nend\n")
 }
 
 func TestPtrReceiverSelfIsReadOnly(t *testing.T) {
-	requireAccepted(t, point+"impl Ptr<Point>.is_origin(): Bool do\n    return self.x == 0\nend\n")
-	requireDiagnostic(t, point+"impl Ptr<Point>.reset() do\n    self.x = 0\nend\n",
+	requireAccepted(t, point+"method Ptr<Point>.is_origin(): Bool do\n    return self.x == 0\nend\n")
+	requireDiagnostic(t, point+"method Ptr<Point>.reset() do\n    self.x = 0\nend\n",
 		"cannot assign to read-only member self.x")
 }
 
 func TestDuplicateMethodAcrossReceiverForms(t *testing.T) {
 	requireDiagnostic(t, point+
-		"impl Point.translate() do\n    return\nend\n"+
-		"impl MutPtr<Point>.translate() do\n    return\nend\n",
+		"method Point.translate() do\n    return\nend\n"+
+		"method MutPtr<Point>.translate() do\n    return\nend\n",
 		"Point already has a method named translate")
 }
 
 // Aliases are not new nominal types, so a method on the alias collides with a
 // method on the object it names.
 func TestDuplicateMethodThroughAnAlias(t *testing.T) {
-	requireDiagnostic(t, point+"type Coordinate = Point\n"+
-		"impl Point.translate() do\n    return\nend\n"+
-		"impl Coordinate.translate() do\n    return\nend\n",
+	requireDiagnostic(t, point+"type Coordinate is Point\n"+
+		"method Point.translate() do\n    return\nend\n"+
+		"method Coordinate.translate() do\n    return\nend\n",
 		"Point already has a method named translate")
 }
 
 func TestMethodNameCannotEqualAMemberName(t *testing.T) {
-	requireDiagnostic(t, point+"impl Point.x(): Int32 do\n    return 0\nend\n",
+	requireDiagnostic(t, point+"method Point.x(): Int32 do\n    return 0\nend\n",
 		"Point already has a member named x")
 }
 
 func TestMethodSelfRecursionResolves(t *testing.T) {
-	requireAccepted(t, point+"impl Point.countdown(value: Int32): Int32 do\n    return self.countdown(value - 1)\nend\n")
+	requireAccepted(t, point+"method Point.countdown(value: Int32): Int32 do\n    return self.countdown(value - 1)\nend\n")
 }
 
 // A method may call a later method visible in the same module: every
 // module-level method signature is collected before any body is checked.
 func TestLaterMethodIsVisible(t *testing.T) {
 	requireAccepted(t, point+
-		"impl Point.magnitude(): Int32 do\n    return self.length_squared()\nend\n"+
-		"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
+		"method Point.magnitude(): Int32 do\n    return self.length_squared()\nend\n"+
+		"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
 }
 
 // A method may call a later module-level function visible in the same
 // module.
 func TestMethodCallsLaterModuleLevelFunction(t *testing.T) {
 	requireAccepted(t, point+
-		"impl Point.magnitude(): Int32 do\n    return square(self.x)\nend\n"+
+		"method Point.magnitude(): Int32 do\n    return square(self.x)\nend\n"+
 		"fun square(value: Int32): Int32 do\n    return value * value\nend\n")
 }
 
 // The four ordered receiver adaptations.
 func TestReceiverAdaptationRules(t *testing.T) {
 	// exact target type
-	requireAccepted(t, point+"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"origin: Point := Point { x = 0, y = 0, }\ntotal: Int32 := origin.length_squared()\n")
+	requireAccepted(t, point+"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
+		"origin: Point := Point(x = 0, y = 0,)\ntotal: Int32 := origin.length_squared()\n")
 	// MutPtr<T> weakens to a Ptr<T> target
-	requireAccepted(t, point+"impl Ptr<Point>.is_origin(): Bool do\n    return self.x == 0\nend\n"+
-		"mut here: Point := Point { x = 0, y = 0, }\nwriter: MutPtr<Point> := ref here\nflag: Bool := writer.is_origin()\n")
+	requireAccepted(t, point+"method Ptr<Point>.is_origin(): Bool do\n    return self.x == 0\nend\n"+
+		"mut here: Point := Point(x = 0, y = 0,)\nwriter: MutPtr<Point> := ref here\nflag: Bool := writer.is_origin()\n")
 	// a pointer dereferences to a copied T target
-	requireAccepted(t, point+"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"origin: Point := Point { x = 0, y = 0, }\nreader: Ptr<Point> := ref origin\ntotal: Int32 := reader.length_squared()\n")
+	requireAccepted(t, point+"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
+		"origin: Point := Point(x = 0, y = 0,)\nreader: Ptr<Point> := ref origin\ntotal: Int32 := reader.length_squared()\n")
 	// an addressable T takes ref for a MutPtr<T> target
-	requireAccepted(t, point+"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"mut here: Point := Point { x = 0, y = 0, }\nhere.translate(5, 5)\n")
+	requireAccepted(t, point+"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
+		"mut here: Point := Point(x = 0, y = 0,)\nhere.translate(5, 5)\n")
 }
 
 func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
-	requireDiagnostic(t, point+"impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"origin: Point := Point { x = 0, y = 0, }\norigin.translate(5, 5)\n",
+	requireDiagnostic(t, point+"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
+		"origin: Point := Point(x = 0, y = 0,)\norigin.translate(5, 5)\n",
 		"translate needs MutPtr<Point>; ref origin is Ptr<Point>")
 }
 
 func TestMissingMethodIsRejected(t *testing.T) {
-	requireDiagnostic(t, point+"origin: Point := Point { x = 0, y = 0, }\ntotal: Int32 := origin.rotate()\n",
+	requireDiagnostic(t, point+"origin: Point := Point(x = 0, y = 0,)\ntotal: Int32 := origin.rotate()\n",
 		"Point has no method named rotate")
 }
 
 func TestMethodsAreNotValues(t *testing.T) {
-	requireDiagnostic(t, point+"impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"origin: Point := Point { x = 0, y = 0, }\ncallback: Fun<() : Int32> := origin.length_squared\n",
+	requireDiagnostic(t, point+"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
+		"origin: Point := Point(x = 0, y = 0,)\ncallback: Fun<() : Int32> := origin.length_squared\n",
 		"length_squared is a method on Point; methods are not values")
 }
 
-func TestImplTargetMustBeANominalObject(t *testing.T) {
-	requireDiagnostic(t, "impl Int32.doubled(): Int32 do\n    return 0\nend\n",
-		"Int32 is not a nominal object type; impl requires an object")
-	requireDiagnostic(t, "impl Ptr<Int32>.doubled(): Int32 do\n    return 0\nend\n",
-		"Ptr<Int32> is not a nominal object type; impl requires an object")
-	requireDiagnostic(t, "impl Fun<(Int32) : Int32>.doubled(): Int32 do\n    return 0\nend\n",
-		"Fun<(Int32) : Int32> is not a nominal object type; impl requires an object")
+func TestMethodTargetMustBeANominalObject(t *testing.T) {
+	requireDiagnostic(t, "method Int32.doubled(): Int32 do\n    return 0\nend\n",
+		"Int32 is not a nominal object type; method requires an object")
+	requireDiagnostic(t, "method Ptr<Int32>.doubled(): Int32 do\n    return 0\nend\n",
+		"Ptr<Int32> is not a nominal object type; method requires an object")
+	requireDiagnostic(t, "method Fun<(Int32) : Int32>.doubled(): Int32 do\n    return 0\nend\n",
+		"Fun<(Int32) : Int32> is not a nominal object type; method requires an object")
 }
 
 // Nullable integration: signatures, returns, arguments, and
@@ -574,8 +574,8 @@ func TestResetRemainsNoResultForNilBindings(t *testing.T) {
 }
 
 func TestMethodSignaturesAcceptNullableParameterAndReturnTypes(t *testing.T) {
-	requireAccepted(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"impl Node.set_next(next: MutPtr<Node> | Nil): MutPtr<Node> | Nil do\n    return next\nend\n")
+	requireAccepted(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
+		"method Node.set_next(next: MutPtr<Node> | Nil): MutPtr<Node> | Nil do\n    return next\nend\n")
 }
 
 // A nullable Fun<...> union must be narrowed before it is called. The call
@@ -598,27 +598,27 @@ func TestNullableFunctionPointerRequiresNarrowingBeforeCall(t *testing.T) {
 // Method rule 1 admits T, Ptr<T>, and MutPtr<T> targets. A nullable union is
 // not a receiver form: self would be nullable and every use would fail
 // closed, so the target itself is rejected.
-func TestImplTargetCannotBeNullable(t *testing.T) {
-	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"impl MutPtr<Node> | Nil.read(): Int32 do\n    return 0\nend\n",
-		"impl requires T, Ptr<T>, or MutPtr<T>; got MutPtr<Node> | Nil")
+func TestMethodTargetCannotBeNullable(t *testing.T) {
+	requireDiagnostic(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
+		"method MutPtr<Node> | Nil.read(): Int32 do\n    return 0\nend\n",
+		"method requires T, Ptr<T>, or MutPtr<T>; got MutPtr<Node> | Nil")
 }
 
 // hex_f_ name encoding is not injective, so the checker owns the clash.
 func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
 	requireDiagnostic(t, point+
-		"impl Point.translate() do\n    return\nend\n"+
+		"method Point.translate() do\n    return\nend\n"+
 		"fun Point_translate() do\n    return\nend\n",
-		"free function Point_translate collides with impl Point.translate")
+		"free function Point_translate collides with method Point.translate")
 	requireDiagnostic(t, point+
 		"fun Point_translate() do\n    return\nend\n"+
-		"impl Point.translate() do\n    return\nend\n",
-		"free function Point_translate collides with impl Point.translate")
+		"method Point.translate() do\n    return\nend\n",
+		"free function Point_translate collides with method Point.translate")
 }
 
 func TestMethodCallProducesCheckedIR(t *testing.T) {
-	checked := requireAccepted(t, point+"impl MutPtr<Point>.translate(dx: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"mut here: Point := Point { x = 0, y = 0, }\nhere.translate(5)\n")
+	checked := requireAccepted(t, point+"method MutPtr<Point>.translate(dx: Int32) do\n    self.x = self.x + dx\nend\n"+
+		"mut here: Point := Point(x = 0, y = 0,)\nhere.translate(5)\n")
 	statement, ok := checked.Statements[2].(CallStatement)
 	if !ok {
 		t.Fatalf("statement = %T, want CallStatement", checked.Statements[2])

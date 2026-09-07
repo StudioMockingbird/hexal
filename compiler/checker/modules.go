@@ -88,7 +88,7 @@ func buildModuleRegistry(graph *ModuleGraph) *ModuleRegistry {
 				if item.Exported {
 					entry.exports[item.Name.Lexeme] = true
 				}
-			case parser.ImplDeclaration:
+			case parser.MethodDeclaration:
 				if item.Exported {
 					entry.exports[item.Name.Lexeme] = true
 				}

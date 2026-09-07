@@ -55,6 +55,56 @@ func (parser *Parser) expression() (Expression, error) {
 	return parser.orExpression()
 }
 
+// interpolationTemplate parses the token sequence the lexer produces for an
+// interpreted string it found to contain interpolation: InterpStringStart,
+// then one InterpText segment followed by an InterpOpen/expression/InterpClose
+// triple for each embedded expression, repeated, then a final InterpText and
+// InterpStringEnd. The lexer never reaches the parser with a malformed
+// sequence (a lexer diagnostic short-circuits parsing entirely), so the only
+// genuine syntax error this can report is an empty "{{}}" interpolation; it
+// enters the shared syntax-depth budget once for the template itself, and
+// each embedded expression enters it again through the ordinary expression()
+// call.
+func (parser *Parser) interpolationTemplate() (Expression, error) {
+	exit, err := parser.enterSyntax()
+	defer exit()
+	if err != nil {
+		return nil, err
+	}
+	start, err := parser.consume(lexer.InterpStringStart, "an interpolated string")
+	if err != nil {
+		return nil, err
+	}
+	segments := make([]InterpolationSegment, 0, 4)
+	for {
+		text, err := parser.consume(lexer.InterpText, "interpolated string text")
+		if err != nil {
+			return nil, err
+		}
+		segments = append(segments, InterpolationSegment{Text: &text})
+		if parser.check(lexer.InterpStringEnd) {
+			end := parser.advance()
+			return InterpolationTemplateExpression{Start: start, Segments: segments, End: end}, nil
+		}
+		open, err := parser.consume(lexer.InterpOpen, "'{{' after interpolation text")
+		if err != nil {
+			return nil, err
+		}
+		if parser.check(lexer.InterpClose) {
+			return nil, parser.errorAt(parser.peek(), "string interpolation requires an expression")
+		}
+		value, err := parser.expression()
+		if err != nil {
+			return nil, err
+		}
+		close, err := parser.consume(lexer.InterpClose, "'}}' after the interpolated expression")
+		if err != nil {
+			return nil, err
+		}
+		segments = append(segments, InterpolationSegment{Expression: value, Open: open, Close: close})
+	}
+}
+
 func (parser *Parser) orExpression() (Expression, error) {
 	expression, err := parser.andExpression()
 	if err != nil {
@@ -428,6 +478,14 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 		expression = EosLiteral{Token: parser.advance()}
 	case lexer.StringLiteral:
 		expression = StringLiteral{Token: parser.advance()}
+	case lexer.RawStringLiteral:
+		expression = RawStringLiteral{Token: parser.advance()}
+	case lexer.InterpStringStart:
+		var err error
+		expression, err = parser.interpolationTemplate()
+		if err != nil {
+			return nil, err
+		}
 	case lexer.ByteLiteral:
 		expression = ByteLiteral{Token: parser.advance()}
 	case lexer.RuneLiteral:
@@ -443,27 +501,7 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 		// impl body is the checker's job.
 		expression = VariableExpression{Name: parser.advance()}
 	case lexer.Identifier:
-		typeName := parser.advance()
-		if parser.check(lexer.Less) && parser.genericObjectFollows() {
-			arguments, err := parser.typeArgumentList()
-			if err != nil {
-				return nil, err
-			}
-			literal, err := parser.objectLiteral(typeName)
-			if err != nil {
-				return nil, err
-			}
-			literal.TypeArguments = arguments
-			expression = literal
-		} else if parser.check(lexer.LeftBrace) {
-			var err error
-			expression, err = parser.objectLiteral(typeName)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			expression = VariableExpression{Name: typeName}
-		}
+		expression = VariableExpression{Name: parser.advance()}
 	case lexer.LeftParen:
 		parser.advance()
 		outer := parser.matchBoundary
@@ -517,16 +555,17 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 	for {
 		switch {
 		case parser.check(lexer.Less) && parser.genericConstructorFollows():
-			// List<T>.new(h) and Dict<K,V>.new(h): a type-argument list on a
-			// type name followed by a method call.
+			// Owner<Args>.name(...): a type-argument list on a bare type name
+			// followed by a dotted call, e.g. a qualified generic ADT variant
+			// constructor Result<Int32, String>.Ok(value).
 			arguments, err := parser.typeArgumentList()
 			if err != nil {
 				return nil, err
 			}
-			if _, err := parser.consume(lexer.Dot, "'.' after collection type arguments"); err != nil {
+			if _, err := parser.consume(lexer.Dot, "'.' after generic owner arguments"); err != nil {
 				return nil, err
 			}
-			property, err := parser.consume(lexer.Identifier, "a constructor name after '.'")
+			property, err := parser.consume(lexer.Identifier, "a name after '.'")
 			if err != nil {
 				return nil, err
 			}
@@ -536,56 +575,15 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 			}
 			call.TypeArguments = arguments
 			expression = call
-		case parser.check(lexer.Less) && parser.genericVariantFollows():
-			// Owner<Args>.Variant construction names its owner with a bare
-			// type name; genericVariantFollows is pure token lookahead and
-			// does not know the receiver's shape, so a prior postfix
-			// operation (A.B<T>.C) can reach here with a non-identifier
-			// receiver. That is not this construct: fall out of the postfix
-			// loop and let '<' parse as an ordinary comparison instead of
-			// misreading an owner name out of the wrong expression kind.
-			variable, isVariable := expression.(VariableExpression)
-			if !isVariable {
-				return expression, nil
-			}
-			arguments, err := parser.typeArgumentList()
-			if err != nil {
-				return nil, err
-			}
-			if _, err := parser.consume(lexer.Dot, "'.' after generic owner arguments"); err != nil {
-				return nil, err
-			}
-			variant, err := parser.consume(lexer.Identifier, "a variant name after '.'")
-			if err != nil {
-				return nil, err
-			}
-			constructor := QualifiedVariantExpression{Owner: variable.Name, OwnerArguments: arguments, Variant: variant}
-			if parser.check(lexer.LeftBrace) {
-				payload, err := parser.variantPayload(variant)
-				if err != nil {
-					return nil, err
-				}
-				constructor.Payload = &payload
-			}
-			expression = constructor
 		case parser.check(lexer.Dot):
 			parser.advance()
 			property, err := parser.consume(lexer.Identifier, "an identifier after '.'")
 			if err != nil {
 				return nil, err
 			}
-			propertyExpression := PropertyExpression{Receiver: expression, Property: property}
-			if parser.check(lexer.LeftBrace) {
-				if variable, isVariable := expression.(VariableExpression); isVariable {
-					payload, err := parser.variantPayload(property)
-					if err != nil {
-						return nil, err
-					}
-					expression = QualifiedVariantExpression{Owner: variable.Name, Variant: property, Payload: &payload}
-					continue
-				}
-			}
-			expression = propertyExpression
+			expression = PropertyExpression{Receiver: expression, Property: property}
+		case parser.check(lexer.LeftBrace) && parser.onPreviousTokenLine():
+			return nil, parser.errorAtCurrent("constructors use named arguments in parentheses")
 		case parser.check(lexer.Less) && parser.genericCallFollows():
 			arguments, err := parser.typeArgumentList()
 			if err != nil {
@@ -666,17 +664,9 @@ func (parser *Parser) genericCallFollows() bool {
 	return end >= 0 && end+1 < len(parser.tokens) && parser.tokens[end+1].Kind == lexer.LeftParen
 }
 
-// genericObjectFollows reports whether a balanced type-argument list at the
-// current '<' is immediately followed by an object literal brace.
-func (parser *Parser) genericObjectFollows() bool {
-	end := parser.balancedTypeArgumentEnd()
-	return end >= 0 && end+1 < len(parser.tokens) && parser.tokens[end+1].Kind == lexer.LeftBrace
-}
-
 // genericConstructorFollows reports whether a balanced type-argument list at
-// the current '<' is immediately followed by ".name(", the collection
-// constructor form List<T>.new(h). It must be recognized before the
-// qualified-variant form, which also matches "<...>.name".
+// the current '<' is immediately followed by ".name(": a qualified generic
+// ADT variant constructor, e.g. Result<Int32, String>.Ok(value).
 func (parser *Parser) genericConstructorFollows() bool {
 	end := parser.balancedTypeArgumentEnd()
 	return end >= 0 && end+3 < len(parser.tokens) &&
@@ -720,35 +710,6 @@ func (parser *Parser) onPreviousTokenLine() bool {
 		return false
 	}
 	return parser.tokens[parser.current].Line == parser.tokens[parser.current-1].Line
-}
-
-// variantPayload parses a qualified record variant constructor's
-// `{ field = expr, ... }` initializer list.
-func (parser *Parser) variantPayload(variant lexer.Token) ([]MemberInitializer, error) {
-	if _, err := parser.consume(lexer.LeftBrace, "'{' after a variant name"); err != nil {
-		return nil, err
-	}
-	initializers := make([]MemberInitializer, 0)
-	if !parser.check(lexer.RightBrace) {
-		for {
-			initializer, err := parser.memberInitializer()
-			if err != nil {
-				return nil, err
-			}
-			initializers = append(initializers, initializer)
-			if !parser.check(lexer.Comma) {
-				break
-			}
-			parser.advance()
-			if parser.check(lexer.RightBrace) {
-				break
-			}
-		}
-	}
-	if _, err := parser.consume(lexer.RightBrace, "'}' after a variant payload initializer"); err != nil {
-		return nil, err
-	}
-	return initializers, nil
 }
 
 // genericVariantFollows reports whether a balanced type-argument list at the
@@ -875,84 +836,39 @@ func (parser *Parser) peekAt(offset int) lexer.Token {
 }
 
 // callArguments parses the argument list. Only the '(' placement is
-// line-sensitive; arguments may break across lines freely.
+// line-sensitive; arguments may break across lines freely. Each argument may
+// open with an `identifier =` label; a trailing comma is accepted after the
+// last argument. Whether labels are required, forbidden, or matched against
+// declared fields is the checker's decision once the callee resolves.
 func (parser *Parser) callArguments(callee Expression) (CallExpression, error) {
 	openParen := parser.advance()
 	arguments := make([]Expression, 0)
+	var labels []*lexer.Token
 	if !parser.check(lexer.RightParen) {
 		for {
+			var label *lexer.Token
+			if parser.check(lexer.Identifier) && parser.peekAt(1).Kind == lexer.Equal {
+				name := parser.advance()
+				parser.advance() // '='
+				label = &name
+			}
 			argument, err := parser.expression()
 			if err != nil {
 				return CallExpression{}, err
 			}
 			arguments = append(arguments, argument)
+			labels = append(labels, label)
 			if !parser.check(lexer.Comma) {
 				break
 			}
 			parser.advance()
+			if parser.check(lexer.RightParen) {
+				break
+			}
 		}
 	}
 	if _, err := parser.consume(lexer.RightParen, "')' after the argument list"); err != nil {
 		return CallExpression{}, err
 	}
-	return CallExpression{Callee: callee, OpenParen: openParen, Arguments: arguments}, nil
-}
-
-// objectLiteral parses a named object value. An empty literal is syntactically
-// valid; exhaustiveness and member validity belong to semantic checking.
-func (parser *Parser) objectLiteral(typeName lexer.Token) (ObjectLiteral, error) {
-	openBrace, err := parser.consume(lexer.LeftBrace, "'{' after an object type name")
-	if err != nil {
-		return ObjectLiteral{}, err
-	}
-
-	initializers := make([]MemberInitializer, 0)
-	if !parser.check(lexer.RightBrace) {
-		initializer, err := parser.memberInitializer()
-		if err != nil {
-			return ObjectLiteral{}, err
-		}
-		initializers = append(initializers, initializer)
-		for parser.check(lexer.Comma) {
-			parser.advance()
-			if parser.check(lexer.RightBrace) {
-				break
-			}
-			initializer, err := parser.memberInitializer()
-			if err != nil {
-				return ObjectLiteral{}, err
-			}
-			initializers = append(initializers, initializer)
-		}
-	}
-
-	closeBrace, err := parser.consume(lexer.RightBrace, "'}' after object literal")
-	if err != nil {
-		return ObjectLiteral{}, err
-	}
-	return ObjectLiteral{
-		TypeName:     typeName,
-		OpenBrace:    openBrace,
-		Initializers: initializers,
-		CloseBrace:   closeBrace,
-	}, nil
-}
-
-func (parser *Parser) memberInitializer() (MemberInitializer, error) {
-	if parser.check(lexer.Mut) {
-		return MemberInitializer{}, parser.errorAtCurrent("mut is not allowed in an object literal")
-	}
-	name, err := parser.consume(lexer.Identifier, "an object member name")
-	if err != nil {
-		return MemberInitializer{}, err
-	}
-	equal, err := parser.consume(lexer.Equal, "'=' after an object member name")
-	if err != nil {
-		return MemberInitializer{}, err
-	}
-	value, err := parser.expression()
-	if err != nil {
-		return MemberInitializer{}, err
-	}
-	return MemberInitializer{Name: name, Equal: equal, Value: value}, nil
+	return CallExpression{Callee: callee, OpenParen: openParen, Arguments: arguments, ArgumentLabels: labels}, nil
 }

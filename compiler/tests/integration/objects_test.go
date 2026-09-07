@@ -7,7 +7,7 @@ import (
 )
 
 func TestObjectValuesAndMembers(t *testing.T) {
-	result := compileSource("type Point = { x: Int32, mut y: Int32, } mut point: Point := Point { y = 2, x = 1, } point.y = 3 read: Int32 := point.x")
+	result := compileSource("type Point is struct x: Int32, mut y: Int32 end mut point: Point := Point(y = 2, x = 1) point.y = 3 read: Int32 := point.x")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -34,19 +34,19 @@ func TestObjectValuesAndMembers(t *testing.T) {
 }
 
 func TestNominalObjectsAndAliases(t *testing.T) {
-	valid := compileSource("type Point = { x: Int32, y: Int32, } type Position = Point point: Position := Point { x = 1, y = 2, }")
+	valid := compileSource("type Point is struct x: Int32, y: Int32 end type Position is Point point: Position := Point(x = 1, y = 2)")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("alias-to-object compilation failed: %#v", valid)
 	}
 
-	invalid := compileSource("type Point = { x: Int32, y: Int32, } type Offset = { x: Int32, y: Int32, } point: Point := Point { x = 1, y = 2, } offset: Offset := point")
+	invalid := compileSource("type Point is struct x: Int32, y: Int32 end type Offset is struct x: Int32, y: Int32 end point: Point := Point(x = 1, y = 2) offset: Offset := point")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || !strings.Contains(invalid.Stderr[0], "expected Offset initializer; got Point") {
 		t.Fatalf("nominal mismatch = %#v, want object identity error", invalid)
 	}
 }
 
 func TestNestedObjectsAndPointers(t *testing.T) {
-	result := compileSource("type Point = { mut x: Int32, y: Int32, } type Box = { mut point: Point, } mut box: Box := Box { point = Point { x = 1, y = 2, }, } box.point.x = 3 reader: Ptr<Box> := ref box read: Int32 := reader.value.point.x")
+	result := compileSource("type Point is struct mut x: Int32, y: Int32 end type Box is struct mut point: Point end mut box: Box := Box(point = Point(x = 1, y = 2)) box.point.x = 3 reader: Ptr<Box> := ref box read: Int32 := reader.value.point.x")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("nested object compilation failed: %#v", result)
 	}
@@ -61,7 +61,7 @@ func TestNestedObjectsAndPointers(t *testing.T) {
 }
 
 func TestObjectMemberReferencesAndPointerWrites(t *testing.T) {
-	result := compileSource("type Point = { mut x: Int32, y: Int32, } mut point: Point := Point { x = 1, y = 2, } writer: MutPtr<Point> := ref point writer.value.x = 10 x_pointer: MutPtr<Int32> := ref point.x")
+	result := compileSource("type Point is struct mut x: Int32, y: Int32 end mut point: Point := Point(x = 1, y = 2) writer: MutPtr<Point> := ref point writer.value.x = 10 x_pointer: MutPtr<Int32> := ref point.x")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("object member pointer compilation failed: %#v", result)
 	}
@@ -76,7 +76,7 @@ func TestObjectMemberReferencesAndPointerWrites(t *testing.T) {
 }
 
 func TestCompleteObjectReplacement(t *testing.T) {
-	result := compileSource("type Player = { maximum_health: Int32, mut health: Int32, } mut first: Player := Player { maximum_health = 100, health = 80, } mut second: Player := Player { maximum_health = 120, health = 90, } first = second")
+	result := compileSource("type Player is struct maximum_health: Int32, mut health: Int32 end mut first: Player := Player(maximum_health = 100, health = 80) mut second: Player := Player(maximum_health = 120, health = 90) first = second")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("complete object replacement failed: %#v", result)
 	}
@@ -84,14 +84,14 @@ func TestCompleteObjectReplacement(t *testing.T) {
 		t.Fatalf("modules/app.c = %q, want complete object assignment", rootC(t, result))
 	}
 
-	invalid := compileSource("type Player = { maximum_health: Int32, mut health: Int32, } mut player: Player := Player { maximum_health = 100, health = 80, } player.maximum_health = 200")
+	invalid := compileSource("type Player is struct maximum_health: Int32, mut health: Int32 end mut player: Player := Player(maximum_health = 100, health = 80) player.maximum_health = 200")
 	if invalid.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(invalid.Stderr, "\n"), "cannot assign to read-only member") {
 		t.Fatalf("read-only member replacement = %#v, want focused member diagnostic", invalid)
 	}
 }
 
 func TestObjectFloatDependency(t *testing.T) {
-	result := compileSource("type Metrics = { ratio: Float32, } metrics: Metrics := Metrics { ratio = 3.14, }")
+	result := compileSource("type Metrics is struct ratio: Float32 end metrics: Metrics := Metrics(ratio = 3.14)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("object float compilation failed: %#v", result)
 	}
@@ -114,14 +114,13 @@ func TestObjectDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"type Empty = {}", "object type must declare at least one member"},
-		{"type Point = { x: Int32, x: Int32, }", "declares member x more than once"},
-		{"type Impossible = { child: Impossible, }", "cannot contain itself by value"},
-		{"type Box = { point: Later, } type Later = { x: Int32, }", "unknown type Later"},
-		{"type Point = { x: Int32, y: Int32, } point: Point := Point { x = 1, }", "Point literal is missing member y"},
-		{"type Point = { x: Int32, } point: Point := Point { x = 1, x = 2, }", "literal initializes member x more than once"},
-		{"type Point = { x: Int32, } point: Point := Point { z = 1, }", "Point has no member z"},
-		{"type Point = { x: Int32, } point: Point := Point { x = 1, } point.x = 2", "cannot assign to read-only member"},
+		{"type Point is struct x: Int32, x: Int32 end", "declares member x more than once"},
+		{"type Impossible is struct child: Impossible end", "cannot contain itself by value"},
+		{"type Box is struct point: Later end type Later is struct x: Int32 end", "unknown type Later"},
+		{"type Point is struct x: Int32, y: Int32 end point: Point := Point(x = 1)", "Point constructor is missing member y"},
+		{"type Point is struct x: Int32 end point: Point := Point(x = 1, x = 2)", "constructor initializes member x more than once"},
+		{"type Point is struct x: Int32 end point: Point := Point(z = 1)", "Point has no member z"},
+		{"type Point is struct x: Int32 end point: Point := Point(x = 1) point.x = 2", "cannot assign to read-only member"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), testCase.want) {
@@ -131,7 +130,7 @@ func TestObjectDiagnostics(t *testing.T) {
 }
 
 func TestAddrMemberAndTemporaryRead(t *testing.T) {
-	result := compileSource("type Point = { x: Int32, addr: Int32, } x: Int32 := Point { x = 1, addr = 2, }.x addr: Int32 := Point { x = 1, addr = 2, }.addr")
+	result := compileSource("type Point is struct x: Int32, addr: Int32 end x: Int32 := Point(x = 1, addr = 2).x addr: Int32 := Point(x = 1, addr = 2).addr")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("object member named addr failed: %#v", result)
 	}
@@ -146,7 +145,7 @@ func TestAddrMemberAndTemporaryRead(t *testing.T) {
 }
 
 func TestObjectHeaderOrdering(t *testing.T) {
-	source := "type First = { value: Int32, } type Second = { first: Ptr<First>, } type Third = { second: Ptr<Second>, }"
+	source := "type First is struct value: Int32 end type Second is struct first: Ptr<First> end type Third is struct second: Ptr<Second> end"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful multi-object program", result)

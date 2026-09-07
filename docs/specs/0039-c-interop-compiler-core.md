@@ -12,7 +12,7 @@
   source pointer arithmetic), RFC 0034 (modules), RFC 0035 (copying and manual
   lifetimes), RFC 0036 (`Size`), RFC 0038 (conversion), RFC 0043
   (pointer-length View bridge), and RFC 0044 (String/Byte conformance)
-- Coordinates with: RFC 0052 (C compiler backend and target profiles), RFC 0110
+- Coordinates with: RFC 0052 (C compiler backend), RFC 0110
   (affine ownership and Stashes), and ADR 0055 (filesystem and build driver)
 
 ## Author note for the detailed design pass
@@ -226,7 +226,7 @@ Conceptual driver output; exact foreign-declaration grammar remains open:
 ```hexal
 extern c header "widget.h"
 
-export extern c type Handle = opaque
+export extern c type Handle is opaque
 
 export extern c fun open(): MutPtr<Handle> | Nil
     symbol "widget_open"
@@ -262,7 +262,7 @@ structural rather than repeated per declaration.
 
 ```hexal
 foreign "widget.h" do
-    export type Handle = opaque
+    export type Handle is opaque
     export fun open(): MutPtr<Handle> | Nil = "widget_open"
     export fun close(handle: MutPtr<Handle>) = "widget_close"
 end

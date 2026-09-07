@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateHeapAllocationAndFree(t *testing.T) {
-	program := checkedGeneratorSource(t, "h: Heap := Heap.new() p: MutPtr<Int32> := h.allocate<Int32>(0) defer h.free(p)")
+	program := checkedGeneratorSource(t, "h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) defer h.free(p)")
 	files := generateOne(t, program)
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	heapH, heapC := files["hexal/heap.h"], files["hexal/heap.c"]
@@ -126,7 +126,7 @@ func heapOperationBody(t *testing.T, heapC, signature string) string {
 // A bare Heap handle selects the raw machinery without any typed allocation;
 // the module header still needs the representation for its initializer.
 func TestGenerateHeapHandleSelectsComponentPair(t *testing.T) {
-	program := checkedGeneratorSource(t, "h: Heap := Heap.new()\n")
+	program := checkedGeneratorSource(t, "h: Heap := Heap()\n")
 	files := generateOne(t, program)
 	if _, exists := files["hexal/heap.h"]; !exists {
 		t.Fatalf("Heap handle program emitted no hexal/heap.h: %v", files)
@@ -186,7 +186,7 @@ func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
 // diagnostic reports through hex_runtime_trap, and no compiler-owned NULL or
 // raw fputs remains.
 func TestGenerateListAndDictCheckedGrowth(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
 	files := generateOne(t, program)
 	listH := files["hexal/list.h"]
 	dictH := files["hexal/dict.h"]

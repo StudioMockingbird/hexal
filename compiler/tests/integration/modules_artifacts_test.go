@@ -13,7 +13,7 @@ import (
 )
 
 func TestRootModuleArtifactsSplit(t *testing.T) {
-	source := "type Point = { x: Int32, }\nfun area(point: Point): Int32 do\n    return point.x\nend\nvalue: Int32 := 13\n"
+	source := "type Point is struct x: Int32, end\nfun area(point: Point): Int32 do\n    return point.x\nend\nvalue: Int32 := 13\n"
 	result := assertCompiles(t, source)
 
 	rootC := rootC(t, result)
@@ -113,19 +113,19 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 		},
 		{
 			name:      "atomic-only",
-			source:    "counter: Atomic<Int32> := Atomic<Int32>.new(5) value: Int32 := counter.load()",
+			source:    "counter: Atomic<Int32> := Atomic<Int32>(5) value: Int32 := counter.load()",
 			includes:  []string{"#include <stdint.h>", "#include <stdatomic.h>"},
 			forbidden: []string{"#include <stdio.h>", "#include <stdlib.h>", "hex_scheduler_init"},
 		},
 		{
 			name:      "heap",
-			source:    "h: Heap := Heap.new() p: MutPtr<Int32> := h.allocate<Int32>(0) h.free(p)",
+			source:    "h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) h.free(p)",
 			includes:  []string{"#include <stdckdint.h>", "#include <stddef.h>", "#include <stdint.h>", "#include <stdio.h>", "#include <stdlib.h>"},
 			forbidden: nil,
 		},
 		{
 			name:      "list-checked-arithmetic",
-			source:    "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\nend",
+			source:    "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\nend",
 			includes:  []string{"#include <stdckdint.h>"},
 			forbidden: nil,
 		},
@@ -176,7 +176,7 @@ func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 // hexal/runtime.c, [[noreturn]], owning <stdio.h>/<stdlib.h>, and no
 // per-family trap or raw fputs/abort pair remains in generated C.
 func TestSingleRuntimeTrapContract(t *testing.T) {
-	source := "mut h: Heap := Heap.new()\nitems: List<Int32> := List<Int32>.new(h)\nitems.push(7)\nvalues: Array<Int32, 2> := [1, 2]\nview: View<Int32> := values.slice(0, 1)\ntext: String := \"hello\"\nmut count: Int32 := 0\nmut shift: Int32 := 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
+	source := "mut h: Heap := Heap()\nitems: List<Int32> := List<Int32>(h)\nitems.push(7)\nvalues: Array<Int32, 2> := [1, 2]\nview: View<Int32> := values.slice(0, 1)\ntext: String := \"hello\"\nmut count: Int32 := 0\nmut shift: Int32 := 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
 	result := assertCompiles(t, source)
 	header := hexalH(t, result)
 	declaration := "[[noreturn]] void hex_runtime_trap(const char *message);"
@@ -218,7 +218,7 @@ func TestSingleRuntimeTrapContract(t *testing.T) {
 // Every #include in hexal.h precedes its first declaration, and no helper
 // writer inserts a later include.
 func TestHexalHeaderIncludesPrecedeDeclarations(t *testing.T) {
-	result := assertCompiles(t, "fun count(): Int32 do\n    items: List<Int32> := List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\ncount()\n")
+	result := assertCompiles(t, "fun count(): Int32 do\n    items: List<Int32> := List<Int32>(Heap())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\ncount()\n")
 	header := hexalH(t, result)
 	lines := strings.Split(header, "\n")
 	seenDeclaration := false
@@ -252,7 +252,7 @@ func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 		t.Fatalf("hexal.h must define hex_eos exactly once; got %d:\n%s", count, result.Files["hexal.h"])
 	}
 	// A program with no EoS anywhere spells no hex_eos at all.
-	without := assertCompiles(t, "h: Heap := Heap.new() p: MutPtr<Int32> := h.allocate<Int32>(0) h.free(p)")
+	without := assertCompiles(t, "h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) h.free(p)")
 	if strings.Contains(hexalH(t, without), "hex_eos") {
 		t.Fatalf("hexal.h = %q, want no hex_eos spelling", hexalH(t, without))
 	}

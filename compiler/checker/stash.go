@@ -26,21 +26,20 @@ func resolveStashTypeUse(expression parser.GenericTypeExpression, fallback lexer
 	return compilerTypes.NewTypeUse(stash), nil
 }
 
-// checkStashTypeCall resolves Stash<T>.new() into a fresh independent typed
+// checkStashTypeCall resolves Stash<T>() into a fresh independent typed
 // bump-allocator handle. It takes no arguments: construction always uses
 // Hexal's default allocation primitives and retains no parent Heap.
 func checkStashTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
 	stashUse, diagnostic := resolveStashTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "Stash", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
-	if property.Lexeme != "new" || len(call.Arguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Stash has no such operation; use Stash<T>.new()"))}
+	if len(call.Arguments) != 0 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Stash takes no arguments; use Stash<T>()"))}
 	}
 	node := Expression{Kind: StashConstructorExpression, OperandType: stashUse.Type, ResultType: stashUse.Type, Element: stashUse.Type.Stash.Element}
 	source := Operand{Kind: ExpressionOperand, Type: stashUse.Type, Name: "new", Node: node}
-	return checkedExpression{source: source, typ: stashUse.Type, token: property}
+	return checkedExpression{source: source, typ: stashUse.Type, token: callee}
 }
 
 // checkStashMethodCall dispatches the built-in Stash methods: allocate,

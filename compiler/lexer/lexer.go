@@ -52,6 +52,11 @@ func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
 				return nil, "unsupported escape \\\" in Byte literal"
 			}
 			payload = append(payload, '"')
+		case '{', '}':
+			if set != StringEscapes {
+				return nil, "unsupported escape \\" + string(escaped)
+			}
+			payload = append(payload, escaped)
 		case 'n':
 			payload = append(payload, '\n')
 		case 'r':
@@ -175,8 +180,22 @@ const (
 	Pipe
 	Is
 	StringLiteral
+	RawStringLiteral
+	// The interpreted-string token sequence replaces a single StringLiteral
+	// token only when the lexer finds an unescaped "{{" in that literal.
+	// InterpStringStart carries the opening quote; InterpText carries one
+	// decoded-pending raw text segment; InterpOpen/InterpClose carry "{{" and
+	// "}}"; InterpStringEnd carries the closing quote. Ordinary tokens for the
+	// embedded expression appear between InterpOpen and InterpClose.
+	InterpStringStart
+	InterpText
+	InterpOpen
+	InterpClose
+	InterpStringEnd
 	Fun
-	Impl
+	Struct
+	Union
+	Method
 	End
 	Return
 	If
@@ -222,7 +241,9 @@ var keywords = map[string]TokenKind{
 	// `Fun` the type name stays an ordinary identifier; only lowercase `fun`
 	// is a keyword.
 	"fun":      Fun,
-	"impl":     Impl,
+	"struct":   Struct,
+	"union":    Union,
+	"method":   Method,
 	"end":      End,
 	"return":   Return,
 	"if":       If,
@@ -282,6 +303,16 @@ func (kind TokenKind) String() string {
 		return "eos"
 	case StringLiteral:
 		return "string literal"
+	case RawStringLiteral:
+		return "raw string literal"
+	case InterpStringStart, InterpStringEnd:
+		return "\""
+	case InterpText:
+		return "string text"
+	case InterpOpen:
+		return "{{"
+	case InterpClose:
+		return "}}"
 	case ByteLiteral:
 		return "byte literal"
 	case RuneLiteral:
@@ -342,8 +373,12 @@ func (kind TokenKind) String() string {
 		return "is"
 	case Fun:
 		return "fun"
-	case Impl:
-		return "impl"
+	case Struct:
+		return "struct"
+	case Union:
+		return "union"
+	case Method:
+		return "method"
 	case End:
 		return "end"
 	case Return:
@@ -405,354 +440,28 @@ type Token struct {
 	Column int
 }
 
+// maxInterpolationDepth bounds nested interpreted-string-with-interpolation
+// recursion (a string literal written inside an embedded expression, itself
+// containing another interpolation, and so on). It matches the parser's own
+// maxSyntaxDepth so both stages report the same limit with the same message.
+const maxInterpolationDepth = 128
+
 // Lex tokenizes source. Numeric spelling remains in tokens; exact semantic
 // decoding belongs to the checker so no later phase trusts unchecked text.
 func Lex(source string) ([]Token, error) {
 	tokens := make([]Token, 0)
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	line, column := 1, 1
+	var previous Token
 
 	for index := 0; index < len(source); {
-		ch := source[index]
-		switch {
-		case ch == ' ' || ch == '\t' || ch == '\r':
-			index++
-			column++
-		case ch == '\n':
-			index++
-			line++
-			column = 1
-		case ch == '-' && index+1 < len(source) && source[index+1] == '-':
-			commentLine, commentColumn := line, column
-			if index+2 < len(source) && source[index+2] == '[' {
-				index += 3
-				column += 3
-				closed := false
-				for index < len(source) {
-					if index+2 < len(source) && source[index] == ']' && source[index+1] == '-' && source[index+2] == '-' {
-						index += 3
-						column += 3
-						closed = true
-						break
-					}
-					if source[index] == '\n' {
-						index++
-						line++
-						column = 1
-						continue
-					}
-					index++
-					column++
-				}
-				if !closed {
-					diagnostics = append(diagnostics, *literalDiagnostic(commentLine, commentColumn, "unterminated multiline comment"))
-				}
-				continue
-			}
-			if index+2 < len(source) && source[index+2] == '-' {
-				index += 3
-				column += 3
-			} else {
-				index += 2
-				column += 2
-			}
-			for index < len(source) && source[index] != '\n' {
-				index++
-				column++
-			}
-		case ch == 'b' && index+1 < len(source) && source[index+1] == '\'':
-			start, startColumn := index, column
-			index += 2
-			column += 2
-			end, closed := scanQuotedBody(source, index, line, column)
-			if !closed {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Byte literal"))
-			}
-			bodyEnd := end
-			if closed {
-				bodyEnd = end - 1
-			}
-			if _, message := DecodeLiteralBody(source[index:bodyEnd], ByteEscapes); message != "" {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
-				tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
-			} else {
-				tokens = append(tokens, Token{Kind: ByteLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
-			}
-			column += end - index
-			index = end
-		case ch == '\'':
-			start, startColumn := index, column
-			index++
-			column++
-			end, closed := scanQuotedBody(source, index, line, column)
-			if !closed {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Rune literal"))
-			}
-			bodyEnd := end
-			if closed {
-				bodyEnd = end - 1
-			}
-			if _, message := DecodeLiteralBody(source[index:bodyEnd], RuneEscapes); message != "" {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
-				tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
-			} else {
-				tokens = append(tokens, Token{Kind: RuneLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
-			}
-			column += end - index
-			index = end
-		case ch == '_':
-			end := consumeIdentifierTail(source, index+1)
-			diagnostics = append(diagnostics, *literalDiagnostic(line, column, "identifiers must begin with a letter"))
-			column += end - index
-			index = end
-		case isIdentifierStart(ch):
-			start, startColumn := index, column
-			for index < len(source) && isIdentifierPart(source[index]) {
-				index++
-				column++
-			}
-			lexeme := source[start:index]
-			kind, ok := keywords[lexeme]
-			if !ok {
-				kind = Identifier
-			}
-			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: startColumn})
-		case ch >= '0' && ch <= '9':
-			token, end, diagnostic := scanNumber(source, index, line, column)
-			if diagnostic != nil {
-				diagnostics = append(diagnostics, *diagnostic)
-			}
-			if token.Kind != EOF {
-				tokens = append(tokens, token)
-			}
-			column += end - index
-			index = end
-		case ch == '.' && index+1 < len(source) && isDecimalDigit(source[index+1]):
-			end := consumeNumericTail(source, index+1)
-			diagnostics = append(diagnostics, *literalDiagnostic(line, column, "malformed floating literal"))
-			column += end - index
-			index = end
-		case ch == ':':
-			kind, lexeme := Colon, ":"
-			if index+1 < len(source) && source[index+1] == '=' {
-				kind, lexeme = ColonEqual, ":="
-			}
-			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
-			index += len(lexeme)
-			column += len(lexeme)
-		case ch == '!':
-			kind, lexeme := Bang, "!"
-			if index+1 < len(source) && source[index+1] == '=' {
-				kind, lexeme = BangEqual, "!="
-			}
-			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
-			index += len(lexeme)
-			column += len(lexeme)
-		case ch == '=':
-			kind, lexeme := Equal, "="
-			if index+1 < len(source) && source[index+1] == '=' {
-				kind, lexeme = EqualEqual, "=="
-			}
-			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
-			index += len(lexeme)
-			column += len(lexeme)
-		case ch == '<':
-			kind, lexeme := Less, "<"
-			if index+1 < len(source) && source[index+1] == '=' {
-				kind, lexeme = LessEqual, "<="
-			} else if index+1 < len(source) && source[index+1] == '<' {
-				// Shift-left is one maximal-munch token.
-				kind, lexeme = ShiftLeft, "<<"
-			}
-			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
-			index += len(lexeme)
-			column += len(lexeme)
-		case ch == '>':
-			kind, lexeme := Greater, ">"
-			if index+1 < len(source) && source[index+1] == '=' {
-				kind, lexeme = GreaterEqual, ">="
-			} else if index+1 < len(source) && source[index+1] == '>' {
-				// Shift-right is one maximal-munch token; the parser
-				// splits it into two generic closers when needed.
-				kind, lexeme = ShiftRight, ">>"
-			}
-			tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
-			index += len(lexeme)
-			column += len(lexeme)
-		case ch == '&':
-			tokens = append(tokens, Token{Kind: Amp, Lexeme: "&", Line: line, Column: column})
-			index++
-			column++
-		case ch == '^':
-			tokens = append(tokens, Token{Kind: Caret, Lexeme: "^", Line: line, Column: column})
-			index++
-			column++
-		case ch == '~':
-			tokens = append(tokens, Token{Kind: Tilde, Lexeme: "~", Line: line, Column: column})
-			index++
-			column++
-		case ch == '-':
-			tokens = append(tokens, Token{Kind: Minus, Lexeme: "-", Line: line, Column: column})
-			index++
-			column++
-		case ch == '+':
-			tokens = append(tokens, Token{Kind: Plus, Lexeme: "+", Line: line, Column: column})
-			index++
-			column++
-		case ch == '*':
-			tokens = append(tokens, Token{Kind: Star, Lexeme: "*", Line: line, Column: column})
-			index++
-			column++
-		case ch == '/':
-			tokens = append(tokens, Token{Kind: Slash, Lexeme: "/", Line: line, Column: column})
-			index++
-			column++
-		case ch == '%':
-			tokens = append(tokens, Token{Kind: Percent, Lexeme: "%", Line: line, Column: column})
-			index++
-			column++
-		case ch == '|':
-			tokens = append(tokens, Token{Kind: Pipe, Lexeme: "|", Line: line, Column: column})
-			index++
-			column++
-		case ch == '"':
-			start := index
-			startColumn := column
-			index++
-			column++
-			// The literal immediately after `import` on the same line is a
-			// module path: a raw quoted payload with no escape decoding. A
-			// backslash is rejected outright; module paths are plain
-			// relative path spellings.
-			isModulePath := len(tokens) > 0 && tokens[len(tokens)-1].Kind == Import && tokens[len(tokens)-1].Line == line
-			if isModulePath {
-				pathPayloadStart := index
-				terminated := false
-				for index < len(source) {
-					character := source[index]
-					index++
-					column++
-					if character == '"' {
-						terminated = true
-						break
-					}
-					if character == '\n' || character == '\r' {
-						break
-					}
-				}
-				if !terminated {
-					diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated module path literal"))
-				}
-				// index-1 excludes the closing quote or line terminator that
-				// stopped the scan above. An opening quote at the very end of
-				// source leaves nothing to scan (index == pathPayloadStart),
-				// which would make index-1 precede pathPayloadStart; clamp to
-				// an empty payload rather than slicing out of range.
-				payloadEnd := index - 1
-				if payloadEnd < pathPayloadStart {
-					payloadEnd = pathPayloadStart
-				}
-				if strings.ContainsRune(source[pathPayloadStart:payloadEnd], '\\') {
-					diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid module-path literal"))
-				}
-				// Keep a recovery token even when the path is malformed so
-				// the parser can synchronize on a real token sequence.
-				tokens = append(tokens, Token{Kind: ModulePathLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
-				continue
-			}
-			terminated := false
-			var newlineLine, newlineColumn int
-			hasRawNewline := false
-			for index < len(source) {
-				character := source[index]
-				if character == '\\' {
-					if index+1 >= len(source) {
-						break
-					}
-					index += 2
-					column += 2
-					// A backslash immediately followed by a physical newline is
-					// not a line-continuation escape.
-					escaped := source[index-1]
-					if escaped == '\n' || escaped == '\r' {
-						if !hasRawNewline {
-							hasRawNewline = true
-							newlineLine, newlineColumn = line, column-1
-						}
-						line++
-						column = 1
-						if escaped == '\r' && index < len(source) && source[index] == '\n' {
-							index++
-						}
-					}
-					continue
-				}
-				index++
-				column++
-				if character == '"' {
-					terminated = true
-					break
-				}
-				if character == '\n' || character == '\r' {
-					if !hasRawNewline {
-						hasRawNewline = true
-						newlineLine, newlineColumn = line, column-1
-					}
-					line++
-					column = 1
-					if character == '\r' && index < len(source) && source[index] == '\n' {
-						index++
-					}
-				}
-			}
-			if hasRawNewline {
-				// A raw newline is a Syntax Error and produces no
-				// StringLiteral token; consume through the closing quote or
-				// EOF for recovery and never emit a second diagnostic.
-				diagnostics = append(diagnostics, *literalDiagnostic(newlineLine, newlineColumn, `String literal cannot contain a raw newline; use \n`))
-			} else {
-				if !terminated {
-					diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated string literal"))
-				}
-				tokens = append(tokens, Token{Kind: StringLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
-			}
-		case ch == '(':
-			tokens = append(tokens, Token{Kind: LeftParen, Lexeme: "(", Line: line, Column: column})
-			index++
-			column++
-		case ch == ')':
-			tokens = append(tokens, Token{Kind: RightParen, Lexeme: ")", Line: line, Column: column})
-			index++
-			column++
-		case ch == '[':
-			tokens = append(tokens, Token{Kind: LeftBracket, Lexeme: "[", Line: line, Column: column})
-			index++
-			column++
-		case ch == ']':
-			tokens = append(tokens, Token{Kind: RightBracket, Lexeme: "]", Line: line, Column: column})
-			index++
-			column++
-		case ch == '.':
-			tokens = append(tokens, Token{Kind: Dot, Lexeme: ".", Line: line, Column: column})
-			index++
-			column++
-		case ch == '{':
-			tokens = append(tokens, Token{Kind: LeftBrace, Lexeme: "{", Line: line, Column: column})
-			index++
-			column++
-		case ch == '}':
-			tokens = append(tokens, Token{Kind: RightBrace, Lexeme: "}", Line: line, Column: column})
-			index++
-			column++
-		case ch == ',':
-			tokens = append(tokens, Token{Kind: Comma, Lexeme: ",", Line: line, Column: column})
-			index++
-			column++
-		default:
-			diagnostics = append(diagnostics, *literalDiagnostic(line, column, fmt.Sprintf("unexpected character %q", ch)))
-			index++
-			column++
+		scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, line, column, 0, previous)
+		tokens = append(tokens, scanned...)
+		diagnostics = append(diagnostics, scannedDiagnostics...)
+		if len(scanned) > 0 {
+			previous = scanned[len(scanned)-1]
 		}
+		index, line, column = newIndex, newLine, newColumn
 	}
 
 	tokens = append(tokens, Token{Kind: EOF, Line: line, Column: column})
@@ -760,6 +469,494 @@ func Lex(source string) ([]Token, error) {
 		return tokens, diagnostics
 	}
 	return tokens, nil
+}
+
+// scanToken scans exactly one lexical unit at index: zero tokens for
+// whitespace and comments, one for an ordinary lexeme, or several for an
+// interpreted string literal that turns out to contain interpolation.
+// previous is the most recently emitted token in the enclosing scan (used
+// only to recognize a module path immediately after `import`); depth is the
+// enclosing interpolation nesting level, threaded through so a nested
+// interpreted string inside an embedded expression stays bounded.
+func scanToken(source string, index, line, column, depth int, previous Token) ([]Token, []compilerTypes.Diagnostic, int, int, int) {
+	var tokens []Token
+	var diagnostics []compilerTypes.Diagnostic
+	ch := source[index]
+	switch {
+	case ch == ' ' || ch == '\t' || ch == '\r':
+		index++
+		column++
+	case ch == '\n':
+		index++
+		line++
+		column = 1
+	case ch == '-' && index+1 < len(source) && source[index+1] == '-':
+		commentLine, commentColumn := line, column
+		if index+2 < len(source) && source[index+2] == '[' {
+			index += 3
+			column += 3
+			closed := false
+			for index < len(source) {
+				if index+2 < len(source) && source[index] == ']' && source[index+1] == '-' && source[index+2] == '-' {
+					index += 3
+					column += 3
+					closed = true
+					break
+				}
+				if source[index] == '\n' {
+					index++
+					line++
+					column = 1
+					continue
+				}
+				index++
+				column++
+			}
+			if !closed {
+				diagnostics = append(diagnostics, *literalDiagnostic(commentLine, commentColumn, "unterminated multiline comment"))
+			}
+			return tokens, diagnostics, index, line, column
+		}
+		if index+2 < len(source) && source[index+2] == '-' {
+			index += 3
+			column += 3
+		} else {
+			index += 2
+			column += 2
+		}
+		for index < len(source) && source[index] != '\n' {
+			index++
+			column++
+		}
+	case ch == 'b' && index+1 < len(source) && source[index+1] == '\'':
+		start, startColumn := index, column
+		index += 2
+		column += 2
+		end, closed := scanQuotedBody(source, index, line, column)
+		if !closed {
+			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Byte literal"))
+		}
+		bodyEnd := end
+		if closed {
+			bodyEnd = end - 1
+		}
+		if _, message := DecodeLiteralBody(source[index:bodyEnd], ByteEscapes); message != "" {
+			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
+			tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
+		} else {
+			tokens = append(tokens, Token{Kind: ByteLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
+		}
+		column += end - index
+		index = end
+	case ch == '\'':
+		start, startColumn := index, column
+		index++
+		column++
+		end, closed := scanQuotedBody(source, index, line, column)
+		if !closed {
+			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Rune literal"))
+		}
+		bodyEnd := end
+		if closed {
+			bodyEnd = end - 1
+		}
+		if _, message := DecodeLiteralBody(source[index:bodyEnd], RuneEscapes); message != "" {
+			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
+			tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
+		} else {
+			tokens = append(tokens, Token{Kind: RuneLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
+		}
+		column += end - index
+		index = end
+	case ch == 'r' && rawStringOpens(source, index+1) >= 0:
+		token, end, newLine, newColumn, diagnostic := scanRawString(source, index, line, column, rawStringOpens(source, index+1))
+		if diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
+		tokens = append(tokens, token)
+		index, line, column = end, newLine, newColumn
+	case ch == '_':
+		end := consumeIdentifierTail(source, index+1)
+		diagnostics = append(diagnostics, *literalDiagnostic(line, column, "identifiers must begin with a letter"))
+		column += end - index
+		index = end
+	case isIdentifierStart(ch):
+		start, startColumn := index, column
+		for index < len(source) && isIdentifierPart(source[index]) {
+			index++
+			column++
+		}
+		lexeme := source[start:index]
+		kind, ok := keywords[lexeme]
+		if !ok {
+			kind = Identifier
+		}
+		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: startColumn})
+	case ch >= '0' && ch <= '9':
+		token, end, diagnostic := scanNumber(source, index, line, column)
+		if diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
+		if token.Kind != EOF {
+			tokens = append(tokens, token)
+		}
+		column += end - index
+		index = end
+	case ch == '.' && index+1 < len(source) && isDecimalDigit(source[index+1]):
+		end := consumeNumericTail(source, index+1)
+		diagnostics = append(diagnostics, *literalDiagnostic(line, column, "malformed floating literal"))
+		column += end - index
+		index = end
+	case ch == ':':
+		kind, lexeme := Colon, ":"
+		if index+1 < len(source) && source[index+1] == '=' {
+			kind, lexeme = ColonEqual, ":="
+		}
+		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		index += len(lexeme)
+		column += len(lexeme)
+	case ch == '!':
+		kind, lexeme := Bang, "!"
+		if index+1 < len(source) && source[index+1] == '=' {
+			kind, lexeme = BangEqual, "!="
+		}
+		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		index += len(lexeme)
+		column += len(lexeme)
+	case ch == '=':
+		kind, lexeme := Equal, "="
+		if index+1 < len(source) && source[index+1] == '=' {
+			kind, lexeme = EqualEqual, "=="
+		}
+		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		index += len(lexeme)
+		column += len(lexeme)
+	case ch == '<':
+		kind, lexeme := Less, "<"
+		if index+1 < len(source) && source[index+1] == '=' {
+			kind, lexeme = LessEqual, "<="
+		} else if index+1 < len(source) && source[index+1] == '<' {
+			// Shift-left is one maximal-munch token.
+			kind, lexeme = ShiftLeft, "<<"
+		}
+		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		index += len(lexeme)
+		column += len(lexeme)
+	case ch == '>':
+		kind, lexeme := Greater, ">"
+		if index+1 < len(source) && source[index+1] == '=' {
+			kind, lexeme = GreaterEqual, ">="
+		} else if index+1 < len(source) && source[index+1] == '>' {
+			// Shift-right is one maximal-munch token; the parser
+			// splits it into two generic closers when needed.
+			kind, lexeme = ShiftRight, ">>"
+		}
+		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		index += len(lexeme)
+		column += len(lexeme)
+	case ch == '&':
+		tokens = append(tokens, Token{Kind: Amp, Lexeme: "&", Line: line, Column: column})
+		index++
+		column++
+	case ch == '^':
+		tokens = append(tokens, Token{Kind: Caret, Lexeme: "^", Line: line, Column: column})
+		index++
+		column++
+	case ch == '~':
+		tokens = append(tokens, Token{Kind: Tilde, Lexeme: "~", Line: line, Column: column})
+		index++
+		column++
+	case ch == '-':
+		tokens = append(tokens, Token{Kind: Minus, Lexeme: "-", Line: line, Column: column})
+		index++
+		column++
+	case ch == '+':
+		tokens = append(tokens, Token{Kind: Plus, Lexeme: "+", Line: line, Column: column})
+		index++
+		column++
+	case ch == '*':
+		tokens = append(tokens, Token{Kind: Star, Lexeme: "*", Line: line, Column: column})
+		index++
+		column++
+	case ch == '/':
+		tokens = append(tokens, Token{Kind: Slash, Lexeme: "/", Line: line, Column: column})
+		index++
+		column++
+	case ch == '%':
+		tokens = append(tokens, Token{Kind: Percent, Lexeme: "%", Line: line, Column: column})
+		index++
+		column++
+	case ch == '|':
+		tokens = append(tokens, Token{Kind: Pipe, Lexeme: "|", Line: line, Column: column})
+		index++
+		column++
+	case ch == '"':
+		startColumn := column
+		// The literal immediately after `import` on the same line is a
+		// module path: a raw quoted payload with no escape decoding. A
+		// backslash is rejected outright; module paths are plain
+		// relative path spellings.
+		isModulePath := previous.Kind == Import && previous.Line == line
+		if isModulePath {
+			start := index
+			index++
+			column++
+			pathPayloadStart := index
+			terminated := false
+			for index < len(source) {
+				character := source[index]
+				index++
+				column++
+				if character == '"' {
+					terminated = true
+					break
+				}
+				if character == '\n' || character == '\r' {
+					break
+				}
+			}
+			if !terminated {
+				diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated module path literal"))
+			}
+			// index-1 excludes the closing quote or line terminator that
+			// stopped the scan above. An opening quote at the very end of
+			// source leaves nothing to scan (index == pathPayloadStart),
+			// which would make index-1 precede pathPayloadStart; clamp to
+			// an empty payload rather than slicing out of range.
+			payloadEnd := index - 1
+			if payloadEnd < pathPayloadStart {
+				payloadEnd = pathPayloadStart
+			}
+			if strings.ContainsRune(source[pathPayloadStart:payloadEnd], '\\') {
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid module-path literal"))
+			}
+			// Keep a recovery token even when the path is malformed so
+			// the parser can synchronize on a real token sequence.
+			tokens = append(tokens, Token{Kind: ModulePathLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
+			return tokens, diagnostics, index, line, column
+		}
+		scanned, scannedDiagnostics, newIndex, newLine, newColumn := lexInterpretedString(source, index, line, column, depth)
+		tokens = append(tokens, scanned...)
+		diagnostics = append(diagnostics, scannedDiagnostics...)
+		index, line, column = newIndex, newLine, newColumn
+	case ch == '(':
+		tokens = append(tokens, Token{Kind: LeftParen, Lexeme: "(", Line: line, Column: column})
+		index++
+		column++
+	case ch == ')':
+		tokens = append(tokens, Token{Kind: RightParen, Lexeme: ")", Line: line, Column: column})
+		index++
+		column++
+	case ch == '[':
+		tokens = append(tokens, Token{Kind: LeftBracket, Lexeme: "[", Line: line, Column: column})
+		index++
+		column++
+	case ch == ']':
+		tokens = append(tokens, Token{Kind: RightBracket, Lexeme: "]", Line: line, Column: column})
+		index++
+		column++
+	case ch == '.':
+		tokens = append(tokens, Token{Kind: Dot, Lexeme: ".", Line: line, Column: column})
+		index++
+		column++
+	case ch == '{':
+		tokens = append(tokens, Token{Kind: LeftBrace, Lexeme: "{", Line: line, Column: column})
+		index++
+		column++
+	case ch == '}':
+		tokens = append(tokens, Token{Kind: RightBrace, Lexeme: "}", Line: line, Column: column})
+		index++
+		column++
+	case ch == ',':
+		tokens = append(tokens, Token{Kind: Comma, Lexeme: ",", Line: line, Column: column})
+		index++
+		column++
+	default:
+		diagnostics = append(diagnostics, *literalDiagnostic(line, column, fmt.Sprintf("unexpected character %q", ch)))
+		index++
+		column++
+	}
+	return tokens, diagnostics, index, line, column
+}
+
+// skipToClosingQuote consumes the remainder of an already-invalid
+// interpreted-string literal (after a raw newline was found) through its
+// closing '"' or EOF, so the outer scan resumes after the whole malformed
+// literal instead of reinterpreting its remaining text as code. It performs
+// only the minimal backslash skip needed to avoid terminating early on an
+// escaped quote; no other escape or interpolation processing applies to a
+// literal that has already been rejected.
+func skipToClosingQuote(source string, index, line, column int) (int, int, int) {
+	for index < len(source) {
+		character := source[index]
+		if character == '\\' {
+			if index+1 >= len(source) {
+				index++
+				column++
+				break
+			}
+			index += 2
+			column += 2
+			continue
+		}
+		index++
+		column++
+		if character == '"' {
+			break
+		}
+		if character == '\n' {
+			line++
+			column = 1
+		}
+	}
+	return index, line, column
+}
+
+// lexInterpretedString scans one interpreted-string literal starting at its
+// opening '"' (source[start]). When it contains no unescaped "{{", it
+// returns the single StringLiteral token exactly as before, byte for byte,
+// so every non-interpolating literal keeps its existing token shape and
+// downstream path unchanged. Otherwise it commits to the interpolated token
+// sequence: InterpStringStart, alternating InterpText / InterpOpen /
+// <ordinary tokens for the embedded expression> / InterpClose, and finally
+// InterpStringEnd. depth counts enclosing interpolation nesting (a nested
+// string literal written inside an embedded expression) and is capped to
+// keep this recursive scan bounded.
+func lexInterpretedString(source string, start, line, column, depth int) ([]Token, []compilerTypes.Diagnostic, int, int, int) {
+	if depth > maxInterpolationDepth {
+		end, endLine, endColumn := skipToClosingQuote(source, start+1, line, column+1)
+		return nil, []compilerTypes.Diagnostic{*literalDiagnostic(line, column, "nesting exceeds the maximum depth of 128")}, end, endLine, endColumn
+	}
+	var tokens []Token
+	var diagnostics []compilerTypes.Diagnostic
+	index := start + 1
+	curLine, curColumn := line, column+1
+	interpolating := false
+
+	for {
+		segStart, segLine, segColumn := index, curLine, curColumn
+		terminatedByQuote := false
+		opensInterpolation := false
+		for index < len(source) {
+			character := source[index]
+			if character == '\\' {
+				if index+1 >= len(source) {
+					break
+				}
+				escaped := source[index+1]
+				if escaped == '\n' || escaped == '\r' {
+					diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, `String literal cannot contain a raw newline; use \n`))
+					index += 2
+					curLine++
+					curColumn = 1
+					if escaped == '\r' && index < len(source) && source[index] == '\n' {
+						index++
+					}
+					end, endLine, endColumn := skipToClosingQuote(source, index, curLine, curColumn)
+					return nil, diagnostics, end, endLine, endColumn
+				}
+				index += 2
+				curColumn += 2
+				continue
+			}
+			if character == '"' {
+				index++
+				curColumn++
+				terminatedByQuote = true
+				break
+			}
+			if character == '{' && index+1 < len(source) && source[index+1] == '{' {
+				opensInterpolation = true
+				break
+			}
+			if character == '\n' || character == '\r' {
+				diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, `String literal cannot contain a raw newline; use \n`))
+				isCRLF := character == '\r' && index+1 < len(source) && source[index+1] == '\n'
+				index++
+				if isCRLF {
+					index++
+				}
+				curLine++
+				curColumn = 1
+				end, endLine, endColumn := skipToClosingQuote(source, index, curLine, curColumn)
+				return nil, diagnostics, end, endLine, endColumn
+			}
+			index++
+			curColumn++
+		}
+
+		if !terminatedByQuote && !opensInterpolation {
+			// EOF before either terminator.
+			if !interpolating {
+				diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, "unterminated string literal"))
+				tokens = append(tokens, Token{Kind: StringLiteral, Lexeme: source[start:index], Line: line, Column: column})
+				return tokens, diagnostics, index, curLine, curColumn
+			}
+			diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, "unterminated string interpolation"))
+			tokens = append(tokens, Token{Kind: InterpText, Lexeme: source[segStart:index], Line: segLine, Column: segColumn})
+			return tokens, diagnostics, index, curLine, curColumn
+		}
+
+		if terminatedByQuote {
+			text := source[segStart : index-1]
+			if !interpolating {
+				tokens = append(tokens, Token{Kind: StringLiteral, Lexeme: source[start:index], Line: line, Column: column})
+				return tokens, diagnostics, index, curLine, curColumn
+			}
+			tokens = append(tokens, Token{Kind: InterpText, Lexeme: text, Line: segLine, Column: segColumn})
+			tokens = append(tokens, Token{Kind: InterpStringEnd, Lexeme: "\"", Line: curLine, Column: curColumn - 1})
+			return tokens, diagnostics, index, curLine, curColumn
+		}
+
+		// opensInterpolation: commit to the interpolated token sequence (if
+		// this is the first "{{" in this literal) and scan the embedded
+		// expression through ordinary tokenization.
+		text := source[segStart:index]
+		if !interpolating {
+			interpolating = true
+			tokens = append(tokens, Token{Kind: InterpStringStart, Lexeme: "\"", Line: line, Column: column})
+		}
+		tokens = append(tokens, Token{Kind: InterpText, Lexeme: text, Line: segLine, Column: segColumn})
+		openLine, openColumn := curLine, curColumn
+		tokens = append(tokens, Token{Kind: InterpOpen, Lexeme: "{{", Line: openLine, Column: openColumn})
+		index += 2
+		curColumn += 2
+
+		exprDepth := 0
+		closed := false
+		var previous Token
+		for index < len(source) {
+			if source[index] == '}' && index+1 < len(source) && source[index+1] == '}' && exprDepth == 0 {
+				tokens = append(tokens, Token{Kind: InterpClose, Lexeme: "}}", Line: curLine, Column: curColumn})
+				index += 2
+				curColumn += 2
+				closed = true
+				break
+			}
+			scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, curLine, curColumn, depth+1, previous)
+			tokens = append(tokens, scanned...)
+			diagnostics = append(diagnostics, scannedDiagnostics...)
+			for _, token := range scanned {
+				switch token.Kind {
+				case LeftParen, LeftBracket, LeftBrace:
+					exprDepth++
+				case RightParen, RightBracket, RightBrace:
+					if exprDepth > 0 {
+						exprDepth--
+					}
+				}
+			}
+			if len(scanned) > 0 {
+				previous = scanned[len(scanned)-1]
+			}
+			index, curLine, curColumn = newIndex, newLine, newColumn
+		}
+		if !closed {
+			diagnostics = append(diagnostics, *literalDiagnostic(openLine, openColumn, "unterminated string interpolation"))
+			return tokens, diagnostics, index, curLine, curColumn
+		}
+		// Loop back to scan the next text segment after "}}".
+	}
 }
 
 // scanQuotedBody scans one single-quoted literal body (after the opening
@@ -789,6 +986,65 @@ func scanQuotedBody(source string, start, line, column int) (int, bool) {
 		}
 	}
 	return index, closed
+}
+
+// rawStringOpens reports the hash count of a raw-string opening delimiter
+// beginning at afterR (the index right after 'r'): zero or more '#' followed
+// by '"'. It returns -1 when afterR does not begin such a delimiter, in
+// which case 'r' is an ordinary identifier character.
+func rawStringOpens(source string, afterR int) int {
+	index := afterR
+	for index < len(source) && source[index] == '#' {
+		index++
+	}
+	if index >= len(source) || source[index] != '"' {
+		return -1
+	}
+	return index - afterR
+}
+
+// scanRawString scans a raw-string literal starting at its 'r' (start),
+// whose 'r' + hashCount '#' + '"' opening delimiter is already confirmed
+// present. It consumes byte-for-byte, with no escape processing, through the
+// first '"' followed by at least hashCount '#' characters: the closing
+// delimiter consumes exactly hashCount of them, leaving any further '#' for
+// the next token. An EOF before the closing delimiter reports "unterminated
+// raw string literal" at the opening 'r' and still yields a token spanning
+// to EOF, matching the interpreted-string literal's recovery convention.
+func scanRawString(source string, start, line, column, hashCount int) (Token, int, int, int, *compilerTypes.Diagnostic) {
+	index := start + 1 + hashCount + 1 // past 'r', the hashes, and the opening '"'
+	curLine, curColumn := line, column+1+hashCount+1
+	for index < len(source) {
+		if source[index] == '"' {
+			closeHashes := 0
+			for index+1+closeHashes < len(source) && source[index+1+closeHashes] == '#' {
+				closeHashes++
+			}
+			if closeHashes >= hashCount {
+				end := index + 1 + hashCount
+				return Token{Kind: RawStringLiteral, Lexeme: source[start:end], Line: line, Column: column}, end, curLine, curColumn + 1 + hashCount, nil
+			}
+		}
+		character := source[index]
+		switch character {
+		case '\r':
+			index++
+			if index < len(source) && source[index] == '\n' {
+				index++
+			}
+			curLine++
+			curColumn = 1
+		case '\n':
+			index++
+			curLine++
+			curColumn = 1
+		default:
+			index++
+			curColumn++
+		}
+	}
+	return Token{Kind: RawStringLiteral, Lexeme: source[start:index], Line: line, Column: column}, index, curLine, curColumn,
+		literalDiagnostic(line, column, "unterminated raw string literal")
 }
 
 func scanNumber(source string, start, line, column int) (Token, int, *compilerTypes.Diagnostic) {

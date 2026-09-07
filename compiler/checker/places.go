@@ -95,7 +95,10 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			}
 		}
 		var receiver checkedExpression
-		if _, temporary := expression.Receiver.(parser.ObjectLiteral); temporary {
+		if _, temporary := expression.Receiver.(parser.CallExpression); temporary {
+			// A call result (including a struct or ADT-variant constructor)
+			// is never a place; read its member as the temporary value it is
+			// rather than rejecting it through checkPlace's default case.
 			receiver = checkValue(expression.Receiver, ctx)
 		} else {
 			receiver = checkPlace(expression.Receiver, ctx)
@@ -179,9 +182,6 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		return checkedExpression{source: initializer.source, typ: initializer.typ, token: initializer.token, diagnostic: initializer.diagnostic}
 	case parser.BooleanLiteral:
 		return checkedExpression{source: constantOperand(compilerTypes.Bool, constant.MakeBool(expression.Token.Kind == lexer.True), expression.Token.Lexeme), typ: compilerTypes.Bool, token: expression.Token}
-	case parser.ObjectLiteral:
-		literal := checkObjectLiteral(expression, compilerTypes.Type{}, ctx)
-		return checkedExpression{source: literal.source, typ: literal.typ, token: literal.token, diagnostic: literal.diagnostic}
 	default:
 		// Every other expression kind (a call, a binary or unary expression,
 		// a match, a function literal, and so on) computes a value rather

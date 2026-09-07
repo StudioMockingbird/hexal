@@ -8,7 +8,7 @@ import (
 )
 
 func TestCheckTransparentAliasesAndPointerInterning(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Coordinate = Int32 type A = Ptr<Coordinate> type B = Ptr<Int32>"))
+	checked, err := Check(parseProgram(t, "type Coordinate is Int32 type A is Ptr<Coordinate> type B is Ptr<Int32>"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -25,8 +25,8 @@ func TestCheckTransparentAliasesAndPointerInterning(t *testing.T) {
 
 func TestCheckAliasSelfReferencePrecedesLookup(t *testing.T) {
 	for _, source := range []string{
-		"type Coordinate = Coordinate",
-		"type CoordinatePtr = Ptr<CoordinatePtr>",
+		"type Coordinate is Coordinate",
+		"type CoordinatePtr is Ptr<CoordinatePtr>",
 	} {
 		_, err := Check(parseProgram(t, source))
 		if err == nil || !strings.Contains(err.Error(), "type alias ") || !strings.Contains(err.Error(), "cannot reference itself") {

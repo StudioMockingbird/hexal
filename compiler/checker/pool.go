@@ -27,17 +27,16 @@ func resolvePoolTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	return compilerTypes.NewTypeUse(pool), nil
 }
 
-// checkPoolTypeCall resolves Pool<T>.new(capacity) into a fresh independent
+// checkPoolTypeCall resolves Pool<T>(capacity) into a fresh independent
 // typed fixed-capacity slot-allocator handle. Construction always uses
 // Hexal's default allocation primitives and retains no parent Heap.
 func checkPoolTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
 	poolUse, diagnostic := resolvePoolTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "Pool", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
-	if property.Lexeme != "new" || len(call.Arguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Pool has no such operation; use Pool<T>.new(capacity)"))}
+	if len(call.Arguments) != 1 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Pool requires 1 argument (capacity); use Pool<T>(capacity)"))}
 	}
 	capacity := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(capacity); len(diagnostics) > 0 {
@@ -53,7 +52,7 @@ func checkPoolTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 	}
 	node := Expression{Kind: PoolConstructorExpression, Operand: &capacity.source.Node, Arguments: []Operand{capacity.source}, OperandType: poolUse.Type, ResultType: poolUse.Type, Element: poolUse.Type.Pool.Element}
 	source := Operand{Kind: ExpressionOperand, Type: poolUse.Type, Name: "new", Node: node}
-	return checkedExpression{source: source, typ: poolUse.Type, token: property}
+	return checkedExpression{source: source, typ: poolUse.Type, token: callee}
 }
 
 // checkPoolMethodCall dispatches the built-in Pool methods: allocate, free,

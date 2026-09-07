@@ -23,11 +23,11 @@ returnable aggregate. This is a current memory-safety bug.
 ## Current failure
 
 ```hexal
-type Window = { visible: View<Int32> }
+type Window is struct visible: View<Int32> end
 
 fun bad(): Window do
     fixed: Array<Int32, 4> := [1, 2, 3, 4]
-    return Window { visible = fixed.slice(0, 2) }
+    return Window(visible = fixed.slice(0, 2))
 end
 ```
 

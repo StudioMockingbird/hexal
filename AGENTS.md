@@ -213,8 +213,17 @@ Other closed specs
 predate RFC 0061 and show the old delimiter-free forms (`fun f()` or
 `if cond` without the mandatory `do`/`then`); the language now requires those
 block openers, so treat their absence in a closed spec as superseded, not as
-authority. Do not copy a rule out of a spec without checking it against
-`reference.md` first.
+authority. Closed specs before RFC 0142 also show `type Name = Target` and
+`type Name as ... end` declarations, `Name { field = value }` brace
+construction (including ADT variant construction), bare unit ADT variant
+values (`Owner.Variant` with no call), `.new()` compiler-owned constructors,
+and `impl Receiver.name(...)` method declarations — all historical. The
+current forms are `type Name is ...`, call-shaped `Name(field = value)`
+construction for structs and ADT variants (`Owner.Variant(field = value)`,
+always called even for unit variants), `Type(...)` for every compiler-owned
+canonical constructor (Heap, Stash, Pool, List, Dict, Channel, Mutex, Atomic,
+Error), and `method Receiver.name(...)`. Do not copy a rule out of a spec
+without checking it against `reference.md` first.
 
 ## Testing
 

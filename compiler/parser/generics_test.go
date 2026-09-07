@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseGenericTypeDeclarationParameters(t *testing.T) {
-	program := parseOneItem(t, "type Box<T> = { value: T }").(TypeDeclaration)
+	program := parseOneItem(t, "type Box<T> is struct value: T end").(TypeDeclaration)
 	if len(program.Parameters) != 1 || program.Parameters[0].Lexeme != "T" {
 		t.Fatalf("parameters = %#v, want [T]", program.Parameters)
 	}
@@ -18,7 +18,7 @@ func TestParseGenericTypeDeclarationParameters(t *testing.T) {
 }
 
 func TestParseGenericAliasParameters(t *testing.T) {
-	program := parseOneItem(t, "type Pointer<T> = Ptr<T>").(TypeDeclaration)
+	program := parseOneItem(t, "type Pointer<T> is Ptr<T>").(TypeDeclaration)
 	if len(program.Parameters) != 1 || program.Parameters[0].Lexeme != "T" {
 		t.Fatalf("parameters = %#v, want [T]", program.Parameters)
 	}
@@ -64,7 +64,7 @@ func TestParseGenericFunctionDeclaration(t *testing.T) {
 }
 
 func TestParseGenericMethodDeclaration(t *testing.T) {
-	program := parseOneItem(t, "impl Box<T>.same<U>(other: U): Bool do\nreturn false\nend").(ImplDeclaration)
+	program := parseOneItem(t, "method Box<T>.same<U>(other: U): Bool do\nreturn false\nend").(MethodDeclaration)
 	if len(program.TypeParameters) != 1 || program.TypeParameters[0].Lexeme != "U" {
 		t.Fatalf("method type parameters = %#v, want [U]", program.TypeParameters)
 	}
@@ -117,8 +117,8 @@ func TestParseRelationalLessIsNotGenericSuffix(t *testing.T) {
 	}
 }
 
-func TestParseGenericObjectLiteral(t *testing.T) {
-	tokens, err := lexer.Lex("box: Box<Int32> := Box<Int32> { value = 42 }")
+func TestParseGenericConstructorCall(t *testing.T) {
+	tokens, err := lexer.Lex("box: Box<Int32> := Box<Int32>(value = 42)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,8 +126,11 @@ func TestParseGenericObjectLiteral(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	literal, ok := program.Statements[0].(Declaration).Initializer.(ObjectLiteral)
-	if !ok || len(literal.TypeArguments) != 1 {
-		t.Fatalf("initializer = %#v, want object literal with one type argument", program.Statements[0])
+	call, ok := program.Statements[0].(Declaration).Initializer.(CallExpression)
+	if !ok || len(call.TypeArguments) != 1 {
+		t.Fatalf("initializer = %#v, want a constructor call with one type argument", program.Statements[0])
+	}
+	if len(call.ArgumentLabels) != 1 || call.ArgumentLabels[0] == nil || call.ArgumentLabels[0].Lexeme != "value" {
+		t.Fatalf("argument labels = %#v, want [value]", call.ArgumentLabels)
 	}
 }

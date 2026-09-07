@@ -18,7 +18,7 @@ func TestEqualityComponentAbsentWithoutProgramOwnedTypes(t *testing.T) {
 
 // A program with only module-owned equality types emits no hexal/equality.h.
 func TestEqualityComponentAbsentWithModuleOwnedOnly(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Point = { x: Int32, y: Int32 }\nfun demo(): Int32 do\n    left: Point := Point { x = 1, y = 2 }\n    right: Point := Point { x = 1, y = 2 }\n    same: Bool := left == right\n    if same then return 1 else return 0 end\nend")
+	program := checkedGeneratorSource(t, "type Point is struct\n    x: Int32,\n    y: Int32,\nend\nfun demo(): Int32 do\n    left: Point := Point(x = 1, y = 2)\n    right: Point := Point(x = 1, y = 2)\n    same: Bool := left == right\n    if same then return 1 else return 0 end\nend")
 	files := generateOne(t, program)
 	if _, exists := files["hexal/equality.h"]; exists {
 		t.Fatalf("module-owned-only equality program emitted hexal/equality.h: %v", files)
@@ -27,7 +27,7 @@ func TestEqualityComponentAbsentWithModuleOwnedOnly(t *testing.T) {
 
 // A program using print with module-owned types emits no hexal/equality.h.
 func TestEqualityComponentNotTriggeredByPrint(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Point = { x: Int32, y: Int32 }\nfun demo(): Int32 do\n    p: Point := Point { x = 1, y = 2 }\n    print(p)\n    return 0\nend")
+	program := checkedGeneratorSource(t, "type Point is struct\n    x: Int32,\n    y: Int32,\nend\nfun demo(): Int32 do\n    p: Point := Point(x = 1, y = 2)\n    print(p)\n    return 0\nend")
 	files := generateOne(t, program)
 	if _, exists := files["hexal/equality.h"]; exists {
 		t.Fatalf("print-only program emitted hexal/equality.h: %v", files)

@@ -9,7 +9,7 @@ import (
 // representation, the module header includes it, and hexal.h no longer
 // carries the definition.
 func TestErrorComponentSelectedByUse(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(): Int32 | Error do\n    return Error.new(\"Read Error\", \"bad\")\nend")
+	program := checkedGeneratorSource(t, "fun demo(): Int32 | Error do\n    return Error(\"Read Error\", \"bad\")\nend")
 	files := generateOne(t, program)
 	errorH, exists := files["hexal/error.h"]
 	if !exists {

@@ -8,7 +8,7 @@ import (
 )
 
 func TestDictFindReturnsOptionalAndProbesOnce(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    hit: Int32 | Nil := scores.find(1)\n    if hit != nil then\n        value: Int32 := hit\n    end\n    miss: Int32 | Nil := scores.find(2)\n    if miss == nil then\n        absent: Int32 := 0\n    end\nend")
+	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    hit: Int32 | Nil := scores.find(1)\n    if hit != nil then\n        value: Int32 := hit\n    end\n    miss: Int32 | Nil := scores.find(2)\n    if miss == nil then\n        absent: Int32 := 0\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -28,21 +28,21 @@ func TestDictFindReturnsOptionalAndProbesOnce(t *testing.T) {
 }
 
 func TestDictFindRequiresNarrowing(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    bad: Int32 := scores.find(1)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    bad: Int32 := scores.find(1)\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "expected Int32 initializer; got Int32 | Nil") {
 		t.Fatalf("Compile stderr = %#v, want narrowing diagnostic", result.Stderr)
 	}
 }
 
 func TestDictFindPreservesUnionValues(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32 | Bool> := Dict<Int32, Int32 | Bool>.new(h)\n    defer scores.free(h)\n    value: Int32 | Bool := 10\n    scores.insert(1, value)\n    found: Int32 | Bool | Nil := scores.find(1)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32 | Bool> := Dict<Int32, Int32 | Bool>(h)\n    defer scores.free(h)\n    value: Int32 | Bool := 10\n    scores.insert(1, value)\n    found: Int32 | Bool | Nil := scores.find(1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestDictInt32Lifecycle(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool := scores.contains(1)\n    first: Int32 := scores.get(1)\n    removed: Int32 := scores.remove(2)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool := scores.contains(1)\n    first: Int32 := scores.get(1)\n    removed: Int32 := scores.remove(2)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -98,7 +98,7 @@ func TestDictInt32Lifecycle(t *testing.T) {
 }
 
 func TestDictStrandKeys(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    labels.insert(\"bob\", 2)\n    present: Bool := labels.contains(\"alice\")\n    score: Int32 := labels.get(\"bob\")\n    key: Strand := \"carol\"\n    labels.insert(key, 3)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    labels.insert(\"bob\", 2)\n    present: Bool := labels.contains(\"alice\")\n    score: Int32 := labels.get(\"bob\")\n    key: Strand := \"carol\"\n    labels.insert(key, 3)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -143,7 +143,7 @@ func TestDictStrandKeys(t *testing.T) {
 func TestDictStringValues(t *testing.T) {
 	// A stored literal is never freed by the collection or by a remove; a
 	// runtime String removed from the dict is freed explicitly.
-	result := compileSource("fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    runtime: String := \"bob\".to_string(h)\n    people.insert(2, runtime)\n    removed: String := people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    name: String := people.get(1)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    runtime: String := \"bob\".to_string(h)\n    people.insert(2, runtime)\n    removed: String := people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    name: String := people.get(1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -161,7 +161,7 @@ func TestDictStringValues(t *testing.T) {
 }
 
 func TestDictFindSupportsNullableHandleValues(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    maybe: String | Nil := people.find(1)\n    if maybe != nil then\n        name: String := maybe\n    end\nend")
+	result := compileSource("fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    maybe: String | Nil := people.find(1)\n    if maybe != nil then\n        name: String := maybe\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -174,11 +174,11 @@ func TestDictFindSupportsNullableHandleValues(t *testing.T) {
 // read handle is live is the programmer's responsibility.
 func TestDictMutationAfterReadIsValid(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    people.insert(2, \"b\")\nend",
-		"fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    removed: String := people.remove(1)\nend",
-		"fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    people.free(h)\nend",
-		"fun demo(h: Heap) do\n    mut people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    people = Dict<Int32, String>.new(h)\nend",
-		"fun inspect(people: Dict<Int32, String>) do\nend\nfun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    inspect(people)\nend",
+		"fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    people.insert(2, \"b\")\nend",
+		"fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    removed: String := people.remove(1)\nend",
+		"fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    people.free(h)\nend",
+		"fun demo(h: Heap) do\n    mut people: Dict<Int32, String> := Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    people = Dict<Int32, String>(h)\nend",
+		"fun inspect(people: Dict<Int32, String>) do\nend\nfun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    inspect(people)\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
@@ -187,7 +187,7 @@ func TestDictMutationAfterReadIsValid(t *testing.T) {
 }
 
 func TestDictBorrowAllowsLookups(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>.new(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    present: Bool := people.contains(1)\n    other: String := people.get(1)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    people: Dict<Int32, String> := Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"a\")\n    name: String := people.get(1)\n    present: Bool := people.contains(1)\n    other: String := people.get(1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -195,9 +195,9 @@ func TestDictBorrowAllowsLookups(t *testing.T) {
 
 func TestDictShallowCopySemantics(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\nend",
-		"fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    scores.free(h)\n    scores.free(h)\nend",
-		"fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    other: Dict<Int32, Int32> := scores\nend",
+		"fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\nend",
+		"fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    scores.free(h)\n    scores.free(h)\nend",
+		"fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    other: Dict<Int32, Int32> := scores\nend",
 		"fun demo(h: Heap, scores: Dict<Int32, Int32>) do\n    scores.free(h)\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -208,7 +208,7 @@ func TestDictShallowCopySemantics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo(h: Heap) do\n    scores: Dict<Bool, Int32> := Dict<Bool, Int32>.new(h)\nend", "dictionary key type must be Int32 or Strand"},
+		{"fun demo(h: Heap) do\n    scores: Dict<Bool, Int32> := Dict<Bool, Int32>(h)\nend", "dictionary key type must be Int32 or Strand"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -218,7 +218,7 @@ func TestDictShallowCopySemantics(t *testing.T) {
 }
 
 func TestDictReturnHandoff(t *testing.T) {
-	result := compileSource("fun make_scores(h: Heap): Dict<Int32, Int32> do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    scores.insert(1, 10)\n    return scores\nend\nfun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := make_scores(h)\n    scores.free(h)\nend")
+	result := compileSource("fun make_scores(h: Heap): Dict<Int32, Int32> do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    scores.insert(1, 10)\n    return scores\nend\nfun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := make_scores(h)\n    scores.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

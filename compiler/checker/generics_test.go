@@ -7,7 +7,7 @@ import (
 )
 
 func TestCheckGenericObjectTypeDeclarationAndUse(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Box<T> = { value: T } box: Box<Int32> := Box<Int32> { value = 42 }"))
+	checked, err := Check(parseProgram(t, "type Box<T> is struct value: T end box: Box<Int32> := Box<Int32>(value = 42)"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestCheckGenericObjectTypeDeclarationAndUse(t *testing.T) {
 }
 
 func TestCheckGenericAliasSpecializesTransparently(t *testing.T) {
-	_, err := Check(parseProgram(t, "type Pointer<T> = Ptr<T> pointer: Pointer<Int32> := nil"))
+	_, err := Check(parseProgram(t, "type Pointer<T> is Ptr<T> pointer: Pointer<Int32> := nil"))
 	if err == nil {
 		t.Fatal("Check accepted a Nil initializer for a non-null pointer")
 	}
@@ -35,18 +35,18 @@ func TestCheckGenericAliasSpecializesTransparently(t *testing.T) {
 
 func TestCheckGenericTypeArityMismatch(t *testing.T) {
 	requireDiagnostic(t,
-		"type Pair<Left, Right> = { left: Left, right: Right } bad: Pair<Int32> := value",
+		"type Pair<Left, Right> is struct left: Left, right: Right end bad: Pair<Int32> := value",
 		"generic type Pair expects 2 type arguments; got 1")
 }
 
 func TestCheckGenericTypeUnknownArgument(t *testing.T) {
 	requireDiagnostic(t,
-		"type Box<T> = { value: T } bad: Box<Missing> := value",
+		"type Box<T> is struct value: T end bad: Box<Missing> := value",
 		"unknown type Missing")
 }
 
 func TestCheckGenericObjectPointerIndirectedRecursion(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Link<T> = { value: T, mut next: MutPtr<Link<T>> | Nil, } link: Link<Int32> := Link<Int32> { value = 1, next = nil }"))
+	checked, err := Check(parseProgram(t, "type Link<T> is struct value: T, mut next: MutPtr<Link<T>> | Nil, end link: Link<Int32> := Link<Int32>(value = 1, next = nil)"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestCheckGenericFunctionInferenceConflict(t *testing.T) {
 }
 
 func TestCheckGenericMethodSpecializesWithReceiverArguments(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Box<T> = { value: T }\nimpl Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> := Box<Int32> { value = 42 }\nvalue: Int32 := box.get()"))
+	checked, err := Check(parseProgram(t, "type Box<T> is struct value: T end\nmethod Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> := Box<Int32>(value = 42)\nvalue: Int32 := box.get()"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestCheckGenericFunctionValueReferenceInfersFromTarget(t *testing.T) {
 }
 
 func TestCheckGenericObjectLiteralInfersFromExpectedType(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Box<T> = { value: T } box: Box<Int32> := Box { value = 42 }"))
+	checked, err := Check(parseProgram(t, "type Box<T> is struct value: T end box: Box<Int32> := Box(value = 42)"))
 	if err != nil {
 		t.Fatal(err)
 	}

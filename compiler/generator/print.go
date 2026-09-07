@@ -174,6 +174,14 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type, tag
 	case compilerTypes.Equal(typ, compilerTypes.Float64):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_float64(*(const double *)value);\n}\n", typ.CName)
 	case typ.Object != nil:
+		if len(typ.Object.Members) == 0 {
+			// An empty struct's private byte member is not part of its
+			// surface, so its print output is the bare "Name {}" form with
+			// no member list and no interior padding.
+			fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    (void)value;\n", typ.CName)
+			fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"%s {}\", %d);\n}\n", typ.Name, len(typ.Name)+3)
+			break
+		}
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n", typ.CName, typ.CName)
 		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"%s { \", %d);\n", typ.Name, len(typ.Name)+3)
 		for index, member := range typ.Object.Members {

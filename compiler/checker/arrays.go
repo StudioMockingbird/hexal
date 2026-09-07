@@ -98,7 +98,10 @@ func checkArrayIndex(expression parser.Expression, fallback lexer.Token, ctx che
 // writable, though a MutPtr element's pointee keeps its own capability.
 func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checkedExpression {
 	var receiver checkedExpression
-	if _, temporary := expression.Receiver.(parser.ObjectLiteral); temporary {
+	if _, temporary := expression.Receiver.(parser.CallExpression); temporary {
+		// A call result (including a struct or ADT-variant constructor) is
+		// never a place; index it as the temporary value it is rather than
+		// rejecting it through checkPlace's default case.
 		receiver = checkValue(expression.Receiver, ctx)
 	} else {
 		receiver = checkPlace(expression.Receiver, ctx)

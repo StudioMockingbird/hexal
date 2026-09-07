@@ -172,7 +172,7 @@ func TestExplicitBlockOpenersAccepted(t *testing.T) {
 	assertCompiles(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nvalue: Int32 := identity(1)\n")
 	assertCompiles(t, "export fun generic<T>(value: T): T do\n    return value\nend\n")
 	assertCompiles(t, "fun recursive(value: Int32): Int32 do\n    return recursive(value)\nend\n")
-	assertCompiles(t, "type Point = { x: Int32, }\nimpl Point.getX(): Int32 do\n    return self.x\nend\np: Point := Point { x = 1, }\nvalue: Int32 := p.getX()\n")
+	assertCompiles(t, "type Point is struct x: Int32, end\nmethod Point.getX(): Int32 do\n    return self.x\nend\np: Point := Point(x = 1,)\nvalue: Int32 := p.getX()\n")
 	assertCompiles(t, "fun reset() do\nend\nreset()\n")
 	assertCompiles(t, "mut value: Int32 := 1 if value > 0 then value = 0 elseif value == 0 then value = 1 else value = 2 end\n")
 	assertCompiles(t, "mut value: Int32 := 1 while value > 0 do value = 0 end\n")
@@ -196,7 +196,7 @@ func TestExplicitBlockOpenersRejectFormerForms(t *testing.T) {
 	}{
 		{"fun f()\nend", "expected 'do' after function signature"},
 		{"fun f(): Int32\n    return 1\nend\n", "expected 'do' after function signature"},
-		{"impl Point.m()\nend", "expected 'do' after method signature"},
+		{"method Point.m()\nend", "expected 'do' after method signature"},
 		{"if flag\n    noop: Int32 := 1\nend", "expected 'then' after if condition"},
 		{"if flag noop: Int32 := 1 end", "expected 'then' after if condition"},
 		{"mut flag: Bool := true if flag then noop: Int32 := 1 elseif !flag\n    noop: Int32 := 2\nend", "expected 'then' after elseif condition"},
@@ -240,12 +240,12 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 		want   string
 	}{
 		{"fixed: Array<Int32, 2> := [1, 2] bad: Int32 := fixed.at(0)", "Array<Int32, 2> has no method at"},
-		{"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    first: Int32 := values.at(0)\nend", "List<Int32> has no method at"},
+		{"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    first: Int32 := values.at(0)\nend", "List<Int32> has no method at"},
 		{"text: String := \"hi\" first: Rune := text.at(0)", "String has no method at"},
 		{"label: Strand := \"hi\" first: Rune := label.at(0)", "Strand has no method at"},
 		{"fixed: Array<Int32, 2> := [1, 2] bad: Bool := fixed.is_empty()", "Array<Int32, 2> has no method is_empty"},
 		{"fixed: Array<Int32, 3> := [1, 2, 3] view: View<Int32> := fixed.slice(0, 2) bad: Bool := view.is_empty()", "View<Int32> has no method is_empty"},
-		{"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    empty: Bool := values.is_empty()\nend", "List<Int32> has no method is_empty"},
+		{"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    empty: Bool := values.is_empty()\nend", "List<Int32> has no method is_empty"},
 		{"text: String := \"hi\" bad: Bool := text.is_empty()", "String has no method is_empty"},
 		{"label: Strand := \"hi\" bad: Bool := label.is_empty()", "Strand has no method is_empty"},
 	} {

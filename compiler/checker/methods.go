@@ -9,7 +9,7 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// MethodDeclaration is a checked `impl` method. Object is the nominal object
+// MethodDeclaration is a checked `method` declaration. Object is the nominal object
 // the method is associated with, whichever receiver form was written; SelfType
 // is that written form and is the type of the implicit `self` binding.
 // A method is not a value, so unlike a function it carries no Fun<...> type.
@@ -32,13 +32,13 @@ func (MethodDeclaration) statementNode() {}
 
 // methodTable holds every method declared so far. Methods are keyed by the
 // canonical *ObjectType -- the nominal identity itself -- and never by display
-// name: aliases share one ObjectType, so `impl Point.f` and `impl Coord.f` are
+// name: aliases share one ObjectType, so `method Point.f` and `method Coord.f` are
 // one method, while two distinct objects that happen to print the same name
 // stay separate.
 type methodTable struct {
 	byObject map[*compilerTypes.ObjectType]map[string]*MethodDeclaration
 	// cNames maps the private C spelling stem a method produces
-	// (Point_translate for impl Point.translate) to that method's source
+	// (Point_translate for method Point.translate) to that method's source
 	// spelling. The hex_f_ encoding is not injective, so a collision between
 	// a free function and a method is reported against both declarations.
 	cNames map[string]string
@@ -69,11 +69,11 @@ func (table *methodTable) define(method *MethodDeclaration) {
 }
 
 func collisionDiagnostic(functionName, methodName string, token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, fmt.Sprintf("free function %s collides with impl %s", functionName, methodName))
+	return typeErrorAt(token, fmt.Sprintf("free function %s collides with method %s", functionName, methodName))
 }
 
 func methodCollisionDiagnostic(objectName, methodName, existing string, token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, fmt.Sprintf("impl %s.%s collides with impl %s", objectName, methodName, existing))
+	return typeErrorAt(token, fmt.Sprintf("method %s.%s collides with method %s", objectName, methodName, existing))
 }
 
 // isNullableFun reports whether typ is a nullable function pointer
@@ -194,7 +194,7 @@ func nonCallableMemberDiagnostic(token lexer.Token, member *compilerTypes.Object
 // method is registered as an open template by registerGenericMethod before
 // any receiver resolution and returns a zero declaration; its body is
 // checked only lazily at specialization time.
-func collectMethodSignature(declaration parser.ImplDeclaration, ctx checkContext) (MethodDeclaration, compilerTypes.Diagnostics) {
+func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkContext) (MethodDeclaration, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	checked := MethodDeclaration{
 		Name:         name,
@@ -220,7 +220,7 @@ func collectMethodSignature(declaration parser.ImplDeclaration, ctx checkContext
 	// narrowing the method body can never prove, so the target is rejected.
 	if compilerTypes.IsNullable(target) {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
-			fmt.Sprintf("impl requires T, Ptr<T>, or MutPtr<T>; got %s", target.Name))}
+			fmt.Sprintf("method requires T, Ptr<T>, or MutPtr<T>; got %s", target.Name))}
 	}
 	// Method rule 1: the target is T, Ptr<T>, or MutPtr<T> for a declared
 	// nominal object T. Alias resolution already happened in resolveTypeUse.
@@ -230,7 +230,7 @@ func collectMethodSignature(declaration parser.ImplDeclaration, ctx checkContext
 	}
 	if object == nil {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
-			target.Name+" is not a nominal object type; impl requires an object")}
+			target.Name+" is not a nominal object type; method requires an object")}
 	}
 	// Only the type's defining module may declare its methods. An imported
 	// receiver -- or a transparent alias of one -- resolves to the defining
@@ -277,7 +277,7 @@ func collectMethodSignature(declaration parser.ImplDeclaration, ctx checkContext
 // after every module-level function and method signature is registered, so
 // a call to any other module function or method - earlier, later, or
 // mutually recursive - resolves.
-func checkMethodBody(declaration parser.ImplDeclaration, checked MethodDeclaration, ctx checkContext, analyzeReturns bool) (MethodDeclaration, compilerTypes.Diagnostics) {
+func checkMethodBody(declaration parser.MethodDeclaration, checked MethodDeclaration, ctx checkContext, analyzeReturns bool) (MethodDeclaration, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	parameters := checked.Parameters
 
@@ -326,7 +326,7 @@ func checkMethodBody(declaration parser.ImplDeclaration, checked MethodDeclarati
 	return checked, diagnostics
 }
 
-// receiverSpelling renders the written impl receiver for ownership
+// receiverSpelling renders the written method receiver for ownership
 // diagnostics: the qualified name as written (Geometry.Point), the alias
 // name, or the plain type name. Pointer forms resolve to their element's
 // spelling, so Ptr<Geometry.Point> and Geometry.Point read the same.
@@ -348,7 +348,7 @@ func receiverSpelling(expression parser.TypeExpression, fallback string) string 
 }
 
 // receiverSpellingToken locates the ownership diagnostic at the written
-// receiver where one exists, falling back to the impl keyword.
+// receiver where one exists, falling back to the method keyword.
 func receiverSpellingToken(expression parser.TypeExpression, fallback lexer.Token) lexer.Token {
 	switch expression := expression.(type) {
 	case parser.NamedTypeExpression:
@@ -366,35 +366,40 @@ func receiverSpellingToken(expression parser.TypeExpression, fallback lexer.Toke
 // place -- adaptation may need its address -- and the method is found by the
 // receiver's nominal object identity, so all three receiver forms reach the
 // one method declared on that object.
-func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpression, ctx checkContext) checkedExpression {
+func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpression, expectedType compilerTypes.Type, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	// Alias.name(...) where Alias is an import alias calls the target
-	// module's exported function. This precedes every builtin receiver check
-	// so an alias always wins over a same-named builtin receiver, and a
-	// dangling alias falls through to the ordinary path.
+	// module's exported function, or -- since the two share one call-shaped
+	// syntax -- constructs one of its exported ADT's variants. This precedes
+	// every builtin receiver check so an alias always wins over a same-named
+	// builtin receiver, and a dangling alias falls through to the ordinary
+	// path.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable {
 		if target, ok := ctx.names.importAliasTarget(variable.Name.Lexeme); ok {
+			if _, functionOk := ctx.names.registry.exportedFunction(target, callee.Property.Lexeme); !functionOk {
+				if _, genericOk := ctx.names.registry.genericFunction(target, callee.Property.Lexeme); !genericOk {
+					if adtValue, ok := checkModuleVariantConstructorCall(call, variable.Name.Lexeme, callee.Property, target, ctx); ok {
+						return adtValue
+					}
+				}
+			}
 			return checkQualifiedFunctionCall(call, callee.Property, target, ctx)
 		}
 	}
-	// Heap.new() names the built-in type, not a Heap value binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Heap" {
-		return checkHeapTypeCall(call, variable, ctx)
+	// Owner.Variant(...) where Owner names an ADT (or a generic ADT
+	// template): the current construction syntax for ADT variants. This
+	// precedes every other dispatch below because it needs call arguments to
+	// carry labels, which every other dispatch in this function rejects.
+	if adtValue, ok := checkQualifiedVariantCall(call, callee, expectedType, ctx); ok {
+		return adtValue
+	}
+	if diagnostic := rejectNamedArguments(call); diagnostic != nil {
+		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
 	// String.from_bytes() names the built-in type, not a String value
 	// binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "String" {
 		return checkStringTypeCall(call, variable.Name, ctx)
-	}
-	// List<T>.new() names the built-in generic type, not a List value
-	// binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "List" {
-		return checkListTypeCall(call, variable.Name, ctx)
-	}
-	// Dict<K, V>.new() names the built-in generic type, not a Dict value
-	// binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Dict" {
-		return checkDictTypeCall(call, variable.Name, ctx)
 	}
 	// View<T>.from_pointer() and View<T>.empty() name the built-in generic
 	// type, not a View value binding.
@@ -405,15 +410,6 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Task" {
 		return checkTaskTypeCall(call, variable.Name, ctx)
 	}
-	// Channel<T>.new() names the built-in generic Channel type, not a
-	// Channel value binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Channel" {
-		return checkChannelTypeCall(call, variable.Name, ctx)
-	}
-	// Mutex.new() names the built-in Mutex type, not a Mutex value binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Mutex" {
-		return checkMutexTypeCall(call, variable.Name, ctx)
-	}
 	// IO.stdin()/stdout()/stderr() name the built-in IO type.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "IO" {
 		return checkIOTypeCall(call, variable, ctx)
@@ -422,31 +418,19 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Bytes" {
 		return checkBytesTypeCall(call, variable, ctx)
 	}
-	// Atomic<T>.new() names the built-in generic Atomic type, not an Atomic
-	// value binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Atomic" {
-		return checkAtomicTypeCall(call, variable.Name, ctx)
-	}
-	// Stash<T>.new() names the built-in generic Stash type, not a Stash value
-	// binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Stash" {
-		return checkStashTypeCall(call, variable.Name, ctx)
-	}
-	// Pool<T>.new(capacity) names the built-in generic Pool type, not a Pool
-	// value binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Pool" {
-		return checkPoolTypeCall(call, variable.Name, ctx)
-	}
 	// Int32.from_le_bytes(...) names a fixed-width integer type, not an
 	// integer value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable &&
 		(callee.Property.Lexeme == "from_le_bytes" || callee.Property.Lexeme == "from_be_bytes") {
 		return checkEndianFromBytesCall(call, variable.Name, ctx)
 	}
-	// Error.new(...) names the built-in Error type, not an Error value
-	// binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Error" {
-		return checkErrorNewCall(call, variable.Name, ctx)
+	// Heap.new, List.new, and every other removed compiler-owned `.new()`
+	// spelling reach here once ordinary property/method resolution fails
+	// below; checkCall's bare-call dispatch handles the current Type(...)
+	// construction spelling before a call ever reaches checkMethodCall.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && callee.Property.Lexeme == "new" && compilerTypes.IsProtectedTypeName(variable.Name.Lexeme) {
+		diagnostic := typeErrorAt(callee.Property, "constructors use '"+variable.Name.Lexeme+"(...)', not '.new(...)'")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	receiver := checkedExpression{}
 	switch callee.Receiver.(type) {

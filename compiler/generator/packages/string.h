@@ -70,6 +70,22 @@ static inline hex_view_UInt8 hex_string_slice(const hex_string *text, size_t sta
 size_t hex_strand_rune_length(hex_strand text);
 const hex_string *hex_strand_to_string(hex_heap h, hex_strand text);
 {{end}}
+{{if .NeedInterpolation}}
+size_t hex_string_format_int8(char buffer[32], int8_t value);
+size_t hex_string_format_int16(char buffer[32], int16_t value);
+size_t hex_string_format_int32(char buffer[32], int32_t value);
+size_t hex_string_format_int64(char buffer[32], int64_t value);
+size_t hex_string_format_uint8(char buffer[32], uint8_t value);
+size_t hex_string_format_uint16(char buffer[32], uint16_t value);
+size_t hex_string_format_uint32(char buffer[32], uint32_t value);
+size_t hex_string_format_uint64(char buffer[32], uint64_t value);
+size_t hex_string_format_size(char buffer[32], size_t value);
+size_t hex_string_format_float32(char buffer[64], float value);
+size_t hex_string_format_float64(char buffer[64], double value);
+{{if .NeedStrand}}
+size_t hex_strand_byte_length(hex_strand text);
+{{end}}
+{{end -}}
 {{if .NeedEquality}}
 bool hex_equal_hex_string(const hex_string *left, const hex_string *right);
 {{end}}

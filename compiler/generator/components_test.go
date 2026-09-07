@@ -123,18 +123,18 @@ func TestComponentRenderingIsDeterministic(t *testing.T) {
 			name: "concurrency",
 			source: "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n" +
 				"    Task.yield()\n    return true\nend\n" +
-				"fun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    ch: Channel<Int32> := try Channel<Int32>.new(h, 4)\n" +
-				"    m: Mutex := try Mutex.new(h)\n    task: Task<Bool> := try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n",
+				"fun run(): Int32 | Error do\n    h: Heap := Heap()\n    ch: Channel<Int32> := try Channel<Int32>(h, 4)\n" +
+				"    m: Mutex := try Mutex(h)\n    task: Task<Bool> := try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n",
 			artifacts: []string{"hexal/concurrency.h", "hexal/concurrency.c"},
 		},
 		{
 			name:      "dict",
-			source:    "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend",
+			source:    "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend",
 			artifacts: []string{"hexal/dict.h"},
 		},
 		{
 			name:      "list",
-			source:    "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\nend",
+			source:    "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\nend",
 			artifacts: []string{"hexal/list.h"},
 		},
 		{

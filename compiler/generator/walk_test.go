@@ -55,9 +55,13 @@ func walkTestProgram(t *testing.T, source string) string {
 
 func TestWalkProgramCoversEveryStatementShape(t *testing.T) {
 	visited := walkTestProgram(t, `
-type Pair = { mut values: Array<Int32, 2>, }
-type Box<T> = { value: T }
-impl Box<T>.get(): T do
+type Pair is struct
+    mut values: Array<Int32, 2>,
+end
+type Box<T> is struct
+    value: T,
+end
+method Box<T>.get(): T do
     return self.value
 end
 fun area(radius: Float64): Float64 do
@@ -89,7 +93,7 @@ fun demo(h: Heap): Int32 | Error do
     while count < 2 do
         count = count + 1
     end
-    box: Box<Int32> := Box<Int32> { value = 1 }
+    box: Box<Int32> := Box<Int32>(value = 1)
     box.get()
     viaTry: Int32 := try read_count()
     return count

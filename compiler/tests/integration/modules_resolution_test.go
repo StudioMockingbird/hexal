@@ -143,9 +143,9 @@ func TestImportAfterAnyDeclarationRejected(t *testing.T) {
 		name   string
 		prefix string
 	}{
-		{"type declaration", "type T = { n: Int32 }\n"},
+		{"type declaration", "type T is struct n: Int32 end\n"},
 		{"function declaration", "fun helper(): Int32 do\n    return 1\nend\n"},
-		{"impl declaration", "type P = { x: Int32 }\nimpl P.get(): Int32 do\n    return self.x\nend\n"},
+		{"impl declaration", "type P is struct x: Int32 end\nmethod P.get(): Int32 do\n    return self.x\nend\n"},
 		{"executable statement", "count: Int32 := 1\n"},
 	}
 	for _, testCase := range cases {
@@ -160,7 +160,7 @@ func TestImportAfterAnyDeclarationRejected(t *testing.T) {
 	}
 	// Imports-only-first programs remain accepted.
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\ntype T = { n: Int32 }\nexport fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
+		"app.hex":  "module Math = import \"./math\"\ntype T is struct n: Int32 end\nexport fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 		"math.hex": "export fun helper(): Int32 do\n    return 1\nend\n",
 	}
 	compiler.Compile(sources, "app.hex", compiler.Project{})

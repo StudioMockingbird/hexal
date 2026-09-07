@@ -6,7 +6,7 @@ import (
 )
 
 func TestCheckADTDeclarationAndConstruction(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 }"))
+	checked, err := Check(parseProgram(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end shape: Shape := Shape.Circle(r = 10)"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,24 +17,24 @@ func TestCheckADTDeclarationAndConstruction(t *testing.T) {
 }
 
 func TestCheckADTRequiresTwoVariants(t *testing.T) {
-	requireDiagnostic(t, "type Single as | Only { value: Int32 } end", "ADT declarations require at least two variants")
+	requireDiagnostic(t, "type Single is union | Only as value: Int32 end end", "ADT declarations require at least two variants")
 }
 
 func TestCheckADTRejectsDuplicateVariant(t *testing.T) {
-	requireDiagnostic(t, "type Shape as | Circle { r: Int32 } | Circle { a: Int32 } end", "ADT variant name is duplicated")
+	requireDiagnostic(t, "type Shape is union | Circle as r: Int32 end | Circle as a: Int32 end end", "ADT variant name is duplicated")
 }
 
 func TestCheckADTConstructorValidatesPayload(t *testing.T) {
-	requireDiagnostic(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end bad: Shape := Shape.Circle { a = 20 }", "Circle has no field named a")
-	requireDiagnostic(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end bad: Shape := Shape.Circle { r = 1, r = 2 }", "Circle initializes field r more than once")
+	requireDiagnostic(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end bad: Shape := Shape.Circle(a = 20)", "Circle has no field named a")
+	requireDiagnostic(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end bad: Shape := Shape.Circle(r = 1, r = 2)", "Circle initializes field r more than once")
 }
 
 func TestCheckADTUnknownVariant(t *testing.T) {
-	requireDiagnostic(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end bad: Shape := Shape.Triangle { x = 1 }", "unknown qualified variant Shape.Triangle")
+	requireDiagnostic(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end bad: Shape := Shape.Triangle(x = 1)", "unknown qualified variant Shape.Triangle")
 }
 
 func TestCheckADTUnitVariantConstruction(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Direction as | East | West end heading: Direction := Direction.East"))
+	checked, err := Check(parseProgram(t, "type Direction is East | West end heading: Direction := Direction.East()"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +50,8 @@ func TestCheckADTUnitVariantConstruction(t *testing.T) {
 // generation assumes), never by write position.
 func TestCheckADTPayloadOutOfOrderAssignsCorrectFields(t *testing.T) {
 	checked, err := Check(parseProgram(t,
-		"type W as | A { first: Int32, second: Int32 } | B { x: Int32 } end\n"+
-			"w: W := W.A { second = 20, first = 10 }\n"))
+		"type W is union | A as first: Int32, second: Int32 end | B as x: Int32 end end\n"+
+			"w: W := W.A(second = 20, first = 10)\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,8 +77,8 @@ func TestCheckADTPayloadOutOfOrderAssignsCorrectFields(t *testing.T) {
 // constructor.
 func TestCheckGenericADTPayloadOutOfOrderAssignsCorrectFields(t *testing.T) {
 	checked, err := Check(parseProgram(t,
-		"type W<T> as | A { first: T, second: T } | B { x: T } end\n"+
-			"w: W<Int32> := W<Int32>.A { second = 20, first = 10 }\n"))
+		"type W<T> is union | A as first: T, second: T end | B as x: T end end\n"+
+			"w: W<Int32> := W<Int32>.A(second = 20, first = 10)\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,11 +95,11 @@ func TestCheckGenericADTPayloadOutOfOrderAssignsCorrectFields(t *testing.T) {
 }
 
 func TestCheckADTIndirectRecursion(t *testing.T) {
-	requireAccepted(t, "type Expr as | Literal { value: Int32 } | Add { left: Ptr<Expr>, right: Ptr<Expr> } end")
+	requireAccepted(t, "type Expr is union | Literal as value: Int32 end | Add as left: Ptr<Expr>, right: Ptr<Expr> end end")
 }
 
 func TestCheckADTRejectsByValueRecursion(t *testing.T) {
-	requireDiagnostic(t, "type Expr as | Literal { value: Int32 } | Wrap { inner: Expr } end", "ADT recursion has no finite representation")
+	requireDiagnostic(t, "type Expr is union | Literal as value: Int32 end | Wrap as inner: Expr end end", "ADT recursion has no finite representation")
 }
 
 func TestCheckMatchValueMode(t *testing.T) {
@@ -113,7 +113,7 @@ func TestCheckMatchValueMode(t *testing.T) {
 }
 
 func TestCheckMatchTypeModeNarrowsVariantPayload(t *testing.T) {
-	_, err := Check(parseProgram(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 } radius: Int32 := match shape is\n| Shape.Circle then shape.r\n| Shape.Square then 0\nend"))
+	_, err := Check(parseProgram(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end shape: Shape := Shape.Circle(r = 10) radius: Int32 := match shape is\n| Shape.Circle then shape.r\n| Shape.Square then 0\nend"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,14 +127,14 @@ func TestCheckMatchTypeModeExactUnionMembers(t *testing.T) {
 }
 
 func TestCheckMatchExhaustiveness(t *testing.T) {
-	requireDiagnostic(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 } label: Int32 := match shape is\n| Shape.Circle then 1\nend", "match is not exhaustive; missing Shape.Square")
+	requireDiagnostic(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end shape: Shape := Shape.Circle(r = 10) label: Int32 := match shape is\n| Shape.Circle then 1\nend", "match is not exhaustive; missing Shape.Square")
 }
 
 // With several uncovered members the diagnostic names the first in
 // declaration order, so repeated checks of one source report one stable
 // message.
 func TestCheckMatchExhaustivenessNamesFirstMissingInDeclarationOrder(t *testing.T) {
-	requireDiagnostic(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } | Triangle { b: Int32 } end shape: Shape := Shape.Circle { r = 10 } label: Int32 := match shape is\n| Shape.Square then 1\nend", "match is not exhaustive; missing Shape.Circle")
+	requireDiagnostic(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end | Triangle as b: Int32 end end shape: Shape := Shape.Circle(r = 10) label: Int32 := match shape is\n| Shape.Square then 1\nend", "match is not exhaustive; missing Shape.Circle")
 	requireDiagnostic(t, "value: Int32 | Float64 | Nil := nil label: Int32 := match value is\n| Float64 then 1\nend", "match is not exhaustive; missing Int32")
 }
 
@@ -150,11 +150,11 @@ func TestCheckMatchModeErrors(t *testing.T) {
 }
 
 func TestCheckMatchArmNarrowingIsArmScoped(t *testing.T) {
-	requireDiagnostic(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end shape: Shape := Shape.Circle { r = 10 } radius: Int32 := match shape is\n| Shape.Circle then shape.r\n| Shape.Square then 0\nend bad: Int32 := shape.r", "cannot access .r on Shape; expected Ptr<T> or an object member")
+	requireDiagnostic(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end shape: Shape := Shape.Circle(r = 10) radius: Int32 := match shape is\n| Shape.Circle then shape.r\n| Shape.Square then 0\nend bad: Int32 := shape.r", "cannot access .r on Shape; expected Ptr<T> or an object member")
 }
 
 func TestCheckGenericADTDeclarationAndConstruction(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Result<T, E> as | Ok { value: T } | Err { error: E } end success: Result<Int32, Bool> := Result<Int32, Bool>.Ok { value = 42 }"))
+	checked, err := Check(parseProgram(t, "type Result<T, E> is union | Ok as value: T end | Err as error: E end end success: Result<Int32, Bool> := Result<Int32, Bool>.Ok(value = 42)"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,28 +175,28 @@ func TestCheckGenericADTDeclarationAndConstruction(t *testing.T) {
 }
 
 func TestCheckGenericADTExpectedTypeInference(t *testing.T) {
-	_, err := Check(parseProgram(t, "type Result<T, E> as | Ok { value: T } | Err { error: E } end success: Result<Int32, Bool> := Result.Ok { value = 42 }"))
+	_, err := Check(parseProgram(t, "type Result<T, E> is union | Ok as value: T end | Err as error: E end end success: Result<Int32, Bool> := Result.Ok(value = 42)"))
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCheckGenericADTUnitVariantInference(t *testing.T) {
-	_, err := Check(parseProgram(t, "type Maybe<T> as | Some { value: T } | None end value: Maybe<Int32> := Maybe.None"))
+	_, err := Check(parseProgram(t, "type Maybe<T> is union | Some as value: T end | None end value: Maybe<Int32> := Maybe.None()"))
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCheckGenericADTMatchPatterns(t *testing.T) {
-	_, err := Check(parseProgram(t, "type Result<T, E> as | Ok { value: T } | Err { error: E } end success: Result<Int32, Bool> := Result.Ok { value = 42 } label: Int32 := match success is\n| Result.Ok then success.value\n| Result.Err then 0\nend"))
+	_, err := Check(parseProgram(t, "type Result<T, E> is union | Ok as value: T end | Err as error: E end end success: Result<Int32, Bool> := Result.Ok(value = 42) label: Int32 := match success is\n| Result.Ok then success.value\n| Result.Err then 0\nend"))
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCheckGenericADTMatchExplicitOwnerPattern(t *testing.T) {
-	_, err := Check(parseProgram(t, "type Result<T, E> as | Ok { value: T } | Err { error: E } end success: Result<Int32, Bool> := Result.Ok { value = 42 } label: Int32 := match success is\n| Result<Int32, Bool>.Ok then success.value\n| Result.Err then 0\nend"))
+	_, err := Check(parseProgram(t, "type Result<T, E> is union | Ok as value: T end | Err as error: E end end success: Result<Int32, Bool> := Result.Ok(value = 42) label: Int32 := match success is\n| Result<Int32, Bool>.Ok then success.value\n| Result.Err then 0\nend"))
 	if err != nil {
 		t.Fatal(err)
 	}

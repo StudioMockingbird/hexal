@@ -62,14 +62,28 @@
       "description": "Combines String, Strand, Byte, and Rune values in one small record-like object.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Entry = { name: Strand, note: String, first: Rune, kind: Byte, }",
-        "entry: Entry:= Entry { name = \"hexal\", note = \"hi\", first = 'h', kind = b'\\x01' }",
+        "type Entry is struct name: Strand, note: String, first: Rune, kind: Byte end",
+        "entry: Entry:= Entry(name = \"hexal\", note = \"hi\", first = 'h', kind = b'\\x01')",
         "initial: Rune:= entry.first",
         "header: Size:= entry.name.length()",
         "kind_value: Byte:= entry.kind"
       ]},
       "features": ["objects", "text", "literals"],
-      "reservedWords": ["type"]
+      "reservedWords": ["type", "struct", "end"]
+    },
+    {
+      "id": "values-empty-struct",
+      "name": "Empty struct",
+      "description": "A nominal marker type with no members; every value of it compares equal.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "type Marker is struct end",
+        "first: Marker:= Marker()",
+        "second: Marker:= Marker()",
+        "same: Bool:= first == second"
+      ]},
+      "features": ["objects"],
+      "reservedWords": ["type", "struct", "end"]
     },
     {
       "id": "values-immutable-snapshot",
@@ -77,8 +91,8 @@
       "description": "Copies an object, mutates the original, and reads the unchanged copy to demonstrate value copying.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Meter = { mut reading: Int32, unit: Strand, }",
-        "mut live: Meter:= Meter { reading = 10, unit = \"kwh\" }",
+        "type Meter is struct mut reading: Int32, unit: Strand end",
+        "mut live: Meter:= Meter(reading = 10, unit = \"kwh\")",
         "snapshot: Meter:= live",
         "live.reading = 42",
         "saved: Int32:= snapshot.reading"
@@ -92,9 +106,9 @@
       "description": "Defines a domain-specific numeric alias and uses it in an object.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Score = Int32",
-        "type Match = { mut home: Score, mut away: Score, }",
-        "mut game: Match:= Match { home = 2, away = 1 }",
+        "type Score is Int32",
+        "type Match is struct mut home: Score, mut away: Score end",
+        "mut game: Match:= Match(home = 2, away = 1)",
         "game.home = game.home + 1"
       ]},
       "features": ["aliases", "objects"],
@@ -122,8 +136,8 @@
       "description": "Combines size_of and align_of for an object type into one total.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Entry = { tag: UInt8, value: Float64, }",
-        "entry: Entry:= Entry { tag = 1, value = 0.5 }",
+        "type Entry is struct tag: UInt8, value: Float64 end",
+        "entry: Entry:= Entry(tag = 1, value = 0.5)",
         "size: Size:= size_of<Entry>()",
         "alignment: Size:= align_of<Entry>()",
         "total: Size:= size + alignment"

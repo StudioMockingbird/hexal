@@ -69,7 +69,7 @@ func TestCheckKnownImmutableSliceBoundsStillDiagnosed(t *testing.T) {
 }
 
 func TestCheckKnownImmutableChannelCapacityStillDiagnosed(t *testing.T) {
-	requireDiagnostic(t, "h: Heap := Heap.new() capacity: Size := 0 ch: Channel<Int32> := Channel<Int32>.new(h, capacity)", "compile-time Channel capacity must be positive")
+	requireDiagnostic(t, "h: Heap := Heap() capacity: Size := 0 ch: Channel<Int32> := Channel<Int32>(h, capacity)", "compile-time Channel capacity must be positive")
 }
 
 func TestCheckKnownImmutableWhileTrueStillStarves(t *testing.T) {

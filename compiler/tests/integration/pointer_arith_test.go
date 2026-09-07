@@ -20,8 +20,8 @@ func TestPointerArithmeticRejected(t *testing.T) {
 		{"minus count", "fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := ref value\n    bad: Ptr<Int32> := pointer - 1\nend", "operator - requires numeric operands"},
 		{"distance", "fun demo() do\n    value: Int32 := 1\n    other: Int32 := 2\n    left: Ptr<Int32> := ref value\n    right: Ptr<Int32> := ref other\n    bad: Int32 := left - right\nend", "operator - requires numeric operands"},
 		{"mut pointer plus", "fun demo() do\n    mut value: Int32 := 1\n    pointer: MutPtr<Int32> := ref value\n    bad: MutPtr<Int32> := pointer + 1\nend", "operator + requires numeric operands"},
-		{"alias plus", "type Handle = Ptr<Int32>\nfun demo() do\n    value: Int32 := 1\n    pointer: Handle := ref value\n    bad: Handle := pointer + 1\nend", "operator + requires numeric operands"},
-		{"nested pointer", "type Node = { next: Ptr<Node>, }\nfun demo(node: Ptr<Node>) do\n    bad: Ptr<Node> := node.value.next + 1\nend", "operator + requires numeric operands"},
+		{"alias plus", "type Handle is Ptr<Int32>\nfun demo() do\n    value: Int32 := 1\n    pointer: Handle := ref value\n    bad: Handle := pointer + 1\nend", "operator + requires numeric operands"},
+		{"nested pointer", "type Node is struct next: Ptr<Node>, end\nfun demo(node: Ptr<Node>) do\n    bad: Ptr<Node> := node.value.next + 1\nend", "operator + requires numeric operands"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileSource(testCase.source)

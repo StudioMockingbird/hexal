@@ -5,7 +5,7 @@
 - Created: 2026-08-22
 - Scope: Hexal-defined module storage, symbol visibility, and native linkage
 - Depends on: RFC 0034 (modules and imports), RFC 0035 (copying and manual
-  lifetimes), RFC 0052 (target profiles), the implemented function-value
+  lifetimes), RFC 0052 (C compiler backend), the implemented function-value
   surface (`docs/reference.md`), and RFC 0110 (affine ownership)
 - Coordinates with: RFC 0039 (C interoperability), RFC 0117 (compile-time
   evaluation), RFC 0118 (concurrency safety), the generated-C naming rules,

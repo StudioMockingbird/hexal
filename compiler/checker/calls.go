@@ -9,7 +9,7 @@ import (
 )
 
 func checkCallStatement(call parser.CallExpression, ctx checkContext) (CallStatement, compilerTypes.Diagnostics) {
-	checked := checkCall(call, ctx)
+	checked := checkCall(call, compilerTypes.Type{}, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return CallStatement{}, diagnostics
 	}
@@ -23,10 +23,14 @@ func checkCallStatement(call parser.CallExpression, ctx checkContext) (CallState
 // checkCall resolves a callee, checks arity, and checks each argument in its
 // parameter's expected-type position so contextual literals and MutPtr-to-Ptr
 // weakening both apply. The returned type is the zero Type for a no-return
-// callee; only a call statement accepts that.
-func checkCall(call parser.CallExpression, ctx checkContext) checkedExpression {
+// callee; only a call statement accepts that. expectedType is the enclosing
+// expression's contextual type, used only to infer a generic ADT owner's
+// arguments when a qualified variant constructor omits them explicitly; it is
+// the zero Type where no such context exists (statement position, spawn,
+// deferred actions).
+func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx checkContext) checkedExpression {
 	if property, isMethod := call.Callee.(parser.PropertyExpression); isMethod {
-		return checkMethodCall(call, property, ctx)
+		return checkMethodCall(call, property, expectedType, ctx)
 	}
 	callee, ok := call.Callee.(parser.VariableExpression)
 	if !ok {
@@ -37,6 +41,12 @@ func checkCall(call parser.CallExpression, ctx checkContext) checkedExpression {
 	}
 	if callee.Name.Kind == lexer.Self {
 		return checkedExpression{token: callee.Name, diagnostic: selfNotBoundDiagnostic(callee.Name)}
+	}
+	if constructed, ok := checkBareConstructorCall(call, callee, expectedType, ctx); ok {
+		return constructed
+	}
+	if diagnostic := rejectNamedArguments(call); diagnostic != nil {
+		return checkedExpression{token: callee.Name, diagnostic: diagnostic}
 	}
 	// The protected builtin `print` resolves before ordinary
 	// free-function lookup and cannot be redeclared or referenced as a
@@ -345,11 +355,70 @@ func checkArguments(callee string, expected []compilerTypes.TypeUse, written []p
 	return arguments, diagnostics
 }
 
+// checkBareConstructorCall recognizes and checks a bare Type(...) call: one of
+// the nine compiler-owned canonical constructors, or a declared struct (or a
+// transparent alias/generic template resolving to one). The second result is
+// false when the callee names no type at all, so the caller falls through to
+// ordinary free-function lookup. Compiler-owned canonical constructors take
+// only positional arguments, exactly like an ordinary call.
+func checkBareConstructorCall(call parser.CallExpression, callee parser.VariableExpression, expectedType compilerTypes.Type, ctx checkContext) (checkedExpression, bool) {
+	switch callee.Name.Lexeme {
+	case "Heap", "Stash", "Pool", "List", "Dict", "Channel", "Mutex", "Atomic", "Error":
+		if diagnostic := rejectNamedArguments(call); diagnostic != nil {
+			return checkedExpression{token: callee.Name, diagnostic: diagnostic}, true
+		}
+		switch callee.Name.Lexeme {
+		case "Heap":
+			return checkHeapTypeCall(call, callee, ctx), true
+		case "Stash":
+			return checkStashTypeCall(call, callee.Name, ctx), true
+		case "Pool":
+			return checkPoolTypeCall(call, callee.Name, ctx), true
+		case "List":
+			return checkListTypeCall(call, callee.Name, ctx), true
+		case "Dict":
+			return checkDictTypeCall(call, callee.Name, ctx), true
+		case "Channel":
+			return checkChannelTypeCall(call, callee.Name, ctx), true
+		case "Mutex":
+			return checkMutexTypeCall(call, callee.Name, ctx), true
+		case "Atomic":
+			return checkAtomicTypeCall(call, callee.Name, ctx), true
+		default: // "Error"
+			return checkErrorNewCall(call, callee.Name, ctx), true
+		}
+	}
+	if _, ok := ctx.typeEnvironment.Lookup(callee.Name.Lexeme); ok {
+		return checkStructConstructorCall(call, callee.Name, expectedType, ctx), true
+	}
+	if ctx.names.generics != nil {
+		if _, generic := ctx.names.generics.types[callee.Name.Lexeme]; generic {
+			return checkStructConstructorCall(call, callee.Name, expectedType, ctx), true
+		}
+	}
+	return checkedExpression{}, false
+}
+
+// rejectNamedArguments reports the shared diagnostic for a named argument
+// passed to a callee that is not a struct or ADT-variant constructor: an
+// ordinary function, method, function value, descriptive compiler-owned
+// operation, or compiler-owned canonical constructor.
+func rejectNamedArguments(call parser.CallExpression) *compilerTypes.Diagnostic {
+	for _, label := range call.ArgumentLabels {
+		if label != nil {
+			diagnostic := typeErrorAt(*label, "named arguments are valid only for struct and ADT constructors")
+			return &diagnostic
+		}
+	}
+	return nil
+}
+
 // checkCallValue is the value-position wrapper: a callee that returns nothing
 // has no value to bind, so it is rejected here rather than reaching an
-// initializer with a zero type.
-func checkCallValue(call parser.CallExpression, ctx checkContext) checkedExpression {
-	checked := checkCall(call, ctx)
+// initializer with a zero type. expectedType is the enclosing expression's
+// contextual type; see checkCall.
+func checkCallValue(call parser.CallExpression, expectedType compilerTypes.Type, ctx checkContext) checkedExpression {
+	checked := checkCall(call, expectedType, ctx)
 	if len(initializerDiagnostics(checked)) > 0 {
 		return checked
 	}

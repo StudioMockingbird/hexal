@@ -42,16 +42,15 @@ func resultAcceptsError(result compilerTypes.Type) bool {
 	return false
 }
 
-// checkErrorNewCall resolves the built-in `Error.new(header, message)`
+// checkErrorNewCall resolves the built-in `Error(header, message)`
 // construction. The compiler supplies file, line, and column from the Error
 // token; only header and message are source arguments.
 func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
-	if property.Lexeme != "new" || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Error must be created with Error.new(header, message)"))}
+	if len(call.TypeArguments) != 0 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Error must be created with Error(header, message)"))}
 	}
 	if len(call.Arguments) != 2 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("Error.new expects 2 arguments (header, message); got %d", len(call.Arguments))))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, fmt.Sprintf("Error expects 2 arguments (header, message); got %d", len(call.Arguments))))}
 	}
 	header := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.StrandType), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(header); len(diagnostics) > 0 {
@@ -91,7 +90,7 @@ func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, ctx check
 		},
 	}
 	source := Operand{Kind: ObjectOperand, Type: compilerTypes.ErrorType, Name: "new", Object: &value}
-	return checkedExpression{source: source, typ: compilerTypes.ErrorType, token: property}
+	return checkedExpression{source: source, typ: compilerTypes.ErrorType, token: callee}
 }
 
 // checkTryExpression resolves the `try` form: the operand must be a
@@ -152,7 +151,7 @@ func checkErrdeferStatement(statement parser.ErrdeferStatement, ctx checkContext
 	action := DeferredAction{Err: true, SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
 	var source Operand
 	if call, isCall := statement.Expression.(parser.CallExpression); isCall {
-		checked := checkCall(call, ctx)
+		checked := checkCall(call, compilerTypes.Type{}, ctx)
 		if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 			return ErrdeferStatement{}, diagnostics
 		}

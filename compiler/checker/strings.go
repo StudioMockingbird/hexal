@@ -29,6 +29,31 @@ func decodeStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnostic) 
 	return payload, nil
 }
 
+// decodeRawStringLiteral decodes a raw string literal's raw lexeme
+// (including its 'r', hash delimiters, and surrounding quotes) into its
+// payload bytes: copied byte-for-byte from source with no escape or
+// interpolation processing, validated only for UTF-8.
+func decodeRawStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnostic) {
+	raw := token.Lexeme
+	if len(raw) < 2 || raw[0] != 'r' {
+		return nil, diagnosticAt(typeErrorAt(token, "malformed raw string literal"))
+	}
+	hashCount := 0
+	for 1+hashCount < len(raw) && raw[1+hashCount] == '#' {
+		hashCount++
+	}
+	openEnd := 1 + hashCount + 1 // past 'r', the hashes, and the opening '"'
+	closeStart := len(raw) - hashCount - 1
+	if openEnd > len(raw) || closeStart < openEnd || closeStart >= len(raw) || raw[openEnd-1] != '"' || raw[closeStart] != '"' {
+		return nil, diagnosticAt(typeErrorAt(token, "malformed raw string literal"))
+	}
+	payload := []byte(raw[openEnd:closeStart])
+	if !utf8.Valid(payload) {
+		return nil, diagnosticAt(typeErrorAt(token, "string literal contains invalid UTF-8"))
+	}
+	return payload, nil
+}
+
 // decodeByteLiteral decodes a b'...' literal into its single byte.
 func decodeByteLiteral(token lexer.Token) (byte, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
@@ -91,14 +116,33 @@ func checkStringLiteral(expression parser.StringLiteral, expected compilerTypes.
 	if diagnostic != nil {
 		return checkedExpression{token: expression.Token, diagnostic: diagnostic}
 	}
+	return checkedStringLiteralValue(payload, expected, expression.Token)
+}
+
+// checkRawStringLiteral resolves a raw string literal into a static String
+// or Strand value: byte-for-byte identical to an interpreted literal
+// containing the same UTF-8 bytes, since raw content performs no escape or
+// interpolation processing.
+func checkRawStringLiteral(expression parser.RawStringLiteral, expected compilerTypes.Type) checkedExpression {
+	payload, diagnostic := decodeRawStringLiteral(expression.Token)
+	if diagnostic != nil {
+		return checkedExpression{token: expression.Token, diagnostic: diagnostic}
+	}
+	return checkedStringLiteralValue(payload, expected, expression.Token)
+}
+
+// checkedStringLiteralValue builds the checked String or Strand value shared
+// by an interpreted and a raw string literal, once each has decoded its own
+// payload bytes.
+func checkedStringLiteralValue(payload []byte, expected compilerTypes.Type, token lexer.Token) checkedExpression {
 	resultType := compilerTypes.StringType
 	if compilerTypes.IsStrand(expected) {
 		if len(payload) > 31 {
-			return checkedExpression{token: expression.Token, diagnostic: diagnosticAt(typeErrorAt(expression.Token, "Strand literal exceeds 31 UTF-8 bytes"))}
+			return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "Strand literal exceeds 31 UTF-8 bytes"))}
 		}
 		for _, character := range payload {
 			if character == 0 {
-				return checkedExpression{token: expression.Token, diagnostic: diagnosticAt(typeErrorAt(expression.Token, "Strand literal cannot contain NUL"))}
+				return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "Strand literal cannot contain NUL"))}
 			}
 		}
 		resultType = compilerTypes.StrandType
@@ -109,20 +153,32 @@ func checkStringLiteral(expression parser.StringLiteral, expected compilerTypes.
 		ResultType: resultType,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultType, Node: node}
-	return checkedExpression{source: source, typ: resultType, token: expression.Token}
+	return checkedExpression{source: source, typ: resultType, token: token}
 }
 
-// checkStringTypeCall resolves a call written as String.<name>(...), the
+// stringTypeCallUsage is the shared "no such operation" diagnostic text for
+// every unrecognized String.<name>(...) call.
+const stringTypeCallUsage = "String has no such operation; use String.from_bytes(heap, view), String.from_runes(heap, view), or String.interpolate(heap, template)"
+
+// checkStringTypeCall resolves a call written as String.<name>(...): the
 // built-in type constructors String.from_bytes(heap, view) and
-// String.from_runes(heap, view).
+// String.from_runes(heap, view), and the compiler-known String.interpolate
+// operation.
 func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
+	switch name {
+	case "interpolate":
+		return checkStringInterpolate(call, callee, ctx)
+	case "from_bytes", "from_runes":
+	default:
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
+	}
 	viewType := compilerTypes.UInt8
 	if name == "from_runes" {
 		viewType = compilerTypes.Rune
 	}
-	if (name != "from_bytes" && name != "from_runes") || len(call.Arguments) != 2 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "String has no such operation; use String.from_bytes(heap, view) or String.from_runes(heap, view)"))}
+	if len(call.Arguments) != 2 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
 	}
 	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
@@ -156,6 +212,93 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 		ResultType:  compilerTypes.StringType,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.StringType, Name: name, Node: node}
+	return checkedExpression{source: source, typ: compilerTypes.StringType, token: callee}
+}
+
+// interpolationSupportedType reports whether typ may appear as an embedded
+// interpolation value: Bool, Rune, every fixed-width signed and unsigned
+// integer, Size, Byte, Float32, Float64, String, and Strand. Every other
+// type -- Nil, pointers, unions, structs, ADTs, arrays, views, lists,
+// dictionaries, allocators, concurrency values, Error, and Fun -- is
+// deliberately excluded.
+func interpolationSupportedType(typ compilerTypes.Type) bool {
+	switch {
+	case compilerTypes.Equal(typ, compilerTypes.Bool):
+		return true
+	case compilerTypes.IsRune(typ):
+		return true
+	case compilerTypes.IsSignedInteger(typ), compilerTypes.IsUnsignedInteger(typ):
+		return true
+	case compilerTypes.Equal(typ, compilerTypes.Float32), compilerTypes.Equal(typ, compilerTypes.Float64):
+		return true
+	case compilerTypes.IsString(typ), compilerTypes.IsStrand(typ):
+		return true
+	}
+	return false
+}
+
+// checkStringInterpolate resolves String.interpolate(heap, template): the
+// compiler-known operation that builds one heap-owned String from a
+// template's literal text and formatted embedded expressions. The Heap
+// argument is checked first; the template's segments are then checked left
+// to right in the surrounding lexical scope, each against the supported
+// interpolation value set.
+func checkStringInterpolate(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
+	if len(call.Arguments) != 2 {
+		diagnostic := typeErrorAt(callee, fmt.Sprintf("String.interpolate expects 2 arguments; got %d", len(call.Arguments)))
+		return checkedExpression{token: callee, diagnostic: &diagnostic}
+	}
+	heap := checkValue(call.Arguments[0], ctx)
+	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
+		return heap
+	}
+	if !compilerTypes.IsHeap(heap.typ) {
+		diagnostic := typeErrorAt(heap.token, "String.interpolate requires a Heap; got "+heap.typ.Name)
+		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
+	}
+	template, isTemplate := call.Arguments[1].(parser.InterpolationTemplateExpression)
+	if !isTemplate {
+		if _, isPlainString := call.Arguments[1].(parser.StringLiteral); isPlainString {
+			diagnostic := typeErrorAt(callee, "String.interpolate requires at least one interpolation")
+			return checkedExpression{token: callee, diagnostic: &diagnostic}
+		}
+		diagnostic := typeErrorAt(callee, "String.interpolate requires an interpreted interpolation template")
+		return checkedExpression{token: callee, diagnostic: &diagnostic}
+	}
+	segments := make([]InterpolationSegment, 0, len(template.Segments))
+	diagnostics := make(compilerTypes.Diagnostics, 0)
+	for _, segment := range template.Segments {
+		if segment.Text != nil {
+			payload, message := lexer.DecodeLiteralBody(segment.Text.Lexeme, lexer.StringEscapes)
+			if message != "" {
+				diagnostics = append(diagnostics, typeErrorAt(*segment.Text, message))
+				continue
+			}
+			segments = append(segments, InterpolationSegment{Text: string(payload)})
+			continue
+		}
+		value := checkValue(segment.Expression, ctx)
+		if nested := initializerDiagnostics(value); len(nested) > 0 {
+			diagnostics = append(diagnostics, nested...)
+			continue
+		}
+		if !interpolationSupportedType(value.typ) {
+			diagnostics = append(diagnostics, typeErrorAt(value.token, "string interpolation does not support "+value.typ.Name))
+			continue
+		}
+		segments = append(segments, InterpolationSegment{IsValue: true, Value: value.source})
+	}
+	if len(diagnostics) > 0 {
+		return checkedExpression{token: callee, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
+	node := Expression{
+		Kind:                  StringInterpolateExpression,
+		Operand:               &heap.source.Node,
+		OperandType:           compilerTypes.Heap,
+		ResultType:            compilerTypes.StringType,
+		InterpolationSegments: segments,
+	}
+	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.StringType, Name: "interpolate", Node: node}
 	return checkedExpression{source: source, typ: compilerTypes.StringType, token: callee}
 }
 

@@ -42,14 +42,14 @@ func generateProgram(seed uint64) generatedProgram {
 	genericType := rotatingTypes[int(seed%uint64(len(rotatingTypes)))]
 	literal := rotatingLiteral(genericType)
 
-	signalConstruct := "GenSignal.GenAlpha"
+	signalConstruct := "GenSignal.GenAlpha()"
 	if seed%2 == 1 {
-		signalConstruct = "GenSignal.GenBeta { level = 7 }"
+		signalConstruct = "GenSignal.GenBeta(level = 7)"
 	}
 
 	app := fmt.Sprintf(
 		"module Lib = import \"./lib\"\n"+
-			"type GenSignal as | GenAlpha | GenBeta { level: Int32 } end\n"+
+			"type GenSignal is union | GenAlpha | GenBeta as level: Int32 end end\n"+
 			"fun run(h: Heap): Int32 do\n"+
 			"    point: Lib.GenPoint := Lib.GenMakePoint()\n"+
 			"    signal: GenSignal := %s\n"+
@@ -57,20 +57,20 @@ func generateProgram(seed uint64) generatedProgram {
 			"    | GenSignal.GenAlpha then 0\n"+
 			"    | GenSignal.GenBeta then signal.level\n"+
 			"    end\n"+
-			"    numbers: List<Int32> := List<Int32>.new(h)\n"+
+			"    numbers: List<Int32> := List<Int32>(h)\n"+
 			"    defer numbers.free(h)\n"+
 			"    numbers.push(point.x + label)\n"+
 			"    value: %s := Lib.GenIdentity<%s>(%s)\n"+
 			"    maybe: Int32 | Nil := label\n"+
 			"    return numbers.length().to<Int32>()\n"+
 			"end\n"+
-			"h: Heap := Heap.new()\n"+
+			"h: Heap := Heap()\n"+
 			"total: Int32 := run(h)\n",
 		signalConstruct, genericType, genericType, literal,
 	)
-	lib := "export type GenPoint = { x: Int32, y: Int32 }\n" +
+	lib := "export type GenPoint is struct x: Int32, y: Int32 end\n" +
 		"export fun GenMakePoint(): GenPoint do\n" +
-		"    return GenPoint { x = 1, y = 2 }\n" +
+		"    return GenPoint(x = 1, y = 2)\n" +
 		"end\n" +
 		"export fun GenIdentity<T>(value: T): T do\n" +
 		"    return value\n" +

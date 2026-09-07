@@ -123,7 +123,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap) do",
-        "    names: Dict<Int32, Strand>:= Dict<Int32, Strand>.new(h)",
+        "    names: Dict<Int32, Strand>:= Dict<Int32, Strand>(h)",
         "    defer names.free(h)",
         "    names.insert(1, \"one\")",
         "    names.insert(2, \"two\")",

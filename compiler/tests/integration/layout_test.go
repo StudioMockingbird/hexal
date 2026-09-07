@@ -7,7 +7,7 @@ import (
 )
 
 func TestLayoutQueriesCompile(t *testing.T) {
-	source := "type Node = {\n    x: Int32,\n    y: Float64,\n}\nfun layout_demo(): Size do\n    a: Size := size_of<Int32>()\n    b: Size := align_of<Node>()\n    c: Size := size_of<String>()\n    d: Size := size_of<Array<UInt8, 4>>()\n    return a + b + c + d\nend\n"
+	source := "type Node is struct\n    x: Int32,\n    y: Float64,\nend\nfun layout_demo(): Size do\n    a: Size := size_of<Int32>()\n    b: Size := align_of<Node>()\n    c: Size := size_of<String>()\n    d: Size := size_of<Array<UInt8, 4>>()\n    return a + b + c + d\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)

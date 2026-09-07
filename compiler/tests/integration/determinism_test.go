@@ -19,16 +19,16 @@ func TestCompilationIsDeterministic(t *testing.T) {
 	sources := map[string]string{
 		"app.hex": "module Shapes = import \"./shapes\"\n" +
 			"fun run(h: Heap): Int32 do\n" +
-			"    values: List<Int32> := List<Int32>.new(h)\n" +
+			"    values: List<Int32> := List<Int32>(h)\n" +
 			"    defer values.free(h)\n" +
 			"    values.push(Shapes.corners())\n" +
 			"    text: String := \"corners\"\n" +
 			"    print(text)\n" +
-			"    counts: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n" +
+			"    counts: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n" +
 			"    defer counts.free(h)\n" +
 			"    return values.length().to<Int32>()\n" +
 			"end\n" +
-			"h: Heap := Heap.new()\n" +
+			"h: Heap := Heap()\n" +
 			"total: Int32 := run(h)\n",
 		"shapes.hex": "export fun corners(): Int32 do\n    return 4\nend\n",
 	}

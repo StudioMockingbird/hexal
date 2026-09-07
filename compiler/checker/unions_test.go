@@ -8,7 +8,7 @@ import (
 )
 
 func TestResolveTypeUseKeepsWrittenOrderThroughAliases(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Number = Int64 | Int32 value: Number := 1"))
+	checked, err := Check(parseProgram(t, "type Number is union Int64 | Int32 end value: Number := 1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestResolveTypeUseKeepsWrittenOrderThroughAliases(t *testing.T) {
 }
 
 func TestResolveTypeUseFlattensAliasCandidatesInOuterUnion(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Number = Int64 | Int32 value: Number | Nil := 1"))
+	checked, err := Check(parseProgram(t, "type Number is union Int64 | Int32 end value: Number | Nil := 1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,11 +115,11 @@ func TestCheckUnionRejectsDuplicateMembers(t *testing.T) {
 	}{
 		{"x: Int32 | Nil | Int32 := 0", "union member Int32 appears more than once"},
 		{"y: Int32 | Nil | Nil := nil", "union member Nil appears more than once"},
-		{"type Bad = Ptr<Int32> | Nil | Nil value: Bad := nil", "union member Nil appears more than once"},
+		{"type Bad is union Ptr<Int32> | Nil | Nil end value: Bad := nil", "union member Nil appears more than once"},
 		{"x: Int32 | Float64 | Int32 | Nil := 1", "union member Int32 appears more than once"},
-		{"type Score = Int32 x: Int32 | Nil | Score := 0", "union member Int32 appears more than once"},
-		{"type MaybeScore = Int32 | Nil x: Bool | MaybeScore | Int32 := true", "union member Int32 appears more than once"},
-		{"type M<T> = T | Int32 x: M<Int32> := 0", "union member Int32 appears more than once"},
+		{"type Score is Int32 x: Int32 | Nil | Score := 0", "union member Int32 appears more than once"},
+		{"type MaybeScore is union Int32 | Nil end x: Bool | MaybeScore | Int32 := true", "union member Int32 appears more than once"},
+		{"type M<T> is union T | Int32 end x: M<Int32> := 0", "union member Int32 appears more than once"},
 	} {
 		_, err := Check(parseProgram(t, testCase.source))
 		if err == nil || !strings.Contains(err.Error(), testCase.want) {

@@ -65,7 +65,7 @@ func TestBuiltinTypeNamesAreProtected(t *testing.T) {
 			if want == "" {
 				want = "built-in type " + name + " cannot be redeclared"
 			}
-			assertRejects(t, "type "+name+" = Int32", want)
+			assertRejects(t, "type "+name+" is Int32", want)
 		})
 	}
 }

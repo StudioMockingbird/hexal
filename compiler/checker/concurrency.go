@@ -80,7 +80,7 @@ func checkSpawnExpression(expression parser.SpawnExpression, ctx checkContext) c
 	if _, isProperty := call.Callee.(parser.PropertyExpression); isProperty {
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "spawn requires a direct call to a named function"))}
 	}
-	checked := checkCallValue(call, ctx)
+	checked := checkCallValue(call, compilerTypes.Type{}, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		if checked.typ == (compilerTypes.Type{}) {
 			// A no-result callee cannot form a Task<R>, and Hexal does not
@@ -159,15 +159,14 @@ func checkTaskMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 	}
 }
 
-// checkChannelTypeCall resolves Channel<T>.new(heap, capacity).
+// checkChannelTypeCall resolves Channel<T>(heap, capacity).
 func checkChannelTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
 	channelUse, diagnostic := resolveChannelTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "Channel", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
-	if property.Lexeme != "new" || len(call.Arguments) != 2 || len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Channel has no such operation; use Channel<T>.new(heap, capacity)"))}
+	if len(call.Arguments) != 2 || len(call.TypeArguments) != 1 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Channel requires 2 arguments (heap, capacity); use Channel<T>(heap, capacity)"))}
 	}
 	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
@@ -191,7 +190,7 @@ func checkChannelTypeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 	result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{channelUse.Type, compilerTypes.ErrorType})
 	node := Expression{Kind: ChannelConstructorExpression, Operand: &capacity.source.Node, Arguments: []Operand{heap.source, capacity.source}, OperandType: channelUse.Type, ResultType: result, Element: channelUse.Type.Channel.Element, SourceLine: callee.Line, SourceColumn: callee.Column}
 	source := Operand{Kind: ExpressionOperand, Type: result, Name: "new", Node: node}
-	return checkedExpression{source: source, typ: result, token: property}
+	return checkedExpression{source: source, typ: result, token: callee}
 }
 
 // checkChannelMethodCall resolves Channel handle methods.
@@ -263,11 +262,10 @@ func checkChannelMethodCall(call parser.CallExpression, callee parser.PropertyEx
 	}
 }
 
-// checkMutexTypeCall resolves Mutex.new(heap).
+// checkMutexTypeCall resolves Mutex(heap).
 func checkMutexTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
-	if property.Lexeme != "new" || len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Mutex has no such operation; use Mutex.new(heap)"))}
+	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Mutex requires 1 argument (heap); use Mutex(heap)"))}
 	}
 	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
@@ -279,7 +277,7 @@ func checkMutexTypeCall(call parser.CallExpression, callee lexer.Token, ctx chec
 	result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.MutexType, compilerTypes.ErrorType})
 	node := Expression{Kind: MutexConstructorExpression, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: result, SourceLine: callee.Line, SourceColumn: callee.Column}
 	source := Operand{Kind: ExpressionOperand, Type: result, Name: "new", Node: node}
-	return checkedExpression{source: source, typ: result, token: property}
+	return checkedExpression{source: source, typ: result, token: callee}
 }
 
 // checkMutexMethodCall resolves Mutex handle methods.
@@ -312,15 +310,14 @@ func checkMutexMethodCall(call parser.CallExpression, callee parser.PropertyExpr
 	}
 }
 
-// checkAtomicTypeCall resolves Atomic<T>.new(initial).
+// checkAtomicTypeCall resolves Atomic<T>(initial).
 func checkAtomicTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
 	atomicUse, diagnostic := resolveAtomicTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "Atomic", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
-	if property.Lexeme != "new" || len(call.Arguments) != 1 || len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Atomic has no such operation; use Atomic<T>.new(initial)"))}
+	if len(call.Arguments) != 1 || len(call.TypeArguments) != 1 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Atomic requires 1 argument (initial); use Atomic<T>(initial)"))}
 	}
 	element := atomicUse.Type.Atomic.Element
 	initial := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.Arguments[0]), ctx)
@@ -332,7 +329,7 @@ func checkAtomicTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 	}
 	node := Expression{Kind: AtomicConstructorExpression, Arguments: []Operand{initial.source}, OperandType: atomicUse.Type, ResultType: atomicUse.Type, Element: element}
 	source := Operand{Kind: ExpressionOperand, Type: atomicUse.Type, Name: "new", Node: node}
-	return checkedExpression{source: source, typ: atomicUse.Type, token: property}
+	return checkedExpression{source: source, typ: atomicUse.Type, token: callee}
 }
 
 // checkAtomicMethodCall resolves Atomic handle methods.

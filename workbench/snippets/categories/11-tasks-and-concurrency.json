@@ -44,7 +44,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun run(h: Heap): Nil | Error do",
-        "    channel: Channel<Int32>:= try Channel<Int32>.new(h, 4)",
+        "    channel: Channel<Int32>:= try Channel<Int32>(h, 4)",
         "    defer channel.free(h)",
         "    channel.send(1)",
         "    channel.send(2)",
@@ -62,7 +62,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun run(h: Heap): Int32 | Error do",
-        "    channel: Channel<Int32>:= try Channel<Int32>.new(h, 2)",
+        "    channel: Channel<Int32>:= try Channel<Int32>(h, 2)",
         "    defer channel.free(h)",
         "    channel.send(7)",
         "    channel.close()",
@@ -83,7 +83,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun run(h: Heap): Int32 | Error do",
-        "    channel: Channel<Int32>:= try Channel<Int32>.new(h, 2)",
+        "    channel: Channel<Int32>:= try Channel<Int32>(h, 2)",
         "    defer channel.free(h)",
         "    channel.send(20 + 22)",
         "    channel.close()",
@@ -104,7 +104,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun run(h: Heap): Nil | Error do",
-        "    mutex: Mutex:= try Mutex.new(h)",
+        "    mutex: Mutex:= try Mutex(h)",
         "    defer mutex.free(h)",
         "    mut total: Int32:= 0",
         "    mutex.lock()",
@@ -122,12 +122,12 @@
       "description": "Use load, store, and fetch_add on an atomic object member shared by pointer.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Shared = { count: Atomic<Int32>, }",
+        "type Shared is struct count: Atomic<Int32> end",
         "fun bump(shared: MutPtr<Shared>) do",
         "    shared.count.fetch_add(1)",
         "end",
         "fun run(): Int32 do",
-        "    mut shared: Shared:= Shared { count = Atomic<Int32>.new(0) }",
+        "    mut shared: Shared:= Shared(count = Atomic<Int32>(0))",
         "    pointer: MutPtr<Shared>:= ref shared",
         "    pointer.count.store(5)",
         "    pointer.count.fetch_add(1)",
@@ -174,7 +174,7 @@
         "    return true",
         "end",
         "fun run(h: Heap): Int32 | Error do",
-        "    channel: Channel<Int32>:= try Channel<Int32>.new(h, 2)",
+        "    channel: Channel<Int32>:= try Channel<Int32>(h, 2)",
         "    defer channel.free(h)",
         "    task: Task<Bool>:= try spawn worker(channel)",
         "    task.join()",
@@ -200,7 +200,7 @@
         "    return true",
         "end",
         "fun run(h: Heap): Int32 | Error do",
-        "    mutex: Mutex:= try Mutex.new(h)",
+        "    mutex: Mutex:= try Mutex(h)",
         "    defer mutex.free(h)",
         "    task: Task<Bool>:= try spawn worker(mutex)",
         "    task.join()",
@@ -226,7 +226,7 @@
         "    return value",
         "end",
         "fun saturate(h: Heap): Nil | Error do",
-        "    jobs: List<Task<Int64>>:= List<Task<Int64>>.new(h)",
+        "    jobs: List<Task<Int64>>:= List<Task<Int64>>(h)",
         "    defer jobs.free(h)",
         "    mut seed: Int64:= 0",
         "    while seed < 128 do",
@@ -238,7 +238,7 @@
         "    end",
         "    return nil",
         "end",
-        "saturate(Heap.new())"
+        "saturate(Heap())"
       ]},
       "features": ["tasks", "lists", "while", "for", "errors", "try-errdefer", "heap-allocation"],
       "reservedWords": ["fun", "mut", "while", "do", "end", "return", "try", "spawn", "for", "in", "nil"]
@@ -268,7 +268,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun run(): Int32 do",
-        "    counter: Atomic<Int32>:= Atomic<Int32>.new(4)",
+        "    counter: Atomic<Int32>:= Atomic<Int32>(4)",
         "    previous: Int32:= counter.exchange(9)",
         "    return previous + counter.load()",
         "end"
@@ -283,7 +283,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun run(): Bool do",
-        "    counter: Atomic<Int32>:= Atomic<Int32>.new(1)",
+        "    counter: Atomic<Int32>:= Atomic<Int32>(1)",
         "    succeeded: Bool:= counter.compare_exchange(1, 2)",
         "    failed: Bool:= counter.compare_exchange(1, 3)",
         "    return succeeded and !failed and (counter.load() == 2)",
@@ -299,7 +299,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun run(): Int32 do",
-        "    counter: Atomic<Int32>:= Atomic<Int32>.new(5)",
+        "    counter: Atomic<Int32>:= Atomic<Int32>(5)",
         "    previous: Int32:= counter.fetch_sub(2)",
         "    return previous + counter.load()",
         "end"
@@ -314,7 +314,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun run(h: Heap): Size | Error do",
-        "    channel: Channel<Int32>:= try Channel<Int32>.new(h, 2)",
+        "    channel: Channel<Int32>:= try Channel<Int32>(h, 2)",
         "    defer channel.free(h)",
         "    capacity: Size:= channel.capacity()",
         "    before: Size:= channel.length()",

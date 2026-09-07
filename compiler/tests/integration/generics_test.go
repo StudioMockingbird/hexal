@@ -7,7 +7,7 @@ import (
 )
 
 func TestGenericAliasSpecializesTransparently(t *testing.T) {
-	result := compileSource("type Pointer<T> = Ptr<T> mut value: Int32 := 1 pointer: Pointer<Int32> := ref value")
+	result := compileSource("type Pointer<T> is Ptr<T> mut value: Int32 := 1 pointer: Pointer<Int32> := ref value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -17,7 +17,7 @@ func TestGenericAliasSpecializesTransparently(t *testing.T) {
 }
 
 func TestGenericObjectSpecializesWithSubstitutedMembers(t *testing.T) {
-	result := compileSource("type Box<T> = { value: T } box: Box<Int32> := Box<Int32> { value = 42 }")
+	result := compileSource("type Box<T> is struct value: T end box: Box<Int32> := Box<Int32>(value = 42)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -37,7 +37,7 @@ func TestGenericFunctionCallAndExplicitArguments(t *testing.T) {
 }
 
 func TestGenericMethodWithReceiverAndMethodArguments(t *testing.T) {
-	result := compileSource("type Box<T> = { value: T }\nimpl Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> := Box<Int32> { value = 42 }\nvalue: Int32 := box.get()")
+	result := compileSource("type Box<T> is struct value: T end\nmethod Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> := Box<Int32>(value = 42)\nvalue: Int32 := box.get()")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -57,7 +57,7 @@ func TestGenericFunctionValueReferenceInfersFromFunTarget(t *testing.T) {
 }
 
 func TestGenericObjectLiteralInfersFromExpectedType(t *testing.T) {
-	result := compileSource("type Box<T> = { value: T } box: Box<Int32> := Box { value = 42 }")
+	result := compileSource("type Box<T> is struct value: T end box: Box<Int32> := Box(value = 42)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -77,7 +77,7 @@ func TestGenericNestedSpecializationsReuseOneCName(t *testing.T) {
 }
 
 func TestGenericPointerIndirectedRecursionIsFinite(t *testing.T) {
-	result := compileSource("type Link<T> = { value: T, mut next: MutPtr<Link<T>> | Nil, } link: Link<Int32> := Link<Int32> { value = 1, next = nil }")
+	result := compileSource("type Link<T> is struct value: T, mut next: MutPtr<Link<T>> | Nil, end link: Link<Int32> := Link<Int32>(value = 1, next = nil)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -125,7 +125,7 @@ func TestGenericArityAndInferenceDiagnostics(t *testing.T) {
 // pass generator preflight for every specialization: the validation walk must
 // not fail closed on statement shapes the checker accepts.
 func TestGenericBodiesWithControlFlowSpecialize(t *testing.T) {
-	source := "fun cleanup(v: Int32) do\nend\nfun sweep<T>(values: List<T>): Int32 | Error do\n    errdefer cleanup(9)\n    defer cleanup(8)\n    mut total: Int32 := 0\n    for value in values do\n        while total < 10 do\n            total = total + 1\n            if total > 100 then\n                break\n            end\n            continue\n        end\n    end\n    return total\nend\nfun demo(h: Heap): Int32 | Error do\n    ints: List<Int32> := List<Int32>.new(h)\n    defer ints.free(h)\n    ints.push(1)\n    a: Int32 := try sweep<Int32>(ints)\n    strands: List<Strand> := List<Strand>.new(h)\n    defer strands.free(h)\n    strands.push(\"s\")\n    b: Int32 := try sweep<Strand>(strands)\n    return a + b\nend\n"
+	source := "fun cleanup(v: Int32) do\nend\nfun sweep<T>(values: List<T>): Int32 | Error do\n    errdefer cleanup(9)\n    defer cleanup(8)\n    mut total: Int32 := 0\n    for value in values do\n        while total < 10 do\n            total = total + 1\n            if total > 100 then\n                break\n            end\n            continue\n        end\n    end\n    return total\nend\nfun demo(h: Heap): Int32 | Error do\n    ints: List<Int32> := List<Int32>(h)\n    defer ints.free(h)\n    ints.push(1)\n    a: Int32 := try sweep<Int32>(ints)\n    strands: List<Strand> := List<Strand>(h)\n    defer strands.free(h)\n    strands.push(\"s\")\n    b: Int32 := try sweep<Strand>(strands)\n    return a + b\nend\n"
 	result := assertCompiles(t, source)
 	if strings.Count(rootC(t, result), "hex_f_m3_app_sweep_Int32") < 1 || strings.Count(rootC(t, result), "hex_f_m3_app_sweep_Strand") < 1 {
 		t.Fatalf("modules/app.c = %q, want both specializations", rootC(t, result))

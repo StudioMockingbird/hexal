@@ -34,12 +34,11 @@ func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	return compilerTypes.NewTypeUse(dict), nil
 }
 
-// checkDictTypeCall resolves Dict<K, V>.new(heap) into a fresh owning
+// checkDictTypeCall resolves Dict<K, V>(heap) into a fresh owning
 // dictionary.
 func checkDictTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
-	if property.Lexeme != "new" || len(call.TypeArguments) != 2 || len(call.Arguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Dict has no such operation; use Dict<K, V>.new(heap)"))}
+	if len(call.TypeArguments) != 2 || len(call.Arguments) != 1 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Dict requires exactly two type arguments and a Heap; use Dict<K, V>(heap)"))}
 	}
 	dictUse, diagnostic := resolveDictTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "Dict", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {

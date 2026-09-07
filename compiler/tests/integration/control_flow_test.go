@@ -157,7 +157,7 @@ func TestControlFlowReturnDiagnosticsDoNotMaskChildErrors(t *testing.T) {
 }
 
 func TestMethodControlFlowLowering(t *testing.T) {
-	result := compileSource("type Counter = { mut count: Int32, } impl MutPtr<Counter>.step(amount: Int32): Int32 do if amount > 0 then self.count = self.count + amount return self.count else return 0 end end mut counter: Counter := Counter { count = 1, } result: Int32 := counter.step(2)")
+	result := compileSource("type Counter is struct mut count: Int32 end method MutPtr<Counter>.step(amount: Int32): Int32 do if amount > 0 then self.count = self.count + amount return self.count else return 0 end end mut counter: Counter := Counter(count = 1) result: Int32 := counter.step(2)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("method control-flow compilation failed: %#v", result)
 	}
@@ -199,7 +199,7 @@ func TestControlFlowDiagnostics(t *testing.T) {
 // the same path as the identical loop inside a function; the checker's
 // top-level dispatch must not fall through to the fail-closed default.
 func TestTopLevelForStatementCompiles(t *testing.T) {
-	source := "mut total: Int32 := 0\nfixed: Array<Int32, 3> := [1, 2, 3]\nfor value in fixed do\n    total = total + value\nend\nvalues: List<Int32> := List<Int32>.new(Heap.new())\nfor value in values do\n    total = total + value\nend\ntext: String := \"hey\"\nfor rune in text do\n    total = total + rune.to<Int32>()\nend\n"
+	source := "mut total: Int32 := 0\nfixed: Array<Int32, 3> := [1, 2, 3]\nfor value in fixed do\n    total = total + value\nend\nvalues: List<Int32> := List<Int32>(Heap())\nfor value in values do\n    total = total + value\nend\ntext: String := \"hey\"\nfor rune in text do\n    total = total + rune.to<Int32>()\nend\n"
 	result := assertCompiles(t, source)
 	for _, want := range []string{
 		"const hex_array_Int32_3 *const hex_for_1 = &(hex_v_fixed);",

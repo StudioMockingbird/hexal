@@ -829,6 +829,12 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 			typ = compilerTypes.StrandType
 		}
 		return expressionTypeHint{typ: typ, token: expression.Token}
+	case parser.RawStringLiteral:
+		typ := compilerTypes.StringType
+		if compilerTypes.IsStrand(expected) {
+			typ = compilerTypes.StrandType
+		}
+		return expressionTypeHint{typ: typ, token: expression.Token}
 	case parser.ByteLiteral:
 		return expressionTypeHint{typ: compilerTypes.UInt8, token: expression.Token}
 	case parser.RuneLiteral:
@@ -836,17 +842,8 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
 		place := checkPlace(expression, ctx)
 		return expressionTypeHint{typ: place.typ, token: place.token, diagnostic: place.diagnostic}
-	case parser.ObjectLiteral:
-		typ, ok := ctx.typeEnvironment.Lookup(expression.TypeName.Lexeme)
-		if !ok {
-			return expressionTypeHint{token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, "unknown type "+expression.TypeName.Lexeme))}
-		}
-		return expressionTypeHint{typ: typ, token: expression.TypeName}
 	case parser.ArrayLiteralExpression:
 		checked := checkArrayLiteral(expression, expected, ctx)
-		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
-	case parser.QualifiedVariantExpression:
-		checked := checkQualifiedVariant(expression, expected, ctx)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.MatchExpression:
 		checked := checkMatchExpression(expression, expressionContext{expected: compilerTypes.NewTypeUse(expected)}, ctx)
@@ -861,7 +858,7 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 		checked := checkReference(expression, ctx)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.CallExpression:
-		checked := checkCallValue(expression, ctx)
+		checked := checkCallValue(expression, expected, ctx)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.UnaryExpression:
 		operator, ok := operatorFromToken(expression.Operator)

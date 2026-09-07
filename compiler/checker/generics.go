@@ -120,7 +120,7 @@ type openGenericMethod struct {
 	Name               string
 	ReceiverParameters []lexer.Token
 	Parameters         []lexer.Token
-	Declaration        parser.ImplDeclaration
+	Declaration        parser.MethodDeclaration
 	Object             *openGenericType
 	Generic            *compilerTypes.GenericDeclaration
 }
@@ -356,7 +356,7 @@ func isGenericReceiver(expression parser.TypeExpression) bool {
 // registerGenericMethod validates and stores one generic method declaration as
 // an open template. The receiver must be the owner's bare generic parameters
 // in declaration order.
-func registerGenericMethod(declaration parser.ImplDeclaration, ctx checkContext) compilerTypes.Diagnostics {
+func registerGenericMethod(declaration parser.MethodDeclaration, ctx checkContext) compilerTypes.Diagnostics {
 	receiver, ok := declaration.SelfType.(parser.GenericTypeExpression)
 	if !ok {
 		return compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword, "a generic method requires a generic receiver")}

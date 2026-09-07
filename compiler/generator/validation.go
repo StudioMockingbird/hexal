@@ -428,7 +428,10 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 	if state.activeObjects[object] {
 		return throughPointer
 	}
-	if len(object.Members) == 0 {
+	if object.Incomplete {
+		// A provisional object that never reached CompleteObject is a
+		// checker defect reaching the generator; a deliberately empty
+		// struct is complete with a zero-length member slice and passes.
 		return false
 	}
 	state.activeObjects[object] = true
@@ -952,7 +955,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
 		return validateCollectionExpression(node, expected, state)
-	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.RuneCursorMethodCallExpression:
+	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression, checker.RuneCursorMethodCallExpression:
 		return validateTextExpression(node, expected, state)
 	case checker.ListNewExpression, checker.DictNewExpression:
 		return validateCollectionConstructor(node, expected, state)

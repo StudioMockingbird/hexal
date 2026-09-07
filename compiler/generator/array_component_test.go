@@ -100,7 +100,7 @@ static inline hex_view_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *ar
 // A program whose only specializations are module-typed therefore emits no
 // component artifact and no include for one.
 func TestArrayModuleOwnedElementSpecializationLivesInModuleHeader(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo() do\n    fixed: Array<Point, 2> := [Point { x = 1, }, Point { x = 2, }]\n    first: Int32 := fixed[0].x\nend")
+	program := checkedGeneratorSource(t, "type Point is struct\n    x: Int32,\nend\nfun demo() do\n    fixed: Array<Point, 2> := [Point(x = 1), Point(x = 2)]\n    first: Int32 := fixed[0].x\nend")
 	files := generateOne(t, program)
 	if got := files["hexal/array.h"]; got != "" {
 		t.Fatalf("hexal/array.h = %q, want no component artifact: its only specialization is module-typed", got)

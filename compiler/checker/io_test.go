@@ -41,7 +41,7 @@ func TestCheckStreamCapabilityTiers(t *testing.T) {
 		"stream is not writable")
 	requireDiagnostic(t,
 		"fun echo(h: Heap): Nil | Error do\n"+
-			"    buf: List<Byte> := List<Byte>.new(h)\n"+
+			"    buf: List<Byte> := List<Byte>(h)\n"+
 			"    out: IO := try IO.stdout()\n"+
 			"    out.read(buf, 8)\n"+
 			"    return nil\nend\n",
@@ -58,19 +58,19 @@ func TestCheckStreamCapabilityTiers(t *testing.T) {
 func TestCheckBytesReceiverForms(t *testing.T) {
 	requireDiagnostic(t,
 		"fun demo(h: Heap): Nil | Error do\n"+
-			"    data: List<Byte> := List<Byte>.new(h)\n"+
-			"    dest: List<Byte> := List<Byte>.new(h)\n"+
+			"    data: List<Byte> := List<Byte>(h)\n"+
+			"    dest: List<Byte> := List<Byte>(h)\n"+
 			"    fixed: Bytes := Bytes.over(data)\n"+
 			"    return fixed.read(dest, 4)\nend\n",
 		"read needs MutPtr<Bytes>; ref fixed is Ptr<Bytes>")
 	requireAccepted(t,
 		"fun demo(h: Heap, text: String): Nil | Error do\n"+
-			"    data: List<Byte> := List<Byte>.new(h)\n"+
-			"    dest: List<Byte> := List<Byte>.new(h)\n"+
+			"    data: List<Byte> := List<Byte>(h)\n"+
+			"    dest: List<Byte> := List<Byte>(h)\n"+
 			"    mut live: Bytes := Bytes.over(data)\n"+
 			"    r: Size | EoS | Error := live.read(dest, 4)\n"+
 			"    w: Size | Error := live.write(text.bytes())\n"+
-			"    s: Size | Error := live.seek(Seek.Start { position = 0 })\n"+
+			"    s: Size | Error := live.seek(Seek.Start(position = 0))\n"+
 			"    return nil\nend\n")
 }
 
@@ -101,8 +101,8 @@ func TestCheckIOCloseFacts(t *testing.T) {
 func TestCheckBytesProvenance(t *testing.T) {
 	requireDiagnostic(t,
 		"fun demo(h: Heap): Nil | Error do\n"+
-			"    src: List<Byte> := List<Byte>.new(h)\n"+
-			"    dst: List<Byte> := List<Byte>.new(h)\n"+
+			"    src: List<Byte> := List<Byte>(h)\n"+
+			"    dst: List<Byte> := List<Byte>(h)\n"+
 			"    mut stream: Bytes := Bytes.over(src)\n"+
 			"    src.free(h)\n"+
 			"    r: Size | EoS | Error := stream.read(dst, 4)\n"+
@@ -110,15 +110,15 @@ func TestCheckBytesProvenance(t *testing.T) {
 		"memory stream outlives its source list, freed on every path to this point")
 	requireDiagnostic(t,
 		"fun demo(h: Heap): Nil | Error do\n"+
-			"    src: List<Byte> := List<Byte>.new(h)\n"+
+			"    src: List<Byte> := List<Byte>(h)\n"+
 			"    src.free(h)\n"+
 			"    late: Bytes := Bytes.over(src)\n"+
 			"    return nil\nend\n",
 		"memory stream outlives its source list, freed on every path to this point")
 	requireAccepted(t,
 		"fun demo(h: Heap): Nil | Error do\n"+
-			"    src: List<Byte> := List<Byte>.new(h)\n"+
-			"    dst: List<Byte> := List<Byte>.new(h)\n"+
+			"    src: List<Byte> := List<Byte>(h)\n"+
+			"    dst: List<Byte> := List<Byte>(h)\n"+
 			"    mut stream: Bytes := Bytes.over(src)\n"+
 			"    mut copy: Bytes := stream\n"+
 			"    r: Size | EoS | Error := copy.read(dst, 4)\n"+
@@ -128,21 +128,21 @@ func TestCheckBytesProvenance(t *testing.T) {
 // Placement follows the bootstrap matrix exactly.
 func TestCheckStreamPlacementMatrix(t *testing.T) {
 	rejections := []struct{ name, source string }{
-		{"object member", "type Box = { stream: IO, }"},
-		{"ADT payload", "type Held as | Carry { stream: IO } end"},
-		{"array element", "type Box = { pair: Array<IO, 2>, }"},
-		{"bytes object member", "type Box = { stream: Bytes, }"},
+		{"object member", "type Box is struct stream: IO, end"},
+		{"ADT payload", "type Held is union | Carry as stream: IO end | Empty end"},
+		{"array element", "type Box is struct pair: Array<IO, 2>, end"},
+		{"bytes object member", "type Box is struct stream: Bytes, end"},
 	}
 	for _, testCase := range rejections {
 		if _, err := checkSource(t, testCase.source); err == nil {
 			t.Fatalf("%s placement was accepted", testCase.name)
 		}
 	}
-	listElement := "fun demo(h: Heap): Nil | Error do\n    streams: List<IO> := List<IO>.new(h)\n    return nil\nend"
+	listElement := "fun demo(h: Heap): Nil | Error do\n    streams: List<IO> := List<IO>(h)\n    return nil\nend"
 	if _, err := checkSource(t, listElement); err == nil {
 		t.Fatal("list element placement was accepted")
 	}
-	channelElement := "fun demo(h: Heap): Nil | Error do\n    pipe: Channel<IO> := Channel<IO>.new(h, 1)\n    return nil\nend"
+	channelElement := "fun demo(h: Heap): Nil | Error do\n    pipe: Channel<IO> := Channel<IO>(h, 1)\n    return nil\nend"
 	if _, err := checkSource(t, channelElement); err == nil {
 		t.Fatal("channel element placement was accepted")
 	}
@@ -155,7 +155,7 @@ func TestCheckStreamPlacementMatrix(t *testing.T) {
 	requireDiagnostic(t,
 		"fun take(stream: Bytes): Size do\n    return 0\nend\n"+
 			"fun demo(h: Heap): Nil | Error do\n"+
-			"    data: List<Byte> := List<Byte>.new(h)\n"+
+			"    data: List<Byte> := List<Byte>(h)\n"+
 			"    task: Task<Size> := spawn take(Bytes.over(data))\n"+
 			"    joined: Size | Error := task.join()\n"+
 			"    return nil\nend\n",
@@ -167,9 +167,9 @@ func TestCheckStreamPlacementMatrix(t *testing.T) {
 func TestCheckSeekConstruction(t *testing.T) {
 	requireAccepted(t,
 		"fun demo(): Nil | Error do\n"+
-			"    start: Seek := Seek.Start { position = 4096 }\n"+
-			"    offset: Seek := Seek.Current { offset = -1 }\n"+
-			"    back: Seek := Seek.End { offset = -8 }\n"+
+			"    start: Seek := Seek.Start(position = 4096)\n"+
+			"    offset: Seek := Seek.Current(offset = -1)\n"+
+			"    back: Seek := Seek.End(offset = -8)\n"+
 			"    return nil\nend\n")
 	requireAccepted(t, "Start: Int32 := 0 Current: Int32 := 0 End: Int32 := 0")
 }
@@ -177,9 +177,9 @@ func TestCheckSeekConstruction(t *testing.T) {
 // The three stream type names are protected; Start/Current/End are not, and
 // IO carries no generic parameter.
 func TestCheckStreamNamesAreReserved(t *testing.T) {
-	requireDiagnostic(t, "type IO = { x: Int32, }", "built-in type IO cannot be redeclared")
-	requireDiagnostic(t, "type Bytes = { x: Int32, }", "built-in type Bytes cannot be redeclared")
-	requireDiagnostic(t, "type Seek as | North | South end", "built-in type Seek cannot be redeclared")
+	requireDiagnostic(t, "type IO is struct x: Int32, end", "built-in type IO cannot be redeclared")
+	requireDiagnostic(t, "type Bytes is struct x: Int32, end", "built-in type Bytes cannot be redeclared")
+	requireDiagnostic(t, "type Seek is union | North | South end", "built-in type Seek cannot be redeclared")
 	requireDiagnostic(t, "fun f(x: IO<Byte>): Nil | Error do\n    return nil\nend\n", "unknown generic type IO")
 }
 
@@ -187,8 +187,8 @@ func TestCheckStreamNamesAreReserved(t *testing.T) {
 // shape, carrying exactly the members its contract names.
 func TestCheckStreamResultUnionsAreCanonical(t *testing.T) {
 	checked := requireAccepted(t,
-		"h: Heap := Heap.new()\n"+
-			"src: List<Byte> := List<Byte>.new(h)\n"+
+		"h: Heap := Heap()\n"+
+			"src: List<Byte> := List<Byte>(h)\n"+
 			"mut stream: Bytes := Bytes.over(src)\n"+
 			"r: Size | EoS | Error := stream.read(src, 4)\n")
 	read := checked.Statements[3].(Declaration)

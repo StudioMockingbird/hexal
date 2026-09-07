@@ -57,7 +57,7 @@ func TestPointerEqualityRejectsStrengthening(t *testing.T) {
 }
 
 func TestObjectEquality(t *testing.T) {
-	result := compileSource("type Point = { x: Int32, y: Int32, }\nfun demo() do\n    left: Point := Point { x = 1, y = 2, }\n    right: Point := Point { x = 1, y = 2, }\n    same: Bool := left == right\n    different: Bool := left != right\nend")
+	result := compileSource("type Point is struct x: Int32, y: Int32, end\nfun demo() do\n    left: Point := Point(x = 1, y = 2, )\n    right: Point := Point(x = 1, y = 2, )\n    same: Bool := left == right\n    different: Bool := left != right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -84,7 +84,7 @@ func TestEqualityUnavailable(t *testing.T) {
 		// element type; it must never fall back to an empty member name,
 		// which is what "member  does not support ==" would render as.
 		{"fun helper(x: Int32): Int32 do return x end\na: Array<Fun<(Int32) : Int32>, 1> := [helper]\nb: Array<Fun<(Int32) : Int32>, 1> := [helper]\nx: Bool := a == b\n", "element type Fun<(Int32) : Int32> does not support =="},
-		{"h1: Array<Heap, 1> := [Heap.new()]\nh2: Array<Heap, 1> := [Heap.new()]\nx: Bool := h1 == h2\n", "element type Heap does not support =="},
+		{"h1: Array<Heap, 1> := [Heap()]\nh2: Array<Heap, 1> := [Heap()]\nx: Bool := h1 == h2\n", "element type Heap does not support =="},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -193,7 +193,7 @@ func TestTextEqualityOrderingThroughMemcmp(t *testing.T) {
 }
 
 func TestStrandMemberEqualityUsesMemcmp(t *testing.T) {
-	source := "type Label = { tag: Strand, }\nfun demo() do\n    left: Label := Label { tag = \"a\" }\n    right: Label := Label { tag = \"a\" }\n    same: Bool := left == right\nend"
+	source := "type Label is struct tag: Strand, end\nfun demo() do\n    left: Label := Label(tag = \"a\")\n    right: Label := Label(tag = \"a\")\n    same: Bool := left == right\nend"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
@@ -220,7 +220,7 @@ func TestStringStrandEqualityRejected(t *testing.T) {
 }
 
 func TestSequenceEquality(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    fixed: Array<Int32, 2> := [1, 2]\n    other: Array<Int32, 2> := [1, 2]\n    same: Bool := fixed == other\n    values: List<Int32> := List<Int32>.new(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> := fixed.slice(0, 2)\n    total: Bool := view == fixed.slice(0, 2)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    fixed: Array<Int32, 2> := [1, 2]\n    other: Array<Int32, 2> := [1, 2]\n    same: Bool := fixed == other\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> := fixed.slice(0, 2)\n    total: Bool := view == fixed.slice(0, 2)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -246,17 +246,17 @@ func TestProgramOwnedEqualitySharedAcrossModules(t *testing.T) {
     right: Array<Int32, 2> := [1, 2]
     leftView: View<Int32> := left.slice(0, 2)
     rightView: View<Int32> := right.slice(0, 2)
-    leftList: List<Int32> := List<Int32>.new(h)
-    rightList: List<Int32> := List<Int32>.new(h)
+    leftList: List<Int32> := List<Int32>(h)
+    rightList: List<Int32> := List<Int32>(h)
     leftList.push(1)
     rightList.push(1)
-    leftError: Error := Error.new("x", "y")
-    rightError: Error := Error.new("x", "y")
+    leftError: Error := Error("x", "y")
+    rightError: Error := Error("x", "y")
     return (left == right) and (leftView == rightView) and (leftList == rightList) and (leftError == rightError)
 end
 `
 	result := compiler.Compile(map[string]string{
-		"app.hex":  "module Math = import \"./math\"\n" + compare + "root: Bool := compare(Heap.new())\nother: Bool := Math.compare(Heap.new())\n",
+		"app.hex":  "module Math = import \"./math\"\n" + compare + "root: Bool := compare(Heap())\nother: Bool := Math.compare(Heap())\n",
 		"math.hex": "export " + compare,
 	}, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -290,8 +290,8 @@ end
 
 func TestModuleOwnedEqualityCallsProgramOwnedHelper(t *testing.T) {
 	result := compileSource(`fun demo(h: Heap): Bool do
-    leftList: List<Int32> := List<Int32>.new(h)
-    rightList: List<Int32> := List<Int32>.new(h)
+    leftList: List<Int32> := List<Int32>(h)
+    rightList: List<Int32> := List<Int32>(h)
     left: List<Int32> | Bool := leftList
     right: List<Int32> | Bool := rightList
     return left == right
@@ -317,14 +317,14 @@ func TestSequenceEqualityRequiresSameShape(t *testing.T) {
 }
 
 func TestDictionaryEqualityRejected(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    left: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer left.free(h)\n    right: Dict<Int32, Int32> := left\n    same: Bool := left == right\nend")
+	result := compileSource("fun demo(h: Heap) do\n    left: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer left.free(h)\n    right: Dict<Int32, Int32> := left\n    same: Bool := left == right\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "dictionary equality is not available") {
 		t.Fatalf("Compile stderr = %#v, want dictionary rejection", result.Stderr)
 	}
 }
 
 func TestAdtEquality(t *testing.T) {
-	result := compileSource("type Shape as | Circle { r: Int32, } | Square { a: Int32, } end\nfun demo() do\n    left: Shape := Shape.Circle { r = 1, }\n    right: Shape := Shape.Circle { r = 1, }\n    same: Bool := left == right\nend")
+	result := compileSource("type Shape is union | Circle as r: Int32, end | Square as a: Int32, end end\nfun demo() do\n    left: Shape := Shape.Circle(r = 1, )\n    right: Shape := Shape.Circle(r = 1, )\n    same: Bool := left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -340,7 +340,7 @@ func TestAdtEquality(t *testing.T) {
 }
 
 func TestUnionEqualityWithObjectMember(t *testing.T) {
-	result := compileSource("type Point = { x: Int32, }\nfun demo() do\n    left: Point | Bool := Point { x = 1, }\n    right: Point | Bool := Point { x = 1, }\n    same: Bool := left == right\nend")
+	result := compileSource("type Point is struct x: Int32, end\nfun demo() do\n    left: Point | Bool := Point(x = 1, )\n    right: Point | Bool := Point(x = 1, )\n    same: Bool := left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -356,7 +356,7 @@ func TestOrderingRejections(t *testing.T) {
 	}{
 		{"fun demo() do\n    left: Bool := true\n    right: Bool := false\n    bad: Bool := left < right\nend", "ordering is unavailable for Bool values"},
 		{"fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := ref value\n    right: Ptr<Int32> := left\n    bad: Bool := left < right\nend", "ordering is unavailable for Ptr<Int32> values"},
-		{"type Point = { x: Int32, }\nfun demo() do\n    left: Point := Point { x = 1, }\n    right: Point := left\n    bad: Bool := left < right\nend", "ordering is unavailable for Point values"},
+		{"type Point is struct x: Int32, end\nfun demo() do\n    left: Point := Point(x = 1, )\n    right: Point := left\n    bad: Bool := left < right\nend", "ordering is unavailable for Point values"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -387,7 +387,7 @@ func TestNilComparisonRulesPreserved(t *testing.T) {
 }
 
 func TestListEqualityAccepted(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    left: List<Int32> := List<Int32>.new(h)\n    defer left.free(h)\n    left.push(1)\n    right: List<Int32> := left\n    same: Bool := left == right\nend")
+	result := compileSource("fun demo(h: Heap) do\n    left: List<Int32> := List<Int32>(h)\n    defer left.free(h)\n    left.push(1)\n    right: List<Int32> := left\n    same: Bool := left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -402,9 +402,9 @@ func TestManagedHandleEqualityRejected(t *testing.T) {
 		source string
 	}{
 		{"Task", "fun worker(): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> := try spawn worker()\n    same: Bool := task == task\n    return 0\nend\n"},
-		{"Channel", "fun f(h: Heap): Int32 | Error do\n    channel: Channel<Int32> := try Channel<Int32>.new(h, 4)\n    same: Bool := channel == channel\n    return 0\nend\n"},
-		{"Mutex", "fun f(h: Heap): Int32 | Error do\n    mutex: Mutex := try Mutex.new(h)\n    same: Bool := mutex == mutex\n    return 0\nend\n"},
-		{"Atomic", "counter: Atomic<Int32> := Atomic<Int32>.new(0)\nsame: Bool := counter == counter\n"},
+		{"Channel", "fun f(h: Heap): Int32 | Error do\n    channel: Channel<Int32> := try Channel<Int32>(h, 4)\n    same: Bool := channel == channel\n    return 0\nend\n"},
+		{"Mutex", "fun f(h: Heap): Int32 | Error do\n    mutex: Mutex := try Mutex(h)\n    same: Bool := mutex == mutex\n    return 0\nend\n"},
+		{"Atomic", "counter: Atomic<Int32> := Atomic<Int32>(0)\nsame: Bool := counter == counter\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertRejects(t, testCase.source, "equality is unavailable")

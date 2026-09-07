@@ -228,6 +228,77 @@ const hex_string *hex_strand_to_string(hex_heap h, hex_strand text) {
     return hex_string_from_bytes(h, text.data, length);
 }
 {{end}}
+{{if .NeedInterpolation}}
+// hex_string_format_* helpers write one interpolation-supported scalar's
+// print spelling into a caller-owned stack buffer and return its byte
+// length, so String.interpolate can measure and copy each formatted
+// segment without an intermediate heap allocation. The spelling matches
+// print's own formatting exactly (see hexal/print.c); Bool and Rune need
+// no dedicated helper here since a ternary literal and hex_utf8_encode
+// already cover them at the call site.
+size_t hex_string_format_int8(char buffer[32], int8_t value) {
+    return (size_t)snprintf(buffer, 32, "%" PRId8, value);
+}
+size_t hex_string_format_int16(char buffer[32], int16_t value) {
+    return (size_t)snprintf(buffer, 32, "%" PRId16, value);
+}
+size_t hex_string_format_int32(char buffer[32], int32_t value) {
+    return (size_t)snprintf(buffer, 32, "%" PRId32, value);
+}
+size_t hex_string_format_int64(char buffer[32], int64_t value) {
+    return (size_t)snprintf(buffer, 32, "%" PRId64, value);
+}
+size_t hex_string_format_uint8(char buffer[32], uint8_t value) {
+    return (size_t)snprintf(buffer, 32, "%" PRIu8, value);
+}
+size_t hex_string_format_uint16(char buffer[32], uint16_t value) {
+    return (size_t)snprintf(buffer, 32, "%" PRIu16, value);
+}
+size_t hex_string_format_uint32(char buffer[32], uint32_t value) {
+    return (size_t)snprintf(buffer, 32, "%" PRIu32, value);
+}
+size_t hex_string_format_uint64(char buffer[32], uint64_t value) {
+    return (size_t)snprintf(buffer, 32, "%" PRIu64, value);
+}
+size_t hex_string_format_size(char buffer[32], size_t value) {
+    return (size_t)snprintf(buffer, 32, "%zu", value);
+}
+size_t hex_string_format_float64(char buffer[64], double value) {
+    if (isnan(value)) { memcpy(buffer, "nan", 3); return 3; }
+    if (isinf(value)) {
+        if (signbit(value)) { memcpy(buffer, "-inf", 4); return 4; }
+        memcpy(buffer, "inf", 3);
+        return 3;
+    }
+    if (value == 0.0) { buffer[0] = '0'; return 1; }
+    size_t offset = 0;
+    if (signbit(value)) { buffer[0] = '-'; offset = 1; value = -value; }
+    int n = snprintf(buffer + offset, 64 - offset, "%.17g", value);
+    return offset + (size_t)n;
+}
+size_t hex_string_format_float32(char buffer[64], float value) {
+    if (isnan(value)) { memcpy(buffer, "nan", 3); return 3; }
+    if (isinf(value)) {
+        if (signbit(value)) { memcpy(buffer, "-inf", 4); return 4; }
+        memcpy(buffer, "inf", 3);
+        return 3;
+    }
+    if (value == 0.0f) { buffer[0] = '0'; return 1; }
+    size_t offset = 0;
+    if (signbit(value)) { buffer[0] = '-'; offset = 1; value = -value; }
+    int n = snprintf(buffer + offset, 64 - offset, "%.9g", value);
+    return offset + (size_t)n;
+}
+{{if .NeedStrand}}
+size_t hex_strand_byte_length(hex_strand text) {
+    size_t length = 0;
+    while (length < 32 && text.data[length] != 0) {
+        length++;
+    }
+    return length;
+}
+{{end}}
+{{end -}}
 {{if .NeedEquality}}
 bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {
     if (left->byte_length != right->byte_length) {

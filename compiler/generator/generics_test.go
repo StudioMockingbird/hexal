@@ -23,7 +23,7 @@ func TestGenerateGenericFunctionSpecialization(t *testing.T) {
 }
 
 func TestGenerateGenericObjectSpecialization(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Box<T> = { value: T } box: Box<Int32> := Box<Int32> { value = 42 }")
+	program := checkedGeneratorSource(t, "type Box<T> is struct\n    value: T,\nend\nbox: Box<Int32> := Box<Int32>(value = 42)")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -38,7 +38,7 @@ func TestGenerateGenericObjectSpecialization(t *testing.T) {
 }
 
 func TestGenerateGenericMethodSpecialization(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Box<T> = { value: T }\nimpl Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> := Box<Int32> { value = 42 }\nvalue: Int32 := box.get()")
+	program := checkedGeneratorSource(t, "type Box<T> is struct\n    value: T,\nend\nmethod Box<T>.get(): T do\nreturn self.value\nend box: Box<Int32> := Box<Int32>(value = 42)\nvalue: Int32 := box.get()")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {

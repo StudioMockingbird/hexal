@@ -72,7 +72,7 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 			return true
 		}
 	case checker.CallExpression, checker.MethodCallExpression,
-		checker.StringFromBytesExpression, checker.StringFromRunesExpression,
+		checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression,
 		checker.ListNewExpression, checker.DictNewExpression, checker.TryExpression, checker.PrintExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
 		checker.ChannelConstructorExpression,
@@ -349,7 +349,7 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 		return nil
 	}
 	switch node.Kind {
-	case checker.TryExpression, checker.SpawnExpression:
+	case checker.TryExpression, checker.SpawnExpression, checker.StringInterpolateExpression:
 		return nil
 	case checker.CollectionMethodCallExpression:
 		if node.Name == "find" && node.OperandType.Dict != nil {

@@ -14,8 +14,8 @@ import (
 // receiver spelling as written.
 func TestImplRejectsImportedType(t *testing.T) {
 	_, err := checkModules(t,
-		"module Geometry = import \"./math\"\nimpl Geometry.Point.rotate(): Int32 do\n    return 0\nend\n",
-		"export type Point = { x: Int32, y: Int32 }\n")
+		"module Geometry = import \"./math\"\nmethod Geometry.Point.rotate(): Int32 do\n    return 0\nend\n",
+		"export type Point is struct x: Int32, y: Int32 end\n")
 	requireMessage(t, err, "cannot declare methods for imported type Geometry.Point")
 }
 
@@ -24,8 +24,8 @@ func TestImplRejectsImportedType(t *testing.T) {
 // diagnostic uses the alias spelling.
 func TestImplRejectsImportedTypeThroughAlias(t *testing.T) {
 	_, err := checkModules(t,
-		"module Math = import \"./math\"\ntype P = Math.Point\nimpl P.rotate(): Int32 do\n    return 0\nend\n",
-		"export type Point = { x: Int32, y: Int32 }\n")
+		"module Math = import \"./math\"\ntype P is Math.Point\nmethod P.rotate(): Int32 do\n    return 0\nend\n",
+		"export type Point is struct x: Int32, y: Int32 end\n")
 	requireMessage(t, err, "cannot declare methods for imported type P")
 }
 
@@ -34,7 +34,7 @@ func TestImplRejectsImportedTypeThroughAlias(t *testing.T) {
 func TestImplOwnModuleTypeStillDeclaresMethods(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"export type Point = { x: Int32, y: Int32 }\nexport impl Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
+		"export type Point is struct x: Int32, y: Int32 end\nexport method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the defining module's own impl: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestImplOwnModuleTypeStillDeclaresMethods(t *testing.T) {
 func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\np: Math.Point := Math.origin()\narea: Int32 := p.length_squared()\n",
-		"export type Point = { x: Int32, y: Int32 }\nexport impl Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\nexport fun origin(): Point do\n    return Point { x = 3, y = 4 }\nend\n")
+		"export type Point is struct x: Int32, y: Int32 end\nexport method Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\nexport fun origin(): Point do\n    return Point(x = 3, y = 4)\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the imported method call: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 func TestImportedMethodCallRejectsPrivateMethod(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\np: Math.Point := Math.origin()\narea: Int32 := p.length_squared()\n",
-		"export type Point = { x: Int32, y: Int32 }\nimpl Point.length_squared(): Int32 do\n    return self.x\nend\nexport fun origin(): Point do\n    return Point { x = 3, y = 4 }\nend\n")
+		"export type Point is struct x: Int32, y: Int32 end\nmethod Point.length_squared(): Int32 do\n    return self.x\nend\nexport fun origin(): Point do\n    return Point(x = 3, y = 4)\nend\n")
 	requireMessage(t, err, "declaration length_squared is private to module math")
 }
 

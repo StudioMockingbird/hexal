@@ -82,7 +82,7 @@ func TestAccessorDemandIsPerDirection(t *testing.T) {
 // spells at_mut because every live List reference permits mutation without a
 // mut binding, pre-existing behaviour this change does not touch.
 func TestListAndViewAccessorsAreUntouched(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): Int32 do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    window: View<Int32> := fixed.slice(0, 2)\n    values: List<Int32> := List<Int32>.new(h)\n    values.push(1)\n    total: Int32 := window[0] + values[0]\n    values.free(h)\n    return total\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): Int32 do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    window: View<Int32> := fixed.slice(0, 2)\n    values: List<Int32> := List<Int32>(h)\n    values.push(1)\n    total: Int32 := window[0] + values[0]\n    values.free(h)\n    return total\nend\n")
 	body := rootC(t, result)
 	for _, want := range []string{
 		"*hex_view_at_Int32(",
@@ -104,7 +104,7 @@ func TestEveryCalledArrayAccessorIsDefined(t *testing.T) {
 		"fun demo(): Int32 do\n    grid: Array<Array<Int32, 3>, 2> := [[1, 2, 3], [4, 5, 6]]\n    mut total: Int32 := 0\n    for row in grid do\n        for cell in row do\n            total = total + cell\n        end\n    end\n    return total\nend\n",
 		"fun demo(i: Size): Int32 do\n    fixed: Array<Int32, 5> := [1, 2, 3, 4, 5]\n    return fixed[0] + fixed[i]\nend\n",
 		"fun demo(i: Size): Int32 do\n    mut fixed: Array<Int32, 3> := [1, 2, 3]\n    fixed[i] = 9\n    return fixed[i]\nend\n",
-		"type Pair = { mut values: Array<Int32, 2>, }\nfun demo(i: Size): Int32 do\n    mut pair: Pair := Pair { values = [3, 4], }\n    pair.values[i] = 9\n    return pair.values[0]\nend\n",
+		"type Pair is struct mut values: Array<Int32, 2> end\nfun demo(i: Size): Int32 do\n    mut pair: Pair := Pair(values = [3, 4])\n    pair.values[i] = 9\n    return pair.values[0]\nend\n",
 	} {
 		result := assertCompiles(t, source)
 		defined := ""

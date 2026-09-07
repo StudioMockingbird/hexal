@@ -49,12 +49,14 @@ type ImportDeclaration struct {
 func (ImportDeclaration) topLevelItemNode() {}
 
 // ObjectTypeExpression declares an ordered set of named members. It is only
-// produced for the direct target of a type declaration; ordinary annotations
-// and pointer elements continue to use TypeExpression's existing forms.
+// produced for a struct definition's body or an ADT payload's body; ordinary
+// annotations and pointer elements continue to use TypeExpression's existing
+// forms. Keyword is the introducing token (`struct` or `as`); End is the
+// closing `end`.
 type ObjectTypeExpression struct {
-	OpenBrace  lexer.Token
-	Members    []ObjectMemberDeclaration
-	CloseBrace lexer.Token
+	Keyword lexer.Token
+	Members []ObjectMemberDeclaration
+	End     lexer.Token
 }
 
 func (ObjectTypeExpression) typeExpressionNode() {}
@@ -135,11 +137,11 @@ type AnonymousFunctionLiteral struct {
 
 func (AnonymousFunctionLiteral) expressionNode() {}
 
-// ImplDeclaration is a method attached to a receiver type. SelfType keeps the
+// MethodDeclaration is a method attached to a receiver type. SelfType keeps the
 // written receiver form (Point, Ptr<Point>, MutPtr<Point>) unresolved; the
 // checker decides whether it names a nominal object type. Exported records an
 // `export` prefix.
-type ImplDeclaration struct {
+type MethodDeclaration struct {
 	Keyword         lexer.Token
 	SelfType        TypeExpression
 	Name            lexer.Token
@@ -152,7 +154,7 @@ type ImplDeclaration struct {
 	Exported        bool
 }
 
-func (ImplDeclaration) topLevelItemNode() {}
+func (MethodDeclaration) topLevelItemNode() {}
 
 // Parameter is one annotated function or method parameter. Annotations are
 // mandatory, so there is no inferred form.
@@ -356,6 +358,41 @@ type RuneLiteral struct {
 
 func (RuneLiteral) expressionNode() {}
 
+// RawStringLiteral is an r"..." / r#"..."# literal before semantic
+// resolution. The token lexeme includes the 'r', its hash delimiters, and
+// the surrounding quotes; the checker strips them and validates UTF-8. Raw
+// content performs no escape or interpolation processing.
+type RawStringLiteral struct {
+	Token lexer.Token
+}
+
+func (RawStringLiteral) expressionNode() {}
+
+// InterpolationSegment is one ordered piece of an interpolation template.
+// Exactly one of Text or Expression is set: a literal-text segment carries
+// its raw (still-escaped) source token in Text, and an embedded-expression
+// segment carries its parsed expression plus the "{{"/"}}" tokens that
+// delimit it.
+type InterpolationSegment struct {
+	Text       *lexer.Token
+	Expression Expression
+	Open       lexer.Token
+	Close      lexer.Token
+}
+
+// InterpolationTemplateExpression is the parsed contents of an interpreted
+// string the lexer found to contain interpolation: alternating literal-text
+// segments and embedded expressions, in source order. This is contextual
+// syntax, valid only as the second argument of String.interpolate; the
+// checker rejects it in every other expression or call position.
+type InterpolationTemplateExpression struct {
+	Start    lexer.Token
+	Segments []InterpolationSegment
+	End      lexer.Token
+}
+
+func (InterpolationTemplateExpression) expressionNode() {}
+
 // VariableExpression names a declared variable. The checker resolves its
 // type and binding mode.
 type VariableExpression struct {
@@ -398,11 +435,19 @@ func (IndexExpression) expressionNode() {}
 // CallExpression applies a callee to an argument list. A postfix chain whose
 // final operation is a call is also a statement; a chain ending in member
 // selection is an expression only, so those markers live here.
+//
+// ArgumentLabels carries each argument's optional `identifier =` label,
+// parallel to Arguments by index; an entry is nil for a plain positional
+// argument. Labels are meaningful only once the callee resolves: a struct or
+// ADT-variant constructor requires one on every argument, while every other
+// callee rejects one on any argument. Keeping Arguments unlabeled-shaped
+// leaves every existing positional consumer unchanged.
 type CallExpression struct {
-	Callee        Expression
-	OpenParen     lexer.Token
-	Arguments     []Expression
-	TypeArguments []TypeExpression // explicit generic arguments; empty when absent
+	Callee         Expression
+	OpenParen      lexer.Token
+	Arguments      []Expression
+	ArgumentLabels []*lexer.Token
+	TypeArguments  []TypeExpression // explicit generic arguments; empty when absent
 }
 
 func (CallExpression) expressionNode()   {}
@@ -440,19 +485,6 @@ type TypeTestExpression struct {
 }
 
 func (TypeTestExpression) expressionNode() {}
-
-// QualifiedVariantExpression constructs an ADT variant with a payload
-// initializer. Unit variants parse as PropertyExpression and are resolved by
-// the checker. OwnerArguments are explicit generic arguments for a generic
-// owner; empty when absent.
-type QualifiedVariantExpression struct {
-	Owner          lexer.Token
-	OwnerArguments []TypeExpression
-	Variant        lexer.Token
-	Payload        *[]MemberInitializer
-}
-
-func (QualifiedVariantExpression) expressionNode() {}
 
 // MatchPattern is one arm pattern of a match expression.
 type MatchPattern interface {
@@ -509,25 +541,6 @@ type MatchExpression struct {
 }
 
 func (MatchExpression) expressionNode() {}
-
-// ObjectLiteral constructs a named object value. Initializers retain written
-// order; the checker later validates names and determines declaration order.
-type ObjectLiteral struct {
-	TypeName      lexer.Token
-	OpenBrace     lexer.Token
-	Initializers  []MemberInitializer
-	CloseBrace    lexer.Token
-	TypeArguments []TypeExpression // explicit generic arguments; empty when absent
-}
-
-func (ObjectLiteral) expressionNode() {}
-
-// MemberInitializer assigns one expression to a named object member.
-type MemberInitializer struct {
-	Name  lexer.Token
-	Equal lexer.Token
-	Value Expression
-}
 
 // RefExpression takes the address of a syntactic place. It maps directly to
 // C's address-of operator; the pointer type is chosen by the checker.

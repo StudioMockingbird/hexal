@@ -71,7 +71,7 @@ func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 func TestQualifiedUseThroughNestedPathAlias(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":             "module Shapes = import \"./graphics/shapes\"\np: Shapes.Point := Shapes.origin()\n",
-		"graphics/shapes.hex": "export type Point = { x: Int32, y: Int32 }\nexport fun origin(): Point do\n    return Point { x = 0, y = 0 }\nend\n",
+		"graphics/shapes.hex": "export type Point is struct x: Int32, y: Int32 end\nexport fun origin(): Point do\n    return Point(x = 0, y = 0)\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "graphics/shapes")
 }
@@ -82,8 +82,8 @@ func TestQualifiedUseThroughNestedPathAlias(t *testing.T) {
 func TestSameBasenameModulesAreDistinct(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":             "module Graphics = import \"./graphics/shapes\"\nmodule Audio = import \"./audio/shapes\"\ng: Graphics.Shape := Graphics.make()\na: Audio.Shape := Audio.make()\n",
-		"graphics/shapes.hex": "export type Shape = { kind: Int32 }\nexport fun make(): Shape do\n    return Shape { kind = 1 }\nend\n",
-		"audio/shapes.hex":    "export type Shape = { kind: Int32 }\nexport fun make(): Shape do\n    return Shape { kind = 2 }\nend\n",
+		"graphics/shapes.hex": "export type Shape is struct kind: Int32 end\nexport fun make(): Shape do\n    return Shape(kind = 1)\nend\n",
+		"audio/shapes.hex":    "export type Shape is struct kind: Int32 end\nexport fun make(): Shape do\n    return Shape(kind = 2)\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "graphics/shapes", "audio/shapes")
@@ -128,15 +128,15 @@ func TestUnqualifiedUseOfExportedNameRejected(t *testing.T) {
 func TestQualifiedTypeResolvesThroughAlias(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nshape: Math.Shape := 0\n",
-		"math.hex": "export type Shape = Int32\n",
+		"math.hex": "export type Shape is Int32\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
 }
 
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\ns: Math.Shape := Math.Circle { x = 1 }\n",
-		"math.hex": "export type Shape as | Circle { x: Int32 } | Square end\n",
+		"app.hex":  "module Math = import \"./math\"\ns: Math.Shape := Math.Circle(x = 1)\n",
+		"math.hex": "export type Shape is union | Circle as x: Int32 end | Square end\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
 }
@@ -144,7 +144,7 @@ func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 func TestPrivateTypeInExportedSignatureRejected(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "type Secret = { x: Int32 }\nexport fun f(): Secret do\n    return Secret { x = 1 }\nend\n",
+		"math.hex": "type Secret is struct x: Int32 end\nexport fun f(): Secret do\n    return Secret(x = 1)\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "exported function f exposes private type Secret")
@@ -153,7 +153,7 @@ func TestPrivateTypeInExportedSignatureRejected(t *testing.T) {
 func TestExportedMethodRequiresExportedReceiver(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "type Point = { x: Int32 }\nexport impl Point.getX(): Int32 do\n    return self.x\nend\n",
+		"math.hex": "type Point is struct x: Int32 end\nexport method Point.getX(): Int32 do\n    return self.x\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "exported function getX exposes private type Point")
@@ -165,7 +165,7 @@ func TestPrivateTypeBehindNestedContainersRejected(t *testing.T) {
 		// Secret is declared before Node (source order); Node's exported
 		// interface reaches the private Secret through List and Ptr, so the
 		// closure walk reports Node first.
-		"math.hex": "type Secret = { x: Int32 }\nexport type Node = { items: List<Secret>, next: MutPtr<Node> | Nil }\nexport fun f(): Node do\n    return Node { items = List<Secret>.new(Heap.new()), next = nil }\nend\n",
+		"math.hex": "type Secret is struct x: Int32 end\nexport type Node is struct items: List<Secret>, next: MutPtr<Node> | Nil end\nexport fun f(): Node do\n    return Node(items = List<Secret>(Heap()), next = nil)\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "exported function Node exposes private type Secret")
@@ -176,14 +176,14 @@ func TestPrivateTypeInsideExportedGenericBodyAccepted(t *testing.T) {
 	// an exported generic's body is fine.
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\n",
-		"math.hex": "type Secret = { x: Int32 }\nexport fun wrap<T>(value: T): T do\n    secret: Secret := Secret { x = 1 }\n    return value\nend\n",
+		"math.hex": "type Secret is struct x: Int32 end\nexport fun wrap<T>(value: T): T do\n    secret: Secret := Secret(x = 1)\n    return value\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
 }
 
 func TestExportOnValueBindingRejected(t *testing.T) {
 	result := compiler.Compile(map[string]string{"app.hex": "export x: Int32 := 1\n"}, "app.hex", compiler.Project{})
-	assertStderrContains(t, result, "export may prefix only a module-level type, function, or implementation declaration")
+	assertStderrContains(t, result, "export may prefix only a module-level type, function, or method declaration")
 }
 
 // A private type must not pass as exported just because an unrelated module
@@ -191,15 +191,15 @@ func TestExportOnValueBindingRejected(t *testing.T) {
 // to the private type's defining module, so an unrelated module's export set
 // says nothing about it.
 func TestPrivateTypeNotMadeExportedByUnrelatedModule(t *testing.T) {
-	aPrivate := "type Secret = { x: Int32 }\nexport fun wrap(): Secret do\n    return Secret { x = 1 }\nend\n"
-	bExportsSameName := "export type Secret = { y: Int32 }\n"
+	aPrivate := "type Secret is struct x: Int32 end\nexport fun wrap(): Secret do\n    return Secret(x = 1)\nend\n"
+	bExportsSameName := "export type Secret is struct y: Int32 end\n"
 	cases := []struct {
 		name string
 		a    string
 		b    string
 	}{
 		{"private in a, unrelated public in b", aPrivate, bExportsSameName},
-		{"public in a, unrelated private exposed by b", "export type Secret = { x: Int32 }\n", "type Secret = { y: Int32 }\nexport fun wrap(): Secret do\n    return Secret { y = 2 }\nend\n"},
+		{"public in a, unrelated private exposed by b", "export type Secret is struct x: Int32 end\n", "type Secret is struct y: Int32 end\nexport fun wrap(): Secret do\n    return Secret(y = 2)\nend\n"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

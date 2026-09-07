@@ -92,6 +92,12 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		if err := hoistTryInStatement(statement, body, state, frame.result, indent); err != nil {
 			return err
 		}
+		// String.interpolate prologues emit after try (a try embedded in an
+		// interpolated value must already be resolved when its segment
+		// renders) and before evaluation-order sequencing.
+		if err := hoistInterpolateInStatement(statement, body, state, indent); err != nil {
+			return err
+		}
 		// Evaluation-order sequencing runs last: it treats every
 		// already-hoisted try/spawn/Dict.find node above as a resolved
 		// effect boundary rather than recursing into it a second time.
@@ -486,6 +492,14 @@ type expressionValidation struct {
 	hoistedTries     map[*checker.Expression]string
 	findCounter      int
 	hoistedDictFinds map[*checker.Expression]string
+	// interpolationCounter and hoistedInterpolations carry String.interpolate
+	// prologues: each call's Heap and value captures, length measurement,
+	// allocation, and ordered writes are emitted before the statement
+	// renders, keyed by the interpolate node's own Operand (the Heap
+	// sub-expression pointer), which is unique per call site and stable
+	// across the value-copy the walker passes to each visit.
+	interpolationCounter  int
+	hoistedInterpolations map[*checker.Expression]string
 	// spawnCounter and hoistedSpawns carry spawn prologues: each spawn's
 	// argument frame and task handle are declared before the statement
 	// renders, and the expression renders as the task handle.
@@ -898,7 +912,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "*(" + operand + ")", nil
 	case checker.IndexExpression, checker.ArrayLiteralExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
 		return renderCollectionExpression(node, state)
-	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.RuneCursorMethodCallExpression:
+	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression, checker.RuneCursorMethodCallExpression:
 		return renderTextExpression(node, state)
 	case checker.ListNewExpression, checker.DictNewExpression:
 		return renderCollectionConstructor(node, state)
@@ -1603,7 +1617,7 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.AdtConstructExpression, checker.AdtPayloadExpression, checker.MatchExpression,
 		checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression,
 		checker.CollectionSliceExpression, checker.StringLiteralExpression, checker.StringMethodCallExpression,
-		checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.RuneCursorMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression,
+		checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression, checker.RuneCursorMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression,
 		checker.DeepEqualityExpression, checker.StringCompareExpression, checker.WideningExpression, checker.ConversionExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,

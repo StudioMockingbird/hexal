@@ -106,7 +106,7 @@ func TestArrayIndexErrors(t *testing.T) {
 		{"fixed: Array<Int32, 2> := [1, 2] bad: Int32 := fixed.first()", "Array<Int32, 2> has no method first"},
 		{"fixed: Array<Int32, 2> := [1, 2] bad: UInt64 := fixed.length(1)", "length expects no arguments"},
 		{"fixed: Array<Int32, 2> := [1, 2] bad: Int32 := fixed.at()", "Array<Int32, 2> has no method at"},
-		{"type A = Array<Int32, 0>", "an array length must be a positive decimal integer"},
+		{"type A is Array<Int32, 0>", "an array length must be a positive decimal integer"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -117,14 +117,14 @@ func TestArrayIndexErrors(t *testing.T) {
 
 func TestArrayElementClassRejectsFunctionValues(t *testing.T) {
 	// Fun is now valid as an Array element (stored as function pointers).
-	result := compileSource("type Holder = { callbacks: Array<Fun<(Int32)>, 2>, }")
+	result := compileSource("type Holder is struct callbacks: Array<Fun<(Int32)>, 2> end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile stderr = %#v, want accept for Array<Fun>", result.Stderr)
 	}
 }
 
 func TestArrayMembersAndFunctions(t *testing.T) {
-	result := compileSource("type Pair = { mut values: Array<Int32, 2>, }\nmut pair: Pair := Pair { values = [3, 4], }\nsum: Int32 := pair.values[0] + pair.values[1]\npair.values[1] = 9\nfun first(values: Array<Int32, 3>): Int32 do\n    return values[0]\nend\nhead: Int32 := first([5, 6, 7])")
+	result := compileSource("type Pair is struct mut values: Array<Int32, 2> end\nmut pair: Pair := Pair(values = [3, 4])\nsum: Int32 := pair.values[0] + pair.values[1]\npair.values[1] = 9\nfun first(values: Array<Int32, 3>): Int32 do\n    return values[0]\nend\nhead: Int32 := first([5, 6, 7])")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

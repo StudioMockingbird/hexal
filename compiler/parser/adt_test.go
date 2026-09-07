@@ -8,7 +8,7 @@ import (
 )
 
 func TestParseADTDeclaration(t *testing.T) {
-	program := parseOneItem(t, "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end").(TypeDeclaration)
+	program := parseOneItem(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end").(TypeDeclaration)
 	adt, ok := program.Target.(AdtDefinitionExpression)
 	if !ok || len(adt.Variants) != 2 {
 		t.Fatalf("target = %#v, want two-variant ADT", program.Target)
@@ -22,15 +22,29 @@ func TestParseADTDeclaration(t *testing.T) {
 }
 
 func TestParseADTUnitVariants(t *testing.T) {
-	program := parseOneItem(t, "type Direction as | East | West end").(TypeDeclaration)
+	program := parseOneItem(t, "type Direction is union | East | West end").(TypeDeclaration)
 	adt := program.Target.(AdtDefinitionExpression)
 	if adt.Variants[0].Payload != nil || adt.Variants[1].Payload != nil {
 		t.Fatalf("variants = %#v, want unit variants", adt.Variants)
 	}
 }
 
+func TestParseAllUnitADTShorthand(t *testing.T) {
+	program := parseOneItem(t, "type Direction is East | West end").(TypeDeclaration)
+	adt, ok := program.Target.(AdtDefinitionExpression)
+	if !ok || len(adt.Variants) != 2 {
+		t.Fatalf("target = %#v, want a two-variant ADT", program.Target)
+	}
+	if adt.Variants[0].Name.Lexeme != "East" || adt.Variants[0].Payload != nil {
+		t.Fatalf("variant 0 = %#v, want unit variant East", adt.Variants[0])
+	}
+	if adt.Variants[1].Name.Lexeme != "West" || adt.Variants[1].Payload != nil {
+		t.Fatalf("variant 1 = %#v, want unit variant West", adt.Variants[1])
+	}
+}
+
 func TestParseADTRejectsMutablePayloadField(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape as | Circle { mut r: Int32 } | Square { a: Int32 } end")
+	tokens, err := lexer.Lex("type Shape is union | Circle as mut r: Int32 end | Square as a: Int32 end end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +54,7 @@ func TestParseADTRejectsMutablePayloadField(t *testing.T) {
 }
 
 func TestParseADTRequiresVariantAfterPipe(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape as | | Square { a: Int32 } end")
+	tokens, err := lexer.Lex("type Shape is union | | Square as a: Int32 end end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,35 +63,48 @@ func TestParseADTRequiresVariantAfterPipe(t *testing.T) {
 	}
 }
 
-// The obsolete `type Name = | ...` header is rejected with the exact
-// migration diagnostic naming the new form.
-func TestParseADTObsoleteHeaderIsRejected(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape = | Circle { r: Int32 } | Square { a: Int32 }")
+// The obsolete `type Name = ...` header is rejected with the exact migration
+// diagnostic naming the new form.
+func TestParseTypeObsoleteEqualsHeaderIsRejected(t *testing.T) {
+	tokens, err := lexer.Lex("type Shape = Int32")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = Parse(tokens)
-	if err == nil || !strings.Contains(err.Error(), "ADT declarations use 'type Name as ... end'") {
+	if err == nil || !strings.Contains(err.Error(), "type declarations use 'is', not '='") {
 		t.Fatalf("Parse error = %v, want the obsolete-header diagnostic", err)
 	}
 }
 
-// The obsolete per-variant `as` payload introducer is rejected with the
-// exact migration diagnostic, even though the block itself opens correctly.
-func TestParseADTObsoletePerVariantAsIsRejected(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape as | Circle as { r: Int32 } end")
+// The obsolete `type Name as ... end` header is rejected with the exact
+// migration diagnostic naming the new form.
+func TestParseADTObsoleteAsHeaderIsRejected(t *testing.T) {
+	tokens, err := lexer.Lex("type Shape as | Circle { r: Int32 } | Square { a: Int32 } end")
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, err = Parse(tokens)
-	if err == nil || !strings.Contains(err.Error(), "ADT payload follows the variant name directly; remove 'as'") {
+	if err == nil || !strings.Contains(err.Error(), "ADT declarations use 'type Name is union ... end'") {
+		t.Fatalf("Parse error = %v, want the obsolete-header diagnostic", err)
+	}
+}
+
+// Legacy brace payload syntax after an ADT variant is rejected with the exact
+// migration diagnostic.
+func TestParseADTObsoleteBracePayloadIsRejected(t *testing.T) {
+	tokens, err := lexer.Lex("type Shape is union | Circle { r: Int32 } end")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Parse(tokens)
+	if err == nil || !strings.Contains(err.Error(), "ADT payloads use 'as ... end', not braces") {
 		t.Fatalf("Parse error = %v, want the obsolete-payload diagnostic", err)
 	}
 }
 
 // A missing 'end' is rejected with the exact unterminated-block diagnostic.
 func TestParseADTMissingEndIsRejected(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape as | Circle { r: Int32 }")
+	tokens, err := lexer.Lex("type Shape is union | Circle as r: Int32 end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,21 +114,28 @@ func TestParseADTMissingEndIsRejected(t *testing.T) {
 	}
 }
 
-// Object declarations and transparent aliases keep using '=' unaffected by
-// the ADT block syntax.
-func TestParseObjectAndAliasStillUseEquals(t *testing.T) {
-	program := parseOneItem(t, "type Point = { x: Int32, y: Int32 }").(TypeDeclaration)
+// Struct declarations and transparent aliases use 'is', not '='.
+func TestParseStructAndAliasUseIs(t *testing.T) {
+	program := parseOneItem(t, "type Point is struct x: Int32, y: Int32 end").(TypeDeclaration)
 	if _, ok := program.Target.(ObjectTypeExpression); !ok {
 		t.Fatalf("target = %#v, want ObjectTypeExpression", program.Target)
 	}
-	program = parseOneItem(t, "type Count = Int32").(TypeDeclaration)
+	program = parseOneItem(t, "type Count is Int32").(TypeDeclaration)
 	if _, ok := program.Target.(NamedTypeExpression); !ok {
 		t.Fatalf("target = %#v, want NamedTypeExpression", program.Target)
 	}
 }
 
+func TestParseEmptyStruct(t *testing.T) {
+	program := parseOneItem(t, "type Marker is struct end").(TypeDeclaration)
+	object, ok := program.Target.(ObjectTypeExpression)
+	if !ok || len(object.Members) != 0 {
+		t.Fatalf("target = %#v, want an empty ObjectTypeExpression", program.Target)
+	}
+}
+
 func TestParseQualifiedVariantConstructor(t *testing.T) {
-	tokens, err := lexer.Lex("shape: Shape := Shape.Circle { r = 10 }")
+	tokens, err := lexer.Lex("shape: Shape := Shape.Circle(r = 10)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,9 +143,16 @@ func TestParseQualifiedVariantConstructor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	constructor, ok := program.Statements[0].(Declaration).Initializer.(QualifiedVariantExpression)
-	if !ok || constructor.Owner.Lexeme != "Shape" || constructor.Variant.Lexeme != "Circle" || constructor.Payload == nil || len(*constructor.Payload) != 1 {
+	constructor, ok := program.Statements[0].(Declaration).Initializer.(CallExpression)
+	if !ok {
 		t.Fatalf("initializer = %#v, want Shape.Circle constructor", program.Statements[0])
+	}
+	property, ok := constructor.Callee.(PropertyExpression)
+	if !ok || property.Property.Lexeme != "Circle" || len(constructor.Arguments) != 1 {
+		t.Fatalf("callee = %#v, want Shape.Circle(r = 10)", constructor.Callee)
+	}
+	if len(constructor.ArgumentLabels) != 1 || constructor.ArgumentLabels[0] == nil || constructor.ArgumentLabels[0].Lexeme != "r" {
+		t.Fatalf("argument labels = %#v, want [r]", constructor.ArgumentLabels)
 	}
 }
 

@@ -971,7 +971,7 @@ func moduleDataDiagnostic(owner, name string, token lexer.Token) compilerTypes.D
 }
 
 func selfNotBoundDiagnostic(token lexer.Token) *compilerTypes.Diagnostic {
-	diagnostic := typeErrorAt(token, "self is not bound outside an impl body")
+	diagnostic := typeErrorAt(token, "self is not bound outside a method body")
 	return &diagnostic
 }
 

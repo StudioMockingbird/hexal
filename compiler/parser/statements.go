@@ -6,8 +6,8 @@ import (
 	"hexal/compiler/lexer"
 )
 
-// typeDeclaration parses `type Name = Target` or `type Name as ... end`. The
-// exported flag records an `export` prefix consumed by the caller.
+// typeDeclaration parses `type Name is type-definition`. The exported flag
+// records an `export` prefix consumed by the caller.
 func (parser *Parser) typeDeclaration(exported bool) (TypeDeclaration, error) {
 	keyword, err := parser.consume(lexer.Type, "'type'")
 	if err != nil {
@@ -21,17 +21,19 @@ func (parser *Parser) typeDeclaration(exported bool) (TypeDeclaration, error) {
 	if err != nil {
 		return TypeDeclaration{}, err
 	}
-	if parser.check(lexer.As) {
-		target, err := parser.adtBlock()
-		if err != nil {
-			return TypeDeclaration{}, err
-		}
-		return TypeDeclaration{Keyword: keyword, Name: name, Parameters: parameters, Target: target, Exported: exported}, nil
+	if parser.check(lexer.Equal) {
+		return TypeDeclaration{}, parser.errorAtCurrent("type declarations use 'is', not '='")
 	}
-	if _, err := parser.consume(lexer.Equal, "'='"); err != nil {
+	if parser.check(lexer.As) {
+		return TypeDeclaration{}, parser.errorAtCurrent("ADT declarations use 'type Name is union ... end'")
+	}
+	if _, err := parser.consume(lexer.Is, "'is' after a type name"); err != nil {
 		return TypeDeclaration{}, err
 	}
-	target, err := parser.typeDefinitionExpression()
+	if parser.check(lexer.LeftBrace) {
+		return TypeDeclaration{}, parser.errorAtCurrent("struct declarations use 'struct ... end'")
+	}
+	target, err := parser.typeDefinition()
 	if err != nil {
 		return TypeDeclaration{}, err
 	}
@@ -136,7 +138,7 @@ func (parser *Parser) anonymousFunctionLiteral() (AnonymousFunctionLiteral, erro
 	}, nil
 }
 
-func (parser *Parser) implDeclaration(exported bool) (ImplDeclaration, error) {
+func (parser *Parser) methodDeclaration(exported bool) (MethodDeclaration, error) {
 	keyword := parser.advance()
 	// The receiver forms are exactly the identifier and pointer-constructor
 	// type expressions, so the shared type grammar covers them. A dotted
@@ -144,11 +146,11 @@ func (parser *Parser) implDeclaration(exported bool) (ImplDeclaration, error) {
 	// its final component is peeled back into the method name below so the
 	// receiver type stays Geometry.Point. A plain local receiver like
 	// Point.translate() peels back to the ordinary named type Point.
-	parser.implReceiver = true
+	parser.methodReceiver = true
 	selfType, err := parser.typeExpression()
-	parser.implReceiver = false
+	parser.methodReceiver = false
 	if err != nil {
-		return ImplDeclaration{}, err
+		return MethodDeclaration{}, err
 	}
 	if qualified, ok := selfType.(QualifiedTypeExpression); ok {
 		last := qualified.Names[len(qualified.Names)-1]
@@ -161,17 +163,17 @@ func (parser *Parser) implDeclaration(exported bool) (ImplDeclaration, error) {
 		name := last
 		parameters, returnType, err := parser.signature()
 		if err != nil {
-			return ImplDeclaration{}, err
+			return MethodDeclaration{}, err
 		}
 		if err := parser.requireDelimiter(lexer.Do, "'do' after method signature"); err != nil {
-			return ImplDeclaration{}, err
+			return MethodDeclaration{}, err
 		}
 		diagnosticsBeforeBody := len(parser.diagnostics)
 		body, end, err := parser.body("method " + name.Lexeme)
 		if err != nil {
-			return ImplDeclaration{}, err
+			return MethodDeclaration{}, err
 		}
-		return ImplDeclaration{
+		return MethodDeclaration{
 			Keyword:         keyword,
 			SelfType:        selfType,
 			Name:            name,
@@ -183,30 +185,30 @@ func (parser *Parser) implDeclaration(exported bool) (ImplDeclaration, error) {
 			Exported:        exported,
 		}, nil
 	}
-	if _, err := parser.consume(lexer.Dot, "'.' after an impl receiver type"); err != nil {
-		return ImplDeclaration{}, err
+	if _, err := parser.consume(lexer.Dot, "'.' after a method receiver type"); err != nil {
+		return MethodDeclaration{}, err
 	}
 	name, err := parser.consume(lexer.Identifier, "a method name after '.'")
 	if err != nil {
-		return ImplDeclaration{}, err
+		return MethodDeclaration{}, err
 	}
 	typeParameters, err := parser.genericParameterList()
 	if err != nil {
-		return ImplDeclaration{}, err
+		return MethodDeclaration{}, err
 	}
 	parameters, returnType, err := parser.signature()
 	if err != nil {
-		return ImplDeclaration{}, err
+		return MethodDeclaration{}, err
 	}
 	if err := parser.requireDelimiter(lexer.Do, "'do' after method signature"); err != nil {
-		return ImplDeclaration{}, err
+		return MethodDeclaration{}, err
 	}
 	diagnosticsBeforeBody := len(parser.diagnostics)
 	body, end, err := parser.body("method " + name.Lexeme)
 	if err != nil {
-		return ImplDeclaration{}, err
+		return MethodDeclaration{}, err
 	}
-	return ImplDeclaration{
+	return MethodDeclaration{
 		Keyword:         keyword,
 		SelfType:        selfType,
 		Name:            name,

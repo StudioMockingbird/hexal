@@ -216,7 +216,7 @@ func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 	sources := map[string]string{
 		"app.hex":  "module Math = import \"./math\"\nresult: Int32 := Math.compute()\n",
-		"math.hex": "export fun compute(): Int32 do\n    items: List<Int32> := List<Int32>.new(Heap.new())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\n",
+		"math.hex": "export fun compute(): Int32 do\n    items: List<Int32> := List<Int32>(Heap())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {

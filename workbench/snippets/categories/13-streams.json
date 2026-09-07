@@ -31,19 +31,19 @@
       "sources": {
         "app.hex": [
           "fun roundtrip(h: Heap): Nil | Error do",
-          "    data: List<Byte> := List<Byte>.new(h)",
+          "    data: List<Byte> := List<Byte>(h)",
           "    defer data.free(h)",
-          "    dst: List<Byte> := List<Byte>.new(h)",
+          "    dst: List<Byte> := List<Byte>(h)",
           "    defer dst.free(h)",
           "    mut stream: Bytes := Bytes.over(data)",
           "    wrote: Size | Error := stream.write(\"abc\".bytes())",
           "    mut copy: Bytes := stream",
-          "    rewind: Size | Error := stream.seek(Seek.Start { position = 0 })",
+          "    rewind: Size | Error := stream.seek(Seek.Start(position = 0))",
           "    first: Size | EoS | Error := stream.read(dst, 1)",
           "    alsoFirst: Size | EoS | Error := copy.read(dst, 1)",
           "    return nil",
           "end",
-          "done: Nil | Error := roundtrip(Heap.new())"
+          "done: Nil | Error := roundtrip(Heap())"
         ]
       },
       "features": ["streams", "lists", "generics"],
@@ -57,7 +57,7 @@
       "sources": {
         "app.hex": [
           "fun drain<S>(source: S, h: Heap): Size | Error do",
-          "    buf: List<Byte> := List<Byte>.new(h)",
+          "    buf: List<Byte> := List<Byte>(h)",
           "    defer buf.free(h)",
           "    n: Size | EoS | Error := source.read(buf, 64)",
           "    if n is EoS then",
@@ -66,7 +66,7 @@
           "    return n",
           "end",
           "fun run(h: Heap): Nil | Error do",
-          "    data: List<Byte> := List<Byte>.new(h)",
+          "    data: List<Byte> := List<Byte>(h)",
           "    defer data.free(h)",
           "    mut live: Bytes := Bytes.over(data)",
           "    out: IO := try IO.stdout()",
@@ -74,7 +74,7 @@
           "    fromMemory: Size | Error := drain<MutPtr<Bytes>>(ref live, h)",
           "    return nil",
           "end",
-          "done: Nil | Error := run(Heap.new())"
+          "done: Nil | Error := run(Heap())"
         ]
       },
       "features": ["streams", "generics", "lists"],
@@ -88,15 +88,15 @@
       "sources": {
         "app.hex": [
           "fun sample(h: Heap): Nil | Error do",
-          "    data: List<Byte> := List<Byte>.new(h)",
+          "    data: List<Byte> := List<Byte>(h)",
           "    defer data.free(h)",
-          "    dst: List<Byte> := List<Byte>.new(h)",
+          "    dst: List<Byte> := List<Byte>(h)",
           "    defer dst.free(h)",
           "    mut stream: Bytes := Bytes.over(data)",
           "    wrote: Size | Error := stream.write(\"abcd\".bytes())",
-          "    home: Size | Error := stream.seek(Seek.Start { position = 0 })",
-          "    ahead: Size | Error := stream.seek(Seek.Current { offset = 2 })",
-          "    back: Size | Error := stream.seek(Seek.End { offset = -4 })",
+          "    home: Size | Error := stream.seek(Seek.Start(position = 0))",
+          "    ahead: Size | Error := stream.seek(Seek.Current(offset = 2))",
+          "    back: Size | Error := stream.seek(Seek.End(offset = -4))",
           "    drained: Size | EoS | Error := stream.read(dst, 99)",
           "    if drained is EoS then",
           "        return nil",
@@ -104,7 +104,7 @@
           "    leftover: Size := try drained",
           "    return nil",
           "end",
-          "sampled: Nil | Error := sample(Heap.new())"
+          "sampled: Nil | Error := sample(Heap())"
         ]
       },
       "features": ["streams", "adts", "unions", "errors"],

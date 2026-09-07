@@ -46,30 +46,34 @@ type moduleEmission struct {
 	methods     map[string]checker.MethodDeclaration
 	typeState   *generatedTypeValidation
 
-	errorUsed        bool
-	unionState       *generatedUnionState
-	heapState        *heapHelpers
-	adtState         *generatedAdtState
-	arrayState       *generatedArrayState
-	viewState        *generatedViewState
-	stringState      *literalRegistry
-	stringUsed       bool // module-local String/Strand dependency selection
-	listState        *generatedListState
-	dictState        *generatedDictState
-	equalityState    *generatedEqualityState
-	conversionSpecs  []conversionSpec
-	sizeLiterals     []string
-	divisionTypes    []compilerTypes.Type
-	shiftSpecs       []shiftSpec
-	bitCastSpecs     []bitCastSpec
-	endianSpecs      []endianSpec
-	printState       *generatedPrintState
-	ioState          *generatedStreamState
-	concurrencyState *generatedConcurrencyState
-	wrapState        *generatedWrapState
-	stashState       *stashHelpers
-	poolState        *generatedPoolState
-	objects          []*compilerTypes.ObjectType
+	errorUsed   bool
+	unionState  *generatedUnionState
+	heapState   *heapHelpers
+	adtState    *generatedAdtState
+	arrayState  *generatedArrayState
+	viewState   *generatedViewState
+	stringState *literalRegistry
+	stringUsed  bool // module-local String/Strand dependency selection
+	// interpolationUsed is true when this module contains a checked
+	// String.interpolate call, selecting the String component's demand-driven
+	// formatter helpers.
+	interpolationUsed bool
+	listState         *generatedListState
+	dictState         *generatedDictState
+	equalityState     *generatedEqualityState
+	conversionSpecs   []conversionSpec
+	sizeLiterals      []string
+	divisionTypes     []compilerTypes.Type
+	shiftSpecs        []shiftSpec
+	bitCastSpecs      []bitCastSpec
+	endianSpecs       []endianSpec
+	printState        *generatedPrintState
+	ioState           *generatedStreamState
+	concurrencyState  *generatedConcurrencyState
+	wrapState         *generatedWrapState
+	stashState        *stashHelpers
+	poolState         *generatedPoolState
+	objects           []*compilerTypes.ObjectType
 }
 
 // discoverModuleEmission validates one module and runs every built-in
@@ -100,6 +104,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	// emission pass uses.
 	emission.stringState = literals
 	emission.stringUsed = discoverGeneratedStrings(program, literals)
+	emission.interpolationUsed = discoverInterpolationUsed(program)
 	if validationErr := validateCheckedProgram(program, functions, methods, literals); validationErr != nil {
 		return nil, validationErr
 	}
@@ -250,6 +255,10 @@ type programEmission struct {
 	// orderingNeed is true when any module's equality state requires the
 	// shared String ordering helper.
 	orderingNeed bool
+	// interpolationNeed is true when any module contains a checked
+	// String.interpolate call, selecting the String component's
+	// demand-driven formatter helpers.
+	interpolationNeed bool
 	// equalityTypes collects the program-owned types needing equality
 	// helpers, merged from every module's equality state for the component
 	// builder.
@@ -326,6 +335,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 			merged.equalityNeed = merged.equalityNeed || module.equalityState.needString
 			merged.orderingNeed = merged.orderingNeed || module.equalityState.compareNeed
 		}
+		merged.interpolationNeed = merged.interpolationNeed || module.interpolationUsed
 		if module.printState != nil && module.printState.used {
 			merged.printUsed = true
 		}
@@ -496,6 +506,13 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			// uint8_t/size_t/bool; its write-failure trap reports through the
 			// shared hex_runtime_trap.
 			requirements.add("stddef.h", "stdint.h", "stdio.h", "inttypes.h", "math.h")
+			requirements.trap = true
+		}
+		if module.interpolationUsed {
+			// String.interpolate's scalar formatters use the identical
+			// PRI* macros, snprintf, and <math.h> float classification as
+			// print, plus the checked hex_string allocation path.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdio.h", "inttypes.h", "math.h", "string.h")
 			requirements.trap = true
 		}
 		if module.ioState != nil && module.ioState.used {
@@ -1172,6 +1189,13 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, filename)
 		}
 		fmt.Fprintf(result, "struct %s {\n", object.CName)
+		if len(object.Members) == 0 {
+			// C23 has no portable zero-sized object type, so an empty struct
+			// carries one private byte instead; it is never read as part of
+			// the object's surface (construction, equality, and printing all
+			// special-case the empty member list).
+			fmt.Fprintf(result, "    unsigned char hex_empty;\n")
+		}
 		for _, member := range object.Members {
 			if member.SourceLine > 0 {
 				fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, filename)

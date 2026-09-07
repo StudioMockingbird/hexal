@@ -51,9 +51,9 @@ func TestCallArgumentsEvaluateLeftToRight(t *testing.T) {
 }
 
 func TestMethodReceiverEvaluatesBeforeArguments(t *testing.T) {
-	result := assertCompiles(t, "type Point = { mut x: Int32, mut y: Int32, }\n"+
-		"impl Point.sum(delta: Int32): Int32 do\n    return self.x + self.y + delta\nend\n"+
-		"fun make_point(): Point do\n    return Point { x = 1, y = 2 }\nend\n"+
+	result := assertCompiles(t, "type Point is struct mut x: Int32, mut y: Int32, end\n"+
+		"method Point.sum(delta: Int32): Int32 do\n    return self.x + self.y + delta\nend\n"+
+		"fun make_point(): Point do\n    return Point(x = 1, y = 2)\nend\n"+
 		"fun delta(): Int32 do\n    return 5\nend\n"+
 		"result: Int32 := make_point().sum(delta())\n")
 	body := rootC(t, result)
@@ -84,10 +84,10 @@ func TestArrayLiteralElementsEvaluateLeftToRight(t *testing.T) {
 // field from the correct temporary regardless of which order they were
 // hoisted in.
 func TestObjectLiteralFieldsEvaluateInWrittenOrder(t *testing.T) {
-	result := assertCompiles(t, "type Pair = { a: Int32, b: Int32, }\n"+
+	result := assertCompiles(t, "type Pair is struct a: Int32, b: Int32, end\n"+
 		"fun side_a(): Int32 do\n    return 10\nend\n"+
 		"fun side_b(): Int32 do\n    return 20\nend\n"+
-		"value: Pair := Pair { b = side_b(), a = side_a() }\n")
+		"value: Pair := Pair(b = side_b(), a = side_a())\n")
 	body := rootC(t, result)
 	// b is written first, so its temporary is hoisted first even though a
 	// is declared first and assigned first in the final compound literal.
@@ -99,10 +99,10 @@ func TestObjectLiteralFieldsEvaluateInWrittenOrder(t *testing.T) {
 // written order, matching the object literal case above; the checker-level
 // value-correctness half of this is TestCheckADTPayloadOutOfOrderAssignsCorrectFields.
 func TestAdtLiteralFieldsEvaluateInWrittenOrder(t *testing.T) {
-	result := assertCompiles(t, "type W as | A { first: Int32, second: Int32, } | B { x: Int32, } end\n"+
+	result := assertCompiles(t, "type W is union | A as first: Int32, second: Int32, end | B as x: Int32, end end\n"+
 		"fun side_first(): Int32 do\n    return 10\nend\n"+
 		"fun side_second(): Int32 do\n    return 20\nend\n"+
-		"w: W := W.A { second = side_second(), first = side_first() }\n")
+		"w: W := W.A(second = side_second(), first = side_first())\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_side_second();", "_side_first();", ".hex_m_first = hex_seq_2", ".hex_m_second = hex_seq_1")
 	requireAscending(t, positions, "side_second() hoisted", "side_first() hoisted", ".first assigned from hex_seq_2", ".second assigned from hex_seq_1")
@@ -142,7 +142,7 @@ func TestStringEqualityOperandsEvaluateLeftToRight(t *testing.T) {
 func TestAtomicCompareExchangeOperandsEvaluateLeftToRight(t *testing.T) {
 	result := assertCompiles(t, "fun expected(): Int32 do\n    return 6\nend\n"+
 		"fun desired(): Int32 do\n    return 7\nend\n"+
-		"fun run(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>.new(0)\n    return counter.compare_exchange(expected(), desired())\nend\n")
+		"fun run(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    return counter.compare_exchange(expected(), desired())\nend\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_expected();", "_desired();", "hex_atomic_Int32_compare_exchange(&(hex_v_counter), hex_seq_1, hex_seq_2)")
 	requireAscending(t, positions, "expected()", "desired()", "compare_exchange(...)")
@@ -218,12 +218,12 @@ func TestTryAndSequencingHoistsCoexistInOneStatement(t *testing.T) {
 // files: the hoist counters and map iteration involved carry no
 // nondeterminism.
 func TestEvaluationOrderHoistingIsDeterministic(t *testing.T) {
-	source := "type Pair = { a: Int32, b: Int32, }\n" +
+	source := "type Pair is struct a: Int32, b: Int32, end\n" +
 		"fun a(): Int32 do\n    return 1\nend\n" +
 		"fun b(): Int32 do\n    return 2\nend\n" +
 		"fun c(): Int32 do\n    return 3\nend\n" +
 		"fun g(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n" +
-		"value: Pair := Pair { b = b(), a = a() }\n" +
+		"value: Pair := Pair(b = b(), a = a())\n" +
 		"sum: Int32 := g(a(), b()) + c()\n"
 	first := compileSourceFiles(t, source)
 	second := compileSourceFiles(t, source)

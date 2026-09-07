@@ -70,62 +70,66 @@ func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.T
 	return checked
 }
 
-func checkObjectLiteral(expression parser.ObjectLiteral, expectedType compilerTypes.Type, ctx checkContext) initializerValue {
-	literalType, ok := ctx.typeEnvironment.Lookup(expression.TypeName.Lexeme)
-	if compilerTypes.IsError(literalType) {
-		// Error is built-in and constructed only through
-		// Error.new(header, message); a raw object initializer is rejected.
-		return initializerValue{token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, "Error must be created with Error.new(header, message)"))}
-	}
+// checkStructConstructorCall checks a bare Type(field = value, ...) call
+// against a nominal struct's declared members. typeName is the callee's own
+// name token; expectedType lets a generic owner's arguments be inferred from
+// the construction's destination when the call gives none explicitly.
+func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token, expectedType compilerTypes.Type, ctx checkContext) initializerValue {
+	literalType, ok := ctx.typeEnvironment.Lookup(typeName.Lexeme)
 	if !ok && ctx.names.generics != nil {
-		// A generic object literal names an open generic template. With
+		// A generic constructor call names an open generic template. With
 		// explicit type arguments it specializes directly; otherwise the
 		// arguments are inferred from the expected destination type when it
 		// is a specialization of the same template.
-		if open, generic := ctx.names.generics.types[expression.TypeName.Lexeme]; generic {
-			if len(expression.TypeArguments) > 0 {
-				specializedUse, diagnostic := specializeTypeUse(parser.GenericTypeExpression{Name: expression.TypeName, Arguments: expression.TypeArguments}, expression.TypeName, ctx.typeEnvironment, ctx.names.generics)
+		if open, generic := ctx.names.generics.types[typeName.Lexeme]; generic {
+			if len(call.TypeArguments) > 0 {
+				specializedUse, diagnostic := specializeTypeUse(parser.GenericTypeExpression{Name: typeName, Arguments: call.TypeArguments}, typeName, ctx.typeEnvironment, ctx.names.generics)
 				if diagnostic != nil {
-					return initializerValue{token: expression.TypeName, diagnostic: diagnostic}
+					return initializerValue{token: typeName, diagnostic: diagnostic}
 				}
 				literalType = specializedUse.Type
 				ok = literalType.Object != nil
 			} else if expectedType.Object != nil {
 				if expectedOpen := ctx.names.generics.objectOpen[expectedType.Object]; expectedOpen == open {
-					specializedUse, diagnostic := specializeTypeUseArguments(open, ctx.names.generics.objectArguments[expectedType.Object], expression.TypeName, ctx.typeEnvironment, ctx.names.generics)
+					specializedUse, diagnostic := specializeTypeUseArguments(open, ctx.names.generics.objectArguments[expectedType.Object], typeName, ctx.typeEnvironment, ctx.names.generics)
 					if diagnostic != nil {
-						return initializerValue{token: expression.TypeName, diagnostic: diagnostic}
+						return initializerValue{token: typeName, diagnostic: diagnostic}
 					}
 					literalType = specializedUse.Type
 					ok = literalType.Object != nil
 				}
 			}
 			if !ok {
-				return initializerValue{token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, fmt.Sprintf("cannot infer generic parameter for %s", expression.TypeName.Lexeme)))}
+				return initializerValue{token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, fmt.Sprintf("cannot infer generic parameter for %s", typeName.Lexeme)))}
 			}
 		}
 	}
 	if !ok {
-		return initializerValue{token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, "unknown type "+expression.TypeName.Lexeme))}
+		return initializerValue{token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, "unknown type "+typeName.Lexeme))}
 	}
 	if literalType.Object == nil {
-		return initializerValue{typ: literalType, token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, expression.TypeName.Lexeme+" is not an object type"))}
+		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, typeName.Lexeme+" is not a constructible type"))}
 	}
 	if expectedType.Name != "" && !compilerTypes.Assignable(expectedType, literalType) {
-		return initializerValue{typ: literalType, token: expression.TypeName, diagnostic: diagnosticAt(typeErrorAt(expression.TypeName, fmt.Sprintf("expected %s; got %s", expectedType.Name, literalType.Name)))}
+		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, fmt.Sprintf("expected %s; got %s", expectedType.Name, literalType.Name)))}
 	}
 
-	values := make([]ObjectMemberValue, 0, len(expression.Initializers))
-	seen := make(map[string]bool, len(expression.Initializers))
+	values := make([]ObjectMemberValue, 0, len(call.Arguments))
+	seen := make(map[string]bool, len(call.Arguments))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	for _, initializer := range expression.Initializers {
-		member, exists := literalType.Object.Member(initializer.Name.Lexeme)
+	for index, argument := range call.Arguments {
+		label := call.ArgumentLabels[index]
+		if label == nil {
+			diagnostics = append(diagnostics, typeErrorAt(tokenOf(argument), "constructor arguments must be named"))
+			continue
+		}
+		member, exists := literalType.Object.Member(label.Lexeme)
 		if !exists {
-			diagnostics = append(diagnostics, typeErrorAt(initializer.Name, fmt.Sprintf("%s has no member %s", literalType.Name, initializer.Name.Lexeme)))
+			diagnostics = append(diagnostics, typeErrorAt(*label, fmt.Sprintf("%s has no member %s", literalType.Name, label.Lexeme)))
 			continue
 		}
 		if seen[member.Name] {
-			diagnostics = append(diagnostics, typeErrorAt(initializer.Name, fmt.Sprintf("%s literal initializes member %s more than once", literalType.Name, member.Name)))
+			diagnostics = append(diagnostics, typeErrorAt(*label, fmt.Sprintf("%s constructor initializes member %s more than once", literalType.Name, member.Name)))
 			continue
 		}
 		seen[member.Name] = true
@@ -133,7 +137,7 @@ func checkObjectLiteral(expression parser.ObjectLiteral, expectedType compilerTy
 		if memberUse.Type == (compilerTypes.Type{}) {
 			memberUse = compilerTypes.NewTypeUse(member.Type)
 		}
-		checked := checkInitializer(initializer.Value, memberUse, initializer.Name, ctx)
+		checked := checkInitializer(argument, memberUse, *label, ctx)
 		if nestedDiagnostics := initializerDiagnostics(checked); len(nestedDiagnostics) > 0 {
 			diagnostics = append(diagnostics, nestedDiagnostics...)
 			continue
@@ -147,14 +151,14 @@ func checkObjectLiteral(expression parser.ObjectLiteral, expectedType compilerTy
 	for index := range literalType.Object.Members {
 		member := &literalType.Object.Members[index]
 		if !seen[member.Name] {
-			diagnostics = append(diagnostics, typeErrorAt(expression.TypeName, fmt.Sprintf("%s literal is missing member %s", literalType.Name, member.Name)))
+			diagnostics = append(diagnostics, typeErrorAt(typeName, fmt.Sprintf("%s constructor is missing member %s", literalType.Name, member.Name)))
 		}
 	}
 	value := &ObjectValue{Type: literalType, Initializers: values}
 	return initializerValue{
 		source:      Operand{Kind: ObjectOperand, Type: literalType, Object: value, Node: Expression{Kind: ObjectExpression, Object: value}},
 		typ:         literalType,
-		token:       expression.TypeName,
+		token:       typeName,
 		diagnostics: diagnostics,
 		diagnostic: func() *compilerTypes.Diagnostic {
 			if len(diagnostics) == 0 {
@@ -217,29 +221,20 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 		return checkedExpression{source: source, typ: compilerTypes.EoS, token: expression.Token, known: &known}
 	case parser.StringLiteral:
 		return checkStringLiteral(expression, context.expected.Type)
+	case parser.RawStringLiteral:
+		return checkRawStringLiteral(expression, context.expected.Type)
+	case parser.InterpolationTemplateExpression:
+		diagnostic := typeErrorAt(expression.Start, "string interpolation requires String.interpolate(heap, template)")
+		return checkedExpression{token: expression.Start, diagnostic: &diagnostic}
 	case parser.ByteLiteral:
 		return checkByteLiteral(expression)
 	case parser.RuneLiteral:
 		return checkRuneLiteral(expression)
-	case parser.ObjectLiteral:
-		return checkObjectLiteral(expression, context.expected.Type, ctx)
 	case parser.ArrayLiteralExpression:
 		return checkArrayLiteral(expression, context.expected.Type, ctx)
-	case parser.QualifiedVariantExpression:
-		return checkQualifiedVariant(expression, context.expected.Type, ctx)
 	case parser.MatchExpression:
 		return checkMatchExpression(expression, context, ctx)
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
-		if property, isProperty := expression.(parser.PropertyExpression); isProperty {
-			if variable, isVariable := property.Receiver.(parser.VariableExpression); isVariable && property.Property.Kind == lexer.Identifier {
-				if reference, diagnostic := checkUnitVariant(variable.Name, property.Property, context.expected.Type, ctx); reference != nil || diagnostic != nil {
-					if diagnostic != nil {
-						return checkedExpression{token: property.Property, diagnostic: diagnostic}
-					}
-					return *reference
-				}
-			}
-		}
 		if variable, isVariable := expression.(parser.VariableExpression); isVariable && context.expected.Type.Signature != nil {
 			if reference, diagnostic := checkGenericFunctionReference(variable.Name, context.expected.Type, ctx); reference != nil || diagnostic != nil {
 				if diagnostic != nil {
@@ -256,7 +251,7 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 	case parser.RefExpression:
 		return checkReference(expression, ctx)
 	case parser.CallExpression:
-		return checkCallValue(expression, ctx)
+		return checkCallValue(expression, context.expected.Type, ctx)
 	case parser.UnaryExpression:
 		return checkUnaryExpression(expression, context, ctx)
 	case parser.SpawnExpression:

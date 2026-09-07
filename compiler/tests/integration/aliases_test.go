@@ -7,7 +7,7 @@ import (
 )
 
 func TestAliasesLowerCanonically(t *testing.T) {
-	result := compileSource("type Coordinate = Int32 type CoordinatePtr = Ptr<Coordinate> mut value: Coordinate := 1 pointer: CoordinatePtr := ref value read: Coordinate := pointer.value")
+	result := compileSource("type Coordinate is Int32 type CoordinatePtr is Ptr<Coordinate> mut value: Coordinate := 1 pointer: CoordinatePtr := ref value read: Coordinate := pointer.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -26,7 +26,7 @@ func TestAliasesLowerCanonically(t *testing.T) {
 }
 
 func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
-	result := compileSource("type Pointer = MutPtr<Int32> type PointerPointer = Ptr<Pointer> mut value: Int32 := 1 mut pointer: Pointer := ref value pointerPointer: PointerPointer := ref pointer read: Int32 := pointerPointer.value.value")
+	result := compileSource("type Pointer is MutPtr<Int32> type PointerPointer is Ptr<Pointer> mut value: Int32 := 1 mut pointer: Pointer := ref value pointerPointer: PointerPointer := ref pointer read: Int32 := pointerPointer.value.value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -42,7 +42,7 @@ func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
 }
 
 func TestTypeOnlyProgram(t *testing.T) {
-	result := compileSource("type Coordinate = Int32 type CoordinatePtr = Ptr<Coordinate>")
+	result := compileSource("type Coordinate is Int32 type CoordinatePtr is Ptr<Coordinate>")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile returned %#v, want successful type-only program", result)
 	}
@@ -57,12 +57,12 @@ func TestRejectsAliasResolutionErrors(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"type Distance = Coordinate", "[Type Error] unknown type Coordinate at app.hex:1:17"},
-		{"type Coordinate = Coordinate", "[Type Error] type alias Coordinate cannot reference itself at app.hex:1:6"},
-		{"type Coordinate = Ptr<Coordinate>", "[Type Error] type alias Coordinate cannot reference itself at app.hex:1:6"},
-		{"type Int32 = UInt32", "[Type Error] built-in type Int32 cannot be redeclared at app.hex:1:6"},
-		{"type Ptr = UInt64", "[Type Error] built-in type constructor Ptr cannot be redeclared at app.hex:1:6"},
-		{"type MutPtr = UInt64", "[Type Error] built-in type constructor MutPtr cannot be redeclared at app.hex:1:6"},
+		{"type Distance is Coordinate", "[Type Error] unknown type Coordinate at app.hex:1:18"},
+		{"type Coordinate is Coordinate", "[Type Error] type alias Coordinate cannot reference itself at app.hex:1:6"},
+		{"type Coordinate is Ptr<Coordinate>", "[Type Error] type alias Coordinate cannot reference itself at app.hex:1:6"},
+		{"type Int32 is UInt32", "[Type Error] built-in type Int32 cannot be redeclared at app.hex:1:6"},
+		{"type Ptr is UInt64", "[Type Error] built-in type constructor Ptr cannot be redeclared at app.hex:1:6"},
+		{"type MutPtr is UInt64", "[Type Error] built-in type constructor MutPtr cannot be redeclared at app.hex:1:6"},
 		{"Ptr: Int32 := 1", "[Type Error] built-in type constructor Ptr cannot be redeclared at app.hex:1:1"},
 	} {
 		result := compileSource(testCase.source)
@@ -74,8 +74,8 @@ func TestRejectsAliasResolutionErrors(t *testing.T) {
 
 func TestRejectsTypeValueCollisions(t *testing.T) {
 	for _, source := range []string{
-		"type Coordinate = Int32 Coordinate: Int32 := 1",
-		"distance: Int32 := 1 type distance = Int32",
+		"type Coordinate is Int32 Coordinate: Int32 := 1",
+		"distance: Int32 := 1 type distance is Int32",
 		"Int32: UInt32 := 1",
 	} {
 		result := compileSource(source)
@@ -86,8 +86,8 @@ func TestRejectsTypeValueCollisions(t *testing.T) {
 }
 
 func TestTypeEnvironmentDoesNotLeakAcrossCompilations(t *testing.T) {
-	first := compileSource("type Pointer = MutPtr<Int32> mut value: Int32 := 1 pointer: Pointer := ref value")
-	second := compileSource("type Pointer = MutPtr<Bool> mut value: Bool := true pointer: Pointer := ref value")
+	first := compileSource("type Pointer is MutPtr<Int32> mut value: Int32 := 1 pointer: Pointer := ref value")
+	second := compileSource("type Pointer is MutPtr<Bool> mut value: Bool := true pointer: Pointer := ref value")
 	if first.ExitCode != compiler.ExitSuccess || second.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("compilations failed: first := %#v second=%#v", first, second)
 	}

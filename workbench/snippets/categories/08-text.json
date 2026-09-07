@@ -175,7 +175,7 @@
       "description": "Small tokenizing parser loop over String runes, terminated by EoS; longer than 20 lines because it demonstrates as, match, then, and eos together.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Token as | Digit { value: Rune } | Other { value: Rune } end",
+        "type Token is union | Digit as value: Rune end | Other as value: Rune end end",
         "",
         "fun next_token(cursor: RuneCursor): Token | EoS do",
         "    if !cursor.has_next() then",
@@ -183,8 +183,8 @@
         "    end",
         "    letter: Rune:= cursor.next()",
         "    token: Token:= match (letter >= '0') and (letter <= '9')",
-        "    | true then Token.Digit { value = letter }",
-        "    | false then Token.Other { value = letter }",
+        "    | true then Token.Digit(value = letter)",
+        "    | false then Token.Other(value = letter)",
         "    end",
         "    return token",
         "end",
@@ -287,6 +287,106 @@
       ]},
       "features": ["text", "equality-ordering"],
       "reservedWords": ["fun", "return", "end", "and", "do"]
+    },
+    {
+      "id": "text-raw-path",
+      "name": "Raw path literal",
+      "description": "A raw string keeps backslashes literal, with no escape processing.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool do",
+        "    path: String:= r\"C:\\data\\input.txt\"",
+        "    return path.length() == 17",
+        "end"
+      ]},
+      "features": ["text", "literals"],
+      "reservedWords": ["fun", "return", "end", "do"]
+    },
+    {
+      "id": "text-raw-quoted",
+      "name": "Raw text with quotes",
+      "description": "A hash-delimited raw string lets literal double quotes appear in its content.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool do",
+        "    quoted: String:= r#\"She said \"hello\" to me\"#",
+        "    return quoted.length() == 22",
+        "end"
+      ]},
+      "features": ["text", "literals"],
+      "reservedWords": ["fun", "return", "end", "do"]
+    },
+    {
+      "id": "text-raw-multiline",
+      "name": "Multiline raw text",
+      "description": "A raw string spans multiple source lines, preserving each line break literally.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool do",
+        "    lines: String:= r\"first",
+        "second\"",
+        "    return lines.length() == 12",
+        "end"
+      ]},
+      "features": ["text", "literals"],
+      "reservedWords": ["fun", "return", "end", "do"]
+    },
+    {
+      "id": "text-interpolation-scalar",
+      "name": "Scalar interpolation",
+      "description": "String.interpolate builds one heap-owned String from literal text and an embedded value.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool do",
+        "    heap: Heap:= Heap()",
+        "    count: Int32:= 3",
+        "    message: String:= String.interpolate(heap, \"count={{count}}\")",
+        "    defer message.free(heap)",
+        "    return message.length() == 7",
+        "end"
+      ]},
+      "features": ["text", "heap-allocation", "defer"],
+      "reservedWords": ["fun", "return", "end", "defer", "do"]
+    },
+    {
+      "id": "text-interpolation-unicode",
+      "name": "Unicode text interpolation",
+      "description": "An interpolated String embeds another String's Unicode content by rune, not by byte.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(): Bool do",
+        "    heap: Heap:= Heap()",
+        "    name: String:= \"caf\\u{00E9}\"",
+        "    message: String:= String.interpolate(heap, \"hello {{name}}\")",
+        "    defer message.free(heap)",
+        "    return message.length() == 10",
+        "end"
+      ]},
+      "features": ["text", "heap-allocation", "defer"],
+      "reservedWords": ["fun", "return", "end", "defer", "do"]
+    },
+    {
+      "id": "text-interpolation-order",
+      "name": "Interpolation evaluation order",
+      "description": "Embedded expressions in an interpolation template evaluate exactly once, left to right.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun tick(counter: MutPtr<Int32>): Int32 do",
+        "    value: Int32:= counter.value",
+        "    counter.value = value + 1",
+        "    return value",
+        "end",
+        "fun demo(): Bool do",
+        "    heap: Heap:= Heap()",
+        "    counter: MutPtr<Int32>:= heap.allocate<Int32>(0)",
+        "    message: String:= String.interpolate(heap, \"first={{tick(counter)}} second={{tick(counter)}}\")",
+        "    defer message.free(heap)",
+        "    defer heap.free(counter)",
+        "    return message.length() == 16",
+        "end"
+      ]},
+      "features": ["text", "heap-allocation", "pointers", "defer"],
+      "reservedWords": ["fun", "return", "end", "defer", "do"]
     }
   ]
 }

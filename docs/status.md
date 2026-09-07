@@ -12,9 +12,10 @@ gets deleted.
 ### Design decisions required
 
 | Work | Spec |
-|---|---|
+| --- | --- |
+| Review TypeScript codebase to glean portable learnings — compiler architecture, diagnostics, and tooling patterns — with adopt/adapt/reject log | [0141](specs/0141-typescript-codebase-learnings.md) |
 | C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
-| C compiler backend, target packs, and trusted target profiles | [0052](specs/0052-target-profiles.md) |
+| C compiler backend | [0052](specs/0052-c-compiler-backend.md) |
 | Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
 | Scalar value matching beyond Bool | [0135](specs/0135-scalar-value-match.md) |
 | Expanded scalar Dict key types | [0136](specs/0136-expanded-dict-key-types.md) |
@@ -22,11 +23,12 @@ gets deleted.
 | Native module storage and linkage | [0116](specs/0116-native-module-storage-and-linkage.md) |
 | Restricted compile-time evaluation | [0117](specs/0117-compile-time-evaluation.md) |
 | Concurrency safety and task lifetimes | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
+| High-throughput network runtime and HTTP-server foundations | [0144](specs/0144-high-throughput-network-runtime.md) |
 
 ### Implementation-ready
 
 | Work | Spec |
-|---|---|
+| --- | --- |
 | Allocation-free String/Strand mixed comparison | [0139](specs/0139-string-strand-comparison.md) |
 | Local fallback recovery with `catch` | [0134](specs/0134-error-recovery-with-catch.md) |
 
@@ -38,7 +40,7 @@ gets deleted.
 ## Open bugs
 
 | Bug | Owning spec |
-|---|---|
+| --- | --- |
 | Scheduler initialization enters worker zero before root statements run, leaving every worker asleep on an empty ready queue | [0132](specs/0132-root-task-scheduler-bootstrap.md) |
 | Match misclassifies imported dotted patterns, keys union coverage by short type name, and accepts duplicate exact-type arms or unreachable final `else` arms | [0133](specs/0133-match-exhaustiveness-and-qualified-patterns.md) |
 | Returned inline aggregates can hide a View that borrows a local of the returning function | [0137](specs/0137-nested-view-return-safety.md) |

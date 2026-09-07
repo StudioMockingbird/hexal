@@ -23,13 +23,13 @@ type Parser struct {
 	// arm and an unparenthesized `is` selects type mode. Parenthesized
 	// subexpressions clear it.
 	matchBoundary matchBoundaryKind
-	// implReceiver is set while parsing an impl declaration's receiver type
+	// methodReceiver is set while parsing a method declaration's receiver type
 	// and unionMemberDepth counts union-member primaries inside it. A dotted
-	// name inside such a member (impl MutPtr<Node> | Nil.read()) is the
+	// name inside such a member (method MutPtr<Node> | Nil.read()) is the
 	// declaration's method delimiter, never a qualified type chain; every
 	// union receiver is semantically invalid anyway, so suppressing the chain
 	// there loses nothing.
-	implReceiver     bool
+	methodReceiver   bool
 	unionMemberDepth int
 	// binaryOperatorRecorded, binaryOperatorKind, and binaryOperatorToken track
 	// the current expression region's one allowed binary operator token kind.
@@ -166,8 +166,8 @@ func (parser *Parser) topLevelItem() (TopLevelItem, error) {
 		return parser.typeDeclaration(false)
 	case parser.check(lexer.Fun):
 		return parser.functionDeclaration(false)
-	case parser.check(lexer.Impl):
-		return parser.implDeclaration(false)
+	case parser.check(lexer.Method):
+		return parser.methodDeclaration(false)
 	}
 	statement, err := parser.statement()
 	if err != nil {
@@ -177,7 +177,7 @@ func (parser *Parser) topLevelItem() (TopLevelItem, error) {
 }
 
 // exportedDeclaration consumes a leading `export` and requires the exportable
-// declaration forms: a module-level type, function, or implementation
+// declaration forms: a module-level type, function, or method
 // declaration. Anything else is a Syntax Error.
 func (parser *Parser) exportedDeclaration() (TopLevelItem, error) {
 	parser.advance()
@@ -186,12 +186,12 @@ func (parser *Parser) exportedDeclaration() (TopLevelItem, error) {
 		return parser.typeDeclaration(true)
 	case parser.check(lexer.Fun):
 		return parser.functionDeclaration(true)
-	case parser.check(lexer.Impl):
-		return parser.implDeclaration(true)
+	case parser.check(lexer.Method):
+		return parser.methodDeclaration(true)
 	}
 	next := parser.peek()
 	parser.synchronize(parser.current)
-	return nil, parser.errorAt(next, "export may prefix only a module-level type, function, or implementation declaration")
+	return nil, parser.errorAt(next, "export may prefix only a module-level type, function, or method declaration")
 }
 
 // importDeclaration parses the exact form
@@ -279,8 +279,8 @@ func (parser *Parser) statement() (Statement, error) {
 			return nil, parser.errorAt(parser.peek(), "anonymous functions cannot begin statements; bind the function first")
 		}
 		return nil, parser.errorAt(parser.peek(), "anonymous function requires '(' or '<' after 'fun'")
-	case parser.check(lexer.Impl):
-		return nil, parser.errorAt(parser.peek(), "impl declarations are module-level only")
+	case parser.check(lexer.Method):
+		return nil, parser.errorAt(parser.peek(), "method declarations are module-level only")
 	case parser.check(lexer.Type):
 		return nil, parser.errorAt(parser.peek(), "type declarations are module-level only")
 	case parser.check(lexer.LeftParen):
@@ -535,7 +535,7 @@ func (parser *Parser) atStatementStart() bool {
 	if parser.check(lexer.ElseIf) || parser.check(lexer.Else) || parser.check(lexer.End) {
 		return true
 	}
-	if parser.check(lexer.Type) || parser.check(lexer.Fun) || parser.check(lexer.Impl) ||
+	if parser.check(lexer.Type) || parser.check(lexer.Fun) || parser.check(lexer.Method) ||
 		parser.check(lexer.Module) || parser.check(lexer.Import) || parser.check(lexer.Export) ||
 		parser.check(lexer.If) || parser.check(lexer.While) || parser.check(lexer.For) ||
 		parser.check(lexer.Break) || parser.check(lexer.Continue) || parser.check(lexer.Return) ||

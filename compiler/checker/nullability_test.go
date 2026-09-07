@@ -14,24 +14,24 @@ import (
 func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
 	const want = "Nil is valid only as a member of a union with a non-Nil type"
 	for _, source := range []string{
-		"type Bad = Nil",
+		"type Bad is Nil",
 		"bad: Nil := nil",
 		"fun bad(argument: Nil) do return end",
 		"fun bad(): Nil do return end",
-		"type Bad = { marker: Nil, }",
-		"type Bad as | One { marker: Nil } | Two { value: Int32 } end",
+		"type Bad is struct marker: Nil, end",
+		"type Bad is union | One as marker: Nil end | Two as value: Int32 end end",
 		"bad: Array<Nil, 4> := [nil, nil, nil, nil]",
 		"bad: View<Nil> := View<Nil>.empty()",
-		"bad: List<Nil> := List<Nil>.new(Heap.new())",
-		"bad: Dict<Nil, Int32> := Dict<Nil, Int32>.new(Heap.new())",
-		"bad: Dict<Int32, Nil> := Dict<Int32, Nil>.new(Heap.new())",
+		"bad: List<Nil> := List<Nil>(Heap())",
+		"bad: Dict<Nil, Int32> := Dict<Nil, Int32>(Heap())",
+		"bad: Dict<Int32, Nil> := Dict<Int32, Nil>(Heap())",
 		"bad: Ptr<Nil> := alloc(Nil)",
 		"bad: MutPtr<Nil> := alloc(Nil)",
 		"fun nothing(value: Int32) do return end bad: Fun<(Nil) : Int32> := nothing",
 		"fun nothing(value: Int32) do return end bad: Fun<(Int32) : Nil> := nothing",
 		"fun square(value: Int32): Int32 do return value * value end bad: Task<Nil> := try spawn square(6)",
-		"h: Heap := Heap.new() bad: Channel<Nil> := Channel<Nil>.new(h, 8)",
-		"h: Heap := Heap.new() bad: MutPtr<Nil> := h.allocate<Nil>(0)",
+		"h: Heap := Heap() bad: Channel<Nil> := Channel<Nil>(h, 8)",
+		"h: Heap := Heap() bad: MutPtr<Nil> := h.allocate<Nil>(0)",
 		"value: Int32 | Nil := nil if value is Int32 then noop: Int32 := 0 else bad: Nil := value end",
 	} {
 		requireDiagnostic(t, source, want)
@@ -52,7 +52,7 @@ func TestCheckerAcceptsNilOnlyInContext(t *testing.T) {
 }
 
 func TestCheckerResolvesNilUnknownAndNullableAliases(t *testing.T) {
-	checked := requireAccepted(t, "type SameMaybe = Ptr<Int32> | Nil type StillMaybe = Ptr<Int32> | Nil type Erased = Unknown type Reader = Ptr<Erased> type Writer = MutPtr<Erased>")
+	checked := requireAccepted(t, "type SameMaybe is union Ptr<Int32> | Nil end type StillMaybe is union Ptr<Int32> | Nil end type Erased is Unknown type Reader is Ptr<Erased> type Writer is MutPtr<Erased>")
 
 	if len(checked.TypeDeclarations) != 5 {
 		t.Fatalf("type declaration count = %d, want 5", len(checked.TypeDeclarations))
@@ -78,7 +78,7 @@ func TestCheckerResolvesNilUnknownAndNullableAliases(t *testing.T) {
 }
 
 func TestCheckerAcceptsNullableRecursiveObjectMembers(t *testing.T) {
-	checked := requireAccepted(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }")
+	checked := requireAccepted(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end")
 	member := checked.TypeDeclarations[0].Type.Object.Members[1]
 	if !compilerTypes.IsNullable(member.Type) {
 		t.Fatalf("next member type = %#v, want nullable", member.Type)
@@ -101,12 +101,12 @@ func TestCheckerAcceptsGeneralUnionAndRejectsUnknownValueForms(t *testing.T) {
 
 func TestCheckerProtectsNilAndUnknownTypeNames(t *testing.T) {
 	for _, name := range []string{"Nil", "Unknown"} {
-		requireDiagnostic(t, "type "+name+" = Int32", "built-in type "+name+" cannot be redeclared")
+		requireDiagnostic(t, "type "+name+" is Int32", "built-in type "+name+" cannot be redeclared")
 	}
 }
 
 func TestCheckerPreservesExistingTypeAfterFailedObjectDeclaration(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Existing = Int32 type Existing = { link: Existing, } value: Existing := 1"))
+	checked, err := Check(parseProgram(t, "type Existing is Int32 type Existing is struct link: Existing, end value: Existing := 1"))
 	if err == nil {
 		t.Fatal("Check accepted the duplicate recursive object declaration")
 	}
@@ -120,13 +120,13 @@ func TestCheckerPreservesExistingTypeAfterFailedObjectDeclaration(t *testing.T) 
 
 func TestCheckerPreservesFunctionPositionRestrictions(t *testing.T) {
 	requireDiagnostic(t,
-		"type Bad = Ptr<Fun<(Int32) : Int32>> | Nil",
+		"type Bad is union Ptr<Fun<(Int32) : Int32>> | Nil end",
 		"Ptr<Fun<(Int32) : Int32>> is not supported")
-	requireAccepted(t, "type Holder = { callback: Fun<(Int32) : Int32> | Nil, }")
+	requireAccepted(t, "type Holder is struct callback: Fun<(Int32) : Int32> | Nil, end")
 }
 
 func TestCheckerRoutesNullableAndUnknownAssignabilityThroughAllContexts(t *testing.T) {
-	requireAccepted(t, "type Node = { value: Int32, } type Holder = { link: Ptr<Node> | Nil, erased: Ptr<Unknown>, } fun erase(source: MutPtr<Node>): Ptr<Unknown> do return source end fun recover(source: Ptr<Unknown>): Ptr<Node> do return source end fun accept(source: Ptr<Node>): Int32 do return source.value.value end mut node: Node := Node { value = 1, } writer: MutPtr<Node> := ref node mut maybe: Ptr<Node> | Nil := writer maybe = writer mut erased: Ptr<Unknown> := writer mut restored: Ptr<Node> := erased maybe_erased: Ptr<Unknown> | Nil := writer maybe_restored: Ptr<Node> | Nil := maybe_erased holder: Holder := Holder { link = writer, erased = writer, } assigned: Ptr<Node> := recover(erased) erased = writer restored = erased erase_result: Ptr<Unknown> := erase(writer) accepted: Int32 := accept(erased)")
+	requireAccepted(t, "type Node is struct value: Int32, end type Holder is struct link: Ptr<Node> | Nil, erased: Ptr<Unknown>, end fun erase(source: MutPtr<Node>): Ptr<Unknown> do return source end fun recover(source: Ptr<Unknown>): Ptr<Node> do return source end fun accept(source: Ptr<Node>): Int32 do return source.value.value end mut node: Node := Node(value = 1,) writer: MutPtr<Node> := ref node mut maybe: Ptr<Node> | Nil := writer maybe = writer mut erased: Ptr<Unknown> := writer mut restored: Ptr<Node> := erased maybe_erased: Ptr<Unknown> | Nil := writer maybe_restored: Ptr<Node> | Nil := maybe_erased holder: Holder := Holder(link = writer, erased = writer,) assigned: Ptr<Node> := recover(erased) erased = writer restored = erased erase_result: Ptr<Unknown> := erase(writer) accepted: Int32 := accept(erased)")
 }
 
 func TestCheckerRejectsNullableAndNilRemovalWithExactDiagnostics(t *testing.T) {
@@ -237,7 +237,7 @@ func TestCheckerRejectsNullableAccessWithoutNarrowing(t *testing.T) {
 }
 
 func TestCheckerRejectsMemberPathNarrowing(t *testing.T) {
-	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut first: Node := Node { value = 1, next = nil, } node: MutPtr<Node> := ref first if node.next != nil then bad: Int32 := node.next.value end", "only a local binding can be narrowed; bind node.next before testing it")
+	requireDiagnostic(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end mut first: Node := Node(value = 1, next = nil,) node: MutPtr<Node> := ref first if node.next != nil then bad: Int32 := node.next.value end", "only a local binding can be narrowed; bind node.next before testing it")
 }
 
 func TestCheckerInvalidatesNarrowingOnAssignmentAndWritableRef(t *testing.T) {
@@ -271,7 +271,7 @@ func TestCheckerNarrowsFunctionParameters(t *testing.T) {
 // receivers.
 
 func TestCheckerAcceptsRecursiveNullableObjectLiteral(t *testing.T) {
-	checked := requireAccepted(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } tail: Node := Node { value = 3, next = nil, }")
+	checked := requireAccepted(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end tail: Node := Node(value = 3, next = nil,)")
 	literal := checked.Statements[0].(Declaration).Source.Object
 	if literal == nil {
 		t.Fatalf("tail source = %#v, want an object literal", checked.Statements[0].(Declaration).Source)
@@ -286,26 +286,26 @@ func TestCheckerAcceptsRecursiveNullableObjectLiteral(t *testing.T) {
 }
 
 func TestCheckerReadsAndAssignsNullableObjectMembers(t *testing.T) {
-	requireAccepted(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"mut first: Node := Node { value = 1, next = nil, }\n"+
-		"mut second: Node := Node { value = 2, next = nil, }\n"+
+	requireAccepted(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
+		"mut first: Node := Node(value = 1, next = nil,)\n"+
+		"mut second: Node := Node(value = 2, next = nil,)\n"+
 		"first.next = ref second\n"+
 		"next: MutPtr<Node> | Nil := first.next\n"+
 		"first.next = nil\n")
-	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"tail: Node := Node { value = 1, next = nil, }\n"+
+	requireDiagnostic(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
+		"tail: Node := Node(value = 1, next = nil,)\n"+
 		"bad: MutPtr<Node> := tail.next\n",
 		"expected MutPtr<Node>; got MutPtr<Node> | Nil")
 }
 
 func TestCheckerNullableMemberValueRequiresBindThenTest(t *testing.T) {
-	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"mut first: Node := Node { value = 1, next = nil, }\n"+
+	requireDiagnostic(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
+		"mut first: Node := Node(value = 1, next = nil,)\n"+
 		"node: MutPtr<Node> := ref first\n"+
 		"bad: Node := node.next.value\n",
 		"only a local binding can be narrowed; bind node.next before testing it")
-	requireAccepted(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"mut first: Node := Node { value = 1, next = nil, }\n"+
+	requireAccepted(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
+		"mut first: Node := Node(value = 1, next = nil,)\n"+
 		"node: MutPtr<Node> := ref first\n"+
 		"next: MutPtr<Node> | Nil := node.next\n"+
 		"if next != nil then\n"+
@@ -314,22 +314,22 @@ func TestCheckerNullableMemberValueRequiresBindThenTest(t *testing.T) {
 }
 
 func TestCheckerMethodsOnNullableReceiversRequireNarrowing(t *testing.T) {
-	requireAccepted(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"impl Node.read(): Int32 do\n    return self.value\nend\n"+
-		"mut first: Node := Node { value = 1, next = nil, }\n"+
+	requireAccepted(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
+		"method Node.read(): Int32 do\n    return self.value\nend\n"+
+		"mut first: Node := Node(value = 1, next = nil,)\n"+
 		"maybe: MutPtr<Node> | Nil := ref first\n"+
 		"if maybe != nil then\n    result: Int32 := maybe.read()\nend\n")
-	requireDiagnostic(t, "type Node = { value: Int32, mut next: MutPtr<Node> | Nil, }\n"+
-		"impl Node.read(): Int32 do\n    return self.value\nend\n"+
-		"mut first: Node := Node { value = 1, next = nil, }\n"+
+	requireDiagnostic(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
+		"method Node.read(): Int32 do\n    return self.value\nend\n"+
+		"mut first: Node := Node(value = 1, next = nil,)\n"+
 		"maybe: MutPtr<Node> | Nil := ref first\n"+
 		"bad: Int32 := maybe.read()\n",
 		"MutPtr<Node> | Nil may be Nil; narrow it before using .value")
 }
 
 func TestCheckerKeepsByValueRecursionRejectedWithNullableMembers(t *testing.T) {
-	requireDiagnostic(t, "type Bad = { child: Bad, }\n", "object type Bad cannot contain itself by value")
-	requireDiagnostic(t, "type Bad = { child: Bad | Nil, }\n", "object type Bad cannot contain itself by value")
+	requireDiagnostic(t, "type Bad is struct child: Bad, end\n", "object type Bad cannot contain itself by value")
+	requireDiagnostic(t, "type Bad is struct child: Bad | Nil, end\n", "object type Bad cannot contain itself by value")
 }
 
 // Assignment inside an elseif body invalidates the narrowing even when the
@@ -343,8 +343,8 @@ func TestCheckerElseifWithoutElseStillMergesInvalidation(t *testing.T) {
 // Standalone Nil is rejected even through generic substitution and spawn
 // arguments, not only in direct spellings.
 func TestCheckerRejectsNilThroughGenericSubstitution(t *testing.T) {
-	requireDiagnostic(t, "type Box<T> = { value: T } bad: Box<Nil> := Box<Nil> { value = nil }", "Nil is valid only as a member of a union with a non-Nil type")
-	requireDiagnostic(t, "type Box<T> = { value: T } fun unwrap(box: Box<Nil>): Int32 do return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
+	requireDiagnostic(t, "type Box<T> is struct value: T end bad: Box<Nil> := Box<Nil>(value = nil)", "Nil is valid only as a member of a union with a non-Nil type")
+	requireDiagnostic(t, "type Box<T> is struct value: T end fun unwrap(box: Box<Nil>): Int32 do return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
 	requireDiagnostic(t, "fun worker(flag: Nil): Bool do return true end fun run(): Int32 | Error do task: Task<Bool> := try spawn worker(nil) return 0 end", "Nil is valid only as a member of a union with a non-Nil type")
 }
 

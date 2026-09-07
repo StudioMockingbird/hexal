@@ -71,6 +71,32 @@ func discoverGeneratedStrings(program checker.Program, registry *literalRegistry
 				registry.used = true
 				registry.Intern(node.Name)
 			}
+			if node.Kind == checker.StringInterpolateExpression {
+				used = true
+				registry.used = true
+				for _, segment := range node.InterpolationSegments {
+					if !segment.IsValue {
+						registry.Intern(segment.Text)
+					}
+				}
+			}
+			return nil
+		},
+	}
+	walkProgram(program, visitor)
+	return used
+}
+
+// discoverInterpolationUsed reports whether the program contains a checked
+// String.interpolate call, which selects the String component's
+// demand-driven formatter helpers.
+func discoverInterpolationUsed(program checker.Program) bool {
+	used := false
+	visitor := &programVisitor{
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.StringInterpolateExpression {
+				used = true
+			}
 			return nil
 		},
 	}
@@ -180,6 +206,36 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 			return err
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
+	case checker.StringInterpolateExpression:
+		if node.Operand == nil || !compilerTypes.IsHeap(node.OperandType) || !compilerTypes.IsString(node.ResultType) {
+			return unknownExpressionDiagnostic("String.interpolate has invalid checked metadata")
+		}
+		if len(node.InterpolationSegments) == 0 {
+			return unknownExpressionDiagnostic("String.interpolate has no checked segments")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("String.interpolate result does not match its expected type")
+		}
+		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
+			return err
+		}
+		hasValue := false
+		for _, segment := range node.InterpolationSegments {
+			if !segment.IsValue {
+				continue
+			}
+			hasValue = true
+			if !supportedInterpolationValueType(segment.Value.Type) {
+				return unknownExpressionDiagnostic("String.interpolate segment has an unsupported checked type")
+			}
+			if err := validateCheckedOperandWithState(segment.Value, state); err != nil {
+				return err
+			}
+		}
+		if !hasValue {
+			return unknownExpressionDiagnostic("String.interpolate has no checked value segment")
+		}
+		return nil
 	case checker.RuneCursorMethodCallExpression:
 		if node.Operand == nil || !compilerTypes.IsRuneCursor(node.OperandType) {
 			return unknownExpressionDiagnostic("rune cursor method has invalid checked metadata")
@@ -364,6 +420,8 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 			return "", viewErr
 		}
 		return "hex_string_from_runes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
+	case checker.StringInterpolateExpression:
+		return renderStringInterpolate(node, state)
 	case checker.RuneCursorMethodCallExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("rune cursor method without a checked receiver")

@@ -80,7 +80,7 @@ resolver an opportunity to treat the same tokens as
 Given `m.hex`:
 
 ```hexal
-export type Shape as
+export type Shape is union
 | Circle
 | Square
 end
@@ -91,7 +91,7 @@ this valid match fails:
 ```hexal
 module M = import "./m"
 
-x: M.Shape := M.Circle
+x: M.Shape := M.Circle()
 y: Int32 := match x is
 | M.Circle then 1
 | M.Square then 2

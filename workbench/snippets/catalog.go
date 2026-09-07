@@ -53,7 +53,7 @@ type diskSnippet struct {
 // validation makes omissions visible whenever that grammar grows.
 var RequiredReservedWords = []string{
 	"true", "false", "nil", "eos", "mut", "ref", "type", "and", "or", "is",
-	"fun", "impl", "end", "return", "if", "elseif", "else", "while", "break",
+	"fun", "struct", "union", "method", "end", "return", "if", "elseif", "else", "while", "break",
 	"continue", "defer", "try", "errdefer", "spawn", "as", "match", "then",
 	"self", "for", "in", "do", "module", "import", "export",
 }

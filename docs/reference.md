@@ -8,7 +8,7 @@ Compiler behavior that disagrees with this file is a conformance bug.
 The grammar defines source shape only. Semantic rules in the remainder of this file may reject a
 grammatically valid form.
 
-Three lexical/parser rules are not expressible in EBNF:
+Five lexical/parser rules are not expressible in EBNF:
 
 - Tokens use maximal munch. Inside nested type-argument lists only, one `>>` token may close two
   levels; in expression position it is always one shift token.
@@ -17,9 +17,20 @@ Three lexical/parser rules are not expressible in EBNF:
   type expression as a union separator and is never read as the following `binary-tail`.
 - Within one independently delimited expression, every `binary-tail` must repeat the same token
   kind (`is` counts as its own kind, distinct from every other). A grouping `( expression )`, each
-  call argument, index expression, array element, member initializer, and match scrutinee or arm
+  call argument, index expression, array element, and match scrutinee or arm
   result independently delimits a fresh expression with its own requirement. Hexal has no
   binary-operator precedence: this is the entire rule for how a mixed chain must be written.
+- A `<` immediately after a postfix expression opens a type-argument list only when a balanced
+  `>` (or a `>>` closing two nested lists at once) is immediately followed by `(` (an ordinary
+  generic call) or by `.` then an identifier then `(` (a qualified generic ADT-variant
+  constructor, e.g. `Result<Int32, String>.Ok(value)`); otherwise `<` is the relational operator.
+- The lexer recognizes `{{ expression }}` interpolation inside every interpreted string, not only
+  inside `String.interpolate`'s template argument, so it can tokenize the embedded expression (and
+  any string or raw string nested inside it) correctly in one forward pass; a string containing
+  `{{` outside that exact position is a grammatically valid `interpolation-template` that the
+  semantic rules in the Text section reject. `{{`/`}}` nest through further interpreted strings
+  written inside the embedded expression, tracked by the lexer, not by expression-level bracket
+  matching.
 
 ```ebnf
 program = lexical-separation , { top-level-item } ;
@@ -36,14 +47,14 @@ module-path-literal = ? a quoted literal scanned only when the previous
                         between quotes is taken verbatim (no escape decoding);
                         a backslash in the payload is invalid ? ;
 declaration-item = type-declaration | function-declaration
-                   | implementation-declaration ;
+                   | method-declaration ;
 type-declaration = "type" , identifier , [ generic-parameter-list ]
-                   , ( "=" , type-definition-expression | adt-block ) ;
+                   , "is" , type-definition ;
 function-declaration = "fun" , identifier , [ generic-parameter-list ]
                        , signature , "do" , block , "end" ;
-implementation-declaration = "impl" , type-expression , "." , identifier
-                             , [ generic-parameter-list ] , signature
-                             , "do" , block , "end" ;
+method-declaration = "method" , type-expression , "." , identifier
+                     , [ generic-parameter-list ] , signature
+                     , "do" , block , "end" ;
 signature = "(" , [ parameter-list ] , ")" , [ ":" , type-expression ] ;
 parameter-list = parameter , { "," , parameter } ;
 parameter = identifier , ":" , type-expression ;
@@ -79,15 +90,22 @@ for-binders = identifier
               | identifier , "," , identifier
               | identifier , "," , identifier , "," , identifier ;
 
-type-definition-expression = object-type-expression | type-expression ;
-object-type-expression = "{" , member-declaration
-                         , { "," , member-declaration } , [ "," ] , "}" ;
+type-definition = struct-definition | union-definition
+                  | unit-adt-shorthand | alias-target ;
+struct-definition = "struct" , [ member-declaration
+                     , { "," , member-declaration } , [ "," ] ] , "end" ;
 member-declaration = [ "mut" ] , identifier , ":" , type-expression ;
-adt-block = "as" , adt-variant , { adt-variant } , "end" ;
-adt-variant = "|" , identifier , [ adt-payload ] ;
-adt-payload = "{" , payload-member
-              , { "," , payload-member } , [ "," ] , "}" ;
-payload-member = identifier , ":" , type-expression ;
+union-definition = "union" , ( adt-body | structural-union-body ) ;
+adt-body = "|" , identifier , [ adt-payload ]
+           , { "|" , identifier , [ adt-payload ] } , "end" ;
+adt-payload = "as" , member-declaration
+              , { "," , member-declaration } , [ "," ] , "end" ;
+structural-union-body = primary-type-expression
+                        , "|" , primary-type-expression
+                        , { "|" , primary-type-expression } , "end" ;
+unit-adt-shorthand = identifier , "|" , identifier
+                     , { "|" , identifier } , "end" ;
+alias-target = primary-type-expression ;
 
 type-expression = union-type-expression ;
 union-type-expression = primary-type-expression
@@ -128,34 +146,38 @@ place-expression = place-primary , { place-suffix } ;
 place-primary = identifier | "self" ;
 place-suffix = "." , identifier | index-suffix ;
 postfix-expression = postfix-base , { postfix-suffix } ;
-postfix-base = primary-expression | type-qualified-primary ;
-postfix-suffix = member-suffix | index-suffix | call-suffix ;
+postfix-base = primary-expression ;
+postfix-suffix = generic-owner-call | member-suffix | generic-call
+                 | index-suffix | call-suffix ;
 member-suffix = "." , identifier ;
-type-qualified-primary = identifier , type-argument-list
-                         , "." , identifier , [ variant-payload ] ;
-call-suffix = call-arguments | type-argument-list , call-arguments ;
+generic-owner-call = type-argument-list , "." , identifier , call-arguments ;
+generic-call = type-argument-list , call-arguments ;
+call-suffix = call-arguments ;
 call-expression = postfix-base , { postfix-suffix } , call-suffix ;
 call-arguments = same-line , "(" , [ argument-list ] , ")" ;
-argument-list = expression , { "," , expression } ;
+argument-list = argument , { "," , argument } , [ "," ] ;
+argument = [ identifier , "=" ] , expression ;
 index-suffix = "[" , expression , "]" ;
 
-primary-expression = identifier | "self" | object-literal
-                     | qualified-record-variant
+primary-expression = identifier | "self"
                      | array-literal | match-expression
                      | anonymous-function-literal
                      | integer-literal | decimal-floating-literal
                      | byte-literal | rune-literal | string-literal
+                     | raw-string-literal | interpolation-template
                      | "true" | "false" | "nil" | "eos"
                      | "(" , expression , ")" ;
+interpolation-template = ? recognized only by the lexer's string scan, on an
+                           unescaped "{{" inside an interpreted string; see
+                           the fifth lexical/parser rule above ?
+                         , { interpolation-text | interpolation }
+                         , ? the string's closing quote ? ;
+interpolation = "{{" , expression , "}}" ;
+interpolation-text = ? decoded literal text between the string's start or
+                       the previous "}}" and the next unescaped "{{" or the
+                       closing quote ? ;
 anonymous-function-literal = "fun" , [ generic-parameter-list ]
                              , signature , "do" , block , "end" ;
-object-literal = identifier , [ type-argument-list ]
-                 , "{" , [ member-initializer-list ] , "}" ;
-qualified-record-variant = identifier , "." , identifier , variant-payload ;
-variant-payload = "{" , [ member-initializer-list ] , "}" ;
-member-initializer-list = member-initializer
-                          , { "," , member-initializer } , [ "," ] ;
-member-initializer = identifier , "=" , expression ;
 array-literal = "[" , [ expression-list , [ "," ] ] , "]" ;
 expression-list = expression , { "," , expression } ;
 
@@ -181,7 +203,8 @@ equality-operator = "==" | "!=" ;
 identifier = identifier-text - reserved-word ;
 identifier-text = ASCII-letter , { ASCII-letter | decimal-digit | "_" } ;
 reserved-word = "true" | "false" | "nil" | "eos" | "mut" | "ref"
-                | "type" | "and" | "or" | "is" | "fun" | "impl"
+                | "type" | "and" | "or" | "is" | "fun" | "struct"
+                | "union" | "method"
                 | "end" | "return" | "if" | "elseif" | "else"
                 | "while" | "break" | "continue" | "defer" | "try"
                 | "errdefer" | "spawn" | "as" | "match" | "then"
@@ -207,7 +230,16 @@ decimal-digit-sequence = decimal-digit
 
 string-literal = '"' , { string-character | string-escape } , '"' ;
 string-escape = '\' , ( "'" | '"' | '\' | "n" | "r" | "t" | "0"
-                | unicode-escape ) ;
+                | "{" | "}" | unicode-escape ) ;
+raw-string-literal = "r" , raw-hash-run , '"' , raw-content
+                     , '"' , raw-hash-run ;
+raw-hash-run = { "#" } ;
+raw-content = ? any bytes, copied verbatim with no escape or interpolation
+                processing; the literal closes at the first '"' followed by
+                at least as many '#' characters as the opening raw-hash-run;
+                a shorter run of '#', or a '"' with too few following '#',
+                is content; a closing delimiter's surplus '#' characters
+                begin the following token ? ;
 byte-literal = "b" , "'" , byte-literal-body , "'" ;
 byte-literal-body = printable-ASCII-character | byte-escape ;
 byte-escape = '\' , ( '\' | "'" | "n" | "r" | "t" | "0"
@@ -284,9 +316,9 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   or string literal, `nil`, an array literal, or a `match` whose every arm is contextual. Stating
   it on neither side is an error. Written parameters, members, ADT payloads, and results always
   require an explicit type. Compiler-typed `self` and `for` binders are the remaining exceptions.
-- `=` assigns to an existing writable place. It does not introduce a value binding. Type
-  definitions, module aliases, object literal member initializers, and ADT payload initializers
-  retain their grammar-defined uses of `=`.
+- `=` assigns to an existing writable place. It does not introduce a value binding. Module aliases
+  and a labeled constructor argument (`name = value` inside a struct or ADT-variant call) retain
+  their grammar-defined uses of `=`.
 - Bindings and object members are fixed by default. `mut` permits replacement and appears only on
   their declarations. Parameters, `self`, and `for` binders are fixed and cannot be shadowed in
   their own scopes.
@@ -324,7 +356,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   is declarations-only: it has no executable statements, value bindings, initializer, runtime
   Heap, import-time effects, or final-expression result.
 - Declarations are private by default. `export` may prefix only a module-level type, function, or
-  implementation declaration. An importer accesses exported declarations only through its local
+  method declaration. An importer accesses exported declarations only through its local
   alias; wildcard and unqualified imports do not exist.
 - An exported declaration's complete interface closes over builtins and exported types only,
   including types reached through aliases, aggregates, generic arguments, parameters, results,
@@ -335,7 +367,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   retain source-order visibility; function and method visibility is order-independent (see
   Programs, names, and bindings). Successfully checked exports are available to importers
   regardless of the export's textual position in the defining module.
-- Only a nominal type's defining module may declare implementations for it. Imported types and
+- Only a nominal type's defining module may declare methods for it. Imported types and
   transparent aliases of imported types may call exported methods but cannot receive new methods.
 - Generated module artifacts, symbol linkage, header ownership, and source mapping are specified
   exclusively under Generated artifact split.
@@ -448,12 +480,21 @@ HeapAllocation
 
 ### Aliases and objects
 
-- `type Alias = T` is transparent: identical canonical type, representation, and operations, with
-  no C typedef. Targets resolve in source order; recursive aliases are invalid.
-- Objects are nominal, ordered inline values with at least one member. Identical layouts remain
-  distinct. Object literals name every member exactly once in any order; trailing comma is allowed.
+- `type Alias is T` is transparent: identical canonical type, representation, and operations, with
+  no C typedef. Targets resolve in source order; recursive aliases are invalid. `T` is a single
+  primary type expression: a trailing `|` is rejected with a pointer to `union ... end`.
+- Objects are nominal, ordered inline values declared `type Name is struct member-list end`, where
+  `member-list` is zero or more `[mut] name: Type` entries separated by commas (trailing comma
+  allowed). Identical layouts remain distinct. Construction (`Name(member = value, ...)`) names
+  every non-empty struct's member exactly once in any order; trailing comma is allowed.
   Initializers evaluate left to right in written order; the member's declared position governs
   storage layout only, never evaluation order.
+- An empty struct (`type Marker is struct end`) constructs as `Marker()`; omitting `()` is rejected
+  because a type name is not a value, and passing an argument is rejected. Every value of one empty
+  struct type compares equal; distinct empty struct types remain nominally distinct and are never
+  assignable or comparable to one another. It prints as `Name {}` and supports methods like any
+  other object. C23 has no portable zero-sized object, so its generated struct carries one private
+  `unsigned char` field; `size_of`/`align_of` both report 1.
 - Identity is canonical and recursive, never derived from display names: same-named nominal types
   in distinct modules are distinct, identical layouts included, and constructed builtin generic
   types (pointer, nullable, function, Array, View, List, Dict, Task, Channel, Atomic, Stash, Pool,
@@ -500,7 +541,7 @@ HeapAllocation
   must match their declarations; result-producing bodies cannot fall through.
 - Infallible commands with no payload return no value. Fallible commands with no success payload
   return `Nil | Error`.
-- `impl Receiver.method(...)` adds an implicit fixed `self`, no fields or runtime dispatch. User
+- `method Receiver.name(...)` adds an implicit fixed `self`, no fields or runtime dispatch. User
   targets are nominal `T`, `Ptr<T>`, or `MutPtr<T>`. Value receivers copy; Ptr reads caller storage;
   MutPtr may write its `mut` members.
 - Receiver adaptation order: exact target; outermost MutPtr weakening; pointer dereference to copied
@@ -573,8 +614,9 @@ HeapAllocation
   generic representation.
 - Explicit type arguments must be complete. Otherwise inference uses typed arguments, expected
   result, and initializer fields; conflicts or unresolved parameters are errors.
-- A balanced `<...>` is generic syntax only when immediately followed by call arguments, a qualified
-  constructor/member, or object literal. Otherwise `<`, `>`, and `>>` are operators.
+- A balanced `<...>` is generic syntax only when immediately followed by call arguments (`List<Int32>(heap)`)
+  or by a qualified member call (`Result<Int32, String>.Ok(value)`). Otherwise `<`, `>`, and `>>` are
+  operators.
 - A generic function value needs an exact expected Fun type. Generic methods inherit receiver
   arguments and infer or explicitly receive their own.
 - Bodies are checked structurally at declaration and rechecked after substitution. Same-argument
@@ -587,7 +629,7 @@ HeapAllocation
   contextual initializer candidates.
 - A union contains at least two distinct canonical members. A written union must name each canonical
   member exactly once: a member repeated after alias resolution and generic substitution is an error
-  naming the later member, so `Int32 | Int32` and `A | Int32` where `type A = Int32` are both
+  naming the later member, so `Int32 | Int32` and `A | Int32` where `type A is Int32` are both
   invalid, and a written union is never an alias for a surviving member. Distinct members are then
   flattened, canonically ordered, and interned as one structural identity. Nil is valid only as one
   member of a union satisfying this rule.
@@ -606,8 +648,14 @@ HeapAllocation
 
 ### Algebraic data types and match
 
-- An ADT is a nominal closed sum with at least two distinct qualified variants. Unit variants are
-  values; record variants require exhaustive named payload initialization. Payload fields are fixed.
+- An ADT is a nominal closed sum declared `type Name is union | Variant [as member-list end] ... end`,
+  with at least one variant; `Identifier | Identifier { | Identifier } end` is shorthand for an
+  all-unit ADT of the same variant names and carries no separate identity, validation, or generation
+  rules from the long form. A record variant's payload (`as member-list end`) requires at least one
+  field, which is fixed (never `mut`).
+- Every variant, unit or record, constructs as a call: `Owner.Variant()` for a unit variant,
+  `Owner.Variant(field = value, ...)` for a record variant, naming every payload field exactly once
+  in any order. Omitting `()` on a unit variant is rejected because a type name is not a value.
 - Direct by-value recursion is invalid; pointer-indirect recursion and generic
   specialization are valid.
 - `match` is an expression and evaluates its scrutinee once. Value mode matches `true`/`false`.
@@ -753,12 +801,12 @@ Every other source/arity combination is invalid.
 ## Errors
 
 ```text
-Error.new(header: Strand, message: String) -> Error
+Error(header: Strand, message: String) -> Error
 ```
 
 - Protected nominal `Error` has fixed immutable fields `file: String`, `line: Size`, `column: Size`,
   `header: Strand`, `message: String`.
-- `Error.new(header, message)` is the only constructor and injects the current module's logical
+- `Error(header, message)` is the only constructor and injects the current module's logical
   source key plus one-based line and UTF-8 byte column. Propagation preserves the location.
 - Fallible functions return structural unions containing Error; there are no exceptions or hidden
   result channels. Error copying is shallow. Runtime `message` String storage must remain live while
@@ -772,13 +820,13 @@ Error.new(header: Strand, message: String) -> Error
 ## Allocation and lifetime
 
 ```text
-Heap.new() -> Heap
+Heap() -> Heap
 Heap.allocate<T>(initial: T) -> MutPtr<T>
 Heap.free<T>(pointer: Ptr<T>) -> no value
 Heap.free<T>(pointer: MutPtr<T>) -> no value
 ```
 
-- `Heap.new()` selects the default allocator without runtime allocation; Heap operations are
+- `Heap()` selects the default allocator without runtime allocation; Heap operations are
   thread-safe. There is exactly one default allocator: Heap is a value token with no runtime
   state, and no Heap value selects different storage from any other.
 - `h.allocate<T>(initial)` allocates and initializes one complete finite T, returning non-owning
@@ -804,18 +852,18 @@ Heap.free<T>(pointer: MutPtr<T>) -> no value
 ### `Stash<T>` and `Pool<T>`
 
 ```text
-Stash<T>.new() -> Stash<T>
+Stash<T>() -> Stash<T>
 Stash<T>.allocate(initial: T) -> MutPtr<T>
 Stash<T>.reset() -> no value
 Stash<T>.destroy() -> no value
 
-Pool<T>.new(capacity: Size) -> Pool<T>
+Pool<T>(capacity: Size) -> Pool<T>
 Pool<T>.allocate(initial: T) -> MutPtr<T>
 Pool<T>.free(pointer: Ptr<T> | MutPtr<T>) -> no value
 Pool<T>.destroy() -> no value
 ```
 
-- Stash and Pool are independent allocator roots, not Heap-backed library values: both `.new()`
+- Stash and Pool are independent allocator roots, not Heap-backed library values: both
   constructors take no Heap argument and always build on Heap's own allocation primitives
   internally. The no-hidden-allocator rule above applies only to Heap-backed library values
   (String, List, Dict, Channel, Mutex); those keep their exact Heap signatures and reject a Stash
@@ -905,7 +953,7 @@ View<T>.slice(start: Integer, end: Integer) -> View<T>
 ### `List<T>`
 
 ```text
-List<T>.new(heap: Heap) -> List<T>
+List<T>(heap: Heap) -> List<T>
 List<T>.length() -> Size
 List<T>[index: Integer] -> place<T>
 List<T>.slice(start: Integer, end: Integer) -> View<T>
@@ -926,7 +974,7 @@ List<T>.free(heap: Heap) -> no value
 ### `Dict<K, V>`
 
 ```text
-Dict<K,V>.new(heap: Heap) -> Dict<K,V>
+Dict<K,V>(heap: Heap) -> Dict<K,V>
 Dict<K,V>.insert(key: K, value: V) -> no value
 Dict<K,V>.get(key: K) -> V
 Dict<K,V>.find(key: K) -> V | Nil
@@ -957,6 +1005,7 @@ String.concat(heap: Heap, other: String) -> String
 String.free(heap: Heap) -> no value
 String.from_bytes(heap: Heap, bytes: View<Byte>) -> String
 String.from_runes(heap: Heap, runes: View<Rune>) -> String
+String.interpolate(heap: Heap, template: InterpolationTemplate) -> String
 Strand.length() -> Size
 Strand.to_string(heap: Heap) -> String
 RuneCursor.has_next() -> Bool
@@ -983,6 +1032,26 @@ RuneCursor.next() -> Rune
 - Runtime String allocations require one matching free; all aliases then dangle. Literals must never
   be freed. Collection reads produce aliases without ownership transfer or lifetime protection.
 - String and Strand dispatch separately; Strand exposes no View into inline bytes.
+- A raw string literal (`r"..."`, `r#"..."#`, `r##"..."##`, ...) copies its content byte-for-byte
+  with no escape or interpolation processing; any number of `#` delimiters is accepted, and the
+  literal closes at the first `"` followed by at least that many `#` characters. It is static-backed
+  like an interpreted literal (never freed) and identical in byte length, rune length, equality,
+  ordering, slicing, and print behavior to an interpreted literal with the same UTF-8 bytes.
+- Every interpreted string is scanned for unescaped `{{`, whether or not it appears inside
+  `String.interpolate`; `\{` and `\}` are escapes producing literal braces, and a single unescaped
+  `{`, `}`, or `}}` outside an active `{{ ... }}` region is literal text. A `{{ expression }}` found
+  anywhere except exactly `String.interpolate`'s second argument is a Type Error rather than an
+  implicit allocation.
+- `String.interpolate(heap, template)` builds one heap-owned String: the Heap evaluates first and
+  exactly once, then each embedded expression evaluates exactly once, left to right, formatted with
+  the same spelling `print` uses (no quotes, separators, or trailing line break) and concatenated
+  with the template's literal text in source order. The template must contain at least one
+  interpolation; a plain literal with no braces or a raw literal is rejected, since raw text never
+  interpolates. Interpolation supports exactly Bool, Rune, every fixed-width signed and unsigned
+  integer, Size, Byte, Float32, Float64, String, and Strand; Nil, pointers, unions, structs, ADTs,
+  arrays, views, lists, dictionaries, allocators, concurrency values, Error, and Fun are rejected.
+  The result follows the ordinary String allocation/free contract; borrowed String and Strand
+  operands contribute only their bytes and gain no new lifetime relation to the result.
 
 ## Output
 
@@ -1057,7 +1126,7 @@ Task.yield() -> no value
 ### `Channel<T>`
 
 ```text
-Channel<T>.new(heap: Heap, capacity: Size) -> Channel<T> | Error
+Channel<T>(heap: Heap, capacity: Size) -> Channel<T> | Error
 Channel<T>.send(value: T) -> Nil | Error
 Channel<T>.receive() -> T | EoS
 Channel<T>.close() -> no value
@@ -1078,7 +1147,7 @@ Channel<T>.is_closed() -> Bool
 ### `Mutex`
 
 ```text
-Mutex.new(heap: Heap) -> Mutex | Error
+Mutex(heap: Heap) -> Mutex | Error
 Mutex.lock() -> no value
 Mutex.unlock() -> no value
 Mutex.free(heap: Heap) -> no value
@@ -1093,7 +1162,7 @@ Mutex.free(heap: Heap) -> no value
 ### `Atomic<T>`
 
 ```text
-Atomic<T>.new(initial: T) -> Atomic<T>
+Atomic<T>(initial: T) -> Atomic<T>
 Atomic<T>.load() -> T
 Atomic<T>.store(value: T) -> no value
 Atomic<T>.exchange(value: T) -> T
@@ -1110,7 +1179,7 @@ Atomic<T>.compare_exchange(expected: T, desired: T) -> Bool
   valid only in Binding and ObjectMember positions. Copy-requiring parameters/results, ADT payloads,
   unions, collections, Tasks, Channels, and HeapAllocation are invalid.
 - Atomic itself is invalid in Pointee; an enclosing object containing Atomic remains valid in Pointee.
-- `Atomic<T>.new(value)` directly initializes fresh binding or object-member storage; these are its
+- `Atomic<T>(value)` directly initializes fresh binding or object-member storage; these are its
   only placements. Nested object construction initializes each member in place. The resulting object
   is non-copyable but may be shared through Ptr/MutPtr. `ref` of Atomic or an Atomic member is
   independently invalid. Pointers to enclosing Atomic-containing objects remain valid.
@@ -1131,12 +1200,12 @@ MutPtr<Bytes>.read(into: List<Byte>, max: Size)  -> Size | EoS | Error
 MutPtr<Bytes>.write(from: View<Byte>)             -> Size | Error
 MutPtr<Bytes>.seek(to: Seek)                      -> Size | Error
 
-type Seek as | Start(Size) | Current(Int64) | End(Int64) end
+type Seek is union | Start as position: Size end | Current as offset: Int64 end | End as offset: Int64 end end
 ```
 
 - `IO`, `Bytes`, and `Seek` are reserved protected type names; redeclaration is a Type Error.
   `Start`, `Current`, and `End` remain available as unqualified names. Seek variants construct as
-  qualified record variants with payload fields `position` (Start) and `offset` (Current, End).
+  `Seek.Start(position = ...)`, `Seek.Current(offset = ...)`, and `Seek.End(offset = ...)`.
 - IO lowers to `{ intptr_t desc, uint8_t access, bool owned }`; Bytes lowers to a borrowed
   `List<Byte>` header pointer plus an inline cursor. Copies of IO alias one external resource;
   copying Bytes copies the cursor, so copies advance independently.

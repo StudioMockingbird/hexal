@@ -18,12 +18,12 @@ func TestInferredDeclarationTakesTheInitializersType(t *testing.T) {
 	for _, testCase := range []struct{ name, source, want string }{
 		{
 			"constructor",
-			"fun demo(h: Heap) do\n    names := Dict<Int32, Strand>.new(h)\n    names.free(h)\nend",
+			"fun demo(h: Heap) do\n    names := Dict<Int32, Strand>(h)\n    names.free(h)\nend",
 			"hex_dict_Int32_Strand *const hex_v_names = hex_dict_new_Int32_Strand(",
 		},
 		{
 			"named object literal",
-			"type Entry = { x: Int32, }\nfun demo() do\n    e := Entry { x = 1, }\nend",
+			"type Entry is struct x: Int32, end\nfun demo() do\n    e := Entry(x = 1,)\nend",
 			"const hex_t_m3_app_Entry hex_v_e =",
 		},
 		{
@@ -38,7 +38,7 @@ func TestInferredDeclarationTakesTheInitializersType(t *testing.T) {
 		},
 		{
 			"qualified variant",
-			"type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\nfun demo() do\n    s := Shape.Circle { r = 10 }\nend",
+			"type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun demo() do\n    s := Shape.Circle(r = 10)\nend",
 			"const hex_t_m3_app_Shape hex_v_s =",
 		},
 		{
@@ -136,9 +136,9 @@ func TestInferredDeclarationCarriesMutability(t *testing.T) {
 // C. The form is a source convenience and reaches the generator as the same
 // checked declaration.
 func TestInferredAndAnnotatedDeclarationsGenerateIdenticalC(t *testing.T) {
-	const prelude = "fun compute(): Int64 do\n    return 7\nend\ntype Entry = { x: Int32, }\nfun demo(h: Heap) do\n"
-	inferred := assertCompiles(t, prelude+"    total := compute()\n    e := Entry { x = 1, }\n    names := Dict<Int32, Strand>.new(h)\n    names.free(h)\nend")
-	annotated := assertCompiles(t, prelude+"    total: Int64 := compute()\n    e: Entry := Entry { x = 1, }\n    names: Dict<Int32, Strand> := Dict<Int32, Strand>.new(h)\n    names.free(h)\nend")
+	const prelude = "fun compute(): Int64 do\n    return 7\nend\ntype Entry is struct x: Int32, end\nfun demo(h: Heap) do\n"
+	inferred := assertCompiles(t, prelude+"    total := compute()\n    e := Entry(x = 1,)\n    names := Dict<Int32, Strand>(h)\n    names.free(h)\nend")
+	annotated := assertCompiles(t, prelude+"    total: Int64 := compute()\n    e: Entry := Entry(x = 1,)\n    names: Dict<Int32, Strand> := Dict<Int32, Strand>(h)\n    names.free(h)\nend")
 	for _, key := range []string{"modules/app.c", "modules/app.h", "hexal.h"} {
 		if inferred.Files[key] != annotated.Files[key] {
 			t.Fatalf("%s differs between the inferred and annotated forms:\n--- inferred ---\n%s\n--- annotated ---\n%s", key, inferred.Files[key], annotated.Files[key])
@@ -154,6 +154,6 @@ func TestInferredAndAnnotatedDeclarationsGenerateIdenticalC(t *testing.T) {
 // message is the one an author sees.
 func TestInferredDeclarationLeavesBareVariantsToTheTypeChecker(t *testing.T) {
 	assertRejects(t,
-		"type Shape as | Circle { r: Int32 } | Square { a: Int32 } end\nfun demo() do\n    s := Circle { r = 10 }\nend",
-		"unknown type Circle")
+		"type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun demo() do\n    s := Circle(r = 10)\nend",
+		"named arguments are valid only for struct and ADT constructors")
 }

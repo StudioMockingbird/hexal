@@ -153,7 +153,7 @@ func TestNestedExpressionRegionsIsolateOperatorKinds(t *testing.T) {
 		"x: Array<Int32, 2> := [a + b, c * d]",
 		// Object member initializers: each initializer is its own region,
 		// independent of a mixed root region.
-		"x: Point := Point { a = b + c, d = e * f } and flag",
+		"x: Point := Point(a = b + c, d = e * f) and flag",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {

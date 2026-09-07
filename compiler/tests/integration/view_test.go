@@ -70,10 +70,10 @@ func TestViewAfterRootReassignmentIsValid(t *testing.T) {
 	}{
 		{"array binding", "fun demo() do\n    mut fixed: Array<Int32, 2> := [1, 2]\n    view: View<Int32> := fixed.slice(0, 1)\n    fixed = [3, 4]\nend"},
 		{"intermediate view", "fun demo() do\n    mut fixed: Array<Int32, 2> := [1, 2]\n    mut view: View<Int32> := fixed.slice(0, 1)\n    tail: View<Int32> := view.slice(0, 1)\n    view = fixed.slice(0, 1)\nend"},
-		{"member array", "fun demo() do\n    mut pair: Pair := Pair { values = [1, 2], }\n    view: View<Int32> := pair.values.slice(0, 1)\n    pair.values = [3, 4]\nend"},
+		{"member array", "fun demo() do\n    mut pair: Pair := Pair(values = [1, 2],)\n    view: View<Int32> := pair.values.slice(0, 1)\n    pair.values = [3, 4]\nend"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			source := "type Pair = { mut values: Array<Int32, 2>, }\n" + testCase.source
+			source := "type Pair is struct mut values: Array<Int32, 2>, end\n" + testCase.source
 			if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 				t.Fatalf("Compile(%q) exit code = %d (%v), want 0", testCase.source, result.ExitCode, result.Stderr)
 			}
@@ -135,7 +135,7 @@ func TestViewPassedToFunctionParameter(t *testing.T) {
 }
 
 func TestViewPreservesMutPtrPointeeCapability(t *testing.T) {
-	result := compileSource("type Node = { mut score: Int32, }\nfun demo() do\n    mut first: Node := Node { score = 1, }\n    mut second: Node := Node { score = 2, }\n    mut nodes: Array<MutPtr<Node>, 2> := [ref first, ref second]\n    view: View<MutPtr<Node>> := nodes.slice(0, 2)\n    view[0].score = 42\nend")
+	result := compileSource("type Node is struct mut score: Int32, end\nfun demo() do\n    mut first: Node := Node(score = 1,)\n    mut second: Node := Node(score = 2,)\n    mut nodes: Array<MutPtr<Node>, 2> := [ref first, ref second]\n    view: View<MutPtr<Node>> := nodes.slice(0, 2)\n    view[0].score = 42\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -147,7 +147,7 @@ func TestViewPreservesMutPtrPointeeCapability(t *testing.T) {
 func TestViewReturnRules(t *testing.T) {
 	accepted := []string{
 		"fun empty_demo(): View<Int32> do\n    return View<Int32>.empty()\nend\n",
-		"type Packet = { bytes: String }\nfun payload(packet: Ptr<Packet>): View<Byte> do\n    return packet.bytes.slice(0, 4)\nend\n",
+		"type Packet is struct bytes: String end\nfun payload(packet: Ptr<Packet>): View<Byte> do\n    return packet.bytes.slice(0, 4)\nend\n",
 		"fun adopt(pointer: Ptr<Int32>, count: Size): View<Int32> do\n    return View<Int32>.from_pointer(pointer, count)\nend\n",
 		"fun slice_of_param(xs: List<Int32>): View<Int32> do\n    return xs.slice(0, 1)\nend\n",
 	}
@@ -167,7 +167,7 @@ func TestViewReturnRules(t *testing.T) {
 	}
 	// Documented limitation: a View nested inside a returned aggregate is
 	// not diagnosed; catching it would require escape analysis.
-	nested := "type Window = { visible: View<Int32> }\nfun bad(): Window do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return Window { visible = fixed.slice(0, 2) }\nend\n"
+	nested := "type Window is struct visible: View<Int32> end\nfun bad(): Window do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return Window(visible = fixed.slice(0, 2))\nend\n"
 	if result := compileSource(nested); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("nested View return must compile by design: %v", result.Stderr)
 	}
@@ -177,7 +177,7 @@ func TestViewReturnRules(t *testing.T) {
 // zero-length slice never forms &data[0] on a null backing pointer (which is
 // undefined behavior in C even when unused).
 func TestEmptyListViewSliceGuardsNullAddress(t *testing.T) {
-	source := "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>.new(h)\n    first: View<Int32> := values.slice(0, 0)\n    empty: View<Int32> := View<Int32>.empty()\n    nested: View<Int32> := empty.slice(0, 0)\nend\n"
+	source := "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    first: View<Int32> := values.slice(0, 0)\n    empty: View<Int32> := View<Int32>.empty()\n    nested: View<Int32> := empty.slice(0, 0)\nend\n"
 	result := assertCompiles(t, source)
 	var generated strings.Builder
 	for _, content := range result.Files {

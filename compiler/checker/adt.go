@@ -142,58 +142,70 @@ func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, e
 	return specialized, nil, nil
 }
 
-// checkQualifiedVariant resolves a record-variant constructor.
-func checkQualifiedVariant(expression parser.QualifiedVariantExpression, expectedType compilerTypes.Type, ctx checkContext) initializerValue {
-	// An import-alias owner routes to the target module's exported ADT
-	// variants before ordinary owner resolution.
-	if target, ok := ctx.names.importAliasTarget(expression.Owner.Lexeme); ok {
-		return checkModuleVariantConstructor(expression, target, ctx)
+// checkQualifiedVariantCall recognizes and checks call.Callee shaped as
+// Owner.Variant(...) or Owner<Args>.Variant(...) where Owner names an ADT (or
+// a generic ADT template): the current construction syntax for ADT variants.
+// The second result is false when the callee does not name any ADT variant at
+// all, so the caller can fall through to ordinary method/property dispatch.
+// An import-alias owner is left to checkModuleVariantConstructorCall.
+func checkQualifiedVariantCall(call parser.CallExpression, callee parser.PropertyExpression, expectedType compilerTypes.Type, ctx checkContext) (initializerValue, bool) {
+	owner, isVariable := callee.Receiver.(parser.VariableExpression)
+	if !isVariable {
+		return initializerValue{}, false
 	}
-	adtType, _, ownerDiagnostic := resolveVariantOwner(expression.Owner.Lexeme, expression.OwnerArguments, expectedType, expression.Owner, ctx)
+	if _, isAlias := ctx.names.importAliasTarget(owner.Name.Lexeme); isAlias {
+		return initializerValue{}, false
+	}
+	adtType, _, ownerDiagnostic := resolveVariantOwner(owner.Name.Lexeme, call.TypeArguments, expectedType, owner.Name, ctx)
 	if ownerDiagnostic != nil {
-		return initializerValue{token: expression.Variant, diagnostic: ownerDiagnostic}
+		return initializerValue{token: callee.Property, diagnostic: ownerDiagnostic}, true
 	}
-	variant, ok := ctx.typeEnvironment.AdtVariant(expression.Owner.Lexeme, expression.Variant.Lexeme)
-	if !ok && adtType.Adt != nil {
-		index := adtVariantIndex(adtType, expression.Variant.Lexeme)
-		if index >= 0 {
-			variant = &adtType.Adt.Variants[index]
-			ok = true
-		}
+	if adtType == (compilerTypes.Type{}) {
+		return initializerValue{}, false
 	}
+	variant, ok := ctx.typeEnvironment.AdtVariant(owner.Name.Lexeme, callee.Property.Lexeme)
 	if !ok {
-		return initializerValue{token: expression.Variant, diagnostic: diagnosticAt(typeErrorAt(expression.Variant, fmt.Sprintf("unknown qualified variant %s.%s", expression.Owner.Lexeme, expression.Variant.Lexeme)))}
+		index := adtVariantIndex(adtType, callee.Property.Lexeme)
+		if index < 0 {
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("unknown qualified variant %s.%s", owner.Name.Lexeme, callee.Property.Lexeme))
+			return initializerValue{token: callee.Property, diagnostic: &diagnostic}, true
+		}
+		variant = &adtType.Adt.Variants[index]
 	}
-	return buildVariantConstructor(expression, adtType, variant, ctx)
+	return checkVariantConstructorCall(call, owner.Name.Lexeme, adtType, variant, callee.Property, ctx), true
 }
 
-// checkModuleVariantConstructor resolves Owner.Variant {...} where Owner is an
-// import alias: the variant must belong to an exported ADT of the target
-// module.
-func checkModuleVariantConstructor(expression parser.QualifiedVariantExpression, target string, ctx checkContext) initializerValue {
-	adtType, variant, ok := ctx.names.registry.findExportedADTVariant(target, expression.Variant.Lexeme)
+// checkModuleVariantConstructorCall resolves Owner.Variant(...) where Owner is
+// an import alias: the variant must belong to an exported ADT of the target
+// module. The second result is false when the target module exports no such
+// variant, so the caller falls through to the ordinary private-to-module
+// diagnostic used for an unresolved qualified call.
+func checkModuleVariantConstructorCall(call parser.CallExpression, ownerName string, property lexer.Token, target string, ctx checkContext) (initializerValue, bool) {
+	adtType, variant, ok := ctx.names.registry.findExportedADTVariant(target, property.Lexeme)
 	if !ok {
-		diagnostic := privateToModuleDiagnostic(expression.Variant, expression.Variant.Lexeme, target)
-		return initializerValue{token: expression.Variant, diagnostic: &diagnostic}
+		return initializerValue{}, false
 	}
-	return buildVariantConstructor(expression, adtType, variant, ctx)
+	return checkVariantConstructorCall(call, ownerName, adtType, variant, property, ctx), true
 }
 
-// buildVariantConstructor checks the payload of one resolved record-variant
-// constructor and builds its AdtConstructExpression. Unit and payload shapes
-// are checked against the variant record exactly once, whichever path
-// resolved it.
-func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtType compilerTypes.Type, variant *compilerTypes.AdtVariant, ctx checkContext) initializerValue {
-	if expression.Payload == nil {
-		if len(variant.Payload) > 0 {
-			return initializerValue{token: expression.Variant, diagnostic: diagnosticAt(typeErrorAt(expression.Variant, fmt.Sprintf("%s.%s requires a payload", expression.Owner.Lexeme, expression.Variant.Lexeme)))}
-		}
-		return adtUnitVariant(adtType, variant, expression.Variant)
-	}
+// checkVariantConstructorCall checks one resolved ADT-variant constructor
+// call's arguments and builds its AdtConstructExpression. Unit and payload
+// shapes are checked against the variant record exactly once, whichever path
+// resolved it. ownerName is the written owner spelling, used only for
+// diagnostic text.
+func checkVariantConstructorCall(call parser.CallExpression, ownerName string, adtType compilerTypes.Type, variant *compilerTypes.AdtVariant, variantToken lexer.Token, ctx checkContext) initializerValue {
 	if len(variant.Payload) == 0 {
-		return initializerValue{token: expression.Variant, diagnostic: diagnosticAt(typeErrorAt(expression.Variant, fmt.Sprintf("%s.%s is a unit variant and takes no payload", expression.Owner.Lexeme, expression.Variant.Lexeme)))}
+		if len(call.Arguments) != 0 {
+			diagnostic := typeErrorAt(variantToken, fmt.Sprintf("%s.%s takes no arguments", ownerName, variant.Name))
+			return initializerValue{token: variantToken, diagnostic: &diagnostic}
+		}
+		return adtUnitVariant(adtType, variant, variantToken)
 	}
-	seen := make(map[string]bool, len(*expression.Payload))
+	if len(call.Arguments) == 0 {
+		diagnostic := typeErrorAt(variantToken, fmt.Sprintf("%s.%s requires a payload", ownerName, variant.Name))
+		return initializerValue{token: variantToken, diagnostic: &diagnostic}
+	}
+	seen := make(map[string]bool, len(call.Arguments))
 	// byField and evaluationOrder are populated in written order, but
 	// Arguments below is assembled in variant.Payload declaration order:
 	// renderAdtConstruct indexes Arguments positionally against
@@ -202,21 +214,26 @@ func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtTy
 	// declaration-ordered Arguments, the order fields were actually
 	// written in, so generation can still sequence side effects in
 	// written order without reordering the field assignment itself.
-	byField := make(map[string]Operand, len(*expression.Payload))
-	evaluationOrder := make([]int, 0, len(*expression.Payload))
+	byField := make(map[string]Operand, len(call.Arguments))
+	evaluationOrder := make([]int, 0, len(call.Arguments))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	for _, initializer := range *expression.Payload {
-		field, exists := variantField(variant, initializer.Name.Lexeme)
+	for index, argumentExpression := range call.Arguments {
+		label := call.ArgumentLabels[index]
+		if label == nil {
+			diagnostics = append(diagnostics, typeErrorAt(tokenOf(argumentExpression), "constructor arguments must be named"))
+			continue
+		}
+		field, exists := variantField(variant, label.Lexeme)
 		if !exists {
-			diagnostics = append(diagnostics, typeErrorAt(initializer.Name, fmt.Sprintf("%s has no field named %s", variant.Name, initializer.Name.Lexeme)))
+			diagnostics = append(diagnostics, typeErrorAt(*label, fmt.Sprintf("%s has no field named %s", variant.Name, label.Lexeme)))
 			continue
 		}
 		if seen[field.Name] {
-			diagnostics = append(diagnostics, typeErrorAt(initializer.Name, fmt.Sprintf("%s initializes field %s more than once", variant.Name, field.Name)))
+			diagnostics = append(diagnostics, typeErrorAt(*label, fmt.Sprintf("%s initializes field %s more than once", variant.Name, field.Name)))
 			continue
 		}
 		seen[field.Name] = true
-		checked := checkInitializer(initializer.Value, field.Use, initializer.Name, ctx)
+		checked := checkInitializer(argumentExpression, field.Use, *label, ctx)
 		if nestedDiagnostics := initializerDiagnostics(checked); len(nestedDiagnostics) > 0 {
 			diagnostics = append(diagnostics, nestedDiagnostics...)
 			continue
@@ -237,11 +254,11 @@ func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtTy
 	}
 	for index := range variant.Payload {
 		if !seen[variant.Payload[index].Name] {
-			diagnostics = append(diagnostics, typeErrorAt(expression.Variant, fmt.Sprintf("variant constructor requires the payload field %s", variant.Payload[index].Name)))
+			diagnostics = append(diagnostics, typeErrorAt(variantToken, fmt.Sprintf("variant constructor requires the payload field %s", variant.Payload[index].Name)))
 		}
 	}
 	if len(diagnostics) > 0 {
-		return initializerValue{token: expression.Variant, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+		return initializerValue{token: variantToken, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	arguments := make([]Operand, len(variant.Payload))
 	for index := range variant.Payload {
@@ -256,7 +273,7 @@ func buildVariantConstructor(expression parser.QualifiedVariantExpression, adtTy
 		EvaluationOrder: evaluationOrder,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: adtType, Node: node}
-	return initializerValue{source: source, typ: adtType, token: expression.Variant}
+	return initializerValue{source: source, typ: adtType, token: variantToken}
 }
 
 func variantField(variant *compilerTypes.AdtVariant, name string) (*compilerTypes.ObjectMember, bool) {
@@ -278,33 +295,6 @@ func adtVariantIndex(adtType compilerTypes.Type, variant string) int {
 		}
 	}
 	return -1
-}
-
-// checkUnitVariant resolves a bare Owner.Variant chain as a unit variant value
-// when the owner names an ADT (or a generic ADT resolvable from the expected
-// type).
-func checkUnitVariant(owner, variant lexer.Token, expectedType compilerTypes.Type, ctx checkContext) (*checkedExpression, *compilerTypes.Diagnostic) {
-	adtType, _, ownerDiagnostic := resolveVariantOwner(owner.Lexeme, nil, expectedType, owner, ctx)
-	if ownerDiagnostic != nil {
-		return nil, ownerDiagnostic
-	}
-	adtVariant, ok := ctx.typeEnvironment.AdtVariant(owner.Lexeme, variant.Lexeme)
-	if !ok && adtType.Adt != nil {
-		index := adtVariantIndex(adtType, variant.Lexeme)
-		if index >= 0 {
-			adtVariant = &adtType.Adt.Variants[index]
-			ok = true
-		}
-	}
-	if !ok {
-		return nil, nil
-	}
-	if len(adtVariant.Payload) > 0 {
-		diagnostic := typeErrorAt(variant, fmt.Sprintf("%s.%s requires a payload", owner.Lexeme, variant.Lexeme))
-		return nil, &diagnostic
-	}
-	value := adtUnitVariant(adtType, adtVariant, variant)
-	return &value, nil
 }
 
 func adtUnitVariant(adtType compilerTypes.Type, variant *compilerTypes.AdtVariant, token lexer.Token) checkedExpression {

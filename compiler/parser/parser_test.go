@@ -113,8 +113,8 @@ func TestParsePointerExpressions(t *testing.T) {
 	}
 }
 
-func TestParseObjectLiteralPreservesInitializerOrder(t *testing.T) {
-	tokens, err := lexer.Lex("type Point = { x: Int32, y: Int32, } point: Point := Point { y = 2, x = 1, }.x")
+func TestParseConstructorCallPreservesArgumentOrder(t *testing.T) {
+	tokens, err := lexer.Lex("type Point is struct x: Int32, y: Int32, end point: Point := Point(y = 2, x = 1,).x")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -130,18 +130,22 @@ func TestParseObjectLiteralPreservesInitializerOrder(t *testing.T) {
 	if !ok || selection.Property.Lexeme != "x" {
 		t.Fatalf("initializer = %#v, want .x selection", declaration.Initializer)
 	}
-	literal, ok := selection.Receiver.(ObjectLiteral)
+	call, ok := selection.Receiver.(CallExpression)
 	if !ok {
-		t.Fatalf("selection receiver = %#v, want object literal", selection.Receiver)
+		t.Fatalf("selection receiver = %#v, want a constructor call", selection.Receiver)
 	}
-	if literal.TypeName.Lexeme != "Point" || len(literal.Initializers) != 2 {
-		t.Fatalf("literal = %#v, want Point with two initializers", literal)
+	variable, ok := call.Callee.(VariableExpression)
+	if !ok || variable.Name.Lexeme != "Point" || len(call.Arguments) != 2 {
+		t.Fatalf("call = %#v, want Point with two arguments", call)
 	}
-	if got, want := literal.Initializers[0].Name.Lexeme, "y"; got != want {
-		t.Fatalf("first initializer = %q, want %q", got, want)
+	if len(call.ArgumentLabels) != 2 || call.ArgumentLabels[0] == nil || call.ArgumentLabels[1] == nil {
+		t.Fatalf("argument labels = %#v, want both labeled", call.ArgumentLabels)
 	}
-	if got, want := literal.Initializers[1].Name.Lexeme, "x"; got != want {
-		t.Fatalf("second initializer = %q, want %q", got, want)
+	if got, want := call.ArgumentLabels[0].Lexeme, "y"; got != want {
+		t.Fatalf("first argument label = %q, want %q", got, want)
+	}
+	if got, want := call.ArgumentLabels[1].Lexeme, "x"; got != want {
+		t.Fatalf("second argument label = %q, want %q", got, want)
 	}
 }
 
@@ -167,16 +171,14 @@ func TestParseDeclarationStoresDeclarationOperator(t *testing.T) {
 	}
 }
 
-func TestParseRejectsMutInObjectLiteral(t *testing.T) {
-	tokens, err := lexer.Lex("point: Point := Point { mut x = 1 }")
+func TestParseRejectsMutInConstructorCall(t *testing.T) {
+	tokens, err := lexer.Lex("point: Point := Point(mut x = 1)")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 
-	_, err = Parse(tokens)
-	want := "[Syntax Error] mut is not allowed in an object literal at 1:25"
-	if err == nil || err.Error() != want {
-		t.Fatalf("Parse error = %v, want %q", err, want)
+	if _, err := Parse(tokens); err == nil {
+		t.Fatal("Parse accepted mut inside a constructor call")
 	}
 }
 
@@ -402,7 +404,7 @@ func TestParseReturnsDiagnosticsForRepeatedStatementKeywords(t *testing.T) {
 }
 
 // The import prefix closes at the first non-import top-level item; an import
-// after a type, function, or impl declaration, or after an executable
+// after a type, function, or method declaration, or after an executable
 // statement, is a positioned Syntax Error, while imports-only-first programs
 // keep parsing.
 func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
@@ -411,9 +413,9 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 		source     string
 		importLine int
 	}{
-		{"type declaration", "type T = { n: Int32 }\nmodule a = import \"./a\"\n", 2},
+		{"type declaration", "type T is struct n: Int32 end\nmodule a = import \"./a\"\n", 2},
 		{"function declaration", "fun f(): Int32 do\n    return 1\nend\nmodule a = import \"./a\"\n", 4},
-		{"impl declaration", "type T = { n: Int32 }\nimpl T.act() do\nend\nmodule a = import \"./a\"\n", 4},
+		{"method declaration", "type T is struct n: Int32 end\nmethod T.act() do\nend\nmodule a = import \"./a\"\n", 4},
 		{"executable statement", "x: Int32 := 1\nmodule a = import \"./a\"\n", 2},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -858,7 +860,7 @@ func TestParseRefRejectsCalls(t *testing.T) {
 		want   string
 	}{
 		{"p: Ptr<Int32> := ref f()", "[Syntax Error] ref requires a place at 1:23"},
-		{"p: Ptr<Int32> := ref value.method()", "[Syntax Error] ref requires a place at 1:34"},
+		{"p: Ptr<Int32> := ref value.compute()", "[Syntax Error] ref requires a place at 1:35"},
 	} {
 		tokens, err := lexer.Lex(testCase.source)
 		if err != nil {
@@ -1080,14 +1082,14 @@ func TestParseImplReceiverForms(t *testing.T) {
 		pointer    bool
 		typeLexeme string
 	}{
-		{source: "impl Point.translate(dx: Int32) do\nend", typeLexeme: "Point"},
-		{source: "impl Ptr<Point>.length() do\nend", pointer: true, typeLexeme: "Point"},
-		{source: "impl MutPtr<Point>.reset() do\nend", pointer: true, writable: true, typeLexeme: "Point"},
+		{source: "method Point.translate(dx: Int32) do\nend", typeLexeme: "Point"},
+		{source: "method Ptr<Point>.length() do\nend", pointer: true, typeLexeme: "Point"},
+		{source: "method MutPtr<Point>.reset() do\nend", pointer: true, writable: true, typeLexeme: "Point"},
 	} {
 		item := parseOneItem(t, testCase.source)
-		method, ok := item.(ImplDeclaration)
+		method, ok := item.(MethodDeclaration)
 		if !ok {
-			t.Fatalf("item for %q = %#v, want ImplDeclaration", testCase.source, item)
+			t.Fatalf("item for %q = %#v, want MethodDeclaration", testCase.source, item)
 		}
 		if testCase.pointer {
 			pointer, ok := method.SelfType.(PtrTypeExpression)
@@ -1111,7 +1113,7 @@ func TestParseImplReceiverForms(t *testing.T) {
 }
 
 func TestParseImplMethodName(t *testing.T) {
-	method := parseOneItem(t, "impl Point.translate(dx: Int32) do\nself.x = dx\nend").(ImplDeclaration)
+	method := parseOneItem(t, "method Point.translate(dx: Int32) do\nself.x = dx\nend").(MethodDeclaration)
 	if method.Name.Lexeme != "translate" {
 		t.Fatalf("method name = %q, want translate", method.Name.Lexeme)
 	}
@@ -1274,7 +1276,7 @@ func TestParseFunctionDiagnostics(t *testing.T) {
 		{"fun adder(left)\nend", "function parameters require type annotations"},
 		{"mut fun adder()\nend", "mut cannot modify a function declaration; declare a mut Fun binding"},
 		{"fun inner()\nend", "expected 'do' after function signature"},
-		{"fun outer() do\nimpl Point.m()\nend\nend", "impl declarations are module-level only"},
+		{"fun outer() do\nmethod Point.m()\nend\nend", "method declarations are module-level only"},
 	} {
 		message := parseError(t, testCase.source)
 		if !strings.Contains(message, testCase.want) {
@@ -1291,7 +1293,7 @@ func TestParseRejectsModuleLevelReturn(t *testing.T) {
 }
 
 func TestParseSelfReceiverExpression(t *testing.T) {
-	method := parseOneItem(t, "impl Point.grow() do\nself.x = 1\nend").(ImplDeclaration)
+	method := parseOneItem(t, "method Point.grow() do\nself.x = 1\nend").(MethodDeclaration)
 	assignment, ok := method.Body[0].(Assignment)
 	if !ok {
 		t.Fatalf("body[0] = %#v, want an assignment", method.Body[0])

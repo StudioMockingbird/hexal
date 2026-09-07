@@ -247,11 +247,11 @@ func TestLexPointerKeywordsAndProperties(t *testing.T) {
 }
 
 func TestLexTypeKeywordAndPtrIdentifier(t *testing.T) {
-	tokens, err := Lex("type Coordinate = Ptr<Int32>")
+	tokens, err := Lex("type Coordinate is Ptr<Int32>")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
-	wantKinds := []TokenKind{Type, Identifier, Equal, Identifier, Less, Identifier, Greater, EOF}
+	wantKinds := []TokenKind{Type, Identifier, Is, Identifier, Less, Identifier, Greater, EOF}
 	if len(tokens) != len(wantKinds) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(wantKinds))
 	}
@@ -265,15 +265,15 @@ func TestLexTypeKeywordAndPtrIdentifier(t *testing.T) {
 	}
 }
 
-func TestLexObjectDelimiters(t *testing.T) {
-	tokens, err := Lex("type Point = { mut x: Int32, y: Int32, }")
+func TestLexStructDelimiters(t *testing.T) {
+	tokens, err := Lex("type Point is struct mut x: Int32, y: Int32, end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 
 	wantKinds := []TokenKind{
-		Type, Identifier, Equal, LeftBrace, Mut, Identifier, Colon,
-		Identifier, Comma, Identifier, Colon, Identifier, Comma, RightBrace, EOF,
+		Type, Identifier, Is, Struct, Mut, Identifier, Colon,
+		Identifier, Comma, Identifier, Colon, Identifier, Comma, End, EOF,
 	}
 	if len(tokens) != len(wantKinds) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(wantKinds))
@@ -423,14 +423,16 @@ func TestLexRejectsInvalidRuneForms(t *testing.T) {
 }
 
 func TestLexFunctionKeywords(t *testing.T) {
-	tokens, err := Lex("fun impl\nend return self")
+	tokens, err := Lex("fun struct union method\nend return self")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 
 	want := []Token{
 		{Kind: Fun, Lexeme: "fun", Line: 1, Column: 1},
-		{Kind: Impl, Lexeme: "impl", Line: 1, Column: 5},
+		{Kind: Struct, Lexeme: "struct", Line: 1, Column: 5},
+		{Kind: Union, Lexeme: "union", Line: 1, Column: 12},
+		{Kind: Method, Lexeme: "method", Line: 1, Column: 18},
 		{Kind: End, Lexeme: "end", Line: 2, Column: 1},
 		{Kind: Return, Lexeme: "return", Line: 2, Column: 5},
 		{Kind: Self, Lexeme: "self", Line: 2, Column: 12},
@@ -449,7 +451,9 @@ func TestLexFunctionKeywords(t *testing.T) {
 func TestTokenKindStringForFunctionKeywords(t *testing.T) {
 	want := map[TokenKind]string{
 		Fun:    "fun",
-		Impl:   "impl",
+		Struct: "struct",
+		Union:  "union",
+		Method: "method",
 		End:    "end",
 		Return: "return",
 		Self:   "self",

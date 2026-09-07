@@ -159,10 +159,10 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 		return nil, err
 	}
 	// A dotted chain in type position is an import-qualified type
-	// (Module.Names). The chain is greedy; the impl receiver parse peels its
-	// final component back into the method name. It is suppressed inside an
-	// impl receiver's union members, where the dot is the method delimiter.
-	if parser.check(lexer.Dot) && !(parser.implReceiver && parser.unionMemberDepth > 0) {
+	// (Module.Names). The chain is greedy; the method receiver parse peels its
+	// final component back into the method name. It is suppressed inside a
+	// method receiver's union members, where the dot is the method delimiter.
+	if parser.check(lexer.Dot) && !(parser.methodReceiver && parser.unionMemberDepth > 0) {
 		names := make([]lexer.Token, 0, 1)
 		for {
 			if _, err := parser.consume(lexer.Dot, "'.' after a type name"); err != nil {
@@ -286,26 +286,86 @@ func (parser *Parser) functionTypeExpression(keyword lexer.Token) (FunctionTypeE
 	return FunctionTypeExpression{Keyword: keyword, Parameters: parameters, Return: returnType}, nil
 }
 
-// typeDefinitionExpression is the wider grammar used only after
-// `type Name =`. Object type expressions are deliberately not accepted by
-// variable annotations or Ptr element positions. A leading '|' here is the
-// obsolete ADT header form (ADTs now open with `type Name as ... end`).
-func (parser *Parser) typeDefinitionExpression() (TypeExpression, error) {
-	if parser.check(lexer.LeftBrace) {
-		return parser.objectTypeExpression()
+// typeDefinition is the grammar used after `type Name is`, dispatching on the
+// first token by an unambiguous selection table:
+//
+//	struct                        -> struct definition (may be empty)
+//	union <type>                  -> structural-union definition
+//	union |                       -> payload-capable ADT definition
+//	identifier |                  -> all-unit ADT shorthand
+//	otherwise                     -> transparent alias
+func (parser *Parser) typeDefinition() (TypeExpression, error) {
+	if parser.check(lexer.Struct) {
+		return parser.structDefinition()
+	}
+	if parser.check(lexer.Union) {
+		parser.advance()
+		if parser.check(lexer.Pipe) {
+			return parser.adtDefinition()
+		}
+		return parser.structuralUnionDefinition()
+	}
+	if parser.check(lexer.LeftParen) {
+		return nil, parser.errorAtCurrent("structural sum declarations use 'union ... end'")
+	}
+	if parser.check(lexer.Identifier) && parser.peekAt(1).Kind == lexer.Pipe {
+		return parser.unitAdtShorthand()
+	}
+	target, err := parser.aliasTarget()
+	if err != nil {
+		return nil, err
 	}
 	if parser.check(lexer.Pipe) {
-		return nil, parser.errorAtCurrent("ADT declarations use 'type Name as ... end'")
+		return nil, parser.errorAtCurrent("structural sum declarations use 'union ... end'")
 	}
-	return parser.typeExpression()
+	return target, nil
 }
 
-// adtBlock parses the ADT declaration body introduced by `type Name as`:
-// "as" adt-variant { adt-variant } "end". A variant is an identifier
-// optionally followed directly by a record payload body; the payload no
-// longer takes its own "as" introducer.
-func (parser *Parser) adtBlock() (AdtDefinitionExpression, error) {
-	parser.advance() // 'as'
+// aliasTarget parses a plain alias target: a named, generic, array, pointer,
+// or function type expression. It never accepts a written top-level union;
+// `typeDefinition` rejects one immediately after this returns.
+func (parser *Parser) aliasTarget() (TypeExpression, error) {
+	return parser.primaryTypeExpression()
+}
+
+// structDefinition parses `struct` member-body, including the empty body:
+// "struct" , [ member-declaration , { "," , member-declaration } , [ "," ] ] , "end".
+func (parser *Parser) structDefinition() (ObjectTypeExpression, error) {
+	keyword := parser.advance() // 'struct'
+	return parser.objectMemberBody(keyword, true, "a payload must declare at least one field")
+}
+
+// structuralUnionDefinition parses "union" primary-type-expression "|"
+// primary-type-expression { "|" primary-type-expression } "end": the named
+// structural-sum form. At least one '|' is required.
+func (parser *Parser) structuralUnionDefinition() (TypeExpression, error) {
+	first, err := parser.primaryTypeExpression()
+	if err != nil {
+		return nil, err
+	}
+	if !parser.check(lexer.Pipe) {
+		return nil, parser.errorAtCurrent("structural sum declarations require at least one '|'")
+	}
+	members := []TypeExpression{first}
+	pipes := make([]lexer.Token, 0, 1)
+	for parser.check(lexer.Pipe) {
+		pipes = append(pipes, parser.advance())
+		member, err := parser.primaryTypeExpression()
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, member)
+	}
+	if _, err := parser.consume(lexer.End, "'end' after a structural sum declaration"); err != nil {
+		return nil, err
+	}
+	return UnionTypeExpression{Members: members, Pipes: pipes}, nil
+}
+
+// adtDefinition parses the payload-capable ADT body introduced by `union`
+// directly followed by `|`: adt-variant { adt-variant } "end". A variant is
+// an identifier optionally followed by `as ... end` payload fields.
+func (parser *Parser) adtDefinition() (AdtDefinitionExpression, error) {
 	variants := make([]AdtVariantDeclaration, 0, 2)
 	for parser.check(lexer.Pipe) {
 		parser.advance()
@@ -314,11 +374,12 @@ func (parser *Parser) adtBlock() (AdtDefinitionExpression, error) {
 			return AdtDefinitionExpression{}, err
 		}
 		variant := AdtVariantDeclaration{Name: name}
-		if parser.check(lexer.As) {
-			return AdtDefinitionExpression{}, parser.errorAtCurrent("ADT payload follows the variant name directly; remove 'as'")
-		}
 		if parser.check(lexer.LeftBrace) {
-			payload, err := parser.objectTypeExpression()
+			return AdtDefinitionExpression{}, parser.errorAtCurrent("ADT payloads use 'as ... end', not braces")
+		}
+		if parser.check(lexer.As) {
+			asKeyword := parser.advance()
+			payload, err := parser.objectMemberBody(asKeyword, false, "a payload must declare at least one field")
 			if err != nil {
 				return AdtDefinitionExpression{}, err
 			}
@@ -337,13 +398,42 @@ func (parser *Parser) adtBlock() (AdtDefinitionExpression, error) {
 	return AdtDefinitionExpression{Variants: variants}, nil
 }
 
-func (parser *Parser) objectTypeExpression() (ObjectTypeExpression, error) {
-	openBrace, err := parser.consume(lexer.LeftBrace, "'{' for an object type")
+// unitAdtShorthand parses "Identifier | Identifier { | Identifier } end" and
+// lowers it to the same AdtDefinitionExpression the long form produces: every
+// identifier declares a fresh unit variant, never a reference to an existing
+// type of the same spelling.
+func (parser *Parser) unitAdtShorthand() (AdtDefinitionExpression, error) {
+	variants := make([]AdtVariantDeclaration, 0, 2)
+	name, err := parser.consume(lexer.Identifier, "a variant name")
 	if err != nil {
-		return ObjectTypeExpression{}, err
+		return AdtDefinitionExpression{}, err
 	}
-	if parser.check(lexer.RightBrace) {
-		return ObjectTypeExpression{}, parser.errorAtCurrent("an object type must declare at least one member")
+	variants = append(variants, AdtVariantDeclaration{Name: name})
+	for parser.check(lexer.Pipe) {
+		parser.advance()
+		name, err := parser.consume(lexer.Identifier, "a variant name after '|'")
+		if err != nil {
+			return AdtDefinitionExpression{}, err
+		}
+		variants = append(variants, AdtVariantDeclaration{Name: name})
+	}
+	if _, err := parser.consume(lexer.End, "'end' after an all-unit ADT declaration"); err != nil {
+		return AdtDefinitionExpression{}, err
+	}
+	return AdtDefinitionExpression{Variants: variants}, nil
+}
+
+// objectMemberBody parses the comma-delimited member list shared by struct
+// bodies (which may be empty) and ADT payload bodies (which may not): the
+// keyword introducing the body has already been consumed. emptyDiagnostic is
+// used only when allowEmpty is false and the body is empty.
+func (parser *Parser) objectMemberBody(keyword lexer.Token, allowEmpty bool, emptyDiagnostic string) (ObjectTypeExpression, error) {
+	if parser.check(lexer.End) {
+		if !allowEmpty {
+			return ObjectTypeExpression{}, parser.errorAtCurrent(emptyDiagnostic)
+		}
+		end := parser.advance()
+		return ObjectTypeExpression{Keyword: keyword, End: end}, nil
 	}
 
 	members := make([]ObjectMemberDeclaration, 0)
@@ -355,7 +445,7 @@ func (parser *Parser) objectTypeExpression() (ObjectTypeExpression, error) {
 
 	for parser.check(lexer.Comma) {
 		parser.advance()
-		if parser.check(lexer.RightBrace) {
+		if parser.check(lexer.End) {
 			break
 		}
 		member, err := parser.objectMemberDeclaration()
@@ -365,14 +455,14 @@ func (parser *Parser) objectTypeExpression() (ObjectTypeExpression, error) {
 		members = append(members, member)
 	}
 
-	if !parser.check(lexer.RightBrace) {
-		return ObjectTypeExpression{}, parser.errorAtCurrent("expected ',' or '}' after an object member")
+	end, err := parser.consume(lexer.End, "'end' after a member list")
+	if err != nil {
+		return ObjectTypeExpression{}, err
 	}
-	closeBrace := parser.advance()
 	return ObjectTypeExpression{
-		OpenBrace:  openBrace,
-		Members:    members,
-		CloseBrace: closeBrace,
+		Keyword: keyword,
+		Members: members,
+		End:     end,
 	}, nil
 }
 

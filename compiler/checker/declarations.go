@@ -55,9 +55,9 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, 
 	}
 
 	if object, ok := declaration.Target.(parser.ObjectTypeExpression); ok {
-		if len(object.Members) == 0 {
-			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "object type "+name+" must declare at least one member"))
-		}
+		// A struct definition may declare zero members (an empty struct); an
+		// ADT payload's own member list is validated separately
+		// in resolveADTPayload and still requires at least one field.
 		// Publish a provisional nominal identity before resolving members so a
 		// member may reach this object behind at least one pointer layer. The
 		// identity is abandoned if any member fails and finalized only on

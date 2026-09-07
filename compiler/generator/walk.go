@@ -253,6 +253,13 @@ func walkStatementExpression(node checker.Expression, visit func(checker.Express
 			return err
 		}
 	}
+	for _, segment := range node.InterpolationSegments {
+		if segment.IsValue {
+			if err := walkStatementOperand(segment.Value, visit); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -476,6 +483,13 @@ func (state *walkState) walkExpression(node checker.Expression) error {
 	for _, argument := range node.Arguments {
 		if err := state.walkOperand(argument); err != nil {
 			return err
+		}
+	}
+	for _, segment := range node.InterpolationSegments {
+		if segment.IsValue {
+			if err := state.walkOperand(segment.Value); err != nil {
+				return err
+			}
 		}
 	}
 	if node.Function != nil {

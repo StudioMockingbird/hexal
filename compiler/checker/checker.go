@@ -476,7 +476,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			if len(statementDiagnostics) == 0 && signature.functionType != (compilerTypes.Type{}) {
 				collectedFunctions[index] = signature
 			}
-		case parser.ImplDeclaration:
+		case parser.MethodDeclaration:
 			methodChecked, statementDiagnostics := collectMethodSignature(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 && methodChecked.Object != nil {
@@ -612,7 +612,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			// check owns that diagnostic. Never append the invalid action.
 			_, statementDiagnostics := checkErrdeferStatement(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
-		case parser.ImplDeclaration:
+		case parser.MethodDeclaration:
 			// A missing collected declaration means either a generic
 			// template (checked lazily at specialization) or a pass-2
 			// failure already diagnosed; either way there is no body to
@@ -666,7 +666,7 @@ func topLevelItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 		return node.Alias, true
 	case parser.FunctionDeclaration:
 		return node.Name, true
-	case parser.ImplDeclaration:
+	case parser.MethodDeclaration:
 		return node.Name, true
 	case parser.Declaration:
 		return node.Name, true

@@ -103,7 +103,7 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 // runtime: the header owns the Atomic typedefs, the source owns no runtime
 // definition, and the module header includes the component.
 func TestConcurrencyComponentAtomicOnly(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>.new(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
+	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
 	files := generateOne(t, program)
 	header, exists := files["hexal/concurrency.h"]
 	if !exists {
@@ -418,7 +418,7 @@ func TestConcurrencyNoDuplicateParkWakeProtocol(t *testing.T) {
 // against the nearest preceding pending-link write, independent of exact
 // indentation.
 func TestConcurrencyPendingLinkPrecedesParkingPhaseStore(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    ch: Channel<Int32> := try Channel<Int32>.new(h, 4)\n    m: Mutex := try Mutex.new(h)\n    task: Task<Bool> := try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n")
+	program := checkedGeneratorSource(t, "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    ch: Channel<Int32> := try Channel<Int32>(h, 4)\n    m: Mutex := try Mutex(h)\n    task: Task<Bool> := try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	const parkingStore = "atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);"
@@ -441,7 +441,7 @@ func TestConcurrencyPendingLinkPrecedesParkingPhaseStore(t *testing.T) {
 // from lock() immediately instead of re-entering acquisition, which is what
 // would incorrectly trap transferred ownership as a recursive lock.
 func TestConcurrencyMutexHandoffReturnsWithoutReenteringAcquisition(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    m: Mutex := try Mutex.new(h)\n    m.lock()\n    m.unlock()\n    defer m.free(h)\n    return 0\nend\n")
+	program := checkedGeneratorSource(t, "fun run(): Int32 | Error do\n    h: Heap := Heap()\n    m: Mutex := try Mutex(h)\n    m.lock()\n    m.unlock()\n    defer m.free(h)\n    return 0\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	if !strings.Contains(source, "hex_task_resume_commit(self);\n        if (self->wake_result) {\n            return;\n        }\n    }\n}") {
@@ -481,12 +481,12 @@ func TestConcurrencyBlockingSelectionMatrix(t *testing.T) {
 		},
 		{
 			"atomic plus io",
-			"fun run(): Nil | Error do\n    counter: Atomic<Int32> := Atomic<Int32>.new(0)\n    counter.store(1)\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
+			"fun run(): Nil | Error do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    counter.store(1)\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
 			false,
 		},
 		{
 			"bytes plus task",
-			spawnJoin + "fun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    data: List<Byte> := List<Byte>.new(h)\n    defer data.free(h)\n    dst: List<Byte> := List<Byte>.new(h)\n    defer dst.free(h)\n    mut live: Bytes := Bytes.over(data)\n    r: Size | EoS | Error := live.read(dst, 4)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			spawnJoin + "fun run(): Int32 | Error do\n    h: Heap := Heap()\n    data: List<Byte> := List<Byte>(h)\n    defer data.free(h)\n    dst: List<Byte> := List<Byte>(h)\n    defer dst.free(h)\n    mut live: Bytes := Bytes.over(data)\n    r: Size | EoS | Error := live.read(dst, 4)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
 			false,
 		},
 		{
@@ -532,7 +532,7 @@ func TestConcurrencyBlockingSelectionMatrix(t *testing.T) {
 // their first use. Generated C is checked as text because ordinary tests do
 // not invoke an external C compiler.
 func TestBlockingIODeclarationsPrecedeFrontendUses(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap.new()\n    stream: IO := try IO.stdin()\n    buffer: List<Byte> := List<Byte>.new(h)\n    defer buffer.free(h)\n    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    stream: IO := try IO.stdin()\n    buffer: List<Byte> := List<Byte>(h)\n    defer buffer.free(h)\n    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
 	ioSource := generateOne(t, program)["hexal/io.c"]
 	for _, operation := range []string{"read", "write", "seek", "close", "write_all"} {
 		definition := strings.Index(ioSource, "typedef struct hex_io_"+operation+"_job")

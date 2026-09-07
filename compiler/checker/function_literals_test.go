@@ -141,14 +141,14 @@ func TestFunctionLiteralInsideAFunctionRejectsParameterCapture(t *testing.T) {
 
 func TestLiteralInsideMethodRejectsSelf(t *testing.T) {
 	requireDiagnostic(t,
-		"type T = { n: Int32, }\n"+
-			"impl T.method(): Int32 do\n"+
+		"type T is struct n: Int32, end\n"+
+			"method T.compute(): Int32 do\n"+
 			"    literal := fun (): Int32 do\n"+
 			"        return self.n\n"+
 			"    end\n"+
 			"    return literal()\n"+
 			"end\n",
-		"self is not bound outside an impl body")
+		"self is not bound outside a method body")
 }
 
 func TestFunctionLiteralAndModuleDataShareTheClosedFunctionRule(t *testing.T) {

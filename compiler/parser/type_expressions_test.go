@@ -156,7 +156,7 @@ func TestParsePtrTypeExpressionIsRecursive(t *testing.T) {
 }
 
 func TestParseObjectTypeExpressionOnlyAfterTypeDeclaration(t *testing.T) {
-	tokens, err := lexer.Lex("type Point = { mut x: Int32, y: Ptr<Int32>, }")
+	tokens, err := lexer.Lex("type Point is struct mut x: Int32, y: Ptr<Int32>, end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -187,8 +187,8 @@ func TestParseRejectsObjectTypeOutsideTypeDeclaration(t *testing.T) {
 	for _, source := range []string{
 		"point: { x: Int32 } := value",
 		"point: { x: Int32 } | Nil := value",
-		"type Box = Ptr<{ x: Int32 }>",
-		"type Box = Ptr<{ x: Int32 } | Nil>",
+		"type Box is Ptr<{ x: Int32 }>",
+		"type Box is Ptr<{ x: Int32 } | Nil>",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -197,17 +197,6 @@ func TestParseRejectsObjectTypeOutsideTypeDeclaration(t *testing.T) {
 		if _, err := Parse(tokens); err == nil {
 			t.Fatalf("Parse accepted object type outside direct type declaration in %q", source)
 		}
-	}
-}
-
-func TestParseRejectsEmptyObjectType(t *testing.T) {
-	tokens, err := lexer.Lex("type Empty = {}")
-	if err != nil {
-		t.Fatalf("Lex returned an error: %v", err)
-	}
-	_, err = Parse(tokens)
-	if err == nil || err.Error() != "[Syntax Error] an object type must declare at least one member at 1:15" {
-		t.Fatalf("Parse error = %v, want empty-object-type diagnostic", err)
 	}
 }
 
@@ -227,7 +216,7 @@ func TestParseRejectsMalformedPtrType(t *testing.T) {
 }
 
 func TestParseTypeDeclarationIsTopLevelItem(t *testing.T) {
-	tokens, err := lexer.Lex("type Coordinate = Ptr<Ptr<Int32>>")
+	tokens, err := lexer.Lex("type Coordinate is Ptr<Ptr<Int32>>")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -252,7 +241,7 @@ func TestParseTypeDeclarationIsTopLevelItem(t *testing.T) {
 }
 
 func TestParseMixedTopLevelItemsPreservesOrder(t *testing.T) {
-	tokens, err := lexer.Lex("type Coordinate = Int32 x: Coordinate := 1")
+	tokens, err := lexer.Lex("type Coordinate is Int32 x: Coordinate := 1")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}

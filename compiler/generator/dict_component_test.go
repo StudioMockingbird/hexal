@@ -10,7 +10,7 @@ import (
 // hexal.h/heap.h/string.h includes, and exactly one trailing newline; the
 // owning module header includes the component.
 func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
 	files := generateOne(t, program)
 	dictH := files["hexal/dict.h"]
 	if dictH == "" {
@@ -43,7 +43,7 @@ func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // the checked ckd_mul chain and the memset region init, the load-factor
 // checked operands, the direct Strand memcmp probes, and trap messages).
 func TestDictComponentHexalHeaderOwnsNoDictText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>.new(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>.new(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_dict_") || strings.Contains(files["hexal.h"], "hex_hash_") {
 		t.Fatalf("hexal.h = %q, dict definitions must live in hexal/dict.h", files["hexal.h"])
@@ -363,7 +363,7 @@ static inline void hex_dict_free_Strand_Int32(hex_heap h, hex_dict_Strand_Int32 
 // specialization into the consuming module's header, after the value type's
 // typedef. The program-wide component cannot spell a per-module type.
 func TestDictModuleObjectValueSpecializationLivesInModuleHeader(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Point = { x: Int32, }\nfun demo(h: Heap) do\n    points: Dict<Int32, Point> := Dict<Int32, Point>.new(h)\n    defer points.free(h)\n    points.insert(1, Point { x = 1 })\nend")
+	program := checkedGeneratorSource(t, "type Point is struct\n    x: Int32,\nend\nfun demo(h: Heap) do\n    points: Dict<Int32, Point> := Dict<Int32, Point>(h)\n    defer points.free(h)\n    points.insert(1, Point(x = 1))\nend")
 	files := generateOne(t, program)
 	if got := files["hexal/dict.h"]; got != "" {
 		t.Fatalf("hexal/dict.h = %q, want no component artifact: its only specialization is module-typed", got)

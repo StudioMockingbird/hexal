@@ -28,16 +28,16 @@
       "description": "Defines a mutable receiver method that increments and returns object state.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Counter = { mut count: Int32, }",
-        "impl MutPtr<Counter>.tick(): Int32 do",
+        "type Counter is struct mut count: Int32 end",
+        "method MutPtr<Counter>.tick(): Int32 do",
         "    self.count = self.count + 1",
         "    return self.count",
         "end",
-        "mut counter: Counter:= Counter { count = 0 }",
+        "mut counter: Counter:= Counter(count = 0)",
         "next: Int32:= counter.tick()"
       ]},
       "features": ["objects", "methods"],
-      "reservedWords": ["type", "impl", "mut", "self", "return", "end", "do"]
+      "reservedWords": ["type", "method", "mut", "self", "return", "end", "do"]
     },
     {
       "id": "functions-point-translation",
@@ -45,16 +45,16 @@
       "description": "Uses an object method to update two coordinates.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Point = { mut x: Int32, mut y: Int32, }",
-        "impl MutPtr<Point>.translate(dx: Int32, dy: Int32) do",
+        "type Point is struct mut x: Int32, mut y: Int32 end",
+        "method MutPtr<Point>.translate(dx: Int32, dy: Int32) do",
         "    self.x = self.x + dx",
         "    self.y = self.y + dy",
         "end",
-        "mut origin: Point:= Point { x = 0, y = 0 }",
+        "mut origin: Point:= Point(x = 0, y = 0)",
         "origin.translate(3, -4)"
       ]},
       "features": ["objects", "methods"],
-      "reservedWords": ["type", "impl", "mut", "self", "end", "do"]
+      "reservedWords": ["type", "method", "mut", "self", "end", "do"]
     },
     {
       "id": "functions-value-pipeline",
@@ -108,15 +108,15 @@
       "description": "Stores and retrieves a value through a generic object.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Box<T> = { value: T, }",
-        "impl Box<T>.get(): T do",
+        "type Box<T> is struct value: T end",
+        "method Box<T>.get(): T do",
         "    return self.value",
         "end",
-        "box: Box<Int32>:= Box { value = 42 }",
+        "box: Box<Int32>:= Box(value = 42)",
         "stored: Int32:= box.get()"
       ]},
       "features": ["generics", "objects"],
-      "reservedWords": ["type", "impl", "self", "return", "end", "do"]
+      "reservedWords": ["type", "method", "self", "return", "end", "do"]
     },
     {
       "id": "functions-object-formatter",
@@ -124,8 +124,8 @@
       "description": "Passes an object to print as a structured value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Status = { name: Strand, code: Int32, }",
-        "status: Status:= Status { name = \"ok\", code = 200 }",
+        "type Status is struct name: Strand, code: Int32 end",
+        "status: Status:= Status(name = \"ok\", code = 200)",
         "print(status)"
       ]},
       "features": ["objects", "print"],
@@ -137,9 +137,9 @@
       "description": "Mutates a field inside a nested object through a mutable binding.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Inner = { mut level: Int32, }",
-        "type Outer = { mut inner: Inner, }",
-        "mut outer: Outer:= Outer { inner = Inner { level = 1 } }",
+        "type Inner is struct mut level: Int32 end",
+        "type Outer is struct mut inner: Inner end",
+        "mut outer: Outer:= Outer(inner = Inner(level = 1))",
         "outer.inner.level = 5"
       ]},
       "features": ["objects", "bindings"],
@@ -148,26 +148,26 @@
     {
       "id": "functions-receiver-forms",
       "name": "Receiver forms",
-      "description": "Contrasts the three impl targets: a value receiver copies, Ptr<T> reads caller storage, and MutPtr<T> writes it.",
+      "description": "Contrasts the three method targets: a value receiver copies, Ptr<T> reads caller storage, and MutPtr<T> writes it.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Meter = { mut reading: Int32, }",
-        "impl Meter.peek(): Int32 do",
+        "type Meter is struct mut reading: Int32 end",
+        "method Meter.peek(): Int32 do",
         "    return self.reading",
         "end",
-        "impl Ptr<Meter>.seen(): Int32 do",
+        "method Ptr<Meter>.seen(): Int32 do",
         "    return self.reading",
         "end",
-        "impl MutPtr<Meter>.raise() do",
+        "method MutPtr<Meter>.raise() do",
         "    self.reading = self.reading + 1",
         "end",
-        "mut meter: Meter:= Meter { reading = 1 }",
+        "mut meter: Meter:= Meter(reading = 1)",
         "copied: Int32:= meter.peek()",
         "read: Int32:= meter.seen()",
         "meter.raise()"
       ]},
       "features": ["objects", "methods"],
-      "reservedWords": ["type", "impl", "mut", "self", "return", "end", "do"]
+      "reservedWords": ["type", "method", "mut", "self", "return", "end", "do"]
     },
     {
       "id": "functions-stored-literal",

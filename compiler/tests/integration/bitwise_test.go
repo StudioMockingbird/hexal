@@ -220,7 +220,7 @@ func TestBitwisePrecedence(t *testing.T) {
 }
 
 func TestNestedGenericClosersStillParse(t *testing.T) {
-	result := compileSource("type Link<T> = { value: T, mut next: MutPtr<Link<T>> | Nil, } link: Link<Int32> := Link<Int32> { value = 1, next = nil } fun demo() do\n    pointer: Ptr<Ptr<Int32>> | Nil := nil\n    inner: Ptr<Int32> | Nil := nil\n    outer: Ptr<Ptr<Int32>> | Nil := nil\nend")
+	result := compileSource("type Link<T> is struct value: T, mut next: MutPtr<Link<T>> | Nil end link: Link<Int32> := Link<Int32>(value = 1, next = nil) fun demo() do\n    pointer: Ptr<Ptr<Int32>> | Nil := nil\n    inner: Ptr<Int32> | Nil := nil\n    outer: Ptr<Ptr<Int32>> | Nil := nil\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

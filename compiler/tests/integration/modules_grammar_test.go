@@ -46,16 +46,16 @@ func TestModulePathRejectsBackslashesAndEscapes(t *testing.T) {
 }
 
 func TestExportRequiresModuleLevelDeclaration(t *testing.T) {
-	assertRejects(t, "export x: Int32 := 1", "export may prefix only a module-level type, function, or implementation declaration")
-	assertRejects(t, "export x = 1", "export may prefix only a module-level type, function, or implementation declaration")
+	assertRejects(t, "export x: Int32 := 1", "export may prefix only a module-level type, function, or method declaration")
+	assertRejects(t, "export x = 1", "export may prefix only a module-level type, function, or method declaration")
 	assertRejects(t, "fun f() do\n    export g: Int32 := 1\nend", "export may prefix only a module-level type, function, or implementation declaration")
 }
 
 func TestExportPrefixesDeclarations(t *testing.T) {
 	assertCompiles(t, "export fun f(): Int32 do\n    return 1\nend\n")
-	assertCompiles(t, "export type Point = { x: Int32, }\npoint: Point := Point { x = 1, }\n")
+	assertCompiles(t, "export type Point is struct x: Int32, end\npoint: Point := Point(x = 1)\n")
 	// An exported method needs an exported receiver type.
-	assertCompiles(t, "export type Point = { x: Int32, }\nexport impl Point.getX(): Int32 do\n    return self.x\nend\np: Point := Point { x = 1, }\nv: Int32 := p.getX()\n")
+	assertCompiles(t, "export type Point is struct x: Int32, end\nexport method Point.getX(): Int32 do\n    return self.x\nend\np: Point := Point(x = 1)\nv: Int32 := p.getX()\n")
 }
 
 func TestQualifiedTypeParsesToUnknownAlias(t *testing.T) {
@@ -64,5 +64,5 @@ func TestQualifiedTypeParsesToUnknownAlias(t *testing.T) {
 }
 
 func TestPropertyChainsStillParseAsExpressions(t *testing.T) {
-	assertCompiles(t, "type Point = { x: Int32, }\npoint: Point := Point { x = 1, }\nvalue: Int32 := point.x\n")
+	assertCompiles(t, "type Point is struct x: Int32, end\npoint: Point := Point(x = 1)\nvalue: Int32 := point.x\n")
 }

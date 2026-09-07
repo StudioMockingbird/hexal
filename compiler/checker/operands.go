@@ -121,6 +121,11 @@ const (
 	// StringFromRunesExpression constructs a fresh owning String by
 	// validating and encoding a View<Rune> payload through a Heap.
 	StringFromRunesExpression
+	// StringInterpolateExpression is String.interpolate(heap, template): a
+	// fresh owning String built from a template's ordered literal-text and
+	// formatted-value segments. Operand is the checked Heap expression;
+	// InterpolationSegments holds the segments in source order.
+	StringInterpolateExpression
 	// ListNewExpression constructs a fresh owning List<T> header through a
 	// Heap; Element is T.
 	ListNewExpression
@@ -420,6 +425,22 @@ type Expression struct {
 	// returns zero, so zero unambiguously means "not a local helper
 	// reference".
 	LocalHelperOrdinal BindingID
+	// InterpolationSegments is StringInterpolateExpression-only: the
+	// template's ordered literal-text and formatted-value segments. Nil for
+	// every other kind.
+	InterpolationSegments []InterpolationSegment
+}
+
+// InterpolationSegment is one piece of a checked String.interpolate
+// template, in source order. IsValue discriminates a literal-text segment
+// (Text carries its decoded UTF-8 bytes) from a formatted value segment
+// (Value carries the checked operand; its own Type selects the C23
+// formatting the generator applies, the same spelling print uses for that
+// type).
+type InterpolationSegment struct {
+	IsValue bool
+	Text    string
+	Value   Operand
 }
 
 // FunctionLiteral is the checked signature and body shared by every

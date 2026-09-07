@@ -17,7 +17,7 @@ func checkDeferStatement(statement parser.DeferStatement, ctx checkContext) (Def
 	action := DeferredAction{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
 	var source Operand
 	if call, isCall := statement.Expression.(parser.CallExpression); isCall {
-		checked := checkCall(call, ctx)
+		checked := checkCall(call, compilerTypes.Type{}, ctx)
 		if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 			return DeferStatement{}, diagnostics
 		}
@@ -99,12 +99,11 @@ func trackedReleaseTarget(node Expression) (Operand, bool) {
 	return Operand{}, false
 }
 
-// checkHeapTypeCall resolves a call written as Heap.<name>(...) where the
-// receiver names the built-in type itself rather than a Heap value.
+// checkHeapTypeCall resolves a call written as Heap(...), the built-in type's
+// canonical constructor.
 func checkHeapTypeCall(call parser.CallExpression, token parser.VariableExpression, ctx checkContext) checkedExpression {
-	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
-	if name != "new" || len(call.Arguments) != 0 {
-		return checkedExpression{token: token.Name, diagnostic: diagnosticAt(typeErrorAt(token.Name, "Heap has no such operation; use Heap.new()"))}
+	if len(call.Arguments) != 0 {
+		return checkedExpression{token: token.Name, diagnostic: diagnosticAt(typeErrorAt(token.Name, "Heap takes no arguments; use Heap()"))}
 	}
 	source := constantOperand(compilerTypes.Heap, nil, "")
 	source.Node = constantNode(source)

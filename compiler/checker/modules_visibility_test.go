@@ -75,7 +75,7 @@ func TestQualifiedCallRejectsPrivateFunction(t *testing.T) {
 func TestQualifiedTypeResolvesExportedAndRejectsPrivate(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\nshape: Math.Shape := 0\n",
-		"export type Shape = Int32\n")
+		"export type Shape is Int32\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified type: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestQualifiedTypeResolvesExportedAndRejectsPrivate(t *testing.T) {
 	}
 	_, err = checkModules(t,
 		"module Math = import \"./math\"\nshape: Math.Shape := 0\n",
-		"type Shape = Int32\n")
+		"type Shape is Int32\n")
 	requireMessage(t, err, "declaration Shape is private to module math")
 }
 
@@ -99,7 +99,7 @@ func TestQualifiedTypeKeepsUnknownModuleAlias(t *testing.T) {
 func TestExportedClosureRejectsPrivateType(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"type Secret = { x: Int32 }\nexport fun f(): Secret do\n    return Secret { x = 1 }\nend\n")
+		"type Secret is struct x: Int32 end\nexport fun f(): Secret do\n    return Secret(x = 1)\nend\n")
 	requireMessage(t, err, "exported function f exposes private type Secret")
 }
 
@@ -108,7 +108,7 @@ func TestExportedClosureRejectsPrivateType(t *testing.T) {
 func TestExportedClosureWalksNestedAndCycles(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"type Secret = { x: Int32 }\nexport type Node = { next: MutPtr<Node> | Nil, items: List<Secret> }\nexport fun f(): Node do\n    return Node { next = nil, items = List<Secret>.new(Heap.new()) }\nend\n")
+		"type Secret is struct x: Int32 end\nexport type Node is struct next: MutPtr<Node> | Nil, items: List<Secret> end\nexport fun f(): Node do\n    return Node(next = nil, items = List<Secret>(Heap()))\nend\n")
 	requireMessage(t, err, "exported function f exposes private type Secret")
 }
 
@@ -116,7 +116,7 @@ func TestExportedClosureWalksNestedAndCycles(t *testing.T) {
 func TestExportedClosureAcceptsExportedInterface(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"export type Point = { x: Int32, y: Int32 }\nexport fun f(p: Ptr<Point>): Point do\n    return Point { x = 1, y = 2 }\nend\n")
+		"export type Point is struct x: Int32, y: Int32 end\nexport fun f(p: Ptr<Point>): Point do\n    return Point(x = 1, y = 2)\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected a closed exported interface: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestExportedClosureAcceptsExportedInterface(t *testing.T) {
 func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 	checked, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"export type Box<T> = { item: T }\nexport fun new_box<T>(item: T): Box<T> do\n    return Box<T> { item = item }\nend\n")
+		"export type Box<T> is struct item: T end\nexport fun new_box<T>(item: T): Box<T> do\n    return Box<T>(item = item)\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the generic interface: %v", err)
 	}
@@ -144,8 +144,8 @@ func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 // module's exported ADT; the result carries the target's ADT identity.
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	checked, err := checkModules(t,
-		"module Math = import \"./math\"\ns: Math.Shape := Math.Circle { x = 1 }\nu: Math.Shape := Math.Square\n",
-		"export type Shape as | Circle { x: Int32 } | Square end\n")
+		"module Math = import \"./math\"\ns: Math.Shape := Math.Circle(x = 1)\nu: Math.Shape := Math.Square()\n",
+		"export type Shape is union | Circle as x: Int32 end | Square end\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified variants: %v", err)
 	}
@@ -167,8 +167,8 @@ func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 // visibility failure at the variant.
 func TestQualifiedVariantRejectsUnknownExport(t *testing.T) {
 	_, err := checkModules(t,
-		"module Math = import \"./math\"\ns: Math.Shape := Math.Circle { x = 1 }\n",
-		"export type Shape as | Other { x: Int32 } end\n")
+		"module Math = import \"./math\"\ns: Math.Shape := Math.Circle(x = 1)\n",
+		"export type Shape is union | Other as x: Int32 end | Empty end\n")
 	requireMessage(t, err, "declaration Circle is private to module math")
 }
 

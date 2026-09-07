@@ -113,7 +113,7 @@ func TestNullableAssignmentStoresNullAndPointer(t *testing.T) {
 }
 
 func TestNullableObjectMemberUsesNullNiche(t *testing.T) {
-	result := compileSource("type Node = { value: Int32, mut next: MutPtr<Node> | Nil, } mut tail: Node := Node { value = 3, next = nil, }")
+	result := compileSource("type Node is struct value: Int32, mut next: MutPtr<Node> | Nil end mut tail: Node := Node(value = 3, next = nil)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -206,7 +206,7 @@ func TestNullabilityDiagnostics(t *testing.T) {
 }
 
 func TestNilRejectedThroughSubstitution(t *testing.T) {
-	assertRejects(t, "type Box<T> = { value: T }\nbad: Box<Nil> := Box<Nil> { value = nil }\n", "Nil is valid only as a member of a union with a non-Nil type")
+	assertRejects(t, "type Box<T> is struct value: T end\nbad: Box<Nil> := Box<Nil>(value = nil)\n", "Nil is valid only as a member of a union with a non-Nil type")
 	assertRejects(t, "fun worker(flag: Nil): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> := try spawn worker(nil)\n    return 0\nend\n", "Nil is valid only as a member of a union with a non-Nil type")
 }
 

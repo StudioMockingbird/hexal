@@ -45,7 +45,7 @@ func contextualExpression(expression parser.Expression, forInference bool) bool 
 	case parser.BinaryExpression:
 		return isArithmeticToken(expression.Operator.Lexeme) &&
 			contextualExpression(expression.Left, forInference) && contextualExpression(expression.Right, forInference)
-	case parser.StringLiteral:
+	case parser.StringLiteral, parser.RawStringLiteral:
 		// A string literal is valid as String and as Strand.
 		return forInference
 	case parser.NilLiteral:

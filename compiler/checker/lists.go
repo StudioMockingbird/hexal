@@ -26,11 +26,10 @@ func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	return compilerTypes.NewTypeUse(list), nil
 }
 
-// checkListTypeCall resolves List<T>.new(heap) into a fresh owning list.
+// checkListTypeCall resolves List<T>(heap) into a fresh owning list.
 func checkListTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
-	if property.Lexeme != "new" || len(call.TypeArguments) != 1 || len(call.Arguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "List has no such operation; use List<T>.new(heap)"))}
+	if len(call.TypeArguments) != 1 || len(call.Arguments) != 1 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "List requires exactly one type argument and a Heap; use List<T>(heap)"))}
 	}
 	listUse, diagnostic := resolveListTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "List", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
