@@ -6,9 +6,9 @@ package c23validation
 // in catalog_test.go. It runs generated C under all three discovered
 // toolchains, caches each distinct generated artifact set per
 // toolchain/target/flags so the suite invokes each compiler once per
-// distinct output, and bounds every process it runs with a hard timeout so a
-// fixture that reaches a known runtime hang fails cleanly instead of
-// blocking the whole run.
+// distinct output, and bounds every process it runs with a hard timeout as a
+// general safety boundary so a wedged binary fails fast instead of blocking
+// the whole run.
 
 import (
 	"bytes"
@@ -42,11 +42,9 @@ func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 	return result
 }
 
-// runProcessTimeout bounds every generated binary this suite executes. The
-// scheduler is separately known to hang the root Task forever on every
-// concurrency program (docs/status.md, Unowned); this bound
-// turns that into a clean, fast test failure instead of blocking the whole
-// tagged run.
+// runProcessTimeout bounds every generated binary this suite executes. It is
+// a general test-harness safety boundary, never expected scheduler behavior:
+// a binary that exceeds it has failed.
 const runProcessTimeout = 10 * time.Second
 
 // buildProcessTimeout bounds one compiler invocation (compiling and linking
@@ -71,7 +69,7 @@ func runProcess(t *testing.T, path string) (stdout, stderr string, exitedZero bo
 	command.Stderr = &errBuf
 	err := command.Run()
 	if ctx.Err() == context.DeadlineExceeded {
-		t.Fatalf("generated program at %s did not exit within %s (a known scheduler defect hangs every concurrency program at startup; see docs/status.md)", path, runProcessTimeout)
+		t.Fatalf("generated program at %s did not exit within %s", path, runProcessTimeout)
 	}
 	exitedZero = err == nil
 	return outBuf.String(), errBuf.String(), exitedZero

@@ -1,7 +1,7 @@
 # RFC 0132: Root Task Scheduler Bootstrap
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented
 - Created: 2026-08-27
 - Updated: 2026-09-07
 - Scope: scheduler startup, the root Task's first fiber switch, and runtime

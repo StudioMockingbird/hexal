@@ -2,9 +2,8 @@
 
 package c23validation
 
-// The fixture data itself. The three concurrency fixtures that spawn, join,
-// or lock a Task are deliberately kept compile-only rather than run; see the
-// comment above them for why.
+// The fixture data itself. Concurrency fixtures run under the same
+// ten-second process bound as every other fixture; see c23_harness_test.go.
 
 var fixtureCatalog = []fixture{
 	// Compile-only: representative programs across the constructs whose
@@ -205,28 +204,45 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] RuneCursor has no next value"},
 	},
 
-	// Concurrency now uses native platform threading primitives rather than
-	// <threads.h>, so the historical "Windows lacks <threads.h>" compile
-	// blocker no longer applies -- these compile clean on every discovered
-	// toolchain. They are deliberately compile-only, not run:
-	// docs/status.md's Unowned section records that hex_scheduler_init
-	// never returns on any platform, so spawning, joining, or locking would
-	// hang every toolchain's process until runProcessTimeout, for a defect
-	// owned elsewhere.
+	// Concurrency runs on the M:N scheduler over native platform threads.
+	// The root-yield fixtures double as root completion with no spawned
+	// child: the root parks and resumes, then completes straight out of
+	// generated main.
 	{
-		name:       "concurrency-spawn-channel-compiles",
-		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun worker(count: Int32, ch: Channel<Int32>): Bool do\n    mut index: Int32 := 0\n    while index < count do\n        ch.send(index)\n        Task.yield()\n        index = index + 1\n    end\n    ch.close()\n    return true\nend\nfun run(): Nil | Error do\n    h: Heap := Heap()\n    ch: Channel<Int32> := try Channel<Int32>(h, 8)\n    defer ch.free(h)\n    worker_task: Task<Bool> := try spawn worker(4, ch)\n    mut total: Int32 := 0\n    while true do\n        step: Int32 | EoS := ch.receive()\n        if step is EoS then\n            break\n        end\n        total = total + step\n        Task.yield()\n    end\n    worker_task.join()\n    print(total)\n    return nil\nend\nrun()\n"},
+		name:        "concurrency-root-yield-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun run() do\n    print(1)\n    Task.yield()\n    print(2)\nend\nrun()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "12"},
 	},
 	{
-		name:       "concurrency-task-join-compiles",
-		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    first: Task<Int32> := try spawn square(6)\n    second: Task<Int32> := try spawn square(7)\n    return first.join() + second.join()\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"},
+		name:        "concurrency-root-yield-repeats-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun run() do\n    mut i: Int32 := 0\n    while i < 5 do\n        Task.yield()\n        i = i + 1\n    end\n    print(i)\nend\nrun()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "5"},
 	},
 	{
-		name:       "concurrency-mutex-compiles",
-		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun worker(m: Mutex, counter: MutPtr<Int32>): Int32 do\n    mut index: Int32 := 0\n    while index < 100 do\n        m.lock()\n        counter.value = counter.value + 1\n        m.unlock()\n        Task.yield()\n        index = index + 1\n    end\n    return index\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    m: Mutex := try Mutex(h)\n    defer m.free(h)\n    mut count: Int32 := 0\n    first: Task<Int32> := try spawn worker(m, ref count)\n    second: Task<Int32> := try spawn worker(m, ref count)\n    first.join()\n    second.join()\n    return count\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"},
+		name:        "concurrency-root-detached-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun worker(): Bool do\n    Task.yield()\n    return true\nend\nfun run(): Nil | Error do\n    task: Task<Bool> := try spawn worker()\n    task.detach()\n    print(7)\n    return nil\nend\nrun()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "7"},
+	},
+	{
+		name:        "concurrency-spawn-channel-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun worker(count: Int32, ch: Channel<Int32>): Bool do\n    mut index: Int32 := 0\n    while index < count do\n        ch.send(index)\n        Task.yield()\n        index = index + 1\n    end\n    ch.close()\n    return true\nend\nfun run(): Nil | Error do\n    h: Heap := Heap()\n    ch: Channel<Int32> := try Channel<Int32>(h, 8)\n    defer ch.free(h)\n    worker_task: Task<Bool> := try spawn worker(4, ch)\n    mut total: Int32 := 0\n    while true do\n        step: Int32 | EoS := ch.receive()\n        if step is EoS then\n            break\n        end\n        total = total + step\n        Task.yield()\n    end\n    worker_task.join()\n    print(total)\n    return nil\nend\nrun()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "6"},
+	},
+	{
+		name:        "concurrency-task-join-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    first: Task<Int32> := try spawn square(6)\n    second: Task<Int32> := try spawn square(7)\n    return first.join() + second.join()\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "85"},
+	},
+	{
+		name:        "concurrency-mutex-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun worker(m: Mutex, counter: MutPtr<Int32>): Int32 do\n    mut index: Int32 := 0\n    while index < 100 do\n        m.lock()\n        counter.value = counter.value + 1\n        m.unlock()\n        Task.yield()\n        index = index + 1\n    end\n    return index\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    m: Mutex := try Mutex(h)\n    defer m.free(h)\n    mut count: Int32 := 0\n    first: Task<Int32> := try spawn worker(m, ref count)\n    second: Task<Int32> := try spawn worker(m, ref count)\n    first.join()\n    second.join()\n    return count\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "200"},
 	},
 	// Atomic touches no scheduler state -- no spawn, no Task, no fiber --
 	// so it is not subject to the scheduler defect above and runs normally.

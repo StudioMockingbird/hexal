@@ -7,8 +7,8 @@
 - Depends on: RFC 0132 (root scheduler bootstrap)
 - Coordinates with: RFC 0039 (C interoperability), RFC 0052 (C compiler
   backend), RFC 0055 (filesystem/build driver), RFC 0118 (concurrency safety),
-  and the current Task, IO, Stash, Pool, String, List, and View contracts in
-  `docs/reference.md`
+  RFC 0145 (libuv async runtime backend), and the current Task, IO, Stash,
+  Pool, String, List, and View contracts in `docs/reference.md`
 - Does not define: final socket syntax, an HTTP API, HTTP parsing, routing,
   middleware, TLS, HTTP/2, HTTP/3, or a benchmark-derived performance promise
 
@@ -50,7 +50,9 @@ Three capabilities are mandatory before claiming competitive server support:
 - Park, wake, and resume have an exactly-once publication protocol with
   release/acquire payload visibility.
 - Channel, Mutex, join, and scheduler-aware blocking calls share that protocol.
-- The blocking pool preserves scheduler progress for synchronous operations.
+- The current blocking pool preserves scheduler progress for synchronous
+  operations; RFC 0145 replaces its implementation with libuv's global worker
+  pool before the network runtime lands.
 - Task stacks have explicit reserve/commit settings and overflow guards.
 - RFC 0132 keeps the initial-process root fiber on worker zero.
 - Views and byte collections permit parsers to work without immediately
@@ -76,39 +78,36 @@ Sockets use non-blocking or asynchronous native APIs. A socket operation:
 
 Expected platform families:
 
-| Target | Baseline mechanism | Later optional mechanism |
+| Target | libuv baseline | Later optional mechanism |
 | --- | --- | --- |
-| Linux | `epoll` | `io_uring`, only after measurement and qualification |
-| macOS | `kqueue` | none assumed |
-| Windows | IOCP | none assumed |
+| Linux | libuv over `epoll` | `io_uring`, only after measurement and qualification |
+| macOS | libuv over `kqueue` | none assumed |
+| Windows | libuv over IOCP | none assumed |
 
 The portable runtime contract describes operation completion rather than
 exposing raw readiness semantics; IOCP is completion-based while `epoll` and
 `kqueue` are readiness-oriented.
 
-### Blocking pool boundary
+### Blocking worker boundary
 
-The blocking pool remains appropriate for operations without a suitable
-non-blocking interface, including ordinary file operations, synchronous DNS,
-and foreign calls explicitly classified as blocking.
+Libuv's global worker pool remains appropriate for operations without a
+suitable non-blocking interface, including ordinary file operations,
+synchronous DNS, and foreign calls explicitly classified as blocking. Hexal
+does not retain a second general-purpose pool.
 
 Steady-state socket `accept`, `connect`, `read`, and `write` must not use the
-blocking pool. Thousands of parked socket Tasks must require a bounded number
-of native threads.
+libuv worker pool. Thousands of parked socket Tasks must require a bounded
+number of native threads.
 
 A would-block result is internal scheduler control flow, not a Hexal `Error`.
 Only a terminal native failure crosses the language boundary as Error.
 
 ### Reactor ownership
 
-The first networking sub-spec must decide between:
-
-- one program-wide driver, simpler but requiring cross-worker wakeups; or
-- one driver per scheduler worker, improving locality at greater complexity.
-
-The public socket contract must not expose this choice. Start with the smallest
-design that meets measured connection and wake-rate targets; preserve a driver
-interface that allows later sharding without changing Hexal syntax.
+RFC 0145 selects one program-wide libuv loop on one dedicated native thread for
+the first implementation. The public socket contract does not expose this
+choice. Preserve the neutral event-driver boundary so measurement may justify
+later sharding without changing Hexal syntax.
 
 ## Timers, cancellation, and shutdown
 
@@ -337,17 +336,18 @@ performing materially more work.
 2. Define target-neutral listener, connection, address, shutdown, and Error
    contracts.
 3. Define one active wait record and exact close/read/write race ownership.
-4. Select the initial driver topology and direct-platform or library backend.
+4. Consume RFC 0145's single-loop libuv backend and neutral event adapter.
 5. Keep all filesystem access and native linking in the driver/backend layers,
    not the in-memory compiler.
 
 ### Stage 2: network driver
 
-1. Implement non-blocking accept/connect/read/write for one host target.
+1. Implement non-blocking accept/connect/read/write through libuv for one host
+   target.
 2. Integrate registration and wakeup with the common Task protocol.
-3. Prove socket waits consume no blocking-pool thread.
-4. Add the remaining Windows, Linux, and macOS backends behind the same runtime
-   contract.
+3. Prove socket waits consume no libuv worker-pool thread.
+4. Qualify the same libuv adapter and target-neutral runtime contract on
+   Windows, Linux, and macOS.
 5. Run echo, idle-connection, wake-race, and close-race tests.
 
 ### Stage 3: timers and lifecycle
@@ -383,7 +383,7 @@ This RFC is an umbrella and is not implemented as one change. Before code work,
 create focused specs for:
 
 1. socket language API, ownership, and C interoperability;
-2. network-driver abstraction and the first platform backend;
+2. libuv network-driver adapters building on RFC 0145;
 3. timers, deadlines, cancellation, and shutdown;
 4. minimal HTTP/1.1 parsing and server lifecycle;
 5. scheduler local queues/work stealing, only if measured;
@@ -396,13 +396,11 @@ or futures system.
 
 ## Open decisions
 
-1. Direct OS event backends versus a qualified portable C dependency.
-2. One program-wide network driver versus one driver per scheduler worker.
-3. Socket handle ownership, aliasing, close, and half-close semantics.
-4. Deadline-bearing operations versus a general wait/select surface.
-5. Initial explicit-yield batching policy for server loops.
-6. Whether POSIX Tasks may migrate with the existing context backend.
-7. Concrete benchmark workloads and thresholds that qualify “competitive.”
+1. Socket handle ownership, aliasing, close, and half-close semantics.
+2. Deadline-bearing operations versus a general wait/select surface.
+3. Initial explicit-yield batching policy for server loops.
+4. Whether POSIX Tasks may migrate with the existing context backend.
+5. Concrete benchmark workloads and thresholds that qualify “competitive.”
 
 ## Implementation readiness
 

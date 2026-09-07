@@ -99,6 +99,108 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 	}
 }
 
+// The dispatcher's post-switch park/completion branch lives in one shared
+// helper: the worker loop calls it after every switch-back, and no second
+// inline copy of the branch remains in the loop.
+func TestConcurrencyComponentSharedDispatchCommit(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	files := generateOne(t, program)
+	source, exists := files["hexal/concurrency.c"]
+	if !exists {
+		t.Fatalf("concurrency program emitted no hexal/concurrency.c: %v", files)
+	}
+	if strings.Count(source, "static void hex_dispatch_commit(hex_task *task) {") != 1 {
+		t.Fatalf("hexal/concurrency.c defines hex_dispatch_commit %d times, want once", strings.Count(source, "static void hex_dispatch_commit(hex_task *task) {"))
+	}
+	if strings.Count(source, "hex_dispatch_commit(task);") != 1 {
+		t.Fatalf("hex_worker_loop calls hex_dispatch_commit %d times, want once", strings.Count(source, "hex_dispatch_commit(task);"))
+	}
+	if strings.Count(source, "hex_task_commit_park(task);") != 1 {
+		t.Fatalf("park commit has %d call sites, want one inside hex_dispatch_commit", strings.Count(source, "hex_task_commit_park(task);"))
+	}
+}
+
+// Root affinity is structural: one shared publication helper broadcasts for
+// root and signals one worker otherwise, worker zero removes the FIFO head
+// without searching, and non-zero workers skip a queued root in place.
+func TestConcurrencyComponentRootAffinity(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	files := generateOne(t, program)
+	source, exists := files["hexal/concurrency.c"]
+	if !exists {
+		t.Fatalf("concurrency program emitted no hexal/concurrency.c: %v", files)
+	}
+	if strings.Count(source, "static void hex_ready_publish(hex_task *task) {") != 1 {
+		t.Fatalf("hexal/concurrency.c defines hex_ready_publish %d times, want once", strings.Count(source, "static void hex_ready_publish(hex_task *task) {"))
+	}
+	if strings.Contains(source, "hex_ready_push(") {
+		t.Fatalf("hexal/concurrency.c retains a hex_ready_push publication site outside the shared helper")
+	}
+	if strings.Count(source, "hex_cond_signal(&hex_ready_cond)") != 1 {
+		t.Fatalf("ready signal has %d sites, want one inside hex_ready_publish", strings.Count(source, "hex_cond_signal(&hex_ready_cond)"))
+	}
+	if strings.Count(source, "hex_cond_broadcast(&hex_ready_cond)") != 2 {
+		t.Fatalf("ready broadcast has %d sites, want root publication plus root shutdown", strings.Count(source, "hex_cond_broadcast(&hex_ready_cond)"))
+	}
+	if strings.Count(source, "task = hex_ready_pop_head();") != 1 || strings.Count(source, "task = hex_ready_pop_eligible();") != 1 {
+		t.Fatalf("worker selection must take the head on worker zero and skip root elsewhere")
+	}
+	if !strings.Contains(source, "while (!hex_ready_has_eligible()") {
+		t.Fatalf("non-zero workers must wait on eligible work rather than queue emptiness")
+	}
+	headStart := strings.Index(source, "hex_ready_pop_head(void) {")
+	eligibleStart := strings.Index(source, "hex_ready_pop_eligible(void) {")
+	if headStart < 0 || eligibleStart < headStart {
+		t.Fatalf("ready selection helpers out of order")
+	}
+	if strings.Contains(source[headStart:eligibleStart], "HEX_TASK_ROOT") {
+		t.Fatalf("worker-zero head removal must not search for root")
+	}
+	eligibleEnd := strings.Index(source[eligibleStart:], "hex_ready_has_eligible(void) {")
+	if eligibleEnd < 0 {
+		t.Fatalf("eligible selection helper missing its trailing bound")
+	}
+	if !strings.Contains(source[eligibleStart:eligibleStart+eligibleEnd], "(task->flags & HEX_TASK_ROOT) != 0") {
+		t.Fatalf("non-zero selection must skip a queued root in place")
+	}
+}
+
+// Initialization returns to generated main: it performs no context switch
+// and publishes nothing, and the worker-zero bootstrap commits root's first
+// later switch through the shared helper before entering the ordinary loop.
+func TestConcurrencyComponentBootstrapReturnsFromInit(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	files := generateOne(t, program)
+	source, exists := files["hexal/concurrency.c"]
+	if !exists {
+		t.Fatalf("concurrency program emitted no hexal/concurrency.c: %v", files)
+	}
+	if strings.Count(source, "static void hex_worker_zero_bootstrap(void *param) {") != 1 {
+		t.Fatalf("hexal/concurrency.c defines hex_worker_zero_bootstrap %d times, want once", strings.Count(source, "static void hex_worker_zero_bootstrap(void *param) {"))
+	}
+	if strings.Count(source, "hex_dispatch_commit(root);") != 1 {
+		t.Fatalf("bootstrap commits the first root switch %d times, want once", strings.Count(source, "hex_dispatch_commit(root);"))
+	}
+	if !strings.Contains(source, "hex_context_create(hex_worker_zero_bootstrap, hex_root_task)") {
+		t.Fatalf("worker zero must start at the bootstrap entry with the root Task")
+	}
+	initStart := strings.Index(source, "void hex_scheduler_init(void) {")
+	if initStart < 0 {
+		t.Fatalf("hex_scheduler_init missing")
+	}
+	initEnd := strings.Index(source[initStart:], "\n}\n")
+	if initEnd < 0 {
+		t.Fatalf("hex_scheduler_init body has no closing bound")
+	}
+	initBody := source[initStart : initStart+initEnd]
+	if strings.Contains(initBody, "hex_context_switch(") {
+		t.Fatalf("hex_scheduler_init must return without switching fibers")
+	}
+	if strings.Contains(initBody, "hex_ready_publish(") {
+		t.Fatalf("hex_scheduler_init must return without publishing root")
+	}
+}
+
 // An atomic-only program selects the pair without the scheduler prelude or
 // runtime: the header owns the Atomic typedefs, the source owns no runtime
 // definition, and the module header includes the component.
@@ -561,9 +663,9 @@ func TestConcurrencyCompletionPublishesOnlyAfterDispositionSnapshot(t *testing.T
 	if snapshot < 0 || detached < snapshot || unlock < detached || wake < unlock {
 		t.Fatalf("completion must snapshot disposition under the lifecycle mutex before waking the joiner:\n%s", source)
 	}
-	workerEnd := strings.Index(source[wake:], "\nstatic int hex_worker_thread")
+	workerEnd := strings.Index(source[wake:], "\n}\n")
 	if workerEnd < 0 {
-		t.Fatalf("could not isolate the completion dispatcher:\n%s", source)
+		t.Fatalf("could not isolate the shared dispatch commit:\n%s", source)
 	}
 	afterWake := source[wake : wake+workerEnd]
 	if strings.Contains(afterWake, "task->") {

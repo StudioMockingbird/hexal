@@ -453,7 +453,12 @@ static _Atomic int hex_shutdown;
 static _Atomic int64_t hex_next_task_id;
 hex_task *hex_root_task;
 
-static void hex_ready_push(hex_task *task) {
+// hex_ready_publish is the one shared ready-queue publication: it appends
+// to the existing FIFO under the ready mutex, then signals one worker for
+// an ordinary Task or broadcasts for root so worker zero necessarily wakes.
+// A bare signal for root could wake only a non-zero worker that must skip
+// it, losing the wake until an unrelated broadcast.
+static void hex_ready_publish(hex_task *task) {
     hex_mutex_raw_lock(&hex_ready_mutex);
     task->ready_next = nullptr;
     if (hex_ready_tail != nullptr) {
@@ -462,19 +467,66 @@ static void hex_ready_push(hex_task *task) {
         hex_ready_head = task;
     }
     hex_ready_tail = task;
-    hex_cond_signal(&hex_ready_cond);
+    if ((task->flags & HEX_TASK_ROOT) != 0) {
+        hex_cond_broadcast(&hex_ready_cond);
+    } else {
+        hex_cond_signal(&hex_ready_cond);
+    }
     hex_mutex_raw_unlock(&hex_ready_mutex);
 }
 
-static hex_task *hex_ready_pop(void) {
+// hex_ready_pop_head removes the FIFO head. Only worker zero uses it, so a
+// child queued before a yielding root runs first on a one-worker target
+// instead of root resuming itself immediately.
+static hex_task *hex_ready_pop_head(void) {
     hex_task *task = hex_ready_head;
     if (task != nullptr) {
         hex_ready_head = task->ready_next;
         if (hex_ready_head == nullptr) {
             hex_ready_tail = nullptr;
         }
+        task->ready_next = nullptr;
     }
     return task;
+}
+
+// hex_ready_pop_eligible removes the first non-root Task, skipping a queued
+// root in place without removing or reordering it. It returns nullptr when
+// no eligible non-root Task is queued, even if root is present. Every
+// caller holds the ready mutex from its wait predicate through this call,
+// so the check and the removal are one atomic selection.
+static hex_task *hex_ready_pop_eligible(void) {
+    hex_task *previous = nullptr;
+    hex_task *task = hex_ready_head;
+    while (task != nullptr && (task->flags & HEX_TASK_ROOT) != 0) {
+        previous = task;
+        task = task->ready_next;
+    }
+    if (task == nullptr) {
+        return nullptr;
+    }
+    if (previous == nullptr) {
+        hex_ready_head = task->ready_next;
+    } else {
+        previous->ready_next = task->ready_next;
+    }
+    if (task->ready_next == nullptr) {
+        hex_ready_tail = previous;
+    }
+    task->ready_next = nullptr;
+    return task;
+}
+
+// hex_ready_has_eligible reports whether a non-root Task is queued. Non-zero
+// workers wait on this rather than queue emptiness so they sleep while only
+// root is queued instead of spinning or touching root.
+static bool hex_ready_has_eligible(void) {
+    for (hex_task *task = hex_ready_head; task != nullptr; task = task->ready_next) {
+        if ((task->flags & HEX_TASK_ROOT) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // hex_task_wake applies the common wake transition to one parked waiter: the
@@ -497,7 +549,7 @@ static void hex_task_wake(hex_task *waiter) {
         uint8_t parked = HEX_PARK_PARKED;
         if (atomic_compare_exchange_strong_explicit(&waiter->park_phase, &parked, HEX_PARK_READY,
                                                      memory_order_release, memory_order_relaxed)) {
-            hex_ready_push(waiter);
+            hex_ready_publish(waiter);
         }
         // A losing retry here means the dispatcher's own commit already
         // published this task; the stale attempt does nothing further.
@@ -525,7 +577,7 @@ static void hex_task_commit_park(hex_task *task) {
                                                   memory_order_acq_rel, memory_order_acquire)) {
         hex_runtime_trap("[Runtime Error] Task park phase changed during commit\n");
     }
-    hex_ready_push(task);
+    hex_ready_publish(task);
 }
 
 // hex_task_resume_commit runs on a resumed task's own fiber, immediately
@@ -580,6 +632,41 @@ static void hex_task_trampoline(void *param) {
     abort();
 }
 
+// hex_dispatch_commit runs on the dispatcher immediately after a dispatched
+// fiber switches back: a non-null pending link commits an ordinary park, a
+// null link completes hex_task_complete's two-step transition. Every park
+// path sets a non-null link before switching, so a null link is unambiguous.
+static void hex_dispatch_commit(hex_task *task) {
+    if (task->pending_park != nullptr) {
+        hex_task_commit_park(task);
+        return;
+    }
+    hex_mutex_raw_lock(&task->lifecycle_mutex);
+    task->life = HEX_LIFE_DONE;
+    hex_task *joiner = task->joiner;
+    task->joiner = nullptr;
+    bool root = (task->flags & HEX_TASK_ROOT) != 0;
+    bool detached = task->terminal_claim == HEX_TASK_CLAIM_DETACH;
+    hex_mutex_raw_unlock(&task->lifecycle_mutex);
+    if (root) {
+        // The root shutdown switch-back is handled by the ordinary
+        // shutdown check at the top of this loop, not here: recording
+        // shutdown and broadcasting is this branch's only job, and it is
+        // not a ready publication or reclamation path.
+        atomic_store(&hex_shutdown, 1);
+        hex_mutex_raw_lock(&hex_ready_mutex);
+        hex_cond_broadcast(&hex_ready_cond);
+        hex_mutex_raw_unlock(&hex_ready_mutex);
+    } else if (joiner != nullptr) {
+        hex_task_wake(joiner);
+    } else if (detached) {
+        hex_task_release(task);
+    }
+    // A joined, non-detached, non-root task is destroyed by its resumed
+    // joiner after it copies the result out; this dispatcher performs no
+    // further access to it.
+}
+
 // hex_worker_loop is the dispatcher of one worker. Worker zero (the initial
 // process thread) switches back into the root fiber when the scheduler stops
 // so generated main returns normally; other workers return from their thread
@@ -589,8 +676,14 @@ static void hex_worker_loop(void *param) {
     hex_context loop_context = hex_context_current();
     for (;;) {
         hex_mutex_raw_lock(&hex_ready_mutex);
-        while (hex_ready_head == nullptr && !atomic_load(&hex_shutdown)) {
-            hex_cond_wait(&hex_ready_cond, &hex_ready_mutex);
+        if (is_worker_zero) {
+            while (hex_ready_head == nullptr && !atomic_load(&hex_shutdown)) {
+                hex_cond_wait(&hex_ready_cond, &hex_ready_mutex);
+            }
+        } else {
+            while (!hex_ready_has_eligible() && !atomic_load(&hex_shutdown)) {
+                hex_cond_wait(&hex_ready_cond, &hex_ready_mutex);
+            }
         }
         if (atomic_load(&hex_shutdown)) {
             hex_mutex_raw_unlock(&hex_ready_mutex);
@@ -599,44 +692,20 @@ static void hex_worker_loop(void *param) {
             }
             return;
         }
-        hex_task *task = hex_ready_pop();
+        hex_task *task;
+        if (is_worker_zero) {
+            task = hex_ready_pop_head();
+        } else {
+            task = hex_ready_pop_eligible();
+        }
         hex_mutex_raw_unlock(&hex_ready_mutex);
+        if (task == nullptr) {
+            continue;
+        }
         hex_current_task = task;
         task->scheduler_fiber = (void *)loop_context;
         hex_context_switch(loop_context, (hex_context)task->fiber);
-        // A non-null pending link means this switch-back is an ordinary park:
-        // commit it through the common protocol. A null link is otherwise
-        // unambiguous: every park path sets a non-null link before switching,
-        // so this switch-back can only be hex_task_complete's step one, and
-        // this dispatcher is now step two.
-        if (task->pending_park != nullptr) {
-            hex_task_commit_park(task);
-            continue;
-        }
-        hex_mutex_raw_lock(&task->lifecycle_mutex);
-        task->life = HEX_LIFE_DONE;
-        hex_task *joiner = task->joiner;
-        task->joiner = nullptr;
-        bool root = (task->flags & HEX_TASK_ROOT) != 0;
-        bool detached = task->terminal_claim == HEX_TASK_CLAIM_DETACH;
-        hex_mutex_raw_unlock(&task->lifecycle_mutex);
-        if (root) {
-            // The root shutdown switch-back is handled by the ordinary
-            // shutdown check at the top of this loop, not here: recording
-            // shutdown and broadcasting is this branch's only job, and it is
-            // not a ready publication or reclamation path.
-            atomic_store(&hex_shutdown, 1);
-            hex_mutex_raw_lock(&hex_ready_mutex);
-            hex_cond_broadcast(&hex_ready_cond);
-            hex_mutex_raw_unlock(&hex_ready_mutex);
-        } else if (joiner != nullptr) {
-            hex_task_wake(joiner);
-        } else if (detached) {
-            hex_task_release(task);
-        }
-        // A joined, non-detached, non-root task is destroyed by its resumed
-        // joiner after it copies the result out; this dispatcher performs no
-        // further access to it.
+        hex_dispatch_commit(task);
     }
 }
 
@@ -649,11 +718,24 @@ static int hex_worker_thread(void *unused) {
     return 0;
 }
 
+// hex_worker_zero_bootstrap is the entry of the worker-zero dispatcher
+// context: it runs once, on root's first later switch into it, commits that
+// switch through the shared helper, then enters the ordinary worker loop.
+// The created context starts suspended, so root's first yield, wait, or
+// completion is what begins execution here with root already switched out.
+static void hex_worker_zero_bootstrap(void *param) {
+    hex_task *root = (hex_task *)param;
+    root->scheduler_fiber = (void *)hex_context_current();
+    hex_dispatch_commit(root);
+    hex_worker_loop((void *)1);
+}
+
 {{if .Blocking}}static void hex_blocking_init(void);
 {{end}}// hex_scheduler_init establishes the root task on the initial process thread
-// (worker zero), creates the remaining workers, and starts dispatch. The
-// root fiber is the converted main thread context; its statements run as the
-// Hexal entry point.
+// (worker zero), creates the remaining workers, and returns: generated main
+// runs the root statements next, and dispatch begins on root's first switch
+// into the worker-zero bootstrap. The root fiber is the converted main
+// thread context; its statements run as the Hexal entry point.
 void hex_scheduler_init(void) {
     // Worker zero is the initial process thread; its overflow handler and
     // alternate signal stack are established before any Task runs.
@@ -675,7 +757,7 @@ void hex_scheduler_init(void) {
     }
     hex_root_task->id = atomic_fetch_add(&hex_next_task_id, 1);
     hex_root_task->flags = HEX_TASK_ROOT;
-    hex_root_task->scheduler_fiber = (void *)hex_context_create(hex_worker_loop, (void *)1);
+    hex_root_task->scheduler_fiber = (void *)hex_context_create(hex_worker_zero_bootstrap, hex_root_task);
     if (hex_root_task->scheduler_fiber == nullptr) {
         hex_runtime_trap("[Runtime Error] scheduler worker-zero context creation failed\n");
     }
@@ -690,8 +772,7 @@ void hex_scheduler_init(void) {
         }
     }
 {{if .Blocking}}    hex_blocking_init();
-{{end}}    hex_context_switch((hex_context)hex_root_task->fiber, (hex_context)hex_root_task->scheduler_fiber);
-}
+{{end}}}
 
 // hex_task_yield is the source-less park: it has no wait-source mutex to
 // register under, so it release-stores notified directly instead of parking
@@ -753,7 +834,7 @@ hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_ali
     task->entry = entry;
     task->args = args_frame;
     task->result = result_frame;
-    hex_ready_push(task);
+    hex_ready_publish(task);
     return task;
 }
 

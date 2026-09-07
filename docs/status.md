@@ -24,6 +24,7 @@ gets deleted.
 | Restricted compile-time evaluation | [0117](specs/0117-compile-time-evaluation.md) |
 | Concurrency safety and task lifetimes | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
 | High-throughput network runtime and HTTP-server foundations | [0144](specs/0144-high-throughput-network-runtime.md) |
+| libuv event-loop and blocking-worker runtime backend | [0145](specs/0145-libuv-async-runtime-backend.md) |
 
 ### Implementation-ready
 
@@ -41,7 +42,6 @@ gets deleted.
 
 | Bug | Owning spec |
 | --- | --- |
-| Scheduler initialization enters worker zero before root statements run, leaving every worker asleep on an empty ready queue | [0132](specs/0132-root-task-scheduler-bootstrap.md) |
 | Match misclassifies imported dotted patterns, keys union coverage by short type name, and accepts duplicate exact-type arms or unreachable final `else` arms | [0133](specs/0133-match-exhaustiveness-and-qualified-patterns.md) |
 | Returned inline aggregates can hide a View that borrows a local of the returning function | [0137](specs/0137-nested-view-return-safety.md) |
 | Mutable List/Dict storage can retain a local-rooted View beyond that local's lifetime; safe handling needs container mutation and alias rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
@@ -63,11 +63,12 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   List/Dict/String round-trips, `print`'s output forms and evaluation order,
   `try`/`errdefer`/`defer` unwind ordering, float-to-integer truncation,
   signed-MIN overflow wrapping, text/Strand/RuneCursor conformance, and
-  `Atomic<T>`'s full operation set. `TestC23SnippetCatalogCompiles` separately
-  Tier-1-compiles every workbench snippet under all three toolchains with no
-  hand-listed fixture per snippet. None of this executes a Task, Channel, or
-  Mutex operation: RFC 0132's scheduler-startup bug would hang the process, so
-  those three fixtures are compile-only. What remains unverified:
+   `Atomic<T>`'s full operation set, plus exact-output coverage for root yield
+   (single and repeated), spawn/join, Channel send/receive/close, Mutex
+   contention, and root completion with no child, joined children, and a
+   detached CPU child. `TestC23SnippetCatalogCompiles` separately
+   Tier-1-compiles every workbench snippet under all three toolchains with no
+   hand-listed fixture per snippet. What remains unverified:
   the rest of `reference.md`'s trap inventory (shift count, close failure,
   Mutex misuse, task stack overflow, and others) has no fixture yet, and
   `print`'s output forms are not exhaustive over every printable type. The
