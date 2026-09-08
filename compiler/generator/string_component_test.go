@@ -83,6 +83,45 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 	}
 }
 
+// The storage-kind discriminator separates static literals from owned
+// allocations: literals omit the zero-valued field, all four direct
+// allocation sites mark owned, and free traps on anything else.
+func TestStringStorageKindDiscriminator(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    text: String := String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend\n")
+	files := generateOne(t, program)
+	header, exists := files["hexal/string.h"]
+	if !exists {
+		t.Fatalf("String program emitted no hexal/string.h: %v", files)
+	}
+	source, exists := files["hexal/string.c"]
+	if !exists {
+		t.Fatalf("String program emitted no hexal/string.c: %v", files)
+	}
+	for _, fragment := range []string{"HEX_STRING_STATIC = 0", "HEX_STRING_OWNED = 1", "hex_string_storage_kind storage_kind;"} {
+		if !strings.Contains(header, fragment) {
+			t.Fatalf("hexal/string.h lacks storage-kind fragment %q", fragment)
+		}
+	}
+	if strings.Count(source, ".storage_kind = HEX_STRING_OWNED") != 3 {
+		t.Fatalf("hexal/string.c marks %d owned allocation sites, want from_bytes, from_runes, and concat", strings.Count(source, ".storage_kind = HEX_STRING_OWNED"))
+	}
+	for _, line := range strings.Split(source, "\n") {
+		if strings.HasPrefix(line, "const hex_string hex_lit_") && strings.Contains(line, "storage_kind") {
+			t.Fatalf("literal header must omit the zero-valued discriminator: %q", line)
+		}
+	}
+	rootC, exists := files["modules/app.c"]
+	if !exists {
+		t.Fatalf("String program emitted no modules/app.c: %v", files)
+	}
+	if strings.Count(rootC, ".storage_kind = HEX_STRING_OWNED") != 1 {
+		t.Fatalf("modules/app.c marks %d interpolation allocations owned, want one", strings.Count(rootC, ".storage_kind = HEX_STRING_OWNED"))
+	}
+	if !strings.Contains(source, "hex_runtime_trap(\"[Runtime Error] cannot free a String literal\\n\");") {
+		t.Fatalf("hex_string_free lost the literal trap: %q", source)
+	}
+}
+
 // Strand selection adds the hex_strand representation and the strand
 // operations to the pair; a String-only program keeps the strand surface out.
 func TestStringComponentStrandSurface(t *testing.T) {

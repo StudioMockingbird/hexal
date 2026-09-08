@@ -11,8 +11,300 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// Strings are reference-like handles with C-style shallow copies
-// and manual cleanup; no provenance or ownership state is tracked.
+// Strings are reference-like handles with C-style shallow copies and manual
+// cleanup; the flow state tracks possible storage origins per String place
+// so a statically proven literal free is rejected and anything else falls
+// through to the runtime discriminator.
+
+// stringOriginSet is a bitmask of possible String storage origins for one
+// place. Zero reads as opaque: parameters, call results, and untracked
+// places carry no record and are enforced by the runtime check instead.
+type stringOriginSet uint8
+
+const (
+	stringOriginStatic stringOriginSet = 1
+	stringOriginOwned  stringOriginSet = 2
+	stringOriginOpaque stringOriginSet = 4
+)
+
+// stringPlaceKey names one member or element origin record: root is the
+// owning binding, member the object or payload field name, or the constant
+// array index when indexed.
+type stringPlaceKey struct {
+	root    BindingID
+	member  string
+	index   uint64
+	indexed bool
+}
+
+// stringOrigin reads one binding's recorded origins, or opaque when the
+// binding carries no record.
+func (state *flowState) stringOrigin(id BindingID) stringOriginSet {
+	if state == nil {
+		return stringOriginOpaque
+	}
+	if set, ok := state.stringOrigins[id]; ok {
+		return set
+	}
+	return stringOriginOpaque
+}
+
+// setStringOrigin replaces one binding's recorded origins.
+func (state *flowState) setStringOrigin(id BindingID, set stringOriginSet) {
+	if state == nil {
+		return
+	}
+	if state.stringOrigins == nil {
+		state.stringOrigins = make(map[BindingID]stringOriginSet)
+	}
+	state.stringOrigins[id] = set
+}
+
+// stringPlaceOrigin reads one member or element record, or opaque when the
+// place carries no record.
+func (state *flowState) stringPlaceOrigin(key stringPlaceKey) stringOriginSet {
+	if state == nil {
+		return stringOriginOpaque
+	}
+	if set, ok := state.stringPlaces[key]; ok {
+		return set
+	}
+	return stringOriginOpaque
+}
+
+// setStringPlaceOrigin replaces one member or element record.
+func (state *flowState) setStringPlaceOrigin(key stringPlaceKey, set stringOriginSet) {
+	if state == nil {
+		return
+	}
+	if state.stringPlaces == nil {
+		state.stringPlaces = make(map[stringPlaceKey]stringOriginSet)
+	}
+	state.stringPlaces[key] = set
+}
+
+// unionStringElements unions the recorded origins of every element of the
+// array binding, for dynamic-index reads. No record reads opaque.
+func (state *flowState) unionStringElements(root BindingID) stringOriginSet {
+	if state == nil {
+		return stringOriginOpaque
+	}
+	merged := stringOriginSet(0)
+	found := false
+	for key, set := range state.stringPlaces {
+		if key.root == root && key.indexed {
+			merged |= set
+			found = true
+		}
+	}
+	if !found {
+		return stringOriginOpaque
+	}
+	return merged
+}
+
+// joinStringElements unions one origin set into every recorded element of
+// the array binding, for dynamic-index assignment.
+func (state *flowState) joinStringElements(root BindingID, set stringOriginSet) {
+	if state == nil {
+		return
+	}
+	for key, recorded := range state.stringPlaces {
+		if key.root == root && key.indexed {
+			state.stringPlaces[key] = recorded | set
+		}
+	}
+}
+
+// dropStringPlaces removes every member and element record rooted at id, for
+// escape: an unseen write may have replaced any of them, so later reads
+// fall through to the runtime check.
+func (state *flowState) dropStringPlaces(root BindingID) {
+	if state == nil {
+		return
+	}
+	for key := range state.stringPlaces {
+		if key.root == root {
+			delete(state.stringPlaces, key)
+		}
+	}
+}
+
+// stringPlaceRoot resolves a member or element receiver to its owning
+// binding when the receiver is a single-level variable use. Deeper receiver
+// chains have no recorded place and read opaque.
+func stringPlaceRoot(node *Expression, ctx checkContext) (BindingID, bool) {
+	if node == nil || node.Kind != VariableExpression || node.Binding == 0 {
+		return 0, false
+	}
+	return node.Binding, true
+}
+
+// stringIndexConstant reads a constant array index operand, reporting
+// whether the index is statically known.
+func stringIndexConstant(argument Operand) (uint64, bool) {
+	if argument.Constant == nil || argument.Constant.Kind() != constant.Int {
+		return 0, false
+	}
+	value, exact := constant.Uint64Val(argument.Constant)
+	if !exact {
+		return 0, false
+	}
+	return value, true
+}
+
+// adtPayloadFieldName resolves an ADT payload access to its declared field
+// name from the receiver's stored variant layout.
+func adtPayloadFieldName(node Expression) (string, bool) {
+	if node.OperandType.Adt == nil || node.VariantIndex < 0 || node.VariantIndex >= len(node.OperandType.Adt.Variants) {
+		return "", false
+	}
+	payload := node.OperandType.Adt.Variants[node.VariantIndex].Payload
+	if node.MemberIndex < 0 || node.MemberIndex >= len(payload) {
+		return "", false
+	}
+	return payload[node.MemberIndex].Name, true
+}
+
+// stringOriginOf classifies one checked value's possible String storage
+// origins: literals are static, direct allocating constructors owned, and
+// every other source consults the recorded place or falls back to opaque.
+// Variable, member, index, and payload reads observe the current flow facts;
+// match arms and try operands union transparently like control-flow joins.
+func stringOriginOf(node Expression, ctx checkContext) stringOriginSet {
+	switch node.Kind {
+	case StringLiteralExpression:
+		return stringOriginStatic
+	case StringFromBytesExpression, StringFromRunesExpression, StringInterpolateExpression:
+		return stringOriginOwned
+	case StringMethodCallExpression:
+		switch node.Name {
+		case "concat", "to_string":
+			return stringOriginOwned
+		}
+		return stringOriginOpaque
+	case VariableExpression:
+		if ctx.names.flow != nil && node.Binding != 0 {
+			return ctx.names.flow.stringOrigin(node.Binding)
+		}
+		return stringOriginOpaque
+	case MemberExpression:
+		if root, ok := stringPlaceRoot(node.Operand, ctx); ok && node.Member != nil {
+			return ctx.names.flow.stringPlaceOrigin(stringPlaceKey{root: root, member: node.Member.Name})
+		}
+		return stringOriginOpaque
+	case IndexExpression:
+		root, ok := stringPlaceRoot(node.Operand, ctx)
+		if !ok || len(node.Arguments) == 0 {
+			return stringOriginOpaque
+		}
+		if index, known := stringIndexConstant(node.Arguments[0]); known {
+			return ctx.names.flow.stringPlaceOrigin(stringPlaceKey{root: root, index: index, indexed: true})
+		}
+		return ctx.names.flow.unionStringElements(root)
+	case AdtPayloadExpression:
+		root, ok := stringPlaceRoot(node.Operand, ctx)
+		if !ok {
+			return stringOriginOpaque
+		}
+		if field, ok := adtPayloadFieldName(node); ok {
+			return ctx.names.flow.stringPlaceOrigin(stringPlaceKey{root: root, member: field})
+		}
+		return stringOriginOpaque
+	case UnionInjectionExpression, UnionWidenExpression, TryExpression:
+		if node.Operand != nil {
+			return stringOriginOf(*node.Operand, ctx)
+		}
+		return stringOriginOpaque
+	case MatchExpression:
+		merged := stringOriginSet(0)
+		for _, argument := range node.Arguments {
+			merged |= stringOriginOf(argument.Node, ctx)
+		}
+		if len(node.Arguments) == 0 {
+			return stringOriginOpaque
+		}
+		return merged
+	}
+	return stringOriginOpaque
+}
+
+// recordStringBinding records a new binding's whole-value origin plus
+// per-member origins for inline construction, so later reads observe the
+// same static possibilities the initializer spelled.
+func recordStringBinding(flow *flowState, id BindingID, node Expression, ctx checkContext) {
+	if flow == nil || id == 0 {
+		return
+	}
+	flow.setStringOrigin(id, stringOriginOf(node, ctx))
+	switch node.Kind {
+	case ObjectExpression:
+		if node.Object == nil {
+			return
+		}
+		for _, initialized := range node.Object.Initializers {
+			if initialized.Member == nil {
+				continue
+			}
+			flow.setStringPlaceOrigin(stringPlaceKey{root: id, member: initialized.Member.Name}, stringOriginOf(initialized.Source.Node, ctx))
+		}
+	case AdtConstructExpression:
+		if node.OperandType.Adt == nil || node.VariantIndex < 0 || node.VariantIndex >= len(node.OperandType.Adt.Variants) {
+			return
+		}
+		payload := node.OperandType.Adt.Variants[node.VariantIndex].Payload
+		for index, argument := range node.Arguments {
+			if index >= len(payload) {
+				break
+			}
+			flow.setStringPlaceOrigin(stringPlaceKey{root: id, member: payload[index].Name}, stringOriginOf(argument.Node, ctx))
+		}
+	case ArrayLiteralExpression:
+		for index, argument := range node.Arguments {
+			flow.setStringPlaceOrigin(stringPlaceKey{root: id, index: uint64(index), indexed: true}, stringOriginOf(argument.Node, ctx))
+		}
+	}
+}
+
+// recordStringAssignment replaces the origin record a successful assignment
+// wrote: a binding's whole-value set, a known member or constant element's
+// set, or a dynamic element write joined into every recorded element.
+func recordStringAssignment(flow *flowState, target Operand, value Operand, targetBinding BindingID, ctx checkContext) {
+	if flow == nil {
+		return
+	}
+	set := stringOriginOf(value.Node, ctx)
+	if targetBinding != 0 {
+		flow.setStringOrigin(targetBinding, set)
+		return
+	}
+	switch target.Node.Kind {
+	case MemberExpression:
+		root, ok := stringPlaceRoot(target.Node.Operand, ctx)
+		if !ok || target.Node.Member == nil {
+			return
+		}
+		flow.setStringPlaceOrigin(stringPlaceKey{root: root, member: target.Node.Member.Name}, set)
+	case AdtPayloadExpression:
+		root, ok := stringPlaceRoot(target.Node.Operand, ctx)
+		if !ok {
+			return
+		}
+		if field, ok := adtPayloadFieldName(target.Node); ok {
+			flow.setStringPlaceOrigin(stringPlaceKey{root: root, member: field}, set)
+		}
+	case IndexExpression:
+		root, ok := stringPlaceRoot(target.Node.Operand, ctx)
+		if !ok || len(target.Node.Arguments) == 0 {
+			return
+		}
+		if index, known := stringIndexConstant(target.Node.Arguments[0]); known {
+			flow.setStringPlaceOrigin(stringPlaceKey{root: root, index: index, indexed: true}, set)
+			return
+		}
+		flow.joinStringElements(root, set)
+	}
+}
 
 // decodeStringLiteral decodes a double-quoted literal's raw lexeme (including
 // the surrounding quotes) into its payload bytes using the shared literal
@@ -441,6 +733,10 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		if !compilerTypes.IsHeap(heap.typ) {
 			diagnostic := typeErrorAt(heap.token, "free requires a Heap; got "+heap.typ.Name)
 			return checkedExpression{token: heap.token, diagnostic: &diagnostic}
+		}
+		if origins := stringOriginOf(receiver.source.Node, ctx); origins&stringOriginStatic != 0 {
+			diagnostic := typeErrorAt(callee.Property, "cannot free a String literal")
+			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
 		node := Expression{
 			Kind:        StringMethodCallExpression,

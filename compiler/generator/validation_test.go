@@ -77,3 +77,21 @@ func TestValidateStatementsAcceptsDeferredNoResultCallAlone(t *testing.T) {
 		t.Fatalf("validateStatements rejected a lone valid deferred call: %v", err)
 	}
 }
+
+// Borrow provenance is checker-computed: a Bindings record with no roots and
+// roots without the Bindings kind are both internal failures, while complete
+// and empty records pass before any kind-specific validation runs.
+func TestValidateViewProvenanceRejectsInconsistentRecords(t *testing.T) {
+	if err := validateViewProvenance(checker.Expression{RootKind: checker.ViewRootBindings}); err == nil {
+		t.Fatalf("validateViewProvenance accepted a Bindings record with no roots")
+	}
+	if err := validateViewProvenance(checker.Expression{RootKind: checker.ViewRootNone, ViewRoots: []checker.BindingID{1}}); err == nil {
+		t.Fatalf("validateViewProvenance accepted roots without the Bindings kind")
+	}
+	if err := validateViewProvenance(checker.Expression{RootKind: checker.ViewRootBindings, ViewRoots: []checker.BindingID{1}}); err != nil {
+		t.Fatalf("validateViewProvenance rejected a complete record: %v", err)
+	}
+	if err := validateViewProvenance(checker.Expression{}); err != nil {
+		t.Fatalf("validateViewProvenance rejected an empty record: %v", err)
+	}
+}

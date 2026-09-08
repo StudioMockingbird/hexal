@@ -152,9 +152,8 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 	}
 }
 
-// String handles copy by value and cleanup is manual; every program below is
-// valid C-style code.
-
+// A free whose receiver is statically proven literal storage is rejected;
+// opaque handles still free at runtime.
 func TestStringShallowCopySemantics(t *testing.T) {
 	for _, source := range []string{
 		"fun demo(h: Heap) do\n    owned: String := \"x\".to_string(h)\n    other: String := owned\nend",
@@ -162,7 +161,6 @@ func TestStringShallowCopySemantics(t *testing.T) {
 		"fun demo(h: Heap) do\n    owned: String := \"x\".to_string(h)\n    owned.free(h)\n    owned.free(h)\nend",
 		"fun demo(h: Heap) do\n    mut owned: String := \"x\".to_string(h)\n    owned = \"y\".to_string(h)\nend",
 		"fun demo(h: Heap) do\n    mut owned: String := \"x\".to_string(h)\n    owned.free(h)\n    owned = \"y\"\nend",
-		"fun demo(h: Heap) do\n    text: String := \"x\"\n    text.free(h)\nend",
 		"fun make_text(h: Heap): String do\n    return \"ready\"\nend",
 		"fun make_text(h: Heap, source: String): String do\n    return source\nend",
 		"owned: String := \"x\"",
@@ -180,6 +178,43 @@ func TestStringReturnHandoff(t *testing.T) {
 	result := compileSource("fun make_text(h: Heap): String do\n    owned: String := \"x\".to_string(h)\n    return owned\nend\nfun demo(h: Heap) do\n    text: String := make_text(h)\n    text.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+}
+
+// A free whose receiver may statically be a literal is rejected, however the
+// literal reaches the receiver: direct binding, object member, ADT payload,
+// array element, replacement, branch merge, or dynamic-index join. Opaque
+// origins (parameters, call results, handle reads) still compile and trap
+// at runtime instead.
+func TestStringLiteralFreeRejected(t *testing.T) {
+	rejected := []string{
+		"fun demo(h: Heap) do\n    text: String := \"x\"\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    text: String := r\"x\"\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    text: String := \"x\"\n    alias: String := text\n    alias.free(h)\nend",
+		"type Box is struct text: String end\nfun demo(h: Heap) do\n    box: Box := Box(text = \"x\")\n    box.text.free(h)\nend",
+		"type W is union | A as text: String end | B as x: Int32 end end\nh: Heap := Heap()\nw: W := W.A(text = \"x\")\nlabel: Int32 := match w is\n| W.A then w.text.free(h)\n| W.B then 0\nend",
+		"fun demo(h: Heap) do\n    texts: Array<String, 2> := [\"a\", \"b\"]\n    texts[0].free(h)\nend",
+		"fun demo(h: Heap) do\n    mut text: String := \"x\".to_string(h)\n    text = \"y\"\n    text.free(h)\nend",
+		"fun demo(h: Heap, release: Bool) do\n    mut text: String := \"x\".to_string(h)\n    if release then\n        text = \"y\"\n    end\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    mut texts: Array<String, 2> := [\"a\".to_string(h), \"b\".to_string(h)]\n    i: Size := 0\n    texts[i] = \"lit\"\n    texts[0].free(h)\nend",
+	}
+	for _, source := range rejected {
+		if result := compileSource(source); result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot free a String literal") {
+			t.Fatalf("want literal-free rejection; got %#v:\n%s", result.Stderr, source)
+		}
+	}
+	accepted := []string{
+		"fun demo(h: Heap) do\n    mut text: String := \"x\"\n    text = \"y\".to_string(h)\n    text.free(h)\nend",
+		"fun demo(h: Heap, source: String) do\n    source.free(h)\nend",
+		"fun make_text(): String do\n    return \"ready\"\nend\nfun demo(h: Heap) do\n    text: String := make_text()\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    values: List<String> := List<String>(h)\n    values.push(\"lit\")\n    first: String := values[0]\n    first.free(h)\nend",
+		"fun demo(h: Heap) do\n    raw: View<Byte> := \"hi\".bytes()\n    text: String := String.from_bytes(h, raw)\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    text: String := String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend",
+	}
+	for _, source := range accepted {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
+		}
 	}
 }
 

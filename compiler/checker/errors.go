@@ -135,6 +135,7 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 		Element:            *ctx.names.result,
 		MemberIndex:        memberIndex,
 	}
+	node.ViewRoots, node.RootKind = mergeViewProvenance([]Expression{operand.source.Node})
 	source := Operand{Kind: ExpressionOperand, Type: success, Name: "try", Node: node}
 	return checkedExpression{source: source, typ: success, token: expression.Keyword}
 }

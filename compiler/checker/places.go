@@ -368,6 +368,13 @@ func checkReference(expression parser.RefExpression, ctx checkContext) checkedEx
 	// identities against it and never reconstructs a fresh pointer type.
 	addressNode := unaryNode(AddressOfExpression, place.source.Node)
 	addressNode.ResultType = ptrType
+	// Record the same root provenance View slicing already records, so
+	// ptrReturnDiagnostic can reject a Ptr/MutPtr that borrows a local of
+	// this function exactly like viewReturnDiagnostic does for View.
+	if root := baseBindingID(&place.source.Node); root != 0 {
+		addressNode.ViewRoots = []BindingID{root}
+		addressNode.RootKind = ViewRootBindings
+	}
 	return checkedExpression{
 		source: Operand{
 			Kind:        VariableOperand,

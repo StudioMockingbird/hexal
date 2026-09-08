@@ -704,6 +704,9 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 	if expected != nil && !supportedGeneratedTypeWithState(*expected, state) {
 		return unknownExpressionDiagnostic("expression has an unsupported expected type")
 	}
+	if err := validateViewProvenance(node); err != nil {
+		return err
+	}
 	switch node.Kind {
 	case checker.NilExpression:
 		if !compilerTypes.IsNil(node.ResultType) || expected != nil && !compilerTypes.IsNil(*expected) {
@@ -1108,6 +1111,21 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 	default:
 		return unknownExpressionDiagnostic("unsupported checked expression")
 	}
+}
+
+// validateViewProvenance checks the structural consistency of checker-computed
+// borrow metadata: a Bindings record names at least one root, and any named
+// roots require the Bindings kind. Generation never reconstructs borrow
+// facts, so inconsistent provenance is an internal failure, never a silent
+// acceptance.
+func validateViewProvenance(node checker.Expression) error {
+	if node.RootKind == checker.ViewRootBindings && len(node.ViewRoots) == 0 {
+		return unknownExpressionDiagnostic("view provenance names no root")
+	}
+	if len(node.ViewRoots) > 0 && node.RootKind != checker.ViewRootBindings {
+		return unknownExpressionDiagnostic("view roots without a bindings provenance")
+	}
+	return nil
 }
 
 func validateExpressionMetadata(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {

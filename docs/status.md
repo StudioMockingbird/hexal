@@ -26,6 +26,7 @@ gets deleted.
 | High-throughput network runtime and HTTP-server foundations | [0144](specs/0144-high-throughput-network-runtime.md) |
 | libuv event-loop and blocking-worker runtime backend | [0145](specs/0145-libuv-async-runtime-backend.md) |
 | utf8proc Unicode backend | [0147](specs/0147-utf8proc-unicode-backend.md) |
+| `Box<T>` ownership and call-scoped `Ref<T>`/`MutRef<T>` borrows — cleanup, receiver, placement, and Boxable-resource decisions remain | [0149](specs/0149-box-and-call-scoped-references.md) |
 
 ### Implementation-ready
 
@@ -33,6 +34,7 @@ gets deleted.
 | --- | --- |
 | Allocation-free String/Strand mixed comparison | [0139](specs/0139-string-strand-comparison.md) |
 | Local fallback recovery with `catch` | [0134](specs/0134-error-recovery-with-catch.md) |
+| `Span`/`MutSpan` — renames `View`, adds mutable access with root-granularity, last-use exclusivity | [0148](specs/0148-span-and-mutable-span.md) |
 
 ### Design settled; implementation blocked
 
@@ -44,9 +46,10 @@ gets deleted.
 
 | Bug | Owning spec |
 | --- | --- |
-| Returned inline aggregates can hide a View that borrows a local of the returning function | [0137](specs/0137-nested-view-return-safety.md) |
 | Mutable List/Dict storage can retain a local-rooted View beyond that local's lifetime; safe handling needs container mutation and alias rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
-| `String.free` accepts literal-backed static storage and passes it to the heap deallocator | [0138](specs/0138-string-literal-free-safety.md) |
+| Pointer-stored aggregates can retain a local-rooted View beyond that local's lifetime; safe handling needs pointee alias and mutation rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
+| Task arguments/results and Channel elements can retain a local-rooted View beyond the originating function | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
+| Interprocedural wrapper results can return a local-rooted View received from their caller without carrying that provenance back to the call site | [0110](specs/0110-affine-ownership-and-stashes.md) |
 
 ## Known coverage gaps
 

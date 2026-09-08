@@ -737,6 +737,14 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (R
 			if diagnostic := viewReturnDiagnostic(value.source.Node, statement.Keyword, ctx.names); diagnostic != nil {
 				return checked, compilerTypes.Diagnostics{*diagnostic}
 			}
+		} else if value.typ.Element != nil && value.typ.Signature == nil {
+			if diagnostic := ptrReturnDiagnostic(value.source.Node, statement.Keyword, ctx.names, value.typ.PointeeWritable); diagnostic != nil {
+				return checked, compilerTypes.Diagnostics{*diagnostic}
+			}
+		} else if typeCanContainView(value.typ, make(map[string]bool)) {
+			if diagnostic := nestedViewReturnDiagnostic(value.source.Node, statement.Keyword, ctx.names); diagnostic != nil {
+				return checked, compilerTypes.Diagnostics{*diagnostic}
+			}
 		}
 	}
 	source := value.source

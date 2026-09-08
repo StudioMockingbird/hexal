@@ -94,12 +94,17 @@ type returnFlow struct {
 // older pointer values so deferred captures survive later rebinding.
 // provenance records which List binding each Bytes stream borrows, and
 // releasedSources marks lists the local facts prove already freed.
+// stringOrigins records possible String storage origins per binding and
+// stringPlaces per member or element place; both union at control-flow
+// joins, and reads without a record fall through to the runtime check.
 type flowState struct {
 	facts           map[BindingID]flowFact
 	tracked         map[BindingID]bool
 	released        map[BindingID]map[uint64]bool
 	provenance      map[BindingID]BindingID
 	releasedSources map[BindingID]bool
+	stringOrigins   map[BindingID]stringOriginSet
+	stringPlaces    map[stringPlaceKey]stringOriginSet
 }
 
 func newFlowState() *flowState {
@@ -109,6 +114,8 @@ func newFlowState() *flowState {
 		released:        make(map[BindingID]map[uint64]bool),
 		provenance:      make(map[BindingID]BindingID),
 		releasedSources: make(map[BindingID]bool),
+		stringOrigins:   make(map[BindingID]stringOriginSet),
+		stringPlaces:    make(map[stringPlaceKey]stringOriginSet),
 	}
 }
 
@@ -131,6 +138,12 @@ func (state *flowState) clone() *flowState {
 	}
 	for id := range state.releasedSources {
 		cloned.releasedSources[id] = true
+	}
+	for id, set := range state.stringOrigins {
+		cloned.stringOrigins[id] = set
+	}
+	for key, set := range state.stringPlaces {
+		cloned.stringPlaces[key] = set
 	}
 	return cloned
 }
@@ -487,7 +500,9 @@ func (state *flowState) nextFreedVersion(id BindingID, current uint64) uint64 {
 // escape records that a writable address of the binding escaped. It clears
 // narrowing and cleanup tracking because the slot can now change unseen.
 // Stream facts ride the same wipe: capability and borrow provenance fall to
-// the unknown envelope.
+// the unknown envelope. String origins fall back to the runtime check the
+// same way: the binding record is dropped and every member record rooted at
+// it is removed, so later reads observe opaque instead of stale static.
 func (state *flowState) escape(id BindingID) {
 	if state == nil {
 		return
@@ -500,6 +515,8 @@ func (state *flowState) escape(id BindingID) {
 		}
 	}
 	delete(state.releasedSources, id)
+	delete(state.stringOrigins, id)
+	state.dropStringPlaces(id)
 }
 
 // mergeBranch merges one branch's invalidation effects. New control-flow code
@@ -698,6 +715,39 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 			delete(state.releasedSources, id)
 		}
 	}
+
+	// String storage origins union across continuing paths: a static
+	// possibility on any path keeps the merged place rejectable, while an
+	// escaped binding stays dropped and reads opaque. Keys the parent never
+	// saw belong to branch-local bindings and stay out of the continuation.
+	mergedOrigins := make(map[BindingID]stringOriginSet, len(parent.stringOrigins))
+	for id, set := range parent.stringOrigins {
+		if fact, ok := state.facts[id]; ok && fact.escaped {
+			continue
+		}
+		merged := set
+		for _, branch := range branches {
+			if branch != nil {
+				merged |= branch.stringOrigins[id]
+			}
+		}
+		mergedOrigins[id] = merged
+	}
+	state.stringOrigins = mergedOrigins
+	mergedPlaces := make(map[stringPlaceKey]stringOriginSet, len(parent.stringPlaces))
+	for key, set := range parent.stringPlaces {
+		if fact, ok := state.facts[key.root]; ok && fact.escaped {
+			continue
+		}
+		merged := set
+		for _, branch := range branches {
+			if branch != nil {
+				merged |= branch.stringPlaces[key]
+			}
+		}
+		mergedPlaces[key] = merged
+	}
+	state.stringPlaces = mergedPlaces
 }
 
 // adopt replaces the continuing state with one continuing branch's facts
@@ -729,6 +779,14 @@ func (state *flowState) adopt(branch *flowState) {
 	state.releasedSources = make(map[BindingID]bool, len(branch.releasedSources))
 	for id := range branch.releasedSources {
 		state.releasedSources[id] = true
+	}
+	state.stringOrigins = make(map[BindingID]stringOriginSet, len(branch.stringOrigins))
+	for id, set := range branch.stringOrigins {
+		state.stringOrigins[id] = set
+	}
+	state.stringPlaces = make(map[stringPlaceKey]stringOriginSet, len(branch.stringPlaces))
+	for key, set := range branch.stringPlaces {
+		state.stringPlaces[key] = set
 	}
 }
 

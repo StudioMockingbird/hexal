@@ -130,7 +130,7 @@ func hoistStringInterpolate(node checker.Expression, body *strings.Builder, stat
 		fmt.Fprintf(body, "%s%s += %s;\n", indent, offsetTemp, plan.byteLen)
 	}
 	fmt.Fprintf(body, "%s%s->bytes[%s] = 0;\n", indent, storageTemp, totalTemp)
-	fmt.Fprintf(body, "%s%s->header = (hex_string){ .data = %s->bytes, .byte_length = %s, .rune_length = %s };\n",
+	fmt.Fprintf(body, "%s%s->header = (hex_string){ .data = %s->bytes, .byte_length = %s, .rune_length = %s, .storage_kind = HEX_STRING_OWNED };\n",
 		indent, storageTemp, storageTemp, totalTemp, runesTemp)
 	resultTemp := fmt.Sprintf("hex_interp_result_%d", ordinal)
 	fmt.Fprintf(body, "%sconst hex_string *const %s = &%s->header;\n", indent, resultTemp, storageTemp)

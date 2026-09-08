@@ -413,9 +413,12 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, ctx.names) {
 		declaredBinding.fromRef = true
 	}
-	if declaredType.View != nil {
+	if typeCanContainView(declaredType, make(map[string]bool)) {
 		declaredBinding.viewRoots = initializer.source.Node.ViewRoots
 		declaredBinding.viewRootKind = initializer.source.Node.RootKind
+	}
+	if ctx.names.flow != nil {
+		recordStringBinding(ctx.names.flow, declaredBinding.id, initializer.source.Node, ctx)
 	}
 	if len(diagnostics) == 0 && !declaration.Mutable && initializer.known != nil {
 		// The initializer's known value becomes this binding's known-value
@@ -509,6 +512,9 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 			ctx.names.flow.clearFreed(targetBinding)
 		}
 		seedStreamBindingFacts(ctx.names.flow, targetBinding, targetType, initializer.source)
+	}
+	if len(diagnostics) == 0 && ctx.names.flow != nil {
+		recordStringAssignment(ctx.names.flow, target.source, initializer.source, targetBinding, ctx)
 	}
 	if len(diagnostics) == 0 && targetBinding != 0 {
 		// Assignment re-sources the slot: the binding now holds the ref-derived

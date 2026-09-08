@@ -155,8 +155,13 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 		}
 	}
 	value := &ObjectValue{Type: literalType, Initializers: values}
+	members := make([]Expression, 0, len(values))
+	for _, initialized := range values {
+		members = append(members, initialized.Source.Node)
+	}
+	roots, kind := mergeViewProvenance(members)
 	return initializerValue{
-		source:      Operand{Kind: ObjectOperand, Type: literalType, Object: value, Node: Expression{Kind: ObjectExpression, Object: value}},
+		source:      Operand{Kind: ObjectOperand, Type: literalType, Object: value, Node: Expression{Kind: ObjectExpression, Object: value, ViewRoots: roots, RootKind: kind}},
 		typ:         literalType,
 		token:       typeName,
 		diagnostics: diagnostics,

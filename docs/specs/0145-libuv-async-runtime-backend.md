@@ -8,7 +8,8 @@
 - Depends on: RFC 0132 (root scheduler bootstrap)
 - Coordinates with: RFC 0052 (C compiler backend), RFC 0055 (filesystem/build
   driver), RFC 0118 (concurrency safety), RFC 0144 (high-throughput network
-  runtime), and the current Task and IO contracts in `docs/reference.md`
+  runtime), RFC 0146 (mimalloc allocation backend), and the current Task and IO
+  contracts in `docs/reference.md`
 - Supersedes: the compiler-generated program-wide blocking-thread pool and RFC
   0144's open choice between direct OS reactors and a portable dependency
 - Does not replace: Hexal Tasks, fibers, the M:N scheduler, Channels, Mutexes,
@@ -109,7 +110,7 @@ type or callback as a language builtin.
 | Environment, paths, host/user/group, priority, memory, CPU, interface, and load queries | absent | use only parallelism and required qualification/measurement facts | future OS and observability libraries |
 | Loop metrics and active-handle diagnostics | absent | yes: implement internally from the first loop | no stable language API |
 | UTF-16/WTF-8 conversion | private Windows conversions exist where needed | use when a qualified Windows boundary would otherwise need custom conversion | no general text-conversion surface |
-| Libuv allocator replacement | Heap, Stash, and Pool define Hexal allocation | no: explicitly rejected | cannot represent Hexal allocator ownership |
+| Libuv allocator replacement | Heap, Stash, and Pool define Hexal allocation | delegated to RFC 0146: install the same mimalloc backend before libuv initialization | does not replace language allocator ownership |
 
 ### Selection rule
 
@@ -457,8 +458,9 @@ The stack-overflow signal/exception path is excluded because it must remain
 async-signal-safe and adjacent to the fiber implementation. Libuv signal handles
 may back later ordinary process-signal observation but do not replace that path.
 
-Libuv's allocator-replacement hook is excluded. It changes libuv's global
-allocator and cannot express Hexal's explicit Heap, Stash, or Pool ownership.
+RFC 0146 owns libuv's allocator-replacement hook. It may unify libuv's internal
+raw allocation with Hexal's mimalloc backend, but it does not express or replace
+Hexal's explicit Heap, Stash, or Pool ownership.
 
 ## Cancellation
 

@@ -66,6 +66,7 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 		ResultType:  expected,
 		Arguments:   elements,
 	}
+	node.ViewRoots, node.RootKind = mergeViewProvenance(operandNodes(elements))
 	source := Operand{Kind: ExpressionOperand, Type: expected, Node: node}
 	return checkedExpression{source: source, typ: expected, token: expression.OpenBracket}
 }

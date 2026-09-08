@@ -165,11 +165,46 @@ func TestViewReturnRules(t *testing.T) {
 			t.Fatalf("want reject; got accept:\n%s", source)
 		}
 	}
-	// Documented limitation: a View nested inside a returned aggregate is
-	// not diagnosed; catching it would require escape analysis.
+	// A View nested inside a returned aggregate is diagnosed: the nested
+	// borrow outlives the function exactly like a direct View return.
 	nested := "type Window is struct visible: View<Int32> end\nfun bad(): Window do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return Window(visible = fixed.slice(0, 2))\nend\n"
-	if result := compileSource(nested); result.ExitCode != compiler.ExitSuccess {
-		t.Fatalf("nested View return must compile by design: %v", result.Stderr)
+	if result := compileSource(nested); result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "a returned value contains a View that borrows a local of this function") {
+		t.Fatalf("nested View return must be rejected: %#v", result.Stderr)
+	}
+}
+
+// Nested View returns are rejected in every aggregate shape that can carry
+// one, through bindings and transparent wrappers, while parameter-rooted,
+// empty, foreign, and handle-owned shapes stay accepted.
+func TestNestedViewReturnSafety(t *testing.T) {
+	rejected := []string{
+		"type W is union | A as v: View<Int32> end | B as x: Int32 end end\nfun bad(): W do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return W.A(v = fixed.slice(0, 2))\nend\n",
+		"type U is union View<Int32> | Nil end\nfun bad(): U do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    v: View<Int32> | Nil := fixed.slice(0, 2)\n    return v\nend\n",
+		"type Window is struct visible: View<Int32> end\nfun bad(): Array<Window, 1> do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return [Window(visible = fixed.slice(0, 2))]\nend\n",
+		"type Window is struct visible: View<Int32> end\nfun bad(): Window do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    tmp := Window(visible = fixed.slice(0, 2))\n    return tmp\nend\n",
+		"fun bad(): View<Int32> | Nil do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
+		"type Window is struct visible: View<Int32> end\nfun bad(ok: Bool): Window do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return match ok\n    | true then Window(visible = fixed.slice(0, 2))\n    | false then Window(visible = fixed.slice(2, 4))\n    end\nend\n",
+	}
+	for _, source := range rejected {
+		if result := compileSource(source); result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "a returned value contains a View that borrows a local of this function") {
+			t.Fatalf("want nested rejection; got %#v:\n%s", result.Stderr, source)
+		}
+	}
+	accepted := []string{
+		"type Window is struct visible: View<Int32> end\nfun ok(v: View<Int32>): Window do\n    return Window(visible = v)\nend\n",
+		"type Window is struct visible: View<Int32> end\nfun ok(v: View<Int32>): Window do\n    tmp := Window(visible = v)\n    return tmp\nend\n",
+		"type Window is struct visible: View<Int32> end\nfun ok(): Window do\n    return Window(visible = View<Int32>.empty())\nend\n",
+		"type Window is struct visible: View<Int32> end\nfun ok(p: Ptr<Int32>, n: Size): Window do\n    return Window(visible = View<Int32>.from_pointer(p, n))\nend\n",
+		"fun keep(h: Heap): List<Int32> do\n    values: List<Int32> := List<Int32>(h)\n    return values\nend\n",
+	}
+	for _, source := range accepted {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
+		}
+	}
+	direct := "fun head(): View<Int32> do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n"
+	if result := compileSource(direct); result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "a View cannot be returned when it borrows a local of this function") {
+		t.Fatalf("direct View return must keep its diagnostic: %#v", result.Stderr)
 	}
 }
 

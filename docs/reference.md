@@ -511,6 +511,11 @@ HeapAllocation
 - `Ptr<T>` is non-null, non-owning, and read-only through the pointer. `MutPtr<T>` is non-null,
   non-owning, and writable through the pointer.
 - `ref place` is the only address-taking form: writable places yield MutPtr, fixed places Ptr.
+- A directly returned `ref` of a local binding of the returning function is rejected, including
+  when the result widens to `Ptr | Nil`/`MutPtr | Nil`; the same check View return-safety uses.
+  Parameter-reached, `self`-reached, and Heap/Stash/Pool-allocated pointers remain returnable. A
+  local-rooted Ptr/MutPtr nested inside a returned object, ADT, union, or Array is not yet tracked;
+  this covers the direct case only.
 - MutPtr weakens implicitly to Ptr at the outermost layer only. No upgrade or nested weakening.
 - `.value` dereferences. Nullability is explicit `P | Nil`; nullable data pointers must be narrowed
   with `== nil`, `!= nil`, or match before dereference. The null niche adds no tag or allocation.
@@ -951,8 +956,10 @@ View<T>.slice(start: Integer, end: Integer) -> View<T>
   storage or be addressed with `ref`; these are provenance/address rules, not placement rules.
   Root-level View bindings are locals. Bounds checks remain active after construction.
 - A View may return when rooted in a parameter, parameter-reached storage, `from_pointer` region, or
-  empty View. A directly returned local-rooted View is rejected. Direct View return analysis does not
-  inspect Views nested in returned objects, ADTs, unions, or collections.
+  empty View. A directly returned local-rooted View is rejected, and so is any returned object, ADT,
+  union, or Array with a nested View that borrows a function local, including through local bindings
+  and match results. Bindings are transparent: only ultimate roots decide. Views nested in List or
+  Dict storage and interprocedural provenance stay outside local analysis.
 - Resize invalidation and `from_pointer` region lifetime are not tracked. View validity requires a
   valid source.
 
@@ -1036,7 +1043,9 @@ RuneCursor.next() -> Rune
 - RuneCursor borrows String; `next` traps after exhaustion. Copies hold independent positions over
   the same storage.
 - Runtime String allocations require one matching free; all aliases then dangle. Literals must never
-  be freed. Collection reads produce aliases without ownership transfer or lifetime protection.
+  be freed: a free the checker proves literal-backed is rejected, and any other literal-backed free
+  traps at runtime. Runtime String storage records its ownership. Collection reads produce aliases
+  without ownership transfer or lifetime protection.
 - String and Strand dispatch separately; Strand exposes no View into inline bytes.
 - A raw string literal (`r"..."`, `r#"..."#`, `r##"..."##`, ...) copies its content byte-for-byte
   with no escape or interpolation processing; any number of `#` delimiters is accepted, and the

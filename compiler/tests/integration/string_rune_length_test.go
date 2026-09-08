@@ -32,9 +32,9 @@ func TestCachedRuneLengthSetAtEveryConstructionPath(t *testing.T) {
 	source_c := stringC(t, assertCompiles(t, source))
 	for name, want := range map[string]string{
 		"literal":    "const hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 5, .rune_length = 5 };",
-		"from_bytes": ".data = storage->bytes, .byte_length = length, .rune_length = runes };",
-		"from_runes": ".data = storage->bytes, .byte_length = bytes, .rune_length = length };",
-		"concat":     ".rune_length = left->rune_length + right->rune_length };",
+		"from_bytes": ".data = storage->bytes, .byte_length = length, .rune_length = runes, .storage_kind = HEX_STRING_OWNED };",
+		"from_runes": ".data = storage->bytes, .byte_length = bytes, .rune_length = length, .storage_kind = HEX_STRING_OWNED };",
+		"concat":     ".rune_length = left->rune_length + right->rune_length, .storage_kind = HEX_STRING_OWNED };",
 		"to_string":  "return hex_string_from_bytes(h, text->data, text->byte_length);",
 	} {
 		if !strings.Contains(source_c, want) {

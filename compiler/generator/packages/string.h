@@ -5,10 +5,20 @@
 #include "hexal/heap.h"
 #include "hexal/view.h"
 
+typedef enum hex_string_storage_kind {
+    HEX_STRING_STATIC = 0,
+    HEX_STRING_OWNED = 1
+} hex_string_storage_kind;
+
 typedef struct hex_string {
     const uint8_t *data;
     size_t byte_length;
     size_t rune_length;
+    // Storage kind is zero (static) for literal headers through C's
+    // zero-initialization of the omitted field; every owning constructor
+    // marks its header owned explicitly. An omitted owning mark therefore
+    // fails safely by trapping instead of permitting an invalid free.
+    hex_string_storage_kind storage_kind;
 } hex_string;
 
 typedef struct hex_string_storage {

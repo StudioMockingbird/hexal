@@ -71,6 +71,12 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:        "string-owned-cleanup-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    built: String := String.interpolate(h, \"n={{ 41 }}\")\n    defer built.free(h)\n    copied: String := built.to_string(h)\n    defer copied.free(h)\n    return built.length() == 4\nend\nprint(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
 		name:        "print-runs",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "type Point is struct\n    x: Int32,\n    y: Int32,\nend\nprint(\"count = \", 42, \"\\n\")\nprint(true, false, nil)\nprint(1.5, -2.5)\npoint: Point := Point(x = 10, y = 20)\nprint(point)\nprint(\"\\n\")"},
@@ -202,6 +208,12 @@ var fixtureCatalog = []fixture{
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "fun demo() do\n    text: String := \"hex\"\n    cursor: RuneCursor := text.rune_cursor()\n    cursor.next()\n    cursor.next()\n    cursor.next()\n    late: Rune := cursor.next()\n    print(late)\nend\ndemo()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] RuneCursor has no next value"},
+	},
+	{
+		name:        "string-literal-free-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun cleanup(h: Heap, text: String) do\n    text.free(h)\nend\ncleanup(Heap(), \"hello\")\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] cannot free a String literal"},
 	},
 
 	// Concurrency runs on the M:N scheduler over native platform threads.

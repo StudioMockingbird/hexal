@@ -104,7 +104,7 @@ const hex_string *hex_string_from_bytes(hex_heap h, const uint8_t *data, size_t 
         hex_runtime_trap("[Runtime Error] string allocation size overflow\n");
     }
     hex_string_storage *storage = hex_heap_allocate(total);
-    storage->header = (hex_string){ .data = storage->bytes, .byte_length = length, .rune_length = runes };
+    storage->header = (hex_string){ .data = storage->bytes, .byte_length = length, .rune_length = runes, .storage_kind = HEX_STRING_OWNED };
     // A zero-length payload skips the guarded memcpy so a possibly invalid
     // source pointer is never passed to a standard memory function.
     if (length != 0) {
@@ -150,7 +150,7 @@ const hex_string *hex_string_from_runes(hex_heap h, const uint32_t *data, size_t
     for (size_t index = 0; index < length; index++) {
         out += hex_utf8_encode(storage->bytes + out, data[index]);
     }
-    storage->header = (hex_string){ .data = storage->bytes, .byte_length = bytes, .rune_length = length };
+    storage->header = (hex_string){ .data = storage->bytes, .byte_length = bytes, .rune_length = length, .storage_kind = HEX_STRING_OWNED };
     storage->bytes[bytes] = 0;
     return &storage->header;
 }
@@ -174,7 +174,7 @@ const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const he
         hex_runtime_trap("[Runtime Error] string concatenation length overflow\n");
     }
     hex_string_storage *storage = hex_heap_allocate(total);
-    storage->header = (hex_string){ .data = storage->bytes, .byte_length = length, .rune_length = left->rune_length + right->rune_length };
+    storage->header = (hex_string){ .data = storage->bytes, .byte_length = length, .rune_length = left->rune_length + right->rune_length, .storage_kind = HEX_STRING_OWNED };
     // Each input copies with a guarded memcpy; the freshly allocated
     // destination cannot overlap the immutable inputs.
     if (left->byte_length != 0) {
@@ -189,6 +189,12 @@ const hex_string *hex_string_concat(hex_heap h, const hex_string *left, const he
 
 void hex_string_free(hex_heap h, const hex_string *text) {
     (void)h;
+    // Only owned storage names a heap allocation base. A static literal
+    // header shares the handle representation but no allocation; freeing it
+    // is a programmer error that traps instead of reaching the deallocator.
+    if (text->storage_kind != HEX_STRING_OWNED) {
+        hex_runtime_trap("[Runtime Error] cannot free a String literal\n");
+    }
     // hex_string is the first member of hex_string_storage, so the member
     // pointer and the allocation base share an address. The uintptr_t round
     // trip recovers that base without a const-qualified pointer conversion.

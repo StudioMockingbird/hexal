@@ -141,6 +141,7 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 			ResultType:  destination,
 			MemberMap:   mapping,
 		}
+		checkedNode.ViewRoots, checkedNode.RootKind = mergeViewProvenance([]Expression{node})
 		result := Operand{Kind: ExpressionOperand, Type: destination, Node: checkedNode}
 		return checkedExpression{source: result, typ: destination, token: source.token}
 	}
@@ -155,6 +156,7 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 		ResultType:  destination,
 		MemberIndex: memberIndex,
 	}
+	checkedNode.ViewRoots, checkedNode.RootKind = mergeViewProvenance([]Expression{node})
 	result := Operand{Kind: ExpressionOperand, Type: destination, Node: checkedNode}
 	return checkedExpression{source: result, typ: destination, token: source.token}
 }
