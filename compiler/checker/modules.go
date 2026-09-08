@@ -282,6 +282,30 @@ func (registry *ModuleRegistry) importTarget(moduleID, alias string) (string, bo
 	return target, ok
 }
 
+// aliasForModule returns the lexicographically first import alias of
+// moduleID naming target, for deterministic diagnostics. Rendering uses
+// aliases, never canonical keys or C names.
+func (registry *ModuleRegistry) aliasForModule(moduleID, target string) (string, bool) {
+	if registry == nil {
+		return "", false
+	}
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return "", false
+	}
+	aliases := make([]string, 0)
+	for alias, id := range entry.imports {
+		if id == target {
+			aliases = append(aliases, alias)
+		}
+	}
+	if len(aliases) == 0 {
+		return "", false
+	}
+	slices.Sort(aliases)
+	return aliases[0], true
+}
+
 // findExportedADTVariant locates the exported ADT of the target module that
 // carries variant, returning the ADT type and the variant record. Several
 // exported ADTs may share a variant name; the scan is sorted by type name so

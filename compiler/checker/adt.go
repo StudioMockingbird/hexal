@@ -2,7 +2,6 @@ package checker
 
 import (
 	"fmt"
-	"slices"
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
@@ -350,6 +349,186 @@ func variantPayloadPlace(receiver checkedExpression, property lexer.Token) check
 	return checkedExpression{source: source, typ: member.Type, token: property}
 }
 
+// matchCase is one closed coverage case in table order: its canonical
+// identity key, its lowering tag, and the resolved member or variant the arm
+// narrows to. Bool cases key by value name, ADT cases by variant name within
+// the one scrutinee ADT, and type cases by CanonicalKey, never Type.Name.
+type matchCase struct {
+	key     string
+	tag     int
+	member  compilerTypes.Type
+	variant string
+}
+
+// matchCoverage is the one ordered table owning membership, remaining
+// coverage, lowering tags, and first-missing order for a match. Covered
+// flags are index-aligned with cases; no parallel name-keyed map exists.
+type matchCoverage struct {
+	cases   []matchCase
+	covered []bool
+	open    bool
+}
+
+// buildMatchCoverage constructs the closed domain for a scrutinee type.
+// Value-mode Bool covers its two values; type mode covers ADT variants,
+// canonical union members, or the one exact type. Any other value-mode type
+// is an open domain where only else is a valid arm.
+func buildMatchCoverage(scrutineeType compilerTypes.Type, typeMode bool) matchCoverage {
+	isADT := compilerTypes.IsADT(scrutineeType)
+	isUnion := compilerTypes.IsUnion(scrutineeType)
+	isBool := compilerTypes.Equal(scrutineeType, compilerTypes.Bool)
+	switch {
+	case isADT:
+		cases := make([]matchCase, 0, len(scrutineeType.Adt.Variants))
+		for index, variant := range scrutineeType.Adt.Variants {
+			cases = append(cases, matchCase{key: variant.Name, tag: index, variant: variant.Name})
+		}
+		return matchCoverage{cases: cases, covered: make([]bool, len(cases))}
+	case isUnion:
+		members := compilerTypes.UnionMembers(scrutineeType)
+		cases := make([]matchCase, 0, members.Len())
+		for index := 0; index < members.Len(); index++ {
+			member, _ := members.At(index)
+			cases = append(cases, matchCase{key: member.CanonicalKey, tag: unionMemberIndex(scrutineeType, member), member: member})
+		}
+		return matchCoverage{cases: cases, covered: make([]bool, len(cases))}
+	case isBool && !typeMode:
+		return matchCoverage{
+			cases:   []matchCase{{key: "false", tag: 0}, {key: "true", tag: 1}},
+			covered: make([]bool, 2),
+		}
+	case typeMode:
+		return matchCoverage{
+			cases:   []matchCase{{key: scrutineeType.CanonicalKey, tag: -2, member: scrutineeType}},
+			covered: make([]bool, 1),
+		}
+	default:
+		return matchCoverage{open: true}
+	}
+}
+
+// cover marks one case covered, reporting false when it was already covered.
+func (coverage *matchCoverage) cover(index int) bool {
+	if coverage.covered[index] {
+		return false
+	}
+	coverage.covered[index] = true
+	return true
+}
+
+// coverAll marks every remaining case covered for a reachable else.
+func (coverage *matchCoverage) coverAll() {
+	for index := range coverage.covered {
+		coverage.covered[index] = true
+	}
+}
+
+// uncovered reports whether any closed case remains.
+func (coverage *matchCoverage) uncovered() bool {
+	for _, done := range coverage.covered {
+		if !done {
+			return true
+		}
+	}
+	return false
+}
+
+// find returns the first case index with key, or -1.
+func (coverage *matchCoverage) find(key string) int {
+	for index := range coverage.cases {
+		if coverage.cases[index].key == key {
+			return index
+		}
+	}
+	return -1
+}
+
+// firstMissing returns the first uncovered case in table order.
+func (coverage *matchCoverage) firstMissing() matchCase {
+	for index := range coverage.cases {
+		if !coverage.covered[index] {
+			return coverage.cases[index]
+		}
+	}
+	return matchCase{}
+}
+
+// resolveDottedVariantArm resolves Owner.Name to an ADT variant through a
+// local ADT owner, a generic-open ADT owner, or an import alias into the
+// target module's exported variants, reusing the construction registry path.
+// It reports whether the owner named any variant; membership against the
+// scrutinee stays with the caller.
+func resolveDottedVariantArm(pattern parser.DottedPattern, scrutineeType compilerTypes.Type, isADT bool, ctx checkContext) (*compilerTypes.AdtVariant, compilerTypes.Type, bool) {
+	if adtVariant, ok := ctx.typeEnvironment.AdtVariant(pattern.Owner.Lexeme, pattern.Name.Lexeme); ok {
+		owner, _ := ctx.typeEnvironment.Lookup(pattern.Owner.Lexeme)
+		return adtVariant, owner, true
+	}
+	if isADT && ctx.names.generics != nil {
+		if index := adtVariantIndex(scrutineeType, pattern.Name.Lexeme); index >= 0 {
+			if open, generic := ctx.names.generics.adtOpen[scrutineeType.Adt]; generic && open.Name == pattern.Owner.Lexeme {
+				return &scrutineeType.Adt.Variants[index], scrutineeType, true
+			}
+		}
+	}
+	if target, ok := ctx.names.importAliasTarget(pattern.Owner.Lexeme); ok {
+		if adtType, adtVariant, ok := ctx.names.registry.findExportedADTVariant(target, pattern.Name.Lexeme); ok {
+			return adtVariant, adtType, true
+		}
+	}
+	return nil, compilerTypes.Type{}, false
+}
+
+// matchQualifiedNominal renders one nominal case for the exhaustiveness
+// diagnostic: an imported nominal through the current module's
+// lexicographically first alias, and a local, builtin, or otherwise
+// alias-less nominal by short name.
+func matchQualifiedNominal(name, moduleID string, ctx checkContext) string {
+	if moduleID == "" || moduleID == ctx.names.moduleID {
+		return name
+	}
+	if alias, ok := ctx.names.registry.aliasForModule(ctx.names.moduleID, moduleID); ok {
+		return alias + "." + name
+	}
+	return name
+}
+
+// matchVariantOwnerName renders one ADT owner for the exhaustiveness
+// diagnostic: an imported ADT through the current module's
+// lexicographically first alias, and a local ADT by short name.
+func matchVariantOwnerName(adtType compilerTypes.Type, ctx checkContext) string {
+	if adtType.Adt == nil {
+		return adtType.Name
+	}
+	moduleID := adtType.Adt.ModuleID
+	if moduleID == "" || moduleID == ctx.names.moduleID {
+		return adtType.Adt.Name
+	}
+	if alias, ok := ctx.names.registry.aliasForModule(ctx.names.moduleID, moduleID); ok {
+		return alias
+	}
+	return adtType.Adt.Name
+}
+
+// matchMissingName renders one uncovered case: constructed types qualify
+// their nominal leaves, and every other member renders by short or
+// alias-qualified name.
+func matchMissingName(member compilerTypes.Type, ctx checkContext) string {
+	if member.Element != nil {
+		constructor := "Ptr"
+		if member.PointeeWritable {
+			constructor = "MutPtr"
+		}
+		return constructor + "<" + matchMissingName(*member.Element, ctx) + ">"
+	}
+	if member.Object != nil {
+		return matchQualifiedNominal(member.Object.Name, member.Object.ModuleID, ctx)
+	}
+	if member.Adt != nil {
+		return matchQualifiedNominal(member.Name, member.Adt.ModuleID, ctx)
+	}
+	return member.Name
+}
+
 // checkMatchExpression checks a match expression: the scrutinee evaluates
 // once, patterns are validated against the mode, arms narrow a named
 // scrutinee, and exhaustiveness and arm typing are enforced.
@@ -365,47 +544,43 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 	isADT := compilerTypes.IsADT(scrutineeType)
 	isUnion := compilerTypes.IsUnion(scrutineeType)
 	isBool := compilerTypes.Equal(scrutineeType, compilerTypes.Bool)
-
-	remaining := make(map[string]bool)
-	if isADT {
-		for _, variant := range scrutineeType.Adt.Variants {
-			remaining[variant.Name] = true
-		}
-	} else if isUnion {
-		members := compilerTypes.UnionMembers(scrutineeType)
-		for index := 0; index < members.Len(); index++ {
-			member, _ := members.At(index)
-			remaining[member.Name] = true
-		}
-	} else if isBool && !expression.TypeMode {
-		remaining["true"] = true
-		remaining["false"] = true
-	}
+	coverage := buildMatchCoverage(scrutineeType, expression.TypeMode)
 
 	scrutineeNode := expressionNode(scrutinee.source)
 	armResults := make([]Operand, 0, len(expression.Arms))
 	armTags := make([]int, 0, len(expression.Arms))
 	var resultType compilerTypes.Type
 	hasResult := false
+	// finishArm checks one resolved arm body and enforces result agreement,
+	// recording its lowering tag. A non-nil return is the arm diagnostic.
+	finishArm := func(arm parser.MatchArm, tag int, variant *compilerTypes.AdtVariant, member *compilerTypes.Type) *checkedExpression {
+		armTags = append(armTags, tag)
+		armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, variant, member, context, ctx)
+		if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
+			failed := checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+			return &failed
+		}
+		if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
+			failed := checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
+			return &failed
+		}
+		resultType, hasResult = armResult.typ, true
+		armResults = append(armResults, armResult.source)
+		return nil
+	}
 	for armIndex, arm := range expression.Arms {
 		switch pattern := arm.Pattern.(type) {
 		case parser.ElsePattern:
 			if armIndex != len(expression.Arms)-1 {
 				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "else must be the final match arm"))}
 			}
-			for name := range remaining {
-				delete(remaining, name)
+			if !coverage.open && !coverage.uncovered() {
+				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "duplicate or unreachable match pattern"))}
 			}
-			armTags = append(armTags, -1)
-			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, nil, context, ctx)
-			if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
-				return checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+			coverage.coverAll()
+			if failed := finishArm(arm, -1, nil, nil); failed != nil {
+				return *failed
 			}
-			if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
-				return checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
-			}
-			resultType, hasResult = armResult.typ, true
-			armResults = append(armResults, armResult.source)
 		case parser.BoolPattern:
 			if expression.TypeMode {
 				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "value patterns are not valid in type mode"))}
@@ -413,26 +588,70 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 			if !isBool {
 				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "match pattern does not belong to the scrutinee type"))}
 			}
-			tag := 0
 			name := "false"
 			if pattern.Token.Kind == lexer.True {
-				tag = 1
 				name = "true"
 			}
-			if !remaining[name] {
+			index := coverage.find(name)
+			if index < 0 || !coverage.cover(index) {
 				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "duplicate or unreachable match pattern"))}
 			}
-			delete(remaining, name)
-			armTags = append(armTags, tag)
-			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, nil, context, ctx)
-			if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
-				return checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+			if failed := finishArm(arm, coverage.cases[index].tag, nil, nil); failed != nil {
+				return *failed
 			}
-			if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
-				return checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
+		case parser.DottedPattern:
+			if !expression.TypeMode {
+				return checkedExpression{token: pattern.Name, diagnostic: diagnosticAt(typeErrorAt(pattern.Name, "type and variant patterns are not valid in value mode"))}
 			}
-			resultType, hasResult = armResult.typ, true
-			armResults = append(armResults, armResult.source)
+			if _, isAlias := ctx.names.importAliasTarget(pattern.Owner.Lexeme); isAlias && !isADT {
+				// A union or exact scrutinee reads Owner.Name as the
+				// import-qualified type through the existing resolver, so
+				// visibility and unknown-name diagnostics stay owned by
+				// module resolution.
+				memberUse, diagnostic := resolveUnionMemberUse(parser.QualifiedTypeExpression{Module: pattern.Owner, Names: []lexer.Token{pattern.Name}}, expression.Keyword, ctx.typeEnvironment, ctx.names.generics)
+				if diagnostic != nil {
+					return checkedExpression{token: expression.Keyword, diagnostic: diagnostic}
+				}
+				member := memberUse.Type
+				if isUnion {
+					if !compilerTypes.ContainsUnionMember(scrutineeType, member) {
+						return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match pattern does not belong to the scrutinee type"))}
+					}
+					index := coverage.find(member.CanonicalKey)
+					if index < 0 || !coverage.cover(index) {
+						return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "duplicate or unreachable match pattern"))}
+					}
+					if failed := finishArm(arm, coverage.cases[index].tag, nil, &member); failed != nil {
+						return *failed
+					}
+				} else {
+					if !compilerTypes.Equal(scrutineeType, member) {
+						return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match pattern does not belong to the scrutinee type"))}
+					}
+					index := coverage.find(scrutineeType.CanonicalKey)
+					if index < 0 || !coverage.cover(index) {
+						return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "duplicate or unreachable match pattern"))}
+					}
+					if failed := finishArm(arm, coverage.cases[index].tag, nil, &member); failed != nil {
+						return *failed
+					}
+				}
+				break
+			}
+			adtVariant, ownerType, ok := resolveDottedVariantArm(pattern, scrutineeType, isADT, ctx)
+			if !ok {
+				return checkedExpression{token: pattern.Name, diagnostic: diagnosticAt(typeErrorAt(pattern.Name, fmt.Sprintf("unknown qualified variant %s.%s", pattern.Owner.Lexeme, pattern.Name.Lexeme)))}
+			}
+			if !isADT || !compilerTypes.Equal(scrutineeType, ownerType) {
+				return checkedExpression{token: pattern.Name, diagnostic: diagnosticAt(typeErrorAt(pattern.Name, "match pattern does not belong to the scrutinee type"))}
+			}
+			index := coverage.find(adtVariant.Name)
+			if index < 0 || !coverage.cover(index) {
+				return checkedExpression{token: pattern.Name, diagnostic: diagnosticAt(typeErrorAt(pattern.Name, "duplicate or unreachable match pattern"))}
+			}
+			if failed := finishArm(arm, coverage.cases[index].tag, adtVariant, nil); failed != nil {
+				return *failed
+			}
 		case parser.VariantPattern:
 			if !expression.TypeMode {
 				return checkedExpression{token: pattern.Variant, diagnostic: diagnosticAt(typeErrorAt(pattern.Variant, "type and variant patterns are not valid in value mode"))}
@@ -459,20 +678,13 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 			if !isADT || !ownerMatches {
 				return checkedExpression{token: pattern.Variant, diagnostic: diagnosticAt(typeErrorAt(pattern.Variant, "match pattern does not belong to the scrutinee type"))}
 			}
-			if !remaining[adtVariant.Name] {
+			index := coverage.find(adtVariant.Name)
+			if index < 0 || !coverage.cover(index) {
 				return checkedExpression{token: pattern.Variant, diagnostic: diagnosticAt(typeErrorAt(pattern.Variant, "duplicate or unreachable match pattern"))}
 			}
-			delete(remaining, adtVariant.Name)
-			armTags = append(armTags, adtVariantIndex(scrutineeType, adtVariant.Name))
-			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, adtVariant, nil, context, ctx)
-			if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
-				return checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+			if failed := finishArm(arm, coverage.cases[index].tag, adtVariant, nil); failed != nil {
+				return *failed
 			}
-			if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
-				return checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
-			}
-			resultType, hasResult = armResult.typ, true
-			armResults = append(armResults, armResult.source)
 		case parser.TypePattern:
 			if !expression.TypeMode {
 				return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "type and variant patterns are not valid in value mode"))}
@@ -486,52 +698,36 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 				if !compilerTypes.ContainsUnionMember(scrutineeType, member) {
 					return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match pattern does not belong to the scrutinee type"))}
 				}
-				if !remaining[member.Name] {
+				index := coverage.find(member.CanonicalKey)
+				if index < 0 || !coverage.cover(index) {
 					return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "duplicate or unreachable match pattern"))}
 				}
-				delete(remaining, member.Name)
-				armTags = append(armTags, unionMemberIndex(scrutineeType, member))
-			} else if !compilerTypes.Equal(scrutineeType, member) {
-				return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match pattern does not belong to the scrutinee type"))}
+				if failed := finishArm(arm, coverage.cases[index].tag, nil, &member); failed != nil {
+					return *failed
+				}
 			} else {
-				armTags = append(armTags, -2)
+				if !compilerTypes.Equal(scrutineeType, member) {
+					return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match pattern does not belong to the scrutinee type"))}
+				}
+				index := coverage.find(scrutineeType.CanonicalKey)
+				if index < 0 || !coverage.cover(index) {
+					return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "duplicate or unreachable match pattern"))}
+				}
+				if failed := finishArm(arm, coverage.cases[index].tag, nil, &member); failed != nil {
+					return *failed
+				}
 			}
-			armResult := checkMatchArm(expression.Scrutinee, arm, scrutinee, nil, &member, context, ctx)
-			if diagnostics := initializerDiagnostics(armResult); len(diagnostics) > 0 {
-				return checkedExpression{token: arm.Then, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
-			}
-			if hasResult && !compilerTypes.Equal(resultType, armResult.typ) {
-				return checkedExpression{token: arm.Then, diagnostic: diagnosticAt(typeErrorAt(arm.Then, "match arm result types do not agree"))}
-			}
-			resultType, hasResult = armResult.typ, true
-			armResults = append(armResults, armResult.source)
 		}
 	}
-	if len(remaining) > 0 {
-		missing := ""
-		// Report the first missing member in canonical declaration order so
-		// the diagnostic is deterministic; map iteration order is not.
-		members := compilerTypes.UnionMembers(scrutineeType)
-		for index := 0; index < members.Len(); index++ {
-			if member, _ := members.At(index); remaining[member.Name] {
-				missing = member.Name
-				break
-			}
-		}
-		if missing == "" {
-			remainingNames := make([]string, 0, len(remaining))
-			for name := range remaining {
-				remainingNames = append(remainingNames, name)
-			}
-			slices.Sort(remainingNames)
-			if len(remainingNames) > 0 {
-				missing = remainingNames[0]
-			}
-		}
+	if coverage.uncovered() {
+		missing := coverage.firstMissing()
+		name := missing.key
 		if isADT {
-			missing = scrutineeType.Name + "." + missing
+			name = matchVariantOwnerName(scrutineeType, ctx) + "." + missing.variant
+		} else if missing.member != (compilerTypes.Type{}) {
+			name = matchMissingName(missing.member, ctx)
 		}
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, fmt.Sprintf("match is not exhaustive; missing %s", missing)))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, fmt.Sprintf("match is not exhaustive; missing %s", name)))}
 	}
 	node := Expression{
 		Kind:        MatchExpression,

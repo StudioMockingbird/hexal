@@ -44,7 +44,6 @@ gets deleted.
 
 | Bug | Owning spec |
 | --- | --- |
-| Match misclassifies imported dotted patterns, keys union coverage by short type name, and accepts duplicate exact-type arms or unreachable final `else` arms | [0133](specs/0133-match-exhaustiveness-and-qualified-patterns.md) |
 | Returned inline aggregates can hide a View that borrows a local of the returning function | [0137](specs/0137-nested-view-return-safety.md) |
 | Mutable List/Dict storage can retain a local-rooted View beyond that local's lifetime; safe handling needs container mutation and alias rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
 | `String.free` accepts literal-backed static storage and passes it to the heap deallocator | [0138](specs/0138-string-literal-free-safety.md) |

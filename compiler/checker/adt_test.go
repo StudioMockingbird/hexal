@@ -143,6 +143,27 @@ func TestCheckMatchElseIsFinalAndCovers(t *testing.T) {
 	requireDiagnostic(t, "value: Int32 | Nil := nil label: Int32 := match value is\n| else then 1\n| Nil then 0\nend", "else must be the final match arm")
 }
 
+// The canonical coverage table gives an exact non-union type its own case:
+// a second identical arm is a duplicate and else after it is unreachable.
+func TestCheckMatchExactTypeCoverage(t *testing.T) {
+	requireAccepted(t, "x: Int32 := 1 label: Int32 := match x is\n| Int32 then 1\nend")
+	requireDiagnostic(t, "x: Int32 := 1 label: Int32 := match x is\n| Int32 then 1\n| Int32 then 2\nend", "duplicate or unreachable match pattern")
+	requireDiagnostic(t, "x: Int32 := 1 label: Int32 := match x is\n| Int32 then 1\n| else then 2\nend", "duplicate or unreachable match pattern")
+}
+
+// A final else is reachable only while a case remains: full Bool, union, and
+// ADT coverage each reject it.
+func TestCheckMatchElseAfterCompleteCoverageIsUnreachable(t *testing.T) {
+	requireDiagnostic(t, "x: Bool := true label: Int32 := match x\n| true then 1\n| false then 2\n| else then 3\nend", "duplicate or unreachable match pattern")
+	requireDiagnostic(t, "value: Int32 | Nil := nil label: Int32 := match value is\n| Int32 then 1\n| Nil then 0\n| else then 2\nend", "duplicate or unreachable match pattern")
+	requireDiagnostic(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end shape: Shape := Shape.Circle(r = 10) label: Int32 := match shape is\n| Shape.Circle then 1\n| Shape.Square then 2\n| else then 3\nend", "duplicate or unreachable match pattern")
+}
+
+// A non-Bool value-mode scrutinee is an open domain: only else covers it.
+func TestCheckMatchOpenValueModeRequiresElse(t *testing.T) {
+	requireAccepted(t, "x: Int32 := 1 label: Int32 := match x\n| else then 1\nend")
+}
+
 func TestCheckMatchModeErrors(t *testing.T) {
 	// A type-mode Bool pattern covers the complete scrutinee and is valid.
 	requireAccepted(t, "ready: Bool := true label: Int32 := match ready is\n| Bool then 1\nend")

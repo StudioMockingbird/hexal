@@ -119,7 +119,7 @@
     {
       "id": "types-exhaustive-protocol",
       "name": "Exhaustive protocol",
-      "description": "Matches every protocol variant with an explicit fallback.",
+      "description": "Matches every protocol variant explicitly.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Protocol is Ping | Pong | Quit end",
@@ -128,11 +128,10 @@
         "| Protocol.Ping then 1",
         "| Protocol.Pong then 2",
         "| Protocol.Quit then 0",
-        "| else then 9",
         "end"
       ]},
       "features": ["adts", "match"],
-      "reservedWords": ["type", "match", "is", "then", "else", "end"]
+      "reservedWords": ["type", "match", "is", "then", "end"]
     },
     {
       "id": "types-variant-payload",

@@ -188,9 +188,10 @@ match-scrutinee = ? expression ending before the first unparenthesized
                     "is" type-mode marker or match-arm "|" ? ;
 match-arm-expression = ? expression ending before the next unparenthesized
                          match-arm "|" or the matching "end" ? ;
-match-pattern = "else" | "true" | "false"
+match-pattern = "else" | "true" | "false" | dotted-match-pattern
                 | qualified-variant-pattern | primary-type-expression ;
-qualified-variant-pattern = identifier , [ type-argument-list ]
+dotted-match-pattern = identifier , "." , identifier ;
+qualified-variant-pattern = identifier , type-argument-list
                             , "." , identifier ;
 
 unary-operator = "-" | "!" | "~" ;
@@ -660,9 +661,14 @@ HeapAllocation
   specialization are valid.
 - `match` is an expression and evaluates its scrutinee once. Value mode matches `true`/`false`.
   Type mode (`match value is`) matches exact complete types, individual union members, Nil, or ADT
-  variants; a union type itself is not one pattern.
+  variants; a union type itself is not one pattern. A dotted pattern is neutral syntax resolved by
+  scrutinee domain: against an ADT scrutinee it denotes that ADT's variant named through a local
+  owner or import alias, and against any other scrutinee it denotes the import-qualified type.
+  Coverage is canonical type identity, never a short name: each canonical union member, each ADT
+  variant, or the one exact non-union type.
 - Arms are `| pattern then expression`; optional final `else` is catch-all. Match is exhaustive;
-  duplicates and patterns unable to match remaining values are errors. Arms run in source order.
+  duplicates and patterns unable to match remaining values are errors, and a final `else` is an
+  error when no value remains. Arms run in source order.
 - Arm result types agree unless an expected result accepts every arm. A named scrutinee narrows only
   inside its arm; ADT arms expose only that variant's payload.
 - Unparenthesized `|` starts another arm. Bitwise-or scrutinees/results require parentheses. An `is`

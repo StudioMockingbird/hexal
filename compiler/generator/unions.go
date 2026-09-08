@@ -94,12 +94,27 @@ func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, err
 	}
 	return state, nil
 }
-func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, tags *tagRegistry) {
+
+// writeUnionForwardDeclarations emits `typedef struct CName CName;` for every
+// discovered union, ahead of every full body, mirroring
+// writeAdtForwardDeclarations.
+func writeUnionForwardDeclarations(result *strings.Builder, state *generatedUnionState) {
 	if state == nil {
 		return
 	}
 	for _, union := range state.order {
-		writeUnionDefinition(result, union, tags)
+		name := union.CName
+		fmt.Fprintf(result, "\ntypedef struct %s %s;\n", name, name)
+	}
+}
+
+// writeUnionDefinitions emits every union's widening and truthiness helpers.
+// Full struct bodies are emitted by the dependency-ordered driver in
+// emission.go, through writeOneUnionBody; by the time this runs, every
+// union's own body already exists.
+func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, tags *tagRegistry) {
+	if state == nil {
+		return
 	}
 	for _, widening := range state.widenings {
 		writeUnionWidening(result, widening, tags)
@@ -111,12 +126,15 @@ func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, 
 	}
 }
 
-// writeUnionDefinition emits one union's wrapper struct: the shared hex_tag
+// writeOneUnionBody emits one union's full struct body: the shared hex_tag
 // discriminant and an unnamed payload-union type. Nil and EoS are tag-only
-// alternatives and spell no payload field.
-func writeUnionDefinition(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
+// alternatives and spell no payload field. Its own forward typedef must
+// already be in scope; a payload member naming another nominal type by value
+// additionally needs that type's own full body already written, which the
+// dependency-ordered driver in emission.go guarantees before calling this.
+func writeOneUnionBody(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
 	name := union.CName
-	fmt.Fprintf(result, "\ntypedef struct %s {\n    hex_tag tag;\n    union {\n", name)
+	fmt.Fprintf(result, "\nstruct %s {\n    hex_tag tag;\n    union {\n", name)
 	for _, member := range union.Union.Members {
 		if compilerTypes.IsNil(member) || compilerTypes.IsEoS(member) {
 			continue
@@ -127,7 +145,7 @@ func writeUnionDefinition(result *strings.Builder, union compilerTypes.Type, tag
 		}
 		fmt.Fprintf(result, "        %s %s;\n", typeSpelling(member), tags.unionPayloadField(member))
 	}
-	fmt.Fprintf(result, "    } payload;\n} %s;\n", name)
+	fmt.Fprintf(result, "    } payload;\n};\n")
 }
 
 func unionWidenHelperName(source, destination compilerTypes.Type) string {

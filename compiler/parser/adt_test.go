@@ -202,8 +202,31 @@ func TestParseTypeModeMatch(t *testing.T) {
 	if !ok || !match.TypeMode || len(match.Arms) != 2 {
 		t.Fatalf("initializer = %#v, want two-arm type match", program.Statements[0])
 	}
-	if _, ok := match.Arms[0].Pattern.(VariantPattern); !ok {
-		t.Fatalf("arm 0 pattern = %#v, want VariantPattern", match.Arms[0].Pattern)
+	dotted, ok := match.Arms[0].Pattern.(DottedPattern)
+	if !ok {
+		t.Fatalf("arm 0 pattern = %#v, want neutral DottedPattern", match.Arms[0].Pattern)
+	}
+	if dotted.Owner.Lexeme != "Shape" || dotted.Name.Lexeme != "Circle" {
+		t.Fatalf("arm 0 pattern = %#v, want Shape.Circle preserved verbatim", match.Arms[0].Pattern)
+	}
+}
+
+func TestParseGenericVariantMatchStaysClassified(t *testing.T) {
+	tokens, err := lexer.Lex("area: Int32 := match result is\n| Result<Int32, Bool>.Ok then 1\n| Result<Int32, Bool>.Err then 0\nend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	match, ok := program.Statements[0].(Declaration).Initializer.(MatchExpression)
+	if !ok || !match.TypeMode || len(match.Arms) != 2 {
+		t.Fatalf("initializer = %#v, want two-arm type match", program.Statements[0])
+	}
+	variant, ok := match.Arms[0].Pattern.(VariantPattern)
+	if !ok || len(variant.OwnerArguments) != 2 {
+		t.Fatalf("arm 0 pattern = %#v, want explicit generic VariantPattern", match.Arms[0].Pattern)
 	}
 }
 

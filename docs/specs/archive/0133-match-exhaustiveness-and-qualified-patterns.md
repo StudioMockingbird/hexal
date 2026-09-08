@@ -1,7 +1,30 @@
 # RFC 0133: Match Exhaustiveness and Qualified Patterns
 
 - Kind: Language Semantics
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented 2026-09-08. `compiler/parser/ast.go` and
+  `expressions.go` now parse a simple `identifier.identifier` match arm as
+  `DottedPattern`, an ambiguous-until-checked node, instead of committing to
+  an ADT variant at parse time. `compiler/checker/adt.go`'s
+  `checkMatchExpression` resolves each `DottedPattern` against the scrutinee's
+  actual domain: an import-alias owner over a union or exact scrutinee routes
+  through `resolveUnionMemberUse` (the same qualified-type resolution
+  variant construction already used), and an ADT owner routes through
+  `resolveDottedVariantArm`. Coverage (`buildMatchCoverage`) is keyed by
+  `member.CanonicalKey` for union members (`coverage.find(member.CanonicalKey)`),
+  not `Type.Name`, so two distinct nominal types sharing a short name (for
+  example `M.Point` and `S.Point`) no longer collapse into one case. An exact
+  non-union scrutinee now gets its own coverage entry, and `else` checks
+  `coverage.uncovered()` before accepting, rejecting both a duplicate
+  exact-type arm and an `else` after complete coverage. Re-verified directly
+  against the current tree, compiling and running real programs through GCC
+  16.1 under `-std=c23 -Wall -Wextra -Werror`: all four originally-reported
+  defects are fixed (imported nominal pattern and imported ADT-via-alias
+  pattern both resolve and produce the correct match result; duplicate
+  exact-type arm and unreachable-`else` are both now rejected with "duplicate
+  or unreachable match pattern"), and the short-name coverage collision is
+  fixed at the source verified above. Full validation gate green: `gofmt`,
+  `go build`, `go vet` (plain and `-tags c23`), `go test -count=1 ./...`, and
+  `go test -tags c23 -count=1 ./...`.
 - Created: 2026-08-27
 - Updated: 2026-09-08
 - Restores: the current `docs/reference.md` match contract; no new pattern
@@ -46,13 +69,18 @@ The reference already requires:
 The work below restores those rules. It does not add semantics that the
 reference currently lacks.
 
-## Verified evidence
+## Original evidence
 
-The following in-memory compilations were run against the 2026-08-27 tree and
-re-verified unchanged against the 2026-09-08 tree, after the declaration-syntax
-and constructor changes landed. Every defect below still reproduces with the
-exact diagnostic shown, and `compiler/checker/adt.go` still keys coverage by
-`member.Name`.
+The following in-memory compilations were run against the 2026-08-27 tree,
+which motivated this RFC, and re-verified unchanged against the 2026-09-08
+tree, after the declaration-syntax and constructor changes landed but before
+the fix below was implemented: every defect below reproduced with the exact
+diagnostic shown, and `compiler/checker/adt.go` keyed coverage by
+`member.Name`. The fix is now implemented and independently re-verified,
+including by compiling and running real programs through GCC 16.1 under
+`-std=c23 -Wall -Wextra -Werror`; see the Status header above for the current
+behavior. The "Current result" shown under each case below is the pre-fix
+result that no longer occurs.
 
 ### Imported nominal pattern is misclassified
 

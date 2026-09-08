@@ -513,7 +513,9 @@ type TypePattern struct {
 func (TypePattern) matchPatternNode() {}
 
 // VariantPattern matches one qualified ADT variant in type mode.
-// OwnerArguments are explicit generic arguments for a generic owner.
+// OwnerArguments are explicit generic arguments for a generic owner; only
+// the explicit generic spelling preclassifies as a variant, since a module
+// alias never takes type arguments.
 type VariantPattern struct {
 	Owner          lexer.Token
 	OwnerArguments []TypeExpression
@@ -521,6 +523,16 @@ type VariantPattern struct {
 }
 
 func (VariantPattern) matchPatternNode() {}
+
+// DottedPattern is a syntactically neutral `Owner.Name` match arm. The
+// checker classifies it as an ADT variant or a qualified type from the
+// scrutinee domain and module context; the parser assigns no meaning.
+type DottedPattern struct {
+	Owner lexer.Token
+	Name  lexer.Token
+}
+
+func (DottedPattern) matchPatternNode() {}
 
 // MatchArm is one `| pattern then expression` arm.
 type MatchArm struct {

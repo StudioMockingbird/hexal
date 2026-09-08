@@ -32,49 +32,57 @@ func discoverGeneratedADTs(program checker.Program) *generatedAdtState {
 	return state
 }
 
-func writeAdtDefinitions(result *strings.Builder, state *generatedAdtState) {
-	if state == nil || len(state.order) == 0 {
+// writeAdtForwardDeclarations emits `typedef struct CName CName;` for every
+// discovered ADT, ahead of every full body: a pointer-typed member naming an
+// ADT needs only this forward name, regardless of full-body emission order.
+func writeAdtForwardDeclarations(result *strings.Builder, state *generatedAdtState) {
+	if state == nil {
 		return
 	}
 	for _, adtType := range state.order {
 		if compilerTypes.IsSeek(adtType) {
-			// Seek is a fixed, module-ownerless built-in ADT; its struct is
-			// emitted once, by seekComponents/moduleSeekComponent, into a
-			// shared header instead of repeated inline per module. It still
-			// participates in this same discovery walk so the program-wide
-			// tag registry (built from adtState.order) assigns its variants
-			// a hex_tag value; only the per-module struct text is skipped
-			// here.
 			continue
 		}
-		adt := adtType.Adt
-		name := adt.CName
+		name := adtType.Adt.CName
 		result.WriteString("\n")
-		fmt.Fprintf(result, "typedef struct %s {\n", name)
-		fmt.Fprintf(result, "    hex_tag tag;\n")
-		hasPayload := false
-		for _, variant := range adt.Variants {
-			if len(variant.Payload) > 0 {
-				hasPayload = true
-			}
-		}
-		if hasPayload {
-			fmt.Fprintf(result, "    union {\n")
-			for _, variant := range adt.Variants {
-				if len(variant.Payload) == 0 {
-					continue
-				}
-				variantName := compilerTypes.SanitizeIdentifier(variant.Name)
-				fmt.Fprintf(result, "        struct {\n")
-				for _, member := range variant.Payload {
-					fmt.Fprintf(result, "            %s %s;\n", typeSpelling(member.Type), privateCName(memberName, member.Name, ""))
-				}
-				fmt.Fprintf(result, "        } %s;\n", variantName)
-			}
-			fmt.Fprintf(result, "    } payload;\n")
-		}
-		fmt.Fprintf(result, "} %s;\n", name)
+		fmt.Fprintf(result, "typedef struct %s %s;\n", name, name)
 	}
+}
+
+// writeOneAdtBody emits one ADT's full struct body (the tag discriminant and,
+// when any variant carries fields, the payload union of per-variant anonymous
+// structs). Its own forward typedef must already be in scope; a payload field
+// naming another nominal type by value additionally needs that type's own
+// full body already written, which the dependency-ordered driver in
+// emission.go guarantees before calling this.
+func writeOneAdtBody(result *strings.Builder, adtType compilerTypes.Type) {
+	adt := adtType.Adt
+	name := adt.CName
+	result.WriteString("\n")
+	fmt.Fprintf(result, "struct %s {\n", name)
+	fmt.Fprintf(result, "    hex_tag tag;\n")
+	hasPayload := false
+	for _, variant := range adt.Variants {
+		if len(variant.Payload) > 0 {
+			hasPayload = true
+		}
+	}
+	if hasPayload {
+		fmt.Fprintf(result, "    union {\n")
+		for _, variant := range adt.Variants {
+			if len(variant.Payload) == 0 {
+				continue
+			}
+			variantName := compilerTypes.SanitizeIdentifier(variant.Name)
+			fmt.Fprintf(result, "        struct {\n")
+			for _, member := range variant.Payload {
+				fmt.Fprintf(result, "            %s %s;\n", typeSpelling(member.Type), privateCName(memberName, member.Name, ""))
+			}
+			fmt.Fprintf(result, "        } %s;\n", variantName)
+		}
+		fmt.Fprintf(result, "    } payload;\n")
+	}
+	fmt.Fprintf(result, "};\n")
 }
 
 // renderAdtConstruct lowers an ADT construction to a compound literal whose

@@ -132,7 +132,7 @@ func TestStructurallyDifferentModuleUnionsProduceDistinctNames(t *testing.T) {
 	}
 	// Both unions read the short member name "Point", so the first interner
 	// keeps hex_t_Bool_Point and the distinct second union is suffixed.
-	if !strings.Contains(result.Files["modules/app.h"], "typedef struct hex_t_Bool_Point {") || !strings.Contains(result.Files["modules/app.h"], "typedef struct hex_t_Bool_Point_0 {") {
+	if !strings.Contains(result.Files["modules/app.h"], "struct hex_t_Bool_Point {") || !strings.Contains(result.Files["modules/app.h"], "struct hex_t_Bool_Point_0 {") {
 		t.Fatalf("distinct module unions must have distinct names in app.h:\n%s", result.Files["modules/app.h"])
 	}
 }
@@ -270,7 +270,7 @@ func TestSanitizedMemberCollisionsReceiveSuffixedNames(t *testing.T) {
 		t.Fatalf("Compile rejected colliding-name union source: %v", result.Stderr)
 	}
 	rootH := rootH(t, result)
-	if strings.Count(rootH, "typedef struct hex_t_Int32_Nil_Foo {") != 1 || strings.Count(rootH, "typedef struct hex_t_Int32_Nil_Foo_0 {") != 1 {
+	if strings.Count(rootH, "struct hex_t_Int32_Nil_Foo {") != 1 || strings.Count(rootH, "struct hex_t_Int32_Nil_Foo_0 {") != 1 {
 		t.Fatalf("colliding unions must receive distinct names, each defined once:\n%s", rootH)
 	}
 }
@@ -287,7 +287,7 @@ func TestUnionBaseCollidingWithNominalNameIsSuffixed(t *testing.T) {
 	if !strings.Contains(rootH, "struct hex_t_m3_app_Point {") {
 		t.Fatalf("object Point lost its fixed nominal name:\n%s", rootH)
 	}
-	if strings.Contains(rootH, "typedef struct hex_t_m3_app_Point {") || !strings.Contains(rootH, "typedef struct hex_t_m3_app_Point_0 {") {
+	if strings.Count(rootH, "struct hex_t_m3_app_Point {") != 1 || !strings.Contains(rootH, "struct hex_t_m3_app_Point_0 {") {
 		t.Fatalf("union must be suffixed and never claim the nominal name:\n%s", rootH)
 	}
 }

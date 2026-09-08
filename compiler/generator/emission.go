@@ -1086,9 +1086,21 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	for _, component := range input.components {
 		fmt.Fprintf(&result, "#include \"%s\"\n", component)
 	}
-	writeAdtDefinitions(&result, input.adts)
+	// Forward typedefs for every object, ADT, and union come first,
+	// regardless of any cross-reference between them: a pointer-typed member
+	// naming any of them needs only this forward name. Full bodies then
+	// follow in by-value dependency order (see writeNominalBodies), since an
+	// ADT payload field or a non-nullable structural union's payload member
+	// can name a nominal object type by value, and an object member can just
+	// as well name an ADT or non-nullable union type by value; either
+	// direction requires that member's own complete definition already in
+	// scope, and a fixed category order cannot satisfy both directions when
+	// a program uses each at once.
+	writeObjectForwardDeclarations(&result, input.objects, input.filename)
+	writeAdtForwardDeclarations(&result, input.adts)
+	writeUnionForwardDeclarations(&result, input.unions)
+	writeNominalBodies(&result, input.objects, input.adts, input.unions, input.filename, input.tags)
 	writeUnionDefinitions(&result, input.unions, input.tags)
-	writeObjectDefinitions(&result, input.objects, input.filename)
 	// Module-owned collection specializations follow their element
 	// definitions: component artifacts are program-wide and cannot declare
 	// per-module types, so each consuming module re-emits the specializations
@@ -1172,10 +1184,12 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 	return objects, nil
 }
 
-func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.ObjectType, filename string) {
-	// Forward typedef region first, in source declaration order, so recursive
-	// and non-recursive objects share one shape and pointer members can name a
-	// not-yet-defined object.
+// writeObjectForwardDeclarations emits `typedef struct CName CName;` for
+// every object, in source declaration order, ahead of every full body: a
+// pointer-typed member naming an object needs only this forward name,
+// regardless of full-body emission order, and a recursive object needs its
+// own name in scope before its body can name a pointer to itself.
+func writeObjectForwardDeclarations(result *strings.Builder, objects []*compilerTypes.ObjectType, filename string) {
 	for _, object := range objects {
 		result.WriteString("\n")
 		if object.SourceLine > 0 {
@@ -1183,29 +1197,143 @@ func writeObjectDefinitions(result *strings.Builder, objects []*compilerTypes.Ob
 		}
 		fmt.Fprintf(result, "typedef struct %s %s;\n", object.CName, object.CName)
 	}
-	for _, object := range objects {
-		result.WriteString("\n")
-		if object.SourceLine > 0 {
-			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, filename)
-		}
-		fmt.Fprintf(result, "struct %s {\n", object.CName)
-		if len(object.Members) == 0 {
-			// C23 has no portable zero-sized object type, so an empty struct
-			// carries one private byte instead; it is never read as part of
-			// the object's surface (construction, equality, and printing all
-			// special-case the empty member list).
-			fmt.Fprintf(result, "    unsigned char hex_empty;\n")
-		}
-		for _, member := range object.Members {
-			if member.SourceLine > 0 {
-				fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, filename)
-			}
-			// Reference-like members (String, List, Dict) are pointer-sized
-			// handles, spelled like their declarations.
-			fmt.Fprintf(result, "    %s;\n", declaration(member.Type, privateCName(memberName, member.Name, ""), true))
-		}
-		fmt.Fprintf(result, "};\n")
+}
+
+// writeOneObjectBody emits one object's full struct body. Its own forward
+// typedef must already be in scope; a member naming another nominal type by
+// value additionally needs that type's own full body already written, which
+// the dependency-ordered driver in emission.go guarantees before calling
+// this.
+func writeOneObjectBody(result *strings.Builder, object *compilerTypes.ObjectType, filename string) {
+	result.WriteString("\n")
+	if object.SourceLine > 0 {
+		fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, filename)
 	}
+	fmt.Fprintf(result, "struct %s {\n", object.CName)
+	if len(object.Members) == 0 {
+		// C23 has no portable zero-sized object type, so an empty struct
+		// carries one private byte instead; it is never read as part of
+		// the object's surface (construction, equality, and printing all
+		// special-case the empty member list).
+		fmt.Fprintf(result, "    unsigned char hex_empty;\n")
+	}
+	for _, member := range object.Members {
+		if member.SourceLine > 0 {
+			fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, filename)
+		}
+		// Reference-like members (String, List, Dict) are pointer-sized
+		// handles, spelled like their declarations.
+		fmt.Fprintf(result, "    %s;\n", declaration(member.Type, privateCName(memberName, member.Name, ""), true))
+	}
+	fmt.Fprintf(result, "};\n")
+}
+
+// nominalBodyWriter emits object, ADT, and union struct bodies in dependency
+// order: a type embedding another nominal type by value (not through a
+// pointer) is written only after that type's own body already exists.
+// Forward typedefs for all three categories are already in scope by the time
+// this runs, so a pointer-typed reference in any direction needs nothing
+// from this ordering. Hexal rejects direct by-value recursion, so this
+// recursion always terminates without cycle tracking.
+type nominalBodyWriter struct {
+	result       *strings.Builder
+	filename     string
+	tags         *tagRegistry
+	definedObj   map[*compilerTypes.ObjectType]bool
+	definedAdt   map[*compilerTypes.AdtType]bool
+	definedUnion map[*compilerTypes.UnionInfo]bool
+}
+
+// writeNominalBodies writes every object, ADT, and union full body reachable
+// from these three discovery lists, each preceded by the bodies of every
+// nominal type it embeds by value.
+func writeNominalBodies(result *strings.Builder, objects []*compilerTypes.ObjectType, adts *generatedAdtState, unions *generatedUnionState, filename string, tags *tagRegistry) {
+	writer := &nominalBodyWriter{
+		result:       result,
+		filename:     filename,
+		tags:         tags,
+		definedObj:   make(map[*compilerTypes.ObjectType]bool),
+		definedAdt:   make(map[*compilerTypes.AdtType]bool),
+		definedUnion: make(map[*compilerTypes.UnionInfo]bool),
+	}
+	for _, object := range objects {
+		writer.ensureObject(object)
+	}
+	if adts != nil {
+		for _, adtType := range adts.order {
+			writer.ensureAdt(adtType)
+		}
+	}
+	if unions != nil {
+		for _, union := range unions.order {
+			writer.ensureUnion(union)
+		}
+	}
+}
+
+// ensureType writes whatever by-value nominal body one member's type still
+// needs before that member can be spelled: an array's inline element,
+// recursively, and an object, ADT, or non-nullable union in whichever of the
+// three categories it belongs to. A nullable union (Ptr<T> | Nil and its
+// kind) lowers to a bare pointer or an inline tag-and-pointer pair, never the
+// tagged-struct body writeOneUnionBody produces, so it needs nothing here. A
+// pointer, scalar, string, or other reference-like handle needs only the
+// forward typedef every category already has.
+func (writer *nominalBodyWriter) ensureType(typ compilerTypes.Type) {
+	if compilerTypes.IsNullable(typ) {
+		return
+	}
+	switch {
+	case typ.Object != nil:
+		writer.ensureObject(typ.Object)
+	case typ.Adt != nil:
+		writer.ensureAdt(typ)
+	case typ.Union != nil:
+		writer.ensureUnion(typ)
+	case typ.Array != nil:
+		writer.ensureType(typ.Array.Element)
+	}
+}
+
+func (writer *nominalBodyWriter) ensureObject(object *compilerTypes.ObjectType) {
+	if object == nil || writer.definedObj[object] {
+		return
+	}
+	writer.definedObj[object] = true
+	for _, member := range object.Members {
+		writer.ensureType(member.Type)
+	}
+	writeOneObjectBody(writer.result, object, writer.filename)
+}
+
+func (writer *nominalBodyWriter) ensureAdt(adtType compilerTypes.Type) {
+	adt := adtType.Adt
+	if adt == nil || writer.definedAdt[adt] || compilerTypes.IsSeek(adtType) {
+		// Seek is a fixed, module-ownerless built-in ADT emitted once, by
+		// seekComponents/moduleSeekComponent, into a shared header instead
+		// of repeated inline per module; see the identical skip this
+		// replaced in the former writeAdtDefinitions.
+		return
+	}
+	writer.definedAdt[adt] = true
+	for _, variant := range adt.Variants {
+		for _, member := range variant.Payload {
+			writer.ensureType(member.Type)
+		}
+	}
+	writeOneAdtBody(writer.result, adtType)
+}
+
+func (writer *nominalBodyWriter) ensureUnion(union compilerTypes.Type) {
+	info := union.Union
+	if info == nil || writer.definedUnion[info] {
+		return
+	}
+	writer.definedUnion[info] = true
+	for _, member := range info.Members {
+		writer.ensureType(member)
+	}
+	writeOneUnionBody(writer.result, union, writer.tags)
 }
 
 // collectTypeRequirements folds one module's written checked types into the

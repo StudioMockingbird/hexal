@@ -792,8 +792,9 @@ func (parser *Parser) matchExpression() (Expression, error) {
 }
 
 // matchPattern parses one arm pattern. Mode enforcement belongs to the
-// checker; the parser accepts booleans, else, qualified variants, and type
-// patterns in either mode.
+// checker; the parser accepts booleans, else, neutral dotted arms, explicit
+// generic variants, and type patterns in either mode. A simple `Owner.Name`
+// stays neutral so an import alias owner can later resolve as a type.
 func (parser *Parser) matchPattern(typeMode bool) (MatchPattern, error) {
 	if parser.check(lexer.Else) {
 		return ElsePattern{Token: parser.advance()}, nil
@@ -816,8 +817,8 @@ func (parser *Parser) matchPattern(typeMode bool) (MatchPattern, error) {
 	if parser.check(lexer.Identifier) && parser.peekAt(1).Kind == lexer.Dot && parser.peekAt(2).Kind == lexer.Identifier {
 		owner := parser.advance()
 		parser.advance()
-		variant := parser.advance()
-		return VariantPattern{Owner: owner, Variant: variant}, nil
+		name := parser.advance()
+		return DottedPattern{Owner: owner, Name: name}, nil
 	}
 	typeExpression, err := parser.primaryTypeExpression()
 	if err != nil {
