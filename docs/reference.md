@@ -845,8 +845,12 @@ Heap.free<T>(pointer: MutPtr<T>) -> no value
   unrepresentable size traps.
 - `h.free(ptr)` accepts Ptr/MutPtr. With one default allocator there is no allocator to
   mismatch, and none is compared.
-- Heap-backed library values receive their Heap explicitly; allocation and cleanup never choose a
-  hidden allocator.
+- Heap-backed library values — `String`, `List`, `Dict`, `Channel`, `Mutex` — receive their Heap
+  explicitly; their allocation and cleanup never choose a hidden allocator.
+- Allocator-owning types are the exception, and are explicit about it: `Stash` and `Pool` construct
+  and destroy against the one default allocator with no Heap argument, because a stateless default
+  Heap makes passing one inert ceremony rather than a choice. The rule above governs values
+  allocated *from* an allocator, not the allocators themselves.
 - Freeing a container releases only its own header/backing region. It never frees allocations its
   elements or nested handles refer to. Referenced owned allocations require cleanup before loss of
   reachability, exactly once per distinct allocation rather than per alias or slot.

@@ -132,10 +132,22 @@ leak.
 
 This is the guarantee destructors offer, obtained without the mechanism:
 
-- the author cannot forget cleanup, because forgetting does not compile;
+- the author cannot forget cleanup, because forgetting does not compile; and
 - cleanup remains written in the source, so generated C contains no call the
-  author did not ask for; and
-- the allocator continues to arrive as an ordinary argument.
+  author did not ask for.
+
+An earlier revision listed a third property, that "the allocator continues to
+arrive as an ordinary argument". That is no longer true and was never the
+point: `Stash.destroy()`, `Pool.destroy()`, and RFC 0149's `Box.free()` all
+take no allocator. Source-visibility is the whole of the guarantee.
+
+RFC 0149 refines this rule for `Box<T>` with a `cleanup-bound` binding: an
+owner registered with `defer` stays readable, writable, and call-borrowable
+for the rest of its scope, and its deferred receiver is the unique cleanup
+owner. That supersedes the immediate-unavailability reading for Box, and the
+same refinement should apply to every owning value once implemented. RFC 0149
+adopts this section's outstanding-obligation rule verbatim as its Resolved
+decision 1 rather than taking destructors.
 
 Bounds, so this stays inside the RFC's stated analysis limits:
 

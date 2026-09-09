@@ -26,21 +26,24 @@ gets deleted.
 | High-throughput network runtime and HTTP-server foundations | [0144](specs/0144-high-throughput-network-runtime.md) |
 | libuv event-loop and blocking-worker runtime backend | [0145](specs/0145-libuv-async-runtime-backend.md) |
 | utf8proc Unicode backend | [0147](specs/0147-utf8proc-unicode-backend.md) |
-| `Box<T>` ownership and call-scoped `Ref<T>`/`MutRef<T>` borrows — cleanup, receiver, placement, and Boxable-resource decisions remain | [0149](specs/0149-box-and-call-scoped-references.md) |
+| `Box<T>` ownership and call-scoped `Ref<T>`/`Ref<mut T>` borrows, plus a block-scoped `with` extension — all five of its own decisions resolved; one sequencing question remains (are affine collection and Task/Channel transfer rules defined here or in 0110/0118?); third in the 0154 -> 0153 -> 0149 chain | [0149](specs/0149-box-and-call-scoped-references.md) |
+| Remove `Strand` and modernize fixed arrays to `[N]T` — Open Discussion alternative, not scheduled; the selected direction keeps and improves `Strand`/`Array<T,N>` through 0152 | [0151](specs/0151-remove-strand-and-modernize-arrays.md) |
 
 ### Implementation-ready
 
 | Work | Spec |
 | --- | --- |
-| Allocation-free String/Strand mixed comparison | [0139](specs/0139-string-strand-comparison.md) |
+| Allocation-free String/Strand mixed comparison — coordinated with RFC 0152's generic-capacity rule | [0139](specs/0139-string-strand-comparison.md) |
 | Local fallback recovery with `catch` | [0134](specs/0134-error-recovery-with-catch.md) |
-| `Span`/`MutSpan` — renames `View`, adds mutable access with root-granularity, last-use exclusivity | [0148](specs/0148-span-and-mutable-span.md) |
+| Unify mutability syntax as `<T>`/`<mut T>` — grammar rule plus the `Ptr`/`MutPtr` rename, the latter sequenced into 0153's migration pass; first in the 0154 -> 0153 -> 0149 chain | [0154](specs/0154-unify-mutability-syntax.md) |
+| `Borrow<T>`/`Borrow<mut T>` — second in the chain; carries the shipped `View` -> `Borrow` migration and 0154's `Ptr` rename in one pass | [0153](specs/0153-borrow.md) |
 
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
 |---|---|---|
 | mimalloc allocation backend — architecture settled; no language-surface decision remains | Pinned-revision qualification in the C compiler backend and build driver | [0146](specs/0146-mimalloc-allocation-backend.md) |
+| Generic `Strand<N>` with bounded runtime construction, widening, Borrow views, and inline Error message text | RFC 0153, transitively after RFC 0154 Core | [0152](specs/0152-generic-strand-capacity.md) |
 
 ## Open bugs
 
@@ -50,6 +53,7 @@ gets deleted.
 | Pointer-stored aggregates can retain a local-rooted View beyond that local's lifetime; safe handling needs pointee alias and mutation rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
 | Task arguments/results and Channel elements can retain a local-rooted View beyond the originating function | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
 | Interprocedural wrapper results can return a local-rooted View received from their caller without carrying that provenance back to the call site | [0110](specs/0110-affine-ownership-and-stashes.md) |
+| Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | [0151](specs/0151-remove-strand-and-modernize-arrays.md) |
 
 ## Known coverage gaps
 

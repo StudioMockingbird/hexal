@@ -1,14 +1,28 @@
-# RFC 0149: `Box<T>`, `Ref<T>`, and `MutRef<T>`
+# RFC 0149: `Box<T>`, `Ref<T>`, and `Ref<mut T>`
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Design decisions required
+- Status: Design decisions required. All five of this RFC's own decisions are
+  resolved (see Resolved decisions); what remains is one sequencing question
+  Decision 3 created — whether affine collection and Task/Channel transfer
+  rules are defined here or in RFCs 0110/0118. Third in the
+  0154 -> 0153 -> 0149 chain
 - Created: 2026-09-08
-- Updated: 2026-09-08
+- Updated: 2026-09-09
 - Origin: adapt Snacc's implemented ownership and call-scoped reference model
   to Hexal's C23, raw-pointer, allocator, and C-interoperability contracts
+- Renamed by RFC 0154: originally drafted with a separate `MutRef<T>` type
+  name; renamed throughout to `Ref<mut T>` (the writable variant is `Ref`
+  with `mut` marking its type argument, not a differently-spelled type),
+  fitting the unified `<T>`/`<mut T>` convention RFC 0154 establishes across
+  `Ptr`, `Ref`, and `Borrow` (RFC 0153). This document already reflects that
+  renaming; it was never implemented under the old name, so this is the
+  current design, not a historical record of one. `Ptr<T>`/`MutPtr<T>` below
+  are left in their current, implemented spelling — RFC 0154 proposes
+  renaming those too, but that specific rename carries real migration cost
+  and is not yet confirmed, unlike this one
 - Coordinates with: RFC 0039 (foreign ownership), RFC 0110 (affine ownership,
   Stash/Pool lifetimes, and cleanup obligations), RFC 0118 (cross-Task
-  ownership), RFC 0137 (borrowed-view provenance), RFC 0148 (bounded sequence
+  ownership), RFC 0137 (borrowed-view provenance), RFC 0153 (bounded sequence
   borrows)
 - Does not update `docs/reference.md`: this is a draft; synchronize the
   reference only after the remaining decisions are settled and implementation
@@ -19,9 +33,9 @@
 Add three memory capabilities:
 
 ```text
-Box<T>      one non-null, uniquely owned heap allocation containing T
-Ref<T>      call-scoped read-only borrow of an existing T place
-MutRef<T>   call-scoped exclusive read-write borrow of an existing T place
+Box<T>       one non-null, uniquely owned heap allocation containing T
+Ref<T>       call-scoped read-only borrow of an existing T place
+Ref<mut T>   call-scoped exclusive read-write borrow of an existing T place
 ```
 
 Keep the existing raw-pointer layer:
@@ -32,13 +46,15 @@ MutPtr<T>   storable non-owning raw read-write pointer
 ```
 
 - `Box<T>` carries ownership in its type and moves instead of copying.
-- `Ref<T>` and `MutRef<T>` are parameter modes, not values. They cannot escape
-  their call and need no general lifetime syntax.
+- `Ref<T>` and `Ref<mut T>` are parameter modes, not values. They cannot
+  escape their call and need no general lifetime syntax.
 - `Ptr<T>` and `MutPtr<T>` remain first-class values for C interoperation,
   opaque handles, platform APIs, and low-level memory access. They carry no
   ownership or lifetime guarantee.
-- `View<T>` remains the existing bounded read-only sequence borrow. RFC 0148
-  separately owns its rename and writable counterpart.
+- `Borrow<T>`/`Borrow<mut T>` (RFC 0153) is the existing bounded sequence
+  borrow — a different shape (pointer + length, for slicing a contiguous
+  range) from `Ref`/`Ref<mut T>` (a borrow of one whole T place). RFC 0153
+  separately owns its own naming and semantics.
 
 This adapts Snacc rather than copying it literally. Hexal retains raw pointers
 and explicit allocation families because it must express C programs and foreign
@@ -75,8 +91,8 @@ pointer whose lifetime is not represented in its type.
 - Support recursive data structures through explicit Box edges.
 - Preserve pointer-sized, zero-overhead C representations.
 - Preserve Ptr/MutPtr for C ABI fidelity and low-level code.
-- Reuse one place-identity and flow-state model for moves, references, Views,
-  Stash allocations, and Pool slots.
+- Reuse one place-identity and flow-state model for moves, references,
+  Borrows, Stash allocations, and Pool slots.
 - Keep allocation failure consistent with default allocation: failure or
   unrepresentable size traps.
 
@@ -86,7 +102,7 @@ pointer whose lifetime is not represented in its type.
 - General lifetime parameters or Rust-style lifetime syntax.
 - Making foreign memory safe merely by changing its pointer type.
 - Pointer arithmetic or pointer casts.
-- Settling RFC 0148's `View`/`Span` naming decision.
+- Settling RFC 0153's `Borrow` semantics or naming.
 - Replacing typed `Stash<T>` or `Pool<T>` allocation policies.
 - Inferring foreign ownership from a C pointer type.
 
@@ -97,8 +113,8 @@ Conceptual grammar additions:
 ```ebnf
 special-form-type-constructor = existing-special-form
                               | "Box"
-                              | "Ref"
-                              | "MutRef" ;
+                              | "Ref" ;
+ref-type-argument = "mut" , type-expression | type-expression ;
 box-expression = "Box" , "(" , expression , ")" ;
 ```
 
@@ -106,7 +122,10 @@ box-expression = "Box" , "(" , expression , ")" ;
 node := Box(Node(value = 1))
 ```
 
-- Each type constructor takes exactly one type argument.
+- `Box<T>` takes exactly one type argument. `Ref<...>` takes exactly one type
+  argument, optionally `mut`-marked (`Ref<T>` vs `Ref<mut T>`) — the same
+  `mut`-inside-`<...>` convention RFC 0154 establishes for `Ptr` and
+  `Borrow`, not a separate `MutRef` type name.
 - `Box(expression)` evaluates its operand exactly once and produces `Box<T>`,
   where the checked operand determines T.
 - There is no `.new()`, explicit Heap, `box(...)`, `Box<T>(...)`, or implicit
@@ -121,7 +140,7 @@ fun inspect(node: Ref<Node>) do
     print(node.value)
 end
 
-fun increment(node: MutRef<Node>) do
+fun increment(node: Ref<mut Node>) do
     node.value = node.value + 1
 end
 
@@ -136,10 +155,10 @@ increment(writable)
 - The caller writes an ordinary initialized place expression; no `ref`, `&`,
   or dereference expression is used.
 - `Ref<T>` accepts fixed or writable places of exact type T.
-- `MutRef<T>` accepts only writable places of exact type T.
+- `Ref<mut T>` accepts only writable places of exact type T.
 - Inside the callee, the parameter name denotes the referent. Reads, field
   selection, method calls, and whole-value assignment act on caller storage.
-- Assignment and mutating methods are invalid through Ref.
+- Assignment and mutating methods are invalid through `Ref<T>`.
 - Passing a reference parameter to another compatible reference parameter
   reborrows it for that nested call.
 - Passing a reference parameter to a by-value T parameter reads its current
@@ -147,9 +166,9 @@ increment(writable)
 
 ### Placement
 
-Ref and MutRef are not value types. They are valid only as direct function or
-explicit method parameters and, if Open decision 2 selects it, method receiver
-targets.
+`Ref<T>`/`Ref<mut T>` are not value types. They are valid only as direct
+function or explicit method parameters and, per Resolved decision 2,
+method receiver targets.
 
 They are invalid as results, bindings, members, payloads, union members,
 collection arguments, Box arguments, pointer pointees, function-value
@@ -174,8 +193,8 @@ dereference syntax. Escape is impossible by construction.
 
 Borrowing lasts exactly for the dynamic call:
 
-- overlapping Ref arguments may coexist;
-- MutRef may not overlap any Ref or MutRef in the same call;
+- overlapping `Ref<T>` arguments may coexist;
+- `Ref<mut T>` may not overlap any `Ref<T>` or `Ref<mut T>` in the same call;
 - a move, replacement, cleanup, or structural invalidation of the referent is
   forbidden while the call borrow exists;
 - arguments evaluate once, left to right;
@@ -184,7 +203,7 @@ Borrowing lasts exactly for the dynamic call:
   arguments are evaluated.
 
 ```hexal
-fun exchange(left: MutRef<Int32>, right: MutRef<Int32>) do
+fun exchange(left: Ref<mut Int32>, right: Ref<mut Int32>) do
     previous := left
     left = right
     right = previous
@@ -197,14 +216,83 @@ exchange(value, value)     // rejected
 Overlap is proved from canonical roots and projections, never runtime address
 comparison.
 
+## Extension: block-scoped references (`with`)
+
+Raised in later discussion of a full storable-borrow model (`Borrow<T>`/
+`Borrow<mut T>` with general lifetime tracking, à la Rust): that model needs a
+real borrow checker — computed lifetimes, moves coupled to live borrows,
+some answer for interprocedural borrows (lifetime parameters or an
+equivalent). This repo's own specs already show what that costs: RFC 0137's
+narrowest possible slice of it (does a directly-returned borrow dangle)
+needed its own provenance representation and a 4-phase plan, and still
+punted List/Dict/Task-mediated escapes to RFC 0110/0118, both still open.
+This RFC's whole reason for choosing call-scoped `Ref<T>`/`Ref<mut T>` over
+storable borrows was to avoid exactly that cost: **the cost collapses
+specifically when a borrow's scope is a syntactic fact instead of something
+the compiler has to compute.** A call's argument list is syntactically
+bounded (starts at the call, ends when it returns) — that's the entire
+reason Semantics "Exclusivity" above can state its overlap rule without any
+lifetime inference at all.
+
+A lexical block is *also* syntactically bounded, just a larger one than a
+single call. That observation extends call-scoping to a `with` statement
+without paying the general-lifetime cost, using this RFC's own `Ref`/
+`Ref<mut T>` — not a separate `Borrow`/`Borrow<mut T>` naming, which would
+just be a second name for the same "borrow of a whole T place" concept this
+RFC already has:
+
+```hexal
+with scan: Ref<Error> of err do
+    print(scan.message)
+end
+
+with scan: Ref<mut Error> of err do
+    scan.set_code(500)
+    clear_bytes(scan.message_bytes)   // reborrows scan for the nested call
+end
+```
+
+- `with <name>: Ref<T> of <place> do ... end` binds `<name>` as `Ref<T>` for
+  the block's dynamic extent; `with <name>: Ref<mut T> of <place> do ... end`
+  binds `Ref<mut T>`, requiring `<place>` to be writable. The declared type is
+  written explicitly (Resolved decision 5) so mutability is marked inside the
+  type argument, per RFC 0154, rather than by a statement-level `mut` that
+  already means something else.
+- This adds a third valid position for `Ref<T>`/`Ref<mut T>` alongside
+  parameters and method receivers (Resolved decision 2): a
+  `with`-bound name. Everything else in Placement continues to hold — the
+  bound name still cannot be returned, stored in a member, boxed, or
+  otherwise escape the block, by the same construction that already makes
+  escape impossible for a parameter.
+- Exclusivity extends unchanged: `<place>` cannot be read, written, moved,
+  or reborrowed from outside the block for its dynamic extent, checked the
+  same way a moved binding becomes unavailable and later available again —
+  a syntactic scope, not a computed one. Reborrowing into a nested call
+  inside the block works exactly as it already does for a parameter.
+- This is a strict subset of the storable-borrow model that motivated it:
+  no `Borrow`/`Borrow<mut T>`-shaped value ever exists to store in a `let`
+  or return from a function, so there is still no dangling-reference or
+  aliasing bug possible across a function boundary — because there is no
+  "across a function boundary" for one of these borrows to survive to.
+  What's given up, deliberately, is holding a borrow past one lexical block:
+  exactly the boundary that keeps this cheap.
+
+Not yet resolved: whether `with` needs its own exclusivity proof pass
+distinct from a call's (a block can contain arbitrarily more statements
+than one argument list, though the same "prove from canonical roots and
+projections" method should still apply), and whether nested `with` blocks
+over overlapping places need anything beyond the existing overlap rule
+applied at each block's own scope.
+
 ## Box semantics
 
 - Box owns exactly one non-null default-allocator allocation containing one
   initialized T.
 - Its representation is one pointer, independent of T.
 - Box is affine even when T is copyable. An aggregate containing Box is affine
-  transitively for every consumer enabled by Open decision 3.
-- `Box<Box<T>>` is valid. `Box<Ref<T>>` and `Box<MutRef<T>>` are invalid.
+  transitively for every consumer, which Resolved decision 3 makes the full
+  position set.
+- `Box<Box<T>>` is valid. `Box<Ref<T>>` and `Box<Ref<mut T>>` are invalid.
 - Box itself is never Nil. Absence is `Box<T> | Nil`.
 - `Box<T> | Nil` uses the nullable-pointer niche: null is Nil and non-null is
   Box. It emits no tagged wrapper.
@@ -234,10 +322,10 @@ end
 - A fixed Box root permits read-only pointee access. A mutable Box root permits
   read-write pointee access and Box replacement.
 - There is no general implicit Box-to-T conversion.
-- A Box<T> place automatically lends its pointee to Ref<T>.
-- A mutable Box<T> place automatically lends its pointee to MutRef<T>.
-- The Box place itself may bind to Ref<Box<T>> or MutRef<Box<T>> when that is
-  the exact declared parameter type.
+- A Box<T> place automatically lends its pointee to `Ref<T>`.
+- A mutable Box<T> place automatically lends its pointee to `Ref<mut T>`.
+- The Box place itself may bind to `Ref<Box<T>>` or `Ref<mut Box<T>>` when
+  that is the exact declared parameter type.
 - Borrowing never transfers ownership.
 
 ### Moves
@@ -299,7 +387,8 @@ escaped, or registered again. Its hidden deferred receiver is the unique
 cleanup owner and consumes it on every ordinary scope exit. This refines RFC
 0110's earlier immediate-unavailability rule.
 
-Open decision 1 may replace this with automatic destruction.
+Resolved decision 1 confirms this explicit form; automatic destruction is
+rejected.
 
 ## Existing allocation families
 
@@ -315,7 +404,8 @@ Open decision 1 may replace this with automatic destruction.
 ## Aggregates, collections, and Tasks
 
 Box is valid in nominal aggregates and structural unions. The complete v1
-matrix depends on Open decision 3. The target model is:
+matrix is the full set below: Resolved decision 3 admits every position in
+the first version. The model is:
 
 - object/ADT/union construction moves Box fields or payloads;
 - union narrowing borrows a Box payload unless a later consuming extraction is
@@ -325,8 +415,11 @@ matrix depends on Open decision 3. The target model is:
 - Dict keys cannot contain Box;
 - Task arguments/results and Channel elements move Box rather than copying it.
 
-List/Dict and cross-Task movement require RFCs 0110 and 0118. A staged v1 may
-reject those positions until every consumer preserves affine transfer.
+List/Dict and cross-Task movement need affine move analysis and transfer
+rules that RFCs 0110 and 0118 own. Resolved decision 3 admits them anyway, so
+implementation must first settle where those rules are defined: here, with
+0110/0118 adopting them, or there, with this RFC sequenced behind both.
+Defining them independently in two places is the failure to avoid.
 
 ## Methods
 
@@ -337,33 +430,36 @@ method Ref<Counter>.read(): Int32 do
     return self.value
 end
 
-method MutRef<Counter>.increment() do
+method Ref<mut Counter>.increment() do
     self.value = self.value + 1
 end
 ```
 
-Ref receivers read; MutRef receivers read and write. Value and Box places adapt
-only for the call. Raw Ptr/MutPtr receivers remain for genuinely raw APIs. Open
-decision 2 settles whether this replaces or merely accompanies current
-receiver targets.
+`Ref<T>` receivers read; `Ref<mut T>` receivers read and write. Value and Box
+places adapt only for the call. Raw Ptr/MutPtr receivers remain for genuinely
+raw APIs. Resolved decision 2 keeps both legal: `Ref` receivers are added,
+and `Ptr` receivers are not narrowed by rule until unsafe boundaries are
+designed.
 
 ## C interoperation
 
-- Ref/MutRef are Hexal call modes, not stable foreign ABI value types.
+- `Ref<T>`/`Ref<mut T>` are Hexal call modes, not stable foreign ABI value
+  types.
 - Box is a Hexal owner, not proof that a foreign pointer follows its allocator
   or destruction contract.
 - Initial `extern c` declarations continue to use Ptr/MutPtr and RFC 0039's
   explicit ownership metadata.
-- Ref/MutRef/Box are rejected in foreign signatures until the binding contract
-  states borrow duration, transfer, retention, and deallocator.
+- `Ref<T>`/`Ref<mut T>`/Box are rejected in foreign signatures until the
+  binding contract states borrow duration, transfer, retention, and
+  deallocator.
 - Foreign ownership is never inferred from pointer spelling.
 
 ## C23 lowering
 
 ```c
-/* Box<T> */    T *
-/* Ref<T> */    const T *
-/* MutRef<T> */ T *
+/* Box<T> */      T *
+/* Ref<T> */      const T *
+/* Ref<mut T> */  T *
 ```
 
 - Local fixedness qualifies the pointer object separately from pointee access.
@@ -380,12 +476,12 @@ receiver targets.
 
 The earliest proving phase diagnoses:
 
-- wrong Box/Ref/MutRef arity or invalid T;
+- wrong Box/Ref arity or invalid T (Ref optionally `mut`-marked);
 - reference in a non-parameter position;
-- non-place reference argument or fixed place passed to MutRef;
+- non-place reference argument or fixed place passed to `Ref<mut T>`;
 - exact referent mismatch;
-- overlapping borrows involving MutRef;
-- mutation through Ref;
+- overlapping borrows involving `Ref<mut T>`;
+- mutation through `Ref<T>`;
 - move/replacement/cleanup during a call borrow;
 - layout cycles not broken by Box;
 - use, move, borrow, mutation, or cleanup after move;
@@ -398,55 +494,103 @@ The earliest proving phase diagnoses:
 
 Diagnostics name source bindings/places, never C names or internal flow states.
 
-## Open decisions
+## Resolved decisions
 
-### 1. Box cleanup
+All five decisions this RFC carried are settled. They are recorded with their
+reasoning so the trade behind each stays visible.
 
-**A. Explicit cleanup obligations (provisional recommendation).**
+### 1. Box cleanup — explicit `free()`
 
-```hexal
-node := Box(Node(value = 1))
-defer node.free()
-```
+Option A. Box carries a cleanup obligation; an outstanding obligation at
+scope exit is a Type Error, and the `cleanup-bound` binding above keeps
+`defer` usable. Automatic destruction is rejected.
 
-Preserves current Hexal policy and source/C correspondence, but requires the
-cleanup-bound state and generated deep-drop helpers.
+The reason is narrower than it used to be, and worth stating precisely. RFC
+0110 once rejected destructors because "a destructor cannot receive an
+allocator, and Hexal's cleanup always needs one". That argument no longer
+holds: `Stash.destroy()`, `Pool.destroy()`, and `Box.free()` all take no
+allocator, and RFC 0110 has since withdrawn it -- "lack of an allocator
+argument is therefore not the deciding objection". What remains is the
+objection that survives: cleanup stays written in the source, so generated C
+corresponds to operations the author wrote. That is a product goal, not a
+technical constraint, and it is the whole of the reason.
 
-**B. Snacc-style automatic destruction.**
+### 2. Method receivers — add `Ref`, keep `Ptr` legal for now
 
-```hexal
-node := Box(Node(value = 1))
-// automatically destroyed on ordinary scope exit
-```
+Option A's addition, without its restriction. `Ref<T>`/`Ref<mut T>` become
+receiver targets; `Ptr<T>`/`Ptr<mut T>` receivers remain legal everywhere
+rather than being narrowed to raw APIs by rule.
 
-Lowest ceremony and best nested-owner composition, but introduces implicit
-cleanup control flow and reverses RFC 0110's decision. Both options need move
-analysis and recursive drop helpers.
+`Ref` receivers are not optional: calling a mutating method on a `Box<T>`
+needs a writable receiver, and if the only one were `Ptr<mut T>`, Box would
+have to hand out a raw pointer to be usable with methods at all -- which
+dissolves the reason Box exists.
 
-Recommendation: A for consistency; choose B only as a deliberate language-wide
-reversal.
+Leaving `Ptr` receivers legal does mean two ways to write the same method
+with no rule choosing between them. That is accepted deliberately and
+deferred: when unsafe boundaries are designed, `Ptr` receivers are the
+natural thing to confine to that boundary. Until then this RFC adds a form
+rather than removing one, which is the smaller change.
 
-### 2. Method receivers
+### 3. First-version Box positions — all positions now
 
-- **A (recommended):** add Ref/MutRef receiver targets; retain Ptr/MutPtr only
-  for raw APIs.
-- **B:** keep T/Ptr/MutPtr receivers, leaving ordinary mutable methods dependent
-  on raw pointers after safe reference parameters exist.
+Option A, against this RFC's earlier recommendation. Affine collection
+storage and Task/Channel transfer are implemented in the first version:
+List/Dict values move Box, replacement and removal transfer or discharge one
+obligation, and Task arguments/results and Channel elements move rather than
+copy.
 
-### 3. First-version Box positions
+**This materially enlarges the RFC and creates a real dependency.** Those
+positions need affine move analysis that RFC 0110 owns and cross-Task
+transfer rules that RFC 0118 owns. Implementing them here means either
+sequencing this RFC behind both, or defining the move and transfer rules in
+this RFC and having 0110/0118 adopt them rather than invent their own. The
+second is viable but must be explicit: two RFCs independently defining affine
+transfer for the same positions is how the union-coverage class of defect
+gets built on purpose.
 
-- **A:** implement affine collection and Task/Channel consumers immediately.
-- **B (recommended):** initially permit bindings, parameters, results, objects,
-  ADTs, unions, and Arrays; reject List/Dict storage and Task/Channel transfer
-  until RFCs 0110/0118 implement consuming operations.
+Implementation must settle that ownership question before Phase 1. The
+alternative that was rejected -- shipping bindings, parameters, results, and
+inline aggregates first -- deferred exactly the case most people want, a
+collection of owned values, which is why it was rejected.
 
-### 4. Boxable resources
+### 4. Boxable resources — infallible drop only, as a design boundary
 
-- **A:** any storable T, requiring every resource to define deep cleanup.
-- **B (recommended):** only T with an infallible compiler-known drop contract.
-  Scalars, inline aggregates, String, List, Dict, and nested Box qualify once
-  recursive drop exists. IO, Task, Channel, Mutex, Stash, Pool, and foreign
-  resources remain rejected until they define compatible consuming cleanup.
+Option B's restriction, restated. Only `T` with an infallible
+compiler-known drop contract is Boxable. Scalars, inline aggregates, String,
+List, Dict, and nested Box qualify once recursive drop exists.
+
+IO, Task, Channel, Mutex, Stash, Pool, and foreign resources are excluded --
+and this is a **design boundary, not a queue that empties on its own**. An
+earlier phrasing said they were rejected "until they define compatible
+consuming cleanup", which reads as scheduled work that nothing schedules.
+The real obstacle is a question no RFC currently owns:
+
+> What does a failing drop do?
+
+`IO.close()` is fallible. A destructor-shaped cleanup has no way to return
+that failure, so the options are to trap, to discard the error silently, or
+to keep such resources permanently non-Boxable. Until that question is
+answered by its own RFC, `Box<IO>` is not deferred -- it is impossible, and
+saying so plainly is better than implying otherwise.
+
+### 5. `with`-block bound-name spelling — explicit type
+
+Option B: `with scan: Ref<mut Error> of err do ... end`.
+
+Option A (`with mut scan of err`) was recommended by an earlier draft for
+reusing the existing statement-level `mut` position. That reuse is the
+problem. Statement-level `mut` means the *binding is reassignable*, not that
+the target is writable -- `docs/reference.md` states it directly: "A fixed
+handle can mutate its List; `mut` only reassigns the handle." Spelling a
+writable borrow as `with mut scan` would give `mut` a second, contradictory
+meaning in the same syntactic position.
+
+That is precisely the overload RFC 0154 exists to remove. Its convention is
+that mutability for capability-over-a-target types is marked inside the type
+argument -- `Ptr<mut T>`, `Ref<mut T>`, `Borrow<mut T>` -- so the `with`
+binding marks it the same way. More verbose, and consistent with the rule the
+chain just established.
 
 ## Required implementation sweep
 
@@ -461,13 +605,13 @@ Inventory and reconcile:
 - nullable-pointer niche recognition;
 - equality, truthiness, hashing, and print classification;
 - Task/Channel copyability gates;
-- View, Stash, and Pool provenance;
+- `Borrow`, Stash, and Pool provenance;
 - C spelling, qualification, foreign signatures, component discovery, and
   drop-helper ordering;
 - tests/snippets describing every pointer-like value as shallow-copyable.
 
-Do not weaken Ptr/MutPtr to make them resemble Ref/MutRef. Their different
-placement and lifetime contracts are intentional.
+Do not weaken Ptr/MutPtr to make them resemble `Ref<T>`/`Ref<mut T>`. Their
+different placement and lifetime contracts are intentional.
 
 ## Validation
 
@@ -475,19 +619,22 @@ This section becomes exhaustive after the four decisions are resolved. Before
 implementation, replace each decision-dependent statement with the selected
 rule.
 
-- Box/Ref/MutRef accept exactly one valid T; all listed invalid placements fail.
+- Box/Ref accept exactly one valid T (Ref optionally `mut`-marked); all
+  listed invalid placements fail.
 - `Box(expression)` evaluates once; every alternative constructor spelling
   fails.
-- Ref accepts fixed/writable places; MutRef accepts writable places only.
+- `Ref<T>` accepts fixed/writable places; `Ref<mut T>` accepts writable
+  places only.
 - Temporaries fail; widening/injection cannot adapt referent types.
-- Ref/Ref overlap succeeds; every overlap involving MutRef fails; sibling
-  fields succeed; ancestor/descendant places fail.
+- `Ref<T>`/`Ref<T>` overlap succeeds; every overlap involving `Ref<mut T>`
+  fails; sibling fields succeed; ancestor/descendant places fail.
 - Value arguments preserve left-to-right values beside a borrow of the same
   place; nested calls reborrow without escape.
 - Box has pointer layout; Box-broken recursive layouts succeed and unbroken
   cycles fail.
 - Fixed Box roots reject pointee mutation; mutable roots permit it.
-- Box lends pointee or owner according to the exact Ref/MutRef expected type.
+- Box lends pointee or owner according to the exact `Ref<T>`/`Ref<mut T>`
+  expected type.
 - Every consuming context moves Box and every later source use fails.
 - Branch and loop state merges are conservative; subplace moves fail.
 - Direct Box equality/order/hash/print fail; Box-or-Nil tests succeed and emit
@@ -512,8 +659,11 @@ rule.
 
 ### Phase 0: decisions and baseline
 
-1. Resolve the four Open decisions and rewrite conditional contracts.
-2. Reconcile RFC 0110 ownership/cleanup and RFC 0148 borrow terminology,
+1. Settle Resolved decision 3's sequencing question -- whether affine
+   collection and Task/Channel transfer rules are defined in this RFC or in
+   RFCs 0110/0118 -- before any other phase begins. Every other decision is
+   resolved; conditional contracts have already been rewritten.
+2. Reconcile RFC 0110 ownership/cleanup and RFC 0153 borrow terminology,
    recording exact supersession or dependency boundaries.
 3. Inventory every Required implementation sweep site.
 4. Record focused Ptr/MutPtr, layout, allocation, defer, aggregate, collection,
@@ -521,7 +671,8 @@ rule.
 
 ### Phase 1: syntax and type properties
 
-1. Parse/reserve Box, Ref, MutRef, and Box construction.
+1. Parse/reserve Box, Ref (plain and `mut`-argument forms), and Box
+   construction.
 2. Add distinct resolved/checked identities; references are not Ptr aliases.
 3. Implement placement/arity diagnostics.
 4. Add copyability, affinity, borrow-mode, Boxable, and drop-contract
@@ -538,7 +689,7 @@ rule.
 
 1. Centralize place identity as root plus field, payload, Box, and reference
    projections.
-2. Add Ref/MutRef checked parameter modes and exact place matching.
+2. Add `Ref<T>`/`Ref<mut T>` checked parameter modes and exact place matching.
 3. Process arguments left to right, then validate the simultaneous borrow set.
 4. Implement overlap, automatic callee dereference, reborrowing, and selected
    receiver adaptation.
@@ -565,7 +716,7 @@ rule.
 
 ### Phase 6: C23 lowering
 
-1. Add layer-correct Box/Ref/MutRef C spelling.
+1. Add layer-correct Box/`Ref<T>`/`Ref<mut T>` C spelling.
 2. Lower Box allocation, references, projections, moves, and nullable niche.
 3. Emit demand-driven drop declarations/definitions with recursive forward
    declarations.
@@ -582,8 +733,8 @@ rule.
 ### Phase 8: conformance and documentation
 
 1. Add focused stage tests and exhaustive integration cases from Validation.
-2. Add small workbench snippets for Box, Ref, MutRef, moves, recursion, and
-   nullable Box.
+2. Add small workbench snippets for Box, `Ref<T>`, `Ref<mut T>`, moves,
+   recursion, and nullable Box.
 3. Regenerate the manifest only for intentional generated-C changes and review
    its artifact-family blast radius.
 4. Run ordinary and tagged C23 suites.
