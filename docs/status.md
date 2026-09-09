@@ -13,28 +13,13 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Review TypeScript codebase to glean portable learnings — compiler architecture, diagnostics, and tooling patterns — with adopt/adapt/reject log | [0141](specs/0141-typescript-codebase-learnings.md) |
-| C interoperability — compiler core | [0039](specs/0039-c-interop-compiler-core.md) |
-| C compiler backend | [0052](specs/0052-c-compiler-backend.md) |
-| Filesystem, build, and validation driver | [0055](specs/0055-filesystem-and-build-driver.md) |
-| Scalar value matching beyond Bool | [0135](specs/0135-scalar-value-match.md) |
-| Expanded scalar Dict key types | [0136](specs/0136-expanded-dict-key-types.md) |
 | Affine ownership and Stash/Pool lifetimes — destructors rejected and cleanup obligations settled; `share`, Stash reset scope, Pool slot syntax, and handle classification remain | [0110](specs/0110-affine-ownership-and-stashes.md) |
-| Native module storage and linkage | [0116](specs/0116-native-module-storage-and-linkage.md) |
-| Restricted compile-time evaluation | [0117](specs/0117-compile-time-evaluation.md) |
-| Concurrency safety and task lifetimes | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
-| High-throughput network runtime and HTTP-server foundations | [0144](specs/0144-high-throughput-network-runtime.md) |
-| libuv event-loop and blocking-worker runtime backend | [0145](specs/0145-libuv-async-runtime-backend.md) |
-| utf8proc Unicode backend | [0147](specs/0147-utf8proc-unicode-backend.md) |
 | `Box<T>` ownership and call-scoped `Ref<T>`/`Ref<mut T>` borrows, plus a block-scoped `with` extension — all five of its own decisions resolved; one sequencing question remains (are affine collection and Task/Channel transfer rules defined here or in 0110/0118?); third in the 0154 -> 0153 -> 0149 chain | [0149](specs/0149-box-and-call-scoped-references.md) |
-| Remove `Strand` and modernize fixed arrays to `[N]T` — Open Discussion alternative, not scheduled; the selected direction keeps and improves `Strand`/`Array<T,N>` through 0152 | [0151](specs/0151-remove-strand-and-modernize-arrays.md) |
 
 ### Implementation-ready
 
 | Work | Spec |
 | --- | --- |
-| Allocation-free String/Strand mixed comparison — coordinated with RFC 0152's generic-capacity rule | [0139](specs/0139-string-strand-comparison.md) |
-| Local fallback recovery with `catch` | [0134](specs/0134-error-recovery-with-catch.md) |
 | Unify mutability syntax as `<T>`/`<mut T>` — grammar rule plus the `Ptr`/`MutPtr` rename, the latter sequenced into 0153's migration pass; first in the 0154 -> 0153 -> 0149 chain | [0154](specs/0154-unify-mutability-syntax.md) |
 | `Borrow<T>`/`Borrow<mut T>` — second in the chain; carries the shipped `View` -> `Borrow` migration and 0154's `Ptr` rename in one pass | [0153](specs/0153-borrow.md) |
 
@@ -42,18 +27,28 @@ gets deleted.
 
 | Work | Blocked by | Spec |
 |---|---|---|
-| mimalloc allocation backend — architecture settled; no language-surface decision remains | Pinned-revision qualification in the C compiler backend and build driver | [0146](specs/0146-mimalloc-allocation-backend.md) |
-| Generic `Strand<N>` with bounded runtime construction, widening, Borrow views, and inline Error message text | RFC 0153, transitively after RFC 0154 Core | [0152](specs/0152-generic-strand-capacity.md) |
+
+## Deferred ideas
+
+Open ideas under discussion live in `docs/specs/deferred/`, with a README
+explaining the directory. They are deliberately not listed here: this board
+is scheduled work, and enumerating unscheduled ideas alongside it is what made
+them read as commitments. Nothing there is authoritative, and a deferred spec
+that disagrees with `docs/reference.md` is wrong.
 
 ## Open bugs
+
+A bug is real whether or not its owning spec is scheduled. Two below are owned
+by deferred specs and therefore have no route to a fix today; they are marked
+rather than moved, because hiding them would not make them less true.
 
 | Bug | Owning spec |
 | --- | --- |
 | Mutable List/Dict storage can retain a local-rooted View beyond that local's lifetime; safe handling needs container mutation and alias rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
 | Pointer-stored aggregates can retain a local-rooted View beyond that local's lifetime; safe handling needs pointee alias and mutation rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
-| Task arguments/results and Channel elements can retain a local-rooted View beyond the originating function | [0118](specs/0118-concurrency-safety-and-task-lifetimes.md) |
+| Task arguments/results and Channel elements can retain a local-rooted View beyond the originating function | **deferred** [0118](specs/deferred/0118-concurrency-safety-and-task-lifetimes.md) |
 | Interprocedural wrapper results can return a local-rooted View received from their caller without carrying that provenance back to the call site | [0110](specs/0110-affine-ownership-and-stashes.md) |
-| Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | [0151](specs/0151-remove-strand-and-modernize-arrays.md) |
+| Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | **deferred, and misowned** -- [0151](specs/deferred/0151-remove-strand-and-modernize-arrays.md) is about removing `Strand` and array spelling, not Dict probing. This is a live correctness defect in shipped code and needs a real owner |
 
 ## Known coverage gaps
 
