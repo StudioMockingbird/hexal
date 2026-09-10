@@ -239,13 +239,9 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 }
 
 // writeMethodDefinition emits a checked impl method as a file-scope C
-// function. The implicit receiver is the first fixed parameter; its written
-// receiver type determines whether C receives a structure copy, a read-only
-// pointer, or a writable pointer.
-// writeMethodDefinition emits a checked impl method as a file-scope C
-// function. The implicit receiver is the first fixed parameter; its written
-// receiver type determines whether C receives a structure copy, a read-only
-// pointer, or a writable pointer.
+// function. The implicit receiver is the first fixed parameter carrying the
+// struct value; method receivers are always structs, so C receives a
+// structure copy.
 func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclaration) error {
 	if declared.Object == nil || declared.SelfBinding == 0 || !validSourceName(declared.Name) {
 		return unknownExpressionDiagnostic("method declaration is missing checked receiver metadata")

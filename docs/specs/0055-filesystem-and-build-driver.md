@@ -1,7 +1,10 @@
 # ADR 0055: Filesystem and Build Driver
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; not scheduled. Design state: Draft; design proposed, implementation not started
+- Status: Draft; design proposed, implementation not started. Picked back up
+  from `docs/specs/deferred/` on 2026-09-10; verified against the current
+  tree (`compiler.Compile`'s signature this RFC depends on is unchanged;
+  `cmd/` is currently empty)
 - Created: 2026-08-14
 - Updated: 2026-08-26
 - Scope: filesystem, project discovery, artifact materialization, external C
@@ -48,6 +51,10 @@ responsibilities do not leak into compiler language specifications.
   diagnostic, and never repaired by a compiler-side fallback definition.
 - Later own dependency tracking, caching, file watching, and incremental
   compilation.
+- Keep `cmd/hexal` (the CLI entry point users actually run) a thin shell:
+  argument parsing plus wiring the `compiler` package and this driver
+  together. It carries no compiler-version-specific logic of its own — see
+  "Compiler binary and versioning" below.
 - Compile every `.c` entry returned in `CompilationResult.Files`, not only
   those under `modules/`: the demand-driven component artifacts under
   `hexal/` (for example `hexal/runtime.c`, `hexal/heap.c`,
@@ -144,6 +151,34 @@ The core compiler remains incapable of host probing. The driver may probe or
 invoke tools, then passes the selected evidence as build-time settings. A
 profile mismatch is a build failure, not a source-level guess or fallback.
 
+## Compiler binary and versioning
+
+`cmd/hexal` and "the actual compiler" (the `compiler` package's lexer,
+parser, checker, and generator, driven by this ADR's driver) are kept fully
+decoupled, not fused into one inseparable binary. This is the same principle
+RFC 0052 already applies to the C backend — a versioned, content-addressed,
+separately-downloadable payload invoked as a child process, never statically
+fused into the tool that orchestrates it — applied one layer up, to the
+Hexal compiler itself:
+
+- `cmd/hexal/main.go` stays a thin launcher: parse arguments, resolve a
+  project's manifest, and wire together whatever compiler version and driver
+  configuration that manifest calls for. It contains no version-specific
+  compiler behavior of its own.
+- The goal this decouples for: a Hexal project's manifest may eventually pin
+  a specific compiler version, and the launcher resolves and uses that
+  version — potentially fetching it — rather than whatever version happens
+  to be sitting on the host. This is the same shape of problem RFC 0052's
+  target packs already solve for the C backend (a named, versioned,
+  content-addressed, cacheable payload); a future compiler-version payload
+  is a natural extension of that mechanism, not a new one.
+- This ADR does not design that mechanism now — manifest schema for a
+  pinned compiler version, the download/registry protocol, and the
+  resolution algorithm are new items in Deferred design below. What's fixed
+  now is the boundary: no code path may grow an assumption that `cmd/hexal`
+  and "the currently-built compiler version" are the same inseparable
+  thing, because that assumption is exactly what would need undoing later.
+
 ## Validation modes
 
 Build infrastructure must expose distinct validation modes:
@@ -207,6 +242,12 @@ the next consumer.
 - Symlink, sandbox, reproducibility, and supply-chain policy.
 - Cache format, eviction, remote cache policy, and invalidation storage.
 - Watch mode, diagnostics presentation, and IDE integration.
+- Manifest schema for pinning a project's required compiler version.
+- Compiler-version download/registry protocol and resolution algorithm.
+- Whether a non-default compiler version ships as a separate executable
+  invoked as a child process (mirroring RFC 0052's target packs) or some
+  other mechanism — a decision for whenever this is actually built, not
+  foreclosed by this ADR either way.
 
 ## Non-goals
 
@@ -214,6 +255,9 @@ the next consumer.
 - Giving the core compiler filesystem or process-execution capabilities.
 - Choosing a C frontend, build system, package manager, or cache format now.
 - Treating arbitrary third-party build scripts as trusted by default.
+- Building multi-version compiler resolution/download now. Only the
+  decoupling boundary (`cmd/hexal` carries no version-specific compiler
+  logic) is fixed at this stage.
 
 ## Validation
 
@@ -239,6 +283,10 @@ passes:
 - The driver has no implicit permission to execute arbitrary project scripts;
   external commands are configured explicitly and are attributable in the
   build record.
+- `cmd/hexal/main.go` contains no compiler-version-specific logic: it only
+  parses arguments and wires the `compiler` package and driver together.
+  This is checkable by inspection today, before multi-version resolution
+  exists to test end-to-end.
 
 ## Readiness
 

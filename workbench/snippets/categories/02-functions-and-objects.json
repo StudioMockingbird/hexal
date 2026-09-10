@@ -24,37 +24,37 @@
     },
     {
       "id": "functions-counter-method",
-      "name": "Counter method",
-      "description": "Defines a mutable receiver method that increments and returns object state.",
+      "name": "Counter tick function",
+      "description": "Defines an explicit function that increments and returns object state through a writable pointer.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Counter is struct mut count: Int32 end",
-        "method Ptr<mut Counter>.tick(): Int32 do",
-        "    self.count = self.count + 1",
-        "    return self.count",
+        "fun tick(counter: Ptr<mut Counter>): Int32 do",
+        "    counter.count = counter.count + 1",
+        "    return counter.count",
         "end",
         "mut counter: Counter:= Counter(count = 0)",
-        "next: Int32:= counter.tick()"
+        "next: Int32:= tick(@counter)"
       ]},
-      "features": ["objects", "methods"],
-      "reservedWords": ["type", "method", "mut", "self", "return", "end", "do"]
+      "features": ["objects", "functions"],
+      "reservedWords": ["type", "fun", "mut", "return", "end", "do", "@"]
     },
     {
       "id": "functions-point-translation",
       "name": "Point translation",
-      "description": "Uses an object method to update two coordinates.",
+      "description": "Uses a function with an explicit writable pointer to update two coordinates.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Point is struct mut x: Int32, mut y: Int32 end",
-        "method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do",
-        "    self.x = self.x + dx",
-        "    self.y = self.y + dy",
+        "fun translate(target: Ptr<mut Point>, dx: Int32, dy: Int32) do",
+        "    target.x = target.x + dx",
+        "    target.y = target.y + dy",
         "end",
         "mut origin: Point:= Point(x = 0, y = 0)",
-        "origin.translate(3, -4)"
+        "translate(@origin, 3, -4)"
       ]},
-      "features": ["objects", "methods"],
-      "reservedWords": ["type", "method", "mut", "self", "end", "do"]
+      "features": ["objects", "functions"],
+      "reservedWords": ["type", "fun", "mut", "end", "do", "@"]
     },
     {
       "id": "functions-value-pipeline",
@@ -147,27 +147,30 @@
     },
     {
       "id": "functions-receiver-forms",
-      "name": "Receiver forms",
-      "description": "Contrasts the three method targets: a value receiver copies, Ptr<T> reads caller storage, and Ptr<mut T> writes it.",
+      "name": "Method and function forms",
+      "description": "Contrasts value methods, pointer autoderef calls, and explicit mutation functions.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Meter is struct mut reading: Int32 end",
         "method Meter.peek(): Int32 do",
         "    return self.reading",
         "end",
-        "method Ptr<Meter>.seen(): Int32 do",
+        "method Meter.seen(): Int32 do",
         "    return self.reading",
         "end",
-        "method Ptr<mut Meter>.raise() do",
-        "    self.reading = self.reading + 1",
+        "fun raise(target: Ptr<mut Meter>) do",
+        "    target.reading = target.reading + 1",
         "end",
         "mut meter: Meter:= Meter(reading = 1)",
         "copied: Int32:= meter.peek()",
         "read: Int32:= meter.seen()",
-        "meter.raise()"
+        "fixed: Meter:= Meter(reading = 2)",
+        "reader: Ptr<Meter>:= @fixed",
+        "peeped: Int32:= reader.seen()",
+        "raise(@meter)"
       ]},
       "features": ["objects", "methods"],
-      "reservedWords": ["type", "method", "mut", "self", "return", "end", "do"]
+      "reservedWords": ["type", "method", "fun", "mut", "self", "return", "end", "do", "@"]
     },
     {
       "id": "functions-stored-literal",

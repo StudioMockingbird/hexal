@@ -157,15 +157,15 @@ func TestControlFlowReturnDiagnosticsDoNotMaskChildErrors(t *testing.T) {
 }
 
 func TestMethodControlFlowLowering(t *testing.T) {
-	result := compileSource("type Counter is struct mut count: Int32 end method Ptr<mut Counter>.step(amount: Int32): Int32 do if amount > 0 then self.count = self.count + amount return self.count else return 0 end end mut counter: Counter := Counter(count = 1) result: Int32 := counter.step(2)")
+	result := compileSource("type Counter is struct mut count: Int32 end method Counter.step(amount: Int32): Int32 do if amount > 0 then mut next: Counter := self next.count = next.count + amount return next.count else return 0 end end mut counter: Counter := Counter(count = 1) result: Int32 := counter.step(2)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("method control-flow compilation failed: %#v", result)
 	}
 	for _, want := range []string{
 		"static int32_t hex_f_m3_app_Counter_step",
 		"if (hex_v_amount > 0) {",
-		"(*hex_v_self).hex_m_count =",
-		"hex_f_m3_app_Counter_step(&hex_v_counter, 2)",
+		"hex_v_next.hex_m_count =",
+		"hex_f_m3_app_Counter_step(hex_v_counter, 2)",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)

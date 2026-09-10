@@ -1,8 +1,10 @@
 # RFC 0052: C Compiler Backend
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; not scheduled. Design state: Draft; backend direction settled, detailed profile schema and first
-  target-pack builds not started
+- Status: Draft; backend direction settled, detailed profile schema and first
+  target-pack builds not started. Picked back up from `docs/specs/deferred/`
+  on 2026-09-10; verified against the current tree (`compiler.Compile`'s
+  signature this RFC depends on is unchanged)
 - Features: bundled C23 compiler, linker and object tools, host backend
   packages, target runtimes, SDKs, sysroots, trusted ABI profiles,
   cross-compilation, C interoperability, and external-toolchain overrides

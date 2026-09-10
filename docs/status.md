@@ -21,6 +21,8 @@ gets deleted.
 | --- | --- | --- |
 | Rescope `Box<T>` and scoped references after RFC 0161 invalidated the Ref and Box designs; do not implement as written | RFC 0161 | [0149](specs/0149-box-and-call-scoped-references.md) |
 | Rescope ownership and lifetime work after RFC 0161 rejected affine ownership, implicit moves, and automatic cleanup; do not implement as written | RFC 0161 | [0110](specs/0110-affine-ownership-and-stashes.md) |
+| C compiler backend: bundled, trimmed Clang/LLVM invoked as a child process (not statically linked), plus versioned target packs per architecture/OS | Own remaining open design items — profile schema, target-pack manifest format, macOS SDK/licensing, cache metadata, ARM32/RISC-V ABI variants (RFC 0052 Section 12) | [0052](specs/0052-c-compiler-backend.md) |
+| Filesystem/build driver connecting the in-memory compiler to real files, C compilation, and linking; `cmd/hexal` kept as a thin launcher decoupled from a specific compiler version, for future manifest-pinned version resolution | RFC 0039 (still in `docs/specs/deferred/`, not pulled out with this pair) and RFC 0052 settling compiler inputs/target evidence; own driver API and config-format decisions | [0055](specs/0055-filesystem-and-build-driver.md) |
 
 ### Revisit later; not scheduled
 

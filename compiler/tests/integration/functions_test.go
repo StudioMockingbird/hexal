@@ -214,16 +214,26 @@ const pointType = "type Point is struct mut x: Int32, mut y: Int32, end\n"
 func TestMethodDeclarationsAndCalls(t *testing.T) {
 	assertChecked(t, pointType+
 		"method Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n"+
-		"method Ptr<Point>.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
-		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n"+
+		"method Point.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
+		"fun translate(target: Ptr<mut Point>, dx: Int32, dy: Int32) do\n    target.x = target.x + dx\n    target.y = target.y + dy\nend\n"+
 		"mut here: Point := Point(x = 0, y = 0, )\n"+
-		"here.translate(5, 5)\n"+
+		"translate(@here, 5, 5)\n"+
 		"total: Int32 := here.length_squared()\n"+
 		"flag: Bool := here.is_origin()\n")
 }
 
+func TestMethodCallsThroughPointersCopyThePointee(t *testing.T) {
+	assertChecked(t, pointType+
+		"method Point.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
+		"mut here: Point := Point(x = 0, y = 0, )\n"+
+		"reader: Ptr<Point> := @here\n"+
+		"writer: Ptr<mut Point> := @here\n"+
+		"first: Bool := reader.is_origin()\n"+
+		"second: Bool := writer.is_origin()\n")
+}
+
 func TestSelfIsAFixedBinding(t *testing.T) {
-	assertRejectsAnyDiagnostic(t, pointType+"method Ptr<mut Point>.reset() do\n    self = self\nend\n",
+	assertRejectsAnyDiagnostic(t, pointType+"method Point.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
 	assertRejectsAnyDiagnostic(t, pointType+"method Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
 		"cannot assign to read-only member self.x")
@@ -231,12 +241,15 @@ func TestSelfIsAFixedBinding(t *testing.T) {
 }
 
 func TestMethodRulesAreEnforced(t *testing.T) {
-	assertRejectsAnyDiagnostic(t, pointType+"method Point.translate() do\n    return\nend\nmethod Ptr<mut Point>.translate() do\n    return\nend\n",
+	assertRejectsAnyDiagnostic(t, pointType+"method Point.translate() do\n    return\nend\nmethod Point.translate() do\n    return\nend\n",
 		"Point already has a method named translate")
 	assertRejectsAnyDiagnostic(t, pointType+"method Point.x(): Int32 do\n    return 0\nend\n",
 		"Point already has a member named x")
 	assertRejectsAnyDiagnostic(t, "method Int32.doubled(): Int32 do\n    return 0\nend\n",
-		"Int32 is not a nominal object type; method requires an object")
+		"method receiver must be a struct type; got Int32")
+	assertRejectsAnyDiagnostic(t, "method Ptr<Point>.doubled(): Int32 do\n    return 0\nend\n"+
+		"type Point is struct mut x: Int32, mut y: Int32, end\n",
+		"method receiver must be a struct type; got Ptr<Point>")
 	assertRejectsAnyDiagnostic(t, pointType+"origin: Point := Point(x = 0, y = 0, )\ntotal: Int32 := origin.rotate()\n",
 		"Point has no method named rotate")
 }
@@ -248,11 +261,13 @@ func TestMethodSelfRecursionAndForwardCallsResolve(t *testing.T) {
 		"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
 }
 
-func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
+func TestPointerReceiversAreRejected(t *testing.T) {
 	assertRejectsAnyDiagnostic(t, pointType+
-		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"origin: Point := Point(x = 0, y = 0, )\norigin.translate(5, 5)\n",
-		"translate needs Ptr<mut Point>; @origin is Ptr<Point>")
+		"method Ptr<Point>.is_origin(): Bool do\n    return true\nend\n",
+		"method receiver must be a struct type; got Ptr<Point>")
+	assertRejectsAnyDiagnostic(t, pointType+
+		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    return\nend\n",
+		"method receiver must be a struct type; got Ptr<mut Point>")
 }
 
 func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
@@ -283,12 +298,13 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 		"method Point.length_squared(): Int32 do\n" +
 		"    return (self.x * self.x) + (self.y * self.y)\n" +
 		"end\n" +
-		"method Ptr<Point>.is_origin(): Bool do\n" +
+		"method Point.is_origin(): Bool do\n" +
 		"    return (self.x == 0) and (self.y == 0)\n" +
 		"end\n" +
-		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n" + "    self.x = self.x + dx\n" + "    self.y = self.y + dy\n" + "end\n" +
+		"fun translate(target: Ptr<mut Point>, dx: Int32, dy: Int32) do\n" + "    target.x = target.x + dx\n" + "    target.y = target.y + dy\n" + "end\n" +
 		"mut here: Point := Point(x = 0, y = 0, )\n" +
-		"here.translate(5, 5)\n" + "total: Int32 := here.length_squared()\n" + "flag: Bool := here.is_origin()\n"
+		"translate(@here, 5, 5)\n" + "total: Int32 := here.length_squared()\n" + "flag: Bool := here.is_origin()\n" +
+		"reader: Ptr<Point> := @here\n" + "copied: Bool := reader.is_origin()\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("method generation failed: %#v", result)
@@ -296,15 +312,19 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 	generated := withoutLineDirectives(rootC(t, result))
 	for _, want := range []string{
 		"static int32_t hex_f_m3_app_Point_length_squared(const hex_t_m3_app_Point hex_v_self) {",
-		"static bool hex_f_m3_app_Point_is_origin(const hex_t_m3_app_Point *const hex_v_self) {",
-		"static void hex_f_m3_app_Point_translate(hex_t_m3_app_Point *const hex_v_self, const int32_t hex_v_dx, const int32_t hex_v_dy) {",
-		"hex_f_m3_app_Point_translate(&hex_v_here, 5, 5);",
+		"static bool hex_f_m3_app_Point_is_origin(const hex_t_m3_app_Point hex_v_self) {",
+		"static void hex_f_m3_app_translate(hex_t_m3_app_Point *const hex_v_target",
+		"hex_f_m3_app_translate(&hex_v_here, 5, 5);",
 		"hex_f_m3_app_Point_length_squared(hex_v_here)",
-		"hex_f_m3_app_Point_is_origin(&hex_v_here)",
+		"hex_f_m3_app_Point_is_origin(hex_v_here)",
+		"hex_f_m3_app_Point_is_origin(*hex_v_reader)",
 	} {
 		if !strings.Contains(generated, want) {
 			t.Fatalf("modules/app.c = %q, want %q", generated, want)
 		}
+	}
+	if strings.Contains(generated, "hex_t_m3_app_Point *const hex_v_self") {
+		t.Fatalf("modules/app.c = %q, want no pointer-receiver definition", generated)
 	}
 }
 

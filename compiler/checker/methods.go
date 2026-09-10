@@ -9,9 +9,9 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// MethodDeclaration is a checked `method` declaration. Object is the nominal object
-// the method is associated with, whichever receiver form was written; SelfType
-// is that written form and is the type of the implicit `self` binding.
+// MethodDeclaration is a checked `method` declaration. Object is the nominal struct
+// the method is associated with; SelfType is that struct and is the type of
+// the implicit `self` binding.
 // A method is not a value, so unlike a function it carries no Fun<...> type.
 type MethodDeclaration struct {
 	Name         string
@@ -215,22 +215,13 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 		return MethodDeclaration{}, compilerTypes.Diagnostics{*targetDiagnostic}
 	}
 	target := targetUse.Type
-	// Method rule 1 admits T, Ptr<T>, and Ptr<mut T>. A nullable union is not
-	// a receiver form: `self` would hold the union and every use would need a
-	// narrowing the method body can never prove, so the target is rejected.
-	if compilerTypes.IsNullable(target) {
-		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
-			fmt.Sprintf("method requires T, Ptr<T>, or Ptr<mut T>; got %s", target.Name))}
-	}
-	// Method rule 1: the target is T, Ptr<T>, or Ptr<mut T> for a declared
-	// nominal object T. Alias resolution already happened in resolveTypeUse.
+	// Method receivers are nominal structs only. Pointer, nullable, union,
+	// primitive, builtin-generic, and non-struct nominal receivers are
+	// rejected here, before ownership checks or body checking.
 	object := target.Object
-	if object == nil && target.Element != nil {
-		object = target.Element.Object
-	}
 	if object == nil {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
-			target.Name+" is not a nominal object type; method requires an object")}
+			"method receiver must be a struct type; got "+target.Name)}
 	}
 	// Only the type's defining module may declare its methods. An imported
 	// receiver -- or a transparent alias of one -- resolves to the defining
@@ -328,8 +319,7 @@ func checkMethodBody(declaration parser.MethodDeclaration, checked MethodDeclara
 
 // receiverSpelling renders the written method receiver for ownership
 // diagnostics: the qualified name as written (Geometry.Point), the alias
-// name, or the plain type name. Pointer forms resolve to their element's
-// spelling, so Ptr<Geometry.Point> and Geometry.Point read the same.
+// name, or the plain type name.
 func receiverSpelling(expression parser.TypeExpression, fallback string) string {
 	switch expression := expression.(type) {
 	case parser.NamedTypeExpression:
@@ -340,8 +330,6 @@ func receiverSpelling(expression parser.TypeExpression, fallback string) string 
 			names = append(names, name.Lexeme)
 		}
 		return expression.Module.Lexeme + "." + strings.Join(names, ".")
-	case parser.PtrTypeExpression:
-		return receiverSpelling(expression.Element, fallback)
 	default:
 		return fallback
 	}
@@ -355,17 +343,15 @@ func receiverSpellingToken(expression parser.TypeExpression, fallback lexer.Toke
 		return expression.Name
 	case parser.QualifiedTypeExpression:
 		return expression.Module
-	case parser.PtrTypeExpression:
-		return receiverSpellingToken(expression.Element, fallback)
 	default:
 		return fallback
 	}
 }
 
 // checkMethodCall resolves receiver.method(...). The receiver is checked as a
-// place -- adaptation may need its address -- and the method is found by the
-// receiver's nominal object identity, so all three receiver forms reach the
-// one method declared on that object.
+// place -- adaptation may dereference it -- and the method is found by the
+// receiver's nominal object identity, so values and pointers reach the one
+// method declared on that object.
 func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpression, expectedType compilerTypes.Type, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	// Alias.name(...) where Alias is an import alias calls the target
@@ -701,12 +687,13 @@ func methodParameterTypes(method *MethodDeclaration) []compilerTypes.Type {
 // receiver already converted to the method's target form:
 //
 //  1. an exact target type is passed directly;
-//  2. Ptr<mut T> weakens to a Ptr<T> target;
-//  3. Ptr<T> or Ptr<mut T> dereferences to a copied T target; or
-//  4. an addressable T uses @ for a Ptr<T> or Ptr<mut T> target.
+//  2. Ptr<T> or Ptr<mut T> dereferences to a copied T target; or
+//  3. an addressable T uses @ for a Ptr<T> or Ptr<mut T> target.
 //
-// Rule 4 is `@` exactly as written source would be: a fixed place yields
-// Ptr<T> and so cannot reach a Ptr<mut T> method.
+// Rule 3 serves compiler-owned pointer-target operations such as the
+// Bytes stream surface. User-declared methods never have pointer targets,
+// so neither pointer mode changes user-method value semantics: the
+// dereferenced copy, not caller storage, enters the method.
 func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee parser.PropertyExpression, typeEnvironment *compilerTypes.Environment, flow *flowState) (Operand, *compilerTypes.Diagnostic) {
 	target := method.SelfType
 	switch {

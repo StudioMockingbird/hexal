@@ -408,31 +408,24 @@ func TestMethodControlFlowUsesStructuredScopesAndFlow(t *testing.T) {
 		"returning partial may fall through without returning Int32")
 }
 
-// The three receiver forms all key one method table entry, so each of these
-// names must be free on Point and self must carry the written target type.
-func TestAllThreeReceiverFormsBindSelf(t *testing.T) {
+// There is one method receiver form: the nominal struct. self carries the
+// struct type and the method is owned by that struct's identity.
+func TestValueReceiverBindsSelf(t *testing.T) {
 	checked := requireAccepted(t, point+
-		"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"method Ptr<Point>.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
-		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n")
-	want := []string{"Point", "Ptr<Point>", "Ptr<mut Point>"}
-	for index, name := range want {
-		declaration, ok := checked.Statements[index].(MethodDeclaration)
-		if !ok {
-			t.Fatalf("statement %d = %T, want MethodDeclaration", index, checked.Statements[index])
-		}
-		if declaration.SelfType.Name != name {
-			t.Fatalf("self type %d = %s, want %s", index, declaration.SelfType.Name, name)
-		}
-		if declaration.Object == nil || declaration.Object.Name != "Point" {
-			t.Fatalf("method %d is owned by %#v, want Point", index, declaration.Object)
-		}
+		"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n")
+	declaration, ok := checked.Statements[0].(MethodDeclaration)
+	if !ok {
+		t.Fatalf("statement 0 = %T, want MethodDeclaration", checked.Statements[0])
+	}
+	if declaration.SelfType.Name != "Point" {
+		t.Fatalf("self type = %s, want Point", declaration.SelfType.Name)
+	}
+	if declaration.Object == nil || declaration.Object.Name != "Point" {
+		t.Fatalf("method is owned by %#v, want Point", declaration.Object)
 	}
 }
 
 func TestSelfCannotBeAssigned(t *testing.T) {
-	requireDiagnostic(t, point+"method Ptr<mut Point>.reset() do\n    self = self\nend\n",
-		"cannot assign to self; self is a fixed binding")
 	requireDiagnostic(t, point+"method Point.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
 }
@@ -445,16 +438,10 @@ func TestValueReceiverSelfIsFixed(t *testing.T) {
 	requireAccepted(t, point+"method Point.moved(dx: Int32): Point do\n    mut result: Point := self\n    result.x = result.x + dx\n    return result\nend\n")
 }
 
-func TestPtrReceiverSelfIsReadOnly(t *testing.T) {
-	requireAccepted(t, point+"method Ptr<Point>.is_origin(): Bool do\n    return self.x == 0\nend\n")
-	requireDiagnostic(t, point+"method Ptr<Point>.reset() do\n    self.x = 0\nend\n",
-		"cannot assign to read-only member self.x")
-}
-
-func TestDuplicateMethodAcrossReceiverForms(t *testing.T) {
+func TestDuplicateMethodIsRejected(t *testing.T) {
 	requireDiagnostic(t, point+
 		"method Point.translate() do\n    return\nend\n"+
-		"method Ptr<mut Point>.translate() do\n    return\nend\n",
+		"method Point.translate() do\n    return\nend\n",
 		"Point already has a method named translate")
 }
 
@@ -492,26 +479,26 @@ func TestMethodCallsLaterModuleLevelFunction(t *testing.T) {
 		"fun square(value: Int32): Int32 do\n    return value * value\nend\n")
 }
 
-// The four ordered receiver adaptations.
+// Receiver adaptation has two rules: an exact value target passes directly,
+// and a Ptr<T> or Ptr<mut T> dereferences to a copied T target. Neither
+// pointer mode changes value semantics.
 func TestReceiverAdaptationRules(t *testing.T) {
 	// exact target type
 	requireAccepted(t, point+"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
 		"origin: Point := Point(x = 0, y = 0,)\ntotal: Int32 := origin.length_squared()\n")
-	// Ptr<mut T> weakens to a Ptr<T> target
-	requireAccepted(t, point+"method Ptr<Point>.is_origin(): Bool do\n    return self.x == 0\nend\n"+
+	// a read-only pointer dereferences to a copied T target
+	requireAccepted(t, point+"method Point.is_origin(): Bool do\n    return self.x == 0\nend\n"+
+		"mut here: Point := Point(x = 0, y = 0,)\nreader: Ptr<Point> := @here\nflag: Bool := reader.is_origin()\n")
+	// a writable pointer dereferences to the same copied T target
+	requireAccepted(t, point+"method Point.is_origin(): Bool do\n    return self.x == 0\nend\n"+
 		"mut here: Point := Point(x = 0, y = 0,)\nwriter: Ptr<mut Point> := @here\nflag: Bool := writer.is_origin()\n")
-	// a pointer dereferences to a copied T target
-	requireAccepted(t, point+"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"origin: Point := Point(x = 0, y = 0,)\nreader: Ptr<Point> := @origin\ntotal: Int32 := reader.length_squared()\n")
-	// an addressable T takes @ for a Ptr<mut T> target
-	requireAccepted(t, point+"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"mut here: Point := Point(x = 0, y = 0,)\nhere.translate(5, 5)\n")
 }
 
-func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
-	requireDiagnostic(t, point+"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"origin: Point := Point(x = 0, y = 0,)\norigin.translate(5, 5)\n",
-		"translate needs Ptr<mut Point>; @origin is Ptr<Point>")
+func TestPointerCallCannotMutateThroughValueMethod(t *testing.T) {
+	// writer.is_origin() copies the pointee: the method observes a copy and
+	// the caller's storage is unchanged. There is no mutating call form.
+	requireAccepted(t, point+"method Point.is_origin(): Bool do\n    return self.x == 0\nend\n"+
+		"mut here: Point := Point(x = 0, y = 0,)\nwriter: Ptr<mut Point> := @here\nflag: Bool := writer.is_origin()\n")
 }
 
 func TestMissingMethodIsRejected(t *testing.T) {
@@ -525,13 +512,17 @@ func TestMethodsAreNotValues(t *testing.T) {
 		"length_squared is a method on Point; methods are not values")
 }
 
-func TestMethodTargetMustBeANominalObject(t *testing.T) {
+func TestMethodTargetMustBeAStruct(t *testing.T) {
 	requireDiagnostic(t, "method Int32.doubled(): Int32 do\n    return 0\nend\n",
-		"Int32 is not a nominal object type; method requires an object")
+		"method receiver must be a struct type; got Int32")
 	requireDiagnostic(t, "method Ptr<Int32>.doubled(): Int32 do\n    return 0\nend\n",
-		"Ptr<Int32> is not a nominal object type; method requires an object")
+		"method receiver must be a struct type; got Ptr<Int32>")
+	requireDiagnostic(t, "method Ptr<mut Int32>.doubled(): Int32 do\n    return 0\nend\n",
+		"method receiver must be a struct type; got Ptr<mut Int32>")
 	requireDiagnostic(t, "method Fun<(Int32) : Int32>.doubled(): Int32 do\n    return 0\nend\n",
-		"Fun<(Int32) : Int32> is not a nominal object type; method requires an object")
+		"method receiver must be a struct type; got Fun<(Int32) : Int32>")
+	requireDiagnostic(t, "method Int32 | Bool.doubled(): Int32 do\n    return 0\nend\n",
+		"method receiver must be a struct type; got Bool | Int32")
 }
 
 // Nullable integration: signatures, returns, arguments, and
@@ -595,13 +586,12 @@ func TestNullableFunctionPointerRequiresNarrowingBeforeCall(t *testing.T) {
 		"    if callback != nil then\n        return callback(value)\n    end\n    return 0\nend\n")
 }
 
-// Method rule 1 admits T, Ptr<T>, and Ptr<mut T> targets. A nullable union is
-// not a receiver form: self would be nullable and every use would fail
-// closed, so the target itself is rejected.
+// Only nominal structs receive methods. A nullable union is not a receiver
+// form: the diagnostic names the written union.
 func TestMethodTargetCannotBeNullable(t *testing.T) {
 	requireDiagnostic(t, "type Node is struct value: Int32, mut next: Ptr<mut Node> | Nil, end\n"+
 		"method Ptr<mut Node> | Nil.read(): Int32 do\n    return 0\nend\n",
-		"method requires T, Ptr<T>, or Ptr<mut T>; got Ptr<mut Node> | Nil")
+		"method receiver must be a struct type; got Ptr<mut Node> | Nil")
 }
 
 // hex_f_ name encoding is not injective, so the checker owns the clash.
@@ -617,25 +607,25 @@ func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
 }
 
 func TestMethodCallProducesCheckedIR(t *testing.T) {
-	checked := requireAccepted(t, point+"method Ptr<mut Point>.translate(dx: Int32) do\n    self.x = self.x + dx\nend\n"+
-		"mut here: Point := Point(x = 0, y = 0,)\nhere.translate(5)\n")
-	statement, ok := checked.Statements[2].(CallStatement)
+	checked := requireAccepted(t, point+"method Point.translate(dx: Int32): Point do\n    mut result: Point := self\n    result.x = result.x + dx\n    return result\nend\n"+
+		"mut here: Point := Point(x = 0, y = 0,)\nthere: Point := here.translate(5)\n")
+	statement, ok := checked.Statements[2].(Declaration)
 	if !ok {
-		t.Fatalf("statement = %T, want CallStatement", checked.Statements[2])
+		t.Fatalf("statement = %T, want Declaration", checked.Statements[2])
 	}
-	node := statement.Call.Node
+	node := statement.Source.Node
 	if node.Kind != MethodCallExpression || node.Name != "translate" {
 		t.Fatalf("call node = %#v, want a translate method call", node)
 	}
 	if node.Owner == nil || node.Owner.Name != "Point" {
 		t.Fatalf("call owner = %#v, want Point", node.Owner)
 	}
-	// The receiver arrives already adapted: `here` needed its address taken.
-	if node.Operand == nil || node.Operand.Kind != AddressOfExpression {
-		t.Fatalf("receiver = %#v, want an address-of expression", node.Operand)
+	// The receiver arrives as the value itself: no address is taken.
+	if node.Operand == nil || node.Operand.Kind != VariableExpression {
+		t.Fatalf("receiver = %#v, want a variable expression", node.Operand)
 	}
-	if node.OperandType.Name != "Ptr<mut Point>" || len(node.Arguments) != 1 {
-		t.Fatalf("call node = %#v, want a Ptr<mut Point> receiver and one argument", node)
+	if node.OperandType.Name != "Point" || len(node.Arguments) != 1 {
+		t.Fatalf("call node = %#v, want a Point receiver and one argument", node)
 	}
 }
 
