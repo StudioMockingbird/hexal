@@ -20,12 +20,12 @@ func TestReportsIndependentCheckerErrors(t *testing.T) {
 }
 
 func TestCollectsLexerDiagnostics(t *testing.T) {
-	result := compileSource("x: Int32 := @ #")
+	result := compileSource("x: Int32 := $ #")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
 	want := []string{
-		"[Syntax Error] unexpected character '@' at app.hex:1:13",
+		"[Syntax Error] unexpected character '$' at app.hex:1:13",
 		"[Syntax Error] unexpected character '#' at app.hex:1:15",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
@@ -244,7 +244,7 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 		{"text: String := \"hi\" first: Rune := text.at(0)", "String has no method at"},
 		{"label: Strand := \"hi\" first: Rune := label.at(0)", "Strand has no method at"},
 		{"fixed: Array<Int32, 2> := [1, 2] bad: Bool := fixed.is_empty()", "Array<Int32, 2> has no method is_empty"},
-		{"fixed: Array<Int32, 3> := [1, 2, 3] view: View<Int32> := fixed.slice(0, 2) bad: Bool := view.is_empty()", "View<Int32> has no method is_empty"},
+		{"fixed: Array<Int32, 3> := [1, 2, 3] view: Slice<Int32> := fixed.slice(0, 2) bad: Bool := view.is_empty()", "Slice<Int32> has no method is_empty"},
 		{"fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    empty: Bool := values.is_empty()\nend", "List<Int32> has no method is_empty"},
 		{"text: String := \"hi\" bad: Bool := text.is_empty()", "String has no method is_empty"},
 		{"label: Strand := \"hi\" bad: Bool := label.is_empty()", "Strand has no method is_empty"},
@@ -261,7 +261,7 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 // absence check). is_empty was removed from String and Strand once the
 // cached rune count made length() == 0 the identical O(1) test.
 func TestRetainedTextOperationsKeepConstantTimeHelpers(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    text: String := \"hello\"\n    raw: View<UInt8> := text.bytes()\n    label: Strand := \"hexal\"\n    return (text.length() == 0) and (label.length() == 0)\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    text: String := \"hello\"\n    raw: Slice<UInt8> := text.bytes()\n    label: Strand := \"hexal\"\n    return (text.length() == 0) and (label.length() == 0)\nend\n")
 	for _, want := range []string{
 		"hex_string_bytes(",
 	} {

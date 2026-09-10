@@ -108,7 +108,7 @@ func TestExportedClosureRejectsPrivateType(t *testing.T) {
 func TestExportedClosureWalksNestedAndCycles(t *testing.T) {
 	_, err := checkModules(t,
 		"module Math = import \"./math\"\n",
-		"type Secret is struct x: Int32 end\nexport type Node is struct next: MutPtr<Node> | Nil, items: List<Secret> end\nexport fun f(): Node do\n    return Node(next = nil, items = List<Secret>(Heap()))\nend\n")
+		"type Secret is struct x: Int32 end\nexport type Node is struct next: Ptr<mut Node> | Nil, items: List<Secret> end\nexport fun f(): Node do\n    return Node(next = nil, items = List<Secret>(Heap()))\nend\n")
 	requireMessage(t, err, "exported function f exposes private type Secret")
 }
 

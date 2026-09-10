@@ -215,14 +215,14 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 		return MethodDeclaration{}, compilerTypes.Diagnostics{*targetDiagnostic}
 	}
 	target := targetUse.Type
-	// Method rule 1 admits T, Ptr<T>, and MutPtr<T>. A nullable union is not
+	// Method rule 1 admits T, Ptr<T>, and Ptr<mut T>. A nullable union is not
 	// a receiver form: `self` would hold the union and every use would need a
 	// narrowing the method body can never prove, so the target is rejected.
 	if compilerTypes.IsNullable(target) {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
-			fmt.Sprintf("method requires T, Ptr<T>, or MutPtr<T>; got %s", target.Name))}
+			fmt.Sprintf("method requires T, Ptr<T>, or Ptr<mut T>; got %s", target.Name))}
 	}
-	// Method rule 1: the target is T, Ptr<T>, or MutPtr<T> for a declared
+	// Method rule 1: the target is T, Ptr<T>, or Ptr<mut T> for a declared
 	// nominal object T. Alias resolution already happened in resolveTypeUse.
 	object := target.Object
 	if object == nil && target.Element != nil {
@@ -401,10 +401,10 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "String" {
 		return checkStringTypeCall(call, variable.Name, ctx)
 	}
-	// View<T>.from_pointer() and View<T>.empty() name the built-in generic
-	// type, not a View value binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "View" {
-		return checkViewBridgeCall(call, variable.Name, ctx)
+	// Slice<T>.from_pointer() and Slice<T>.empty() name the built-in generic
+	// type, not a Slice value binding.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Slice" {
+		return checkSliceBridgeCall(call, variable.Name, ctx)
 	}
 	// Task.yield() names the built-in Task type, not a Task value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Task" {
@@ -478,9 +478,9 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 			return checkHeapFree(call, callee, receiver, ctx)
 		}
 	}
-	// Array and View methods dispatch on the built-in collection receiver
+	// Array and Slice methods dispatch on the built-in collection receiver
 	// types.
-	if receiver.typ.Array != nil || receiver.typ.View != nil {
+	if receiver.typ.Array != nil || receiver.typ.Slice != nil {
 		return checkCollectionMethodCall(call, callee, receiver, ctx)
 	}
 	// List methods dispatch on the built-in list receiver type.
@@ -514,7 +514,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkPoolMethodCall(call, callee, receiver, ctx)
 	}
 	// Stream operations dispatch on the built-in stream receivers: IO
-	// methods take the value; Bytes state-changing methods reach MutPtr<Bytes>
+	// methods take the value; Bytes state-changing methods reach Ptr<mut Bytes>
 	// either through a pointer value or through the mutable-binding rule.
 	if compilerTypes.IsIO(receiver.typ) {
 		return checkIOStreamMethodCall(call, callee, receiver, ctx)
@@ -546,7 +546,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	}
 
 	// Rule 2: one nominal object owns the method, reached through T, Ptr<T>,
-	// or MutPtr<T>. Deeper pointers have no object at this layer and fail here.
+	// or Ptr<mut T>. Deeper pointers have no object at this layer and fail here.
 	object := receiver.typ.Object
 	if object == nil && receiver.typ.Element != nil {
 		object = receiver.typ.Element.Object
@@ -701,12 +701,12 @@ func methodParameterTypes(method *MethodDeclaration) []compilerTypes.Type {
 // receiver already converted to the method's target form:
 //
 //  1. an exact target type is passed directly;
-//  2. MutPtr<T> weakens to a Ptr<T> target;
-//  3. Ptr<T> or MutPtr<T> dereferences to a copied T target; or
-//  4. an addressable T uses ref for a Ptr<T> or MutPtr<T> target.
+//  2. Ptr<mut T> weakens to a Ptr<T> target;
+//  3. Ptr<T> or Ptr<mut T> dereferences to a copied T target; or
+//  4. an addressable T uses @ for a Ptr<T> or Ptr<mut T> target.
 //
-// Rule 4 is `ref` exactly as written source would be: a fixed place yields
-// Ptr<T> and so cannot reach a MutPtr<T> method.
+// Rule 4 is `@` exactly as written source would be: a fixed place yields
+// Ptr<T> and so cannot reach a Ptr<mut T> method.
 func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee parser.PropertyExpression, typeEnvironment *compilerTypes.Environment, flow *flowState) (Operand, *compilerTypes.Diagnostic) {
 	target := method.SelfType
 	switch {
@@ -724,7 +724,7 @@ func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee 
 			pointer = typeEnvironment.MutPtrType(receiver.typ)
 		}
 		if !assignable(target, pointer) {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s needs %s; ref %s is %s",
+			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s needs %s; @%s is %s",
 				method.Name, target.Name, placeDescription(callee.Receiver), pointer.Name))
 			return Operand{}, &diagnostic
 		}

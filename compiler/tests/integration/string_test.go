@@ -52,15 +52,15 @@ func TestStringLiteralEscapes(t *testing.T) {
 }
 
 func TestStringBytesAndSlice(t *testing.T) {
-	result := compileSource("fun demo() do\n    text: String := \"hello\"\n    raw: View<UInt8> := text.bytes()\n    first: UInt8 := raw[0]\n    part: View<UInt8> := text.slice(1, 3)\n    second: UInt8 := part[0]\nend")
+	result := compileSource("fun demo() do\n    text: String := \"hello\"\n    raw: Slice<UInt8> := text.bytes()\n    first: UInt8 := raw[0]\n    part: Slice<UInt8> := text.slice(1, 3)\n    second: UInt8 := part[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const hex_view_UInt8 hex_v_raw = hex_string_bytes(hex_v_text);",
-		"*hex_view_at_UInt8(hex_v_raw, (size_t)(0))",
-		"const hex_view_UInt8 hex_v_part = hex_string_slice(hex_v_text, (size_t)(1), (size_t)(3));",
-		"*hex_view_at_UInt8(hex_v_part, (size_t)(0))",
+		"const hex_slice_UInt8 hex_v_raw = hex_string_bytes(hex_v_text);",
+		"*hex_slice_at_UInt8(hex_v_raw, (size_t)(0))",
+		"const hex_slice_UInt8 hex_v_part = hex_string_slice(hex_v_text, (size_t)(1), (size_t)(3));",
+		"*hex_slice_at_UInt8(hex_v_part, (size_t)(0))",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -87,7 +87,7 @@ func TestStringOwningLifecycle(t *testing.T) {
 }
 
 func TestStringFromBytes(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    text: String := \"abc\"\n    raw: View<UInt8> := text.bytes()\n    copy: String := String.from_bytes(h, raw)\n    copy.free(h)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    text: String := \"abc\"\n    raw: Slice<UInt8> := text.bytes()\n    copy: String := String.from_bytes(h, raw)\n    copy.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -100,7 +100,7 @@ func TestStringFromBytes(t *testing.T) {
 // payload + terminator chain with ckd_add before the raw allocator sees any
 // sum, and each overflow stage selects its exact message.
 func TestStringAllocationSizeArithmetic(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    text: String := \"abc\"\n    raw: View<UInt8> := text.bytes()\n    copy: String := String.from_bytes(h, raw)\n    copy.free(h)\n    runes: Array<Rune, 1> := ['a']\n    rune_view: View<Rune> := runes.slice(0, 1)\n    encoded: String := String.from_runes(h, rune_view)\n    encoded.free(h)\n    loud: String := text.concat(h, \"!\")\n    loud.free(h)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    text: String := \"abc\"\n    raw: Slice<UInt8> := text.bytes()\n    copy: String := String.from_bytes(h, raw)\n    copy.free(h)\n    runes: Array<Rune, 1> := ['a']\n    rune_view: Slice<Rune> := runes.slice(0, 1)\n    encoded: String := String.from_runes(h, rune_view)\n    encoded.free(h)\n    loud: String := text.concat(h, \"!\")\n    loud.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -208,7 +208,7 @@ func TestStringLiteralFreeRejected(t *testing.T) {
 		"fun demo(h: Heap, source: String) do\n    source.free(h)\nend",
 		"fun make_text(): String do\n    return \"ready\"\nend\nfun demo(h: Heap) do\n    text: String := make_text()\n    text.free(h)\nend",
 		"fun demo(h: Heap) do\n    values: List<String> := List<String>(h)\n    values.push(\"lit\")\n    first: String := values[0]\n    first.free(h)\nend",
-		"fun demo(h: Heap) do\n    raw: View<Byte> := \"hi\".bytes()\n    text: String := String.from_bytes(h, raw)\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    raw: Slice<Byte> := \"hi\".bytes()\n    text: String := String.from_bytes(h, raw)\n    text.free(h)\nend",
 		"fun demo(h: Heap) do\n    text: String := String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend",
 	}
 	for _, source := range accepted {

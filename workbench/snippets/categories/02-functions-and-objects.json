@@ -29,7 +29,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Counter is struct mut count: Int32 end",
-        "method MutPtr<Counter>.tick(): Int32 do",
+        "method Ptr<mut Counter>.tick(): Int32 do",
         "    self.count = self.count + 1",
         "    return self.count",
         "end",
@@ -46,7 +46,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Point is struct mut x: Int32, mut y: Int32 end",
-        "method MutPtr<Point>.translate(dx: Int32, dy: Int32) do",
+        "method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do",
         "    self.x = self.x + dx",
         "    self.y = self.y + dy",
         "end",
@@ -148,7 +148,7 @@
     {
       "id": "functions-receiver-forms",
       "name": "Receiver forms",
-      "description": "Contrasts the three method targets: a value receiver copies, Ptr<T> reads caller storage, and MutPtr<T> writes it.",
+      "description": "Contrasts the three method targets: a value receiver copies, Ptr<T> reads caller storage, and Ptr<mut T> writes it.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Meter is struct mut reading: Int32 end",
@@ -158,7 +158,7 @@
         "method Ptr<Meter>.seen(): Int32 do",
         "    return self.reading",
         "end",
-        "method MutPtr<Meter>.raise() do",
+        "method Ptr<mut Meter>.raise() do",
         "    self.reading = self.reading + 1",
         "end",
         "mut meter: Meter:= Meter(reading = 1)",
@@ -205,11 +205,11 @@
       "description": "A no-result literal must be bound to a name before it can be invoked.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "increment:= fun (counter: MutPtr<Int32>) do",
-        "    counter.value = counter.value + 1",
+        "increment:= fun (counter: Ptr<mut Int32>) do",
+        "    ^counter = ^counter + 1",
         "end",
         "mut total: Int32:= 0",
-        "increment(ref total)"
+        "increment(@total)"
       ]},
       "features": ["functions", "no-result-functions", "anonymous-functions"],
       "reservedWords": ["fun", "mut", "end", "do"]

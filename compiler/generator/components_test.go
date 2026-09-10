@@ -10,7 +10,7 @@ import (
 // .
 func TestComponentTemplatesCompleteAndUnique(t *testing.T) {
 	required := []string{
-		"hexal.h", "runtime.c", "wrap.h", "heap.h", "heap.c", "view.h",
+		"hexal.h", "runtime.c", "wrap.h", "heap.h", "heap.c", "slice.h",
 		"string.h", "string.c", "error.h", "list.h", "dict.h", "array.h",
 		"numeric.h", "print.h", "print.c", "concurrency.h", "concurrency.c",
 		"equality.h", "io.h", "io.c", "seek.h", "stash.h", "stash.c", "pool.h",
@@ -144,8 +144,8 @@ func TestComponentRenderingIsDeterministic(t *testing.T) {
 		},
 		{
 			name:      "view",
-			source:    "fun demo() do\n    view: View<Int32> := View<Int32>.empty()\n    count: Size := view.length()\nend",
-			artifacts: []string{"hexal/view.h"},
+			source:    "fun demo() do\n    view: Slice<Int32> := Slice<Int32>.empty()\n    count: Size := view.length()\nend",
+			artifacts: []string{"hexal/slice.h"},
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -166,7 +166,7 @@ func TestComponentRenderingIsDeterministic(t *testing.T) {
 
 // A scalar-only program selects no collection component and its module header
 // includes none. Array and List were byte-identical copies of this check;
-// View is deliberately not here: view.h is emitted
+// Slice is deliberately not here: slice.h is emitted
 // transitively by the array component, so its absence has a different
 // precondition and keeps its own test.
 func TestUnselectedCollectionComponentsAreAbsent(t *testing.T) {

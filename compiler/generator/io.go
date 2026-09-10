@@ -166,14 +166,14 @@ func renderBytesOver(node checker.Expression, state *expressionValidation) (stri
 }
 
 // isBytesReceiver reports whether a StreamMethodCallExpression's adapted
-// receiver type is the MutPtr<Bytes> form.
+// receiver type is the Ptr<mut Bytes> form.
 func isBytesReceiver(node checker.Expression) bool {
 	return node.OperandType.Element != nil && compilerTypes.IsBytes(*node.OperandType.Element)
 }
 
 // renderStreamMethod renders one read/write/seek/close through its per-module
 // result-union adapter. The receiver arrives already adapted: an IO value for
-// OS-backed operations, a MutPtr<Bytes> value for memory ones.
+// OS-backed operations, a Ptr<mut Bytes> value for memory ones.
 func renderStreamMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	receiver, _, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 	if err != nil {
@@ -288,7 +288,7 @@ func validateStreamMethodCall(node checker.Expression, expected *compilerTypes.T
 	memory := isBytesReceiver(node)
 	directIO := compilerTypes.IsIO(node.OperandType)
 	if !memory && !directIO {
-		return unknownExpressionDiagnostic("stream method receiver is neither IO nor MutPtr<Bytes>")
+		return unknownExpressionDiagnostic("stream method receiver is neither IO nor Ptr<mut Bytes>")
 	}
 	var arguments int
 	var contractMembers []compilerTypes.Type
@@ -459,7 +459,7 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 				return armErr
 			}
 			fmt.Fprintf(result,
-				"\nstatic inline %s hex_io_write_%s(hex_io stream, hex_view_UInt8 from, size_t line, size_t column) {\n"+
+				"\nstatic inline %s hex_io_write_%s(hex_io stream, hex_slice_UInt8 from, size_t line, size_t column) {\n"+
 					"    hex_io_transfer transfer = hex_io_write(stream, from);\n"+
 					"    switch (transfer.status) {\n"+
 					"    case HEX_IO_OK:\n"+
@@ -481,7 +481,7 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 				return armErr
 			}
 			fmt.Fprintf(result,
-				"\nstatic inline %s hex_bytes_write_%s(hex_bytes *stream, hex_view_UInt8 from, size_t line, size_t column) {\n"+
+				"\nstatic inline %s hex_bytes_write_%s(hex_bytes *stream, hex_slice_UInt8 from, size_t line, size_t column) {\n"+
 					"    hex_io_transfer transfer = hex_bytes_write(stream, from);\n"+
 					"    switch (transfer.status) {\n"+
 					"    case HEX_IO_OK:\n"+

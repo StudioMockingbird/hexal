@@ -95,7 +95,7 @@ func TestCheckedCallAndFunctionReferenceNodes(t *testing.T) {
 }
 
 func TestNoReturnCallStatementIsChecked(t *testing.T) {
-	checked := requireAccepted(t, "fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nreset(ref count)\n")
+	checked := requireAccepted(t, "fun reset(counter: Ptr<mut Int32>) do\n    ^counter = 0\nend\nmut count: Int32 := 1\nreset(@count)\n")
 	statement, ok := checked.Statements[2].(CallStatement)
 	if !ok {
 		t.Fatalf("statement = %T, want CallStatement", checked.Statements[2])
@@ -244,12 +244,12 @@ func TestArgumentsUseParameterExpectedTypes(t *testing.T) {
 }
 
 func TestArgumentsUsePointerWeakening(t *testing.T) {
-	requireAccepted(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nmut score: Int32 := 1\ntotal: Int32 := peek(ref score)\n")
+	requireAccepted(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return ^source\nend\nmut score: Int32 := 1\ntotal: Int32 := peek(@score)\n")
 }
 
 func TestNoReturnCallCannotInitializeStorage(t *testing.T) {
 	requireDiagnostic(t,
-		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nresult: Int32 := reset(ref count)\n",
+		"fun reset(counter: Ptr<mut Int32>) do\n    ^counter = 0\nend\nmut count: Int32 := 1\nresult: Int32 := reset(@count)\n",
 		"reset produces no value")
 }
 
@@ -331,16 +331,16 @@ func TestPointersToFunAreUnsupported(t *testing.T) {
 		"type Bad is Ptr<Fun<(Int32) : Int32>>\n",
 		"Ptr<Fun<(Int32) : Int32>> is not supported")
 	requireDiagnostic(t,
-		"type Bad is MutPtr<Fun<(Int32) : Int32>>\n",
-		"MutPtr<Fun<(Int32) : Int32>> is not supported")
+		"type Bad is Ptr<mut Fun<(Int32) : Int32>>\n",
+		"Ptr<mut Fun<(Int32) : Int32>> is not supported")
 }
 
 func TestRefOfAFunctionOrFunBindingIsUnsupported(t *testing.T) {
 	requireDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> := ref adder\n",
+		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> := @adder\n",
 		"function declarations are not addressable; use adder as a Fun value")
 	requireDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> := adder\nbad: Ptr<Int32> := ref handler\n",
+		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nhandler: Fun<(Int32) : Int32> := adder\nbad: Ptr<Int32> := @handler\n",
 		"Fun<(Int32) : Int32> bindings are not addressable")
 }
 
@@ -414,8 +414,8 @@ func TestAllThreeReceiverFormsBindSelf(t *testing.T) {
 	checked := requireAccepted(t, point+
 		"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
 		"method Ptr<Point>.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
-		"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n")
-	want := []string{"Point", "Ptr<Point>", "MutPtr<Point>"}
+		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n")
+	want := []string{"Point", "Ptr<Point>", "Ptr<mut Point>"}
 	for index, name := range want {
 		declaration, ok := checked.Statements[index].(MethodDeclaration)
 		if !ok {
@@ -431,7 +431,7 @@ func TestAllThreeReceiverFormsBindSelf(t *testing.T) {
 }
 
 func TestSelfCannotBeAssigned(t *testing.T) {
-	requireDiagnostic(t, point+"method MutPtr<Point>.reset() do\n    self = self\nend\n",
+	requireDiagnostic(t, point+"method Ptr<mut Point>.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
 	requireDiagnostic(t, point+"method Point.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
@@ -454,7 +454,7 @@ func TestPtrReceiverSelfIsReadOnly(t *testing.T) {
 func TestDuplicateMethodAcrossReceiverForms(t *testing.T) {
 	requireDiagnostic(t, point+
 		"method Point.translate() do\n    return\nend\n"+
-		"method MutPtr<Point>.translate() do\n    return\nend\n",
+		"method Ptr<mut Point>.translate() do\n    return\nend\n",
 		"Point already has a method named translate")
 }
 
@@ -497,21 +497,21 @@ func TestReceiverAdaptationRules(t *testing.T) {
 	// exact target type
 	requireAccepted(t, point+"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
 		"origin: Point := Point(x = 0, y = 0,)\ntotal: Int32 := origin.length_squared()\n")
-	// MutPtr<T> weakens to a Ptr<T> target
+	// Ptr<mut T> weakens to a Ptr<T> target
 	requireAccepted(t, point+"method Ptr<Point>.is_origin(): Bool do\n    return self.x == 0\nend\n"+
-		"mut here: Point := Point(x = 0, y = 0,)\nwriter: MutPtr<Point> := ref here\nflag: Bool := writer.is_origin()\n")
+		"mut here: Point := Point(x = 0, y = 0,)\nwriter: Ptr<mut Point> := @here\nflag: Bool := writer.is_origin()\n")
 	// a pointer dereferences to a copied T target
 	requireAccepted(t, point+"method Point.length_squared(): Int32 do\n    return self.x * self.x\nend\n"+
-		"origin: Point := Point(x = 0, y = 0,)\nreader: Ptr<Point> := ref origin\ntotal: Int32 := reader.length_squared()\n")
-	// an addressable T takes ref for a MutPtr<T> target
-	requireAccepted(t, point+"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
+		"origin: Point := Point(x = 0, y = 0,)\nreader: Ptr<Point> := @origin\ntotal: Int32 := reader.length_squared()\n")
+	// an addressable T takes @ for a Ptr<mut T> target
+	requireAccepted(t, point+"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
 		"mut here: Point := Point(x = 0, y = 0,)\nhere.translate(5, 5)\n")
 }
 
 func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
-	requireDiagnostic(t, point+"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
+	requireDiagnostic(t, point+"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
 		"origin: Point := Point(x = 0, y = 0,)\norigin.translate(5, 5)\n",
-		"translate needs MutPtr<Point>; ref origin is Ptr<Point>")
+		"translate needs Ptr<mut Point>; @origin is Ptr<Point>")
 }
 
 func TestMissingMethodIsRejected(t *testing.T) {
@@ -540,15 +540,15 @@ func TestMethodTargetMustBeANominalObject(t *testing.T) {
 func TestNullableFunctionSignaturesAndReturns(t *testing.T) {
 	requireAccepted(t, "fun find_none(): Ptr<Int32> | Nil do\n    return nil\nend\n")
 	requireAccepted(t, "fun pass_through(maybe: Ptr<Int32> | Nil): Ptr<Int32> | Nil do\n    return maybe\nend\n")
-	// MutPtr-to-Ptr weakening then union injection: MutPtr<Int32> -> Ptr<Int32> | Nil
-	requireAccepted(t, "mut value: Int32 := 1\nwriter: MutPtr<Int32> := ref value\nfun lift(source: MutPtr<Int32>): Ptr<Int32> | Nil do\n    return source\nend\nok: Ptr<Int32> | Nil := lift(writer)\n")
+	// Ptr<mut T>-to-Ptr weakening then union injection: Ptr<mut Int32> -> Ptr<Int32> | Nil
+	requireAccepted(t, "mut value: Int32 := 1\nwriter: Ptr<mut Int32> := @value\nfun lift(source: Ptr<mut Int32>): Ptr<Int32> | Nil do\n    return source\nend\nok: Ptr<Int32> | Nil := lift(writer)\n")
 	// A function returning no value has no result type.
 	requireAccepted(t, "fun absent() do\n    return\nend\nabsent()\n")
 }
 
 func TestNonNullableReturnRejectsNullableValues(t *testing.T) {
 	requireDiagnostic(t,
-		"fun bad(): Ptr<Int32> do\n    mut value: Int32 := 1\n    maybe: Ptr<Int32> | Nil := ref value\n    return maybe\nend\n",
+		"fun bad(): Ptr<Int32> do\n    mut value: Int32 := 1\n    maybe: Ptr<Int32> | Nil := @value\n    return maybe\nend\n",
 		"bad returns Ptr<Int32>; got Ptr<Int32> | Nil")
 	requireDiagnostic(t,
 		"fun bad(): Ptr<Int32> do\n    return nil\nend\n",
@@ -557,14 +557,14 @@ func TestNonNullableReturnRejectsNullableValues(t *testing.T) {
 
 func TestNullableArgumentsToNullableParameters(t *testing.T) {
 	requireAccepted(t, "fun probe(maybe: Ptr<Int32> | Nil): Ptr<Int32> | Nil do\n    return maybe\nend\n"+
-		"mut value: Int32 := 1\nwriter: MutPtr<Int32> := ref value\n"+
+		"mut value: Int32 := 1\nwriter: Ptr<mut Int32> := @value\n"+
 		"ok: Ptr<Int32> | Nil := probe(writer)\nnone: Ptr<Int32> | Nil := probe(nil)\n")
 	requireDiagnostic(t,
-		"fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\n"+
-			"mut value: Int32 := 1\nmaybe: Ptr<Int32> | Nil := ref value\nbad: Int32 := peek(maybe)\n",
+		"fun peek(source: Ptr<Int32>): Int32 do\n    return ^source\nend\n"+
+			"mut value: Int32 := 1\nmaybe: Ptr<Int32> | Nil := @value\nbad: Int32 := peek(maybe)\n",
 		"peek argument 1 requires Ptr<Int32>; got Ptr<Int32> | Nil")
 	requireDiagnostic(t,
-		"fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nbad: Int32 := peek(nil)\n",
+		"fun peek(source: Ptr<Int32>): Int32 do\n    return ^source\nend\nbad: Int32 := peek(nil)\n",
 		"nil requires an expected union containing Nil")
 }
 
@@ -574,8 +574,8 @@ func TestResetRemainsNoResultForNilBindings(t *testing.T) {
 }
 
 func TestMethodSignaturesAcceptNullableParameterAndReturnTypes(t *testing.T) {
-	requireAccepted(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
-		"method Node.set_next(next: MutPtr<Node> | Nil): MutPtr<Node> | Nil do\n    return next\nend\n")
+	requireAccepted(t, "type Node is struct value: Int32, mut next: Ptr<mut Node> | Nil, end\n"+
+		"method Node.set_next(next: Ptr<mut Node> | Nil): Ptr<mut Node> | Nil do\n    return next\nend\n")
 }
 
 // A nullable Fun<...> union must be narrowed before it is called. The call
@@ -595,13 +595,13 @@ func TestNullableFunctionPointerRequiresNarrowingBeforeCall(t *testing.T) {
 		"    if callback != nil then\n        return callback(value)\n    end\n    return 0\nend\n")
 }
 
-// Method rule 1 admits T, Ptr<T>, and MutPtr<T> targets. A nullable union is
+// Method rule 1 admits T, Ptr<T>, and Ptr<mut T> targets. A nullable union is
 // not a receiver form: self would be nullable and every use would fail
 // closed, so the target itself is rejected.
 func TestMethodTargetCannotBeNullable(t *testing.T) {
-	requireDiagnostic(t, "type Node is struct value: Int32, mut next: MutPtr<Node> | Nil, end\n"+
-		"method MutPtr<Node> | Nil.read(): Int32 do\n    return 0\nend\n",
-		"method requires T, Ptr<T>, or MutPtr<T>; got MutPtr<Node> | Nil")
+	requireDiagnostic(t, "type Node is struct value: Int32, mut next: Ptr<mut Node> | Nil, end\n"+
+		"method Ptr<mut Node> | Nil.read(): Int32 do\n    return 0\nend\n",
+		"method requires T, Ptr<T>, or Ptr<mut T>; got Ptr<mut Node> | Nil")
 }
 
 // hex_f_ name encoding is not injective, so the checker owns the clash.
@@ -617,7 +617,7 @@ func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
 }
 
 func TestMethodCallProducesCheckedIR(t *testing.T) {
-	checked := requireAccepted(t, point+"method MutPtr<Point>.translate(dx: Int32) do\n    self.x = self.x + dx\nend\n"+
+	checked := requireAccepted(t, point+"method Ptr<mut Point>.translate(dx: Int32) do\n    self.x = self.x + dx\nend\n"+
 		"mut here: Point := Point(x = 0, y = 0,)\nhere.translate(5)\n")
 	statement, ok := checked.Statements[2].(CallStatement)
 	if !ok {
@@ -634,8 +634,8 @@ func TestMethodCallProducesCheckedIR(t *testing.T) {
 	if node.Operand == nil || node.Operand.Kind != AddressOfExpression {
 		t.Fatalf("receiver = %#v, want an address-of expression", node.Operand)
 	}
-	if node.OperandType.Name != "MutPtr<Point>" || len(node.Arguments) != 1 {
-		t.Fatalf("call node = %#v, want a MutPtr<Point> receiver and one argument", node)
+	if node.OperandType.Name != "Ptr<mut Point>" || len(node.Arguments) != 1 {
+		t.Fatalf("call node = %#v, want a Ptr<mut Point> receiver and one argument", node)
 	}
 }
 

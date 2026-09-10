@@ -210,8 +210,8 @@ func unionMemberEqualityAvailable(typ compilerTypes.Type) bool {
 		return unionMemberEqualityAvailable(*typ.NullableBase)
 	case typ.Array != nil:
 		return unionMemberEqualityAvailable(typ.Array.Element)
-	case typ.View != nil:
-		return unionMemberEqualityAvailable(typ.View.Element)
+	case typ.Slice != nil:
+		return unionMemberEqualityAvailable(typ.Slice.Element)
 	case typ.List != nil:
 		return unionMemberEqualityAvailable(typ.List.Element)
 	case typ.Element != nil, compilerTypes.IsString(typ), compilerTypes.IsStrand(typ),

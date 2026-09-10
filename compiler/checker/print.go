@@ -40,8 +40,8 @@ func printable(typ compilerTypes.Type) bool {
 		return true
 	case typ.Array != nil:
 		return printable(typ.Array.Element)
-	case typ.View != nil:
-		return printable(typ.View.Element)
+	case typ.Slice != nil:
+		return printable(typ.Slice.Element)
 	case typ.List != nil:
 		return printable(typ.List.Element)
 	case typ.Dict != nil:
@@ -70,8 +70,8 @@ func printUnsupportedPath(typ compilerTypes.Type) string {
 		}
 	case typ.Array != nil:
 		return "because its element is " + typ.Array.Element.Name
-	case typ.View != nil:
-		return "because its element is " + typ.View.Element.Name
+	case typ.Slice != nil:
+		return "because its element is " + typ.Slice.Element.Name
 	case typ.List != nil:
 		return "because its element is " + typ.List.Element.Name
 	case typ.Dict != nil:

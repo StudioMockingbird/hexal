@@ -119,7 +119,7 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 		},
 		{
 			name:      "heap",
-			source:    "h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) h.free(p)",
+			source:    "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) h.free(p)",
 			includes:  []string{"#include <stdckdint.h>", "#include <stddef.h>", "#include <stdint.h>", "#include <stdio.h>", "#include <stdlib.h>"},
 			forbidden: nil,
 		},
@@ -131,7 +131,7 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 		},
 		{
 			name:      "view-size-triggers-stddef",
-			source:    "values: Array<Int32, 3> := [1, 2, 3] view: View<Int32> := values.slice(0, 2)",
+			source:    "values: Array<Int32, 3> := [1, 2, 3] view: Slice<Int32> := values.slice(0, 2)",
 			includes:  []string{"#include <stddef.h>", "#include <stdint.h>", "#include <stdio.h>", "#include <stdlib.h>"},
 			forbidden: nil,
 		},
@@ -176,7 +176,7 @@ func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 // hexal/runtime.c, [[noreturn]], owning <stdio.h>/<stdlib.h>, and no
 // per-family trap or raw fputs/abort pair remains in generated C.
 func TestSingleRuntimeTrapContract(t *testing.T) {
-	source := "mut h: Heap := Heap()\nitems: List<Int32> := List<Int32>(h)\nitems.push(7)\nvalues: Array<Int32, 2> := [1, 2]\nview: View<Int32> := values.slice(0, 1)\ntext: String := \"hello\"\nmut count: Int32 := 0\nmut shift: Int32 := 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
+	source := "mut h: Heap := Heap()\nitems: List<Int32> := List<Int32>(h)\nitems.push(7)\nvalues: Array<Int32, 2> := [1, 2]\nview: Slice<Int32> := values.slice(0, 1)\ntext: String := \"hello\"\nmut count: Int32 := 0\nmut shift: Int32 := 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
 	result := assertCompiles(t, source)
 	header := hexalH(t, result)
 	declaration := "[[noreturn]] void hex_runtime_trap(const char *message);"
@@ -252,7 +252,7 @@ func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 		t.Fatalf("hexal.h must define hex_eos exactly once; got %d:\n%s", count, result.Files["hexal.h"])
 	}
 	// A program with no EoS anywhere spells no hex_eos at all.
-	without := assertCompiles(t, "h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) h.free(p)")
+	without := assertCompiles(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) h.free(p)")
 	if strings.Contains(hexalH(t, without), "hex_eos") {
 		t.Fatalf("hexal.h = %q, want no hex_eos spelling", hexalH(t, without))
 	}

@@ -98,14 +98,13 @@ const (
 	// is the array place, Arguments holds the single index operand, and
 	// OperandType is the array type.
 	IndexExpression
-	// CollectionMethodCallExpression is one built-in Array or View method:
+	// CollectionMethodCallExpression is one built-in Array or Slice method:
 	// length or slice. Name selects the operation; Element is the element
 	// type.
 	CollectionMethodCallExpression
-	// CollectionSliceExpression builds a View<T> from an Array or View
+	// CollectionSliceExpression builds a Slice from an Array, List, or Slice
 	// receiver. OperandType is the receiver type, Arguments holds the two
-	// index operands, and ViewRoots records the receiver's root chain for
-	// lexical lifetime checking.
+	// index operands, and ResultType carries the result's access mode.
 	CollectionSliceExpression
 	// StringLiteralExpression is a static-provenance String literal; Name
 	// carries the decoded payload bytes.
@@ -113,13 +112,13 @@ const (
 	// StringMethodCallExpression is one built-in String method: length,
 	// bytes, slice, rune_cursor, to_string, concat, or free. Name
 	// selects the operation; Element
-	// is the byte view element type for bytes and slice.
+	// is the byte slice element type for bytes and slice.
 	StringMethodCallExpression
 	// StringFromBytesExpression constructs a fresh owning String by copying
-	// a View<Byte> payload through a Heap.
+	// a Slice<Byte> payload through a Heap.
 	StringFromBytesExpression
 	// StringFromRunesExpression constructs a fresh owning String by
-	// validating and encoding a View<Rune> payload through a Heap.
+	// validating and encoding a Slice<Rune> payload through a Heap.
 	StringFromRunesExpression
 	// StringInterpolateExpression is String.interpolate(heap, template): a
 	// fresh owning String built from a template's ordered literal-text and
@@ -206,7 +205,7 @@ const (
 	// StashMethodCallExpression is one Stash handle method: allocate, reset,
 	// or destroy. Name selects the method; Operand is the handle;
 	// OperandType is the Stash type; Element is T. allocate's Arguments
-	// holds the initializer and ResultType is MutPtr<T>; reset and destroy
+	// holds the initializer and ResultType is Ptr<mut T>; reset and destroy
 	// take no arguments and yield no value.
 	StashMethodCallExpression
 	// PoolConstructorExpression is Pool<T>.new(capacity), which yields an
@@ -216,7 +215,7 @@ const (
 	// PoolMethodCallExpression is one Pool handle method: allocate, free, or
 	// destroy. Name selects the method; Operand is the handle; OperandType
 	// is the Pool type; Element is T. allocate's Arguments holds the
-	// initializer and ResultType is MutPtr<T>; free's Arguments holds the
+	// initializer and ResultType is Ptr<mut T>; free's Arguments holds the
 	// pointer; destroy takes no arguments; free and destroy yield no value.
 	PoolMethodCallExpression
 	// LayoutExpression is size_of<T>() or align_of<T>(). Name
@@ -224,19 +223,19 @@ const (
 	// Size.
 	LayoutExpression
 	// VolatileReadExpression reads one integer through a volatile-qualified
-	// pointer. Operand is the Ptr or MutPtr receiver; OperandType
+	// pointer. Operand is the Ptr or Ptr<mut T> receiver; OperandType
 	// is the pointer type; Element is the integer element.
 	VolatileReadExpression
 	// VolatileWriteExpression writes one integer through a
-	// volatile-qualified MutPtr. Operand is the receiver;
+	// volatile-qualified Ptr<mut T>. Operand is the receiver;
 	// Arguments holds the written value; OperandType is the pointer type;
 	// Element is the integer element.
 	VolatileWriteExpression
-	// ViewBridgeExpression is View<T>.from_pointer(pointer, length) or
-	// View<T>.empty(). Name selects the form; Arguments holds the
-	// pointer and length for from_pointer; OperandType is the View type;
+	// SliceBridgeExpression is Slice<T>.from_pointer(pointer, length) or
+	// Slice<T>.empty(). Name selects the form; Arguments holds the
+	// pointer and length for from_pointer; OperandType is the Slice type;
 	// Element is T.
-	ViewBridgeExpression
+	SliceBridgeExpression
 	// RuneCursorMethodCallExpression is one RuneCursor method: has_next or
 	// next. Operand is the cursor descriptor; OperandType is the
 	// RuneCursor type.
@@ -252,7 +251,7 @@ const (
 	BytesOverExpression
 	// StreamMethodCallExpression is one byte-stream operation: read, write,
 	// seek, or close. Operand is the receiver already adapted to its C form:
-	// an IO value for IO methods, a MutPtr<Bytes> value for Bytes methods.
+	// an IO value for IO methods, a Ptr<mut Bytes> value for Bytes methods.
 	// OperandType is that adapted receiver type; ResultType is the
 	// operation's structural result union.
 	StreamMethodCallExpression
@@ -394,11 +393,12 @@ type Expression struct {
 	// fields were actually written, for evaluation sequencing.
 	EvaluationOrder []int
 	Element         compilerTypes.Type
-	// ViewRoots is the ordered binding chain a View-producing expression is
-	// borrowed from, outermost root first.
+	// ViewRoots is the ordered binding chain an address-taking expression
+	// borrows from, outermost root first. Only address nodes record roots;
+	// Slice-producing expressions record none.
 	ViewRoots []BindingID
-	// RootKind classifies a View's root at its return site: no root (empty),
-	// a foreign from_pointer region, or the bindings in ViewRoots.
+	// RootKind classifies an address node's root for the pointer return
+	// check: no root, a foreign region, or the bindings in ViewRoots.
 	RootKind ViewRootKind
 	// SourceLine and SourceColumn name the source site of compiler-built
 	// runtime failures: the Error constructed when a spawn, Channel, or
@@ -462,14 +462,14 @@ type FunctionLiteral struct {
 	SourceColumn  int
 }
 
-// ViewRootKind classifies the root of a View-producing expression for the
-// return check.
+// ViewRootKind classifies the root of an address-taking expression for the
+// pointer return check.
 type ViewRootKind uint8
 
 // The concrete ViewRootKind values, each documented at its own line.
 const (
-	ViewRootNone     ViewRootKind = iota // empty(): no root; any return is safe
-	ViewRootForeign                      // from_pointer: opaque foreign region
+	ViewRootNone     ViewRootKind = iota // no recorded root
+	ViewRootForeign                      // opaque foreign region
 	ViewRootBindings                     // roots listed in ViewRoots
 )
 

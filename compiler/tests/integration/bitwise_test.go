@@ -110,7 +110,7 @@ func TestBitwiseDiagnostics(t *testing.T) {
 	}{
 		{"fun demo() do\n    value: Float64 := 1.5\n    bad: Float64 := value & value\nend", "operator & requires integer operands"},
 		{"fun demo() do\n    letter: Rune := (65).to<Rune>()\n    bad: Rune := letter | letter\nend", "operator | requires integer operands"},
-		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := ref value\n    bad: Ptr<Int32> := pointer << 1\nend", "operator << requires an integer left operand"},
+		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: Ptr<Int32> := pointer << 1\nend", "operator << requires an integer left operand"},
 		{"fun demo() do\n    value: Int32 := 1\n    flag: Bool := true\n    bad: Int32 := value << flag\nend", "shift count must be an integer"},
 		{"fun demo() do\n    value: Float64 := 1.5\n    bad: Float64 := ~value\nend", "operator ~ requires an integer operand"},
 	} {
@@ -156,7 +156,7 @@ func TestBitCastDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"fun demo() do\n    value: Float64 := 1.5\n    bad: UInt32 := value.bit_cast<UInt32>()\nend", "bit_cast requires equal-width eligible scalar types"},
-		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := ref value\n    bad: UInt64 := pointer.bit_cast<UInt64>()\nend", "Ptr<Int32> has no method named bit_cast"},
+		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: UInt64 := pointer.bit_cast<UInt64>()\nend", "Ptr<Int32> has no method named bit_cast"},
 		{"fun demo() do\n    value: Float64 := 1.5\n    bad: UInt64 := value.bit_cast()\nend", "bit_cast requires exactly 1 explicit type argument"},
 		{"fun demo() do\n    value: Float64 := 1.5\n    bad: UInt64 := value.bit_cast<UInt64>(1)\nend", "bit_cast accepts no value arguments"},
 	} {
@@ -220,7 +220,7 @@ func TestBitwisePrecedence(t *testing.T) {
 }
 
 func TestNestedGenericClosersStillParse(t *testing.T) {
-	result := compileSource("type Link<T> is struct value: T, mut next: MutPtr<Link<T>> | Nil end link: Link<Int32> := Link<Int32>(value = 1, next = nil) fun demo() do\n    pointer: Ptr<Ptr<Int32>> | Nil := nil\n    inner: Ptr<Int32> | Nil := nil\n    outer: Ptr<Ptr<Int32>> | Nil := nil\nend")
+	result := compileSource("type Link<T> is struct value: T, mut next: Ptr<mut Link<T>> | Nil end link: Link<Int32> := Link<Int32>(value = 1, next = nil) fun demo() do\n    pointer: Ptr<Ptr<Int32>> | Nil := nil\n    inner: Ptr<Int32> | Nil := nil\n    outer: Ptr<Ptr<Int32>> | Nil := nil\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

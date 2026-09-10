@@ -177,7 +177,7 @@ end`,
     totals.insert(1, 90)
     totals.insert(2, 75)
     fixed: Array<Float64, 4> := [1.5, 2.5, 3.5, 4.5]
-    view: View<Float64> := fixed.slice(0, 4)
+    view: Slice<Float64> := fixed.slice(0, 4)
     names: List<Strand> := List<Strand>(h)
     defer names.free(h)
     names.push("alpha")
@@ -208,7 +208,7 @@ end`,
 end
 fun demo(h: Heap): Int32 do
     text: String := "caf\u{00E9} finale \u{03BB}"
-    raw: View<Byte> := text.bytes()
+    raw: Slice<Byte> := text.bytes()
     label: Strand := "hexal"
     runtime: String := label.to_string(h)
     mut total: Int32 := count_letters(text) + raw[1].to<Int32>() + runtime.length().to<Int32>()

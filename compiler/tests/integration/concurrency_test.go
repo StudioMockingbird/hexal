@@ -609,7 +609,7 @@ func TestAtomicNonCopyability(t *testing.T) {
 	rejected := []string{
 		"counter: Atomic<Int32> := Atomic<Int32>(0)\ncopy: Atomic<Int32> := counter\n",
 		"counter: Atomic<Int32> := Atomic<Int32>(0)\nmut other: Atomic<Int32> := Atomic<Int32>(1)\nother = counter\n",
-		"counter: Atomic<Int32> := Atomic<Int32>(0)\npointer: MutPtr<Atomic<Int32>> := ref counter\n",
+		"counter: Atomic<Int32> := Atomic<Int32>(0)\npointer: Ptr<mut Atomic<Int32>> := @counter\n",
 		"items: Array<Atomic<Int32>, 1> := [Atomic<Int32>(0)]\n",
 		"type Bad is union | V as a: Atomic<Int32> end end\n",
 		"counter: Atomic<Int32> := Atomic<Int32>(0)\nvalue: Atomic<Int32> | Nil := counter\n",
@@ -622,7 +622,7 @@ func TestAtomicNonCopyability(t *testing.T) {
 	accepted := []string{
 		"counter: Atomic<Int32> := Atomic<Int32>(0)\n",
 		"type Shared is struct count: Atomic<Int32> end\nshared: Shared := Shared(count = Atomic<Int32>(0))\n",
-		"type Shared is struct count: Atomic<Int32> end\nshared: Shared := Shared(count = Atomic<Int32>(0))\npointer: Ptr<Shared> := ref shared\n",
+		"type Shared is struct count: Atomic<Int32> end\nshared: Shared := Shared(count = Atomic<Int32>(0))\npointer: Ptr<Shared> := @shared\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -631,18 +631,18 @@ func TestAtomicNonCopyability(t *testing.T) {
 	}
 }
 
-// A direct Atomic element is an invalid Ptr/MutPtr pointee in every
+// A direct Atomic element is an invalid Ptr/Ptr<mut T> pointee in every
 // spelling, while pointers to an enclosing object stay valid and Atomic
 // operations work through them.
 func TestAtomicDirectPointeeRules(t *testing.T) {
 	rejected := []string{
 		"type AtomicPtr is Ptr<Atomic<Int32>>\n",
-		"type AtomicPtr is MutPtr<Atomic<Int32>>\n",
-		"type AP is Atomic<Int32>\nx: Int32 := 1\npointer: Ptr<AP> := ref x\n",
-		"type Alias<T> is Ptr<T>\nx: Int32 := 1\np: Alias<Atomic<Int32>> := ref x\n",
-		"type Shared is struct count: Atomic<Int32> end\nshared: Shared := Shared(count = Atomic<Int32>(0))\np: MutPtr<Atomic<Int32>> := ref shared.count\n",
-		"h: Heap := Heap()\np: MutPtr<Atomic<Int32>> := h.allocate<Atomic<Int32>>(Atomic<Int32>(0))\n",
-		"type Shared is struct count: Atomic<Int32> end\nh: Heap := Heap()\np: MutPtr<Shared> := h.allocate<Shared>(Shared(count = Atomic<Int32>(0)))\n",
+		"type AtomicPtr is Ptr<mut Atomic<Int32>>\n",
+		"type AP is Atomic<Int32>\nx: Int32 := 1\npointer: Ptr<AP> := @x\n",
+		"type Alias<T> is Ptr<T>\nx: Int32 := 1\np: Alias<Atomic<Int32>> := @x\n",
+		"type Shared is struct count: Atomic<Int32> end\nshared: Shared := Shared(count = Atomic<Int32>(0))\np: Ptr<mut Atomic<Int32>> := @shared.count\n",
+		"h: Heap := Heap()\np: Ptr<mut Atomic<Int32>> := h.allocate<Atomic<Int32>>(Atomic<Int32>(0))\n",
+		"type Shared is struct count: Atomic<Int32> end\nh: Heap := Heap()\np: Ptr<mut Shared> := h.allocate<Shared>(Shared(count = Atomic<Int32>(0)))\n",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure {
@@ -650,8 +650,8 @@ func TestAtomicDirectPointeeRules(t *testing.T) {
 		}
 	}
 	accepted := []string{
-		"type Shared is struct count: Atomic<Int32> end\nshared: Shared := Shared(count = Atomic<Int32>(0))\npointer: Ptr<Shared> := ref shared\npointer.count.store(1)\n",
-		"type Shared is struct count: Atomic<Int32> end\nmut shared: Shared := Shared(count = Atomic<Int32>(0))\npointer: MutPtr<Shared> := ref shared\npointer.count.store(1)\n",
+		"type Shared is struct count: Atomic<Int32> end\nshared: Shared := Shared(count = Atomic<Int32>(0))\npointer: Ptr<Shared> := @shared\npointer.count.store(1)\n",
+		"type Shared is struct count: Atomic<Int32> end\nmut shared: Shared := Shared(count = Atomic<Int32>(0))\npointer: Ptr<mut Shared> := @shared\npointer.count.store(1)\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {

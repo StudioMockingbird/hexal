@@ -12,7 +12,7 @@ type Arena struct {
 	nullableTypes map[string]Type
 	funTypes      map[string]Type
 	arrayTypes    map[string]Type
-	viewTypes     map[string]Type
+	sliceTypes    map[string]Type
 	listTypes     map[string]Type
 	dictTypes     map[string]Type
 	taskTypes     map[string]Type
@@ -43,7 +43,7 @@ func NewArena() *Arena {
 		nullableTypes:    make(map[string]Type),
 		funTypes:         make(map[string]Type),
 		arrayTypes:       make(map[string]Type),
-		viewTypes:        make(map[string]Type),
+		sliceTypes:       make(map[string]Type),
 		listTypes:        make(map[string]Type),
 		dictTypes:        make(map[string]Type),
 		taskTypes:        make(map[string]Type),
@@ -130,8 +130,8 @@ func nominalModuleOf(typ Type) string {
 		return nominalModuleOf(*typ.NullableBase)
 	case typ.Array != nil:
 		return nominalModuleOf(typ.Array.Element)
-	case typ.View != nil:
-		return nominalModuleOf(typ.View.Element)
+	case typ.Slice != nil:
+		return nominalModuleOf(typ.Slice.Element)
 	case typ.List != nil:
 		return nominalModuleOf(typ.List.Element)
 	case typ.Dict != nil:

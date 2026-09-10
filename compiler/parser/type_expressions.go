@@ -54,9 +54,9 @@ type UnknownTypeExpression struct {
 
 func (UnknownTypeExpression) typeExpressionNode() {}
 
-// PtrTypeExpression describes the Ptr<T> and MutPtr<T> type constructors.
-// Writable distinguishes the writable-pointee constructor from the read-only
-// pointee constructor; the element is a syntax node so type resolution remains
+// PtrTypeExpression describes the Ptr<T> and Ptr<mut T> type constructors.
+// Writable distinguishes the writable-pointee form from the read-only
+// pointee form; the element is a syntax node so type resolution remains
 // the checker's responsibility.
 type PtrTypeExpression struct {
 	Keyword  lexer.Token
@@ -65,6 +65,27 @@ type PtrTypeExpression struct {
 }
 
 func (PtrTypeExpression) typeExpressionNode() {}
+
+// SliceTypeExpression describes the Slice<T> and Slice<mut T> type
+// constructors. Writable selects the writable-element mode; like Ptr, the
+// element is a syntax node for the checker to resolve.
+type SliceTypeExpression struct {
+	Keyword  lexer.Token
+	Element  TypeExpression
+	Writable bool
+}
+
+func (SliceTypeExpression) typeExpressionNode() {}
+
+// MutTypeArgument marks one `mut T` call-site type argument, as in
+// Slice<mut T>.from_pointer(...). Only the Slice bridge consumes the
+// marking; every other generic consumer rejects it through type resolution.
+type MutTypeArgument struct {
+	Mut  lexer.Token
+	Type TypeExpression
+}
+
+func (MutTypeArgument) typeExpressionNode() {}
 
 // FunctionTypeExpression is the written Fun<(T, U) : R> type. Return is nil for
 // the no-return form Fun<(T)>. The parser only records the shape; whether the
@@ -152,7 +173,7 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 		return GroupedTypeExpression{OpenParen: open, Inner: inner}, nil
 	}
 	if parser.check(lexer.Mut) {
-		return nil, parser.errorAtCurrent("mut is not allowed inside Ptr<...>; use MutPtr<...>")
+		return nil, parser.errorAtCurrent("mut is only allowed immediately inside Ptr<...> or Slice<...>")
 	}
 	name, err := parser.consume(lexer.Identifier, "a type name")
 	if err != nil {
@@ -210,9 +231,14 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 		}
 		return ArrayTypeExpression{Keyword: name, Element: element, Length: length}, nil
 	}
-	if name.Lexeme == "Ptr" || name.Lexeme == "MutPtr" {
+	if name.Lexeme == "Ptr" {
 		if _, err := parser.consume(lexer.Less, "'<'"); err != nil {
 			return nil, err
+		}
+		writable := false
+		if parser.check(lexer.Mut) {
+			parser.advance()
+			writable = true
 		}
 		element, err := parser.typeExpression()
 		if err != nil {
@@ -221,7 +247,25 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 		if _, err := parser.consumeGenericClose("'>'"); err != nil {
 			return nil, err
 		}
-		return PtrTypeExpression{Keyword: name, Element: element, Writable: name.Lexeme == "MutPtr"}, nil
+		return PtrTypeExpression{Keyword: name, Element: element, Writable: writable}, nil
+	}
+	if name.Lexeme == "Slice" {
+		if _, err := parser.consume(lexer.Less, "'<'"); err != nil {
+			return nil, err
+		}
+		writable := false
+		if parser.check(lexer.Mut) {
+			parser.advance()
+			writable = true
+		}
+		element, err := parser.typeExpression()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := parser.consumeGenericClose("'>'"); err != nil {
+			return nil, err
+		}
+		return SliceTypeExpression{Keyword: name, Element: element, Writable: writable}, nil
 	}
 	if parser.check(lexer.Less) {
 		parser.advance()

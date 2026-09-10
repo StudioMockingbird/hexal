@@ -9,3 +9,9 @@
 # CRLF working-tree copy changes every generated file and moves the snippet
 # manifest. Unlike ordinary text, these are content, not source.
 compiler/generator/packages/* text eol=lf
+
+# Fuzz corpus entries are opaque data, not text: their exact bytes are the
+# test input fed straight into the lexer/parser. text=auto normalization
+# fights itself here with no real content change, showing every entry as
+# perpetually modified.
+compiler/tests/fuzz/testdata/fuzz/** -text

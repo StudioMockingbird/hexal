@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateHeapAllocationAndFree(t *testing.T) {
-	program := checkedGeneratorSource(t, "h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) defer h.free(p)")
+	program := checkedGeneratorSource(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p)")
 	files := generateOne(t, program)
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	heapH, heapC := files["hexal/heap.h"], files["hexal/heap.c"]

@@ -146,8 +146,8 @@ func checkIOStreamMethodCall(call parser.CallExpression, callee parser.PropertyE
 }
 
 // checkBytesStreamMethodCall resolves read, write, and seek on Bytes. The
-// state-changing surface lives on MutPtr<Bytes>, so the receiver reaches it
-// either as a MutPtr<Bytes> value or as an addressable mutable Bytes binding;
+// state-changing surface lives on Ptr<mut Bytes>, so the receiver reaches it
+// either as a Ptr<mut Bytes> value or as an addressable mutable Bytes binding;
 // the shared adaptation rule supplies the address-of and rejects fixed
 // bindings.
 func checkBytesStreamMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
@@ -162,7 +162,7 @@ func checkBytesStreamMethodCall(call parser.CallExpression, callee parser.Proper
 	}
 	target := ctx.typeEnvironment.MutPtrType(compilerTypes.BytesType)
 	if target == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct MutPtr<Bytes>"))}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct Ptr<mut Bytes>"))}
 	}
 	method := MethodDeclaration{Name: name, SelfType: target}
 	adapted, diagnostic := adaptReceiver(receiver, method, callee, ctx.typeEnvironment, ctx.names.flow)
@@ -233,11 +233,11 @@ func checkStreamReadArguments(call parser.CallExpression, callee parser.Property
 	return []Operand{into.source, maximum.source}, nil
 }
 
-// checkStreamWriteArguments checks one read-only View<Byte>.
+// checkStreamWriteArguments checks one read-only Slice<Byte>.
 func checkStreamWriteArguments(call parser.CallExpression, callee parser.PropertyExpression, ctx checkContext) ([]Operand, compilerTypes.Diagnostics) {
-	byteView := ctx.typeEnvironment.ViewType(compilerTypes.UInt8)
+	byteView := ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
 	if len(call.Arguments) != 1 || byteView == (compilerTypes.Type{}) {
-		return nil, compilerTypes.Diagnostics{typeErrorAt(callee.Property, fmt.Sprintf("write expects 1 argument (from: View<Byte>); got %d", len(call.Arguments)))}
+		return nil, compilerTypes.Diagnostics{typeErrorAt(callee.Property, fmt.Sprintf("write expects 1 argument (from: Slice<Byte>); got %d", len(call.Arguments)))}
 	}
 	from := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(byteView), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(from); len(diagnostics) > 0 {

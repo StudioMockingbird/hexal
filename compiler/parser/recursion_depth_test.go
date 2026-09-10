@@ -26,7 +26,7 @@ func nestedArrayLiterals(depth int) string {
 }
 
 func nestedMutPtrType(depth int) string {
-	return "fun f(p: " + strings.Repeat("MutPtr<", depth) + "Int32" + strings.Repeat(">", depth) + ") do\nend"
+	return "fun f(p: " + strings.Repeat("Ptr<mut ", depth) + "Int32" + strings.Repeat(">", depth) + ") do\nend"
 }
 
 func nestedIfBlocks(depth int) string {

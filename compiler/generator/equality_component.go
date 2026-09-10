@@ -90,10 +90,10 @@ func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalit
 	case typ.Array != nil:
 		model.Includes = appendUnique(model.Includes, "hexal/array.h")
 		collectEqualityComponentDependencies(typ.Array.Element, model, seen)
-	case typ.View != nil:
-		model.Includes = appendUnique(model.Includes, "hexal/view.h")
+	case typ.Slice != nil:
+		model.Includes = appendUnique(model.Includes, "hexal/slice.h")
 		model.NeedStddef = true
-		collectEqualityComponentDependencies(typ.View.Element, model, seen)
+		collectEqualityComponentDependencies(typ.Slice.Element, model, seen)
 	case typ.List != nil:
 		model.Includes = appendUnique(model.Includes, "hexal/list.h")
 		model.NeedStddef = true
@@ -130,7 +130,7 @@ func equalityComponentIncludes(model equalityComponentModel) []string {
 		"hexal/string.h",
 		"hexal/error.h",
 		"hexal/seek.h",
-		"hexal/view.h",
+		"hexal/slice.h",
 		"hexal/list.h",
 		"hexal/array.h",
 	}

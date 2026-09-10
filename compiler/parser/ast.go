@@ -138,7 +138,7 @@ type AnonymousFunctionLiteral struct {
 func (AnonymousFunctionLiteral) expressionNode() {}
 
 // MethodDeclaration is a method attached to a receiver type. SelfType keeps the
-// written receiver form (Point, Ptr<Point>, MutPtr<Point>) unresolved; the
+// written receiver form (Point, Ptr<Point>, Ptr<mut Point>) unresolved; the
 // checker decides whether it names a nominal object type. Exported records an
 // `export` prefix.
 type MethodDeclaration struct {
@@ -403,7 +403,7 @@ func (VariableExpression) expressionNode() {}
 
 // PropertyExpression is a dotted member selection. Keeping the receiver as a
 // tree preserves left-to-right postfix evaluation for chains such as
-// pp.value.value and point.x.y; the checker resolves each name.
+// holder.value.count and point.x.y; the checker resolves each name.
 type PropertyExpression struct {
 	Receiver Expression
 	Property lexer.Token
@@ -554,14 +554,25 @@ type MatchExpression struct {
 
 func (MatchExpression) expressionNode() {}
 
-// RefExpression takes the address of a syntactic place. It maps directly to
-// C's address-of operator; the pointer type is chosen by the checker.
-type RefExpression struct {
-	Keyword lexer.Token
-	Place   Expression
+// AddressExpression takes the address of a syntactic place with the prefix
+// `@` operator. It maps directly to C's address-of operator; the pointer
+// type is chosen by the checker.
+type AddressExpression struct {
+	Operator lexer.Token
+	Place    Expression
 }
 
-func (RefExpression) expressionNode() {}
+func (AddressExpression) expressionNode() {}
+
+// DereferenceExpression reads or writes a pointer's pointee with the prefix
+// `^` operator. The checker decides writability from the operand's pointer
+// type; the same token stays binary XOR in infix position.
+type DereferenceExpression struct {
+	Operator lexer.Token
+	Operand  Expression
+}
+
+func (DereferenceExpression) expressionNode() {}
 
 // NegatedNumericLiteral preserves the exact literal path required for signed
 // minima. General unary minus uses UnaryExpression.

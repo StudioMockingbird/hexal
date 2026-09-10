@@ -12,13 +12,13 @@ var fixtureCatalog = []fixture{
 		name:       "array-view-compiles",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "type Pair is struct mut values: Array<Int32, 2> end\n" +
-			"fun sum(values: View<Int32>): Int32 do\n    return values[0] + values[1]\nend\n" +
-			"fun demo() do\n    mut pair: Pair := Pair(values = [3, 4])\n    view: View<Int32> := pair.values.slice(0, 2)\n    total: Int32 := sum(view)\n    last: Int32 := view[1]\n    pair.values[0] = 9\nend"},
+			"fun sum(values: Slice<Int32>): Int32 do\n    return values[0] + values[1]\nend\n" +
+			"fun demo() do\n    mut pair: Pair := Pair(values = [3, 4])\n    view: Slice<Int32> := pair.values.slice(0, 2)\n    total: Int32 := sum(view)\n    last: Int32 := view[1]\n    pair.values[0] = 9\nend"},
 	},
 	{
 		name:       "list-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    first: Int32 := values[0]\n    values[1] = 5\n    last: Int32 := values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> := values.slice(0, 1)\n    total: Int32 := view[0]\n    names: List<String> := List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String := \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String := names.pop()\n    popped.free(h)\n    name: String := names[0]\nend"},
+		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    first: Int32 := values[0]\n    values[1] = 5\n    last: Int32 := values.pop()\n    values.clear()\n    values.push(7)\n    view: Slice<Int32> := values.slice(0, 1)\n    total: Int32 := view[0]\n    names: List<String> := List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String := \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String := names.pop()\n    popped.free(h)\n    name: String := names[0]\nend"},
 	},
 	{
 		name:       "dict-compiles",
@@ -28,12 +28,12 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "equality-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "type Point is struct x: Int32, y: Int32 end\ntype Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun demo(h: Heap) do\n    left: Point := Point(x = 1, y = 2)\n    right: Point := Point(x = 1, y = 2)\n    same: Bool := left == right\n    different: Bool := left != right\n    i32: Int32 := 1\n    i64: Int64 := 2\n    widened: Bool := i32 == i64\n    text: String := \"abc\"\n    other: String := \"abd\"\n    textOrder: Bool := text < other\n    fixed: Array<Int32, 2> := [1, 2]\n    twin: Array<Int32, 2> := [1, 2]\n    arrays: Bool := fixed == twin\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    lists: Bool := values == values\n    circle: Shape := Shape.Circle(r = 1)\n    square: Shape := Shape.Square(a = 1)\n    shapes: Bool := circle == square\n    mut value: Int32 := 3\n    pointer: Ptr<Int32> := ref value\n    twinPointer: Ptr<Int32> := pointer\n    pointers: Bool := pointer == twinPointer\nend"},
+		sources:    map[string]string{"app.hex": "type Point is struct x: Int32, y: Int32 end\ntype Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun demo(h: Heap) do\n    left: Point := Point(x = 1, y = 2)\n    right: Point := Point(x = 1, y = 2)\n    same: Bool := left == right\n    different: Bool := left != right\n    i32: Int32 := 1\n    i64: Int64 := 2\n    widened: Bool := i32 == i64\n    text: String := \"abc\"\n    other: String := \"abd\"\n    textOrder: Bool := text < other\n    fixed: Array<Int32, 2> := [1, 2]\n    twin: Array<Int32, 2> := [1, 2]\n    arrays: Bool := fixed == twin\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    lists: Bool := values == values\n    circle: Shape := Shape.Circle(r = 1)\n    square: Shape := Shape.Square(a = 1)\n    shapes: Bool := circle == square\n    mut value: Int32 := 3\n    pointer: Ptr<Int32> := @value\n    twinPointer: Ptr<Int32> := pointer\n    pointers: Bool := pointer == twinPointer\nend"},
 	},
 	{
 		name:       "string-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun make_text(h: Heap): String do\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap) do\n    text: String := make_text(h)\n    defer text.free(h)\n    loud: String := text.concat(h, \"!\")\n    raw: View<UInt8> := text.bytes()\n    first: UInt8 := raw[0]\n    part: View<UInt8> := text.slice(0, 2)\n    second: UInt8 := part[1]\n    loud.free(h)\nend"},
+		sources:    map[string]string{"app.hex": "fun make_text(h: Heap): String do\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap) do\n    text: String := make_text(h)\n    defer text.free(h)\n    loud: String := text.concat(h, \"!\")\n    raw: Slice<UInt8> := text.bytes()\n    first: UInt8 := raw[0]\n    part: Slice<UInt8> := text.slice(0, 2)\n    second: UInt8 := part[1]\n    loud.free(h)\nend"},
 	},
 	{
 		name:       "error-try-compiles",
@@ -48,14 +48,14 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "numeric-iteration-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    wide: Int64 := 9_000_000_000\n    narrowed: Int8 := wide.to<Int8>()\n    wrapped: UInt8 := (200).to<UInt8>()\n    whole: Int32 := 3.75.to<Int32>()\n    mut left: Int32 := 7\n    mut right: Int32 := 3\n    quotient: Int32 := left / right\n    remainder: Int32 := left % right\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    mut total: Int32 := 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    view: View<Int32> := fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\n    text: String := \"cafe\"\n    mut runes: Int32 := 0\n    for rune in text do\n        runes = runes + 1\n    end\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    for value in values do\n        total = total + value\n    end\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    for key, value in scores do\n        total = total + key + value\n    end\n    size: Size := values.length()\nend"},
+		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    wide: Int64 := 9_000_000_000\n    narrowed: Int8 := wide.to<Int8>()\n    wrapped: UInt8 := (200).to<UInt8>()\n    whole: Int32 := 3.75.to<Int32>()\n    mut left: Int32 := 7\n    mut right: Int32 := 3\n    quotient: Int32 := left / right\n    remainder: Int32 := left % right\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    mut total: Int32 := 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    view: Slice<Int32> := fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\n    text: String := \"cafe\"\n    mut runes: Int32 := 0\n    for rune in text do\n        runes = runes + 1\n    end\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    for value in values do\n        total = total + value\n    end\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    for key, value in scores do\n        total = total + key + value\n    end\n    size: Size := values.length()\nend"},
 	},
 
 	// Tier 2: exact runtime output.
 	{
 		name:        "list-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    first: Int32 := values[0]\n    values[1] = 5\n    last: Int32 := values.pop()\n    values.clear()\n    values.push(7)\n    view: View<Int32> := values.slice(0, 1)\n    total: Int32 := view[0]\n    names: List<String> := List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String := \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String := names.pop()\n    popped.free(h)\n    name: String := names[0]\n    return (first == 9) and (last == 5) and (total == 7) and (name.length() == 5)\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    first: Int32 := values[0]\n    values[1] = 5\n    last: Int32 := values.pop()\n    values.clear()\n    values.push(7)\n    view: Slice<Int32> := values.slice(0, 1)\n    total: Int32 := view[0]\n    names: List<String> := List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    runtime: String := \"bob\".to_string(h)\n    names.push(runtime)\n    popped: String := names.pop()\n    popped.free(h)\n    name: String := names[0]\n    return (first == 9) and (last == 5) and (total == 7) and (name.length() == 5)\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -67,7 +67,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "string-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    text: String := \"ready\".to_string(h)\n    defer text.free(h)\n    loud: String := text.concat(h, \"!\")\n    defer loud.free(h)\n    ok: Bool := loud.length() == 6\n    part: View<UInt8> := text.slice(0, 2)\n    second: UInt8 := part[1]\n    return ok and (second == 101)\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    text: String := \"ready\".to_string(h)\n    defer text.free(h)\n    loud: String := text.concat(h, \"!\")\n    defer loud.free(h)\n    ok: Bool := loud.length() == 6\n    part: Slice<UInt8> := text.slice(0, 2)\n    second: UInt8 := part[1]\n    return ok and (second == 101)\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -125,7 +125,7 @@ var fixtureCatalog = []fixture{
 		// below goes through rune_cursor() instead.
 		name:        "text-conformance-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    byte: UInt8 := b'\\xFF'\n    byte_ok: Bool := byte == 255\n    letter: Rune := '\\u{00E9}'\n    crab: Rune := '\\u{1F980}'\n    rune_ok: Bool := (letter == 233) and (crab == 129408)\n    text: String := \"caf\\u{00E9} \\u{1F980}\"\n    count: Size := text.length()\n    length_ok: Bool := count == 6\n    cursor: RuneCursor := text.rune_cursor()\n    first: Rune := cursor.next()\n    cursor.next()\n    cursor.next()\n    accented: Rune := cursor.next()\n    index_ok: Bool := (first == 99) and (accented == 233)\n    mut seen: Int32 := 4\n    while cursor.has_next() do\n        value: Rune := cursor.next()\n        seen = seen + 1\n    end\n    cursor_ok: Bool := seen == 6\n    label: Strand := \"hexal\"\n    label_text: String := label.to_string(h)\n    defer label_text.free(h)\n    label_cursor: RuneCursor := label_text.rune_cursor()\n    label_first: Rune := label_cursor.next()\n    strand_ok: Bool := (label.length() == 5) and (label_first == 104)\n    runes: Array<Rune, 2> := [letter, crab]\n    view: View<Rune> := runes.slice(0, 2)\n    encoded: String := String.from_runes(h, view)\n    encoded_cursor: RuneCursor := encoded.rune_cursor()\n    encoded_first: Rune := encoded_cursor.next()\n    encoded_ok: Bool := (encoded.length() == 2) and (encoded_first == 233)\n    encoded.free(h)\n    return byte_ok and rune_ok and length_ok and index_ok and cursor_ok and strand_ok and encoded_ok\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    byte: UInt8 := b'\\xFF'\n    byte_ok: Bool := byte == 255\n    letter: Rune := '\\u{00E9}'\n    crab: Rune := '\\u{1F980}'\n    rune_ok: Bool := (letter == 233) and (crab == 129408)\n    text: String := \"caf\\u{00E9} \\u{1F980}\"\n    count: Size := text.length()\n    length_ok: Bool := count == 6\n    cursor: RuneCursor := text.rune_cursor()\n    first: Rune := cursor.next()\n    cursor.next()\n    cursor.next()\n    accented: Rune := cursor.next()\n    index_ok: Bool := (first == 99) and (accented == 233)\n    mut seen: Int32 := 4\n    while cursor.has_next() do\n        value: Rune := cursor.next()\n        seen = seen + 1\n    end\n    cursor_ok: Bool := seen == 6\n    label: Strand := \"hexal\"\n    label_text: String := label.to_string(h)\n    defer label_text.free(h)\n    label_cursor: RuneCursor := label_text.rune_cursor()\n    label_first: Rune := label_cursor.next()\n    strand_ok: Bool := (label.length() == 5) and (label_first == 104)\n    runes: Array<Rune, 2> := [letter, crab]\n    view: Slice<Rune> := runes.slice(0, 2)\n    encoded: String := String.from_runes(h, view)\n    encoded_cursor: RuneCursor := encoded.rune_cursor()\n    encoded_first: Rune := encoded_cursor.next()\n    encoded_ok: Bool := (encoded.length() == 2) and (encoded_first == 233)\n    encoded.free(h)\n    return byte_ok and rune_ok and length_ok and index_ok and cursor_ok and strand_ok and encoded_ok\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 
@@ -180,13 +180,13 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "array-slice-bounds-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(stop: Int32) do\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    view: View<Int32> := fixed.slice(1, stop)\n    print(view.length())\nend\ndemo(5)\n"},
+		sources:     map[string]string{"app.hex": "fun demo(stop: Int32) do\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    view: Slice<Int32> := fixed.slice(1, stop)\n    print(view.length())\nend\ndemo(5)\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] array slice bounds out of range"},
 	},
 	{
 		name:        "list-slice-bounds-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap, stop: Int32) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> := values.slice(1, stop)\n    print(view.length())\nend\ndemo(Heap(), 5)\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap, stop: Int32) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    view: Slice<Int32> := values.slice(1, stop)\n    print(view.length())\nend\ndemo(Heap(), 5)\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] list slice bounds out of range"},
 	},
 	{
@@ -194,13 +194,13 @@ var fixtureCatalog = []fixture{
 		// above), so its only bounds-checked runtime path is slice.
 		name:        "string-slice-bounds-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(stop: Int32) do\n    text: String := \"hex\"\n    view: View<UInt8> := text.slice(0, stop)\n    print(view.length())\nend\ndemo(100)\n"},
+		sources:     map[string]string{"app.hex": "fun demo(stop: Int32) do\n    text: String := \"hex\"\n    view: Slice<UInt8> := text.slice(0, stop)\n    print(view.length())\nend\ndemo(100)\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] string slice bounds out of range"},
 	},
 	{
 		name:        "malformed-utf8-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap) do\n    bytes: Array<UInt8, 2> := [0xC3, 0x28]\n    view: View<UInt8> := bytes.slice(0, 2)\n    text: String := String.from_bytes(h, view)\n    print(text)\nend\ndemo(Heap())\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap) do\n    bytes: Array<UInt8, 2> := [0xC3, 0x28]\n    view: Slice<UInt8> := bytes.slice(0, 2)\n    text: String := String.from_bytes(h, view)\n    print(text)\nend\ndemo(Heap())\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid UTF-8 in string"},
 	},
 	{
@@ -253,7 +253,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "concurrency-mutex-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun worker(m: Mutex, counter: MutPtr<Int32>): Int32 do\n    mut index: Int32 := 0\n    while index < 100 do\n        m.lock()\n        counter.value = counter.value + 1\n        m.unlock()\n        Task.yield()\n        index = index + 1\n    end\n    return index\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    m: Mutex := try Mutex(h)\n    defer m.free(h)\n    mut count: Int32 := 0\n    first: Task<Int32> := try spawn worker(m, ref count)\n    second: Task<Int32> := try spawn worker(m, ref count)\n    first.join()\n    second.join()\n    return count\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"},
+		sources:     map[string]string{"app.hex": "fun worker(m: Mutex, counter: Ptr<mut Int32>): Int32 do\n    mut index: Int32 := 0\n    while index < 100 do\n        m.lock()\n        ^counter = ^counter + 1\n        m.unlock()\n        Task.yield()\n        index = index + 1\n    end\n    return index\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    m: Mutex := try Mutex(h)\n    defer m.free(h)\n    mut count: Int32 := 0\n    first: Task<Int32> := try spawn worker(m, @count)\n    second: Task<Int32> := try spawn worker(m, @count)\n    first.join()\n    second.join()\n    return count\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "200"},
 	},
 	// Atomic touches no scheduler state -- no spawn, no Task, no fiber --

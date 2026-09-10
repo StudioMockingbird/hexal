@@ -96,8 +96,8 @@ func TestUnknownPointerTypesAreCanonicalCompleteAndPointerLike(t *testing.T) {
 	if got := environment.PtrType(Unknown); got.Name != "Ptr<Unknown>" || got.CName != "void*" {
 		t.Fatalf("Ptr<Unknown> = %#v, want void* representation", got)
 	}
-	if got := environment.MutPtrType(Unknown); got.Name != "MutPtr<Unknown>" || got.CName != "void*" {
-		t.Fatalf("MutPtr<Unknown> = %#v, want void* representation", got)
+	if got := environment.MutPtrType(Unknown); got.Name != "Ptr<mut Unknown>" || got.CName != "void*" {
+		t.Fatalf("Ptr<mut Unknown> = %#v, want void* representation", got)
 	}
 }
 

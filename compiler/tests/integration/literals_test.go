@@ -54,7 +54,7 @@ func TestIntegerRadices(t *testing.T) {
 }
 
 func TestContextualAssignmentAndPointerValue(t *testing.T) {
-	result := compileSource("mut byte: UInt8 := 0 byte = 255 mut value: Int8 := 0 writer: MutPtr<Int8> := ref value writer.value = -128")
+	result := compileSource("mut byte: UInt8 := 0 byte = 255 mut value: Int8 := 0 writer: Ptr<mut Int8> := @value ^writer = -128")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -182,7 +182,7 @@ func TestFloatRoundingAndUnderflow(t *testing.T) {
 }
 
 func TestPointerScalarMappings(t *testing.T) {
-	result := compileSource("mut value: UInt8 := 1 reader: Ptr<UInt8> := ref value writer: MutPtr<UInt8> := ref value mut float_value: Float32 := 1.0 float_writer: MutPtr<Float32> := ref float_value nested: Ptr<MutPtr<Float32>> := ref float_writer")
+	result := compileSource("mut value: UInt8 := 1 reader: Ptr<UInt8> := @value writer: Ptr<mut UInt8> := @value mut float_value: Float32 := 1.0 float_writer: Ptr<mut Float32> := @float_value nested: Ptr<Ptr<mut Float32>> := @float_writer")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}

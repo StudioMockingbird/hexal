@@ -8,10 +8,10 @@ import (
 // pre-sorted record per reachable Array specialization.
 type arrayComponentModel struct {
 	Arrays []arrayComponentRecord
-	// NeedsView is true when some specialization has a slice helper, which
-	// is the only content naming the view component. The include is guarded
+	// NeedsSlice is true when some specialization has a slice helper, which
+	// is the only content naming the slice component. The include is guarded
 	// on it so a declared dependency is always a used one.
-	NeedsView bool
+	NeedsSlice bool
 	// NeedsHeapString is true when some specialization's element is String,
 	// whose spelling (hex_string) is defined by hexal/string.h -- a direct
 	// dependency of this file, not something a consumer's own include order
@@ -21,7 +21,7 @@ type arrayComponentModel struct {
 
 // arrayComponentRecord is one reachable Array specialization's spelling
 // facts: the struct C name, the accessor suffix, the spelled element type,
-// the compile-time length, and the matching View C name when a view over the
+// the compile-time length, and the matching Slice C name when a slice over the
 // element is reachable. The template lays out the struct, the UINT64_C
 // bounds guards, and the slice helper from these fields; canonical naming,
 // ordering, and C spelling stay Go decisions.
@@ -30,7 +30,8 @@ type arrayComponentRecord struct {
 	Suffix          string
 	ElementSpelling string
 	Length          uint64
-	ViewCName       string
+	SliceCName      string
+	MutSliceCName   string
 	// NeedsAt and NeedsAtMut form the demand filter: an accessor is
 	// emitted only where some access whose bounds check survived reaches it.
 	// A program that only iterates arrays and indexes them with literals
@@ -43,19 +44,24 @@ type arrayComponentRecord struct {
 
 // arrayComponentRecordFor builds the spelling record of one Array
 // specialization.
-func arrayComponentRecordFor(array compilerTypes.Type, viewState *generatedViewState, arrayState *generatedArrayState) arrayComponentRecord {
+func arrayComponentRecordFor(array compilerTypes.Type, sliceState *generatedSliceState, arrayState *generatedArrayState) arrayComponentRecord {
 	element := array.Array.Element
 	demand := arrayState.accessorDemandFor(array)
-	viewCName := ""
-	if view := matchingView(viewState, element); view != (compilerTypes.Type{}) {
-		viewCName = view.CName
+	sliceCName := ""
+	if slice := matchingSlice(sliceState, element, false); slice != (compilerTypes.Type{}) {
+		sliceCName = slice.CName
+	}
+	mutSliceCName := ""
+	if slice := matchingSlice(sliceState, element, true); slice != (compilerTypes.Type{}) {
+		mutSliceCName = slice.CName
 	}
 	return arrayComponentRecord{
 		CName:           array.CName,
 		Suffix:          arrayAccessorSuffix(array),
 		ElementSpelling: typeSpelling(element),
 		Length:          array.Array.Length,
-		ViewCName:       viewCName,
+		SliceCName:      sliceCName,
+		MutSliceCName:   mutSliceCName,
 		NeedsAt:         demand.read,
 		NeedsAtMut:      demand.write,
 		NeedsHeapString: compilerTypes.IsString(element),
@@ -76,7 +82,7 @@ func arrayComponents(merged *programEmission) ([]componentArtifact, error) {
 		if collectionElementModuleTyped(array) {
 			continue
 		}
-		records = append(records, arrayComponentRecordFor(array, merged.viewState, merged.arrayState))
+		records = append(records, arrayComponentRecordFor(array, merged.sliceState, merged.arrayState))
 	}
 	if len(records) == 0 {
 		return nil, nil
@@ -84,7 +90,7 @@ func arrayComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/array.h",
 		template: "array.h",
-		model:    arrayComponentModel{Arrays: records, NeedsView: recordsNeedView(records), NeedsHeapString: arrayRecordsNeedHeapString(records)},
+		model:    arrayComponentModel{Arrays: records, NeedsSlice: recordsNeedSlice(records), NeedsHeapString: arrayRecordsNeedHeapString(records)},
 	}}, nil
 }
 
@@ -103,12 +109,12 @@ func moduleArrayComponent(emission *moduleEmission) []string {
 	return nil
 }
 
-// recordsNeedView reports whether any array record renders a slice helper,
-// which is the only content in packages/array.h that names the view
+// recordsNeedSlice reports whether any array record renders a slice helper,
+// which is the only content in packages/array.h that names the slice
 // component.
-func recordsNeedView(records []arrayComponentRecord) bool {
+func recordsNeedSlice(records []arrayComponentRecord) bool {
 	for _, record := range records {
-		if record.ViewCName != "" {
+		if record.SliceCName != "" || record.MutSliceCName != "" {
 			return true
 		}
 	}

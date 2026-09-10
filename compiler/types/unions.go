@@ -14,7 +14,7 @@ type UnionInfo struct {
 }
 
 // TypeUse keeps source-written candidate order separate from canonical Type
-// identity. Nested constructor views preserve contextual order recursively.
+// identity. Nested constructor slices preserve contextual order recursively.
 type TypeUse struct {
 	Type       Type
 	Candidates []TypeUse
@@ -69,7 +69,7 @@ func (environment *Environment) UnionType(members []Type) Type {
 		// placeholder.
 		//
 		// Owning pointer-sized handles (String, List, Dict, Task,
-		// Channel, Mutex) and the read-only View descriptor are ordinary union
+		// Channel, Mutex) and the read-only Slice descriptor are ordinary union
 		// members: Error-carrying results return String | Error and
 		// List<Byte> | Error. Atomic values are non-copyable and are rejected
 		// here because union injection copies by definition. Nil is canonical
@@ -133,7 +133,7 @@ func unionBaseName(members []Type) string {
 	return "hex_t_" + strings.Join(parts, "_")
 }
 
-// UnionMemberView is the read-only member surface of one union value. A view
+// UnionMemberView is the read-only member surface of one union value. A slice
 // never hands out the canonical member slice: ordinary unions reference it
 // privately, the nullable-pointer niche derives base/Nil without storage, and
 // every access is bounds-checked, so no caller can mutate interned state.
@@ -144,28 +144,28 @@ type UnionMemberView struct {
 }
 
 // Len reports the member count of the viewed union.
-func (view UnionMemberView) Len() int {
-	if view.niche {
+func (slice UnionMemberView) Len() int {
+	if slice.niche {
 		return 2
 	}
-	return len(view.members)
+	return len(slice.members)
 }
 
 // At returns member index and reports whether the index is in bounds.
-func (view UnionMemberView) At(index int) (Type, bool) {
-	if index < 0 || index >= view.Len() {
+func (slice UnionMemberView) At(index int) (Type, bool) {
+	if index < 0 || index >= slice.Len() {
 		return Type{}, false
 	}
-	if view.niche {
+	if slice.niche {
 		if index == 0 {
-			return view.base, true
+			return slice.base, true
 		}
 		return Nil, true
 	}
-	return view.members[index], true
+	return slice.members[index], true
 }
 
-// unionMemberView builds the read-only view of typ's canonical members.
+// unionMemberView builds the read-only slice of typ's canonical members.
 func unionMemberView(typ Type) UnionMemberView {
 	if typ.Union != nil {
 		return UnionMemberView{members: typ.Union.Members}
@@ -271,7 +271,7 @@ func unionDisplayKey(typ Type) (int, string) {
 // is an ordinary union with a specialized representation.
 func IsUnion(typ Type) bool { return typ.Union != nil || IsNullable(typ) }
 
-// UnionMembers exposes typ's canonical members as a read-only view: no
+// UnionMembers exposes typ's canonical members as a read-only slice: no
 // caller receives a mutable member slice.
 func UnionMembers(typ Type) UnionMemberView { return unionMemberView(typ) }
 

@@ -69,7 +69,7 @@ func TestUnionEqualityUsesTagsAndPayloads(t *testing.T) {
 }
 
 func TestNullablePointerUnionKeepsNullNiche(t *testing.T) {
-	result := compileSource("mut value: Int32 := 1 maybe: Ptr<Int32> | Nil := ref value if maybe != nil then result: Int32 := maybe.value end")
+	result := compileSource("mut value: Int32 := 1 maybe: Ptr<Int32> | Nil := @value if maybe != nil then result: Int32 := ^maybe end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nullable pointer source: %v", result.Stderr)
 	}
@@ -79,7 +79,7 @@ func TestNullablePointerUnionKeepsNullNiche(t *testing.T) {
 }
 
 func TestUnionNestedPointerAndFunctionPositions(t *testing.T) {
-	result := compileSource("fun identity(value: Int32 | Bool): Int32 | Bool do return value end mut value: Int32 | Bool := true slot: MutPtr<Int32 | Bool> := ref value result: Int32 | Bool := identity(value)")
+	result := compileSource("fun identity(value: Int32 | Bool): Int32 | Bool do return value end mut value: Int32 | Bool := true slot: Ptr<mut Int32 | Bool> := @value result: Int32 | Bool := identity(value)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nested/function union source: %v", result.Stderr)
 	}
@@ -340,7 +340,7 @@ func TestReversedImportedADTUnionsInternTogether(t *testing.T) {
 // branch of the display key needs the same canonical tie-break.
 func TestReversedImportedPointerUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nmut p: M.Point := M.make()\na: Ptr<M.Point> | Ptr<S.Point> := ref p\nb: Ptr<S.Point> | Ptr<M.Point> := a\n",
+		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nmut p: M.Point := M.make()\na: Ptr<M.Point> | Ptr<S.Point> := @p\nb: Ptr<S.Point> | Ptr<M.Point> := a\n",
 		"m.hex":   "export type Point is struct x: Int32, end\nexport fun make(): Point do\n    return Point(x = 1,)\nend\n",
 		"s.hex":   "export type Point is struct x: Int32, end\n",
 	}

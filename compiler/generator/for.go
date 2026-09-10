@@ -13,7 +13,7 @@ import (
 // and Strands are materialized into one inline copy, and String, List, and
 // Dict sources copy their pointer-sized handle.
 //
-// Index semantics: Array, View, and List bind the Size loop counter directly
+// Index semantics: Array, Slice, and List bind the Size loop counter directly
 // (a body `continue` lands on the loop increment). String, Strand, and Dict
 // loops pre-increment their produced-entry ordinal before the body, so a
 // body `continue` never skips the increment.
@@ -52,7 +52,7 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 	switch {
 	case sourceType.Array != nil:
 		return renderForSequence(body, statement, loopRender, state, indent)
-	case sourceType.View != nil:
+	case sourceType.Slice != nil:
 		return renderForSequence(body, statement, loopRender, state, indent)
 	case sourceType.List != nil:
 		return renderForSequence(body, statement, loopRender, state, indent)
@@ -76,7 +76,7 @@ type forLoopRender struct {
 	bodyText    *strings.Builder
 }
 
-// renderForSequence lowers Array, View, and List iteration to a plain index
+// renderForSequence lowers Array, Slice, and List iteration to a plain index
 // loop over the captured source.
 func renderForSequence(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
 	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
@@ -107,10 +107,10 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 		} else {
 			elementAccess = fmt.Sprintf("%s.data[%s_index]", loop, loop)
 		}
-	case sourceType.View != nil:
+	case sourceType.Slice != nil:
 		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
 		length = fmt.Sprintf("%s.length", loop)
-		elementAccess = fmt.Sprintf("*hex_view_at_%s(%s, (size_t)(%s_index))", strings.TrimPrefix(sourceType.CName, "hex_view_"), loop, loop)
+		elementAccess = fmt.Sprintf("*%s(%s, (size_t)(%s_index))", sliceAtHelper(sourceType), loop, loop)
 	case sourceType.List != nil:
 		fmt.Fprintf(body, "%sconst %s *const %s = %s;\n", indent, sourceType.CName, loop, source)
 		fmt.Fprintf(body, "%sconst size_t %s_version = %s->version;\n", indent, loop, loop)

@@ -33,7 +33,7 @@ func TestResolveTypeUseFlattensAliasCandidatesInOuterUnion(t *testing.T) {
 }
 
 func TestResolveTypeUseKeepsNestedPointerCandidates(t *testing.T) {
-	checked, err := Check(parseProgram(t, "value: MutPtr<UInt16 | UInt8> := nil"))
+	checked, err := Check(parseProgram(t, "value: Ptr<mut UInt16 | UInt8> := nil"))
 	if err == nil {
 		t.Fatal("Check accepted a Nil initializer for a non-null pointer")
 	}
@@ -201,7 +201,7 @@ func TestCheckUnionIsNarrowsWhileBody(t *testing.T) {
 }
 
 func TestCheckUnionWritableEscapePreventsNarrowing(t *testing.T) {
-	_, err := Check(parseProgram(t, "mut value: Int32 | Bool := true writer: MutPtr<Int32 | Bool> := ref value if value is Int32 then bad: Int32 := value end"))
+	_, err := Check(parseProgram(t, "mut value: Int32 | Bool := true writer: Ptr<mut Int32 | Bool> := @value if value is Int32 then bad: Int32 := value end"))
 	if err == nil || !strings.Contains(err.Error(), "cannot be narrowed") {
 		t.Fatalf("error = %v, want writable-escape narrowing diagnostic", err)
 	}

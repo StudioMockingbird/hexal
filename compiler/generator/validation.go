@@ -135,7 +135,12 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				return err
 			}
 		case checker.Assignment:
-			if !validSourceName(statement.Name) || !validateGeneratedType(statement.Type, typeState, false) || !validateGeneratedType(statement.Target.Type, typeState, false) {
+			// An operator-opened target (such as ^pointer) carries the
+			// operator spelling as its name: the target node kind owns the
+			// validity check instead of the source-name gate.
+			nameValid := validSourceName(statement.Name) ||
+				(statement.Target.Node.Kind == checker.DereferenceExpression && statement.Name == "^")
+			if !nameValid || !validateGeneratedType(statement.Type, typeState, false) || !validateGeneratedType(statement.Target.Type, typeState, false) {
 				return unknownExpressionDiagnostic("unsupported checked assignment")
 			}
 			if err := validateCheckedOperandWithState(statement.Target, state); err != nil {
@@ -353,7 +358,7 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 	if !compilerTypes.IsCanonical(typ) {
 		// Unknown is canonical only behind a pointer layer, exactly as the
 		// type environment interning rule states: Ptr<Unknown> and
-		// MutPtr<Unknown> are the erased object pointer types.
+		// Ptr<mut Unknown> are the erased object pointer types.
 		if compilerTypes.IsUnknown(typ) {
 			return throughPointer
 		}
@@ -390,8 +395,8 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 	if typ.Array != nil {
 		return validateGeneratedType(typ.Array.Element, state, false)
 	}
-	if typ.View != nil {
-		return validateGeneratedType(typ.View.Element, state, false)
+	if typ.Slice != nil {
+		return validateGeneratedType(typ.Slice.Element, state, false)
 	}
 	if typ.List != nil {
 		return validateGeneratedType(typ.List.Element, state, false)
@@ -1075,8 +1080,8 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 			return err
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
-	case checker.ViewBridgeExpression:
-		return validateViewBridgeExpression(node, expected, state)
+	case checker.SliceBridgeExpression:
+		return validateSliceBridgeExpression(node, expected, state)
 	case checker.PrintExpression:
 		if len(node.Arguments) == 0 || node.ResultType != (compilerTypes.Type{}) || (expected != nil) {
 			return unknownExpressionDiagnostic("print call has invalid checked metadata")
@@ -1290,7 +1295,7 @@ func validateMethodCallExpression(node checker.Expression, expected *compilerTyp
 
 // methodReceiverType recovers the actual checked type of an adapted receiver.
 // Address-of receivers carry their interned canonical pointer result from the
-// checker, so the Ptr<T>/MutPtr<T> distinction is read metadata, never a
+// checker, so the Ptr<T>/Ptr<mut T> distinction is read metadata, never a
 // fresh construction compared against interned identities.
 func methodReceiverType(node checker.Expression, target compilerTypes.Type, state *expressionValidation) (compilerTypes.Type, error) {
 	if node.Kind == checker.AddressOfExpression {
@@ -1600,7 +1605,7 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 		}
 		return generatedPlace{typ: *receiverType.Element, addressable: true, writable: receiverType.PointeeWritable}, nil
 	case checker.IndexExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.View == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) {
+		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place index has invalid checked metadata")
 		}
 		receiver, err := checkedPlaceMetadata(*node.Operand, state)
@@ -1613,8 +1618,8 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 		var element compilerTypes.Type
 		if node.OperandType.Array != nil {
 			element = node.OperandType.Array.Element
-		} else if node.OperandType.View != nil {
-			element = node.OperandType.View.Element
+		} else if node.OperandType.Slice != nil {
+			element = node.OperandType.Slice.Element
 		} else if node.OperandType.List != nil {
 			element = node.OperandType.List.Element
 		} else {
@@ -1623,7 +1628,7 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 		if node.ResultType != (compilerTypes.Type{}) && !compilerTypes.Equal(node.ResultType, element) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place index result type does not match its element type")
 		}
-		// A View element place is never writable; a mutable Array place or
+		// A Slice element place is never writable; a mutable Array place or
 		// any live List reference is. Text indexing is read-only.
 		writable := node.OperandType.Array != nil && receiver.writable || node.OperandType.List != nil
 		return generatedPlace{typ: element, addressable: receiver.addressable, writable: writable}, nil

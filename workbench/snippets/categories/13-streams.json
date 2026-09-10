@@ -52,7 +52,7 @@
     {
       "id": "streams-generic-drain",
       "name": "One algorithm, two backends",
-      "description": "A single generic drain runs unchanged over an OS-backed IO stream and a MutPtr<Bytes> memory stream.",
+      "description": "A single generic drain runs unchanged over an OS-backed IO stream and a Ptr<mut Bytes> memory stream.",
       "entrypoint": "app.hex",
       "sources": {
         "app.hex": [
@@ -71,14 +71,14 @@
           "    mut live: Bytes := Bytes.over(data)",
           "    out: IO := try IO.stdout()",
           "    fromOS: Size | Error := drain<IO>(out, h)",
-          "    fromMemory: Size | Error := drain<MutPtr<Bytes>>(ref live, h)",
+          "    fromMemory: Size | Error := drain<Ptr<mut Bytes>>(@live, h)",
           "    return nil",
           "end",
           "done: Nil | Error := run(Heap())"
         ]
       },
       "features": ["streams", "generics", "lists"],
-      "reservedWords": ["fun", "do", "end", "if", "then", "is", "mut", "ref", "defer", "return"]
+      "reservedWords": ["fun", "do", "end", "if", "then", "is", "mut", "@", "defer", "return"]
     },
     {
       "id": "streams-seek-and-eos",

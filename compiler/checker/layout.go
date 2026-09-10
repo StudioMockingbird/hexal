@@ -74,7 +74,7 @@ func volatileEligibleType(typ compilerTypes.Type) bool {
 }
 
 // checkVolatileCall resolves read_volatile() and write_volatile(value) on
-// Ptr<T> and MutPtr<T> receivers whose element is an integer storage type.
+// Ptr<T> and Ptr<mut T> receivers whose element is an integer storage type.
 func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	element := *receiver.typ.Element
@@ -94,7 +94,7 @@ func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpress
 		return checkedExpression{source: source, typ: element, token: callee.Property}
 	case "write_volatile":
 		if receiver.typ.PointeeWritable == false {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Ptr<"+element.Name+"> is read-only; volatile write requires MutPtr<"+element.Name+">"))}
+			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Ptr<"+element.Name+"> is read-only; volatile write requires Ptr<mut "+element.Name+">"))}
 		}
 		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
 			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "write_volatile expects 1 argument"))}

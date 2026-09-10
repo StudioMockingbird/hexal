@@ -52,7 +52,7 @@ type diskSnippet struct {
 // RequiredReservedWords mirrors the canonical reserved-word grammar. Catalog
 // validation makes omissions visible whenever that grammar grows.
 var RequiredReservedWords = []string{
-	"true", "false", "nil", "eos", "mut", "ref", "type", "and", "or", "is",
+	"true", "false", "nil", "eos", "mut", "@", "type", "and", "or", "is",
 	"fun", "struct", "union", "method", "end", "return", "if", "elseif", "else", "while", "break",
 	"continue", "defer", "try", "errdefer", "spawn", "as", "match", "then",
 	"self", "for", "in", "do", "module", "import", "export",
@@ -66,7 +66,7 @@ var RequiredFeatures = []string{
 	"function-values", "methods", "generics", "unions", "adts", "match",
 	"lossless-widening", "numeric-conversions", "arithmetic", "bitwise", "equality-ordering",
 	"bit-casting", "endian-conversion", "truthiness", "if-elseif-else", "while", "for", "defer", "errors",
-	"try-errdefer", "heap-allocation", "arrays", "views", "view-pointer-bridge",
+	"try-errdefer", "heap-allocation", "arrays", "slices", "slice-pointer-bridge",
 	"lists", "dicts", "text", "print", "tasks",
 	"channels", "mutex", "atomics", "layout", "volatile", "unknown-pointers", "modules", "exports", "streams",
 }
@@ -183,6 +183,11 @@ func lineLimitWarnings(categories []Category) []string {
 }
 
 func containsWord(source, word string) bool {
+	if word == "@" {
+		// "@" is punctuation rather than a word: any address-taking use
+		// covers it, since whitespace splitting can never isolate it.
+		return strings.Contains(source, "@")
+	}
 	return slices.Contains(strings.FieldsFunc(source, func(r rune) bool {
 		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_')
 	}), word)

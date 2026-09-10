@@ -7,7 +7,7 @@ import (
 
 // A list-using program emits hexal/list.h with every reachable
 // specialization exactly once, in C-name order, with its guard, its declared
-// hexal.h/heap.h/view.h includes, and exactly one trailing newline; the
+// hexal.h/heap.h/slice.h includes, and exactly one trailing newline; the
 // owning module header includes the component.
 func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    numbers: List<Int32> := List<Int32>(h)\n    defer numbers.free(h)\n    names: List<String> := List<String>(h)\n    defer names.free(h)\nend")
@@ -17,7 +17,7 @@ func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 		t.Fatalf("generated files %v lack hexal/list.h", files)
 	}
 	// No specialization here has a slice helper, so the header declares no
-	// view dependency: a declared include is always a used one.
+	// slice dependency: a declared include is always a used one.
 	if !strings.HasPrefix(listH, "#ifndef HEXAL_LIST_H\n#define HEXAL_LIST_H\n\n#include \"hexal.h\"\n#include \"hexal/heap.h\"\n") {
 		t.Fatalf("hexal/list.h lost its guard or one of its declared includes: %q", listH)
 	}
@@ -44,7 +44,7 @@ func TestListComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // bounds guards, growth with the checked multiply chain, the guarded memcpy,
 // and trap messages).
 func TestListComponentHexalHeaderOwnsNoListText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> := values.slice(0, 1)\n    first: Int32 := values[0]\n    values[0] = 9\n    last: Int32 := values.pop()\n    values.clear()\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    view: Slice<Int32> := values.slice(0, 1)\n    first: Int32 := values[0]\n    values[0] = 9\n    last: Int32 := values.pop()\n    values.clear()\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_list_") {
 		t.Fatalf("hexal.h = %q, list definitions must live in hexal/list.h", files["hexal.h"])
@@ -54,7 +54,7 @@ func TestListComponentHexalHeaderOwnsNoListText(t *testing.T) {
 
 #include "hexal.h"
 #include "hexal/heap.h"
-#include "hexal/view.h"
+#include "hexal/slice.h"
 
 typedef struct hex_list_Int32 {
     int32_t *data;
@@ -158,11 +158,11 @@ static inline void hex_list_free_Int32(hex_heap h, hex_list_Int32 *list) {
     }
     hex_heap_free(list);
 }
-static inline hex_view_Int32 hex_list_slice_Int32(const hex_list_Int32 *list, uint64_t start, uint64_t end) {
+static inline hex_slice_Int32 hex_list_slice_Int32(const hex_list_Int32 *list, uint64_t start, uint64_t end) {
     if (!(start <= end && end <= list->length)) {
         hex_runtime_trap("[Runtime Error] list slice bounds out of range\n");
     }
-    return (hex_view_Int32){list->data == nullptr ? nullptr : &list->data[start], end - start};
+    return (hex_slice_Int32){list->data == nullptr ? nullptr : &list->data[start], end - start};
 }
 
 #endif

@@ -111,7 +111,7 @@ func checkHeapTypeCall(call parser.CallExpression, token parser.VariableExpressi
 }
 
 // checkHeapAllocate resolves h.allocate<T>(initial) into a checked
-// HeapAllocateExpression returning MutPtr<T>.
+// HeapAllocateExpression returning Ptr<mut T>.
 func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 1 {
 		message := "allocation requires an explicit initializer"
@@ -153,7 +153,7 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 }
 
 // checkHeapFree resolves h.free(value) into a no-result checked
-// HeapFreeExpression. The value may be Ptr<T> or MutPtr<T>.
+// HeapFreeExpression. The value may be Ptr<T> or Ptr<mut T>.
 func checkHeapFree(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "free expects exactly one pointer argument"))}

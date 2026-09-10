@@ -141,7 +141,6 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 			ResultType:  destination,
 			MemberMap:   mapping,
 		}
-		checkedNode.ViewRoots, checkedNode.RootKind = mergeViewProvenance([]Expression{node})
 		result := Operand{Kind: ExpressionOperand, Type: destination, Node: checkedNode}
 		return checkedExpression{source: result, typ: destination, token: source.token}
 	}
@@ -156,7 +155,6 @@ func injectIntoUnion(source checkedExpression, destination compilerTypes.Type) c
 		ResultType:  destination,
 		MemberIndex: memberIndex,
 	}
-	checkedNode.ViewRoots, checkedNode.RootKind = mergeViewProvenance([]Expression{node})
 	result := Operand{Kind: ExpressionOperand, Type: destination, Node: checkedNode}
 	return checkedExpression{source: result, typ: destination, token: source.token}
 }
@@ -315,12 +313,20 @@ func expressionToken(expression parser.Expression) (token lexer.Token) {
 		return expression.Token
 	case parser.VariableExpression:
 		return expression.Name
+	case parser.PropertyExpression:
+		return expression.Property
+	case parser.IndexExpression:
+		return expression.OpenBracket
 	case parser.BinaryExpression:
 		return expression.Operator
 	case parser.UnaryExpression:
 		return expression.Operator
 	case parser.CallExpression:
 		return expression.OpenParen
+	case parser.AddressExpression:
+		return expression.Operator
+	case parser.DereferenceExpression:
+		return expression.Operator
 	default:
 		return lexer.Token{}
 	}

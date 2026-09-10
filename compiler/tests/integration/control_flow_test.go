@@ -157,7 +157,7 @@ func TestControlFlowReturnDiagnosticsDoNotMaskChildErrors(t *testing.T) {
 }
 
 func TestMethodControlFlowLowering(t *testing.T) {
-	result := compileSource("type Counter is struct mut count: Int32 end method MutPtr<Counter>.step(amount: Int32): Int32 do if amount > 0 then self.count = self.count + amount return self.count else return 0 end end mut counter: Counter := Counter(count = 1) result: Int32 := counter.step(2)")
+	result := compileSource("type Counter is struct mut count: Int32 end method Ptr<mut Counter>.step(amount: Int32): Int32 do if amount > 0 then self.count = self.count + amount return self.count else return 0 end end mut counter: Counter := Counter(count = 1) result: Int32 := counter.step(2)")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("method control-flow compilation failed: %#v", result)
 	}

@@ -52,9 +52,6 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		message := "unknown module alias " + expression.Module.Lexeme
 		return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Module, message))
 	case parser.GenericTypeExpression:
-		if expression.Name.Lexeme == "View" {
-			return resolveViewTypeUse(expression, fallback, typeEnvironment, generics)
-		}
 		if expression.Name.Lexeme == "List" {
 			return resolveListTypeUse(expression, fallback, typeEnvironment, generics)
 		}
@@ -90,7 +87,11 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		if element.Signature != nil {
 			// Supported-position whitelist: a pointer to a function pointer
 			// needs C declarator and FFI rules that are not supported.
-			diagnostic := typeErrorAt(expression.Keyword, expression.Keyword.Lexeme+"<"+element.Name+"> is not supported")
+			spelling := "Ptr<" + element.Name + ">"
+			if expression.Writable {
+				spelling = "Ptr<mut " + element.Name + ">"
+			}
+			diagnostic := typeErrorAt(expression.Keyword, spelling+" is not supported")
 			return compilerTypes.TypeUse{}, &diagnostic
 		}
 		var pointer compilerTypes.Type
@@ -103,6 +104,13 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 			return compilerTypes.TypeUse{}, typeErrorPointerConstruction(expression.Keyword)
 		}
 		return compilerTypes.PointerTypeUse(pointer, elementUse), nil
+	case parser.SliceTypeExpression:
+		return resolveSliceTypeUse(expression, fallback, typeEnvironment, generics)
+	case parser.MutTypeArgument:
+		// A `mut` marking survives parsing only at a call site; only the
+		// Slice bridge consumes it, so any other generic position rejects
+		// it where the marking would otherwise be silently dropped.
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(fallback, "mut is only allowed immediately inside Ptr<...> or Slice<...>"))
 	case parser.FunctionTypeExpression:
 		return resolveFunctionTypeUse(expression, typeEnvironment, generics)
 	case parser.UnionTypeExpression:
@@ -206,7 +214,7 @@ func typeExpressionToken(expression parser.TypeExpression, fallback lexer.Token)
 }
 
 // resolveFunctionTypeUse resolves Fun<(T, U) : R> while retaining nested type
-// views for contextual arguments and results.
+// slices for contextual arguments and results.
 func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(expression.Parameters))
 	parameters := make([]compilerTypes.Type, 0, len(expression.Parameters))

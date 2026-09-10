@@ -39,9 +39,9 @@ func TestFunctionDeclarationAndCall(t *testing.T) {
 }
 
 func TestNoReturnFunctionIsACallStatement(t *testing.T) {
-	assertChecked(t, "fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nreset(ref count)\n")
+	assertChecked(t, "fun reset(counter: Ptr<mut Int32>) do\n    ^counter = 0\nend\nmut count: Int32 := 1\nreset(@count)\n")
 	assertRejectsAnyDiagnostic(t,
-		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nresult: Int32 := reset(ref count)\n",
+		"fun reset(counter: Ptr<mut Int32>) do\n    ^counter = 0\nend\nmut count: Int32 := 1\nresult: Int32 := reset(@count)\n",
 		"reset produces no value")
 }
 
@@ -83,7 +83,7 @@ func TestCallChecksArityAndArgumentTypes(t *testing.T) {
 	assertRejectsAnyDiagnostic(t,
 		"fun small(value: UInt8): UInt8 do\n    return value\nend\nbad: UInt8 := small(300)\n",
 		"given value is outside the UInt8 range")
-	assertChecked(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return source.value\nend\nmut score: Int32 := 1\ntotal: Int32 := peek(ref score)\n")
+	assertChecked(t, "fun peek(source: Ptr<Int32>): Int32 do\n    return ^source\nend\nmut score: Int32 := 1\ntotal: Int32 := peek(@score)\n")
 }
 
 func TestReturnFormsMatchTheDeclaration(t *testing.T) {
@@ -103,7 +103,7 @@ func TestUnsupportedFunPositions(t *testing.T) {
 		"type Bad is Ptr<Fun<(Int32) : Int32>>\n",
 		"Ptr<Fun<(Int32) : Int32>> is not supported")
 	assertRejectsAnyDiagnostic(t,
-		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> := ref adder\n",
+		"fun adder(dx: Int32): Int32 do\n    return dx\nend\nbad: Fun<(Int32) : Int32> := @adder\n",
 		"function declarations are not addressable; use adder as a Fun value")
 }
 
@@ -114,13 +114,13 @@ func TestDispatchTableMemberCalls(t *testing.T) {
 			"table: Ops := Ops(callback = handler, )\n"+
 			"result: Int32 := table.callback(5)\n")
 	assertChecked(t,
-		"type ReaderOps<S> is struct read: Fun<(MutPtr<S>, MutPtr<Byte>, Size)>, end\n"+
+		"type ReaderOps<S> is struct read: Fun<(Ptr<mut S>, Ptr<mut Byte>, Size)>, end\n"+
 			"type FileState is struct position: Size, end\n"+
-			"fun read_file(state: MutPtr<FileState>, dest: MutPtr<Byte>, count: Size) do\n    return\nend\n"+
+			"fun read_file(state: Ptr<mut FileState>, dest: Ptr<mut Byte>, count: Size) do\n    return\nend\n"+
 			"mut state: FileState := FileState(position = 0, )\n"+
 			"ops: ReaderOps<FileState> := ReaderOps<FileState>(read = read_file, )\n"+
 			"mut buf: Byte := b'a'\n"+
-			"ops.read(ref state, ref buf, 1)\n")
+			"ops.read(@state, @buf, 1)\n")
 	assertChecked(t,
 		"type Inner is struct callback: Fun<(Int32) : Int32>, end\n"+
 			"type Outer is struct inner: Inner, end\n"+
@@ -215,7 +215,7 @@ func TestMethodDeclarationsAndCalls(t *testing.T) {
 	assertChecked(t, pointType+
 		"method Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n"+
 		"method Ptr<Point>.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
-		"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n"+
+		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\n    self.y = self.y + dy\nend\n"+
 		"mut here: Point := Point(x = 0, y = 0, )\n"+
 		"here.translate(5, 5)\n"+
 		"total: Int32 := here.length_squared()\n"+
@@ -223,7 +223,7 @@ func TestMethodDeclarationsAndCalls(t *testing.T) {
 }
 
 func TestSelfIsAFixedBinding(t *testing.T) {
-	assertRejectsAnyDiagnostic(t, pointType+"method MutPtr<Point>.reset() do\n    self = self\nend\n",
+	assertRejectsAnyDiagnostic(t, pointType+"method Ptr<mut Point>.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
 	assertRejectsAnyDiagnostic(t, pointType+"method Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
 		"cannot assign to read-only member self.x")
@@ -231,7 +231,7 @@ func TestSelfIsAFixedBinding(t *testing.T) {
 }
 
 func TestMethodRulesAreEnforced(t *testing.T) {
-	assertRejectsAnyDiagnostic(t, pointType+"method Point.translate() do\n    return\nend\nmethod MutPtr<Point>.translate() do\n    return\nend\n",
+	assertRejectsAnyDiagnostic(t, pointType+"method Point.translate() do\n    return\nend\nmethod Ptr<mut Point>.translate() do\n    return\nend\n",
 		"Point already has a method named translate")
 	assertRejectsAnyDiagnostic(t, pointType+"method Point.x(): Int32 do\n    return 0\nend\n",
 		"Point already has a member named x")
@@ -250,9 +250,9 @@ func TestMethodSelfRecursionAndForwardCallsResolve(t *testing.T) {
 
 func TestFixedReceiverCannotReachAMutPtrMethod(t *testing.T) {
 	assertRejectsAnyDiagnostic(t, pointType+
-		"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
+		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    self.x = self.x + dx\nend\n"+
 		"origin: Point := Point(x = 0, y = 0, )\norigin.translate(5, 5)\n",
-		"translate needs MutPtr<Point>; ref origin is Ptr<Point>")
+		"translate needs Ptr<mut Point>; @origin is Ptr<Point>")
 }
 
 func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
@@ -286,7 +286,7 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 		"method Ptr<Point>.is_origin(): Bool do\n" +
 		"    return (self.x == 0) and (self.y == 0)\n" +
 		"end\n" +
-		"method MutPtr<Point>.translate(dx: Int32, dy: Int32) do\n" + "    self.x = self.x + dx\n" + "    self.y = self.y + dy\n" + "end\n" +
+		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n" + "    self.x = self.x + dx\n" + "    self.y = self.y + dy\n" + "end\n" +
 		"mut here: Point := Point(x = 0, y = 0, )\n" +
 		"here.translate(5, 5)\n" + "total: Int32 := here.length_squared()\n" + "flag: Bool := here.is_origin()\n"
 	result := compileSource(source)
@@ -316,7 +316,7 @@ func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {
 
 func TestGeneratedNoReturnFunctionIsVoid(t *testing.T) {
 	assertGeneratedC(t,
-		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nreset(ref count)\n",
+		"fun reset(counter: Ptr<mut Int32>) do\n    ^counter = 0\nend\nmut count: Int32 := 1\nreset(@count)\n",
 		"static void hex_f_m3_app_reset(int32_t *const hex_v_counter) {\n    *hex_v_counter = 0;\n}\n")
 }
 
@@ -353,7 +353,7 @@ func TestGeneratedCallExpressionAndCallStatement(t *testing.T) {
 		"fun adder(dx: Int32, dy: Int32): Int32 do\n    return dx\nend\ntotal: Int32 := adder(2, 3)\n",
 		"    const int32_t hex_v_total = hex_f_m3_app_adder(2, 3);\n")
 	assertGeneratedC(t,
-		"fun reset(counter: MutPtr<Int32>) do\n    counter.value = 0\nend\nmut count: Int32 := 1\nreset(ref count)\n",
+		"fun reset(counter: Ptr<mut Int32>) do\n    ^counter = 0\nend\nmut count: Int32 := 1\nreset(@count)\n",
 		"    hex_f_m3_app_reset(&hex_v_count);\n")
 }
 

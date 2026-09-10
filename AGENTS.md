@@ -119,6 +119,8 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
 17. If it compiles, it runs.
 18. Compiler should catch every memory error that a local analysis can decide
     without adding a language concept or disproportionate checker complexity.
+19. Leans towards Odin and Zig for feature parity and semantics
+20. Doesnt carries heavy ownership and lifetime semantics, in favor of compiler assisted manual memory management.
 
 ## Architecture
 

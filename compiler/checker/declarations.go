@@ -413,10 +413,6 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, ctx.names) {
 		declaredBinding.fromRef = true
 	}
-	if typeCanContainView(declaredType, make(map[string]bool)) {
-		declaredBinding.viewRoots = initializer.source.Node.ViewRoots
-		declaredBinding.viewRootKind = initializer.source.Node.RootKind
-	}
 	if ctx.names.flow != nil {
 		recordStringBinding(ctx.names.flow, declaredBinding.id, initializer.source.Node, ctx)
 	}
@@ -453,6 +449,13 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 
 func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
+	nameToken := assignment.Name
+	if nameToken == (lexer.Token{}) {
+		// An operator-opened target (such as ^pointer) carries no name
+		// token: diagnostics and source mapping fall back to the target's
+		// own operator.
+		nameToken = expressionToken(assignment.Target)
+	}
 	target := checkPlace(assignment.Target, ctx)
 	switch {
 	case target.diagnostic != nil:
@@ -460,18 +463,18 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	case target.self:
 		// Method rule 3: only the binding itself is fixed. A write through
 		// self, such as self.x, is a member place and is checked as one.
-		diagnostics = append(diagnostics, typeErrorAt(assignment.Name, "cannot assign to self; self is a fixed binding"))
+		diagnostics = append(diagnostics, typeErrorAt(nameToken, "cannot assign to self; self is a fixed binding"))
 	case target.function:
 		// A function declaration names code, not a replaceable storage slot.
-		diagnostics = append(diagnostics, typeErrorAt(assignment.Name, "cannot assign to function "+assignment.Name.Lexeme))
+		diagnostics = append(diagnostics, typeErrorAt(nameToken, "cannot assign to function "+nameToken.Lexeme))
 	case target.parameter:
-		diagnostics = append(diagnostics, typeErrorAt(assignment.Name,
-			"cannot assign to parameter "+assignment.Name.Lexeme+"; parameters are fixed bindings"))
+		diagnostics = append(diagnostics, typeErrorAt(nameToken,
+			"cannot assign to parameter "+nameToken.Lexeme+"; parameters are fixed bindings"))
 	case target.loopBinder:
-		diagnostics = append(diagnostics, typeErrorAt(assignment.Name,
-			"loop binder "+assignment.Name.Lexeme+" is immutable"))
+		diagnostics = append(diagnostics, typeErrorAt(nameToken,
+			"loop binder "+nameToken.Lexeme+" is immutable"))
 	case !target.source.Writable:
-		diagnostics = append(diagnostics, assignmentTargetDiagnostic(assignment.Target, assignment.Name))
+		diagnostics = append(diagnostics, assignmentTargetDiagnostic(assignment.Target, nameToken))
 	}
 
 	// Assignment writes to the binding's declared storage slot, never to a
@@ -491,17 +494,17 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	if targetUse.Type == (compilerTypes.Type{}) {
 		targetUse = compilerTypes.NewTypeUse(targetType)
 	}
-	initializer := checkInitializer(assignment.Initializer, targetUse, assignment.Name, ctx)
+	initializer := checkInitializer(assignment.Initializer, targetUse, nameToken, ctx)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
 	if len(diagnostics) == 0 {
-		if diagnostic := atomicCopyDiagnostic(initializer.source, assignment.Name); diagnostic != nil {
+		if diagnostic := atomicCopyDiagnostic(initializer.source, nameToken); diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
 		}
 	}
 	if len(diagnostics) == 0 && initializer.typ != (compilerTypes.Type{}) && !assignable(targetType, initializer.typ) {
-		diagnostics = append(diagnostics, bindingMismatchDiagnostic(assignment.Name.Lexeme, targetType, initializer.typ, initializer.token))
+		diagnostics = append(diagnostics, bindingMismatchDiagnostic(nameToken.Lexeme, targetType, initializer.typ, initializer.token))
 	}
 	if len(diagnostics) == 0 && ctx.names.flow != nil && targetBinding != 0 {
 		ctx.names.flow.invalidateNarrowing(targetBinding)
@@ -517,8 +520,8 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 		recordStringAssignment(ctx.names.flow, target.source, initializer.source, targetBinding, ctx)
 	}
 	if len(diagnostics) == 0 && targetBinding != 0 {
-		// Assignment re-sources the slot: the binding now holds the ref-derived
-		// value exactly when the assigned initializer traces to a ref, so the
+		// Assignment re-sources the slot: the binding now holds the address-derived
+		// value exactly when the assigned initializer traces to an @ expression, so the
 		// flag is both set and cleared by the same check.
 		ctx.names.setFromRef(targetBinding, nodeTracesToRef(&initializer.source.Node, ctx.names))
 	}
@@ -527,12 +530,12 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	}
 
 	return Assignment{
-		Name:         assignment.Name.Lexeme,
+		Name:         nameToken.Lexeme,
 		Target:       target.source,
 		Type:         targetType,
 		Source:       initializer.source,
-		SourceLine:   assignment.Name.Line,
-		SourceColumn: assignment.Name.Column,
+		SourceLine:   nameToken.Line,
+		SourceColumn: nameToken.Column,
 	}, diagnostics
 }
 
@@ -540,10 +543,16 @@ func assignmentTargetDiagnostic(target parser.Expression, fallback lexer.Token) 
 	if variable, ok := target.(parser.VariableExpression); ok {
 		return typeErrorAt(variable.Name, "cannot assign to constant "+variable.Name.Lexeme)
 	}
-	if property, ok := target.(parser.PropertyExpression); ok && property.Property.Lexeme != "value" {
+	if property, ok := target.(parser.PropertyExpression); ok {
 		return typeErrorAt(property.Property, "cannot assign to read-only member "+placeDescription(target))
 	}
-	return typeErrorAt(fallback, "cannot write through a read-only pointer "+placeDescription(target))
+	at := fallback
+	if at == (lexer.Token{}) {
+		// An operator-opened target (such as ^pointer) carries no name
+		// token, so the diagnostic points at the target's own operator.
+		at = expressionToken(target)
+	}
+	return typeErrorAt(at, "cannot write through a read-only pointer "+placeDescription(target))
 }
 
 // bindingMismatchDiagnostic names the binding for a function-pointer slot,
@@ -581,7 +590,7 @@ func assignabilityMismatchMessage(target, source compilerTypes.Type) string {
 			!compilerTypes.Equal(*target.Element, *source.Element) {
 			erased := "Ptr<Unknown>"
 			if source.PointeeWritable {
-				erased = "MutPtr<Unknown>"
+				erased = "Ptr<mut Unknown>"
 			}
 			return fmt.Sprintf("expected %s; got %s; erasure and recovery do not compose, bind %s first", target.Name, source.Name, erased)
 		}

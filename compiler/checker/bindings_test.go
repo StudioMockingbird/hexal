@@ -65,7 +65,7 @@ func TestCheckKnownImmutableArrayIndexBoundsStillDiagnosed(t *testing.T) {
 }
 
 func TestCheckKnownImmutableSliceBoundsStillDiagnosed(t *testing.T) {
-	requireDiagnostic(t, "begin: Int32 := 1 limit: Int32 := 5 arr: Array<Int32, 2> := [1, 2] view: View<Int32> := arr.slice(begin, limit)", "slice range [1, 5) is out of bounds for Array<Int32, 2>")
+	requireDiagnostic(t, "begin: Int32 := 1 limit: Int32 := 5 arr: Array<Int32, 2> := [1, 2] view: Slice<Int32> := arr.slice(begin, limit)", "slice range [1, 5) is out of bounds for Array<Int32, 2>")
 }
 
 func TestCheckKnownImmutableChannelCapacityStillDiagnosed(t *testing.T) {

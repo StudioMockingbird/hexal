@@ -127,7 +127,7 @@ func collisionDomain(t *testing.T) ([]Type, *Environment) {
 	}
 	bases = append(bases,
 		builtin.ListType(Int32),
-		builtin.ViewType(Int32),
+		builtin.SliceType(Int32, false),
 		builtin.ArrayType(Int32, 4),
 		builtin.DictType(Int32, StringType),
 		builtin.TaskType(Int32),

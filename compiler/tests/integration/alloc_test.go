@@ -20,7 +20,7 @@ func TestHeapNewPerformsNoAllocation(t *testing.T) {
 }
 
 func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
-	result := compileSource("h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) p.value = 42")
+	result := compileSource("h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) ^p = 42")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -33,7 +33,7 @@ func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
 // initializer once. Nothing recovers a header, offset, or allocator, and no
 // zeroing precedes an initializer that writes the complete value.
 func TestHeapAllocationIsHeaderlessAndUnzeroed(t *testing.T) {
-	result := compileSource("h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0)")
+	result := compileSource("h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -80,21 +80,21 @@ func TestHeapAllocationIsHeaderlessAndUnzeroed(t *testing.T) {
 }
 
 func TestHeapFreeAcceptsReadOnlyAndWritablePointers(t *testing.T) {
-	result := compileSource("h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) defer h.free(p)")
+	result := compileSource("h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootC(t, result), "hex_heap_free(") {
 		t.Fatalf("generated C = %q, want checked deallocation", rootC(t, result))
 	}
-	result = compileSource("h: Heap := Heap() p: MutPtr<Int32> := h.allocate<Int32>(0) reader: Ptr<Int32> := p defer h.free(reader)")
+	result = compileSource("h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) reader: Ptr<Int32> := p defer h.free(reader)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("read-only free exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestHeapAllocateRejectsIncompleteAndFunTargets(t *testing.T) {
-	result := compileSource("h: Heap := Heap() p: MutPtr<Unknown> := h.allocate<Unknown>(nil)")
+	result := compileSource("h: Heap := Heap() p: Ptr<mut Unknown> := h.allocate<Unknown>(nil)")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "allocation requires a complete finite type") {
 		t.Fatalf("diagnostics = %#v, want incomplete-type error", result.Stderr)
 	}
@@ -192,7 +192,7 @@ func TestHeapDiagnosticsFailClosed(t *testing.T) {
 }
 
 func TestHeapFreeAsBareStatement(t *testing.T) {
-	result := compileSource("fun f(h: Heap) do\n    p: MutPtr<Int32> := h.allocate<Int32>(0)\n    h.free(p)\nend\n")
+	result := compileSource("fun f(h: Heap) do\n    p: Ptr<mut Int32> := h.allocate<Int32>(0)\n    h.free(p)\nend\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

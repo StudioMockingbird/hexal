@@ -20,7 +20,7 @@ type generatedEqualityState struct {
 	seenObjects map[*compilerTypes.ObjectType]bool
 	seenADTs    map[*compilerTypes.AdtType]bool
 	seenArrays  map[*compilerTypes.ArrayInfo]bool
-	seenViews   map[*compilerTypes.ViewInfo]bool
+	seenSlices  map[*compilerTypes.SliceInfo]bool
 	seenLists   map[*compilerTypes.ListInfo]bool
 	seenUnions  map[*compilerTypes.UnionInfo]bool
 	needString  bool
@@ -35,7 +35,7 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 		seenObjects: make(map[*compilerTypes.ObjectType]bool),
 		seenADTs:    make(map[*compilerTypes.AdtType]bool),
 		seenArrays:  make(map[*compilerTypes.ArrayInfo]bool),
-		seenViews:   make(map[*compilerTypes.ViewInfo]bool),
+		seenSlices:  make(map[*compilerTypes.SliceInfo]bool),
 		seenLists:   make(map[*compilerTypes.ListInfo]bool),
 		seenUnions:  make(map[*compilerTypes.UnionInfo]bool),
 	}
@@ -60,11 +60,11 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 				}
 				state.seenArrays[typ.Array] = true
 				state.order = append(state.order, typ)
-			case typ.View != nil:
-				if state.seenViews[typ.View] {
+			case typ.Slice != nil:
+				if state.seenSlices[typ.Slice] {
 					return nil
 				}
-				state.seenViews[typ.View] = true
+				state.seenSlices[typ.Slice] = true
 				state.order = append(state.order, typ)
 			case typ.List != nil:
 				if state.seenLists[typ.List] {
@@ -149,8 +149,8 @@ func equalityTypeContainsString(typ compilerTypes.Type, seen map[string]bool) bo
 		return false
 	case typ.Array != nil:
 		return equalityTypeContainsString(typ.Array.Element, seen)
-	case typ.View != nil:
-		return equalityTypeContainsString(typ.View.Element, seen)
+	case typ.Slice != nil:
+		return equalityTypeContainsString(typ.Slice.Element, seen)
 	case typ.List != nil:
 		return equalityTypeContainsString(typ.List.Element, seen)
 	}
@@ -279,12 +279,12 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 			elementRight := equalityOperand(right+field, typ.Array.Element)
 			writeEqualityComparisons(body, elementLeft, elementRight, typ.Array.Element, indent, tags)
 		}
-	case typ.View != nil:
+	case typ.Slice != nil:
 		fmt.Fprintf(body, "%sif (%s.length != %s.length) return false;\n", indent, left, right)
 		fmt.Fprintf(body, "%sfor (size_t index = 0; index < %s.length; index++) {\n", indent, left)
-		elementLeft := equalityOperand(left+".data[index]", typ.View.Element)
-		elementRight := equalityOperand(right+".data[index]", typ.View.Element)
-		writeEqualityComparisons(body, elementLeft, elementRight, typ.View.Element, indent+"    ", tags)
+		elementLeft := equalityOperand(left+".data[index]", typ.Slice.Element)
+		elementRight := equalityOperand(right+".data[index]", typ.Slice.Element)
+		writeEqualityComparisons(body, elementLeft, elementRight, typ.Slice.Element, indent+"    ", tags)
 		fmt.Fprintf(body, "%s}\n", indent)
 	case typ.List != nil:
 		fmt.Fprintf(body, "%sif (%s.length != %s.length) return false;\n", indent, left, right)

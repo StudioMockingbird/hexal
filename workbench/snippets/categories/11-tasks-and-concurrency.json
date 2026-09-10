@@ -123,12 +123,12 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Shared is struct count: Atomic<Int32> end",
-        "fun bump(shared: MutPtr<Shared>) do",
+        "fun bump(shared: Ptr<mut Shared>) do",
         "    shared.count.fetch_add(1)",
         "end",
         "fun run(): Int32 do",
         "    mut shared: Shared:= Shared(count = Atomic<Int32>(0))",
-        "    pointer: MutPtr<Shared>:= ref shared",
+        "    pointer: Ptr<mut Shared>:= @shared",
         "    pointer.count.store(5)",
         "    pointer.count.fetch_add(1)",
         "    bump(pointer)",
@@ -136,7 +136,7 @@
         "end"
       ]},
       "features": ["atomics", "objects", "pointers"],
-      "reservedWords": ["type", "mut", "fun", "ref", "return", "end", "do"]
+      "reservedWords": ["type", "mut", "fun", "@", "return", "end", "do"]
     },
     {
       "id": "concurrency-yield-loop",

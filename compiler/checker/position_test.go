@@ -16,7 +16,7 @@ func TestPositionEligibilityRejectsAtomicInCopyPositions(t *testing.T) {
 		"function result Atomic<Int32> is not shallow-copyable")
 	requireDiagnostic(t, "type Shared is struct count: Atomic<Int32>, end\nfun f(): Shared do\nreturn Shared(count = Atomic<Int32>(0))\nend\n",
 		"function result Shared is not shallow-copyable")
-	requireDiagnostic(t, "type Shared is struct count: Atomic<Int32>, end\nh: Heap := Heap()\np: MutPtr<Shared> := h.allocate<Shared>(Shared(count = Atomic<Int32>(0)))\n",
+	requireDiagnostic(t, "type Shared is struct count: Atomic<Int32>, end\nh: Heap := Heap()\np: Ptr<mut Shared> := h.allocate<Shared>(Shared(count = Atomic<Int32>(0)))\n",
 		"allocation requires a complete finite type")
 }
 

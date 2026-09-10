@@ -24,7 +24,7 @@ func TestLayoutQueriesCompile(t *testing.T) {
 }
 
 func TestVolatileAccessCompiles(t *testing.T) {
-	source := "fun volatile_demo(register: MutPtr<UInt32>, flag: Ptr<Int8>): UInt32 do\n    register.write_volatile(0x10)\n    status: UInt32 := register.read_volatile()\n    marker: Int8 := flag.read_volatile()\n    return status + marker.to<UInt32>()\nend\n"
+	source := "fun volatile_demo(register: Ptr<mut UInt32>, flag: Ptr<Int8>): UInt32 do\n    register.write_volatile(0x10)\n    status: UInt32 := register.read_volatile()\n    marker: Int8 := flag.read_volatile()\n    return status + marker.to<UInt32>()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -48,11 +48,11 @@ func TestVolatileWriteRequiresMutPtr(t *testing.T) {
 }
 
 func TestVolatileWriteProducesNoValue(t *testing.T) {
-	valid := compileSource("mut value: Int32 := 1 slot: MutPtr<Int32> := ref value slot.write_volatile(2)")
+	valid := compileSource("mut value: Int32 := 1 slot: Ptr<mut Int32> := @value slot.write_volatile(2)")
 	if valid.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("write_volatile as a statement = %v", valid.Stderr)
 	}
-	invalid := compileSource("mut value: Int32 := 1 slot: MutPtr<Int32> := ref value bad: Int32 := slot.write_volatile(2)")
+	invalid := compileSource("mut value: Int32 := 1 slot: Ptr<mut Int32> := @value bad: Int32 := slot.write_volatile(2)")
 	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) == 0 || !strings.Contains(strings.Join(invalid.Stderr, "\n"), "write_volatile produces no value") {
 		t.Fatalf("write_volatile as an initializer = %#v, want produces-no-value diagnostic", invalid.Stderr)
 	}
@@ -60,7 +60,7 @@ func TestVolatileWriteProducesNoValue(t *testing.T) {
 
 func TestVolatileRejectsNonIntegerElements(t *testing.T) {
 	for _, element := range []string{"Float64", "Bool", "Ptr<Int32>"} {
-		source := "fun bad(pointer: MutPtr<" + element + ">) do\n    value: " + element + " := pointer.read_volatile()\nend\n"
+		source := "fun bad(pointer: Ptr<mut " + element + ">) do\n    value: " + element + " := pointer.read_volatile()\nend\n"
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "volatile access is supported only for integer storage types") {
 			t.Fatalf("want volatile eligibility diagnostic for %s; got exit=%d stderr=%v", element, result.ExitCode, result.Stderr)

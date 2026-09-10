@@ -31,11 +31,11 @@ func TestLexDeclaration(t *testing.T) {
 }
 
 func TestLexRejectsUnexpectedCharacter(t *testing.T) {
-	_, err := Lex("x: Int32 := @")
+	_, err := Lex("x: Int32 := $")
 	if err == nil {
 		t.Fatal("Lex accepted an unexpected character")
 	}
-	if err.Error() != `[Syntax Error] unexpected character '@' at 1:13` {
+	if err.Error() != `[Syntax Error] unexpected character '$' at 1:13` {
 		t.Fatalf("Lex error = %q", err)
 	}
 }
@@ -220,21 +220,21 @@ func TestLexAcceptsUnderscoreAfterLetter(t *testing.T) {
 }
 
 func TestLexPointerKeywordsAndProperties(t *testing.T) {
-	tokens, err := Lex("ref mut Ptr<Int32>.value")
+	tokens, err := Lex("@ mut Ptr<Int32>.value")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 
 	want := []Token{
-		{Kind: Ref, Lexeme: "ref", Line: 1, Column: 1},
-		{Kind: Mut, Lexeme: "mut", Line: 1, Column: 5},
-		{Kind: Identifier, Lexeme: "Ptr", Line: 1, Column: 9},
-		{Kind: Less, Lexeme: "<", Line: 1, Column: 12},
-		{Kind: Identifier, Lexeme: "Int32", Line: 1, Column: 13},
-		{Kind: Greater, Lexeme: ">", Line: 1, Column: 18},
-		{Kind: Dot, Lexeme: ".", Line: 1, Column: 19},
-		{Kind: Identifier, Lexeme: "value", Line: 1, Column: 20},
-		{Kind: EOF, Line: 1, Column: 25},
+		{Kind: At, Lexeme: "@", Line: 1, Column: 1},
+		{Kind: Mut, Lexeme: "mut", Line: 1, Column: 3},
+		{Kind: Identifier, Lexeme: "Ptr", Line: 1, Column: 7},
+		{Kind: Less, Lexeme: "<", Line: 1, Column: 10},
+		{Kind: Identifier, Lexeme: "Int32", Line: 1, Column: 11},
+		{Kind: Greater, Lexeme: ">", Line: 1, Column: 16},
+		{Kind: Dot, Lexeme: ".", Line: 1, Column: 17},
+		{Kind: Identifier, Lexeme: "value", Line: 1, Column: 18},
+		{Kind: EOF, Line: 1, Column: 23},
 	}
 	if len(tokens) != len(want) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))

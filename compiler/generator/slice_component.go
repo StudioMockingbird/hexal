@@ -6,46 +6,55 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// viewComponentModel is the typed render model for packages/view.h: one
-// pre-sorted record per reachable View specialization.
-type viewComponentModel struct {
-	Views []viewComponentRecord
+// sliceComponentModel is the typed render model for packages/slice.h: one
+// pre-sorted record per reachable Slice specialization.
+type sliceComponentModel struct {
+	Slices []sliceComponentRecord
 	// NeedsHeapString is true when some specialization's element is String,
 	// whose spelling is hex_string. This file forward-declares it rather
 	// than including hexal/string.h: that file itself unconditionally needs
-	// hex_view_UInt8, so a full #include here would cycle back into this
-	// file's own include guard whenever view.h is entered first. Every
+	// hex_slice_UInt8, so a full #include here would cycle back into this
+	// file's own include guard whenever slice.h is entered first. Every
 	// hex_string reference this file emits is through a pointer, so the
 	// forward declaration is all it needs.
 	NeedsHeapString bool
 }
 
-// viewComponentRecord is one reachable View specialization's spelling facts:
-// the struct C name, the accessor suffix, and the spelled element type. The
-// template lays out the struct, bounds guards, and slice helper from these
-// fields; canonical naming, ordering, and C spelling stay Go decisions.
-type viewComponentRecord struct {
+// sliceComponentRecord is one reachable Slice specialization's spelling facts:
+// the struct C name, the helper-name prefix and accessor suffix, the spelled
+// element type, and the access mode. The template lays out the struct, bounds
+// guards, and slice helper from these fields; canonical naming, ordering, and
+// C spelling stay Go decisions.
+type sliceComponentRecord struct {
 	CName           string
+	HelperPrefix    string
 	Suffix          string
 	ElementSpelling string
+	Writable        bool
 	// NeedsHeapString is true when this specialization's element is String.
 	NeedsHeapString bool
 }
 
-// viewComponentRecordFor builds the spelling record of one View
+// sliceComponentRecordFor builds the spelling record of one Slice
 // specialization.
-func viewComponentRecordFor(view compilerTypes.Type) viewComponentRecord {
-	return viewComponentRecord{
-		CName:           view.CName,
-		Suffix:          strings.TrimPrefix(view.CName, "hex_view_"),
-		ElementSpelling: typeSpelling(view.View.Element),
-		NeedsHeapString: compilerTypes.IsString(view.View.Element),
+func sliceComponentRecordFor(slice compilerTypes.Type) sliceComponentRecord {
+	prefix := "hex_slice_"
+	if slice.Slice.Writable {
+		prefix = "hex_mut_slice_"
+	}
+	return sliceComponentRecord{
+		CName:           slice.CName,
+		HelperPrefix:    prefix,
+		Suffix:          strings.TrimPrefix(slice.CName, prefix),
+		ElementSpelling: typeSpelling(slice.Slice.Element),
+		Writable:        slice.Slice.Writable,
+		NeedsHeapString: compilerTypes.IsString(slice.Slice.Element),
 	}
 }
 
-// viewRecordsNeedHeapString reports whether any view record's element is
-// String, the only content in packages/view.h that names hex_string.
-func viewRecordsNeedHeapString(records []viewComponentRecord) bool {
+// sliceRecordsNeedHeapString reports whether any slice record's element is
+// String, the only content in packages/slice.h that names hex_string.
+func sliceRecordsNeedHeapString(records []sliceComponentRecord) bool {
 	for _, record := range records {
 		if record.NeedsHeapString {
 			return true
@@ -54,41 +63,41 @@ func viewRecordsNeedHeapString(records []viewComponentRecord) bool {
 	return false
 }
 
-// viewComponents returns the generated hexal/view.h artifact when builtin-
-// element View specializations are reachable or another component declares
-// view.h as a dependency. Module-owned element views emit into the consuming
+// sliceComponents returns the generated hexal/slice.h artifact when builtin-
+// element Slice specializations are reachable or another component declares
+// slice.h as a dependency. Module-owned element slices emit into the consuming
 // module headers instead.
-func viewComponents(merged *programEmission) ([]componentArtifact, error) {
-	if merged == nil || merged.viewState == nil || len(merged.viewState.views) == 0 && !merged.viewState.required {
+func sliceComponents(merged *programEmission) ([]componentArtifact, error) {
+	if merged == nil || merged.sliceState == nil || len(merged.sliceState.slices) == 0 && !merged.sliceState.required {
 		return nil, nil
 	}
-	records := make([]viewComponentRecord, 0, len(merged.viewState.views))
-	for _, view := range merged.viewState.views {
-		if collectionElementModuleTyped(view) {
+	records := make([]sliceComponentRecord, 0, len(merged.sliceState.slices))
+	for _, slice := range merged.sliceState.slices {
+		if collectionElementModuleTyped(slice) {
 			continue
 		}
-		records = append(records, viewComponentRecordFor(view))
+		records = append(records, sliceComponentRecordFor(slice))
 	}
-	if len(records) == 0 && !merged.viewState.required {
+	if len(records) == 0 && !merged.sliceState.required {
 		return nil, nil
 	}
 	return []componentArtifact{{
-		key:      "hexal/view.h",
-		template: "view.h",
-		model:    viewComponentModel{Views: records, NeedsHeapString: viewRecordsNeedHeapString(records)},
+		key:      "hexal/slice.h",
+		template: "slice.h",
+		model:    sliceComponentModel{Slices: records, NeedsHeapString: sliceRecordsNeedHeapString(records)},
 	}}, nil
 }
 
-// moduleViewComponent selects hexal/view.h for a module with reachable
-// builtin-element View specializations; a module whose only views are
+// moduleSliceComponent selects hexal/slice.h for a module with reachable
+// builtin-element Slice specializations; a module whose only slices are
 // module-owned re-emits them in its own header and includes nothing.
-func moduleViewComponent(emission *moduleEmission) []string {
-	if emission == nil || emission.viewState == nil || len(emission.viewState.views) == 0 {
+func moduleSliceComponent(emission *moduleEmission) []string {
+	if emission == nil || emission.sliceState == nil || len(emission.sliceState.slices) == 0 {
 		return nil
 	}
-	for _, view := range emission.viewState.views {
-		if !collectionElementModuleTyped(view) {
-			return []string{"hexal/view.h"}
+	for _, slice := range emission.sliceState.slices {
+		if !collectionElementModuleTyped(slice) {
+			return []string{"hexal/slice.h"}
 		}
 	}
 	return nil

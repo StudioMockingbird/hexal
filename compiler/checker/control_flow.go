@@ -487,12 +487,12 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 // reports the arity diagnostic.
 func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compilerTypes.Type, *compilerTypes.Diagnostic) {
 	switch {
-	case source.Array != nil || source.View != nil || source.List != nil:
+	case source.Array != nil || source.Slice != nil || source.List != nil:
 		var element compilerTypes.Type
 		if source.Array != nil {
 			element = source.Array.Element
-		} else if source.View != nil {
-			element = source.View.Element
+		} else if source.Slice != nil {
+			element = source.Slice.Element
 		} else {
 			element = source.List.Element
 		}
@@ -733,16 +733,11 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (R
 		if diagnostic := atomicCopyDiagnostic(value.source, statement.Keyword); diagnostic != nil {
 			return checked, compilerTypes.Diagnostics{*diagnostic}
 		}
-		if value.typ.View != nil {
-			if diagnostic := viewReturnDiagnostic(value.source.Node, statement.Keyword, ctx.names); diagnostic != nil {
-				return checked, compilerTypes.Diagnostics{*diagnostic}
-			}
-		} else if value.typ.Element != nil && value.typ.Signature == nil {
+		// Only raw pointers carry a return-site lifetime check: a Slice is
+		// a copyable descriptor whose backing storage is the programmer's
+		// responsibility.
+		if value.typ.Element != nil && value.typ.Signature == nil {
 			if diagnostic := ptrReturnDiagnostic(value.source.Node, statement.Keyword, ctx.names, value.typ.PointeeWritable); diagnostic != nil {
-				return checked, compilerTypes.Diagnostics{*diagnostic}
-			}
-		} else if typeCanContainView(value.typ, make(map[string]bool)) {
-			if diagnostic := nestedViewReturnDiagnostic(value.source.Node, statement.Keyword, ctx.names); diagnostic != nil {
 				return checked, compilerTypes.Diagnostics{*diagnostic}
 			}
 		}

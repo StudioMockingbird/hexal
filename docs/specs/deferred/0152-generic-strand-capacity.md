@@ -3,7 +3,7 @@
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Open Discussion; not scheduled. Design state: Design settled; implementation blocked by RFC 0153
 - Created: 2026-09-08
-- Updated: 2026-09-09
+- Updated: 2026-09-10
 - Origin: user request — `Strand` is Hexal's `char str[N] = "Hello";`; the
   language should let the programmer choose `N` instead of hard-coding one
   size, and a smaller-capacity value should widen to a larger one. Extended:
@@ -19,12 +19,20 @@
   is already amended for generic capacity — see Semantics 11
 - Coordinates with: RFC 0039 (C interoperability), whose fixed-layout mapping
   must recognize each concrete `Strand<N>` as a distinct inline type
-- Depends on: RFC 0153 implementing the `Borrow<T>` read-only range type used
+- Depends on: RFC 0153 implementing the `Slice<T>` read-only range type used
   by this RFC's public constructor and view signatures (and therefore on RFC
   0154's Core, RFC 0153's own prerequisite)
 - Does not own: `Array<T, N>`'s own widening (see Non-goals — raised in the
   originating request, found not coherently achievable in the same shape as
   `Strand`'s, and left as an open, separate question, not solved here)
+- Ownership scope superseded: RFC 0110 settles Error as an affine owner of
+  String fields and RuneCursor as a lexical borrowed descriptor. Every
+  Error-specific requirement, and every RuneCursor rule that permits ordinary
+  binding, storage, return, or escape, later in this deferred draft is
+  non-operative and must be removed before this RFC can become
+  implementation-ready. Generic Strand capacity no longer changes Error
+  representation, copyability, construction, or propagation; a future
+  `Strand<N>.rune_cursor()` must use RFC 0110's `borrow`-block lifetime.
 
 ## Summary
 
@@ -91,7 +99,7 @@ rejected by this RFC and would require a separate future proposal.
 1. **Grammar.** `Strand<N>` is written with the same angle-bracket generic
    syntax `Array<T, N>` and `List<T>` already use. Strand is a fixed text
    buffer with NUL-scan length semantics, not a pointer-length structural
-   primitive like RFC 0153's `Borrow<T>`. `N` is a positive decimal integer
+   primitive like RFC 0153's `Slice<T>`. `N` is a positive decimal integer
    literal in the inclusive range `1..4096`, exactly like `Array<T, N>`'s
    literal parameter syntax but with this additional fixed ceiling. Decimal
    separators are accepted and normalized, so `Strand<4_096>` and
@@ -129,8 +137,8 @@ rejected by this RFC and would require a separate future proposal.
    parameter (nothing here allocates):
 
    ```text
-   Strand<N>.from_bytes(bytes: Borrow<Byte>) -> Strand<N>
-   Strand<N>.from_runes(runes: Borrow<Rune>) -> Strand<N>
+   Strand<N>.from_bytes(bytes: Slice<Byte>) -> Strand<N>
+   Strand<N>.from_runes(runes: Slice<Rune>) -> Strand<N>
    Strand<N>.interpolate(template: InterpolationTemplate) -> Strand<N>
    Strand<N>.concat(other: Strand<M>) -> Strand<N>
    Strand<N>.concat(other: String) -> Strand<N>
@@ -198,8 +206,8 @@ rejected by this RFC and would require a separate future proposal.
 
    ```text
    Strand<N>.length() -> Size
-   Strand<N>.bytes() -> Borrow<Byte>
-   Strand<N>.slice(start: Integer, end: Integer) -> Borrow<Byte>
+   Strand<N>.bytes() -> ephemeral Slice<Byte>
+   Strand<N>.slice(start: Integer, end: Integer) -> ephemeral Slice<Byte>
    Strand<N>.rune_cursor() -> RuneCursor
    Strand<N>.to_string(heap: Heap) -> String
    ```
@@ -210,21 +218,21 @@ rejected by this RFC and would require a separate future proposal.
    accepts raw byte offsets and therefore cannot split a valid UTF-8 encoding.
    `bytes()` is the operation for byte-indexed access.
 
-   Signatures match `String`'s post-RFC-0153 surface. These Borrow values are
-   ordinary borrows of the `Strand<N>` value's
-   own inline storage: construction records the Strand binding as their root,
-   bindings preserve that root, and the existing direct-local-root return
-   check rejects returning one rooted in a local Strand exactly as it does
-   for a local Array. There is no mutable variant (`Borrow<mut Byte>`) for either
-   type's view, because Strand stays immutable — see Semantics 6.
+   Signatures match `String`'s post-RFC-0153 surface. These ephemeral Slice
+   values borrow the `Strand<N>` value's inline storage and are valid only as
+   direct arguments to compatible Slice parameters. They cannot be bound,
+   stored, or returned, so no Strand-specific Slice escape tracking is needed.
+   There is no mutable variant (`Slice<mut Byte>`) for either text type because
+   Strand and String remain immutable -- see Semantics 6.
 
    `RuneCursor` physically contains a byte pointer, length, and offset. A
-   cursor over a Strand therefore records the same Strand root as a Borrow;
+   cursor over a Strand therefore records the same Strand root as a Slice;
    cursor bindings preserve that root, and directly returning a cursor rooted
    in a local Strand is rejected. Parameter-rooted, self-rooted, and rootless
    cursors remain returnable. Nested aggregate, collection, interprocedural,
-   and Task escape tracking stays outside this RFC, matching RFC 0153's
-   explicitly accepted safety envelope for Borrow and Ptr.
+   and Task escape tracking for RuneCursor stays outside this RFC under the
+   cursor's existing provenance contract; RFC 0153 no longer uses that model
+   because Slice is call-scoped.
 
 6. **Immutability, restated.** Both `String` and `Strand<N>` remain
    internally immutable — this RFC does not reopen that. "Same capabilities"
@@ -537,12 +545,11 @@ This section is exhaustive.
   exactly once.
 - `bytes()`/`slice()`/`rune_cursor()` on `Strand<N>` produce results
   identical in content to the equivalent `String` operations over the same
-  logical text; a slice rooted in a local `Strand<N>` binding is rejected on
-  direct return, the same as one rooted in a local `Array`.
+  logical text; each Slice-producing expression is accepted only as a direct
+  compatible call argument and is rejected in bindings, storage, and returns.
 - A RuneCursor rooted in a local Strand is rejected on direct return, including
   through an intermediate cursor binding; a parameter-rooted cursor may be
-  returned. The nested/interprocedural escape envelope remains exactly RFC
-  0153's documented envelope for Borrow and Ptr.
+  returned. Nested/interprocedural RuneCursor escape remains outside this RFC.
 - `slice` interprets both bounds as Rune indices; ASCII and multi-byte inputs
   return the corresponding byte span, invalid order/out-of-range bounds trap,
   and no successful result splits an encoded Rune.
@@ -550,7 +557,7 @@ This section is exhaustive.
   identical content, and one- and two-binder `for` loops decode identical
   Runes for small, exact-capacity, temporary, and multi-byte Strands.
 - No in-place mutation exists for `Strand<N>` before or after this RFC;
-  `Borrow<mut Byte>` is never produced by any Strand view.
+  `Slice<mut Byte>` is never produced by any Strand view.
 - `Strand<N>` constructed identically in two different modules resolves to
   the same canonical type identity.
 - Widening fires in every implicit position: initialization, assignment,

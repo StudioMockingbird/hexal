@@ -125,7 +125,7 @@ func TestMixedOperatorsPreservePrecedenceAndLeftToRightEvaluation(t *testing.T) 
 }
 
 // DeepEqualityExpression (String equality here) is still a binary expression
-// from the source language's point of view and must sequence its two
+// from the source language's point of slice and must sequence its two
 // operands left to right exactly like BinaryOperationExpression.
 func TestStringEqualityOperandsEvaluateLeftToRight(t *testing.T) {
 	result := assertCompiles(t, "fun left(): String do\n    return \"a\"\nend\n"+

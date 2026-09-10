@@ -315,7 +315,7 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.VolatileReadExpression, checker.VolatileWriteExpression,
 		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
-		checker.LayoutExpression, checker.ViewBridgeExpression, checker.BytesOverExpression,
+		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression:
 		// Discarding a constructor or a pure computation's result is legal;
 		// at worst it leaks an allocation or wastes a computation, both the
@@ -1033,8 +1033,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", valueErr
 		}
 		return "*(volatile " + typeSpelling(node.Element) + " *)(" + receiver + ") = " + value, nil
-	case checker.ViewBridgeExpression:
-		return renderViewBridgeExpression(node, state)
+	case checker.SliceBridgeExpression:
+		return renderSliceBridgeExpression(node, state)
 	case checker.MemberExpression:
 		if node.Operand == nil || node.Member == nil {
 			return "", unknownExpressionDiagnostic("member selection without a receiver or member")
@@ -1625,7 +1625,7 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
-		checker.LayoutExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression, checker.ViewBridgeExpression:
+		checker.LayoutExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression, checker.SliceBridgeExpression:
 		return node.ResultType, true
 	case checker.HeapFreeExpression:
 		return compilerTypes.Type{}, false

@@ -125,18 +125,36 @@ func arrayDependencyOrder(order []compilerTypes.Type) []compilerTypes.Type {
 	return result
 }
 
-// matchingView returns the discovered view type over one element, or the zero
-// Type when no such view is used.
-func matchingView(views *generatedViewState, element compilerTypes.Type) compilerTypes.Type {
-	if views == nil {
+// matchingSlice returns the discovered slice type over one element in the
+// requested access mode, or the zero Type when no such slice is used.
+func matchingSlice(slices *generatedSliceState, element compilerTypes.Type, writable bool) compilerTypes.Type {
+	if slices == nil {
 		return compilerTypes.Type{}
 	}
-	for _, view := range views.views {
-		if compilerTypes.Equal(view.View.Element, element) {
-			return view
+	for _, slice := range slices.slices {
+		if slice.Slice.Writable == writable && compilerTypes.Equal(slice.Slice.Element, element) {
+			return slice
 		}
 	}
 	return compilerTypes.Type{}
+}
+
+// sliceAtHelper selects the read or writable element-access helper for one
+// reachable slice type.
+func sliceAtHelper(slice compilerTypes.Type) string {
+	if slice.Slice.Writable {
+		return "hex_mut_slice_at_" + strings.TrimPrefix(slice.CName, "hex_mut_slice_")
+	}
+	return "hex_slice_at_" + strings.TrimPrefix(slice.CName, "hex_slice_")
+}
+
+// sliceSliceHelper selects the read or writable re-slice helper for one
+// reachable slice type.
+func sliceSliceHelper(slice compilerTypes.Type) string {
+	if slice.Slice.Writable {
+		return "hex_mut_slice_slice_" + strings.TrimPrefix(slice.CName, "hex_mut_slice_")
+	}
+	return "hex_slice_slice_" + strings.TrimPrefix(slice.CName, "hex_slice_")
 }
 
 func arrayAccessorSuffix(array compilerTypes.Type) string {
@@ -200,14 +218,14 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		}
 		return nil
 	case checker.IndexExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.View == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) {
+		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) {
 			return unknownExpressionDiagnostic("index expression has invalid checked metadata")
 		}
 		var element compilerTypes.Type
 		if node.OperandType.Array != nil {
 			element = node.OperandType.Array.Element
-		} else if node.OperandType.View != nil {
-			element = node.OperandType.View.Element
+		} else if node.OperandType.Slice != nil {
+			element = node.OperandType.Slice.Element
 		} else if node.OperandType.List != nil {
 			element = node.OperandType.List.Element
 		} else {
@@ -224,14 +242,14 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.CollectionMethodCallExpression:
-		if node.Operand == nil || node.OperandType.Array == nil && node.OperandType.View == nil && node.OperandType.List == nil && node.OperandType.Dict == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
+		if node.Operand == nil || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && node.OperandType.Dict == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
 			return unknownExpressionDiagnostic("collection method call has invalid checked metadata")
 		}
 		element := node.Element
 		if node.OperandType.Array != nil {
 			element = node.OperandType.Array.Element
-		} else if node.OperandType.View != nil {
-			element = node.OperandType.View.Element
+		} else if node.OperandType.Slice != nil {
+			element = node.OperandType.Slice.Element
 		} else if node.OperandType.List != nil {
 			element = node.OperandType.List.Element
 		} else {
@@ -305,14 +323,14 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.CollectionSliceExpression:
-		if node.Operand == nil || len(node.Arguments) != 2 || node.ResultType.View == nil || !compilerTypes.Equal(node.ResultType.View.Element, node.Element) || node.OperandType.Array == nil && node.OperandType.View == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) || !supportedGeneratedTypeWithState(node.ResultType, state) {
+		if node.Operand == nil || len(node.Arguments) != 2 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.ResultType.Slice.Element, node.Element) || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) || !supportedGeneratedTypeWithState(node.ResultType, state) {
 			return unknownExpressionDiagnostic("collection slice has invalid checked metadata")
 		}
 		var element compilerTypes.Type
 		if node.OperandType.Array != nil {
 			element = node.OperandType.Array.Element
-		} else if node.OperandType.View != nil {
-			element = node.OperandType.View.Element
+		} else if node.OperandType.Slice != nil {
+			element = node.OperandType.Slice.Element
 		} else {
 			element = node.OperandType.List.Element
 		}
@@ -387,8 +405,8 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		if indexErr != nil {
 			return "", indexErr
 		}
-		if node.OperandType.View != nil {
-			return "*hex_view_at_" + strings.TrimPrefix(node.OperandType.CName, "hex_view_") + "(" + receiver + ", (size_t)(" + index + "))", nil
+		if node.OperandType.Slice != nil {
+			return "*" + sliceAtHelper(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
 		}
 		if node.OperandType.List != nil {
 			if place.writable {
@@ -542,37 +560,45 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		if endErr != nil {
 			return "", endErr
 		}
-		if node.OperandType.View != nil {
-			return "hex_view_slice_" + strings.TrimPrefix(node.OperandType.CName, "hex_view_") + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+		if node.OperandType.Slice != nil {
+			return sliceSliceHelper(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		}
 		if node.OperandType.List != nil {
+			if node.ResultType.Slice != nil && node.ResultType.Slice.Writable {
+				return "hex_list_mut_slice_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+			}
 			return "hex_list_slice_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+		}
+		if node.ResultType.Slice != nil && node.ResultType.Slice.Writable {
+			return "hex_array_mut_slice_" + arrayAccessorSuffix(node.OperandType) + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		}
 		return "hex_array_slice_" + arrayAccessorSuffix(node.OperandType) + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 	}
 	return "", unknownExpressionDiagnostic("unsupported collection expression")
 }
 
-// collectionsNeedView reports whether any reachable Array or List
-// specialization has a matching View, which is the only reason either
-// component header names the view component. A program with arrays but no
-// slicing needs no view artifact and must not declare a dependency on one:
-// a component's declared dependencies are exactly what its emitted content
-// uses.
-func collectionsNeedView(arrays *generatedArrayState, lists *generatedListState, views *generatedViewState) bool {
-	if views == nil {
+// collectionsNeedSlice reports whether any reachable Array or List
+// specialization has a matching Slice in either access mode, which is the
+// only reason either component header names the slice component. A program
+// with arrays but no slicing needs no slice artifact and must not declare a
+// dependency on one: a component's declared dependencies are exactly what
+// its emitted content uses.
+func collectionsNeedSlice(arrays *generatedArrayState, lists *generatedListState, slices *generatedSliceState) bool {
+	if slices == nil {
 		return false
 	}
 	if arrays != nil {
 		for _, array := range arrays.order {
-			if matchingView(views, array.Array.Element) != (compilerTypes.Type{}) {
+			if matchingSlice(slices, array.Array.Element, false) != (compilerTypes.Type{}) ||
+				matchingSlice(slices, array.Array.Element, true) != (compilerTypes.Type{}) {
 				return true
 			}
 		}
 	}
 	if lists != nil {
 		for _, list := range lists.order {
-			if matchingView(views, list.List.Element) != (compilerTypes.Type{}) {
+			if matchingSlice(slices, list.List.Element, false) != (compilerTypes.Type{}) ||
+				matchingSlice(slices, list.List.Element, true) != (compilerTypes.Type{}) {
 				return true
 			}
 		}

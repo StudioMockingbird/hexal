@@ -51,7 +51,7 @@ type moduleEmission struct {
 	heapState   *heapHelpers
 	adtState    *generatedAdtState
 	arrayState  *generatedArrayState
-	viewState   *generatedViewState
+	sliceState  *generatedSliceState
 	stringState *literalRegistry
 	stringUsed  bool // module-local String/Strand dependency selection
 	// interpolationUsed is true when this module contains a checked
@@ -133,8 +133,8 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.adtState = discoverGeneratedADTs(program)
 	arrayState := discoverGeneratedArrays(program)
 	emission.arrayState = arrayState
-	viewState := discoverGeneratedViews(program)
-	emission.viewState = viewState
+	sliceState := discoverGeneratedSlices(program)
+	emission.sliceState = sliceState
 	listState := discoverGeneratedLists(program)
 	emission.listState = listState
 	dictState := discoverGeneratedDicts(program)
@@ -187,23 +187,23 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// print's descriptor write-all sink selects hexal/io.c exactly like a
 		// direct stream operation does (see io_component.go's own selection
 		// condition), so it carries the identical dependency set: the Byte
-		// list, the byte View, the Error object with its String and Strand
+		// list, the byte Slice, the Error object with its String and Strand
 		// fields, heap allocation through List growth, and the shared trap.
 		ensureByteList(listState)
-		ensureViewUInt8(viewState)
+		ensureSliceUInt8(sliceState)
 		literals.used = true
 		literals.strand = true
 		emission.stringUsed = true
 		emission.errorUsed = true
-		viewState.required = true
+		sliceState.required = true
 		heapState.required = true
 	}
 	if emission.stringUsed {
-		ensureViewUInt8(viewState)
+		ensureSliceUInt8(sliceState)
 		// The String helpers allocate through the heap machinery, and the
-		// string component header declares its Heap and View dependencies.
+		// string component header declares its Heap and Slice dependencies.
 		heapState.required = true
-		viewState.required = true
+		sliceState.required = true
 	}
 	if len(listState.order) > 0 || len(dictState.order) > 0 {
 		// The List and Dict helpers allocate and trap through the heap
@@ -215,12 +215,12 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// hex_heap_allocate/hex_heap_free directly.
 		heapState.required = true
 	}
-	if collectionsNeedView(arrayState, listState, viewState) {
-		// Only a slice helper names the view component, and the templates
-		// guard those on the same fact. Selecting View for every program
+	if collectionsNeedSlice(arrayState, listState, sliceState) {
+		// Only a slice helper names the slice component, and the templates
+		// guard those on the same fact. Selecting Slice for every program
 		// that merely has an array would emit a component holding nothing
 		// but its include guard.
-		viewState.required = true
+		sliceState.required = true
 	}
 	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program), arrays: arrayState}
 	return emission, nil
@@ -236,7 +236,7 @@ type programEmission struct {
 	errorUsed        bool
 	printUsed        bool
 	heapState        *heapHelpers
-	viewState        *generatedViewState
+	sliceState       *generatedSliceState
 	stringState      *literalRegistry
 	listState        *generatedListState
 	dictState        *generatedDictState
@@ -301,7 +301,7 @@ type programEmission struct {
 func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) (*programEmission, error) {
 	merged := &programEmission{
 		heapState:   &heapHelpers{seen: make(map[string]bool)},
-		viewState:   &generatedViewState{seen: make(map[*compilerTypes.ViewInfo]bool)},
+		sliceState:  &generatedSliceState{seen: make(map[*compilerTypes.SliceInfo]bool)},
 		stringState: literals,
 		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool)},
 		dictState:   &generatedDictState{seen: make(map[*compilerTypes.DictInfo]bool)},
@@ -368,9 +368,9 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 			// component builders that run once every module has rendered.
 			module.arrayState.demand = merged.arrayState.demand
 		}
-		if module.viewState != nil {
-			viewOrders = append(viewOrders, module.viewState.views)
-			merged.viewState.required = merged.viewState.required || module.viewState.required
+		if module.sliceState != nil {
+			viewOrders = append(viewOrders, module.sliceState.slices)
+			merged.sliceState.required = merged.sliceState.required || module.sliceState.required
 		}
 		if module.listState != nil {
 			listOrders = append(listOrders, module.listState.order)
@@ -395,7 +395,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 	}
 	sortMergedNumericSpecs(merged)
 	sortMergedEqualityTypes(merged)
-	merged.viewState.views = mergeTypeOrders(viewOrders)
+	merged.sliceState.slices = mergeTypeOrders(viewOrders)
 	merged.arrayState.order = mergeTypeOrders(arrayOrders)
 	merged.listState.order = mergeTypeOrders(listOrders)
 	merged.dictState.order = mergeTypeOrders(dictOrders)
@@ -437,8 +437,8 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			requirements.add("stdckdint.h", "stddef.h", "stdlib.h")
 			requirements.trap = true
 		}
-		if module.viewState != nil && len(module.viewState.views) > 0 {
-			// View structs carry size_t; bounds guards trap.
+		if module.sliceState != nil && len(module.sliceState.slices) > 0 {
+			// Slice structs carry size_t; bounds guards trap.
 			requirements.add("stddef.h", "stdint.h")
 			requirements.trap = true
 		}
@@ -927,7 +927,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		concurrency: emission.concurrencyState,
 		stringState: stringState,
 		tags:        merged.tags,
-		views:       emission.viewState,
+		slices:      emission.sliceState,
 		arrays:      emission.arrayState,
 		lists:       emission.listState,
 		dicts:       emission.dictState,
@@ -965,7 +965,7 @@ func routedFrames(emission *moduleEmission, sites []spawnSite) []spawnSite {
 }
 
 // moduleComponentHeaders returns the path-qualified component headers this
-// module's header includes, in dependency order: wrap, heap, view,
+// module's header includes, in dependency order: wrap, heap, slice,
 // string, error, seek, concurrency, stash, pool, list, dict, array. Each
 // migrated family selects itself here; a family still owned by hexal.h
 // during the component migration contributes nothing.
@@ -980,7 +980,7 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	var components []string
 	components = append(components, moduleWrapComponent(emission)...)
 	components = append(components, moduleHeapComponent(emission)...)
-	components = append(components, moduleViewComponent(emission)...)
+	components = append(components, moduleSliceComponent(emission)...)
 	components = append(components, moduleStringComponent(emission)...)
 	components = append(components, moduleErrorComponent(emission)...)
 	components = append(components, moduleSeekComponent(emission)...)
@@ -1024,7 +1024,7 @@ type moduleHeaderInput struct {
 	canonicalID string
 	// Collection states feed the module-owned specialization region; the
 	// program-wide component partition keeps the builtin-element records.
-	views  *generatedViewState
+	slices *generatedSliceState
 	arrays *generatedArrayState
 	lists  *generatedListState
 	dicts  *generatedDictState

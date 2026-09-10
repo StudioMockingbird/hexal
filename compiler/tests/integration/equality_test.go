@@ -40,7 +40,7 @@ func TestLosslessNumericComparisonRejections(t *testing.T) {
 }
 
 func TestPointerIdentityEquality(t *testing.T) {
-	result := compileSource("fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := ref value\n    right: Ptr<Int32> := left\n    same: Bool := left == right\n    different: Bool := left != right\nend")
+	result := compileSource("fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := @value\n    right: Ptr<Int32> := left\n    same: Bool := left == right\n    different: Bool := left != right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -50,7 +50,7 @@ func TestPointerIdentityEquality(t *testing.T) {
 }
 
 func TestPointerEqualityRejectsStrengthening(t *testing.T) {
-	result := compileSource("fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := ref value\n    right: MutPtr<Int32> := ref value\n    bad: Bool := left == right\nend")
+	result := compileSource("fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := @value\n    right: Ptr<mut Int32> := @value\n    bad: Bool := left == right\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "pointer equality requires identical pointer types") {
 		t.Fatalf("Compile stderr = %#v, want pointer-identity diagnostic", result.Stderr)
 	}
@@ -80,7 +80,7 @@ func TestEqualityUnavailable(t *testing.T) {
 	}{
 		{"fun helper(value: Int32) do\nend\nfun demo() do\n    callback: Fun<(Int32)> := helper\n    other: Fun<(Int32)> := callback\n    bad: Bool := callback == other\nend", "function values are not equality-comparable"},
 		{"fun helper(value: Int32) do\nend\nfun demo() do\n    mixed: Fun<(Int32)> | Int32 := helper\n    other: Fun<(Int32)> | Int32 := mixed\n    bad: Bool := mixed == other\nend", "union member Fun<(Int32)> does not support equality"},
-		// An Array/View/List element that cannot compare must name its
+		// An Array/Slice/List element that cannot compare must name its
 		// element type; it must never fall back to an empty member name,
 		// which is what "member  does not support ==" would render as.
 		{"fun helper(x: Int32): Int32 do return x end\na: Array<Fun<(Int32) : Int32>, 1> := [helper]\nb: Array<Fun<(Int32) : Int32>, 1> := [helper]\nx: Bool := a == b\n", "element type Fun<(Int32) : Int32> does not support =="},
@@ -220,7 +220,7 @@ func TestStringStrandEqualityRejected(t *testing.T) {
 }
 
 func TestSequenceEquality(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    fixed: Array<Int32, 2> := [1, 2]\n    other: Array<Int32, 2> := [1, 2]\n    same: Bool := fixed == other\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    view: View<Int32> := fixed.slice(0, 2)\n    total: Bool := view == fixed.slice(0, 2)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    fixed: Array<Int32, 2> := [1, 2]\n    other: Array<Int32, 2> := [1, 2]\n    same: Bool := fixed == other\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    view: Slice<Int32> := fixed.slice(0, 2)\n    total: Bool := view == fixed.slice(0, 2)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -244,8 +244,8 @@ func TestProgramOwnedEqualitySharedAcrossModules(t *testing.T) {
 	compare := `fun compare(h: Heap): Bool do
     left: Array<Int32, 2> := [1, 2]
     right: Array<Int32, 2> := [1, 2]
-    leftView: View<Int32> := left.slice(0, 2)
-    rightView: View<Int32> := right.slice(0, 2)
+    leftView: Slice<Int32> := left.slice(0, 2)
+    rightView: Slice<Int32> := right.slice(0, 2)
     leftList: List<Int32> := List<Int32>(h)
     rightList: List<Int32> := List<Int32>(h)
     leftList.push(1)
@@ -265,7 +265,7 @@ end
 	equality := result.Files["hexal/equality.h"]
 	for _, helper := range []string{
 		"hex_equal_hex_array_Int32_2",
-		"hex_equal_hex_view_Int32",
+		"hex_equal_hex_slice_Int32",
 		"hex_equal_hex_list_Int32",
 		"hex_equal_hex_t_Error",
 	} {
@@ -355,7 +355,7 @@ func TestOrderingRejections(t *testing.T) {
 		want   string
 	}{
 		{"fun demo() do\n    left: Bool := true\n    right: Bool := false\n    bad: Bool := left < right\nend", "ordering is unavailable for Bool values"},
-		{"fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := ref value\n    right: Ptr<Int32> := left\n    bad: Bool := left < right\nend", "ordering is unavailable for Ptr<Int32> values"},
+		{"fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := @value\n    right: Ptr<Int32> := left\n    bad: Bool := left < right\nend", "ordering is unavailable for Ptr<Int32> values"},
 		{"type Point is struct x: Int32, end\nfun demo() do\n    left: Point := Point(x = 1, )\n    right: Point := left\n    bad: Bool := left < right\nend", "ordering is unavailable for Point values"},
 	} {
 		result := compileSource(testCase.source)
@@ -380,7 +380,7 @@ func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
 func TestNilComparisonRulesPreserved(t *testing.T) {
 	// == nil requires a union containing Nil. A plain pointer has no Nil
 	// member, so the literal gate rejects the comparison.
-	result := compileSource("fun demo() do\n    nilSame: Bool := nil == nil\n    mut value: Int32 := 1\n    pointer: Ptr<Int32> := ref value\n    bad: Bool := pointer == nil\nend")
+	result := compileSource("fun demo() do\n    nilSame: Bool := nil == nil\n    mut value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: Bool := pointer == nil\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "nil requires an expected union containing Nil") {
 		t.Fatalf("Compile stderr = %#v, want standalone-nil diagnostic", result.Stderr)
 	}

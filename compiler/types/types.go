@@ -55,7 +55,7 @@ type Type struct {
 	Bits int
 	// Element is the pointee of pointer types and nullable pointer metadata.
 	Element *Type
-	// PointeeWritable is true when this is a MutPtr<T>.
+	// PointeeWritable is true when this is a Ptr<mut T>.
 	PointeeWritable bool
 	// Object is the nominal object record when this is an object type.
 	Object *ObjectType
@@ -73,8 +73,8 @@ type Type struct {
 	Adt *AdtType
 	// Array holds the metadata of fixed inline array types.
 	Array *ArrayInfo
-	// View holds the metadata of non-owning contiguous view types.
-	View *ViewInfo
+	// Slice holds the metadata of non-owning contiguous slice types.
+	Slice *SliceInfo
 	// List holds the metadata of owning growable list types.
 	List *ListInfo
 	// Dict holds the metadata of owning dictionary types.
@@ -532,8 +532,8 @@ func (environment *Environment) PtrType(element Type) Type {
 	return environment.pointerType(element, false)
 }
 
-// MutPtrType constructs or retrieves the canonical MutPtr<T> type of one
-// element, whose pointee is writable.
+// MutPtrType constructs or retrieves the canonical writable-pointee
+// pointer type of one element, displayed as Ptr<mut T>.
 func (environment *Environment) MutPtrType(element Type) Type {
 	return environment.pointerType(element, true)
 }
@@ -547,7 +547,7 @@ func (environment *Environment) pointerType(element Type, writable bool) Type {
 		// because containment stops at the indirection. The check defers
 		// for open type parameters and provisional objects, which are
 		// rechecked when they become concrete, and keeps the explicit
-		// Unknown exception that makes Ptr<Unknown>/MutPtr<Unknown> void*.
+		// Unknown exception that makes Ptr<Unknown>/Ptr<mut Unknown> void*.
 		(!IsUnknown(element) && !ContainsTypeParameter(element) && IsCompleteValue(element) && !Storable(element, PositionPointee)) {
 		return Type{}
 	}
@@ -565,8 +565,15 @@ func (environment *Environment) pointerType(element Type, writable bool) Type {
 	}
 	identity := newTypeIdentity()
 	identity.signature = canonicalKey
+	// The source spelling is one Ptr family: the writable form displays as
+	// Ptr<mut T>. The canonical key keeps the legacy constructor tag; it is
+	// an interning detail, never a user-visible spelling.
+	display := "Ptr<" + element.Name + ">"
+	if writable {
+		display = "Ptr<mut " + element.Name + ">"
+	}
 	typ := Type{
-		Name:            constructor + "<" + element.Name + ">",
+		Name:            display,
 		CName:           cName,
 		CanonicalKey:    canonicalKey,
 		Element:         &element,
@@ -829,6 +836,13 @@ func Assignable(target, source Type) bool {
 		// into a non-nullable slot.
 		return false
 	}
+	if target.Slice != nil && source.Slice != nil {
+		// Slice weakening mirrors pointer weakening: a writable Slice
+		// converts to the read-only Slice over the identical element at
+		// the outermost layer only. Nested modes never weaken, so unequal
+		// elements (including nested Slice modes) reject.
+		return Equal(target.Slice.Element, source.Slice.Element) && !target.Slice.Writable && source.Slice.Writable
+	}
 	if target.Element != nil && source.Element != nil {
 		if !Equal(*target.Element, *source.Element) {
 			targetErased := IsUnknown(*target.Element)
@@ -929,8 +943,8 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 	if typ.Array != nil {
 		return isCanonicalArray(environment, typ, state)
 	}
-	if typ.View != nil {
-		return isCanonicalView(environment, typ, state)
+	if typ.Slice != nil {
+		return isCanonicalSlice(environment, typ, state)
 	}
 	if typ.List != nil {
 		return isCanonicalList(environment, typ, state)
@@ -973,7 +987,7 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 	}
 	if IsUnknown(typ) {
 		// Unknown is canonical only behind a pointer layer: the erased
-		// object pointer types Ptr<Unknown> and MutPtr<Unknown>.
+		// object pointer types Ptr<Unknown> and Ptr<mut Unknown>.
 		return throughPointer
 	}
 	return isCanonicalScalar(environment, typ)
@@ -1127,15 +1141,18 @@ func isCanonicalArray(environment *Environment, typ Type, state *canonicalTypeSt
 	return isCanonicalForEnvironment(environment, typ.Array.Element, state, false)
 }
 
-func isCanonicalView(environment *Environment, typ Type, state *canonicalTypeState) bool {
-	if typ.View == nil || typ.View.Element == (Type{}) || !Eligible(typ.View.Element, PositionViewElement) {
+func isCanonicalSlice(environment *Environment, typ Type, state *canonicalTypeState) bool {
+	if typ.Slice == nil || typ.Slice.Element == (Type{}) || !Eligible(typ.Slice.Element, PositionSliceElement) {
 		return false
 	}
-	key := "view:" + typ.View.Element.CanonicalKey
+	key := "slice:" + typ.Slice.Element.CanonicalKey
+	if typ.Slice.Writable {
+		key = "slicemut:" + typ.Slice.Element.CanonicalKey
+	}
 	if typ.identity.signature != key {
 		return false
 	}
-	return isCanonicalForEnvironment(environment, typ.View.Element, state, false)
+	return isCanonicalForEnvironment(environment, typ.Slice.Element, state, false)
 }
 
 func isCanonicalList(environment *Environment, typ Type, state *canonicalTypeState) bool {
@@ -1178,7 +1195,7 @@ func IsProtectedTypeName(name string) bool {
 		return true
 	}
 	switch name {
-	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Task", "Channel", "Atomic", "Stash", "Pool":
+	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Slice", "Task", "Channel", "Atomic", "Stash", "Pool":
 		return true
 	}
 	return false

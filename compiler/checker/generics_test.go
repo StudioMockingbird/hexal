@@ -46,7 +46,7 @@ func TestCheckGenericTypeUnknownArgument(t *testing.T) {
 }
 
 func TestCheckGenericObjectPointerIndirectedRecursion(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Link<T> is struct value: T, mut next: MutPtr<Link<T>> | Nil, end link: Link<Int32> := Link<Int32>(value = 1, next = nil)"))
+	checked, err := Check(parseProgram(t, "type Link<T> is struct value: T, mut next: Ptr<mut Link<T>> | Nil, end link: Link<Int32> := Link<Int32>(value = 1, next = nil)"))
 	if err != nil {
 		t.Fatal(err)
 	}

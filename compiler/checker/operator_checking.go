@@ -854,8 +854,11 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 	case parser.AnonymousFunctionLiteral:
 		checked := checkAnonymousFunctionLiteral(expression, expressionContext{expected: compilerTypes.NewTypeUse(expected)}, ctx)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
-	case parser.RefExpression:
-		checked := checkReference(expression, ctx)
+	case parser.AddressExpression:
+		checked := checkAddress(expression, ctx)
+		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
+	case parser.DereferenceExpression:
+		checked := checkDereferencePlace(expression, ctx)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.CallExpression:
 		checked := checkCallValue(expression, expected, ctx)

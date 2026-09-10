@@ -453,8 +453,8 @@ func checkedStringLiteralValue(payload []byte, expected compilerTypes.Type, toke
 const stringTypeCallUsage = "String has no such operation; use String.from_bytes(heap, view), String.from_runes(heap, view), or String.interpolate(heap, template)"
 
 // checkStringTypeCall resolves a call written as String.<name>(...): the
-// built-in type constructors String.from_bytes(heap, view) and
-// String.from_runes(heap, view), and the compiler-known String.interpolate
+// built-in type constructors String.from_bytes(heap, slice) and
+// String.from_runes(heap, slice), and the compiler-known String.interpolate
 // operation.
 func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
@@ -465,9 +465,9 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 	default:
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
 	}
-	viewType := compilerTypes.UInt8
+	sliceType := compilerTypes.UInt8
 	if name == "from_runes" {
-		viewType = compilerTypes.Rune
+		sliceType = compilerTypes.Rune
 	}
 	if len(call.Arguments) != 2 {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
@@ -480,17 +480,17 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 		diagnostic := typeErrorAt(heap.token, "String."+name+" requires a Heap; got "+heap.typ.Name)
 		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 	}
-	view := checkValue(call.Arguments[1], ctx)
-	if diagnostics := initializerDiagnostics(view); len(diagnostics) > 0 {
-		return view
+	slice := checkValue(call.Arguments[1], ctx)
+	if diagnostics := initializerDiagnostics(slice); len(diagnostics) > 0 {
+		return slice
 	}
-	if view.typ.View == nil || !compilerTypes.Equal(view.typ.View.Element, viewType) {
+	if slice.typ.Slice == nil || !compilerTypes.Equal(slice.typ.Slice.Element, sliceType) {
 		display := "Byte"
-		if viewType == compilerTypes.Rune {
+		if sliceType == compilerTypes.Rune {
 			display = "Rune"
 		}
-		diagnostic := typeErrorAt(view.token, "String."+name+" requires View<"+display+">; got "+view.typ.Name)
-		return checkedExpression{token: view.token, diagnostic: &diagnostic}
+		diagnostic := typeErrorAt(slice.token, "String."+name+" requires Slice<"+display+">; got "+slice.typ.Name)
+		return checkedExpression{token: slice.token, diagnostic: &diagnostic}
 	}
 	kind := StringFromBytesExpression
 	if name == "from_runes" {
@@ -499,7 +499,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 	node := Expression{
 		Kind:        kind,
 		Operand:     &heap.source.Node,
-		Arguments:   []Operand{view.source},
+		Arguments:   []Operand{slice.source},
 		OperandType: compilerTypes.Heap,
 		ResultType:  compilerTypes.StringType,
 	}
@@ -510,7 +510,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 // interpolationSupportedType reports whether typ may appear as an embedded
 // interpolation value: Bool, Rune, every fixed-width signed and unsigned
 // integer, Size, Byte, Float32, Float64, String, and Strand. Every other
-// type -- Nil, pointers, unions, structs, ADTs, arrays, views, lists,
+// type -- Nil, pointers, unions, structs, ADTs, arrays, slices, lists,
 // dictionaries, allocators, concurrency values, Error, and Fun -- is
 // deliberately excluded.
 func interpolationSupportedType(typ compilerTypes.Type) bool {
@@ -615,21 +615,17 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 			diagnostic := typeErrorAt(callee.Property, "bytes expects no arguments")
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		view := ctx.typeEnvironment.ViewType(compilerTypes.UInt8)
+		slice := ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
 		node := Expression{
 			Kind:        StringMethodCallExpression,
 			Name:        name,
 			Operand:     &receiver.source.Node,
 			OperandType: compilerTypes.StringType,
-			ResultType:  view,
+			ResultType:  slice,
 			Element:     compilerTypes.UInt8,
 		}
-		if root := baseBindingID(&receiver.source.Node); root != 0 {
-			node.ViewRoots = []BindingID{root}
-			node.RootKind = ViewRootBindings
-		}
-		source := Operand{Kind: ExpressionOperand, Type: view, Name: name, Node: node}
-		return checkedExpression{source: source, typ: view, token: callee.Property}
+		source := Operand{Kind: ExpressionOperand, Type: slice, Name: name, Node: node}
+		return checkedExpression{source: source, typ: slice, token: callee.Property}
 	case "slice":
 		if len(call.Arguments) != 2 {
 			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
@@ -643,22 +639,18 @@ func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
-		view := ctx.typeEnvironment.ViewType(compilerTypes.UInt8)
+		slice := ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
 		node := Expression{
 			Kind:        StringMethodCallExpression,
 			Name:        name,
 			Operand:     &receiver.source.Node,
 			Arguments:   []Operand{start, end},
 			OperandType: compilerTypes.StringType,
-			ResultType:  view,
+			ResultType:  slice,
 			Element:     compilerTypes.UInt8,
 		}
-		if root := baseBindingID(&receiver.source.Node); root != 0 {
-			node.ViewRoots = []BindingID{root}
-			node.RootKind = ViewRootBindings
-		}
-		source := Operand{Kind: ExpressionOperand, Type: view, Name: name, Node: node}
-		return checkedExpression{source: source, typ: view, token: callee.Property}
+		source := Operand{Kind: ExpressionOperand, Type: slice, Name: name, Node: node}
+		return checkedExpression{source: source, typ: slice, token: callee.Property}
 	case "rune_cursor":
 		if len(call.Arguments) != 0 {
 			diagnostic := typeErrorAt(callee.Property, "rune_cursor expects no arguments")

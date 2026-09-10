@@ -47,7 +47,7 @@ func TestNullableTruthinessCondition(t *testing.T) {
 	// The if and elseif conditions are the bare nullable binding; deref of
 	// maybe would need a narrowing null test, so the branches only touch it
 	// through truthiness.
-	result := compileSource("mut value: Int32 := 5 mut maybe: Ptr<Int32> | Nil := ref value if maybe then noop: Int32 := 0 elseif maybe then result: Int32 := 1 end")
+	result := compileSource("mut value: Int32 := 5 mut maybe: Ptr<Int32> | Nil := @value if maybe then noop: Int32 := 0 elseif maybe then result: Int32 := 1 end")
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("Compile = %#v, want a successful nullable truthiness program", result)
 	}
@@ -63,7 +63,7 @@ func TestNullableTruthinessCondition(t *testing.T) {
 }
 
 // The generated C spells nullptr, never NULL: a nullable truthiness test and
-// a nil view must not leave a token that requires a declaring header.
+// a nil slice must not leave a token that requires a declaring header.
 func TestGeneratedCSpellsNullptrNotNULL(t *testing.T) {
 	source := "fun demo(p: Ptr<Int32> | Nil): Bool do\n    if p then\n        return true\n    end\n    return false\nend\n"
 	result := assertCompiles(t, source)

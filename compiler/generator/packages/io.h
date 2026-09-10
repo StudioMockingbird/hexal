@@ -3,7 +3,7 @@
 
 #include "hexal.h"
 #include "hexal/list.h"
-#include "hexal/view.h"
+#include "hexal/slice.h"
 #include "hexal/error.h"
 
 typedef struct hex_io {
@@ -55,8 +55,8 @@ hex_io_open hex_io_stdout(void);
 hex_io_open hex_io_stderr(void);
 hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max);
 hex_io_transfer hex_bytes_read(hex_bytes *stream, hex_list_UInt8 *into, size_t max);
-hex_io_transfer hex_io_write(hex_io stream, hex_view_UInt8 from);
-hex_io_transfer hex_bytes_write(hex_bytes *stream, hex_view_UInt8 from);
+hex_io_transfer hex_io_write(hex_io stream, hex_slice_UInt8 from);
+hex_io_transfer hex_bytes_write(hex_bytes *stream, hex_slice_UInt8 from);
 hex_io_position hex_io_seek_start(hex_io stream, uint64_t position);
 hex_io_position hex_io_seek_current(hex_io stream, int64_t offset);
 hex_io_position hex_io_seek_end(hex_io stream, int64_t offset);

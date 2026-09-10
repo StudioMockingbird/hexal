@@ -47,7 +47,7 @@ func TestParseBuiltinNilAndUnknownTypeExpressions(t *testing.T) {
 }
 
 func TestParseNullableTypeExpressionPreservesNestedAndRepeatedSuffixes(t *testing.T) {
-	typeExpression := parseAnnotation(t, "nested: MutPtr<MutPtr<Node> | Nil> | Nil | Nil := nil")
+	typeExpression := parseAnnotation(t, "nested: Ptr<mut Ptr<mut Node> | Nil> | Nil | Nil := nil")
 	outer, ok := typeExpression.(UnionTypeExpression)
 	if !ok || len(outer.Pipes) != 2 || len(outer.Members) != 3 {
 		t.Fatalf("outer union = %#v, want 3 members and 2 pipes", typeExpression)
@@ -120,7 +120,7 @@ func TestParseRejectsChainedTypeTests(t *testing.T) {
 func TestParseGeneralUnionAcceptsAnyMemberOrder(t *testing.T) {
 	for _, source := range []string{
 		"value: Nil | Ptr<Int32> := nil",
-		"value: Ptr<Int32> | MutPtr<Int32> := nil",
+		"value: Ptr<Int32> | Ptr<mut Int32> := nil",
 	} {
 		if _, err := Parse(mustLex(t, source)); err != nil {
 			t.Errorf("Parse(%q) returned an error: %v", source, err)
@@ -265,10 +265,10 @@ func TestParseMutPtrTypeExpression(t *testing.T) {
 		source   string
 		writable bool
 	}{
-		{"x: MutPtr<Int32> := y", true},
-		{"x: MutPtr<MutPtr<Int32>> := y", true},
-		{"x: Ptr<MutPtr<Int32>> := y", false},
-		{"x: MutPtr<Ptr<Int32>> := y", true},
+		{"x: Ptr<mut Int32> := y", true},
+		{"x: Ptr<mut Ptr<mut Int32>> := y", true},
+		{"x: Ptr<Ptr<mut Int32>> := y", false},
+		{"x: Ptr<mut Ptr<Int32>> := y", true},
 	} {
 		tokens, err := lexer.Lex(testCase.source)
 		if err != nil {
@@ -288,19 +288,69 @@ func TestParseMutPtrTypeExpression(t *testing.T) {
 	}
 }
 
-func TestParseRejectsMutInsidePtr(t *testing.T) {
-	tokens, err := lexer.Lex("x: Ptr<mut Int32> := y")
+func TestParseRejectsMutOutsidePtrAndSlice(t *testing.T) {
+	tokens, err := lexer.Lex("x: mut Int32 := y")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 	_, err = Parse(tokens)
-	if err == nil || err.Error() != "[Syntax Error] mut is not allowed inside Ptr<...>; use MutPtr<...> at 1:8" {
-		t.Fatalf("Parse error = %v, want focused mut-inside-Ptr diagnostic", err)
+	if err == nil || err.Error() != "[Syntax Error] mut is only allowed immediately inside Ptr<...> or Slice<...> at 1:4" {
+		t.Fatalf("Parse error = %v, want focused mut-placement diagnostic", err)
+	}
+}
+
+func TestParseSliceTypeExpression(t *testing.T) {
+	for _, testCase := range []struct {
+		source   string
+		writable bool
+	}{
+		{"x: Slice<Int32> := y", false},
+		{"x: Slice<mut Int32> := y", true},
+		{"x: Slice<Slice<Int32>> := y", false},
+		{"x: Slice<mut Slice<mut Int32>> := y", true},
+	} {
+		tokens, err := lexer.Lex(testCase.source)
+		if err != nil {
+			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
+		}
+		program, err := Parse(tokens)
+		if err != nil {
+			t.Fatalf("Parse(%q) returned an error: %v", testCase.source, err)
+		}
+		outer, ok := program.Statements[0].(Declaration).Type.(SliceTypeExpression)
+		if !ok {
+			t.Fatalf("type for %q = %#v, want slice type", testCase.source, program.Statements[0])
+		}
+		if outer.Writable != testCase.writable {
+			t.Fatalf("writable for %q = %v, want %v", testCase.source, outer.Writable, testCase.writable)
+		}
+	}
+}
+
+func TestParseMutTypeArgumentPreservedForSliceBridge(t *testing.T) {
+	tokens, err := lexer.Lex("v: Slice<Int32> := Slice<mut Int32>.empty()")
+	if err != nil {
+		t.Fatalf("Lex returned an error: %v", err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatalf("Parse returned an error: %v", err)
+	}
+	call, ok := program.Statements[0].(Declaration).Initializer.(CallExpression)
+	if !ok || len(call.TypeArguments) != 1 {
+		t.Fatalf("initializer = %#v, want a generic-owner call with one type argument", program.Statements[0].(Declaration).Initializer)
+	}
+	mut, ok := call.TypeArguments[0].(MutTypeArgument)
+	if !ok {
+		t.Fatalf("type argument = %#v, want a mut-marked type argument", call.TypeArguments[0])
+	}
+	if inner, ok := mut.Type.(NamedTypeExpression); !ok || inner.Name.Lexeme != "Int32" {
+		t.Fatalf("mut argument inner = %#v, want Int32", mut.Type)
 	}
 }
 
 // Fun<...> type expressions: `Fun` is an ordinary identifier lexeme, not a
-// keyword, so it is matched the same way Ptr and MutPtr are.
+// keyword, so it is matched the same way Ptr is.
 
 func parseAnnotation(t *testing.T, source string) TypeExpression {
 	t.Helper()

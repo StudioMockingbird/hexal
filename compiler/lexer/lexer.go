@@ -151,7 +151,6 @@ const (
 	NilLiteral
 	Eos
 	Mut
-	Ref
 	Type
 	Dot
 	LeftBrace
@@ -171,6 +170,7 @@ const (
 	LeftBracket
 	RightBracket
 	Amp
+	At
 	Caret
 	Tilde
 	ShiftLeft
@@ -233,7 +233,6 @@ var keywords = map[string]TokenKind{
 	"nil":   NilLiteral,
 	"eos":   Eos,
 	"mut":   Mut,
-	"ref":   Ref,
 	"type":  Type,
 	"and":   And,
 	"or":    Or,
@@ -319,8 +318,6 @@ func (kind TokenKind) String() string {
 		return "rune literal"
 	case Mut:
 		return "mut"
-	case Ref:
-		return "ref"
 	case Type:
 		return "type"
 	case Dot:
@@ -361,6 +358,8 @@ func (kind TokenKind) String() string {
 		return "|"
 	case Amp:
 		return "&"
+	case At:
+		return "@"
 	case Caret:
 		return "^"
 	case Tilde:
@@ -656,6 +655,10 @@ func scanToken(source string, index, line, column, depth int, previous Token) ([
 		column += len(lexeme)
 	case ch == '&':
 		tokens = append(tokens, Token{Kind: Amp, Lexeme: "&", Line: line, Column: column})
+		index++
+		column++
+	case ch == '@':
+		tokens = append(tokens, Token{Kind: At, Lexeme: "@", Line: line, Column: column})
 		index++
 		column++
 	case ch == '^':

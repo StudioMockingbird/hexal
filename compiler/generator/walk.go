@@ -109,8 +109,8 @@ func walkTypeTreeSeen(typ compilerTypes.Type, visit func(compilerTypes.Type) err
 			return err
 		}
 	}
-	if typ.View != nil {
-		if err := walkTypeTreeSeen(typ.View.Element, visit, seenAdt, seenObject); err != nil {
+	if typ.Slice != nil {
+		if err := walkTypeTreeSeen(typ.Slice.Element, visit, seenAdt, seenObject); err != nil {
 			return err
 		}
 	}
@@ -368,8 +368,8 @@ func (state *walkState) walkType(typ compilerTypes.Type) error {
 			return err
 		}
 	}
-	if typ.View != nil {
-		if err := state.walkType(typ.View.Element); err != nil {
+	if typ.Slice != nil {
+		if err := state.walkType(typ.Slice.Element); err != nil {
 			return err
 		}
 	}

@@ -3,7 +3,7 @@
 
 #include "hexal.h"
 #include "hexal/heap.h"
-#include "hexal/view.h"
+#include "hexal/slice.h"
 
 typedef enum hex_string_storage_kind {
     HEX_STRING_STATIC = 0,
@@ -56,11 +56,11 @@ static inline size_t hex_string_rune_length(const hex_string *text) {
     return text->rune_length;
 }
 
-static inline hex_view_UInt8 hex_string_bytes(const hex_string *text) {
-    return (hex_view_UInt8){ text->data, text->byte_length };
+static inline hex_slice_UInt8 hex_string_bytes(const hex_string *text) {
+    return (hex_slice_UInt8){ text->data, text->byte_length };
 }
 
-static inline hex_view_UInt8 hex_string_slice(const hex_string *text, size_t start, size_t end) {
+static inline hex_slice_UInt8 hex_string_slice(const hex_string *text, size_t start, size_t end) {
     if (!(start <= end && end <= text->rune_length)) {
         hex_runtime_trap("[Runtime Error] string slice bounds out of range\n");
     }
@@ -74,7 +74,7 @@ static inline hex_view_UInt8 hex_string_slice(const hex_string *text, size_t sta
         }
     }
     byteEnd = index;
-    return (hex_view_UInt8){ text->data + byteStart, byteEnd - byteStart };
+    return (hex_slice_UInt8){ text->data + byteStart, byteEnd - byteStart };
 }
 {{if .NeedStrand}}
 size_t hex_strand_rune_length(hex_strand text);

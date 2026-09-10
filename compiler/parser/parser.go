@@ -25,7 +25,7 @@ type Parser struct {
 	matchBoundary matchBoundaryKind
 	// methodReceiver is set while parsing a method declaration's receiver type
 	// and unionMemberDepth counts union-member primaries inside it. A dotted
-	// name inside such a member (method MutPtr<Node> | Nil.read()) is the
+	// name inside such a member (method Ptr<mut Node> | Nil.read()) is the
 	// declaration's method delimiter, never a qualified type chain; every
 	// union receiver is semantically invalid anyway, so suppressing the chain
 	// there loses nothing.
@@ -284,6 +284,20 @@ func (parser *Parser) statement() (Statement, error) {
 	case parser.check(lexer.Type):
 		return nil, parser.errorAt(parser.peek(), "type declarations are module-level only")
 	case parser.check(lexer.LeftParen):
+		// A parenthesized place opens a dereference-first assignment target
+		// such as (^pointer).member = value. Anything else starting with
+		// '(' is still the split-call error below.
+		start := parser.current
+		target, err := parser.expression()
+		if err == nil && isPlaceExpression(target) && parser.check(lexer.Equal) {
+			parser.advance()
+			initializer, err := parser.expression()
+			if err != nil {
+				return nil, err
+			}
+			return Assignment{Target: target, Initializer: initializer}, nil
+		}
+		parser.current = start
 		// postfix refuses a '(' that begins a new line, which leaves the '('
 		// starting a statement. That is only ever a split call.
 		return nil, parser.errorAt(parser.peek(), "a call's ( must follow its callee on the same line")
@@ -341,6 +355,16 @@ func (parser *Parser) statement() (Statement, error) {
 		return nil, parser.errorAt(parser.peek(), "unexpected 'end' outside a block")
 	case parser.check(lexer.Self):
 		return parser.postfixStatement(VariableExpression{Name: parser.advance()})
+	case parser.check(lexer.At), parser.check(lexer.Caret):
+		// An assignment target may open with an address or dereference
+		// operator, as in ^pointer = value. The target grammar is the
+		// ordinary unary chain extended with postfix suffixes; the checker
+		// owns place validity.
+		operand, err := parser.unaryExpression()
+		if err != nil {
+			return nil, err
+		}
+		return parser.postfixStatement(operand)
 	case parser.check(lexer.Try):
 		// `try <unary-expression>` is a statement as well as an expression,
 		// with the same unary boundary as prefix try.
@@ -382,7 +406,7 @@ func (parser *Parser) statement() (Statement, error) {
 }
 
 // postfixStatement completes the two statement forms that start with a postfix
-// chain. An assignment target may be a variable or a place such as p.value.
+// chain. An assignment target may be a variable or a place such as ^pointer.
 // A call statement is a chain whose final operation is a call; a chain ending
 // in member selection is an expression and never a statement.
 func (parser *Parser) postfixStatement(start Expression) (Statement, error) {
@@ -403,6 +427,19 @@ func (parser *Parser) postfixStatement(start Expression) (Statement, error) {
 		return call, nil
 	}
 	return nil, parser.errorAtCurrent("expected ':' or ':=' for a declaration, or '=' for an assignment")
+}
+
+// isPlaceExpression reports whether a parsed expression has a place shape
+// usable as an assignment target: the checker owns validity, so calls and
+// other value-only shapes stay with the split-call error.
+func isPlaceExpression(expression Expression) bool {
+	switch expression.(type) {
+	case VariableExpression, PropertyExpression, IndexExpression,
+		AddressExpression, DereferenceExpression:
+		return true
+	default:
+		return false
+	}
 }
 
 // returnStatement parses `return` with its optional value. The value's first
@@ -482,7 +519,7 @@ func valueOnlyToken(kind lexer.TokenKind) bool {
 	switch kind {
 	case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger,
 		lexer.DecimalFloat, lexer.True, lexer.False, lexer.NilLiteral, lexer.Eos,
-		lexer.Minus, lexer.Bang, lexer.Ref, lexer.LeftBracket, lexer.StringLiteral,
+		lexer.Minus, lexer.Bang, lexer.At, lexer.Caret, lexer.LeftBracket, lexer.StringLiteral,
 		lexer.Match:
 		return true
 	default:

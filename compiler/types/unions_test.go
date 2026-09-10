@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-// UnionMembers returns a read-only view: no caller receives the canonical
+// UnionMembers returns a read-only slice: no caller receives the canonical
 // member slice, and every access shape allocates nothing.
 func TestUnionMemberViewExposesReadOnlyAccess(t *testing.T) {
 	environment := NewEnvironment()
@@ -27,35 +27,35 @@ func TestUnionMemberViewExposesReadOnlyAccess(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			view := UnionMembers(testCase.typ)
-			if view.Len() != testCase.count {
-				t.Fatalf("Len() = %d, want %d", view.Len(), testCase.count)
+			slice := UnionMembers(testCase.typ)
+			if slice.Len() != testCase.count {
+				t.Fatalf("Len() = %d, want %d", slice.Len(), testCase.count)
 			}
-			first, ok := view.At(0)
+			first, ok := slice.At(0)
 			if !ok || !Equal(first, testCase.first) {
 				t.Fatalf("At(0) = %#v %v, want %s", first, ok, testCase.first.Name)
 			}
-			if _, ok := view.At(view.Len()); ok {
+			if _, ok := slice.At(slice.Len()); ok {
 				t.Fatal("At(count) reported in bounds")
 			}
-			if _, ok := view.At(-1); ok {
+			if _, ok := slice.At(-1); ok {
 				t.Fatal("At(-1) reported in bounds")
 			}
 		})
 	}
 }
 
-// Every access path of the read-only member view allocates zero bytes:
-// ordinary and singleton views reference the canonical slice privately and
+// Every access path of the read-only member slice allocates zero bytes:
+// ordinary and singleton slices reference the canonical slice privately and
 // the nullable-pointer niche derives its two members from stored metadata.
 func TestUnionMemberViewAllocatesNothing(t *testing.T) {
 	environment := NewEnvironment()
 	tagged := environment.UnionType([]Type{Int32, Float64})
 	nullable := environment.NullableType(environment.PtrType(Int32))
 	read := func(typ Type) {
-		view := UnionMembers(typ)
-		for index := 0; index < view.Len(); index++ {
-			view.At(index)
+		slice := UnionMembers(typ)
+		for index := 0; index < slice.Len(); index++ {
+			slice.At(index)
 		}
 	}
 	for name, typ := range map[string]Type{

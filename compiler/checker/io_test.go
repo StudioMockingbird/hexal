@@ -52,7 +52,7 @@ func TestCheckStreamCapabilityTiers(t *testing.T) {
 			"    return nil\nend\n")
 }
 
-// Bytes state-changing operations take MutPtr<Bytes>: a mutable binding
+// Bytes state-changing operations take Ptr<mut Bytes>: a mutable binding
 // auto-addresses through the shared receiver rule and a fixed binding is
 // rejected.
 func TestCheckBytesReceiverForms(t *testing.T) {
@@ -62,7 +62,7 @@ func TestCheckBytesReceiverForms(t *testing.T) {
 			"    dest: List<Byte> := List<Byte>(h)\n"+
 			"    fixed: Bytes := Bytes.over(data)\n"+
 			"    return fixed.read(dest, 4)\nend\n",
-		"read needs MutPtr<Bytes>; ref fixed is Ptr<Bytes>")
+		"read needs Ptr<mut Bytes>; @fixed is Ptr<Bytes>")
 	requireAccepted(t,
 		"fun demo(h: Heap, text: String): Nil | Error do\n"+
 			"    data: List<Byte> := List<Byte>(h)\n"+

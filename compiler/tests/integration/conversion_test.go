@@ -73,7 +73,7 @@ func TestConversionMatrixRejections(t *testing.T) {
 		{"fun demo() do\n    letter: Rune := (65).to<Rune>()\n    bad: Rune := letter.to<Rune>()\nend", "supported scalar source and destination"},
 		{"fun demo() do\n    whole: Float64 := 1.5\n    bad: Rune := whole.to<Rune>()\nend", "supported scalar source and destination"},
 		{"fun demo() do\n    value: Int32 := 1\n    bad: Bool := value.to<Bool>()\nend", "supported scalar source and destination"},
-		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := ref value\n    bad: UInt64 := pointer.to<UInt64>()\nend", "Ptr<Int32> has no method named to"},
+		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: UInt64 := pointer.to<UInt64>()\nend", "Ptr<Int32> has no method named to"},
 		{"fun demo() do\n    value: Int32 := 1\n    bad: Int32 := value.to()\nend", "to requires exactly 1 explicit type argument"},
 		{"fun demo() do\n    value: Int32 := 1\n    bad: Int32 := value.to(1)\nend", "to requires exactly 1 explicit type argument"},
 		{"fun demo() do\n    value: Int32 := 1\n    bad: Int32 := value.to<Int32>(1)\nend", "to accepts no value arguments"},

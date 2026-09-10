@@ -208,7 +208,7 @@ passes:
 4. Whether the safe Mutex surface becomes `Mutex<T>` with an affine guard, or
    the existing untyped Mutex remains a manual low-level primitive that cannot
    prove safe shared access.
-5. Whether borrowed pointers and Views are initially forbidden as task
+5. Whether Ref, Slice, and raw pointers are initially forbidden as task
    arguments except for program-lifetime storage, or accepted through a new
    cross-task lifetime proof.
 6. Whether unknown race safety is rejected until RFC 0039 defines a foreign
@@ -218,6 +218,10 @@ passes:
 8. RFC 0039 owns foreign blocking annotations. The Task parking primitive and
    scheduler-aware execution for native operations are both already
    implemented and do not block this RFC.
+9. Define whether sharing is a language primitive or a type-owned operation,
+   and classify Task, Channel, Mutex, and every affine payload before any
+   cross-Task owner transfer is admitted. RFC 0110 deliberately adds no
+   provisional `share` syntax.
 
 ## Implementation readiness
 

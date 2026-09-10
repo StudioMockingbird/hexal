@@ -13,9 +13,9 @@ func TestStashAllocateResetDestroyCompiles(t *testing.T) {
 		"fun demo() do\n"+
 		"    stash := Stash<Node>()\n"+
 		"    defer stash.destroy()\n"+
-		"    node: MutPtr<Node> := stash.allocate(Node(value = 1))\n"+
+		"    node: Ptr<mut Node> := stash.allocate(Node(value = 1))\n"+
 		"    stash.reset()\n"+
-		"    node2: MutPtr<Node> := stash.allocate(Node(value = 2))\n"+
+		"    node2: Ptr<mut Node> := stash.allocate(Node(value = 2))\n"+
 		"end")
 	header := rootH(t, result)
 	for _, want := range []string{"hex_stash_new_hex_t_m3_app_Node", "hex_stash_alloc_hex_t_m3_app_Node"} {
@@ -38,7 +38,7 @@ func TestStashUnionElementAllocateCompiles(t *testing.T) {
 		"fun demo() do\n"+
 		"    stash := Stash<Item>()\n"+
 		"    defer stash.destroy()\n"+
-		"    item: MutPtr<Item> := stash.allocate(Node(value = 1))\n"+
+		"    item: Ptr<mut Item> := stash.allocate(Node(value = 1))\n"+
 		"end")
 	if result.ExitCode != 0 {
 		t.Fatalf("expected success")
@@ -50,7 +50,7 @@ func TestPoolAllocateFreeDestroyCompiles(t *testing.T) {
 		"fun demo() do\n"+
 		"    pool := Pool<Node>(4)\n"+
 		"    defer pool.destroy()\n"+
-		"    node: MutPtr<Node> := pool.allocate(Node(value = 1))\n"+
+		"    node: Ptr<mut Node> := pool.allocate(Node(value = 1))\n"+
 		"    pool.free(node)\n"+
 		"end")
 	header := rootH(t, result)
@@ -72,7 +72,7 @@ func TestStashPoolRejections(t *testing.T) {
 			"type Node is struct value: Int32 end\n" +
 				"fun demo() do\n" +
 				"    stash := Stash<Node>()\n" +
-				"    node: MutPtr<Node> := stash.allocate(Node(value = 1))\n" +
+				"    node: Ptr<mut Node> := stash.allocate(Node(value = 1))\n" +
 				"    stash.free(node)\n" +
 				"end",
 			"Stash allocations are released by reset or destroy",
@@ -82,7 +82,7 @@ func TestStashPoolRejections(t *testing.T) {
 			"type Node is struct value: Int32 end\n" +
 				"fun demo() do\n" +
 				"    stash := Stash<Node>()\n" +
-				"    node: MutPtr<Node> := stash.allocate<Node>(Node(value = 1))\n" +
+				"    node: Ptr<mut Node> := stash.allocate<Node>(Node(value = 1))\n" +
 				"end",
 			"Stash allocation accepts no type arguments",
 		},
@@ -99,7 +99,7 @@ func TestStashPoolRejections(t *testing.T) {
 			"type Node is struct value: Int32 end\n" +
 				"fun demo() do\n" +
 				"    pool := Pool<Node>(4)\n" +
-				"    node: MutPtr<Node> := pool.allocate(Node(value = 1))\n" +
+				"    node: Ptr<mut Node> := pool.allocate(Node(value = 1))\n" +
 				"    pool.destroy()\n" +
 				"end",
 			"Pool cannot be destroyed while a locally tracked slot is live",
@@ -110,7 +110,7 @@ func TestStashPoolRejections(t *testing.T) {
 				"fun demo() do\n" +
 				"    stash := Stash<Node>()\n" +
 				"    stash.destroy()\n" +
-				"    node: MutPtr<Node> := stash.allocate(Node(value = 1))\n" +
+				"    node: Ptr<mut Node> := stash.allocate(Node(value = 1))\n" +
 				"end",
 			"released on every path",
 		},
@@ -119,9 +119,9 @@ func TestStashPoolRejections(t *testing.T) {
 			"type Node is struct value: Int32 end\n" +
 				"fun demo() do\n" +
 				"    stash := Stash<Node>()\n" +
-				"    node: MutPtr<Node> := stash.allocate(Node(value = 1))\n" +
+				"    node: Ptr<mut Node> := stash.allocate(Node(value = 1))\n" +
 				"    stash.reset()\n" +
-				"    node.value = 5\n" +
+				"    ^node = 5\n" +
 				"end",
 			"released on every path",
 		},

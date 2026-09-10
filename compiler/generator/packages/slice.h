@@ -1,27 +1,27 @@
-{{- define "viewbody" -}}
-{{range .Views}}
+{{- define "slicebody" -}}
+{{range .Slices}}
 typedef struct {{.CName}} {
-    const {{.ElementSpelling}} *data;
+    {{if .Writable}}{{else}}const {{end}}{{.ElementSpelling}} *data;
     size_t length;
 } {{.CName}};
-static inline const {{.ElementSpelling}} *hex_view_at_{{.Suffix}}({{.CName}} view, size_t index) {
-    if (index >= view.length) {
-        hex_runtime_trap("[Runtime Error] view index out of bounds\n");
+static inline {{if .Writable}}{{else}}const {{end}}{{.ElementSpelling}} *{{.HelperPrefix}}at_{{.Suffix}}({{.CName}} slice, size_t index) {
+    if (index >= slice.length) {
+        hex_runtime_trap("[Runtime Error] slice index out of bounds\n");
     }
-    return &view.data[index];
+    return &slice.data[index];
 }
-static inline {{.CName}} hex_view_slice_{{.Suffix}}({{.CName}} view, uint64_t start, uint64_t end) {
-    if (!(start <= end && end <= view.length)) {
-        hex_runtime_trap("[Runtime Error] view slice bounds out of range\n");
+static inline {{.CName}} {{.HelperPrefix}}slice_{{.Suffix}}({{.CName}} slice, uint64_t start, uint64_t end) {
+    if (!(start <= end && end <= slice.length)) {
+        hex_runtime_trap("[Runtime Error] slice slice bounds out of range\n");
     }
-    return ({{.CName}}){view.data == nullptr ? nullptr : &view.data[start], end - start};
+    return ({{.CName}}){slice.data == nullptr ? nullptr : &slice.data[start], end - start};
 }
 {{end}}
 {{- end -}}
-#ifndef HEXAL_VIEW_H
-#define HEXAL_VIEW_H
+#ifndef HEXAL_SLICE_H
+#define HEXAL_SLICE_H
 
 #include "hexal.h"
 {{if .NeedsHeapString}}typedef struct hex_string hex_string;
-{{end}}{{template "viewbody" .}}
+{{end}}{{template "slicebody" .}}
 #endif

@@ -8,9 +8,12 @@ type ArrayInfo struct {
 	Length  uint64
 }
 
-// ViewInfo is the metadata of one non-owning contiguous view type.
-type ViewInfo struct {
-	Element Type
+// SliceInfo is the metadata of one non-owning contiguous slice type.
+// Writable selects the Slice<mut T> element-access mode; the read-only
+// Slice<T> and writable Slice<mut T> over one element are distinct types.
+type SliceInfo struct {
+	Element  Type
+	Writable bool
 }
 
 // ListInfo is the metadata of one owning growable list type.
@@ -63,10 +66,10 @@ func IsList(typ Type) bool { return typ.List != nil }
 func IsDict(typ Type) bool { return typ.Dict != nil }
 
 // isManaged reports whether typ is a reference-like handle value rejected
-// from inline positions, storage, and union alternatives. Views are
+// from inline positions, storage, and union alternatives. Slices are
 // the borrowed form; String, List, and Dict are owning forms.
 func isManaged(typ Type) bool {
-	return typ.View != nil || IsString(typ) || IsList(typ) || IsDict(typ)
+	return typ.Slice != nil || IsString(typ) || IsList(typ) || IsDict(typ)
 }
 
 // IsMutex reports whether typ is the canonical scheduler-aware Mutex handle.
@@ -108,29 +111,36 @@ func (environment *Environment) ArrayType(element Type, length uint64) Type {
 	return typ
 }
 
-// ViewType constructs or retrieves the canonical View<T> type of one inline
-// element. Views of managed or other view elements are rejected: a view may
-// never expose or copy an owning payload.
-func (environment *Environment) ViewType(element Type) Type {
+// SliceType constructs or retrieves the canonical Slice<T> or Slice<mut T>
+// type of one element. Element eligibility follows the shared position
+// model; nested slices are valid, and each access mode interns separately.
+func (environment *Environment) SliceType(element Type, writable bool) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!Eligible(element, PositionViewElement) {
+		!Eligible(element, PositionSliceElement) {
 		return Type{}
 	}
-	canonicalKey := "view:" + element.CanonicalKey
-	if cached, ok := environment.arena.viewTypes[canonicalKey]; ok {
+	canonicalKey := "slice:" + element.CanonicalKey
+	constructor := "hex_slice_"
+	display := "Slice<" + element.Name + ">"
+	if writable {
+		canonicalKey = "slicemut:" + element.CanonicalKey
+		constructor = "hex_mut_slice_"
+		display = "Slice<mut " + element.Name + ">"
+	}
+	if cached, ok := environment.arena.sliceTypes[canonicalKey]; ok {
 		return cached
 	}
 	identity := newTypeIdentity()
 	identity.signature = canonicalKey
 	typ := Type{
-		Name:         "View<" + element.Name + ">",
-		CName:        environment.arena.uniqueCollectionCName("hex_view_"+SanitizeIdentifier(element.Name), element),
+		Name:         display,
+		CName:        environment.arena.uniqueCollectionCName(constructor+SanitizeIdentifier(element.Name), element),
 		CanonicalKey: canonicalKey,
-		View:         &ViewInfo{Element: element},
+		Slice:        &SliceInfo{Element: element, Writable: writable},
 		identity:     identity,
 	}
-	environment.arena.viewTypes[canonicalKey] = typ
+	environment.arena.sliceTypes[canonicalKey] = typ
 	return typ
 }
 
@@ -184,7 +194,7 @@ const (
 	PositionADTPayload
 	PositionUnionMember
 	PositionArrayElement
-	PositionViewElement
+	PositionSliceElement
 	PositionListElement
 	PositionDictValue
 	PositionFunctionParam
@@ -216,7 +226,7 @@ func Storable(typ Type, position Position) bool {
 	if typ.Signature != nil {
 		switch position {
 		case PositionBinding, PositionUnionMember, PositionFunctionParam, PositionFunctionResult,
-			PositionObjectMember, PositionADTPayload, PositionArrayElement, PositionViewElement,
+			PositionObjectMember, PositionADTPayload, PositionArrayElement, PositionSliceElement,
 			PositionListElement, PositionDictValue, PositionTaskArgument, PositionTaskResult,
 			PositionChannelElement:
 			return true
@@ -231,7 +241,7 @@ func Storable(typ Type, position Position) bool {
 	// shallow copy; Bytes borrows its List and cannot. Neither survives in
 	// long-lived aggregate storage while the shallow-copy alias model is
 	// the only lifetime rule. Pointer receivers stay formable because the
-	// Bytes operation surface is defined on MutPtr<Bytes>.
+	// Bytes operation surface is defined on Ptr<mut Bytes>.
 	if IsIO(typ) {
 		switch position {
 		case PositionBinding, PositionUnionMember, PositionFunctionParam,
@@ -265,7 +275,7 @@ func Eligible(element Type, position Position) bool {
 // ContainsAtomic reports whether typ contains an inline Atomic<T> value
 // recursively through objects, ADTs, arrays, and unions. Atomic values cannot
 // be copied, so any shallow-copy position that reaches one is invalid. It
-// stops at every indirection: copying a Ptr<T>, MutPtr<T>, or a handle copies
+// stops at every indirection: copying a Ptr<T>, Ptr<mut T>, or a handle copies
 // the pointer, never the pointee.
 func ContainsAtomic(typ Type) bool {
 	if typ.Atomic != nil {

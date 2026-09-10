@@ -10,7 +10,8 @@ import (
 )
 
 // checkPlace resolves only a syntactic place, tracking writability for the
-// three-place walk so assignment and ref can read the binding and member modes.
+// three-place walk so assignment and address-taking can read the binding and
+// member modes.
 func checkPlace(expression parser.Expression, ctx checkContext) checkedExpression {
 	switch expression := expression.(type) {
 	case parser.VariableExpression:
@@ -51,7 +52,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			return checkedExpression{token: expression.Name, diagnostic: diagnosticAt(typeErrorAt(expression.Name, "cannot infer generic parameter for "+expression.Name.Lexeme))}
 		}
 		// Ordinary reads use the branch-local narrowed type when a null test
-		// proved it; assignment and ref re-derive the declared storage type.
+		// proved it; assignment and @ re-derive the declared storage type.
 		placeType := binding.typ
 		if narrowed, ok := ctx.names.flow.narrowedType(binding.id); ok {
 			placeType = narrowed
@@ -62,10 +63,6 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		}
 		node := variableNodeWithBinding(expression.Name.Lexeme, binding.id)
 		node.CollectionRoot = bindingCollectionRoot(binding)
-		if binding.viewRootKind != ViewRootNone {
-			node.ViewRoots = binding.viewRoots
-			node.RootKind = binding.viewRootKind
-		}
 		return checkedExpression{
 			source: Operand{
 				Kind:        VariableOperand,
@@ -116,10 +113,10 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			diagnostic := nullableAccessDiagnostic(receiver, expression.Property, placeDescription(expression.Receiver))
 			return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
 		}
-		// On a pointer to an object, pointer.m means
-		// pointer.value.m. One layer only, and the built-in .value property
-		// wins, so an object member named value is reached as p.value.value.
-		if receiver.typ.Element != nil && receiver.typ.Element.Object != nil && expression.Property.Lexeme != "value" {
+		// On a pointer to an object, pointer.m reaches the member through one
+		// auto-dereferenced layer. A member actually named value resolves
+		// like any other member; whole-pointee access is prefix `^`.
+		if receiver.typ.Element != nil && receiver.typ.Element.Object != nil {
 			receiver = dereferencePlace(receiver, expression.Property, ctx.names.flow)
 			if receiver.diagnostic != nil {
 				return receiver
@@ -158,19 +155,25 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 				token: expression.Property,
 			}
 		}
-		if receiver.typ.Element == nil || expression.Property.Lexeme != "value" {
-			message := fmt.Sprintf("cannot access .%s on %s; expected Ptr<T> or an object member", expression.Property.Lexeme, receiver.typ.Name)
-			if expression.Property.Lexeme == "value" {
-				message = fmt.Sprintf("cannot access .value on %s; expected Ptr<T>", receiver.typ.Name)
-			}
+		if receiver.typ.Element != nil {
+			// The pointee is not an object (object pointees auto-dereference
+			// above), so no member exists: whole-pointee access is prefix
+			// `^` on the receiver's place spelling.
+			message := fmt.Sprintf("cannot access .%s on %s; use ^%s to access the pointee", expression.Property.Lexeme, receiver.typ.Name, placeDescription(expression.Receiver))
 			return checkedExpression{
 				token:      expression.Property,
 				diagnostic: diagnosticAt(typeErrorAt(expression.Property, message)),
 			}
 		}
-		return dereferencePlace(receiver, expression.Property, ctx.names.flow)
+		message := fmt.Sprintf("cannot access .%s on %s; expected Ptr<T> or an object member", expression.Property.Lexeme, receiver.typ.Name)
+		return checkedExpression{
+			token:      expression.Property,
+			diagnostic: diagnosticAt(typeErrorAt(expression.Property, message)),
+		}
 	case parser.IndexExpression:
 		return checkIndexPlace(expression, ctx)
+	case parser.DereferenceExpression:
+		return checkDereferencePlace(expression, ctx)
 	case parser.IntegerLiteral:
 		initializer := integerInitializer(expression.Token, compilerTypes.Int32)
 		return checkedExpression{source: initializer.source, typ: initializer.typ, token: initializer.token, diagnostic: initializer.diagnostic}
@@ -185,13 +188,13 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 	default:
 		// Every other expression kind (a call, a binary or unary expression,
 		// a match, a function literal, and so on) computes a value rather
-		// than naming storage, so none of them is a place: assignment, ref,
+		// than naming storage, so none of them is a place: assignment, @,
 		// and every other place-context caller reports this as an ordinary
 		// rejection, not an internal dispatch gap.
 		token := expressionToken(expression)
 		return checkedExpression{
 			token:      token,
-			diagnostic: diagnosticAt(typeErrorAt(token, "expression is not a place; assignment and ref require a variable, member, dereference, or index")),
+			diagnostic: diagnosticAt(typeErrorAt(token, "expression is not a place; assignment and @ require a variable, member, dereference, or index")),
 		}
 	}
 }
@@ -225,10 +228,10 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 	return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
 }
 
-// dereferencePlace walks one pointer layer, for both the explicit .value
-// spelling and the inserted auto-dereference. The optional flow state lets
-// place construction reject a known released local without affecting value
-// arguments, which are not dereferences.
+// dereferencePlace walks one pointer layer for explicit prefix-`^`
+// dereferences and the inserted auto-dereference. The optional flow state
+// lets place construction reject a known released local without affecting
+// value arguments, which are not dereferences.
 func dereferencePlace(receiver checkedExpression, token lexer.Token, states ...*flowState) checkedExpression {
 	var state *flowState
 	if len(states) > 0 {
@@ -301,21 +304,41 @@ func valueFromPlace(place checkedExpression) checkedExpression {
 	return checkedExpression{source: source, typ: place.typ, use: place.use, token: place.token, known: place.known, storageType: place.storageType}
 }
 
-// nullableAccessDiagnostic reports member or .value access through a nullable
+// nullableAccessDiagnostic reports member access through a nullable
 // receiver that no null test narrowed. A bare local binding names the failing
 // narrowing; a member path states the one-line workaround because member
 // storage can be replaced through aliases the checker cannot see.
 func nullableAccessDiagnostic(receiver checkedExpression, token lexer.Token, path string) compilerTypes.Diagnostic {
 	if receiver.source.Node.Kind == VariableExpression {
-		return typeErrorAt(token, fmt.Sprintf("%s may be Nil; narrow it before using .value", receiver.typ.Name))
+		return typeErrorAt(token, fmt.Sprintf("%s may be Nil; narrow it before dereferencing", receiver.typ.Name))
 	}
 	return typeErrorAt(token, fmt.Sprintf("only a local binding can be narrowed; bind %s before testing it", path))
 }
 
-// checkReference types ref by the place's writability: a writable place
-// yields MutPtr<T>, a fixed place yields Ptr<T>. There is no writability
+// checkDereferencePlace types a prefix `^` dereference as a place: the
+// operand must produce a concrete non-null pointer, and the result is an
+// addressable place writable exactly for Ptr<mut T>. Value contexts wrap the
+// result with valueFromPlace; address-taking and assignment use it directly.
+func checkDereferencePlace(expression parser.DereferenceExpression, ctx checkContext) checkedExpression {
+	operand := checkValue(expression.Operand, ctx)
+	if operand.diagnostic != nil {
+		return operand
+	}
+	if operand.typ.Element == nil {
+		diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("cannot dereference %s; ^ requires Ptr<T>", operand.typ.Name))
+		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
+	}
+	if compilerTypes.IsNullable(operand.typ) {
+		diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("%s may be Nil; narrow it before dereferencing", operand.typ.Name))
+		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
+	}
+	return dereferencePlace(operand, expression.Operator, ctx.names.flow)
+}
+
+// checkAddress types @ by the place's writability: a writable place
+// yields Ptr<mut T>, a fixed place yields Ptr<T>. There is no writability
 // requirement; taking a read-only pointer to fixed storage is valid.
-func checkReference(expression parser.RefExpression, ctx checkContext) checkedExpression {
+func checkAddress(expression parser.AddressExpression, ctx checkContext) checkedExpression {
 	place := checkPlace(expression.Place, ctx)
 	if place.diagnostic != nil {
 		return place
@@ -330,18 +353,18 @@ func checkReference(expression parser.RefExpression, ctx checkContext) checkedEx
 		diagnostic := typeErrorAt(place.token, place.typ.Name+" bindings are not addressable")
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
-	if place.typ.View != nil {
-		diagnostic := typeErrorAt(place.token, "ref cannot take the address of a View binding")
+	if place.typ.Slice != nil {
+		diagnostic := typeErrorAt(place.token, "@ cannot take the address of a Slice binding")
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
 	if place.typ.Atomic != nil {
 		diagnostic := typeErrorAt(place.token, "Atomic values cannot be copied, assigned, addressed, or stored here")
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
-	// ref names the binding's declared storage slot, not a narrowed read
+	// @ names the binding's declared storage slot, not a narrowed read
 	// type: the pointer must be able to observe every value the slot can
-	// hold. A writable ref lets the slot's contents be replaced behind the
-	// checker's back, so it escapes the binding and clears any narrowing.
+	// hold. A writable address lets the slot's contents be replaced behind
+	// the checker's back, so it escapes the binding and clears any narrowing.
 	storageType := place.typ
 	storageUse := place.use
 	if variable, ok := expression.Place.(parser.VariableExpression); ok && place.source.Binding != 0 {
@@ -368,9 +391,8 @@ func checkReference(expression parser.RefExpression, ctx checkContext) checkedEx
 	// identities against it and never reconstructs a fresh pointer type.
 	addressNode := unaryNode(AddressOfExpression, place.source.Node)
 	addressNode.ResultType = ptrType
-	// Record the same root provenance View slicing already records, so
-	// ptrReturnDiagnostic can reject a Ptr/MutPtr that borrows a local of
-	// this function exactly like viewReturnDiagnostic does for View.
+	// Record the binding root on the address node so ptrReturnDiagnostic can
+	// reject a pointer that borrows a local of this function.
 	if root := baseBindingID(&place.source.Node); root != 0 {
 		addressNode.ViewRoots = []BindingID{root}
 		addressNode.RootKind = ViewRootBindings
@@ -384,7 +406,7 @@ func checkReference(expression parser.RefExpression, ctx checkContext) checkedEx
 		},
 		typ:   ptrType,
 		use:   compilerTypes.PointerTypeUse(ptrType, storageUse),
-		token: expression.Keyword,
+		token: expression.Operator,
 	}
 }
 
@@ -394,6 +416,10 @@ func placeDescription(expression parser.Expression) string {
 		return expression.Name.Lexeme
 	case parser.PropertyExpression:
 		return placeDescription(expression.Receiver) + "." + expression.Property.Lexeme
+	case parser.DereferenceExpression:
+		return "^" + placeDescription(expression.Operand)
+	case parser.IndexExpression:
+		return placeDescription(expression.Receiver) + "[...]"
 	default:
 		return "place"
 	}

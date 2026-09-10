@@ -60,7 +60,7 @@ func TestStreamGeneratedCContract(t *testing.T) {
 	}
 	header := ioH(t, result)
 	listAt := strings.Index(header, "\"hexal/list.h\"")
-	viewAt := strings.Index(header, "\"hexal/view.h\"")
+	viewAt := strings.Index(header, "\"hexal/slice.h\"")
 	errorAt := strings.Index(header, "\"hexal/error.h\"")
 	if listAt < 0 || viewAt < 0 || errorAt < 0 || listAt > viewAt || viewAt > errorAt {
 		t.Fatalf("io.h dependency order wrong:\n%s", header)
@@ -145,7 +145,7 @@ func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 	}
 }
 
-// One generic algorithm monomorphizes over IO and MutPtr<Bytes> with direct
+// One generic algorithm monomorphizes over IO and Ptr<mut Bytes> with direct
 // calls to each backend family and no shared dispatch.
 func TestGenericStreamsMonoMorphizePerBackend(t *testing.T) {
 	source := "fun drain<S>(source: S, h: Heap): Size | Error do\n" +
@@ -163,7 +163,7 @@ func TestGenericStreamsMonoMorphizePerBackend(t *testing.T) {
 		"    mut live: Bytes := Bytes.over(data)\n" +
 		"    out: IO := try IO.stdout()\n" +
 		"    a: Size | Error := drain<IO>(out, h)\n" +
-		"    b: Size | Error := drain<MutPtr<Bytes>>(ref live, h)\n" +
+		"    b: Size | Error := drain<Ptr<mut Bytes>>(@live, h)\n" +
 		"    return nil\n" +
 		"end\n" +
 		"done: Nil | Error := run(Heap())\n"

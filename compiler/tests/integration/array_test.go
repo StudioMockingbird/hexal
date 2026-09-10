@@ -166,21 +166,21 @@ func TestNestedArrays(t *testing.T) {
 	}
 }
 
-// The array slice helper is an Array specialization: it returns the view
-// type spelled by the view component and lives in hexal/array.h with its
+// The array slice helper is an Array specialization: it returns the slice
+// type spelled by the slice component and lives in hexal/array.h with its
 // UINT64_C range guard.
 func TestArraySliceHelperLivesInArrayHeader(t *testing.T) {
-	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    view: View<Int32> := fixed.slice(0, 2)\n    first: Int32 := view[0]\nend")
+	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    view: Slice<Int32> := fixed.slice(0, 2)\n    first: Int32 := view[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	arrayHeader := arrayH(t, result)
 	for _, want := range []string{
-		"#include \"hexal/view.h\"",
-		"static inline hex_view_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *array, uint64_t start, uint64_t end) {",
+		"#include \"hexal/slice.h\"",
+		"static inline hex_slice_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *array, uint64_t start, uint64_t end) {",
 		"if (!(start <= end && end <= UINT64_C(3)))",
 		"hex_runtime_trap(\"[Runtime Error] array slice bounds out of range\\n\");",
-		"return (hex_view_Int32){&array->data[start], end - start};",
+		"return (hex_slice_Int32){&array->data[start], end - start};",
 	} {
 		if !strings.Contains(arrayHeader, want) {
 			t.Fatalf("hexal/array.h = %q, want %q", arrayHeader, want)

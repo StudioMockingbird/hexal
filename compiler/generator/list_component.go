@@ -10,9 +10,9 @@ import (
 // pre-sorted record per reachable List specialization.
 type listComponentModel struct {
 	Lists []listComponentRecord
-	// NeedsView is true when some specialization has a slice helper, which
-	// is the only content naming the view component.
-	NeedsView bool
+	// NeedsSlice is true when some specialization has a slice helper, which
+	// is the only content naming the slice component.
+	NeedsSlice bool
 	// NeedsHeapString is true when some specialization's element is String,
 	// whose spelling (a pointer to hex_string) is defined by
 	// hexal/string.h -- a direct dependency of this file, not something a
@@ -23,7 +23,7 @@ type listComponentModel struct {
 // listComponentRecord is one reachable List specialization's spelling facts:
 // the struct C name, the accessor suffix, the spelled element type, the at
 // read return spelling (the element spelling plus a leading const unless the
-// element is already pointer-like), and the matching View C name when a view
+// element is already pointer-like), and the matching Slice C name when a slice
 // over the element is reachable. The template lays out the struct and the
 // typed inline operations from these fields; canonical naming, ordering, and
 // C spelling stay Go decisions.
@@ -32,32 +32,40 @@ type listComponentRecord struct {
 	Suffix          string
 	ElementSpelling string
 	AtReadReturn    string
-	ViewCName       string
+	// SliceCName and MutSliceCName name the read-only and writable slice
+	// descriptors over the element when reachable; either may be empty.
+	SliceCName    string
+	MutSliceCName string
 	// NeedsHeapString is true when this specialization's element is String.
 	NeedsHeapString bool
 }
 
 // listComponentRecordFor builds the spelling record of one List
-// specialization. The matching view of a builtin element is a component view;
-// the matching view of a module element is a module-header view, and the
+// specialization. The matching slice of a builtin element is a component slice;
+// the matching slice of a module element is a module-header slice, and the
 // record is only built for the artifact that owns the list.
-func listComponentRecordFor(list compilerTypes.Type, viewState *generatedViewState) listComponentRecord {
+func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceState) listComponentRecord {
 	element := list.List.Element
 	elementSpelling := typeSpelling(element)
 	atReadReturn := "const " + elementSpelling + " *"
 	if strings.Contains(elementSpelling, "*") {
 		atReadReturn = elementSpelling + " *"
 	}
-	viewCName := ""
-	if view := matchingView(viewState, element); view != (compilerTypes.Type{}) {
-		viewCName = view.CName
+	sliceCName := ""
+	if slice := matchingSlice(sliceState, element, false); slice != (compilerTypes.Type{}) {
+		sliceCName = slice.CName
+	}
+	mutSliceCName := ""
+	if slice := matchingSlice(sliceState, element, true); slice != (compilerTypes.Type{}) {
+		mutSliceCName = slice.CName
 	}
 	return listComponentRecord{
 		CName:           list.CName,
 		Suffix:          listSuffix(list),
 		ElementSpelling: elementSpelling,
 		AtReadReturn:    atReadReturn,
-		ViewCName:       viewCName,
+		SliceCName:      sliceCName,
+		MutSliceCName:   mutSliceCName,
 		NeedsHeapString: compilerTypes.IsString(element),
 	}
 }
@@ -74,7 +82,7 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 		if collectionElementModuleTyped(list) {
 			continue
 		}
-		records = append(records, listComponentRecordFor(list, merged.viewState))
+		records = append(records, listComponentRecordFor(list, merged.sliceState))
 	}
 	if len(records) == 0 {
 		return nil, nil
@@ -82,7 +90,7 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/list.h",
 		template: "list.h",
-		model:    listComponentModel{Lists: records, NeedsView: listRecordsNeedView(records), NeedsHeapString: listRecordsNeedHeapString(records)},
+		model:    listComponentModel{Lists: records, NeedsSlice: listRecordsNeedSlice(records), NeedsHeapString: listRecordsNeedHeapString(records)},
 	}}, nil
 }
 
@@ -101,12 +109,12 @@ func moduleListComponent(emission *moduleEmission) []string {
 	return nil
 }
 
-// listRecordsNeedView reports whether any list record renders a slice
-// helper, which is the only content in packages/list.h that names the view
+// listRecordsNeedSlice reports whether any list record renders a slice
+// helper, which is the only content in packages/list.h that names the slice
 // component.
-func listRecordsNeedView(records []listComponentRecord) bool {
+func listRecordsNeedSlice(records []listComponentRecord) bool {
 	for _, record := range records {
-		if record.ViewCName != "" {
+		if record.SliceCName != "" || record.MutSliceCName != "" {
 			return true
 		}
 	}

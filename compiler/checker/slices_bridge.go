@@ -8,70 +8,90 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// checkViewBridgeCall resolves the explicit pointer-plus-length View
-// constructor and the empty View. The pointer must be a statically non-null
-// Ptr<T> or MutPtr<T>; the length must be a Size under ordinary lossless
-// conversion rules. The result View is read-only, like every View.
-func checkViewBridgeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
+// checkSliceBridgeCall resolves the explicit pointer-plus-length Slice
+// constructors and the empty Slice in both access modes. The single
+// call-site type argument selects the mode: Slice<T> accepts Ptr<T> or
+// Ptr<mut T> and stays read-only, while Slice<mut T> requires Ptr<mut T>.
+// The length must be a Size under ordinary lossless conversion rules. No
+// provenance, lifetime, or validity analysis constrains construction: the
+// programmer owns the backing storage contract.
+func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
-	viewUse, diagnostic := resolveViewTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "View", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
+	if len(call.TypeArguments) != 1 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Slice requires exactly one element type"))}
+	}
+	writable := false
+	argument := call.TypeArguments[0]
+	if mut, ok := argument.(parser.MutTypeArgument); ok {
+		writable = true
+		argument = mut.Type
+	}
+	elementUse, diagnostic := resolveTypeUse(argument, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
-	if len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "View requires exactly one element type"))}
+	slice := ctx.typeEnvironment.SliceType(elementUse.Type, writable)
+	if slice == (compilerTypes.Type{}) {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, elementUse.Type.Name+" is not a valid Slice element type"))}
 	}
-	element := viewUse.Type.View.Element
+	element := elementUse.Type
+	constructor := "Slice"
+	if writable {
+		constructor = "Slice<mut T>"
+	}
 	switch property.Lexeme {
 	case "from_pointer":
 		if len(call.Arguments) != 2 {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "View.from_pointer expects 2 arguments (pointer, length)"))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, constructor+".from_pointer expects 2 arguments (pointer, length)"))}
 		}
 		pointer := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(pointer); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if pointer.typ.Element == nil || compilerTypes.IsNullable(pointer.typ) {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, "nullable pointer must be narrowed before View construction"))}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, "nullable pointer must be narrowed before Slice construction"))}
 		}
 		if !compilerTypes.Equal(*pointer.typ.Element, element) {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("View<%s>.from_pointer requires Ptr<%s> or MutPtr<%s>; got %s", element.Name, element.Name, element.Name, pointer.typ.Name)))}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("%s.from_pointer requires %s; got %s", constructor, requiredFromPointerMode(element, writable), pointer.typ.Name)))}
+		}
+		if writable && !pointer.typ.PointeeWritable {
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("%s.from_pointer requires %s; got %s", constructor, requiredFromPointerMode(element, writable), pointer.typ.Name)))}
 		}
 		length := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[1]), ctx)
 		if diagnostics := initializerDiagnostics(length); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
 		}
 		if !assignable(compilerTypes.SizeType, length.typ) {
-			return checkedExpression{token: length.token, diagnostic: diagnosticAt(typeErrorAt(length.token, "View length cannot be represented as Size"))}
+			return checkedExpression{token: length.token, diagnostic: diagnosticAt(typeErrorAt(length.token, "Slice length cannot be represented as Size"))}
 		}
-		if diagnostic := fromPointerRefTrace(pointer, ctx.names); diagnostic != nil {
-			return checkedExpression{token: pointer.token, diagnostic: diagnostic}
-		}
-		node := Expression{Kind: ViewBridgeExpression, Name: "from_pointer", Arguments: []Operand{pointer.source, length.source}, OperandType: viewUse.Type, ResultType: viewUse.Type, Element: element, RootKind: ViewRootForeign}
-		source := Operand{Kind: ExpressionOperand, Type: viewUse.Type, Name: "from_pointer", Node: node}
-		return checkedExpression{source: source, typ: viewUse.Type, token: property}
+		node := Expression{Kind: SliceBridgeExpression, Name: "from_pointer", Arguments: []Operand{pointer.source, length.source}, OperandType: slice, ResultType: slice, Element: element}
+		source := Operand{Kind: ExpressionOperand, Type: slice, Name: "from_pointer", Node: node}
+		return checkedExpression{source: source, typ: slice, token: property}
 	case "empty":
 		if len(call.Arguments) != 0 {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "View.empty expects no arguments"))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, constructor+".empty expects no arguments"))}
 		}
-		node := Expression{Kind: ViewBridgeExpression, Name: "empty", OperandType: viewUse.Type, ResultType: viewUse.Type, Element: element, RootKind: ViewRootNone}
-		source := Operand{Kind: ExpressionOperand, Type: viewUse.Type, Name: "empty", Node: node}
-		return checkedExpression{source: source, typ: viewUse.Type, token: property}
+		node := Expression{Kind: SliceBridgeExpression, Name: "empty", OperandType: slice, ResultType: slice, Element: element}
+		source := Operand{Kind: ExpressionOperand, Type: slice, Name: "empty", Node: node}
+		return checkedExpression{source: source, typ: slice, token: property}
 	}
-	return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "View has no such operation; use from_pointer or empty"))}
+	return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, constructor+" has no such operation; use from_pointer or empty"))}
 }
 
-// fromPointerRefTrace rejects a from_pointer pointer argument that traces,
-// within this function body, to a ref of local storage. The walk follows
-// member, dereference, and index steps and local bindings initialized from a
-// ref; parameters, heap allocations, and opaque call results pass.
-func fromPointerRefTrace(pointer checkedExpression, names *scope) *compilerTypes.Diagnostic {
-	if nodeTracesToRef(&pointer.source.Node, names) {
-		return diagnosticAt(typeErrorAt(pointer.token, "from_pointer does not accept a pointer into this function's local storage"))
+// requiredFromPointerMode spells the accepted pointer mode for one
+// from_pointer constructor: read-only construction accepts either pointer
+// mode, writable construction accepts only the writable mode.
+func requiredFromPointerMode(element compilerTypes.Type, writable bool) string {
+	if writable {
+		return "Ptr<mut " + element.Name + ">"
 	}
-	return nil
+	return "Ptr<" + element.Name + "> or Ptr<mut " + element.Name + ">"
 }
 
+// nodeTracesToRef reports whether a checked node traces to address-taking of
+// local storage: directly through an address node, or through a binding
+// whose value originated from one. Heap.free uses it to reject stack
+// storage; from_pointer performs no such analysis.
 func nodeTracesToRef(node *Expression, names *scope) bool {
 	for node != nil {
 		switch node.Kind {

@@ -84,8 +84,8 @@ func containsTypeParameter(typ Type, seenObjects map[*typeIdentity]bool) bool {
 	if typ.Element != nil {
 		return containsTypeParameter(*typ.Element, seenObjects)
 	}
-	if typ.View != nil {
-		return containsTypeParameter(typ.View.Element, seenObjects)
+	if typ.Slice != nil {
+		return containsTypeParameter(typ.Slice.Element, seenObjects)
 	}
 	if typ.List != nil {
 		return containsTypeParameter(typ.List.Element, seenObjects)

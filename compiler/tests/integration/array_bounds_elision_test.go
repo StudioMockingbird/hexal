@@ -77,15 +77,15 @@ func TestAccessorDemandIsPerDirection(t *testing.T) {
 	}
 }
 
-// Non-goals: List and View length is a runtime field, so nothing about their
+// Non-goals: List and Slice length is a runtime field, so nothing about their
 // output changes. This is the regression guard for that promise. The List read
 // spells at_mut because every live List reference permits mutation without a
 // mut binding, pre-existing behaviour this change does not touch.
 func TestListAndViewAccessorsAreUntouched(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): Int32 do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    window: View<Int32> := fixed.slice(0, 2)\n    values: List<Int32> := List<Int32>(h)\n    values.push(1)\n    total: Int32 := window[0] + values[0]\n    values.free(h)\n    return total\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): Int32 do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    window: Slice<Int32> := fixed.slice(0, 2)\n    values: List<Int32> := List<Int32>(h)\n    values.push(1)\n    total: Int32 := window[0] + values[0]\n    values.free(h)\n    return total\nend\n")
 	body := rootC(t, result)
 	for _, want := range []string{
-		"*hex_view_at_Int32(",
+		"*hex_slice_at_Int32(",
 		"*hex_list_at_mut_Int32(",
 	} {
 		if !strings.Contains(body, want) {

@@ -3,7 +3,7 @@ package types
 import "testing"
 
 // Every concrete type is checked in its named position. This matrix pins
-// the registry over the exceptional types Fun, Nil, Unknown, View, Atomic,
+// the registry over the exceptional types Fun, Nil, Unknown, Slice, Atomic,
 // and an aggregate containing Atomic.
 func TestPositionEligibilityMatrix(t *testing.T) {
 	environment := NewEnvironment()
@@ -12,9 +12,9 @@ func TestPositionEligibilityMatrix(t *testing.T) {
 	if fun == (Type{}) {
 		t.Fatal("FunType construction failed")
 	}
-	view := environment.ViewType(Int32)
-	if view == (Type{}) {
-		t.Fatal("ViewType construction failed")
+	slice := environment.SliceType(Int32, false)
+	if slice == (Type{}) {
+		t.Fatal("SliceType construction failed")
 	}
 	atomic := environment.AtomicType(Int32)
 	if atomic == (Type{}) {
@@ -32,7 +32,7 @@ func TestPositionEligibilityMatrix(t *testing.T) {
 		PositionADTPayload,
 		PositionUnionMember,
 		PositionArrayElement,
-		PositionViewElement,
+		PositionSliceElement,
 		PositionListElement,
 		PositionDictValue,
 		PositionFunctionParam,
@@ -51,23 +51,23 @@ func TestPositionEligibilityMatrix(t *testing.T) {
 	want := map[Position]map[Type]bool{}
 	for _, position := range positions {
 		want[position] = map[Type]bool{
-			fun:     position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam || position == PositionObjectMember || position == PositionFunctionResult || position == PositionADTPayload || position == PositionArrayElement || position == PositionViewElement || position == PositionListElement || position == PositionDictValue || position == PositionTaskArgument || position == PositionTaskResult || position == PositionChannelElement,
+			fun:     position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam || position == PositionObjectMember || position == PositionFunctionResult || position == PositionADTPayload || position == PositionArrayElement || position == PositionSliceElement || position == PositionListElement || position == PositionDictValue || position == PositionTaskArgument || position == PositionTaskResult || position == PositionChannelElement,
 			Nil:     position == PositionUnionMember,
 			Unknown: false,
-			view:    true,
+			slice:   true,
 			atomic:  false,
 			object:  false,
 		}
 	}
 	for _, position := range positions {
-		for _, typ := range []Type{fun, Nil, Unknown, view, atomic, object} {
+		for _, typ := range []Type{fun, Nil, Unknown, slice, atomic, object} {
 			if got := Eligible(typ, position); got != want[position][typ] {
 				t.Fatalf("Eligible(%s, position %d) = %v, want %v", typ.Name, position, got, want[position][typ])
 			}
 		}
 	}
 
-	// The explicit Unknown exception: Ptr<Unknown> and MutPtr<Unknown> are
+	// The explicit Unknown exception: Ptr<Unknown> and Ptr<mut Unknown> are
 	// valid pointees even though Unknown is not storable anywhere.
 	if environment.PtrType(Unknown) == (Type{}) || environment.MutPtrType(Unknown) == (Type{}) {
 		t.Fatal("Unknown must remain a valid pointee")

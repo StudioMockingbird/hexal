@@ -76,8 +76,8 @@ func TestPrintDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"fun demo() do\n    print()\nend", "print expects at least 1 argument"},
-		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := ref value\n    print(pointer)\nend", "print does not support Ptr<Int32>"},
-		{"type Node is struct\n    value: Int32,\n    next: Ptr<Int32>,\nend\nfun demo() do\n    value: Int32 := 1\n    node: Node := Node(value = 1, next = ref value)\n    print(node)\nend", "print does not support Node because next is Ptr<Int32>"},
+		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    print(pointer)\nend", "print does not support Ptr<Int32>"},
+		{"type Node is struct\n    value: Int32,\n    next: Ptr<Int32>,\nend\nfun demo() do\n    value: Int32 := 1\n    node: Node := Node(value = 1, next = @value)\n    print(node)\nend", "print does not support Node because next is Ptr<Int32>"},
 		{"fun demo() do\n    value: Int32 | Float32 := 1\n    print(value)\nend", "print does not support Int32 | Float32; narrow or match it first"},
 		{"fun demo() do\n    heap: Heap := Heap()\n    print(heap)\nend", "print does not support Heap"},
 		{"fun worker(): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> := try spawn worker()\n    print(task)\n    return 0\nend", "print does not support Task<Bool>"},
@@ -85,7 +85,7 @@ func TestPrintDiagnostics(t *testing.T) {
 		{"fun f(h: Heap): Int32 | Error do\n    mutex: Mutex := try Mutex(h)\n    print(mutex)\n    return 0\nend", "print does not support Mutex"},
 		{"counter: Atomic<Int32> := Atomic<Int32>(0)\nprint(counter)", "print does not support Atomic<Int32>"},
 		{"fun helper() do\nend\nprint(helper)", "print does not support Fun<()>"},
-		{"type Inner is struct\n    next: Ptr<Int32>,\nend\ntype Outer is struct\n    inner: Inner,\nend\nfun demo() do\n    mut value: Int32 := 1\n    outer: Outer := Outer(inner = Inner(next = ref value))\n    print(outer)\nend", "print does not support Outer because inner is Inner"},
+		{"type Inner is struct\n    next: Ptr<Int32>,\nend\ntype Outer is struct\n    inner: Inner,\nend\nfun demo() do\n    mut value: Int32 := 1\n    outer: Outer := Outer(inner = Inner(next = @value))\n    print(outer)\nend", "print does not support Outer because inner is Inner"},
 		{"print: Int32 := 1", "print is a protected built-in name"},
 		{"fun print() do\nend", "print is a protected built-in name"},
 		{"fun demo() do\n    step: Int32 | EoS := 1\n    print(step)\nend", "print does not support Int32 | EoS"},

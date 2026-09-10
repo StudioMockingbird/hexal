@@ -91,8 +91,8 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 			"    ps: S.Point := S.point()\n" +
 			"    am: Array<M.Point, 2> := [pm, pm]\n" +
 			"    arr_s: Array<S.Point, 2> := [ps, ps]\n" +
-			"    vm: View<M.Point> := am.slice(0, 1)\n" +
-			"    vs: View<S.Point> := arr_s.slice(0, 1)\n" +
+			"    vm: Slice<M.Point> := am.slice(0, 1)\n" +
+			"    vs: Slice<S.Point> := arr_s.slice(0, 1)\n" +
 			"end\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -119,10 +119,10 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 	if !strings.Contains(header, "hex_array_Point_2_m1_") {
 		t.Fatalf("modules/app.h %v, want a module-qualified Array typedef alongside the base name", header)
 	}
-	if strings.Count(header, "typedef struct hex_view_Point") != 2 {
-		t.Fatalf("modules/app.h has %d View<Point> typedefs, want 2", strings.Count(header, "typedef struct hex_view_Point"))
+	if strings.Count(header, "typedef struct hex_slice_Point") != 2 {
+		t.Fatalf("modules/app.h has %d Slice<Point> typedefs, want 2", strings.Count(header, "typedef struct hex_slice_Point"))
 	}
-	if !strings.Contains(header, "hex_view_Point_m1_") {
+	if !strings.Contains(header, "hex_slice_Point_m1_") {
 		t.Fatalf("modules/app.h %v, want a module-qualified View typedef alongside the base name", header)
 	}
 }
@@ -191,7 +191,7 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 		"lib.hex": "export fun take_list(v: List<Int32>): Nil | Error do\n    return nil\nend\n" +
 			"export fun take_dict(v: Dict<Int32, Int32>): Nil | Error do\n    return nil\nend\n" +
 			"export fun take_array(v: Array<Int32, 2>): Int32 do\n    return v[0]\nend\n" +
-			"export fun take_view(v: View<Int32>): Int32 do\n    return v[0]\nend\n" +
+			"export fun take_view(v: Slice<Int32>): Int32 do\n    return v[0]\nend\n" +
 			"export type Holder is struct values: List<Int32> end\n" +
 			"export fun make_holder(values: List<Int32>): Holder do\n    return Holder(values = values)\nend\n" +
 			"export fun take_holder(h: Holder): Nil | Error do\n    return nil\nend\n" +
@@ -205,7 +205,7 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 			"    Lib.take_dict(d)\n" +
 			"    a: Array<Int32, 2> := [1, 2]\n" +
 			"    Lib.take_array(a)\n" +
-			"    v: View<Int32> := a.slice(0, 1)\n" +
+			"    v: Slice<Int32> := a.slice(0, 1)\n" +
 			"    Lib.take_view(v)\n" +
 			"    holder: Lib.Holder := Lib.make_holder(l)\n" +
 			"    Lib.take_holder(holder)\n" +

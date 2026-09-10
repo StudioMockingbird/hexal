@@ -7,7 +7,7 @@ import (
 )
 
 func TestForInSequenceLoops(t *testing.T) {
-	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    mut total: Int32 := 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    view: View<Int32> := fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\nend\nfun list_sum(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    mut total: Int32 := 0\n    for i, value in values do\n        total = total + value + i.to<Int32>()\n    end\n    return total\nend")
+	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    mut total: Int32 := 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    view: Slice<Int32> := fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\nend\nfun list_sum(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    mut total: Int32 := 0\n    for i, value in values do\n        total = total + value + i.to<Int32>()\n    end\n    return total\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -16,7 +16,7 @@ func TestForInSequenceLoops(t *testing.T) {
 		"for (size_t hex_for_1_index = 0; hex_for_1_index < (size_t)(3); hex_for_1_index++) {",
 		"const int32_t hex_v_value = hex_for_1->data[hex_for_1_index];",
 		"const size_t hex_v_i = hex_for_2_index;",
-		"const hex_view_Int32 hex_for_3 = hex_v_view;",
+		"const hex_slice_Int32 hex_for_3 = hex_v_view;",
 		"const hex_list_Int32 *const hex_for_1 = hex_v_values;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {

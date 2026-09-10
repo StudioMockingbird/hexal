@@ -115,7 +115,7 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 	families := []func(*programEmission) ([]componentArtifact, error){
 		wrapComponents,
 		heapComponents,
-		viewComponents,
+		sliceComponents,
 		stringComponents,
 		errorComponents,
 		seekComponents,

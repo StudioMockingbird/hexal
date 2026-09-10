@@ -9,24 +9,25 @@ gets deleted.
 
 ## Open TODOs
 
-### Design decisions required
-
-| Work | Spec |
-| --- | --- |
-| Affine ownership and Stash/Pool lifetimes — destructors rejected and cleanup obligations settled; `share`, Stash reset scope, Pool slot syntax, and handle classification remain | [0110](specs/0110-affine-ownership-and-stashes.md) |
-| `Box<T>` ownership and call-scoped `Ref<T>`/`Ref<mut T>` borrows, plus a block-scoped `with` extension — all five of its own decisions resolved; one sequencing question remains (are affine collection and Task/Channel transfer rules defined here or in 0110/0118?); third in the 0154 -> 0153 -> 0149 chain | [0149](specs/0149-box-and-call-scoped-references.md) |
-
 ### Implementation-ready
 
 | Work | Spec |
 | --- | --- |
-| Unify mutability syntax as `<T>`/`<mut T>` — grammar rule plus the `Ptr`/`MutPtr` rename, the latter sequenced into 0153's migration pass; first in the 0154 -> 0153 -> 0149 chain | [0154](specs/0154-unify-mutability-syntax.md) |
-| `Borrow<T>`/`Borrow<mut T>` — second in the chain; carries the shipped `View` -> `Borrow` migration and 0154's `Ptr` rename in one pass | [0153](specs/0153-borrow.md) |
+| Explicit `unsafe do ... end` blocks for individually classified unprovable operations; incorrect unsafe assertions may permit C undefined behavior | [0155](specs/0155-unsafe-blocks.md) |
 
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
-|---|---|---|
+| --- | --- | --- |
+| Rescope `Box<T>` and scoped references after RFC 0161 invalidated the Ref and Box designs; do not implement as written | RFC 0161 | [0149](specs/0149-box-and-call-scoped-references.md) |
+| Rescope ownership and lifetime work after RFC 0161 rejected affine ownership, implicit moves, and automatic cleanup; do not implement as written | RFC 0161 | [0110](specs/0110-affine-ownership-and-stashes.md) |
+
+### Revisit later; not scheduled
+
+| Work | Spec |
+| --- | --- |
+| Extract and revisit RFC 0158's debug tracking allocator as a standalone test/workbench facility; do not schedule its consuming-receiver design | [0158](specs/deferred/0158-consuming-receivers-and-tracking-alloc.md) |
+| Extract and revisit RFC 0157's aligned allocation separately from uninitialized allocation | [0157](specs/deferred/0157-uninit-allocation-and-alignment.md) |
 
 ## Deferred ideas
 
@@ -38,16 +39,12 @@ that disagrees with `docs/reference.md` is wrong.
 
 ## Open bugs
 
-A bug is real whether or not its owning spec is scheduled. Two below are owned
-by deferred specs and therefore have no route to a fix today; they are marked
-rather than moved, because hiding them would not make them less true.
+A bug is real whether or not its owning spec is scheduled. The final entry is
+owned by an unrelated deferred spec and therefore has no route to a fix today;
+it remains visible because hiding it would not make it less true.
 
 | Bug | Owning spec |
 | --- | --- |
-| Mutable List/Dict storage can retain a local-rooted View beyond that local's lifetime; safe handling needs container mutation and alias rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
-| Pointer-stored aggregates can retain a local-rooted View beyond that local's lifetime; safe handling needs pointee alias and mutation rules | [0110](specs/0110-affine-ownership-and-stashes.md) |
-| Task arguments/results and Channel elements can retain a local-rooted View beyond the originating function | **deferred** [0118](specs/deferred/0118-concurrency-safety-and-task-lifetimes.md) |
-| Interprocedural wrapper results can return a local-rooted View received from their caller without carrying that provenance back to the call site | [0110](specs/0110-affine-ownership-and-stashes.md) |
 | Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | **deferred, and misowned** -- [0151](specs/deferred/0151-remove-strand-and-modernize-arrays.md) is about removing `Strand` and array spelling, not Dict probing. This is a live correctness defect in shipped code and needs a real owner |
 
 ## Known coverage gaps

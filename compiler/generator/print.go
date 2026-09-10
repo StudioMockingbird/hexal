@@ -52,7 +52,7 @@ func discoverGeneratedPrint(program checker.Program) (*generatedPrintState, erro
 				seen[key] = true
 				state.types = append(state.types, typ)
 			}
-		case typ.View != nil:
+		case typ.Slice != nil:
 			if !seen[key] {
 				seen[key] = true
 				state.types = append(state.types, typ)
@@ -218,8 +218,8 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type, tag
 		fmt.Fprintf(result, "    for (size_t index = 0; index < %d; index++) {\n        if (index > 0) { hex_print_text((const uint8_t *)\", \", 2); }\n", typ.Array.Length)
 		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
 		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"]\", 1);\n}\n")
-	case typ.View != nil:
-		element := typ.View.Element
+	case typ.Slice != nil:
+		element := typ.Slice.Element
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
 		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text((const uint8_t *)\", \", 2); }\n")
 		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))

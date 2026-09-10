@@ -130,11 +130,11 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 				return unknownExpressionDiagnostic("text length call has invalid checked metadata")
 			}
 		case "bytes":
-			if strand || len(node.Arguments) != 0 || node.ResultType.View == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
+			if strand || len(node.Arguments) != 0 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
 				return unknownExpressionDiagnostic("string bytes call has invalid checked metadata")
 			}
 		case "slice":
-			if strand || len(node.Arguments) != 2 || node.ResultType.View == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
+			if strand || len(node.Arguments) != 2 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
 				return unknownExpressionDiagnostic("string slice call has invalid checked metadata")
 			}
 			for _, argument := range node.Arguments {
@@ -185,7 +185,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.StringFromBytesExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || !compilerTypes.IsHeap(node.OperandType) || !compilerTypes.IsString(node.ResultType) || node.Arguments[0].Type.View == nil {
+		if node.Operand == nil || len(node.Arguments) != 1 || !compilerTypes.IsHeap(node.OperandType) || !compilerTypes.IsString(node.ResultType) || node.Arguments[0].Type.Slice == nil {
 			return unknownExpressionDiagnostic("String.from_bytes has invalid checked metadata")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -196,7 +196,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.StringFromRunesExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || !compilerTypes.IsHeap(node.OperandType) || !compilerTypes.IsString(node.ResultType) || node.Arguments[0].Type.View == nil {
+		if node.Operand == nil || len(node.Arguments) != 1 || !compilerTypes.IsHeap(node.OperandType) || !compilerTypes.IsString(node.ResultType) || node.Arguments[0].Type.Slice == nil {
 			return unknownExpressionDiagnostic("String.from_runes has invalid checked metadata")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -402,11 +402,11 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 		if heapErr != nil {
 			return "", heapErr
 		}
-		view, viewErr := renderOperandWithState(node.Arguments[0], state)
+		slice, viewErr := renderOperandWithState(node.Arguments[0], state)
 		if viewErr != nil {
 			return "", viewErr
 		}
-		return "hex_string_from_bytes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
+		return "hex_string_from_bytes(" + heap + ", (" + slice + ").data, (" + slice + ").length)", nil
 	case checker.StringFromRunesExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("String.from_runes without checked operands")
@@ -415,11 +415,11 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 		if heapErr != nil {
 			return "", heapErr
 		}
-		view, viewErr := renderOperandWithState(node.Arguments[0], state)
+		slice, viewErr := renderOperandWithState(node.Arguments[0], state)
 		if viewErr != nil {
 			return "", viewErr
 		}
-		return "hex_string_from_runes(" + heap + ", (" + view + ").data, (" + view + ").length)", nil
+		return "hex_string_from_runes(" + heap + ", (" + slice + ").data, (" + slice + ").length)", nil
 	case checker.StringInterpolateExpression:
 		return renderStringInterpolate(node, state)
 	case checker.RuneCursorMethodCallExpression:

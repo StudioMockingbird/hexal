@@ -106,7 +106,7 @@ func TestStrandRejectsInvalidLiterals(t *testing.T) {
 }
 
 func TestStrandRejectsStringOnlyMethods(t *testing.T) {
-	source := "fun demo() do\n    label: Strand := \"x\"\n    view: View<Byte> := label.bytes()\nend\n"
+	source := "fun demo() do\n    label: Strand := \"x\"\n    view: Slice<Byte> := label.bytes()\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "Strand has no method bytes") {
 		t.Fatalf("want Strand method diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
@@ -114,7 +114,7 @@ func TestStrandRejectsStringOnlyMethods(t *testing.T) {
 }
 
 func TestStringFromBytesAndFromRunesCompile(t *testing.T) {
-	source := "fun demo(h: Heap): Bool do\n    bytes: Array<UInt8, 3> := [97, 98, 99]\n    view: View<UInt8> := bytes.slice(0, 3)\n    made: String := String.from_bytes(h, view)\n    made.free(h)\n    runes: Array<Rune, 2> := ['a', '\\u{1F980}']\n    rune_view: View<Rune> := runes.slice(0, 2)\n    encoded: String := String.from_runes(h, rune_view)\n    encoded.free(h)\n    return true\nend\n"
+	source := "fun demo(h: Heap): Bool do\n    bytes: Array<UInt8, 3> := [97, 98, 99]\n    view: Slice<UInt8> := bytes.slice(0, 3)\n    made: String := String.from_bytes(h, view)\n    made.free(h)\n    runes: Array<Rune, 2> := ['a', '\\u{1F980}']\n    rune_view: Slice<Rune> := runes.slice(0, 2)\n    encoded: String := String.from_runes(h, rune_view)\n    encoded.free(h)\n    return true\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -127,9 +127,9 @@ func TestStringFromBytesAndFromRunesCompile(t *testing.T) {
 }
 
 func TestStringFromBytesRejectsWrongView(t *testing.T) {
-	source := "fun demo(h: Heap) do\n    runes: Array<Rune, 1> := ['a']\n    view: View<Rune> := runes.slice(0, 1)\n    made: String := String.from_bytes(h, view)\nend\n"
+	source := "fun demo(h: Heap) do\n    runes: Array<Rune, 1> := ['a']\n    view: Slice<Rune> := runes.slice(0, 1)\n    made: String := String.from_bytes(h, view)\nend\n"
 	result := compileSource(source)
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires View<Byte>") {
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires Slice<Byte>") {
 		t.Fatalf("want from_bytes view diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }

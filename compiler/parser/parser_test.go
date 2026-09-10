@@ -90,7 +90,7 @@ func TestParseHexadecimalIntegerLiteral(t *testing.T) {
 }
 
 func TestParsePointerExpressions(t *testing.T) {
-	tokens, err := lexer.Lex("mut x: Int32 := 13 p: Ptr<Int32> := ref x y: Int32 := p.value")
+	tokens, err := lexer.Lex("mut x: Int32 := 13 p: Ptr<Int32> := @x y: Int32 := ^p")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -100,16 +100,19 @@ func TestParsePointerExpressions(t *testing.T) {
 		t.Fatalf("Parse returned an error: %v", err)
 	}
 	declaration := program.Statements[1].(Declaration)
-	ref, ok := declaration.Initializer.(RefExpression)
-	if !ok || ref.Keyword.Kind != lexer.Ref {
-		t.Fatalf("initializer = %#v, want ref expression", declaration.Initializer)
+	address, ok := declaration.Initializer.(AddressExpression)
+	if !ok || address.Operator.Kind != lexer.At {
+		t.Fatalf("initializer = %#v, want @expression", declaration.Initializer)
 	}
-	if variable, ok := ref.Place.(VariableExpression); !ok || variable.Name.Lexeme != "x" {
-		t.Fatalf("ref place = %#v, want x", ref.Place)
+	if variable, ok := address.Place.(VariableExpression); !ok || variable.Name.Lexeme != "x" {
+		t.Fatalf("@place = %#v, want x", address.Place)
 	}
-	value := program.Statements[2].(Declaration).Initializer.(PropertyExpression)
-	if value.Property.Lexeme != "value" {
-		t.Fatalf("dereference property = %q, want value", value.Property.Lexeme)
+	dereference := program.Statements[2].(Declaration).Initializer.(DereferenceExpression)
+	if dereference.Operator.Kind != lexer.Caret {
+		t.Fatalf("dereference operator = %#v, want ^", dereference.Operator)
+	}
+	if variable, ok := dereference.Operand.(VariableExpression); !ok || variable.Name.Lexeme != "p" {
+		t.Fatalf("dereference operand = %#v, want p", dereference.Operand)
 	}
 }
 
@@ -215,7 +218,7 @@ func TestParseRejectsExpressionSideMut(t *testing.T) {
 		source string
 		column int
 	}{
-		{"x: Int32 := mut ref y", 13},
+		{"x: Int32 := mut @y", 13},
 		{"x: Int32 := mut y", 13},
 		{"p: Ptr<Int32> := mut x", 18},
 	} {
@@ -224,7 +227,7 @@ func TestParseRejectsExpressionSideMut(t *testing.T) {
 			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 		}
 		_, err = Parse(tokens)
-		want := fmt.Sprintf("[Syntax Error] mut is not valid on the right-hand side; use ref value at 1:%d", testCase.column)
+		want := fmt.Sprintf("[Syntax Error] mut is not valid on the right-hand side; use @value at 1:%d", testCase.column)
 		if err == nil || err.Error() != want {
 			t.Fatalf("Parse(%q) error = %v, want %q", testCase.source, err, want)
 		}
@@ -841,26 +844,26 @@ func TestParseReservesLogicalKeywords(t *testing.T) {
 	}
 }
 
-func TestParseRefRemainsPlaceOnly(t *testing.T) {
-	for _, source := range []string{"p: Ptr<Int32> := ref 42", "p: Ptr<Int32> := ref nil"} {
+func TestParseAddressRemainsPlaceOnly(t *testing.T) {
+	for _, source := range []string{"p: Ptr<Int32> := @42", "p: Ptr<Int32> := @nil"} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
 		_, err = Parse(tokens)
-		if err == nil || err.Error() != "[Syntax Error] expected a place identifier at 1:22" {
-			t.Fatalf("Parse(%q) error = %v, want place-only ref diagnostic", source, err)
+		if err == nil || err.Error() != "[Syntax Error] expected a place identifier at 1:19" {
+			t.Fatalf("Parse(%q) error = %v, want place-only @diagnostic", source, err)
 		}
 	}
 }
 
-func TestParseRefRejectsCalls(t *testing.T) {
+func TestParseAddressRejectsCalls(t *testing.T) {
 	for _, testCase := range []struct {
 		source string
 		want   string
 	}{
-		{"p: Ptr<Int32> := ref f()", "[Syntax Error] ref requires a place at 1:23"},
-		{"p: Ptr<Int32> := ref value.compute()", "[Syntax Error] ref requires a place at 1:35"},
+		{"p: Ptr<Int32> := @f()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:20"},
+		{"p: Ptr<Int32> := @value.compute()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:32"},
 	} {
 		tokens, err := lexer.Lex(testCase.source)
 		if err != nil {
@@ -1084,7 +1087,7 @@ func TestParseImplReceiverForms(t *testing.T) {
 	}{
 		{source: "method Point.translate(dx: Int32) do\nend", typeLexeme: "Point"},
 		{source: "method Ptr<Point>.length() do\nend", pointer: true, typeLexeme: "Point"},
-		{source: "method MutPtr<Point>.reset() do\nend", pointer: true, writable: true, typeLexeme: "Point"},
+		{source: "method Ptr<mut Point>.reset() do\nend", pointer: true, writable: true, typeLexeme: "Point"},
 	} {
 		item := parseOneItem(t, testCase.source)
 		method, ok := item.(MethodDeclaration)

@@ -15,12 +15,19 @@ typedef struct {{.CName}} {
     }
     return &array->data[index];
 }
-{{end}}{{if .ViewCName}}
-static inline {{.ViewCName}} hex_array_slice_{{.Suffix}}(const {{.CName}} *array, uint64_t start, uint64_t end) {
+{{end}}{{if .SliceCName}}
+static inline {{.SliceCName}} hex_array_slice_{{.Suffix}}(const {{.CName}} *array, uint64_t start, uint64_t end) {
     if (!(start <= end && end <= UINT64_C({{.Length}}))) {
         hex_runtime_trap("[Runtime Error] array slice bounds out of range\n");
     }
-    return ({{.ViewCName}}){&array->data[start], end - start};
+    return ({{.SliceCName}}){&array->data[start], end - start};
+}
+{{end}}{{if .MutSliceCName}}
+static inline {{.MutSliceCName}} hex_array_mut_slice_{{.Suffix}}({{.CName}} *array, uint64_t start, uint64_t end) {
+    if (!(start <= end && end <= UINT64_C({{.Length}}))) {
+        hex_runtime_trap("[Runtime Error] array slice bounds out of range\n");
+    }
+    return ({{.MutSliceCName}}){&array->data[start], end - start};
 }
 {{end}}{{end}}
 {{- end -}}
@@ -28,7 +35,7 @@ static inline {{.ViewCName}} hex_array_slice_{{.Suffix}}(const {{.CName}} *array
 #define HEXAL_ARRAY_H
 
 #include "hexal.h"
-{{if .NeedsView}}#include "hexal/view.h"
+{{if .NeedsSlice}}#include "hexal/slice.h"
 {{end}}{{if .NeedsHeapString}}#include "hexal/string.h"
 {{end}}{{template "arraybody" .}}
 #endif

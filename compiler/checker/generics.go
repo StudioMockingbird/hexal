@@ -748,7 +748,7 @@ func typeContainsPlaceholder(typ, placeholder compilerTypes.Type) bool {
 	if typ.Array != nil && typeContainsPlaceholder(typ.Array.Element, placeholder) {
 		return true
 	}
-	if typ.View != nil && typeContainsPlaceholder(typ.View.Element, placeholder) {
+	if typ.Slice != nil && typeContainsPlaceholder(typ.Slice.Element, placeholder) {
 		return true
 	}
 	if typ.List != nil && typeContainsPlaceholder(typ.List.Element, placeholder) {

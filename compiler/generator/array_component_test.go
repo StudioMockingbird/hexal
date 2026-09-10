@@ -7,7 +7,7 @@ import (
 
 // An array-using program emits hexal/array.h with every reachable
 // specialization exactly once, in C-name order, with its guard, its declared
-// hexal.h and view.h includes, and exactly one trailing newline; the owning
+// hexal.h and slice.h includes, and exactly one trailing newline; the owning
 // module header includes the component.
 func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    bytes: Array<UInt8, 2> := [4, 5]\n    first: Int32 := fixed[0]\nend")
@@ -17,11 +17,11 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 		t.Fatalf("generated files %v lack hexal/array.h", files)
 	}
 	// No specialization here has a slice helper, so the header declares no
-	// view dependency: a declared include is always a used one.
+	// slice dependency: a declared include is always a used one.
 	if !strings.HasPrefix(arrayH, "#ifndef HEXAL_ARRAY_H\n#define HEXAL_ARRAY_H\n\n#include \"hexal.h\"\n") {
 		t.Fatalf("hexal/array.h lost its guard or one of its declared includes: %q", arrayH)
 	}
-	if strings.Contains(arrayH, "#include \"hexal/view.h\"") {
+	if strings.Contains(arrayH, "#include \"hexal/slice.h\"") {
 		t.Fatalf("hexal/array.h declares a view dependency it does not use: %q", arrayH)
 	}
 	if !strings.HasSuffix(arrayH, "\n#endif\n") {
@@ -44,7 +44,7 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // hexal.h owns none of the array family: an array-using program leaves
 // hexal.h free of hex_array_ text, and the rendered array.h matches the
 // expected definitions byte for byte (struct, the surviving accessor, its
-// UINT64_C bounds guard, the slice helper returning the reachable view type,
+// UINT64_C bounds guard, the slice helper returning the reachable slice type,
 // and trap messages).
 //
 // The index is a runtime parameter, so its check survives and hex_array_at_
@@ -52,7 +52,7 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // access and the demand filter drops it: the golden covers both directions of
 // the demand rule at once.
 func TestArrayComponentHexalHeaderOwnsNoArrayText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(i: Size) do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    view: View<Int32> := fixed.slice(0, 2)\n    first: Int32 := fixed[i]\nend")
+	program := checkedGeneratorSource(t, "fun demo(i: Size) do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    view: Slice<Int32> := fixed.slice(0, 2)\n    first: Int32 := fixed[i]\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_array_") {
 		t.Fatalf("hexal.h = %q, array definitions must live in hexal/array.h", files["hexal.h"])
@@ -61,7 +61,7 @@ func TestArrayComponentHexalHeaderOwnsNoArrayText(t *testing.T) {
 #define HEXAL_ARRAY_H
 
 #include "hexal.h"
-#include "hexal/view.h"
+#include "hexal/slice.h"
 
 typedef struct hex_array_Int32_3 {
     int32_t data[3];
@@ -73,11 +73,11 @@ static inline const int32_t *hex_array_at_Int32_3(const hex_array_Int32_3 *array
     return &array->data[index];
 }
 
-static inline hex_view_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *array, uint64_t start, uint64_t end) {
+static inline hex_slice_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *array, uint64_t start, uint64_t end) {
     if (!(start <= end && end <= UINT64_C(3))) {
         hex_runtime_trap("[Runtime Error] array slice bounds out of range\n");
     }
-    return (hex_view_Int32){&array->data[start], end - start};
+    return (hex_slice_Int32){&array->data[start], end - start};
 }
 
 #endif

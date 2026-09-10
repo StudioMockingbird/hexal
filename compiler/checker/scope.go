@@ -148,7 +148,7 @@ func (state *flowState) clone() *flowState {
 	return cloned
 }
 
-// withoutFreedChecks gives exit-time expression typing a flow view that
+// withoutFreedChecks gives exit-time expression typing a flow slice that
 // retains types but cannot observe or mutate cleanup facts at registration.
 func (state *flowState) withoutFreedChecks() *flowState {
 	cloned := state.clone()
@@ -793,7 +793,7 @@ func (state *flowState) adopt(branch *flowState) {
 // selfPlace resolves the implicit receiver. `self` is a keyword, so it can
 // never be declared or shadowed; it exists exactly when a scope carries an
 // impl target. The place is never writable: rule 3 makes the binding fixed,
-// while a write through it -- self.x on a MutPtr target -- gets its
+// while a write through it -- self.x on a Ptr<mut T> target -- gets its
 // writability from the pointee, not from this binding.
 func selfPlace(names *scope, token lexer.Token) checkedExpression {
 	if names.self == nil {

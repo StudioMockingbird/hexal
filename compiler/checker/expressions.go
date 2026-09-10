@@ -155,13 +155,8 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 		}
 	}
 	value := &ObjectValue{Type: literalType, Initializers: values}
-	members := make([]Expression, 0, len(values))
-	for _, initialized := range values {
-		members = append(members, initialized.Source.Node)
-	}
-	roots, kind := mergeViewProvenance(members)
 	return initializerValue{
-		source:      Operand{Kind: ObjectOperand, Type: literalType, Object: value, Node: Expression{Kind: ObjectExpression, Object: value, ViewRoots: roots, RootKind: kind}},
+		source:      Operand{Kind: ObjectOperand, Type: literalType, Object: value, Node: Expression{Kind: ObjectExpression, Object: value}},
 		typ:         literalType,
 		token:       typeName,
 		diagnostics: diagnostics,
@@ -174,8 +169,8 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 	}
 }
 
-// checkValue resolves an expression in value context. Assignment and ref call
-// checkPlace instead to retain place mode.
+// checkValue resolves an expression in value context. Assignment and
+// address-taking call checkPlace instead to retain place mode.
 func checkValue(expression parser.Expression, ctx checkContext) checkedExpression {
 	return checkExpression(expression, expressionContext{}, ctx)
 }
@@ -253,8 +248,14 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 			return place
 		}
 		return valueFromPlace(place)
-	case parser.RefExpression:
-		return checkReference(expression, ctx)
+	case parser.AddressExpression:
+		return checkAddress(expression, ctx)
+	case parser.DereferenceExpression:
+		place := checkDereferencePlace(expression, ctx)
+		if place.diagnostic != nil {
+			return place
+		}
+		return valueFromPlace(place)
 	case parser.CallExpression:
 		return checkCallValue(expression, context.expected.Type, ctx)
 	case parser.UnaryExpression:

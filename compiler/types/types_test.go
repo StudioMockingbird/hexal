@@ -88,10 +88,10 @@ func TestPtrAndMutPtrAreDistinctTypes(t *testing.T) {
 	readOnly := environment.PtrType(Int32)
 	writable := environment.MutPtrType(Int32)
 	if Equal(readOnly, writable) {
-		t.Fatal("Ptr<Int32> and MutPtr<Int32> share a canonical identity")
+		t.Fatal("Ptr<Int32> and Ptr<mut Int32> share a canonical identity")
 	}
-	if readOnly.Name != "Ptr<Int32>" || writable.Name != "MutPtr<Int32>" {
-		t.Fatalf("pointer names = %q/%q, want Ptr<Int32>/MutPtr<Int32>", readOnly.Name, writable.Name)
+	if readOnly.Name != "Ptr<Int32>" || writable.Name != "Ptr<mut Int32>" {
+		t.Fatalf("pointer names = %q/%q, want Ptr<Int32>/Ptr<mut Int32>", readOnly.Name, writable.Name)
 	}
 	if readOnly.PointeeWritable || !writable.PointeeWritable {
 		t.Fatalf("PointeeWritable = %v/%v, want false/true", readOnly.PointeeWritable, writable.PointeeWritable)
@@ -169,7 +169,7 @@ func TestFunTypeNamesMatchSourceSpelling(t *testing.T) {
 	}{
 		{parameters: []Type{Int32, Int32}, result: &result, want: "Fun<(Int32, Int32) : Int32>"},
 		{parameters: nil, result: &result, want: "Fun<() : Int32>"},
-		{parameters: []Type{counter}, want: "Fun<(MutPtr<Counter>)>"},
+		{parameters: []Type{counter}, want: "Fun<(Ptr<mut Counter>)>"},
 		{parameters: []Type{Int32}, want: "Fun<(Int32)>"},
 		{want: "Fun<()>"},
 	} {

@@ -88,19 +88,19 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Tracer is struct mut log: Int32 end",
-        "fun trace(tracer: MutPtr<Tracer>, step: Int32) do",
+        "fun trace(tracer: Ptr<mut Tracer>, step: Int32) do",
         "    tracer.log = (tracer.log * 10) + step",
         "end",
         "fun demo(): Int32 do",
         "    mut tracer: Tracer:= Tracer(log = 0)",
-        "    defer trace(ref tracer, 1)",
-        "    defer trace(ref tracer, 2)",
-        "    defer trace(ref tracer, 3)",
+        "    defer trace(@tracer, 1)",
+        "    defer trace(@tracer, 2)",
+        "    defer trace(@tracer, 3)",
         "    return tracer.log",
         "end"
       ]},
       "features": ["defer", "objects", "pointers"],
-      "reservedWords": ["type", "mut", "fun", "defer", "ref", "return", "end", "do"]
+      "reservedWords": ["type", "mut", "fun", "defer", "@", "return", "end", "do"]
     },
     {
       "id": "errors-cleanup-helper",

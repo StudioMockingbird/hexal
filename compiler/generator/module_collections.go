@@ -1,6 +1,6 @@
 package generator
 
-// Module-owned collection specializations: a list, dict, view, array, or pool
+// Module-owned collection specializations: a list, dict, slice, array, or pool
 // over a module-emitted element type is emitted into each consuming module
 // header
 // immediately after that module's type definitions. A component artifact is
@@ -40,8 +40,8 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 	if typ.Array != nil {
 		return typeIsModuleEmitted(typ.Array.Element)
 	}
-	if typ.View != nil {
-		return typeIsModuleEmitted(typ.View.Element)
+	if typ.Slice != nil {
+		return typeIsModuleEmitted(typ.Slice.Element)
 	}
 	if typ.List != nil {
 		return typeIsModuleEmitted(typ.List.Element)
@@ -67,7 +67,7 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 }
 
 // collectionElementModuleTyped reports whether one collection specialization
-// spells a module-emitted type: the element of a list, array, view, or pool,
+// spells a module-emitted type: the element of a list, array, slice, or pool,
 // or the value of a dict (the key is always a builtin Int32 or Strand).
 func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 	switch {
@@ -75,8 +75,8 @@ func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 		return typeIsModuleEmitted(typ.List.Element)
 	case typ.Array != nil:
 		return typeIsModuleEmitted(typ.Array.Element)
-	case typ.View != nil:
-		return typeIsModuleEmitted(typ.View.Element)
+	case typ.Slice != nil:
+		return typeIsModuleEmitted(typ.Slice.Element)
 	case typ.Dict != nil:
 		return typeIsModuleEmitted(typ.Dict.Value)
 	case typ.Pool != nil:
@@ -87,16 +87,16 @@ func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 
 // moduleCollectionDependencyOrder orders one module's module-owned collection
 // specializations so every specialization precedes any specialization it
-// spells: the element of a list, array, or view may itself be a collection
-// (a handle, an inline array, or the element's matching view), and a dict
+// spells: the element of a list, array, or slice may itself be a collection
+// (a handle, an inline array, or the element's matching slice), and a dict
 // value may be any of those. Cross-family edges make a single pass over the
 // C-name-sorted family orders insufficient; the graph is small per module
 // and always acyclic because a specialization can only spell already-interned
 // types.
-func moduleCollectionDependencyOrder(views, arrays, lists, dicts, pools []compilerTypes.Type, viewState *generatedViewState) []compilerTypes.Type {
+func moduleCollectionDependencyOrder(slices, arrays, lists, dicts, pools []compilerTypes.Type, sliceState *generatedSliceState) []compilerTypes.Type {
 	byName := make(map[string]compilerTypes.Type)
 	all := make([]compilerTypes.Type, 0)
-	for _, order := range [][]compilerTypes.Type{views, arrays, lists, dicts, pools} {
+	for _, order := range [][]compilerTypes.Type{slices, arrays, lists, dicts, pools} {
 		for _, typ := range order {
 			if collectionElementModuleTyped(typ) {
 				byName[typ.CName] = typ
@@ -112,7 +112,7 @@ func moduleCollectionDependencyOrder(views, arrays, lists, dicts, pools []compil
 			return
 		}
 		visited[typ.CName] = true
-		for _, dependency := range spelledCollectionNames(typ, viewState) {
+		for _, dependency := range spelledCollectionNames(typ, sliceState) {
 			if inner, ok := byName[dependency]; ok {
 				visit(inner)
 			}
@@ -127,10 +127,10 @@ func moduleCollectionDependencyOrder(views, arrays, lists, dicts, pools []compil
 
 // spelledCollectionNames returns the C names of every collection type typ's
 // body spells beyond typ itself: the collection types inside its element (or
-// dict value) and the element's matching view. Object, ADT, and union member
+// dict value) and the element's matching slice. Object, ADT, and union member
 // types are not collection dependencies: their definitions live in earlier
 // module-header regions.
-func spelledCollectionNames(typ compilerTypes.Type, viewState *generatedViewState) []string {
+func spelledCollectionNames(typ compilerTypes.Type, sliceState *generatedSliceState) []string {
 	names := make([]string, 0, 4)
 	var walk func(t compilerTypes.Type)
 	walk = func(t compilerTypes.Type) {
@@ -144,9 +144,9 @@ func spelledCollectionNames(typ compilerTypes.Type, viewState *generatedViewStat
 		case t.Array != nil:
 			names = append(names, t.CName)
 			walk(t.Array.Element)
-		case t.View != nil:
+		case t.Slice != nil:
 			names = append(names, t.CName)
-			walk(t.View.Element)
+			walk(t.Slice.Element)
 		case t.Pool != nil:
 			names = append(names, t.CName)
 			walk(t.Pool.Element)
@@ -162,14 +162,17 @@ func spelledCollectionNames(typ compilerTypes.Type, viewState *generatedViewStat
 		element = typ.Dict.Value
 	case typ.Array != nil:
 		element = typ.Array.Element
-	case typ.View != nil:
-		element = typ.View.Element
+	case typ.Slice != nil:
+		element = typ.Slice.Element
 	case typ.Pool != nil:
 		element = typ.Pool.Element
 	}
 	walk(element)
-	if view := matchingView(viewState, element); view != (compilerTypes.Type{}) {
-		names = append(names, view.CName)
+	if slice := matchingSlice(sliceState, element, false); slice != (compilerTypes.Type{}) {
+		names = append(names, slice.CName)
+	}
+	if slice := matchingSlice(sliceState, element, true); slice != (compilerTypes.Type{}) {
+		names = append(names, slice.CName)
 	}
 	return names
 }
@@ -185,9 +188,9 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	if input == nil {
 		return nil
 	}
-	views := []compilerTypes.Type(nil)
-	if input.views != nil {
-		views = input.views.views
+	slices := []compilerTypes.Type(nil)
+	if input.slices != nil {
+		slices = input.slices.slices
 	}
 	arrays := []compilerTypes.Type(nil)
 	if input.arrays != nil {
@@ -205,7 +208,7 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	if input.pools != nil {
 		pools = input.pools.order
 	}
-	ordered := moduleCollectionDependencyOrder(views, arrays, lists, dicts, pools, input.views)
+	ordered := moduleCollectionDependencyOrder(slices, arrays, lists, dicts, pools, input.slices)
 	if len(ordered) == 0 {
 		return nil
 	}
@@ -214,12 +217,12 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	for _, typ := range ordered {
 		var artifact componentArtifact
 		switch {
-		case typ.View != nil:
-			artifact = componentArtifact{key: "hexal/view.h", template: "view.h", block: "viewbody", model: viewComponentModel{Views: []viewComponentRecord{viewComponentRecordFor(typ)}}}
+		case typ.Slice != nil:
+			artifact = componentArtifact{key: "hexal/slice.h", template: "slice.h", block: "slicebody", model: sliceComponentModel{Slices: []sliceComponentRecord{sliceComponentRecordFor(typ)}}}
 		case typ.Array != nil:
-			artifact = componentArtifact{key: "hexal/array.h", template: "array.h", block: "arraybody", model: arrayComponentModel{Arrays: []arrayComponentRecord{arrayComponentRecordFor(typ, input.views, input.arrays)}}}
+			artifact = componentArtifact{key: "hexal/array.h", template: "array.h", block: "arraybody", model: arrayComponentModel{Arrays: []arrayComponentRecord{arrayComponentRecordFor(typ, input.slices, input.arrays)}}}
 		case typ.List != nil:
-			artifact = componentArtifact{key: "hexal/list.h", template: "list.h", block: "listbody", model: listComponentModel{Lists: []listComponentRecord{listComponentRecordFor(typ, input.views)}}}
+			artifact = componentArtifact{key: "hexal/list.h", template: "list.h", block: "listbody", model: listComponentModel{Lists: []listComponentRecord{listComponentRecordFor(typ, input.slices)}}}
 		case typ.Dict != nil:
 			artifact = componentArtifact{key: "hexal/dict.h", template: "dict.h", block: "dictbody", model: dictComponentModel{Dicts: []dictComponentRecord{dictComponentRecordFor(typ, hashEmitted)}}}
 		case typ.Pool != nil:

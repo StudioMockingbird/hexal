@@ -28,7 +28,7 @@ func TestPrivateValueNames(t *testing.T) {
 }
 
 func TestReferencesUsePrivateValueNames(t *testing.T) {
-	result := compileSource("mut int: Int32 := 1 int = 2 pointer: Ptr<Int32> := ref int value: Int32 := pointer.value")
+	result := compileSource("mut int: Int32 := 1 int = 2 pointer: Ptr<Int32> := @int value: Int32 := ^pointer")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %#v", result.Stderr)
 	}
@@ -53,7 +53,7 @@ func TestBuiltinTypeNamesAreProtected(t *testing.T) {
 		"UInt8": "", "UInt16": "", "UInt32": "", "UInt64": "",
 		"Float32": "", "Float64": "", "Bool": "", "Rune": "", "Byte": "", "Size": "",
 		"String": "", "Strand": "", "RuneCursor": "",
-		"List": "", "Dict": "", "View": "", "Array": "",
+		"List": "", "Dict": "", "View": "", "Slice": "", "Array": "",
 		"Fun": "", "Unknown": "", "Nil": "",
 		"Task": "", "Channel": "", "Mutex": "", "Atomic": "", "Heap": "",
 		"EoS": "", "Error": "",

@@ -142,18 +142,18 @@
       "description": "Rejects an invalid state early before performing an update.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun apply_damage(health: MutPtr<Int32>, amount: Int32): Bool do",
+        "fun apply_damage(health: Ptr<mut Int32>, amount: Int32): Bool do",
         "    if amount <= 0 then",
         "        return false",
         "    end",
-        "    health.value = health.value - amount",
+        "    ^health = ^health - amount",
         "    return true",
         "end",
         "mut hp: Int32:= 10",
-        "applied: Bool:= apply_damage(ref hp, 3)"
+        "applied: Bool:= apply_damage(@hp, 3)"
       ]},
       "features": ["functions", "pointers"],
-      "reservedWords": ["fun", "if", "return", "end", "mut", "ref", "false", "true", "do", "then"]
+      "reservedWords": ["fun", "if", "return", "end", "mut", "@", "false", "true", "do", "then"]
     },
     {
       "id": "control-boolean-state-machine",
@@ -184,7 +184,7 @@
       "sources": {"app.hex": [
         "count: Int32:= 0",
         "label: Strand:= \"\"",
-        "values: View<Int32>:= View<Int32>.empty()",
+        "values: Slice<Int32>:= Slice<Int32>.empty()",
         "mut truthy: Int32:= 0",
         "if count then",
         "    truthy = truthy + 1",

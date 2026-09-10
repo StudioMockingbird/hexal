@@ -10,7 +10,7 @@
 - Origin: user decision to keep one text type and one dynamic owning sequence
 - Would change: fixed arrays from `Array<T, N>` to `[N]T` if this alternative
   is selected in the future; it currently amends no active specification
-- Coordinates with: RFC 0153 (`Borrow<T>`/`Borrow<mut T>`); named Borrow syntax
+- Coordinates with: RFC 0153 (`Slice<T>`/`Slice<mut T>`); named Slice syntax
   leaves `[N]T` available but does not itself select this RFC's array spelling
 - Coordinates with: RFCs 0039, 0117, 0136, 0139, 0147, 0149, and
   `docs/reference.md`
@@ -27,7 +27,7 @@ Remove `Strand` and the generic spelling `Array<T, N>`.
 - `String` is the only text type.
 - `List<T>` is the only growable heap-backed sequence.
 - `[N]T` is the fixed-length inline sequence.
-- `Borrow<T>` and `Borrow<mut T>` are borrowed ranges under RFC 0153.
+- `Slice<T>` and `Slice<mut T>` are borrowed ranges under RFC 0153.
 
 Fixed storage remains because it provides stack storage, inline aggregate
 layout, compile-time length, allocation-free byte values, and the shape needed
@@ -38,8 +38,8 @@ to model C arrays. A List cannot provide those contracts.
 | Type | Storage | Length | Copy | Growth |
 | --- | --- | --- | --- | --- |
 | `[N]T` | inline | compile-time | copies elements | no |
-| `Borrow<T>` | borrowed pointer/length | runtime | copies descriptor | no |
-| `Borrow<mut T>` | writable borrowed pointer/length | runtime | copies descriptor | no |
+| `Slice<T>` | borrowed pointer/length | runtime | copies descriptor | no |
+| `Slice<mut T>` | writable borrowed pointer/length | runtime | copies descriptor | no |
 | `List<T>` | heap-backed handle | runtime | aliases List | yes |
 
 ## Grammar
@@ -58,8 +58,8 @@ bytes: [4]Byte := [0, 1, 2, 3]
 matrix: [2][2]Float32 := [[1.0, 0.0], [0.0, 1.0]]
 ```
 
-- Empty borrowed ranges remain explicit `Borrow<T>.empty()`/
-  `Borrow<mut T>.empty()` constructions under RFC 0153; `[]` remains only a
+- Empty borrowed ranges remain explicit `Slice<T>.empty()`/
+  `Slice<mut T>.empty()` constructions under RFC 0153; `[]` remains only a
   contextual fixed-array literal.
 
 ## String
@@ -68,7 +68,7 @@ matrix: [2][2]Float32 := [[1.0, 0.0], [0.0, 1.0]]
 - Literals remain static; allocating constructors produce owned storage.
 - `String.free(heap)` retains current origin checks and runtime discrimination.
 - `length()` counts Runes; equality and ordering compare UTF-8 bytes.
-- `bytes()` and `slice()` return `Borrow<Byte>`; indexing remains unavailable.
+- `bytes()` and `slice()` return `Slice<Byte>`; indexing remains unavailable.
 - A literal now infers String because no competing text type remains:
 
 ```hexal
@@ -93,8 +93,8 @@ label := "ready"
 ```text
 [N]T.length() -> Size
 [N]T[index: Integer] -> place<T>
-[N]T.slice(start: Integer, end: Integer) -> Borrow<T>
-[N]T.slice_mut(start: Integer, end: Integer) -> Borrow<mut T>
+[N]T.slice(start: Integer, end: Integer) -> Slice<T>
+[N]T.slice_mut(start: Integer, end: Integer) -> Slice<mut T>
 ```
 
 `slice_mut` requires a writable receiver.
@@ -138,11 +138,11 @@ UInt64.to_be_bytes() -> [8]Byte
 Input accepts a borrowed slice:
 
 ```text
-Int8.from_le_bytes(bytes: Borrow<Byte>) -> Int8
-Int8.from_be_bytes(bytes: Borrow<Byte>) -> Int8
+Int8.from_le_bytes(bytes: Slice<Byte>) -> Int8
+Int8.from_be_bytes(bytes: Slice<Byte>) -> Int8
 ...
-UInt64.from_le_bytes(bytes: Borrow<Byte>) -> UInt64
-UInt64.from_be_bytes(bytes: Borrow<Byte>) -> UInt64
+UInt64.from_le_bytes(bytes: Slice<Byte>) -> UInt64
+UInt64.from_be_bytes(bytes: Slice<Byte>) -> UInt64
 ```
 
 Known wrong lengths are Type Errors. Unknown wrong runtime lengths trap with
@@ -226,14 +226,14 @@ helpers exactly once.
 
 ## Required active-spec reconciliation
 
-- RFC 0039: use String, `[N]T`, `Borrow<T>`, and `Borrow<mut T>`; own exact
+- RFC 0039: use String, `[N]T`, `Slice<T>`, and `Slice<mut T>`; own exact
   C-array ABI.
 - Deferred RFC 0117: replace `Array<T, N>` with `[N]T`.
 - RFC 0136: use `Int32 | String` baseline; remove its String exclusion.
 - RFC 0139: close as superseded without implementation.
 - RFC 0147: remove Strand work; retain String UTF-8 work.
 - RFC 0149: replace Array spelling.
-- RFC 0153: retain its named Borrow grammar unchanged; `[N]T` remains this
+- RFC 0153: retain its named Slice grammar unchanged; `[N]T` remains this
   alternative's independent fixed-array spelling.
 - `docs/status.md`: remove or rewrite current Strand/Array/View wording.
 
@@ -244,7 +244,7 @@ migrated through code and `docs/reference.md`, not archive edits.
 
 Search code, templates, tests, snippets, status, and active specs for `Strand`,
 `StrandType`, `hex_strand`, `NeedStrand`, `Array<`, `array-type`, `View<`,
-`Borrow<`, `hex_view_`, and `Error(header: Strand`. Classify every result as removed,
+`Slice<`, `hex_view_`, and `Error(header: Strand`. Classify every result as removed,
 migrated, retained internal fixed-array machinery, or immutable history. Leave
 no compatibility aliases or unreachable cases.
 
@@ -253,7 +253,7 @@ no compatibility aliases or unreachable cases.
 ### Phase 1: fixed-array bracket type
 
 1. Parse `[N]T` as the fixed-array form without changing RFC 0153's named
-   `Borrow<T>`/`Borrow<mut T>` grammar.
+   `Slice<T>`/`Slice<mut T>` grammar.
 2. Remove generic Array source parsing and protected lookup.
 3. Route `[N]T` into the existing fixed-array checked representation.
 4. Update source diagnostics while retaining generated representation names.
@@ -303,7 +303,7 @@ This section is exhaustive.
 - `Strand` and `Array<T, N>` are rejected in every type position.
 - `[N]T` retains all fixed-array positions and behavior, including nesting,
   exact arity, bounds, copying, addressing, slicing, and no allocation.
-- `[N]T`, `Borrow<T>`, and `Borrow<mut T>` parse unambiguously.
+- `[N]T`, `Slice<T>`, and `Slice<mut T>` parse unambiguously.
 - `label := "ready"` infers String; long literals remain static.
 - Existing String UTF-8, origin, comparison, interpolation, and free rules hold.
 - List value arguments evaluate left to right; one allocation follows; bracket
@@ -355,6 +355,6 @@ Drafting this RFC does not update `docs/reference.md`.
 ## Readiness
 
 This RFC remains an Open Discussion and is not scheduled. If selected later,
-its implementation follows RFC 0153 and retains that RFC's Borrow spelling;
+its implementation follows RFC 0153 and retains that RFC's Slice spelling;
 the choice under discussion is String-only text plus `[N]T` fixed arrays, not
 the borrow type's syntax.

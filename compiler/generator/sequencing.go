@@ -191,7 +191,7 @@ func hoistOperandSequence(operands []checker.Operand, body *strings.Builder, sta
 // trade-off against the aliasing concern motivating hoisting every operand
 // (a sibling call that mutates through an alias of a pure-looking operand)
 // in the rarer case where a sibling argument mutates the receiver's storage
-// through an explicit reference (e.g. obj.method(f(ref obj))); closing that
+// through an explicit address (e.g. obj.method(f(@obj))); closing that
 // gap would require hoisting the receiver's address into a pointer
 // temporary rather than its value, which is not done here. When the
 // receiver is not hoisted, its own nested structure is still recursed into
@@ -399,7 +399,7 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 		// object types), StringCompareExpression (<, <=, >, >= on String
 		// and Strand), and UnionEqualityExpression (== and != on two
 		// canonical unions) are still binary expressions from the source
-		// language's point of view and render their Left/Right through the
+		// language's point of slice and render their Left/Right through the
 		// same render-with-expected-type pattern BinaryOperationExpression
 		// uses (verified against each one's own render function); none
 		// ever carries a shift operator, so the shift-count special case

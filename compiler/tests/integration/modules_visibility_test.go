@@ -165,7 +165,7 @@ func TestPrivateTypeBehindNestedContainersRejected(t *testing.T) {
 		// Secret is declared before Node (source order); Node's exported
 		// interface reaches the private Secret through List and Ptr, so the
 		// closure walk reports Node first.
-		"math.hex": "type Secret is struct x: Int32 end\nexport type Node is struct items: List<Secret>, next: MutPtr<Node> | Nil end\nexport fun f(): Node do\n    return Node(items = List<Secret>(Heap()), next = nil)\nend\n",
+		"math.hex": "type Secret is struct x: Int32 end\nexport type Node is struct items: List<Secret>, next: Ptr<mut Node> | Nil end\nexport fun f(): Node do\n    return Node(items = List<Secret>(Heap()), next = nil)\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "exported function Node exposes private type Secret")

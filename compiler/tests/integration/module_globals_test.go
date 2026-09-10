@@ -11,7 +11,7 @@ import (
 // and no accepted declaration emits user value storage at C file scope.
 
 func TestRootBindingsLowerAsLocals(t *testing.T) {
-	source := "fun run(value: MutPtr<Int32>) do\n    value.value = 1\nend\nmut counter: Int32 := 0\nrun(ref counter)\n"
+	source := "fun run(value: Ptr<mut Int32>) do\n    ^value = 1\nend\nmut counter: Int32 := 0\nrun(@counter)\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)

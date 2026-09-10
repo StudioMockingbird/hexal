@@ -7,7 +7,7 @@ import (
 )
 
 func TestGenericAliasSpecializesTransparently(t *testing.T) {
-	result := compileSource("type Pointer<T> is Ptr<T> mut value: Int32 := 1 pointer: Pointer<Int32> := ref value")
+	result := compileSource("type Pointer<T> is Ptr<T> mut value: Int32 := 1 pointer: Pointer<Int32> := @value")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -77,7 +77,7 @@ func TestGenericNestedSpecializationsReuseOneCName(t *testing.T) {
 }
 
 func TestGenericPointerIndirectedRecursionIsFinite(t *testing.T) {
-	result := compileSource("type Link<T> is struct value: T, mut next: MutPtr<Link<T>> | Nil, end link: Link<Int32> := Link<Int32>(value = 1, next = nil)")
+	result := compileSource("type Link<T> is struct value: T, mut next: Ptr<mut Link<T>> | Nil, end link: Link<Int32> := Link<Int32>(value = 1, next = nil)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

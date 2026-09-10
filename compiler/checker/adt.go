@@ -271,7 +271,6 @@ func checkVariantConstructorCall(call parser.CallExpression, ownerName string, a
 		Arguments:       arguments,
 		EvaluationOrder: evaluationOrder,
 	}
-	node.ViewRoots, node.RootKind = mergeViewProvenance(operandNodes(arguments))
 	source := Operand{Kind: ExpressionOperand, Type: adtType, Node: node}
 	return initializerValue{source: source, typ: adtType, token: variantToken}
 }
@@ -515,11 +514,11 @@ func matchVariantOwnerName(adtType compilerTypes.Type, ctx checkContext) string 
 // alias-qualified name.
 func matchMissingName(member compilerTypes.Type, ctx checkContext) string {
 	if member.Element != nil {
-		constructor := "Ptr"
+		constructor := "Ptr<" + matchMissingName(*member.Element, ctx) + ">"
 		if member.PointeeWritable {
-			constructor = "MutPtr"
+			constructor = "Ptr<mut " + matchMissingName(*member.Element, ctx) + ">"
 		}
-		return constructor + "<" + matchMissingName(*member.Element, ctx) + ">"
+		return constructor
 	}
 	if member.Object != nil {
 		return matchQualifiedNominal(member.Object.Name, member.Object.ModuleID, ctx)
@@ -738,7 +737,6 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 		Arguments:   armResults,
 		MemberMap:   armTags,
 	}
-	node.ViewRoots, node.RootKind = mergeViewProvenance(operandNodes(armResults))
 	source := Operand{Kind: ExpressionOperand, Type: resultType, Node: node}
 	return checkedExpression{source: source, typ: resultType, token: expression.Keyword}
 }

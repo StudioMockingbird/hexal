@@ -46,7 +46,7 @@ func TestNominalObjectsAndAliases(t *testing.T) {
 }
 
 func TestNestedObjectsAndPointers(t *testing.T) {
-	result := compileSource("type Point is struct mut x: Int32, y: Int32 end type Box is struct mut point: Point end mut box: Box := Box(point = Point(x = 1, y = 2)) box.point.x = 3 reader: Ptr<Box> := ref box read: Int32 := reader.value.point.x")
+	result := compileSource("type Point is struct mut x: Int32, y: Int32 end type Box is struct mut point: Point end mut box: Box := Box(point = Point(x = 1, y = 2)) box.point.x = 3 reader: Ptr<Box> := @box read: Int32 := (^reader).point.x")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("nested object compilation failed: %#v", result)
 	}
@@ -61,7 +61,7 @@ func TestNestedObjectsAndPointers(t *testing.T) {
 }
 
 func TestObjectMemberReferencesAndPointerWrites(t *testing.T) {
-	result := compileSource("type Point is struct mut x: Int32, y: Int32 end mut point: Point := Point(x = 1, y = 2) writer: MutPtr<Point> := ref point writer.value.x = 10 x_pointer: MutPtr<Int32> := ref point.x")
+	result := compileSource("type Point is struct mut x: Int32, y: Int32 end mut point: Point := Point(x = 1, y = 2) writer: Ptr<mut Point> := @point (^writer).x = 10 x_pointer: Ptr<mut Int32> := @point.x")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("object member pointer compilation failed: %#v", result)
 	}

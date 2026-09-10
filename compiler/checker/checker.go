@@ -230,12 +230,9 @@ type binding struct {
 	// collectionRoot identifies the shared List or Dict state for copied
 	// handles. A fresh collection uses its own binding ID as the root.
 	collectionRoot BindingID
-	// viewRoots and viewRootKind record a View binding's root so a later
-	// return of the binding can classify it.
-	viewRoots    []BindingID
-	viewRootKind ViewRootKind
-	// fromRef records that this binding's value originated from a `ref`
-	// expression in this function body, so from_pointer can reject it.
+	// fromRef records that this binding's value originated from a `@`
+	// expression in this function body, so Heap.free can reject stack
+	// storage derived from it.
 	fromRef bool
 	// moduleID is the target canonical module of an aliasBinding import.
 	// It is empty for every value and function binding.
@@ -750,7 +747,7 @@ func executableItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 }
 
 // assignable reports whether source may initialize or assign to target. The
-// single exception to identical types is outermost-layer weakening: MutPtr<T>
+// single exception to identical types is outermost-layer weakening: Ptr<mut T>
 // is acceptable where Ptr<T> is expected, with every layer below identical.
 func assignable(target, source compilerTypes.Type) bool {
 	return compilerTypes.Assignable(target, source)

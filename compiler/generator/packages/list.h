@@ -103,11 +103,17 @@ static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
     }
     hex_heap_free(list);
 }
-{{if .ViewCName}}static inline {{.ViewCName}} hex_list_slice_{{.Suffix}}(const {{.CName}} *list, uint64_t start, uint64_t end) {
+{{if .SliceCName}}static inline {{.SliceCName}} hex_list_slice_{{.Suffix}}(const {{.CName}} *list, uint64_t start, uint64_t end) {
     if (!(start <= end && end <= list->length)) {
         hex_runtime_trap("[Runtime Error] list slice bounds out of range\n");
     }
-    return ({{.ViewCName}}){list->data == nullptr ? nullptr : &list->data[start], end - start};
+    return ({{.SliceCName}}){list->data == nullptr ? nullptr : &list->data[start], end - start};
+}
+{{end}}{{if .MutSliceCName}}static inline {{.MutSliceCName}} hex_list_mut_slice_{{.Suffix}}({{.CName}} *list, uint64_t start, uint64_t end) {
+    if (!(start <= end && end <= list->length)) {
+        hex_runtime_trap("[Runtime Error] list slice bounds out of range\n");
+    }
+    return ({{.MutSliceCName}}){list->data == nullptr ? nullptr : &list->data[start], end - start};
 }
 {{end}}{{end}}
 {{- end -}}
@@ -116,7 +122,7 @@ static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
 
 #include "hexal.h"
 #include "hexal/heap.h"
-{{if .NeedsView}}#include "hexal/view.h"
+{{if .NeedsSlice}}#include "hexal/slice.h"
 {{end}}{{if .NeedsHeapString}}#include "hexal/string.h"
 {{end}}{{template "listbody" .}}
 #endif

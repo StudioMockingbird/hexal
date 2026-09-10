@@ -45,9 +45,9 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 			return false, "element type " + typ.Array.Element.Name
 		}
 		return true, ""
-	case typ.View != nil:
-		if ok, _ := equalityAvailable(typ.View.Element); !ok {
-			return false, "element type " + typ.View.Element.Name
+	case typ.Slice != nil:
+		if ok, _ := equalityAvailable(typ.Slice.Element); !ok {
+			return false, "element type " + typ.Slice.Element.Name
 		}
 		return true, ""
 	case typ.List != nil:
@@ -73,7 +73,7 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 
 // equalityUnavailableDiagnostic reports why equality is unavailable for one
 // operand of the comparison. reason already names its own path - "member
-// name" for an object/ADT field, "element type Name" for an Array/View/List
+// name" for an object/ADT field, "element type Name" for an Array/Slice/List
 // - so the template never manufactures an empty description; it is empty
 // only when typ itself is the direct cause, which the fallback below covers
 // by kind instead.

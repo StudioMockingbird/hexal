@@ -45,7 +45,7 @@ var failureBenchmarkPrograms = []benchmarkProgram{
 			"app.hex": "fun demo(h: Heap) do\n" +
 				"    wrong: Int32 := true\n" +
 				"    unknown: Int32 := notDeclared\n" +
-				"    p: MutPtr<Int32> := h.allocate<Int32>(1)\n" +
+				"    p: Ptr<mut Int32> := h.allocate<Int32>(1)\n" +
 				"    h.free(p)\n" +
 				"    h.free(p)\n" +
 				"end\n",

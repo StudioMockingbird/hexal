@@ -186,13 +186,13 @@ func TestMatchMissingImportedVariantAndConstructedMembers(t *testing.T) {
 		t.Fatalf("diagnostics = %#v, want missing M.Square", result.Stderr)
 	}
 	constructed := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nmut a: M.Point := M.make()\nu: MutPtr<M.Point> | MutPtr<S.Point> := ref a\nresult: Int32 := match u is\n| MutPtr<M.Point> then 1\nend\n",
+		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nmut a: M.Point := M.make()\nu: Ptr<mut M.Point> | Ptr<mut S.Point> := @a\nresult: Int32 := match u is\n| Ptr<mut M.Point> then 1\nend\n",
 		"m.hex":   "export type Point is struct mx: Int32 end\nexport fun make(): Point do\n    return Point(mx = 1)\nend\n",
 		"s.hex":   "export type Point is struct sy: Int32 end\nexport fun make(): Point do\n    return Point(sy = 2)\nend\n",
 	}
 	constructedResult := compiler.Compile(constructed, "app.hex", compiler.Project{})
-	if constructedResult.ExitCode != compiler.ExitFailure || len(constructedResult.Stderr) == 0 || !strings.Contains(constructedResult.Stderr[0], "match is not exhaustive; missing MutPtr<S.Point>") {
-		t.Fatalf("diagnostics = %#v, want missing MutPtr<S.Point>", constructedResult.Stderr)
+	if constructedResult.ExitCode != compiler.ExitFailure || len(constructedResult.Stderr) == 0 || !strings.Contains(constructedResult.Stderr[0], "match is not exhaustive; missing Ptr<mut S.Point>") {
+		t.Fatalf("diagnostics = %#v, want missing Ptr<mut S.Point>", constructedResult.Stderr)
 	}
 }
 
@@ -209,7 +209,7 @@ func TestMatchSameNamedConstructedAndADTUnions(t *testing.T) {
 		"s.hex": "export type Shape is union | Round as d: Int32 end | Flat as w: Int32 end end\nexport fun make(): Shape do\n    return Shape.Round(d = 4)\nend\n",
 	}
 	complete := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Point := M.make()\nu: Ptr<M.Point> | Ptr<S.Point> := ref a\nv: Int32 := match u is\n| Ptr<M.Point> then 1\n| Ptr<S.Point> then 2\nend\n",
+		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Point := M.make()\nu: Ptr<M.Point> | Ptr<S.Point> := @a\nv: Int32 := match u is\n| Ptr<M.Point> then 1\n| Ptr<S.Point> then 2\nend\n",
 		"m.hex":   pointModules["m.hex"],
 		"s.hex":   pointModules["s.hex"],
 	}
@@ -217,7 +217,7 @@ func TestMatchSameNamedConstructedAndADTUnions(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	missingPtr := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Point := M.make()\nu: Ptr<M.Point> | Ptr<S.Point> := ref a\nv: Int32 := match u is\n| Ptr<M.Point> then 1\nend\n",
+		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Point := M.make()\nu: Ptr<M.Point> | Ptr<S.Point> := @a\nv: Int32 := match u is\n| Ptr<M.Point> then 1\nend\n",
 		"m.hex":   pointModules["m.hex"],
 		"s.hex":   pointModules["s.hex"],
 	}

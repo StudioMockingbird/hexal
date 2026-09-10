@@ -17,7 +17,7 @@ var (
 	}
 	// BytesType is the memory-backed byte stream: one borrowed
 	// List<Byte> header pointer and an inline cursor. Copying copies the
-	// cursor; state-changing methods take MutPtr<Bytes>.
+	// cursor; state-changing methods take Ptr<mut Bytes>.
 	BytesType = Type{
 		Name:         "Bytes",
 		CName:        "hex_bytes",

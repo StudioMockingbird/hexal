@@ -33,28 +33,28 @@
     {
       "id": "collections-array-slicing",
       "name": "Array slicing",
-      "description": "Create a view over the middle of an array.",
+      "description": "Create a slice over the middle of an array.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Int32 do",
         "    fixed: Array<Int32, 5>:= [10, 20, 30, 40, 50]",
-        "    middle: View<Int32>:= fixed.slice(1, 4)",
+        "    middle: Slice<Int32>:= fixed.slice(1, 4)",
         "    count: Size:= middle.length()",
         "    first: Int32:= middle[0]",
         "    last: Int32:= middle[2]",
         "    return first + last",
         "end"
       ]},
-      "features": ["arrays", "views"],
+      "features": ["arrays", "slices"],
       "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "collections-view-summation",
-      "name": "View summation",
-      "description": "Sum values through indexed and checked view access.",
+      "name": "Slice summation",
+      "description": "Sum values through indexed and checked slice access.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun sum_positive(values: View<Int32>): Int32 do",
+        "fun sum_positive(values: Slice<Int32>): Int32 do",
         "    mut total: Int32:= 0",
         "    for i, value in values do",
         "        if value <= 0 then",
@@ -69,7 +69,7 @@
         "    return sum_positive(fixed.slice(0, 4))",
         "end"
       ]},
-      "features": ["views", "for"],
+      "features": ["slices", "for"],
       "reservedWords": ["fun", "mut", "for", "in", "do", "if", "continue", "return", "end", "then"]
     },
     {
@@ -306,8 +306,8 @@
     },
     {
       "id": "collections-list-slice-view",
-      "name": "List slice view",
-      "description": "Create a non-owning view from a list slice and read through it.",
+      "name": "List slice",
+      "description": "Create a non-owning slice from a list slice and read through it.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
@@ -316,25 +316,25 @@
         "    values.push(4)",
         "    values.push(5)",
         "    values.push(6)",
-        "    middle: View<Int32>:= values.slice(1, 3)",
+        "    middle: Slice<Int32>:= values.slice(1, 3)",
         "    return middle[0] + middle[1]",
         "end"
       ]},
-      "features": ["lists", "views", "defer"],
+      "features": ["lists", "slices", "defer"],
       "reservedWords": ["fun", "return", "end", "do", "defer"]
     },
     {
       "id": "collections-empty-view",
-      "name": "Empty view",
-      "description": "Construct View.empty and use its zero-length behavior safely.",
+      "name": "Empty slice",
+      "description": "Construct Slice.empty and use its zero-length behavior safely.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Size do",
-        "    empty: View<Int32>:= View<Int32>.empty()",
+        "    empty: Slice<Int32>:= Slice<Int32>.empty()",
         "    return empty.length()",
         "end"
       ]},
-      "features": ["views", "functions"],
+      "features": ["slices", "functions"],
       "reservedWords": ["fun", "return", "end", "do"]
     }
   ]

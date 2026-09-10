@@ -12,12 +12,12 @@
         "    text: String:= \"caf\\u{00E9}\"",
         "    cursor: RuneCursor:= text.rune_cursor()",
         "    first: Rune:= cursor.next()",
-        "    raw: View<Byte>:= text.bytes()",
+        "    raw: Slice<Byte>:= text.bytes()",
         "    first_byte: Byte:= raw[0]",
         "    return (first == 'c') and (first_byte == b'c')",
         "end"
       ]},
-      "features": ["text", "views"],
+      "features": ["text", "slices"],
       "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
@@ -44,37 +44,37 @@
     },
     {
       "id": "text-byte-view",
-      "name": "Byte view",
-      "description": "Expose a string's bytes as a View<Byte>.",
+      "name": "Byte slice",
+      "description": "Expose a string's bytes as a Slice<Byte>.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Bool do",
         "    text: String:= \"hello\"",
-        "    raw: View<Byte>:= text.bytes()",
+        "    raw: Slice<Byte>:= text.bytes()",
         "    count: Size:= raw.length()",
         "    empty: Bool:= raw.length() == 0",
         "    return (count == 5) and !empty",
         "end"
       ]},
-      "features": ["text", "views"],
+      "features": ["text", "slices"],
       "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "text-byte-inspection",
       "name": "Byte inspection",
-      "description": "Read selected bytes from a text view.",
+      "description": "Read selected bytes from a text slice.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Bool do",
         "    text: String:= \"abc\"",
-        "    raw: View<Byte>:= text.bytes()",
+        "    raw: Slice<Byte>:= text.bytes()",
         "    first: Byte:= raw[0]",
         "    second: Byte:= raw[1]",
-        "    part: View<Byte>:= text.slice(1, 3)",
+        "    part: Slice<Byte>:= text.slice(1, 3)",
         "    return (first == b'a') and (second == b'b') and (part[0] == b'b')",
         "end"
       ]},
-      "features": ["text", "views"],
+      "features": ["text", "slices"],
       "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
@@ -209,65 +209,65 @@
     {
       "id": "text-multibyte-length",
       "name": "Multibyte length",
-      "description": "Distinguish String rune length from the byte length of its UTF-8 view.",
+      "description": "Distinguish String rune length from the byte length of its UTF-8 slice.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Bool do",
         "    text: String:= \"Aλ🙂\"",
-        "    bytes: View<Byte>:= text.bytes()",
+        "    bytes: Slice<Byte>:= text.bytes()",
         "    return (text.length() == 3) and (bytes.length() == 7)",
         "end"
       ]},
-      "features": ["text", "views", "equality-ordering"],
+      "features": ["text", "slices", "equality-ordering"],
       "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "text-multibyte-slice",
       "name": "Multibyte slice",
-      "description": "Slice a String with rune bounds and inspect the returned byte view.",
+      "description": "Slice a String with rune bounds and inspect the returned byte slice.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Size do",
         "    text: String:= \"AλB\"",
-        "    part: View<Byte>:= text.slice(1, 2)",
+        "    part: Slice<Byte>:= text.slice(1, 2)",
         "    return part.length()",
         "end"
       ]},
-      "features": ["text", "views"],
+      "features": ["text", "slices"],
       "reservedWords": ["fun", "return", "end", "do"]
     },
     {
       "id": "text-from-bytes",
       "name": "String from bytes",
-      "description": "Construct a String from a valid UTF-8 byte view.",
+      "description": "Construct a String from a valid UTF-8 byte slice.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Size do",
         "    bytes: Array<Byte, 3>:= [b'H', b'i', b'!']",
-        "    view: View<Byte>:= bytes.slice(0, 3)",
+        "    view: Slice<Byte>:= bytes.slice(0, 3)",
         "    text: String:= String.from_bytes(h, view)",
         "    defer text.free(h)",
         "    return text.length()",
         "end"
       ]},
-      "features": ["text", "arrays", "views", "heap-allocation", "defer"],
+      "features": ["text", "arrays", "slices", "heap-allocation", "defer"],
       "reservedWords": ["fun", "return", "end", "defer", "do"]
     },
     {
       "id": "text-from-runes",
       "name": "String from runes",
-      "description": "Construct a String from a rune view and inspect the result.",
+      "description": "Construct a String from a rune slice and inspect the result.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Size do",
         "    runes: Array<Rune, 2>:= ['λ', '!']",
-        "    view: View<Rune>:= runes.slice(0, 2)",
+        "    view: Slice<Rune>:= runes.slice(0, 2)",
         "    text: String:= String.from_runes(h, view)",
         "    defer text.free(h)",
         "    return text.length()",
         "end"
       ]},
-      "features": ["text", "arrays", "views", "heap-allocation", "defer"],
+      "features": ["text", "arrays", "slices", "heap-allocation", "defer"],
       "reservedWords": ["fun", "return", "end", "defer", "do"]
     },
     {
@@ -371,14 +371,14 @@
       "description": "Embedded expressions in an interpolation template evaluate exactly once, left to right.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun tick(counter: MutPtr<Int32>): Int32 do",
-        "    value: Int32:= counter.value",
-        "    counter.value = value + 1",
+        "fun tick(counter: Ptr<mut Int32>): Int32 do",
+        "    value: Int32:= ^counter",
+        "    ^counter = value + 1",
         "    return value",
         "end",
         "fun demo(): Bool do",
         "    heap: Heap:= Heap()",
-        "    counter: MutPtr<Int32>:= heap.allocate<Int32>(0)",
+        "    counter: Ptr<mut Int32>:= heap.allocate<Int32>(0)",
         "    message: String:= String.interpolate(heap, \"first={{tick(counter)}} second={{tick(counter)}}\")",
         "    defer message.free(heap)",
         "    defer heap.free(counter)",

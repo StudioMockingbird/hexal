@@ -66,7 +66,6 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 		ResultType:  expected,
 		Arguments:   elements,
 	}
-	node.ViewRoots, node.RootKind = mergeViewProvenance(operandNodes(elements))
 	source := Operand{Kind: ExpressionOperand, Type: expected, Node: node}
 	return checkedExpression{source: source, typ: expected, token: expression.OpenBracket}
 }
@@ -94,9 +93,10 @@ func checkArrayIndex(expression parser.Expression, fallback lexer.Token, ctx che
 	return checked.source, checked.known, nil
 }
 
-// checkIndexPlace resolves array[index] or view[index] as a place: readable
-// always, writable only for a mutable Array. A View element place is never
-// writable, though a MutPtr element's pointee keeps its own capability.
+// checkIndexPlace resolves array[index] or slice[index] as a place:
+// readable always, writable for a mutable Array, a writable Slice, or any
+// List. A read-only Slice element place is never writable, though a MutPtr
+// element's pointee keeps its own capability.
 func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checkedExpression {
 	var receiver checkedExpression
 	if _, temporary := expression.Receiver.(parser.CallExpression); temporary {
@@ -115,8 +115,9 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 	if receiver.typ.Array != nil {
 		element = receiver.typ.Array.Element
 		writable = receiver.source.Writable
-	} else if receiver.typ.View != nil {
-		element = receiver.typ.View.Element
+	} else if receiver.typ.Slice != nil {
+		element = receiver.typ.Slice.Element
+		writable = receiver.typ.Slice.Writable
 	} else if receiver.typ.List != nil {
 		// Every live List reference permits mutation through the heap
 		// object; no mut binding is required.
@@ -132,7 +133,7 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
 	if element == (compilerTypes.Type{}) {
-		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, View<T>, or List<T>")
+		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, Slice<T>, or List<T>")
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
 	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, ctx)
@@ -166,8 +167,9 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 	return checked
 }
 
-// checkCollectionMethodCall dispatches the built-in Array and View methods
-// length and slice.
+// checkCollectionMethodCall dispatches the built-in Array and Slice methods
+// length, slice, and mut_slice. The mutable form exists only for Array:
+// re-slicing a Slice preserves the receiver's access mode through slice.
 func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	collectionType := receiver.typ
@@ -181,7 +183,13 @@ func checkCollectionMethodCall(call parser.CallExpression, callee parser.Propert
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
 	case "slice":
-		return checkSliceMethod(call, callee, receiver, ctx)
+		return checkSliceMethod(call, callee, receiver, ctx, false)
+	case "mut_slice":
+		if receiver.typ.Slice != nil {
+			diagnostic := typeErrorAt(callee.Property, "Slice has no method mut_slice; re-slicing preserves the receiver's access mode through slice")
+			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		}
+		return checkSliceMethod(call, callee, receiver, ctx, true)
 	default:
 		diagnostic := typeErrorAt(callee.Property, collectionType.Name+" has no method "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

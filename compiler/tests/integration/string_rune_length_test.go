@@ -21,7 +21,7 @@ func TestCachedRuneLengthSetAtEveryConstructionPath(t *testing.T) {
 		"    literal: String := \"hello\"\n" +
 		"    joined: String := literal.concat(h, literal)\n" +
 		"    copied: String := joined.to_string(h)\n" +
-		"    raw: View<UInt8> := copied.bytes()\n" +
+		"    raw: Slice<UInt8> := copied.bytes()\n" +
 		"    rebuilt: String := String.from_bytes(h, raw)\n" +
 		"    count: Size := rebuilt.length()\n" +
 		"    rebuilt.free(h)\n" +
@@ -59,7 +59,7 @@ func TestCachedRuneLengthCountsRunesNotBytesInLiterals(t *testing.T) {
 // count now that the header carries one; slice still walks to reach a
 // position, which is a different thing and stays.
 func TestCachedRuneLengthConsumersDoNotScan(t *testing.T) {
-	result := assertCompiles(t, "fun demo(): Size do\n    text: String := \"hello\"\n    part: View<UInt8> := text.slice(1, 3)\n    return text.length()\nend\n")
+	result := assertCompiles(t, "fun demo(): Size do\n    text: String := \"hello\"\n    part: Slice<UInt8> := text.slice(1, 3)\n    return text.length()\nend\n")
 	header := stringH(t, result)
 	for _, want := range []string{
 		"static inline size_t hex_string_rune_length(const hex_string *text) {\n    return text->rune_length;\n}",

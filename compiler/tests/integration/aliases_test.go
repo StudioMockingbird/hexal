@@ -7,7 +7,7 @@ import (
 )
 
 func TestAliasesLowerCanonically(t *testing.T) {
-	result := compileSource("type Coordinate is Int32 type CoordinatePtr is Ptr<Coordinate> mut value: Coordinate := 1 pointer: CoordinatePtr := ref value read: Coordinate := pointer.value")
+	result := compileSource("type Coordinate is Int32 type CoordinatePtr is Ptr<Coordinate> mut value: Coordinate := 1 pointer: CoordinatePtr := @value read: Coordinate := ^pointer")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -26,7 +26,7 @@ func TestAliasesLowerCanonically(t *testing.T) {
 }
 
 func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
-	result := compileSource("type Pointer is MutPtr<Int32> type PointerPointer is Ptr<Pointer> mut value: Int32 := 1 mut pointer: Pointer := ref value pointerPointer: PointerPointer := ref pointer read: Int32 := pointerPointer.value.value")
+	result := compileSource("type Pointer is Ptr<mut Int32> type PointerPointer is Ptr<Pointer> mut value: Int32 := 1 mut pointer: Pointer := @value pointerPointer: PointerPointer := @pointer read: Int32 := ^(^pointerPointer)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -86,8 +86,8 @@ func TestRejectsTypeValueCollisions(t *testing.T) {
 }
 
 func TestTypeEnvironmentDoesNotLeakAcrossCompilations(t *testing.T) {
-	first := compileSource("type Pointer is MutPtr<Int32> mut value: Int32 := 1 pointer: Pointer := ref value")
-	second := compileSource("type Pointer is MutPtr<Bool> mut value: Bool := true pointer: Pointer := ref value")
+	first := compileSource("type Pointer is Ptr<mut Int32> mut value: Int32 := 1 pointer: Pointer := @value")
+	second := compileSource("type Pointer is Ptr<mut Bool> mut value: Bool := true pointer: Pointer := @value")
 	if first.ExitCode != compiler.ExitSuccess || second.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("compilations failed: first := %#v second=%#v", first, second)
 	}

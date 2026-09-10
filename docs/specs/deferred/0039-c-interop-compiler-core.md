@@ -14,7 +14,7 @@
   (String/Byte conformance)
 - Coordinates with: RFC 0052 (C compiler backend), RFC 0110
   (affine ownership and Stashes), RFC 0149 (`Box<T>` and call-scoped
-  references), RFC 0153 (`Borrow<T>`/`Borrow<mut T>`), RFC 0152 (generic
+  references), RFC 0153 (`Slice<T>`/`Slice<mut T>`), RFC 0152 (generic
   `Strand<N>`), RFC 0151 (Open Discussion alternative for String-only text and
   `[N]T` fixed arrays), and ADR 0055 (filesystem and build driver)
 
@@ -523,7 +523,7 @@ Default mapping without a trusted non-null contract:
   or raw casts only through an explicit unsafe operation. Such an operation
   does not make the resulting value safe or infer ownership.
 - Pointer-plus-length buffers map through RFC 0153's explicit
-  `Borrow<T>`/`Borrow<mut T>` bridge or deliberate copying.
+  `Slice<T>`/`Slice<mut T>` bridge or deliberate copying.
 - No pointer gains ownership from its type alone.
 
 ## Records, opaque types, enums, and globals
@@ -579,7 +579,7 @@ Default mapping without a trusted non-null contract:
 - Foreign code must not retain a borrowed String pointer.
 - Mutable C text never receives immutable String storage.
 - Binary buffers use pointer plus explicit Size and bridge explicitly to
-  `Borrow<Byte>` or `Borrow<mut Byte>`.
+  `Slice<Byte>` or `Slice<mut Byte>`.
 - C output buffers are copied or wrapped deliberately after the call.
 - The exact source spelling for call-scoped C-string borrowing remains open.
 

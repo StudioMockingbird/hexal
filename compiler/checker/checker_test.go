@@ -158,7 +158,7 @@ func isNestedDereference(expression Expression, name string) bool {
 }
 
 func TestCheckResolvesPointerExpressions(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut x: Int32 := 13 writer: MutPtr<Int32> := ref x alias: Ptr<Int32> := writer y: Int32 := writer.value"))
+	checked, err := Check(parseProgram(t, "mut x: Int32 := 13 writer: Ptr<mut Int32> := @x alias: Ptr<Int32> := writer y: Int32 := ^writer"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
@@ -166,8 +166,8 @@ func TestCheckResolvesPointerExpressions(t *testing.T) {
 		t.Fatalf("statement count = %d, want %d", got, want)
 	}
 	pointer := checked.Statements[1].(Declaration)
-	if pointer.Type.Name != "MutPtr<Int32>" || !isAddressOfVariable(pointer.Source.Node, "x") || !pointer.Type.PointeeWritable {
-		t.Fatalf("pointer declaration = %#v, want writable MutPtr<Int32> from &x", pointer)
+	if pointer.Type.Name != "Ptr<mut Int32>" || !isAddressOfVariable(pointer.Source.Node, "x") || !pointer.Type.PointeeWritable {
+		t.Fatalf("pointer declaration = %#v, want writable Ptr<mut Int32> from &x", pointer)
 	}
 	read := checked.Statements[3].(Declaration)
 	if !isDereferenceVariable(read.Source.Node, "writer") || read.Source.Type != compilerTypes.Int32 {
@@ -176,13 +176,13 @@ func TestCheckResolvesPointerExpressions(t *testing.T) {
 }
 
 func TestCheckResolvesNestedPointers(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut x: Int32 := 13 writer: MutPtr<Int32> := ref x writer_pointer: Ptr<MutPtr<Int32>> := ref writer z: Int32 := writer_pointer.value.value"))
+	checked, err := Check(parseProgram(t, "mut x: Int32 := 13 writer: Ptr<mut Int32> := @x writer_pointer: Ptr<Ptr<mut Int32>> := @writer z: Int32 := ^(^writer_pointer)"))
 	if err != nil {
 		t.Fatalf("Check returned an error: %v", err)
 	}
 	declaration := checked.Statements[2].(Declaration)
-	if declaration.Type.Name != "Ptr<MutPtr<Int32>>" || !isAddressOfVariable(declaration.Source.Node, "writer") {
-		t.Fatalf("nested pointer = %#v, want Ptr<MutPtr<Int32>> from &writer", declaration)
+	if declaration.Type.Name != "Ptr<Ptr<mut Int32>>" || !isAddressOfVariable(declaration.Source.Node, "writer") {
+		t.Fatalf("nested pointer = %#v, want Ptr<Ptr<mut Int32>> from &writer", declaration)
 	}
 	value := checked.Statements[3].(Declaration)
 	if !isNestedDereference(value.Source.Node, "writer_pointer") || value.Source.Type != compilerTypes.Int32 {
@@ -196,10 +196,10 @@ func TestCheckPointerDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"x: Int32 := 13 p: Ptr<Int32> := 13", "[Type Error] expected Ptr<Int32> initializer; got Int32 at app.hex:1:33"},
-		{"x: Int32 := 13 p: Ptr<Int32> := x.value", "[Type Error] cannot access .value on Int32; expected Ptr<T> at app.hex:1:35"},
-		{"mut x: Int32 := 13 p: Ptr<Int32> := ref x q: Ptr<Bool> := p", "[Type Error] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:59"},
-		{"mut x: Int32 := 13 look: Ptr<Int32> := ref x look.value = 42", "[Type Error] cannot write through a read-only pointer look.value at app.hex:1:46"},
-		{"x: Int32 := 13 promoted: MutPtr<Int32> := ref x", "[Type Error] expected MutPtr<Int32> initializer; got Ptr<Int32> at app.hex:1:43"},
+		{"x: Int32 := 13 p: Ptr<Int32> := ^x", "[Type Error] cannot dereference Int32; ^ requires Ptr<T> at app.hex:1:33"},
+		{"mut x: Int32 := 13 p: Ptr<Int32> := @x q: Ptr<Bool> := p", "[Type Error] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:56"},
+		{"mut x: Int32 := 13 look: Ptr<Int32> := @x ^look = 42", "[Type Error] cannot write through a read-only pointer ^look at app.hex:1:43"},
+		{"x: Int32 := 13 promoted: Ptr<mut Int32> := @x", "[Type Error] expected Ptr<mut Int32> initializer; got Ptr<Int32> at app.hex:1:44"},
 	} {
 		_, err := Check(parseProgram(t, testCase.source))
 		if err == nil || err.Error() != testCase.want {

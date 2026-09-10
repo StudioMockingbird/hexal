@@ -71,42 +71,9 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
 	case "slice":
-		if len(call.Arguments) != 2 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		start, _, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, ctx)
-		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
-		}
-		end, _, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, ctx)
-		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
-		}
-		if !receiver.source.Addressable {
-			diagnostic := typeErrorAt(callee.Property, "a view cannot be rooted in a temporary List")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		viewType := ctx.typeEnvironment.ViewType(element)
-		if viewType == (compilerTypes.Type{}) {
-			diagnostic := typeErrorAt(callee.Property, element.Name+" is not an inline view element type")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
-		node := Expression{
-			Kind:        CollectionSliceExpression,
-			Name:        name,
-			Operand:     &receiver.source.Node,
-			Arguments:   []Operand{start, end},
-			OperandType: listType,
-			ResultType:  viewType,
-			Element:     element,
-		}
-		if root := baseBindingID(&receiver.source.Node); root != 0 {
-			node.ViewRoots = []BindingID{root}
-			node.RootKind = ViewRootBindings
-		}
-		source := Operand{Kind: ExpressionOperand, Type: viewType, Name: name, Node: node}
-		return checkedExpression{source: source, typ: viewType, token: callee.Property}
+		return checkSliceMethod(call, callee, receiver, ctx, false)
+	case "mut_slice":
+		return checkSliceMethod(call, callee, receiver, ctx, true)
 	case "push", "clear", "pop":
 		switch name {
 		case "push":

@@ -223,7 +223,7 @@ static hex_io_transfer hex_io_read_transfer(hex_io stream, uint8_t *target, size
     return (hex_io_transfer){.status = HEX_IO_OK, .count = (size_t)moved};
 }
 
-hex_io_transfer hex_io_write(hex_io stream, hex_view_UInt8 from) {
+hex_io_transfer hex_io_write(hex_io stream, hex_slice_UInt8 from) {
     if ((stream.access & HEX_IO_ACCESS_WRITE) == 0) {
         return (hex_io_transfer){.status = HEX_IO_NOT_WRITABLE};
     }
@@ -394,7 +394,7 @@ static hex_io_transfer hex_io_write_transfer(hex_io stream, const uint8_t *data,
     return (hex_io_transfer){.status = HEX_IO_OK, .count = (size_t)moved};
 }
 
-hex_io_transfer hex_io_write(hex_io stream, hex_view_UInt8 from) {
+hex_io_transfer hex_io_write(hex_io stream, hex_slice_UInt8 from) {
     if ((stream.access & HEX_IO_ACCESS_WRITE) == 0) {
         return (hex_io_transfer){.status = HEX_IO_NOT_WRITABLE};
     }
@@ -538,7 +538,7 @@ static bool hex_io_regions_overlap(const uint8_t *left, size_t left_length, cons
     return left_base < right_end && right_base < left_end;
 }
 
-hex_io_transfer hex_bytes_write(hex_bytes *stream, hex_view_UInt8 from) {
+hex_io_transfer hex_bytes_write(hex_bytes *stream, hex_slice_UInt8 from) {
     if (from.length != 0 && stream->buffer->capacity != 0 &&
         hex_io_regions_overlap(from.data, from.length, stream->buffer->data, stream->buffer->capacity)) {
         return (hex_io_transfer){.status = HEX_IO_OVERLAP};

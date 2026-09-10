@@ -92,7 +92,7 @@ func checkPoolMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if pointer.typ.Element == nil || !compilerTypes.Equal(*pointer.typ.Element, element) {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("Pool free requires Ptr<%s> or MutPtr<%s>; got %s", element.Name, element.Name, pointer.typ.Name)))}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("Pool free requires Ptr<%s> or Ptr<mut %s>; got %s", element.Name, element.Name, pointer.typ.Name)))}
 		}
 		receiverBinding := receiverVariableBinding(receiver.source)
 		if pointerBinding := receiverVariableBinding(pointer.source); pointerBinding != 0 {

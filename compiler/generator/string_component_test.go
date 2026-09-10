@@ -30,7 +30,7 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 	if !strings.HasPrefix(source, "#include \"hexal/string.h\"\n") {
 		t.Fatalf("hexal/string.c must include its matching header first: %q", source)
 	}
-	for _, include := range []string{"#include \"hexal.h\"", "#include \"hexal/heap.h\"", "#include \"hexal/view.h\""} {
+	for _, include := range []string{"#include \"hexal.h\"", "#include \"hexal/heap.h\"", "#include \"hexal/slice.h\""} {
 		if !strings.Contains(header, include) {
 			t.Fatalf("hexal/string.h lacks declared dependency %q: %q", include, header)
 		}
@@ -54,10 +54,10 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 			t.Fatalf("hexal/string.c defines %q %d times, want once: %q", definition, strings.Count(source, definition), source)
 		}
 	}
-	// The byte-view helpers are typed through the View specialization, so
+	// The byte-slice helpers are typed through the Slice specialization, so
 	// they stay inline in the header; the non-specialized operations declare
 	// there and define in the source.
-	if !strings.Contains(header, "static inline hex_view_UInt8 hex_string_bytes(const hex_string *text) {") {
+	if !strings.Contains(header, "static inline hex_slice_UInt8 hex_string_bytes(const hex_string *text) {") {
 		t.Fatalf("hexal/string.h lost the inline byte-view helper: %q", header)
 	}
 	if !strings.Contains(header, "const hex_string *hex_string_from_bytes(hex_heap h, const uint8_t *data, size_t length);") ||

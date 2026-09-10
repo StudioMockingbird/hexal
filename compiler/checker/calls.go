@@ -21,7 +21,7 @@ func checkCallStatement(call parser.CallExpression, ctx checkContext) (CallState
 }
 
 // checkCall resolves a callee, checks arity, and checks each argument in its
-// parameter's expected-type position so contextual literals and MutPtr-to-Ptr
+// parameter's expected-type position so contextual literals and Ptr<mut T>-to-Ptr
 // weakening both apply. The returned type is the zero Type for a no-return
 // callee; only a call statement accepts that. expectedType is the enclosing
 // expression's contextual type, used only to infer a generic ADT owner's
@@ -329,7 +329,7 @@ func checkIndirectCall(call parser.CallExpression, ctx checkContext) checkedExpr
 }
 
 // checkArguments checks each written argument in its parameter's expected-type
-// position, so contextual literals and MutPtr-to-Ptr weakening both apply.
+// position, so contextual literals and Ptr<mut T>-to-Ptr weakening both apply.
 // Callee is only used to spell diagnostics.
 func checkArguments(callee string, expected []compilerTypes.TypeUse, written []parser.Expression, token lexer.Token, ctx checkContext) ([]Operand, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)

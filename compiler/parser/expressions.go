@@ -169,7 +169,13 @@ func (parser *Parser) bitwiseXorExpression() (Expression, error) {
 	if err != nil {
 		return nil, err
 	}
-	for parser.check(lexer.Caret) {
+	// A `^` separated from its left operand by a newline opens a prefix
+	// dereference statement, not an XOR continuation: the grammar has no
+	// statement terminator, so the caret must share its operand's line. A
+	// caret ending its line still continues, so `a ^` newline `b` stays XOR.
+	for parser.check(lexer.Caret) && parser.onPreviousTokenLine() {
+		caret := parser.current
+		recorded, kind, token := parser.binaryOperatorRecorded, parser.binaryOperatorKind, parser.binaryOperatorToken
 		operator := parser.advance()
 		if err := parser.recordBinaryOperator(operator); err != nil {
 			return nil, err
@@ -177,6 +183,16 @@ func (parser *Parser) bitwiseXorExpression() (Expression, error) {
 		right, err := parser.bitwiseAndExpression()
 		if err != nil {
 			return nil, err
+		}
+		if parser.check(lexer.Equal) {
+			// `^operand = ...` opens a dereference assignment statement,
+			// not an XOR continuation: no valid program assigns to an XOR
+			// result, so the caret began a prefix dereference. Rewind,
+			// restoring the operator-kind region the speculative parse
+			// recorded.
+			parser.current = caret
+			parser.binaryOperatorRecorded, parser.binaryOperatorKind, parser.binaryOperatorToken = recorded, kind, token
+			break
 		}
 		expression = BinaryExpression{Left: expression, Operator: operator, Right: right}
 	}
@@ -325,7 +341,7 @@ func (parser *Parser) multiplicativeExpression() (Expression, error) {
 
 func (parser *Parser) unaryExpression() (Expression, error) {
 	if parser.check(lexer.Mut) {
-		return nil, parser.errorAtCurrent("mut is not valid on the right-hand side; use ref value")
+		return nil, parser.errorAtCurrent("mut is not valid on the right-hand side; use @value")
 	}
 
 	switch {
@@ -371,13 +387,20 @@ func (parser *Parser) unaryExpression() (Expression, error) {
 			return nil, err
 		}
 		return SpawnExpression{Keyword: keyword, Operand: operand}, nil
-	case parser.check(lexer.Ref):
-		keyword := parser.advance()
-		place, err := parser.place()
+	case parser.check(lexer.At):
+		operator := parser.advance()
+		operand, err := parser.addressOperand()
 		if err != nil {
 			return nil, err
 		}
-		return RefExpression{Keyword: keyword, Place: place}, nil
+		return AddressExpression{Operator: operator, Place: operand}, nil
+	case parser.check(lexer.Caret):
+		operator := parser.advance()
+		operand, err := parser.unaryExpression()
+		if err != nil {
+			return nil, err
+		}
+		return DereferenceExpression{Operator: operator, Operand: operand}, nil
 	default:
 		return parser.primaryExpression()
 	}
@@ -405,7 +428,22 @@ func (parser *Parser) numericLiteral() (Expression, error) {
 	}
 }
 
-// place parses a syntactic place accepted by ref and assignment targets.
+// addressOperand parses `@`'s operand: optional prefix `^` dereferences
+// around one addressable place, so `@^pointer` addresses a dereferenced
+// place while preserving its access mode.
+func (parser *Parser) addressOperand() (Expression, error) {
+	if parser.check(lexer.Caret) {
+		operator := parser.advance()
+		operand, err := parser.addressOperand()
+		if err != nil {
+			return nil, err
+		}
+		return DereferenceExpression{Operator: operator, Operand: operand}, nil
+	}
+	return parser.place()
+}
+
+// place parses a syntactic place accepted by @ and assignment targets.
 // Member names are intentionally left unresolved for the checker.
 func (parser *Parser) place() (Expression, error) {
 	name, err := parser.consume(lexer.Identifier, "a place identifier")
@@ -414,8 +452,8 @@ func (parser *Parser) place() (Expression, error) {
 	}
 	expression := Expression(VariableExpression{Name: name})
 	// A place is an addressable root followed by any ordered sequence of
-	// member and index suffixes, so `ref rows[0].field` and
-	// `ref grid[0].cells[1].value` are valid. The checker derives capability
+	// member and index suffixes, so `@rows[0].field` and
+	// `@^(grid[0].cells[1])` are valid. The checker derives capability
 	// from the complete place.
 	for {
 		if parser.check(lexer.Dot) {
@@ -428,8 +466,8 @@ func (parser *Parser) place() (Expression, error) {
 			continue
 		}
 		if parser.check(lexer.LeftBracket) {
-			// ref accepts addressable collection elements too, so
-			// `ref values[2]` refers to one element without creating an array
+			// @ accepts addressable collection elements too, so
+			// `@values[2]` refers to one element without creating an array
 			// pointer.
 			open := parser.advance()
 			index, err := parser.expression()
@@ -444,9 +482,6 @@ func (parser *Parser) place() (Expression, error) {
 			continue
 		}
 		break
-	}
-	if parser.check(lexer.LeftParen) {
-		return nil, parser.errorAtCurrent("ref requires a place")
 	}
 	return expression, nil
 }
@@ -676,19 +711,22 @@ func (parser *Parser) genericConstructorFollows() bool {
 }
 
 // typeArgumentList parses "<" type-expression { "," type-expression } ">".
+// A leading `mut` on one argument marks it without consuming the marking:
+// only the Slice bridge interprets MutTypeArgument, and type resolution
+// rejects it everywhere else.
 func (parser *Parser) typeArgumentList() ([]TypeExpression, error) {
 	if _, err := parser.consume(lexer.Less, "'<'"); err != nil {
 		return nil, err
 	}
 	arguments := make([]TypeExpression, 0, 1)
-	argument, err := parser.typeExpression()
+	argument, err := parser.typeArgument()
 	if err != nil {
 		return nil, err
 	}
 	arguments = append(arguments, argument)
 	for parser.check(lexer.Comma) {
 		parser.advance()
-		argument, err := parser.typeExpression()
+		argument, err := parser.typeArgument()
 		if err != nil {
 			return nil, err
 		}
@@ -698,6 +736,20 @@ func (parser *Parser) typeArgumentList() ([]TypeExpression, error) {
 		return nil, err
 	}
 	return arguments, nil
+}
+
+// typeArgument parses one call-site type argument, preserving an optional
+// leading `mut` marking for the Slice bridge.
+func (parser *Parser) typeArgument() (TypeExpression, error) {
+	if parser.check(lexer.Mut) {
+		mut := parser.advance()
+		inner, err := parser.typeExpression()
+		if err != nil {
+			return nil, err
+		}
+		return MutTypeArgument{Mut: mut, Type: inner}, nil
+	}
+	return parser.typeExpression()
 }
 
 // onPreviousTokenLine reports whether the current token shares a source line
