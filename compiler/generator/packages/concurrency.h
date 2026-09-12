@@ -15,10 +15,12 @@
    are empty rather than omitted, keeping the vocabulary uniform. */
 typedef SRWLOCK hex_mutex_raw;
 typedef CONDITION_VARIABLE hex_cond;
+{{if not .TargetWindows -}}
 #else
 #include <pthread.h>
 typedef pthread_mutex_t hex_mutex_raw;
 typedef pthread_cond_t hex_cond;
+{{end -}}
 #endif
 /* Task, channel, and mutex handle typedefs. */
 typedef struct hex_task hex_task;

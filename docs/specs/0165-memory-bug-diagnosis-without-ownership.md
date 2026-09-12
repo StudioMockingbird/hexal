@@ -1,4 +1,4 @@
-# RFC 0160: Memory-Bug Diagnosis Without Ownership Semantics
+# RFC 0165: Memory-Bug Diagnosis Without Ownership Semantics
 
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Open Discussion (proposal); not scheduled. This RFC is an

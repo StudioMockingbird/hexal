@@ -4,8 +4,8 @@
 - Status: Implementation-ready; implementation not started
 - Created: 2026-09-10
 - Depends on: the current method declaration and call contracts in `docs/reference.md`
-- Coordinates with: RFC 0161 (pointer spelling and slice migration)
-- Supersedes on implementation: the pointer-receiver portion of RFC 0161
+- Coordinates with: RFC 0165 (pointer spelling and slice migration)
+- Supersedes on implementation: the pointer-receiver portion of RFC 0165
 - Does not update `docs/reference.md`: synchronize only after implementation
   stabilizes and the user explicitly approves the reference edit
 

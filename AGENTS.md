@@ -60,8 +60,9 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   `(Get-Content -Raw) | Set-Content` also silently rewrites LF as CRLF. For a
   change too broad for exact-match edits, write the transformation as a Go
   program under `.tmp/` and run it — never `sed`.
-- **Workbench validation.** Once code implementation is complete, rebuild the workbench
-  binary into `bin/` and restart the running workbench before handoff.
+- **Workbench validation.** Once code implementation is complete, rebuild the
+  `hexal` binary and restart the running workbench through `hexal play`
+  before handoff. There is no standalone workbench executable.
 - **Pushback.** When a request is wrong or a poor fit for Hexal, push back with
   evidence and rationale.
 - **Architecture and style.** Align the compiler's architecture and coding

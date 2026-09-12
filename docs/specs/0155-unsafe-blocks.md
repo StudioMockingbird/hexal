@@ -2,7 +2,7 @@
 
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Implementation-ready; implementation not started. The first-consumer
-  sequencing below (RFCs 0149/0153) lapsed with RFC 0161, which removed every
+  sequencing below (RFCs 0149/0153) lapsed with RFC 0165, which removed every
   unsafe-capable operation: Phase 3 must not be implemented as written. Scheduling
   needs a new classified consumer. Later RFCs extend the operation
   set without changing this lexical mechanism

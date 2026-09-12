@@ -18,6 +18,12 @@ type Project struct {
 	// TaskStackCommit is the bytes committed when a Task is spawned.
 	// Zero selects generator.DefaultTaskStackCommit (8 KiB).
 	TaskStackCommit uint64
+
+	// Target selects one compiler-owned target profile identity. Empty
+	// stays host-neutral and preserves the existing deterministic
+	// generated-C contract. Any other identity must name a qualified
+	// target, or compilation fails before lexing.
+	Target compilerTypes.TargetProfileID
 }
 
 // configPageSize is the page size the POSIX guard depends on; Windows rounds
@@ -32,6 +38,9 @@ const configPageSize = 4096
 // below the default 8 KiB commit. TaskStackReserve is non-zero after
 // defaulting by construction.
 func validateProject(project Project) error {
+	if _, err := resolveTargetProfile(project.Target); err != nil {
+		return err
+	}
 	reserve := project.TaskStackReserve
 	if reserve == 0 {
 		reserve = generator.DefaultTaskStackReserve

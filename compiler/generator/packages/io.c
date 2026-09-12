@@ -13,6 +13,7 @@ constexpr uint32_t HEX_IO_STDIN_ID = STD_INPUT_HANDLE;
 constexpr uint32_t HEX_IO_STDOUT_ID = STD_OUTPUT_HANDLE;
 constexpr uint32_t HEX_IO_STDERR_ID = STD_ERROR_HANDLE;
 
+{{if not .TargetWindows -}}
 #else
 
 #include <errno.h>
@@ -26,6 +27,7 @@ constexpr intptr_t HEX_IO_STDIN_ID = 0;
 constexpr intptr_t HEX_IO_STDOUT_ID = 1;
 constexpr intptr_t HEX_IO_STDERR_ID = 2;
 
+{{end -}}
 #endif
 
 constexpr uint8_t HEX_IO_ACCESS_READ = 1;
@@ -36,8 +38,10 @@ constexpr uint8_t HEX_IO_ACCESS_WRITE = 2;
 // clamp to this bound and the returned Size reports what the one call moved.
 #ifdef _WIN32
 constexpr size_t HEX_IO_MAX_REQUEST = 0xFFFFFFFFull;
+{{if not .TargetWindows -}}
 #else
 constexpr size_t HEX_IO_MAX_REQUEST = (size_t)SSIZE_MAX;
+{{end -}}
 #endif
 
 [[noreturn]] extern void hex_runtime_trap(const char *message);
@@ -82,8 +86,10 @@ static hex_strand hex_io_header(const char *operation, bool windows_codes, long 
 hex_t_Error hex_io_error(size_t line, size_t column, const hex_string *file, const char *operation, long long code, const hex_string *message) {
 #ifdef _WIN32
     hex_strand header = hex_io_header(operation, true, code);
+{{if not .TargetWindows -}}
 #else
     hex_strand header = hex_io_header(operation, false, code);
+{{end -}}
 #endif
     return (hex_t_Error){
         .hex_m_file = file,
@@ -326,6 +332,7 @@ static bool hex_io_write_all_native(intptr_t desc, const uint8_t *data, size_t l
     return true;
 }
 
+{{if not .TargetWindows -}}
 #else
 
 static hex_io_open hex_io_open_descriptor(intptr_t desc, uint8_t access) {
@@ -487,6 +494,7 @@ bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
 {{else}}    return hex_io_write_all_native(desc, data, length);
 {{end}}}
 
+{{end -}}
 #endif
 // The memory backend shares the transfer shapes but never issues a platform
 // call. Self-aliasing rejects before any reserve, copy, cursor movement, or

@@ -7,21 +7,23 @@ import (
 // ioComponents returns the generated hexal/io.h and hexal/io.c artifacts when
 // a stream family or print is reachable. Print-only programs select the same
 // pair because print's byte sink transfers through the descriptor core.
-func ioComponents(merged *programEmission) ([]componentArtifact, error) {
+func ioComponents(merged *programEmission, config Config) ([]componentArtifact, error) {
 	if merged == nil || merged.ioState == nil || (!merged.ioState.used && !merged.printUsed) {
 		return nil, nil
 	}
 	return []componentArtifact{
 		{key: "hexal/io.h", template: "io.h", model: struct{}{}},
-		{key: "hexal/io.c", template: "io.c", model: ioSourceModel{Blocking: blockingSelected(merged)}},
+		{key: "hexal/io.c", template: "io.c", model: ioSourceModel{Blocking: blockingSelected(merged), TargetWindows: targetIsWindows(config)}},
 	}, nil
 }
 
 // ioSourceModel is the render model for packages/io.c: whether the blocking
 // pool is selected, so each native transfer routes through hex_blocking_call
-// instead of calling its private synchronous core directly.
+// instead of calling its private synchronous core directly, and whether the
+// selected profile is Windows, so inactive POSIX branches are omitted.
 type ioSourceModel struct {
-	Blocking bool
+	Blocking      bool
+	TargetWindows bool
 }
 
 // moduleStreamComponent selects hexal/io.h for a module using streams.

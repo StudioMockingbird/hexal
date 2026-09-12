@@ -1,7 +1,7 @@
 # RFC 0149: `Box<T>` and Scoped References
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Blocked, 2026-09-10. RFC 0161 invalidates this RFC's Ref and Box designs
+- Status: Blocked, 2026-09-10. RFC 0165 invalidates this RFC's Ref and Box designs
   and rejects affine ownership, implicit moves, and automatic cleanup as non-goals.
   Do not implement as written; any independently retained work requires a later rescope.
 - Created: 2026-09-08

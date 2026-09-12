@@ -1,0 +1,12 @@
+zig : clang version 21.1.0
+At line:1 char:6
++ $o = zig cc -v 2>&1 | Out-String; $o | Select-Object -First 6; $o | S ...
++      ~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (clang version 21.1.0:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Target: x86_64-unknown-windows-gnu
+Thread model: posix
+InstalledDir: C:/Users/Rishav/AppData/Local/Microsoft/WinGet/Packages/zig.zig_Microsoft.Winget.Source_8wekyb3d8bbwe/zig
+-x86_64-windows-0.16.0
+

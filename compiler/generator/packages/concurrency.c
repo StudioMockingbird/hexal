@@ -2,21 +2,23 @@
    Task/join/yield machinery, and the Channel and Mutex cores. Process-wide
    state and the externally linked core definitions live here exactly once;
    the program-wide declarations are in the matching header. */
-{{if .Scheduler}}
+{{if .Scheduler}}{{if not .TargetWindows}}
 // The platform layer uses POSIX extensions (ucontext, mmap, sigaltstack)
 // whose declarations glibc and musl hide in strict C23 mode; _GNU_SOURCE
 // must precede every system include.
 #define _GNU_SOURCE
-{{end}}
+{{end}}{{end}}
 #include "hexal/concurrency.h"
 {{if .Scheduler}}
 #if defined(_WIN32)
 #include <windows.h>
+{{if not .TargetWindows -}}
 #else
 #include <ucontext.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <unistd.h>
+{{end -}}
 #endif
 // hexal/concurrency.h already included <windows.h>/<process.h> or
 // <pthread.h> and declared hex_mutex_raw/hex_cond before defining struct
@@ -187,6 +189,7 @@ static bool hex_thread_spawn_detached(int (*entry)(void *), void *argument) {
     CloseHandle((HANDLE)handle);
     return true;
 }
+{{if not .TargetWindows -}}
 #else
 typedef struct hex_context_impl hex_context_impl;
 struct hex_context_impl {
@@ -442,6 +445,7 @@ static bool hex_thread_spawn_detached(int (*entry)(void *), void *argument) {
     }
     return true;
 }
+{{end -}}
 #endif
 
 static _Thread_local hex_task *hex_current_task;

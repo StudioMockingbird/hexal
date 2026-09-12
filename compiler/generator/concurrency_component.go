@@ -4,6 +4,8 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+
+	compilerTypes "hexal/compiler/types"
 )
 
 // DefaultTaskStackReserve and DefaultTaskStackCommit are the per-Task stack
@@ -22,6 +24,19 @@ const (
 type Config struct {
 	TaskStackReserve uint64
 	TaskStackCommit  uint64
+	// Target selects one compiler-owned target profile identity. Empty
+	// stays host-neutral: generated runtime components keep both platform
+	// paths. A qualified identity emits only the selected platform
+	// implementation. The type lives in compiler/types so both the
+	// compiler and the generator name the same identities.
+	Target compilerTypes.TargetProfileID
+}
+
+// targetIsWindows reports whether the selected profile is the qualified
+// Windows target. Empty stays host-neutral: generated runtime components
+// keep both platform paths and select at C-compile time.
+func targetIsWindows(config Config) bool {
+	return config.Target == compilerTypes.TargetX86_64WindowsGNU
 }
 
 // blockingSelected reports whether the program selects the blocking pool:
@@ -53,7 +68,7 @@ func concurrencyComponents(merged *programEmission, config Config) ([]componentA
 	}
 	blocking := blockingSelected(merged)
 	artifacts := []componentArtifact{
-		{key: "hexal/concurrency.h", template: "concurrency.h", model: concurrencyHeaderModelFrom(state, blocking)},
+		{key: "hexal/concurrency.h", template: "concurrency.h", model: concurrencyHeaderModelFrom(state, blocking, targetIsWindows(config))},
 	}
 	source := concurrencySourceModelFrom(state, config, blocking)
 	if source.Scheduler || source.Channels || source.Mutex {
@@ -70,12 +85,13 @@ func concurrencyComponents(merged *programEmission, config Config) ([]componentA
 // spawn-entry records. An atomic-only program renders the Atomic typedefs
 // without the scheduler prelude or the runtime entry-point declarations.
 type concurrencyHeaderModel struct {
-	Scheduler    bool
-	Blocking     bool
-	Tasks        []string
-	Channels     []string
-	Atomics      []concurrencyAtomicModel
-	SpawnEntries []string
+	Scheduler     bool
+	Blocking      bool
+	TargetWindows bool
+	Tasks         []string
+	Channels      []string
+	Atomics       []concurrencyAtomicModel
+	SpawnEntries  []string
 }
 
 // concurrencyAtomicModel is one Atomic<T> typedef record: the suffix after
@@ -90,10 +106,11 @@ type concurrencyAtomicModel struct {
 // selected, plus the spelled stack-size expressions the configured Task
 // stack values render to.
 type concurrencySourceModel struct {
-	Scheduler bool
-	Blocking  bool
-	Channels  bool
-	Mutex     bool
+	Scheduler     bool
+	Blocking      bool
+	Channels      bool
+	Mutex         bool
+	TargetWindows bool
 	// StackSizeExpression is the POSIX usable stack size; the historical
 	// "1u << 20" for the default reserve, a decimal literal otherwise, so a
 	// zero Config renders the runtime text byte-for-byte as before.
@@ -106,8 +123,8 @@ type concurrencySourceModel struct {
 
 // concurrencyHeaderModelFrom builds the header model from the program-wide
 // state, pre-sorting every data-driven handle and entry list by its C name.
-func concurrencyHeaderModelFrom(state *generatedConcurrencyState, blocking bool) concurrencyHeaderModel {
-	model := concurrencyHeaderModel{Scheduler: state.used, Blocking: blocking}
+func concurrencyHeaderModelFrom(state *generatedConcurrencyState, blocking bool, windows bool) concurrencyHeaderModel {
+	model := concurrencyHeaderModel{Scheduler: state.used, Blocking: blocking, TargetWindows: windows}
 	taskNames := slices.Sorted(maps.Keys(state.taskTypes))
 	for _, name := range taskNames {
 		model.Tasks = append(model.Tasks, taskSuffix(state.taskTypes[name]))
@@ -144,6 +161,7 @@ func concurrencySourceModelFrom(state *generatedConcurrencyState, config Config,
 		Blocking:            blocking,
 		Channels:            len(state.channels) > 0,
 		Mutex:               state.mutexNew || state.mutexLock || state.mutexUnlock || state.mutexFree,
+		TargetWindows:       targetIsWindows(config),
 		StackSizeExpression: stackSizeExpression(config.TaskStackReserve),
 		FiberCommit:         fiberArgument(config.TaskStackCommit),
 		FiberReserve:        fiberArgument(config.TaskStackReserve),

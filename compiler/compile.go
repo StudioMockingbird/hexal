@@ -158,6 +158,7 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 	files, generateErr := generator.GenerateChecked(graph, checked, generator.Config{
 		TaskStackReserve: project.TaskStackReserve,
 		TaskStackCommit:  project.TaskStackCommit,
+		Target:           project.Target,
 	})
 	stats.GenerateDuration = time.Since(started)
 	if generateErr != nil {

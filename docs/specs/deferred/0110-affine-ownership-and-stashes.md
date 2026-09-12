@@ -1,7 +1,7 @@
 # RFC 0110: Affine Ownership and Deterministic Cleanup
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Blocked, 2026-09-10. RFC 0161 invalidates the Ref/Slice-lifetime portions
+- Status: Blocked, 2026-09-10. RFC 0165 invalidates the Ref/Slice-lifetime portions
   and rejects affine ownership, implicit moves, and automatic cleanup as non-goals;
   the `docs/reference.md` Language boundary now states that shallow copying with
   explicit cleanup is the model. Do not implement as written; any independently

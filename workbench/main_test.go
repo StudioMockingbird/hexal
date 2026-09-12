@@ -1,4 +1,4 @@
-package main
+package workbench
 
 import (
 	"bytes"
@@ -67,9 +67,23 @@ func TestCompileEndpointRequiresSourcesAndEntrypoint(t *testing.T) {
 	}
 }
 
+// A bind failure is a plain error for the CLI's one error-rendering site:
+// Serve binds before printing its startup line, so a held port fails with
+// no startup line printed.
+func TestServeReportsBindFailure(t *testing.T) {
+	holder, err := net.Listen("tcp", workbenchAddress)
+	if err != nil {
+		t.Skip("loopback endpoint unavailable: " + err.Error())
+	}
+	defer holder.Close()
+	if err := Serve("development"); err == nil {
+		t.Fatal("Serve succeeded with its address held")
+	}
+}
+
 // The workbench is a temporary local debug component: it binds loopback only,
-// and main's startup log and its ListenAndServe call share this one constant
-// so they can never name different endpoints.
+// and Serve's listener and its startup line share this one constant so they
+// can never name different endpoints.
 func TestWorkbenchBindsLoopbackOnly(t *testing.T) {
 	if workbenchAddress != "127.0.0.1:8080" {
 		t.Fatalf("workbenchAddress = %q, want the fixed loopback endpoint 127.0.0.1:8080", workbenchAddress)

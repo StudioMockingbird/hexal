@@ -3,6 +3,8 @@ package compiler
 import (
 	"strings"
 	"testing"
+
+	compilerTypes "hexal/compiler/types"
 )
 
 // Compile validates Project before any stage runs; these tests pin the rules
@@ -64,6 +66,38 @@ func TestProjectCommitNotPageMultipleRejected(t *testing.T) {
 	want := "TaskStackCommit 4097 is not a multiple of 4096"
 	if !strings.Contains(err.Error(), want) {
 		t.Fatalf("diagnostic %q does not contain %q", err.Error(), want)
+	}
+}
+
+// The qualified Windows target validates; any other non-empty identity
+// fails before lexing with exactly one Configuration Error diagnostic and
+// no artifacts, even when the source itself would also fail.
+func TestProjectQualifiedTargetValidates(t *testing.T) {
+	if err := validateProject(Project{Target: compilerTypes.TargetX86_64WindowsGNU}); err != nil {
+		t.Fatalf("qualified target rejected: %v", err)
+	}
+}
+
+func TestProjectUnknownTargetRejected(t *testing.T) {
+	err := validateProject(Project{Target: "x86_64-linux-gnu"})
+	if err == nil {
+		t.Fatal("unqualified target accepted")
+	}
+	if !strings.Contains(err.Error(), "unknown target profile x86_64-linux-gnu") {
+		t.Fatalf("diagnostic %q does not name the unknown identity", err.Error())
+	}
+}
+
+func TestCompileRejectsUnknownTargetBeforeLexing(t *testing.T) {
+	result := Compile(map[string]string{"app.hex": "$$$\n"}, "app.hex", Project{Target: "aarch64-macos-none"})
+	if result.ExitCode != ExitFailure {
+		t.Fatalf("unqualified target compiled successfully")
+	}
+	if len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "[Configuration Error] unknown target profile aarch64-macos-none") {
+		t.Fatalf("stderr %q lacks the lone Configuration Error diagnostic", result.Stderr)
+	}
+	if len(result.Files) != 0 {
+		t.Fatalf("rejected target produced artifacts: %v", result.Files)
 	}
 }
 

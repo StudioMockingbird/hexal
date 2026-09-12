@@ -1,304 +1,402 @@
 # ADR 0055: Filesystem and Build Driver
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Draft; design proposed, implementation not started. Picked back up
-  from `docs/specs/deferred/` on 2026-09-10; verified against the current
-  tree (`compiler.Compile`'s signature this RFC depends on is unchanged;
-  `cmd/` is currently empty)
+- Status: Closed; every Validation item is implemented and covered by
+  pure-Go tests plus the non-skipping `c23` qualification gate
 - Created: 2026-08-14
-- Updated: 2026-08-26
-- Scope: filesystem, project discovery, artifact materialization, external C
-  builds, and linking outside the core compiler
-- Depends on: RFC 0034 (modules and imports), RFC 0039 (C interop), RFC 0052
-  (C compiler backend and target profiles), RFC 0117 (compile-time evaluation),
-  and RFC 0118
-  (concurrency safety)
-- Coordinates with: the workbench, generated-C artifact manifests, and future
-  package/dependency specifications
+- Updated: 2026-09-12
+- Scope: filesystem discovery, artifact materialization, backend invocation,
+  and executable publication outside the core compiler
+- Depends on: RFC 0052 and the reference's module/artifact contract
+- Coordinates with: RFC 0039 for future foreign C support and ADR 0166 for
+  toolchain version presentation
 
-## Purpose
+## Decision
 
-The core compiler is permanently in-memory and string-in/string-out. A future
-driver must connect that compiler to files, projects, C toolchains, and final
-build artifacts. This ADR owns that external layer so filesystem and build
-responsibilities do not leak into compiler language specifications.
+`cmd/hexal` uses one internal filesystem/build driver. v1 builds a
+self-contained Hexal project on x86-64 Windows for the qualified
+`x86_64-windows-gnu` profile through an installed Zig 0.16.0 found on `PATH`.
 
-## Intended responsibilities
+The core compiler remains string-in/string-out and process-free. It receives
+all source contents plus an explicit compiler-owned target identity and returns
+all generated contents. The driver alone reads and writes files or starts
+processes.
 
-- Discover and read Hexal source files.
-- Select the logical module root and entrypoint.
-- Normalize host paths into logical compiler keys.
-- Read C source files, headers, and generated binding manifests.
-- Invoke external C-project build systems when explicitly configured.
-- Resolve include roots, preprocessor definitions, target options, object
-  files, static libraries, shared libraries, and system libraries.
-- Supply complete in-memory source and foreign-binding strings to the core
-  compiler.
-- Materialize every generated C/header string returned by the compiler.
-- Compile generated and supplied C sources.
-- Compile Hexal-generated translation units as ISO C23 and each foreign C
-  translation unit under the dialect declared by its project or binding
-  configuration. A C99 or C11 library is not retargeted merely because it
-  links with Hexal-generated objects.
-- Link generated objects with configured foreign objects and libraries.
-- Report filesystem, toolchain, build-system, and linker failures separately
-  from compiler diagnostics.
-- Compile generated C in C23 mode (RFC 0069): the pinned GCC/Clang toolchain
-  plus compatible C library must provide the generated program's selected
-  standard headers (`<stdckdint.h>`, `<stdatomic.h>`, `<threads.h>`,
-  `<string.h>`, and the RFC 0062 umbrella set). A missing or unusable standard
-  header is reported as a toolchain/target failure, never as a Hexal source
-  diagnostic, and never repaired by a compiler-side fallback definition.
-- Later own dependency tracking, caching, file watching, and incremental
-  compilation.
-- Keep `cmd/hexal` (the CLI entry point users actually run) a thin shell:
-  argument parsing plus wiring the `compiler` package and this driver
-  together. It carries no compiler-version-specific logic of its own — see
-  "Compiler binary and versioning" below.
-- Compile every `.c` entry returned in `CompilationResult.Files`, not only
-  those under `modules/`: the demand-driven component artifacts under
-  `hexal/` (for example `hexal/runtime.c`, `hexal/heap.c`,
-  `hexal/string.c`, `hexal/concurrency.c`) own external runtime definitions
-  and must be translation units (ADR 0071).
-- Report a generated artifact that fails to compile or link as a
-  compiler/toolchain failure, never as a Hexal source diagnostic.
+The current `driver/` and `cmd/hexal/` tree proves the basic pipeline but is not
+the final contract: it does not enforce the exact Zig version and facility
+contract, passes `Project{}`, combines compilation and linking, and has
+incomplete output-path and diagnostic handling.
 
-## Build pipeline
+## v1 scope
 
-The driver runs these stages in order and records the inputs and outputs of
-each stage:
+In scope:
 
-1. Load an explicit project configuration or a caller-supplied project value;
-   discover source roots only in the driver.
-2. Resolve logical Hexal modules, the entrypoint, imports, C sources, headers,
-   binding manifests, object files, libraries, and target profile.
-3. Compute the module dependency graph and a content-addressed build identity.
-4. Supply the complete logical source map to the in-memory compiler and receive
-   generated C/header artifacts and diagnostics.
-5. Materialize generated artifacts in an isolated output tree, preserving the
-   compiler's logical names and source-map metadata.
-6. Compile every Hexal-generated C translation unit as C23 and every configured
-   foreign C translation unit under its declared dialect, using the selected
-   target/profile/compiler options.
-7. Link objects and libraries with the selected linker and platform settings.
-8. Optionally execute declared runtime validation programs in a controlled
-   validation environment; normal compiler tests do not execute external
-   tools.
+- discover `.hex` sources under one source root;
+- assign normalized logical keys without parsing imports;
+- call `compiler.Compile` with the explicit qualified profile;
+- materialize every generated artifact in an isolated staging tree;
+- compile every generated `.c` separately as C23;
+- link the resulting objects;
+- atomically publish one executable;
+- `hexal build`, `hexal doctor`, `hexal version`, `hexal play`, and
+  `hexal help`; and
+- stage-specific, reproducible build diagnostics.
 
-An error is attributed to the earliest failing stage: configuration,
-filesystem, dependency resolution, Hexal compilation, C compilation, linking,
-or runtime validation. The driver must preserve compiler diagnostics instead of
-rewriting them as generic build failures.
+Out of scope:
 
-## Project identity and incremental recompilation
+- other hosts or targets and cross-compilation;
+- foreign C sources, headers, objects, libraries, definitions, or build
+  systems;
+- project manifests and package management;
+- object caching and incremental compilation;
+- static linkage;
+- multiple compiler versions; and
+- a stable public Go driver API.
 
-The cache key for a module artifact includes the complete source contents,
-logical module name, entrypoint when relevant, compiler version, `Project`
-settings, selected RFC 0052 profile, C compiler and linker identity/options,
-preprocessor definitions, include roots, and the content digests of all
-foreign headers, binding manifests, objects, and libraries that affect the
-artifact. Host absolute paths are not semantic inputs.
+## Compiler boundary
 
-- A private implementation change invalidates that module's generated C and
-  downstream artifacts only when the module's public interface, layout,
-  exported symbol set, or generated dependency set changes.
-- A public signature, type layout, exported storage, generic reachability,
-  target profile, foreign header, compiler option, or runtime component change
-  invalidates every dependent artifact that consumes it.
-- A changed runtime component recompiles every generated translation unit that
-  links that component.
-- Cache hits are valid only when the artifact content and all identity inputs
-  match. The driver never guesses from timestamps alone.
-- A failed or interrupted build cannot publish a partial cache entry as a
-  complete artifact.
+The driver calls:
 
-## Toolchain and target selection
+```text
+Compile(sources map[string]string,
+        entrypoint string,
+        project Project{Target: TargetX86_64WindowsGNU})
+    CompilationResult
+```
 
-Hexal distributions ship RFC 0052's pinned, trimmed Clang/LLVM host backend and
-the compatible target pack for every bundled target profile. The bundled
-backend is the default and defines the reproducible supported environment;
-using an externally installed Clang or GCC is an explicit override that must
-satisfy the same RFC 0052 profile. The driver invokes Clang as a child process;
-the Go compiler does not statically link Clang's C++ libraries.
+The driver discovers candidate source files only. The compiler parses imports,
+resolves relative module paths, chooses reachability, checks the program, and
+generates artifacts. The driver never implements a second import resolver.
 
-Bundling is justified by reproducible builds, hermetic cross-compilation,
-known headers and runtime behavior, and control of the linker. It is not
-justified by claiming that C23 syntax alone requires a large distribution: a
-measured inventory found that roughly 70 percent of current C23 spellings are
-cosmetic, while the proposed C11 replacements for the substantive facilities
-were GCC/Clang extensions rather than portable ISO C11. Since both choices
-still select the GCC/Clang family, C11 would buy only support for older compiler
-versions while retaining compatibility machinery.
+Every `.c` entry in `CompilationResult.Files` is compiled, including component
+translation units under `hexal/`; compilation is not limited to `modules/`.
 
-The driver selects a named RFC 0052 target profile and matching installed target
-pack. Native defaults may be convenient, but cross-compilation requires
-an explicit profile and toolchain. The driver must verify compiler version,
-required C23 headers, target architecture, ABI options, atomics, threading,
-and linker support before accepting the build. If Hexal ever stops shipping
-the toolchain and compatible C library, the C23 floor must be reconsidered as
-an explicit architecture decision.
+## Internal API
 
-The C dialect is a translation-unit property, not a link-unit property.
-Imported C99/C11 projects compile separately under their required dialect and
-link with C23-generated objects through the selected target ABI. Prebuilt
-objects and libraries are accepted only when their architecture, ABI, calling
-conventions, and C-runtime contract match the selected profile. A foreign
-header that cannot be consumed by a C23 translation unit requires a separately
-compiled bridge using that library's dialect; the core compiler does not
-rewrite foreign source.
+The build driver remains internal to the CLI until its API stabilizes. Move or
+keep its implementation under an `internal` package boundary; do not advertise
+`Backend`, `BuildOptions`, or `Doctor` as a supported embedding API in v1.
 
-The core compiler remains incapable of host probing. The driver may probe or
-invoke tools, then passes the selected evidence as build-time settings. A
-profile mismatch is a build failure, not a source-level guess or fallback.
+Conceptual internal result:
 
-## Compiler binary and versioning
+```go
+type BuildResult struct {
+    Executable string
+    HexalVersion string
+    Commands   []CommandResult
+}
 
-`cmd/hexal` and "the actual compiler" (the `compiler` package's lexer,
-parser, checker, and generator, driven by this ADR's driver) are kept fully
-decoupled, not fused into one inseparable binary. This is the same principle
-RFC 0052 already applies to the C backend — a versioned, content-addressed,
-separately-downloadable payload invoked as a child process, never statically
-fused into the tool that orchestrates it — applied one layer up, to the
-Hexal compiler itself:
+type CommandResult struct {
+    Stage            BuildStage
+    Tool             string
+    Arguments        []string
+    WorkingDirectory string
+    Stdout           string
+    Stderr           string
+    ExitCode         int
+}
 
-- `cmd/hexal/main.go` stays a thin launcher: parse arguments, resolve a
-  project's manifest, and wire together whatever compiler version and driver
-  configuration that manifest calls for. It contains no version-specific
-  compiler behavior of its own.
-- The goal this decouples for: a Hexal project's manifest may eventually pin
-  a specific compiler version, and the launcher resolves and uses that
-  version — potentially fetching it — rather than whatever version happens
-  to be sitting on the host. This is the same shape of problem RFC 0052's
-  target packs already solve for the C backend (a named, versioned,
-  content-addressed, cacheable payload); a future compiler-version payload
-  is a natural extension of that mechanism, not a new one.
-- This ADR does not design that mechanism now — manifest schema for a
-  pinned compiler version, the download/registry protocol, and the
-  resolution algorithm are new items in Deferred design below. What's fixed
-  now is the boundary: no code path may grow an assumption that `cmd/hexal`
-  and "the currently-built compiler version" are the same inseparable
-  thing, because that assumption is exactly what would need undoing later.
+type BuildError struct {
+    Stage   BuildStage
+    Message string
+    Command *CommandResult // present only for an invoked external command
+}
+```
 
-## Validation modes
+`BuildStage` distinguishes configuration, filesystem, Hexal compilation,
+C compilation, and linking. Compiler diagnostics pass through unchanged.
+External command records preserve the tool, complete argument vector, working
+directory, and separated stdout/stderr. They do not capture the complete
+process environment or secrets.
 
-Build infrastructure must expose distinct validation modes:
+The CLI exits `1` for every failed build. A child process's actual exit status
+remains available in its `CommandResult`. A failed build returns its populated
+`BuildResult` with every command completed before failure plus one `BuildError`;
+callers do not lose diagnostic evidence because the final executable was not
+published.
 
-- **Compiler tests:** pure Go, in-memory, and generated-C text assertions.
-- **C compile validation:** materialize and compile generated artifacts and
-  foreign fixtures with the selected C23 toolchain.
-- **Link validation:** link representative executables and libraries with the
-  configured foreign objects and platform libraries.
-- **Runtime validation:** execute declared programs and assert exit status,
-  output, traps, ABI calls, concurrency behavior, and resource cleanup.
-- **Cross-profile validation:** repeat compile/link checks for each supported
-  target profile; runtime checks run only where an executable target exists.
+## Configuration
 
-The snippet manifest remains a text-level regression net for ordinary Go
-tests. The driver-level generated-C and runtime suites are the authority for
-claims that emitted C compiles, links, or behaves correctly. A green
-`go test ./...` alone must not be reported as proof of those properties.
+v1 has no project manifest. `hexal build` accepts:
 
-## Boundary
+```text
+-root <directory>       source root; default current directory
+-entry <logical-key>    entrypoint; default main.hex
+-out <file>             final executable; default <root>/build/<entry>.exe
+```
 
-- The driver may access the host filesystem and execute configured external
-  tools.
-- The core compiler may do neither.
-- The driver supplies logical names and complete contents; the compiler never
-  discovers or opens a path.
-- The compiler returns generated logical filenames and complete contents; it
-  never writes an artifact.
-- Binary objects and libraries remain driver inputs. They are never parsed or
-  represented as strings by the core compiler.
-- Language checking and C ABI compatibility remain compiler responsibilities;
-  file discovery, tool invocation, and linking remain driver responsibilities.
+The source root and entrypoint defaults are conventions, not host discovery in
+the compiler.
 
-### Artifact paths arrive already validated
+The default intermediate directory is `<root>/build/.hexal/`. Its location may
+later receive a flag, but v1 needs no second output option.
 
-The compiler currently accepts any caller-supplied module path, so a path of
-`../../../etc/passwd.hex` yields an artifact named
-`modules/../../../etc/passwd.c`. A driver that materializes `result.Files`
-naively writes outside its output root.
+## Source discovery
 
-**RFC 0126 owns that fix**, at the compile boundary, because every consumer of
-a `CompilationResult` is exposed and there will be more than this driver. The
-driver must be able to treat returned paths as already safe.
+- Resolve the source root to an absolute canonical directory before walking.
+- Reject a missing or non-directory source root.
+- Do not follow source-tree directory symlinks or junctions in v1.
+- Read regular files whose extension is exactly `.hex`.
+- Convert relative host paths to `/`-separated logical keys.
+- Reject two paths whose logical keys collide under the qualified Windows
+  profile's case-folding rules.
+- Skip only the exact resolved intermediate/staging directory. A different
+  source directory named `build` remains valid.
+- Pass every discovered source to the compiler; do not determine reachability.
 
-The driver still refuses to write outside its output root. Defense in depth is
-correct for the one component that touches a filesystem -- but that check is a
-backstop and must not be mistaken for the fix, or the exposure simply moves to
-the next consumer.
+## Materialization and publication
 
-## Deferred design
+All generated C, headers, and objects live inside a fresh staging directory
+under `<root>/build/.hexal/`.
 
-- Driver package and public API.
-- Project/configuration file format.
-- Default source roots, output directories, and entrypoint selection.
-- C compiler and linker selection.
-- CMake, Meson, Make, pkg-config, and custom-command integration.
-- Header preprocessing and binding-manifest generation.
-- Object, static-library, shared-library, and platform-library configuration.
-- Package/dependency manifest and registry policy.
-- Case-insensitive filesystem collision policy.
-- Symlink, sandbox, reproducibility, and supply-chain policy.
-- Cache format, eviction, remote cache policy, and invalidation storage.
-- Watch mode, diagnostics presentation, and IDE integration.
-- Manifest schema for pinning a project's required compiler version.
-- Compiler-version download/registry protocol and resolution algorithm.
-- Whether a non-default compiler version ships as a separate executable
-  invoked as a child process (mirroring RFC 0052's target packs) or some
-  other mechanism — a decision for whenever this is actually built, not
-  foreclosed by this ADR either way.
+For every compiler artifact:
 
-## Non-goals
+- validate the logical key again as a driver backstop;
+- reject absolute paths, traversal, host separators, symlink escapes, and
+  case-folded collisions;
+- create only directories contained by the canonical staging root; and
+- write the complete supplied content without altering line endings or `#line`
+  mappings.
 
-- Changing Hexal syntax or semantics in this placeholder ADR.
-- Giving the core compiler filesystem or process-execution capabilities.
-- Choosing a C frontend, build system, package manager, or cache format now.
-- Treating arbitrary third-party build scripts as trusted by default.
-- Building multi-version compiler resolution/download now. Only the
-  decoupling boundary (`cmd/hexal` carries no version-specific compiler
-  logic) is fixed at this stage.
+An explicit `-out` authorizes only the final executable to be published outside
+the intermediate directory. It does not authorize intermediate files there.
+
+Publication rules:
+
+- resolve and validate the destination's parent directory;
+- link to a temporary sibling file in that directory;
+- close the linker process successfully before publication;
+- atomically replace an existing destination with the native Windows replace
+  operation, or atomically rename the sibling when no destination exists;
+- a failed build removes its staging tree and temporary executable; and
+- a successful build removes its staging tree once publication completes,
+  so repeated builds cannot accumulate stale trees; and
+- a failed build leaves any previously published executable unchanged.
+
+An existing regular output file may be replaced by a successful explicit
+build. A directory, symlink, junction, or non-regular destination is rejected.
+
+## Backend invocation
+
+The driver resolves `zig` through `PATH`, requires exactly version `0.16.0`,
+and validates its reported `lib_dir`. It maps the explicit
+`TargetX86_64WindowsGNU` profile to Zig's `x86_64-windows-gnu` target spelling
+and dynamic-UCRT policy, and rejects any other host or profile before starting
+Zig.
+
+Every command record identifies the resolved executable and reported tool
+version. The installed backend is non-cacheable until a later distribution
+design supplies a stable backend identity.
+
+Generated translation units are sorted by normalized logical filename. For
+each `.c`, invoke one object compilation:
+
+```text
+zig cc -std=c23 -target x86_64-windows-gnu ... -c <source> -o <object>
+```
+
+After every object succeeds, sort objects by the corresponding logical source
+key and invoke a separate link command. Go map iteration never determines a
+command argument order.
+
+The driver does not choose or invoke LLD directly. Zig owns linker selection.
+The Windows profile links dynamically against UCRT; v1 exposes no static-link
+option.
+
+## Required facility inventory
+
+Generated C selects headers on demand. Backend qualification covers the union
+of all headers and C23 facilities reachable from supported generated programs:
+
+```text
+Portable: <errno.h> <inttypes.h> <limits.h> <math.h> <stdatomic.h>
+          <stdckdint.h> <stddef.h> <stdint.h> <stdio.h> <stdlib.h>
+          <string.h>
+Windows:  <windows.h> <process.h>
+```
+
+`<threads.h>` is not required. The Windows runtime uses native threading
+primitives. A missing facility is a toolchain failure; the compiler does not
+emit a fallback implementation merely to support an unqualified backend.
+
+The inventory is derived mechanically from the generator requirement collector
+and package templates. A guard test fails when production begins using a header
+or language facility absent from the qualification fixture.
+
+## `hexal doctor`
+
+`doctor` checks the backend, not the current project. It never looks for
+`main.hex` and therefore needs no note/warning severity solely for project
+absence.
+
+It reports every independently checkable problem:
+
+- resolved Zig executable;
+- exact Zig version;
+- contained readable `lib_dir`;
+- full generated facility/header probe; and
+- compile-link-run probe for `x86_64-windows-gnu`.
+
+If the backend prerequisite is missing or cannot run, dependent checks are
+skipped and that prerequisite failure is reported once. Success prints
+`doctor: all checks passed`; any failure prints one report and exits `1`.
+
+## CLI
+
+```text
+hexal build [options]
+hexal doctor
+hexal version
+hexal --version
+hexal play
+hexal help
+```
+
+Dispatch remains a flat match. Commands return errors; one top-level site
+prints `hexal: <message>` and chooses the process exit status. Do not add a CLI
+framework or reserve commands that have no behavior.
+
+`play` invokes the separate workbench package specified by ADR 0166. It does
+not place HTTP routes, embedded assets, or snippet logic in `cmd/hexal` or the
+build driver.
+
+Exact command-dispatch failures:
+
+```text
+unknown command: hexal: unknown command "<name>"       exit 1
+missing command: print usage, then hexal: expected a command   exit 1
+```
+
+## Error ownership
+
+- Configuration: invalid flags, roots, entrypoint, host, profile, or output.
+- Filesystem: discovery, read, staging, containment, collision, cleanup, or
+  publication failure.
+- Hexal compilation: pass `CompilationResult.Stderr` through unchanged.
+- C compilation: name the failing logical translation unit and retain command,
+  stdout, stderr, and exit status.
+- Link: retain the link command, stdout, stderr, and exit status.
+
+Do not collapse C compilation and link failure into one message.
+For a Hexal-compilation failure the CLI prints the compiler's rendered
+diagnostics and no additional generic `compilation failed` line.
 
 ## Validation
 
-This section is exhaustive. ADR 0055 is complete only when every item below
-passes:
+This section is exhaustive for ADR 0055.
 
-- The core compiler remains filesystem- and process-free while the driver can
-  discover sources, materialize outputs, invoke C23 compilation, and link.
-- Every generated `.c` artifact returned by the compiler is compiled exactly
-  once per build identity, including demand-driven runtime components.
-- Generated headers precede every dependent translation-unit compilation and
-  logical source mappings survive materialization.
-- Configuration, filesystem, dependency, compiler, C compiler, linker, and
-  runtime failures remain distinguishable and preserve source diagnostics.
-- Cache keys include all semantic inputs listed above; private changes avoid
-  unnecessary downstream recompilation and public/profile/foreign changes
-  invalidate every affected artifact.
-- Interrupted and failed builds cannot publish complete cache entries.
-- C compile, link, runtime, and cross-profile validation are separate from
-  pure-Go compiler tests and each reports its own evidence.
-- A missing C23 header, unsupported profile feature, or ABI mismatch is a
-  toolchain/target failure and never a silent compiler fallback.
-- The driver has no implicit permission to execute arbitrary project scripts;
-  external commands are configured explicitly and are attributable in the
-  build record.
-- `cmd/hexal/main.go` contains no compiler-version-specific logic: it only
-  parses arguments and wires the `compiler` package and driver together.
-  This is checkable by inspection today, before multi-version resolution
-  exists to test end-to-end.
+- The core compiler performs no filesystem access or process execution.
+- v1 rejects a non-x86-64-Windows host or non-qualified profile before invoking
+  Zig.
+- Backend resolution uses `PATH`, accepts exactly Zig 0.16.0, validates
+  `lib_dir`, and records the resolved executable.
+- The installed backend is non-cacheable.
+- Source discovery produces normalized logical keys and does not parse imports.
+- Discovery skips only the exact intermediate directory, not every directory
+  named `build`.
+- Source symlinks/junctions and case-folded logical-key collisions are rejected.
+- The driver passes `TargetX86_64WindowsGNU`, never `Project{}`, for a binary
+  build.
+- Every generated `.c`, including each selected `hexal/` component, is compiled
+  exactly once in deterministic logical-key order.
+- C compilation and linking use separate commands and separate error stages.
+- Link object order is deterministic and independent of Go map iteration.
+- Command records contain tool, arguments, working directory, separated
+  stdout/stderr, child exit status, and stage without capturing the complete
+  environment.
+- Generated artifacts remain inside the canonical staging root and preserve
+  their exact content and `#line` mappings.
+- Absolute, traversal, separator, symlink, junction, and case-collision artifact
+  escapes are rejected.
+- Default output is `<root>/build/<entry>.exe`.
+- Explicit `-out` may place only the final executable elsewhere.
+- Successful publication atomically replaces an existing regular executable;
+  failure preserves the previous executable and removes temporary output.
+- `doctor` performs no project discovery and exercises the complete facility
+  probe plus a real compile-link-run probe.
+- `version`, `--version`, and `help` exit `0`; unknown and missing commands exit
+  `1` with stable messages.
+- `play` starts only the modular loopback workbench server; no standalone
+  workbench executable remains.
+- The project-level build result records the Hexal version once; command
+  records do not repeat it.
+- The driver API is internal and `cmd/hexal` contains only argument handling and
+  wiring.
+- Ordinary `go test ./...` remains pure Go and needs no backend.
+- The official external qualification gate does not skip a missing or invalid
+  installed backend.
 
-## Readiness
+## Implementation plan
 
-Ready for a design review. Implementation remains blocked until RFC 0039 and
-RFC 0052 settle the compiler inputs, generated artifact contract, foreign ABI,
-and target evidence, and until the driver API, configuration format, cache
-identity, and toolchain policy are chosen.
+Implementation ownership:
+
+```text
+internal/backend   supplied by RFC 0052; backend identity and tool operations
+internal/driver    discovery, staging, command orchestration and publication
+cmd/hexal          argument parsing and presentation only
+compiler/          unchanged here except consuming RFC 0052's Project profile
+```
+
+### Phase 1: internal boundary and deterministic commands
+
+1. Move or narrow `driver` behind an internal package boundary.
+2. Add `BuildResult`, `CommandResult`, `BuildError`, and stage-aware errors.
+3. Replace `CombinedOutput` with separated stdout/stderr capture and exact
+   argument recording.
+4. Sort generated translation units and resulting objects by logical key.
+5. Compile each translation unit to an object, then link separately.
+
+### Phase 2: profile/backend integration
+
+1. Consume RFC 0052's exact-version `PATH` backend resolution.
+2. Reject unqualified hosts before invoking Zig.
+3. Pass `TargetX86_64WindowsGNU` through `Project`.
+4. Add the facility-inventory guard and full qualification probe.
+
+### Phase 3: filesystem safety
+
+1. Replace the broad `build`-directory skip with exact staging-root exclusion.
+2. Implement canonical root, symlink/junction, containment, and case-collision
+   checks.
+3. Materialize into a fresh per-build staging tree.
+4. Implement sibling-temporary final linking and atomic executable replacement.
+5. Preserve the previous executable and clean partial output on every failure.
+
+### Phase 4: CLI and doctor cleanup
+
+1. Remove project discovery from `doctor`.
+2. Keep only `build`, `doctor`, `version`, the top-level `--version` alias,
+   `play`, and `help`.
+3. Make the CLI render structured driver failures at one site.
+4. Sweep `driver/`, `cmd/hexal/`, and their tests under the CARE comment policy
+   in `AGENTS.md` (Contract, Architecture, Rationale, or Edge): remove RFC/ADR
+   provenance and non-ASCII comments while preserving local contracts.
+
+### Phase 5: conformance
+
+1. Implement every Validation item.
+2. Run pure-Go tests without a toolchain.
+3. Run the non-skipping official Zig qualification gate on x86-64 Windows.
+4. Run deterministic command/artifact comparisons and executable fixtures.
+5. Review `docs/reference.md` only for the compiler-visible `Project.Target`
+   contract; request approval before editing it.
+
+## Deferred work
+
+Dedicated future specifications own:
+
+- content-addressed C object caching (ADR 0164);
+- incremental Hexal compilation;
+- additional hosts, targets and cross-compilation;
+- project manifests and compiler-version selection;
+- C sources, headers, objects, libraries and build-system adapters;
+- static linkage; and
+- a supported public driver API.
 
 ## Reference synchronization
 
-This ADR does not add language syntax. After the driver and its project/build
-inputs stabilize, update `docs/reference.md` only for any compiler-visible
-`Project`, target-profile, generated-C, or external-linkage contract introduced
-by the implementation. Keep filesystem discovery, cache format, tool commands,
-and runtime validation behavior in this ADR and the driver documentation.
+This ADR changes no Hexal syntax. With explicit approval, update
+`docs/reference.md` only for the compiler-visible `Project.Target` and qualified
+target contract introduced by RFC 0052. Filesystem paths, CLI commands, backend
+installation and publication behavior remain in this ADR and code-local
+contracts.

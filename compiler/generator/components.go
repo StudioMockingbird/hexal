@@ -127,7 +127,9 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 		numericComponents,
 		printComponents,
 		equalityComponents,
-		ioComponents,
+		func(merged *programEmission) ([]componentArtifact, error) {
+			return ioComponents(merged, config)
+		},
 		func(merged *programEmission) ([]componentArtifact, error) {
 			return concurrencyComponents(merged, config)
 		},

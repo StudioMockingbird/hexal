@@ -1423,6 +1423,12 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   strings and `entrypoint` names the selected root module. `project` carries build-time settings
   that are not part of the language; its zero value selects every default. The compiler performs
   no filesystem operations.
+- `project.Target` selects one compiler-owned target profile identity. Empty selects no profile:
+  generated runtime components keep both platform paths, chosen at C-compile time, and output
+  is host-neutral. The one qualified identity is `x86_64-windows-gnu` (x86-64 Windows, dynamic
+  UCRT); any other non-empty identity fails before lexing, and callers cannot supply individual
+  ABI facts. An explicit profile emits only the selected platform implementation; inactive
+  branches and headers are absent.
 - The result's `Files` map is the sole generated-artifact surface: `CompilationResult` has no
   `MainC`/`MainH` or other mirrored root-file fields, and `Files` is non-nil on every result.
 - `CompilationResult.Stats` is one project-level summary per compilation call. It aggregates only

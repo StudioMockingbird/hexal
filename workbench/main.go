@@ -1,15 +1,16 @@
-// Command workbench renders the Hexal snippet catalog and its generated C so a
-// reader can browse language examples beside the artifacts they compile to.
-package main
+// Package workbench renders the Hexal snippet catalog and its generated C so
+// a reader can browse language examples beside the artifacts they compile
+// to. It is a modular debugging component launched through `hexal play`, not
+// a standalone executable or a supported public embedding API.
+package workbench
 
 import (
 	_ "embed"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"hexal/compiler"
 	"hexal/workbench/snippets"
-	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -54,18 +55,22 @@ type phaseStatus struct {
 	Detail       string  `json:"detail,omitempty"`
 }
 
-func main() {
-	flag.StringVar(&indexPath, "html", indexPath, "path to index.html; empty serves the copy embedded at build time")
-	flag.Parse()
+// Serve loads the snippet catalog, binds the fixed loopback address, and
+// serves until the process stops. The startup line prints only after the
+// bind succeeds, so a bind failure returns as an error with no startup line
+// printed. It performs no project or backend discovery; compilation requests
+// call the in-memory compiler directly.
+func Serve(version string) error {
 	catalog, err := snippets.Load()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	mux := routes(catalog)
-	log.Printf("Hexal workbench listening on http://%s", workbenchAddress)
-	if err := http.ListenAndServe(workbenchAddress, mux); err != nil {
-		log.Fatal(err)
+	listener, err := net.Listen("tcp", workbenchAddress)
+	if err != nil {
+		return err
 	}
+	fmt.Printf("Hexal %s workbench: http://%s\n", version, workbenchAddress)
+	return http.Serve(listener, routes(catalog))
 }
 func routes(catalog []snippets.Category) *http.ServeMux {
 	mux := http.NewServeMux()
