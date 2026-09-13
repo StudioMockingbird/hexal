@@ -126,6 +126,17 @@ func materializeEmbeddedTree(staging, prefix, tree, destination string) error {
 	return nil
 }
 
+func nativeCompileOptions(source string, base []string) []string {
+	options := append([]string(nil), base...)
+	if strings.Contains(source, string(filepath.Separator)+"mimalloc"+string(filepath.Separator)) {
+		return append([]string{"-O2", "-DMI_BUILD_RELEASE", "-DMI_WIN_INIT_USE_RAW_DLLMAIN"}, options...)
+	}
+	if strings.Contains(source, string(filepath.Separator)+"libuv"+string(filepath.Separator)) {
+		return append([]string{"-O2"}, options...)
+	}
+	return options
+}
+
 func compileNativeDependencies(selected *backend.Backend, staging string, dependency nativeDependency, result *BuildResult) error {
 	if len(dependency.sources) == 0 {
 		return nil
@@ -134,10 +145,7 @@ func compileNativeDependencies(selected *backend.Backend, staging string, depend
 		return err
 	}
 	for index, source := range dependency.sources {
-		options := append([]string(nil), dependency.compileOptions...)
-		if strings.Contains(source, string(filepath.Separator)+"mimalloc"+string(filepath.Separator)) {
-			options = append([]string{"-DMI_BUILD_RELEASE", "-DMI_WIN_INIT_USE_RAW_DLLMAIN"}, options...)
-		}
+		options := nativeCompileOptions(source, dependency.compileOptions)
 		invocation, err := selected.CompileOneDialect(qualifiedTriple, "c11", options, source, dependency.objects[index])
 		if err != nil {
 			return &BuildError{Stage: StageCompile, Message: fmt.Sprintf("cannot run backend for native dependency %s: %v", filepath.Base(source), err)}

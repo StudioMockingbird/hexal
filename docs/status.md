@@ -14,6 +14,15 @@ gets deleted.
 | Work | Spec |
 | --- | --- |
 | Explicit `unsafe do ... end` blocks for individually classified unprovable operations; incorrect unsafe assertions may permit C undefined behavior | [0155](specs/0155-unsafe-blocks.md) |
+| Remove unreachable speculative timer, poll, DNS, shutdown, and metrics code from the implemented libuv bridge; close its initialization diagnostic and request-lifetime gaps | [0169](specs/0169-libuv-runtime-bridge.md) |
+| Add a compact libuv File/FileMode surface with stable portable Error headers | [0170](specs/0170-libuv-io-and-filesystem.md) |
+| Add unsigned nanosecond Duration, monotonic Instant, UTC WallTime, and no-result Task sleep over C23 and libuv | [0171](specs/0171-libuv-time.md) |
+
+### Coordination umbrella; not independently executable
+
+| Work | Disposition | Spec |
+| --- | --- | --- |
+| libuv capability ownership and child-RFC coordination | Umbrella only; child surfaces remain independently gated | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md) |
 
 ### Design settled; implementation blocked
 
@@ -47,6 +56,7 @@ it remains visible because hiding it would not make it less true.
 | Bug | Owning spec |
 | --- | --- |
 | Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | **deferred, and misowned** -- [0151](specs/deferred/0151-remove-strand-and-modernize-arrays.md) is about removing `Strand` and array spelling, not Dict probing. This is a live correctness defect in shipped code and needs a real owner |
+| `reference.md` names POSIX x86-64 as a supported Task target although RFC 0052 has qualified only Windows x64 | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md); reference correction requires explicit user approval |
 
 ## Known coverage gaps
 

@@ -3,6 +3,7 @@ package driver
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -239,6 +240,41 @@ func TestMaterializeMimallocDependencyFromEmbeddedSnapshot(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("materialized dependency missing %q: %v", path, err)
 		}
+	}
+}
+
+func TestNativeCompileOptionsUseReleaseFlagsPerExternalLibrary(t *testing.T) {
+	base := []string{"-I", "staging/include"}
+	for _, testCase := range []struct {
+		name   string
+		source string
+		want   []string
+	}{
+		{
+			name:   "mimalloc",
+			source: filepath.Join("staging", "dependencies", "mimalloc", "src", "static.c"),
+			want:   []string{"-O2", "-DMI_BUILD_RELEASE", "-DMI_WIN_INIT_USE_RAW_DLLMAIN", "-I", "staging/include"},
+		},
+		{
+			name:   "libuv",
+			source: filepath.Join("staging", "dependencies", "libuv", "src", "timer.c"),
+			want:   []string{"-O2", "-I", "staging/include"},
+		},
+		{
+			name:   "generated source",
+			source: filepath.Join("staging", "hexal", "runtime.c"),
+			want:   []string{"-I", "staging/include"},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := nativeCompileOptions(testCase.source, base)
+			if !reflect.DeepEqual(got, testCase.want) {
+				t.Fatalf("native compile options = %v, want %v", got, testCase.want)
+			}
+			if !reflect.DeepEqual(base, []string{"-I", "staging/include"}) {
+				t.Fatalf("native compile options mutated base slice: %v", base)
+			}
+		})
 	}
 }
 

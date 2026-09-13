@@ -61,6 +61,8 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		"void hex_scheduler_init(void) {",
+		"static void hex_install_libuv_allocator(void) {",
+		"uv_replace_allocator(mi_malloc, mi_realloc, mi_calloc, mi_free)",
 		"hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align) {",
 		"void *hex_task_join(hex_task *task) {",
 		"static _Thread_local hex_task *hex_current_task;",
@@ -69,6 +71,15 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 		if strings.Count(source, fragment) != 1 {
 			t.Fatalf("hexal/concurrency.c defines %q %d times, want once: %q", fragment, strings.Count(source, fragment), source)
 		}
+	}
+	initStart := strings.Index(source, "void hex_scheduler_init(void) {")
+	if initStart < 0 {
+		t.Fatalf("hex_scheduler_init missing: %q", source)
+	}
+	allocatorCall := strings.Index(source[initStart:], "hex_install_libuv_allocator();")
+	firstLibuvCall := strings.Index(source[initStart:], "hex_mutex_raw_init(&hex_ready_mutex)")
+	if allocatorCall < 0 || firstLibuvCall < 0 || allocatorCall >= firstLibuvCall {
+		t.Fatalf("libuv allocator must install before the scheduler's first libuv operation: %q", source)
 	}
 	// hexal.h owns none of the concurrency family.
 	for _, forbidden := range []string{"hex_scheduler_", "typedef struct hex_task", "typedef struct hex_chan", "typedef struct hex_mutex_control", "hex_task_entry_", "hex_task_spawn(", "hex_chan_send(", "hex_mutex_new("} {

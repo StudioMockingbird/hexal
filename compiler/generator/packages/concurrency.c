@@ -10,6 +10,7 @@
 {{end}}{{end}}
 #include "hexal/concurrency.h"
 #include "hexal/heap.h"
+#include <mimalloc.h>
 #include <uv.h>
 {{if .Event}}#include "hexal/event.h"
 {{end -}}
@@ -24,6 +25,15 @@
 #include <unistd.h>
 {{end -}}
 #endif
+
+// Libuv and Hexal share one allocator so memory ownership remains paired
+// across the runtime boundary. Bootstrap calls this before any other libuv
+// operation and never changes the callbacks while libuv owns allocations.
+static void hex_install_libuv_allocator(void) {
+    if (uv_replace_allocator(mi_malloc, mi_realloc, mi_calloc, mi_free) != 0) {
+        hex_runtime_trap("[Runtime Error] libuv allocator installation failed\n");
+    }
+}
 
 static bool hex_mutex_raw_init(hex_mutex_raw *mutex) {
     uv_mutex_t *native = (uv_mutex_t *)hex_heap_allocate_or_null(sizeof(uv_mutex_t));
@@ -636,6 +646,7 @@ static void hex_worker_zero_bootstrap(void *param) {
 // into the worker-zero bootstrap. The root fiber is the converted main
 // thread context; its statements run as the Hexal entry point.
 void hex_scheduler_init(void) {
+    hex_install_libuv_allocator();
     // Worker zero is the initial process thread; its overflow handler and
     // alternate signal stack are established before any Task runs.
     hex_worker_guard_setup();
