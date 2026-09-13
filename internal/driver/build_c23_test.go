@@ -11,6 +11,7 @@ package driver
 // Run with: go test -tags c23 ./internal/driver/
 
 import (
+	"debug/pe"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,6 +65,31 @@ func TestBuildProducesRunnableExecutable(t *testing.T) {
 	// A retained staging tree would fail this: a successful build owns its
 	// staging directory and removes it.
 	assertStagingRemoved(t, dir)
+}
+
+func TestBuildHasNoMimallocDLLImport(t *testing.T) {
+	requireBackend(t)
+	dir := t.TempDir()
+	writeSource(t, dir, "main.hex", "values: Array<Int32, 2> := [1, 2]\nprint(values[0])\n")
+
+	result, err := Build(BuildOptions{Root: dir})
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	image, err := pe.Open(result.Executable)
+	if err != nil {
+		t.Fatalf("open executable: %v", err)
+	}
+	defer image.Close()
+	libraries, err := image.ImportedLibraries()
+	if err != nil {
+		t.Fatalf("read executable imports: %v", err)
+	}
+	for _, library := range libraries {
+		if strings.Contains(strings.ToLower(library), "mimalloc") {
+			t.Fatalf("executable imports mimalloc shared library %q", library)
+		}
+	}
 }
 
 // TestBuildCompilesRuntimeComponents guards ADR 0055's rule that every .c
@@ -136,13 +162,20 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var result BuildResult
+	native, err := materializeDependencies(staging, compileResult.Dependencies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := compileNativeDependencies(selected, staging, native, &result); err != nil {
+		t.Fatalf("native dependency compilation failed: %v", err)
+	}
 	const driverC = "int hexal_driver_probe(void) { return 7; }\n"
 	probeSource := filepath.Join(staging, "driver_probe.c")
 	if err := os.WriteFile(probeSource, []byte(driverC), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	var result BuildResult
-	if err := compileTranslationUnits(selected, staging, cFiles, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, cFiles, native.compileOptions, &result); err != nil {
 		t.Fatalf("c compilation failed: %v", err)
 	}
 	probeObject := filepath.Join(staging, "driver_probe.o")
@@ -150,12 +183,13 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err != nil || probe.ExitCode != 0 {
 		t.Fatalf("driver c object failed to compile: %v\n%s", err, probe.Stderr)
 	}
-	objects := append(cFilesToObjects(staging, cFiles), probeObject)
+	objects := append(cFilesToObjects(staging, cFiles), native.objects...)
+	objects = append(objects, probeObject)
 	output := filepath.Join(dir, "build", "main"+exeSuffix())
 	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	tempExe, err := linkObjects(selected, staging, objects, output, &result)
+	tempExe, err := linkObjectsWithOptions(selected, staging, objects, nil, output, &result)
 	if err != nil {
 		t.Fatalf("link with driver object failed: %v", err)
 	}

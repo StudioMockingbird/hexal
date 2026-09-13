@@ -120,6 +120,28 @@ func TestConcurrencyComponentSharedDispatchCommit(t *testing.T) {
 	}
 }
 
+func TestConcurrencyComponentUsesHeapAllocator(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	files := generateOne(t, program)
+	source, exists := files["hexal/concurrency.c"]
+	if !exists {
+		t.Fatalf("hexal/concurrency.c missing")
+	}
+	if !strings.Contains(source, "#include \"hexal/heap.h\"") {
+		t.Fatalf("concurrency source must use the heap component: %q", source)
+	}
+	for _, forbidden := range []string{"malloc(", "calloc(", " free(", "\tfree(", "\nfree("} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("concurrency source retains direct allocator call %q", forbidden)
+		}
+	}
+	for _, required := range []string{"hex_heap_allocate_or_null(", "hex_heap_allocate_zeroed_or_null(", "hex_heap_free("} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("concurrency source lacks heap allocator call %q", required)
+		}
+	}
+}
+
 // Root affinity is structural: one shared publication helper broadcasts for
 // root and signals one worker otherwise, worker zero removes the FIFO head
 // without searching, and non-zero workers skip a queued root in place.

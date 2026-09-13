@@ -13,7 +13,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Pinned, vendored mimalloc v3 backend for Hexal-owned dynamic allocation, compiled and statically linked by installed Zig for `x86_64-windows-gnu` | [0146](specs/0146-mimalloc-allocation-backend.md) |
 | Explicit `unsafe do ... end` blocks for individually classified unprovable operations; incorrect unsafe assertions may permit C undefined behavior | [0155](specs/0155-unsafe-blocks.md) |
 
 ### Design settled; implementation blocked

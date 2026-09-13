@@ -9,6 +9,7 @@
 #define _GNU_SOURCE
 {{end}}{{end}}
 #include "hexal/concurrency.h"
+#include "hexal/heap.h"
 {{if .Scheduler}}
 #if defined(_WIN32)
 #include <windows.h>
@@ -166,7 +167,7 @@ static unsigned __stdcall hex_thread_trampoline(void *raw) {
     hex_thread_start *start = (hex_thread_start *)raw;
     int (*entry)(void *) = start->entry;
     void *argument = start->argument;
-    free(start);
+    hex_heap_free(start);
     return (unsigned)entry(argument);
 }
 
@@ -175,7 +176,7 @@ static unsigned __stdcall hex_thread_trampoline(void *raw) {
 // before entry runs. Closing the handle immediately does not stop the
 // running thread; no handle is retained because nothing ever joins it.
 static bool hex_thread_spawn_detached(int (*entry)(void *), void *argument) {
-    hex_thread_start *start = (hex_thread_start *)malloc(sizeof(hex_thread_start));
+    hex_thread_start *start = (hex_thread_start *)hex_heap_allocate_or_null(sizeof(hex_thread_start));
     if (start == nullptr) {
         return false;
     }
@@ -183,7 +184,7 @@ static bool hex_thread_spawn_detached(int (*entry)(void *), void *argument) {
     start->argument = argument;
     uintptr_t handle = _beginthreadex(nullptr, 0, hex_thread_trampoline, start, 0, nullptr);
     if (handle == 0) {
-        free(start);
+        hex_heap_free(start);
         return false;
     }
     CloseHandle((HANDLE)handle);
@@ -233,7 +234,7 @@ static void hex_worker_guard_setup(void) {
     // never freed because workers run until the process exits on root
     // completion.
     stack_t alt = {0};
-    alt.ss_sp = malloc(HEX_GUARD_HANDLER_STACK);
+    alt.ss_sp = hex_heap_allocate_or_null(HEX_GUARD_HANDLER_STACK);
     if (alt.ss_sp == nullptr) {
         hex_runtime_trap("[Runtime Error] stack overflow handler stack allocation failed\n");
     }
@@ -264,7 +265,7 @@ static int hex_logical_processors(void) {
 static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) {
     const size_t stack_size = {{.StackSizeExpression}};
     const size_t page_size = (size_t)sysconf(_SC_PAGESIZE);
-    hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
+    hex_context_impl *context = (hex_context_impl *)hex_heap_allocate_or_null(sizeof(hex_context_impl));
     if (context == nullptr) {
         return nullptr;
     }
@@ -279,12 +280,12 @@ static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) 
     void *region = mmap(nullptr, stack_size, PROT_READ | PROT_WRITE,
                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (region == MAP_FAILED) {
-        free(context);
+        hex_heap_free(context);
         return nullptr;
     }
     if (mprotect(region, page_size, PROT_NONE) != 0) {
         munmap(region, stack_size);
-        free(context);
+        hex_heap_free(context);
         return nullptr;
     }
     context->stack = region;
@@ -292,7 +293,7 @@ static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) 
     context->guard_end = (char *)region + page_size;
     if (getcontext(&context->context) != 0) {
         munmap(context->stack, context->stack_mapping_size);
-        free(context);
+        hex_heap_free(context);
         return nullptr;
     }
     context->context.uc_stack.ss_sp = (char *)region + page_size;
@@ -302,12 +303,12 @@ static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) 
     return context;
 }
 static hex_context_impl *hex_context_current(void) {
-    hex_context_impl *context = (hex_context_impl *)malloc(sizeof(hex_context_impl));
+    hex_context_impl *context = (hex_context_impl *)hex_heap_allocate_or_null(sizeof(hex_context_impl));
     if (context != nullptr) {
         context->stack = nullptr;
         context->guard_end = nullptr;
         if (getcontext(&context->context) != 0) {
-            free(context);
+            hex_heap_free(context);
             return nullptr;
         }
     }
@@ -335,7 +336,7 @@ static void hex_context_destroy(hex_context_impl *context) {
         if (context->stack != nullptr) {
             munmap(context->stack, context->stack_mapping_size);
         }
-        free(context);
+        hex_heap_free(context);
     }
 }
 typedef hex_context_impl *hex_context;
@@ -406,7 +407,7 @@ static void *hex_thread_trampoline(void *raw) {
     hex_thread_start *start = (hex_thread_start *)raw;
     int (*entry)(void *) = start->entry;
     void *argument = start->argument;
-    free(start);
+    hex_heap_free(start);
     entry(argument);
     return nullptr;
 }
@@ -418,7 +419,7 @@ static void *hex_thread_trampoline(void *raw) {
 // failure, which is an internal runtime failure rather than a spawn failure
 // the caller already began using the thread.
 static bool hex_thread_spawn_detached(int (*entry)(void *), void *argument) {
-    hex_thread_start *start = (hex_thread_start *)malloc(sizeof(hex_thread_start));
+    hex_thread_start *start = (hex_thread_start *)hex_heap_allocate_or_null(sizeof(hex_thread_start));
     if (start == nullptr) {
         return false;
     }
@@ -426,18 +427,18 @@ static bool hex_thread_spawn_detached(int (*entry)(void *), void *argument) {
     start->argument = argument;
     pthread_attr_t attributes;
     if (pthread_attr_init(&attributes) != 0) {
-        free(start);
+        hex_heap_free(start);
         return false;
     }
     if (pthread_attr_setdetachstate(&attributes, PTHREAD_CREATE_DETACHED) != 0) {
         pthread_attr_destroy(&attributes);
-        free(start);
+        hex_heap_free(start);
         return false;
     }
     pthread_t thread;
     if (pthread_create(&thread, &attributes, hex_thread_trampoline, start) != 0) {
         pthread_attr_destroy(&attributes);
-        free(start);
+        hex_heap_free(start);
         return false;
     }
     if (pthread_attr_destroy(&attributes) != 0) {
@@ -606,9 +607,9 @@ void hex_task_release(hex_task *task) {
         hex_context_destroy((hex_context)task->fiber);
     }
     hex_mutex_raw_destroy(&task->lifecycle_mutex);
-    free(task->args);
-    free(task->result);
-    free(task);
+    hex_heap_free(task->args);
+    hex_heap_free(task->result);
+    hex_heap_free(task);
 }
 
 // hex_task_complete is step one of the two-step completion transition,
@@ -748,7 +749,7 @@ void hex_scheduler_init(void) {
         hex_runtime_trap("[Runtime Error] scheduler mutex initialization failed\n");
     }
     hex_cond_init(&hex_ready_cond);
-    hex_root_task = (hex_task *)calloc(1, sizeof(hex_task));
+    hex_root_task = (hex_task *)hex_heap_allocate_zeroed_or_null(sizeof(hex_task));
     if (hex_root_task == nullptr) {
         hex_runtime_trap("[Runtime Error] scheduler allocation failed\n");
     }
@@ -800,38 +801,38 @@ hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_ali
     (void)result_align;
     void *args_frame = nullptr;
     if (args_size > 0) {
-        args_frame = malloc(args_size);
+        args_frame = hex_heap_allocate_or_null(args_size);
         if (args_frame == nullptr) {
             return nullptr;
         }
         memcpy(args_frame, args, args_size);
     }
-    hex_task *task = (hex_task *)calloc(1, sizeof(hex_task));
+    hex_task *task = (hex_task *)hex_heap_allocate_zeroed_or_null(sizeof(hex_task));
     if (task == nullptr) {
-        free(args_frame);
+        hex_heap_free(args_frame);
         return nullptr;
     }
     void *result_frame = nullptr;
     if (result_size > 0) {
-        result_frame = malloc(result_size);
+        result_frame = hex_heap_allocate_or_null(result_size);
         if (result_frame == nullptr) {
-            free(task);
-            free(args_frame);
+            hex_heap_free(task);
+            hex_heap_free(args_frame);
             return nullptr;
         }
     }
     task->fiber = (void *)hex_context_create(hex_task_trampoline, task);
     if (task->fiber == nullptr) {
-        free(result_frame);
-        free(task);
-        free(args_frame);
+        hex_heap_free(result_frame);
+        hex_heap_free(task);
+        hex_heap_free(args_frame);
         return nullptr;
     }
     if (!hex_mutex_raw_init(&task->lifecycle_mutex)) {
         hex_context_destroy((hex_context)task->fiber);
-        free(result_frame);
-        free(task);
-        free(args_frame);
+        hex_heap_free(result_frame);
+        hex_heap_free(task);
+        hex_heap_free(args_frame);
         return nullptr;
     }
     task->id = atomic_fetch_add(&hex_next_task_id, 1);
@@ -1046,18 +1047,18 @@ hex_chan *hex_chan_new(size_t capacity, size_t element_size) {
     if (ckd_mul(&slots_bytes, element_size, capacity)) {
         return nullptr;
     }
-    hex_chan *channel = (hex_chan *)calloc(1, sizeof(hex_chan));
+    hex_chan *channel = (hex_chan *)hex_heap_allocate_zeroed_or_null(sizeof(hex_chan));
     if (channel == nullptr) {
         return nullptr;
     }
-    channel->slots = (uint8_t *)malloc(slots_bytes);
+    channel->slots = (uint8_t *)hex_heap_allocate_or_null(slots_bytes);
     if (channel->slots == nullptr) {
-        free(channel);
+        hex_heap_free(channel);
         return nullptr;
     }
     if (!hex_mutex_raw_init(&channel->mutex)) {
-        free(channel->slots);
-        free(channel);
+        hex_heap_free(channel->slots);
+        hex_heap_free(channel);
         return nullptr;
     }
     channel->capacity = capacity;
@@ -1193,8 +1194,8 @@ void hex_chan_free(hex_chan *channel) {
         hex_runtime_trap("[Runtime Error] channel free requires a closed, empty channel\n");
     }
     hex_mutex_raw_destroy(&channel->mutex);
-    free(channel->slots);
-    free(channel);
+    hex_heap_free(channel->slots);
+    hex_heap_free(channel);
 }
 {{end}}{{if .Mutex}}
 struct hex_mutex_control {
@@ -1204,12 +1205,12 @@ struct hex_mutex_control {
 };
 
 hex_mutex *hex_mutex_new(void) {
-    hex_mutex *mutex = (hex_mutex *)calloc(1, sizeof(hex_mutex));
+    hex_mutex *mutex = (hex_mutex *)hex_heap_allocate_zeroed_or_null(sizeof(hex_mutex));
     if (mutex == nullptr) {
         return nullptr;
     }
     if (!hex_mutex_raw_init(&mutex->mutex)) {
-        free(mutex);
+        hex_heap_free(mutex);
         return nullptr;
     }
     return mutex;
@@ -1273,6 +1274,6 @@ void hex_mutex_free(hex_mutex *mutex) {
         hex_runtime_trap("[Runtime Error] mutex free while locked or awaited\n");
     }
     hex_mutex_raw_destroy(&mutex->mutex);
-    free(mutex);
+    hex_heap_free(mutex);
 }
 {{end}}

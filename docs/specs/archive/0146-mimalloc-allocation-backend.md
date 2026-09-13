@@ -1,7 +1,7 @@
 # ADR 0146: mimalloc Allocation Backend
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented
 - Created: 2026-09-08
 - Updated: 2026-09-13
 - Scope: use a pinned mimalloc v3 source revision as the backing allocator for
@@ -76,18 +76,21 @@ whether Hexal exposes another allocator choice.
   commit identity and downloaded archive SHA-256 before executing any source.
   If it fails qualification, do not silently fall back to another version;
   return this ADR to Open Discussion with the evidence.
-- Vendor the qualified exact mimalloc v3 source release and commit under
-  `third_party/mimalloc/`, including its required license and attribution
-  material.
-- Keep one small Go package at `third_party/mimalloc/` that embeds the required
-  source, headers, configuration files, license, and vendoring record with
-  `go:embed`. C sources remain below subdirectories rather than beside the Go
-  file, so the package does not require cgo.
+- Keep the official mimalloc repository as the Git submodule at
+  `modules/mimalloc/`, pinned by the parent repository to the peeled commit
+  `34fbd7e7cd4627424490afe19b20f8066bfc537d` named by tag `v3.5.1` (tag object
+  `8e05dab9b9e38aa92ab6a6e137baefeaa9e45e40`). The submodule is unmodified.
+- Keep the parent `modules/` package as the build integration boundary. It
+  embeds the upstream `include/` and `src/` trees selected from that submodule,
+  plus `MIMALLOC.md` and `MANIFEST.sha256`, so an installed compiler remains
+  self-contained without modifying the upstream checkout.
 - Do not use a system-installed mimalloc and do not download it during a
   build. The checked-in revision is the complete v1 dependency-resolution
   rule.
-- Mimalloc is not a Git submodule. A normal clone, source archive, and offline
-  build of Hexal contain the complete dependency.
+- A source checkout must initialize `modules/mimalloc` before building Hexal;
+  `git submodule update --init modules/mimalloc` is the only maintainer/source
+  checkout prerequisite. The generated-program build performed by an already
+  built compiler never invokes Git.
 - Compile the vendored `src/static.c` as a separate object with the installed
   Zig 0.16.0 backend and the vendored include directory. Build it under the
   source dialect and definitions supported by that pinned mimalloc revision;
@@ -111,7 +114,8 @@ whether Hexal exposes another allocator choice.
 
 An installed `hexal.exe` does not search for a repository checkout, sibling
 source tree, environment variable, or current-working-directory dependency.
-The driver reads mimalloc from the embedded vendored snapshot and materializes
+The driver reads mimalloc from the embedded snapshot produced from the pinned
+submodule and materializes
 the required files under the current build's isolated staging tree:
 
 ```text
@@ -521,23 +525,23 @@ not weaken the semantic validation gates below.
    or slower performance result does not silently change this architectural
    decision; record it explicitly before proceeding so the accepted cost is
    visible.
-11. Determine the transitive file closure required by `src/static.c`, then
-    vendor that source closure, its public/internal/configuration headers, and
-    license under `third_party/mimalloc/`. Preserve upstream relative paths;
-    exclude examples, benchmarks, binaries, generated build products, and
-    unrelated packaging files.
-12. Generate `VENDORING.md` with the provenance and qualified configuration,
+11. Add the official repository as the `modules/mimalloc/` submodule, check it
+    out at the peeled `v3.5.1` commit recorded above, and leave its source
+    unmodified.
+12. Generate `MIMALLOC.md` with the provenance and qualified configuration,
     plus `MANIFEST.sha256` containing every embedded dependency payload's
     logical path and file digest in bytewise path order. The manifest excludes
     itself because a file cannot contain its own digest; it includes the
-    license and `VENDORING.md`. Generate both from verified inputs; do not
-    hand-edit hashes.
-13. Compile the pruned vendored tree independently. A missing transitive include
-    or source file fails vendoring rather than being fetched or recovered from
-    the earlier extraction tree.
-14. Add the embedded-source Go package. Its embedded filesystem contains
+    upstream license and `MIMALLOC.md`. Generate both from verified inputs; do
+    not hand-edit hashes.
+13. Compile the selected upstream `src/static.c` and headers independently
+    from the initialized submodule. A missing source file fails the checkout or
+    embedding step rather than being fetched from another source.
+14. Add the parent `modules/` embedded-source Go package. Its embedded
+    filesystem contains
     exactly `MANIFEST.sha256` plus the regular files named by that manifest,
-    and no source outside `third_party/mimalloc/`.
+    with upstream files rooted under `mimalloc/` and no source outside the
+    selected `include/` and `src/` trees.
 15. Reproduce the same compile/link/run probes from embedded bytes materialized
     into a fresh staging tree. Delete all acquisition and qualification scratch
     data under `.tmp/` on success, failure, or early rejection; no downloaded
@@ -590,7 +594,8 @@ not weaken the semantic validation gates below.
 
 ### Phase 5: teach the driver to compile and link mimalloc
 
-1. Map only `RuntimeMimalloc` to the embedded vendored snapshot.
+1. Map only `RuntimeMimalloc` to the embedded snapshot supplied by the pinned
+   `modules/mimalloc/` submodule.
 2. Add an ordinary pure-Go test that walks the embedded filesystem, rejects an
    unmanifested or missing payload, recomputes every payload digest, and proves
    that its sorted inventory is exactly the manifest's paths plus the manifest
@@ -653,12 +658,12 @@ not weaken the semantic validation gates below.
 
 This section is exhaustive. The RFC is complete only when all items pass.
 
-- The qualified mimalloc `v3.5.1` full commit identity, its required source and
-  headers, license material, and reviewed compile definitions are checked in
-  under `third_party/mimalloc/`; its vendoring record names the upstream location,
-  archive digest, retained files, and patches; builds neither discover nor
-  download another copy.
-- The vendored source is embedded in `hexal.exe`; an installed compiler finds
+- The parent repository records the official mimalloc `v3.5.1` tag object and
+  peeled commit, and the `modules/mimalloc/` Git submodule is pinned to that
+  commit. Its source and headers are unmodified; `modules/MIMALLOC.md` records
+  the upstream location, archive digest, selected embedded files, compile
+  definitions, and license.
+- The selected source from the pinned submodule is embedded in `hexal.exe`; an installed compiler finds
   no repository-relative or environment-dependent path and materializes the
   exact bytes only below its isolated build staging root.
 - User builds invoke only the installed Zig backend for mimalloc; they do not
@@ -742,23 +747,38 @@ This section is exhaustive. The RFC is complete only when all items pass.
 
 - Qualified `v3.5.1` full commit identity, official source URL, archive byte
   length and SHA-256, vendored-file manifest, and license record.
-- Exact `x86_64-windows-gnu` single-source compile definitions.
-- Whether the qualified Windows thread lifecycle needs explicit mimalloc
-  entry/exit calls under the pinned revision.
-- Measured native-versus-mimalloc performance and binary-size record.
+- Exact `x86_64-windows-gnu` single-source compile definitions:
+  `-std=c11 -DMI_BUILD_RELEASE -DMI_WIN_INIT_USE_RAW_DLLMAIN`, with the
+  vendored include root. `MI_WIN_INIT_USE_RAW_DLLMAIN` removes the constructor
+  output-buffer artifact observed with Zig's `x86_64-windows-gnu` profile.
+- The qualified Windows profile needs no explicit mimalloc thread entry/exit
+  calls; the supported raw-DLL-main initialization path and lazy thread
+  lifecycle passed the cross-thread and repeated-churn probes.
+- Measurement fixture: 2,000,000 immediate 256-byte allocate/write/free
+  operations, four 128 MiB live-allocation bursts, and five batches of sixteen
+  threads performing 10,000 2 KiB allocate/free operations each. Native versus
+  mimalloc results were respectively: throughput `0.061260 s` versus
+  `0.185045 s`; peak working set `141389824` versus `169451520` bytes; final
+  burst working set `5627904` versus `169451520` bytes; and final thread-churn
+  working set `5718016` versus `169656320` bytes. Mimalloc was slower and
+  retained a larger but plateauing working set; this is recorded as an
+  accepted cost, not a performance claim.
+- `src/static.c` compile time with the exact release flags was `1474 ms` cold
+  and `93 ms` warm; the object was `1513699` bytes. The corresponding native
+  and mimalloc measurement executables were `189952` and `399360` bytes.
 
-The dependency-metadata representation, installed-Zig build path, static
-linkage, explicit `mi_*` integration, absence of global interposition, and
-preservation of Heap/Stash/Pool semantics are settled. Selecting and qualifying
-the exact third-party revision is implementation work, not a language-design
-question.
+The dependency-metadata representation, pinned-submodule source, embedded
+installed-Zig build path, static linkage, explicit `mi_*` integration, absence
+of global interposition, and preservation of Heap/Stash/Pool semantics are
+settled. The implementation is complete; closure remains a verification and
+documentation check.
 
 ## Implementation readiness
 
-Implementation-ready. Start by selecting and qualifying the pinned revision;
-then execute Phases 2 through 5 in order. Phase 6 is conditional on RFC 0145
-being implemented and otherwise remains an explicit consumer requirement for
-that RFC. No language-surface or backend-architecture decision remains.
+Implemented; closure pending. Phases 1 through 5 are complete. Phase 6 is
+conditional on RFC 0145 being implemented and remains an explicit consumer
+requirement for that RFC. No language-surface or backend-architecture decision
+remains.
 
 ## Reference synchronization
 

@@ -35,6 +35,9 @@ type CompilationResult struct {
 	// component pair); failure returns a non-nil empty map. A build driver
 	// must compile every ".c" entry, not only those under modules/.
 	Files map[string]string
+	// Dependencies is the sorted, duplicate-free, path-free set of native
+	// runtime identities required by Files. Failure returns an empty slice.
+	Dependencies []RuntimeDependency
 	// Stderr is every diagnostic of the failing stage, already rendered and
 	// ordered; it is empty on success. A compilation reports the first stage
 	// that failed, not every stage that would have.
@@ -96,10 +99,11 @@ func Compile(sources map[string]string, entrypoint string, project Project) (res
 			diagnostic := compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "compile", 0, 0,
 				"internal compiler error")
 			result = CompilationResult{
-				Files:    map[string]string{},
-				Stderr:   compilerTypes.ErrorMessages(diagnostic),
-				ExitCode: ExitFailure,
-				Stats:    stats,
+				Files:        map[string]string{},
+				Dependencies: []RuntimeDependency{},
+				Stderr:       compilerTypes.ErrorMessages(diagnostic),
+				ExitCode:     ExitFailure,
+				Stats:        stats,
 			}
 		}
 	}()
@@ -155,7 +159,7 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 	}
 
 	started = time.Now()
-	files, generateErr := generator.GenerateChecked(graph, checked, generator.Config{
+	generated, generateErr := generator.GenerateCheckedWithMetadata(graph, checked, generator.Config{
 		TaskStackReserve: project.TaskStackReserve,
 		TaskStackCommit:  project.TaskStackCommit,
 		Target:           project.Target,
@@ -166,9 +170,10 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 	}
 	finalizeStats(&stats, compileStarted)
 	return CompilationResult{
-		Files:    files,
-		ExitCode: ExitSuccess,
-		Stats:    stats,
+		Files:        generated.Files,
+		Dependencies: runtimeDependencies(generated.Dependencies),
+		ExitCode:     ExitSuccess,
+		Stats:        stats,
 	}
 }
 
@@ -501,10 +506,11 @@ func failureResult(err error, stats CompilationStats, compileStarted time.Time) 
 	// carries the failure status itself, so no failure C program or partial
 	// module artifact is emitted and Files stays non-nil and empty.
 	return CompilationResult{
-		Files:    map[string]string{},
-		Stderr:   compilerTypes.ErrorMessages(err),
-		ExitCode: ExitFailure,
-		Stats:    stats,
+		Files:        map[string]string{},
+		Dependencies: []RuntimeDependency{},
+		Stderr:       compilerTypes.ErrorMessages(err),
+		ExitCode:     ExitFailure,
+		Stats:        stats,
 	}
 }
 

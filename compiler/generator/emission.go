@@ -393,6 +393,11 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		mergeNumericSpecs(merged, module)
 		mergeEqualityTypes(merged, module)
 	}
+	if merged.concurrencyState.used {
+		// Scheduler-owned control blocks use the same allocator boundary as
+		// every other Hexal-owned dynamic allocation.
+		merged.heapState.required = true
+	}
 	sortMergedNumericSpecs(merged)
 	sortMergedEqualityTypes(merged)
 	merged.sliceState.slices = mergeTypeOrders(viewOrders)
@@ -430,8 +435,8 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		}
 		heapState := module.heapState
 		if heapState != nil && (heapState.required || len(heapState.elements) > 0) {
-			// The Heap operations use malloc/calloc/free from <stdlib.h>,
-			// size_t from <stddef.h>, and the ckd_mul checked arithmetic
+			// The Heap operations use the selected allocator, size_t from
+			// <stddef.h>, and the ckd_mul checked arithmetic
 			// from <stdckdint.h>. Diagnostic traps report through the one
 			// program-wide hex_runtime_trap.
 			requirements.add("stdckdint.h", "stddef.h", "stdlib.h")
@@ -529,7 +534,7 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			if concurrency.used {
 				// The scheduler runtime (root C) and the
 				// spawn/channel/mutex inline helpers use size_t, SIZE_MAX,
-				// int64_t/uint8_t, malloc/calloc/free, and the shared trap;
+				// int64_t/uint8_t, allocator operations, and the shared trap;
 				// Channel slot sizing uses ckd_mul. The receive machinery
 				// represents completion as hex_eos for every channel.
 				requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h")

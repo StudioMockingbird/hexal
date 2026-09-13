@@ -18,7 +18,7 @@ import (
 // mutex and condition variable, a fixed set of worker threads created with
 // C23 <threads.h>, and platform fiber contexts. Windows uses the Fiber APIs;
 // POSIX uses ucontext with one caller-allocated stack per task. Task control
-// blocks and argument frames are scheduler-owned malloc storage; user
+// blocks and argument frames are scheduler-owned allocator storage; user
 // payloads keep their explicit allocators. The program-wide handle typedefs
 // and runtime entry-point declarations live in hexal/concurrency.h; this
 // file emits only the module-owned typed helpers, argument frames, spawn

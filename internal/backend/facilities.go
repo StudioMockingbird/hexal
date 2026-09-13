@@ -75,7 +75,14 @@ int main(void) {
 // -std=c23 -target <triple> plus caller-supplied options. stdout, stderr,
 // and the exit status return separated in the result.
 func (backend *Backend) CompileOne(triple string, options []string, source, object string) (Result, error) {
-	args := append([]string{"cc", "-std=c23", "-target", triple}, options...)
+	return backend.CompileOneDialect(triple, "c23", options, source, object)
+}
+
+// CompileOneDialect compiles one translation unit using the source dialect
+// required by that unit. Generated Hexal sources use C23; vendored native
+// dependencies retain the dialect qualified by their own release.
+func (backend *Backend) CompileOneDialect(triple, dialect string, options []string, source, object string) (Result, error) {
+	args := append([]string{"cc", "-std=" + dialect, "-target", triple}, options...)
 	args = append(args, "-c", source, "-o", object)
 	return backend.Run(args...)
 }

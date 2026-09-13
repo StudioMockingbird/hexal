@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"hexal/compiler"
 	"hexal/internal/version"
 )
 
@@ -219,6 +220,25 @@ func TestMaterializeRequiresCArtifacts(t *testing.T) {
 	_, err := materialize(dir, map[string]string{"hexal.h": "/* header only */\n"})
 	if err == nil || !strings.Contains(err.Error(), "no C artifacts") {
 		t.Fatalf("expected a no-C-artifacts error, got %v", err)
+	}
+}
+
+func TestMaterializeMimallocDependencyFromEmbeddedSnapshot(t *testing.T) {
+	staging := t.TempDir()
+	dependency, err := materializeDependencies(staging, []compiler.RuntimeDependency{compiler.RuntimeMimalloc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dependency.sources) != 1 || len(dependency.objects) != 1 {
+		t.Fatalf("dependency = %#v, want one source and object", dependency)
+	}
+	for _, path := range []string{
+		filepath.Join(staging, "dependencies", "mimalloc", "include", "mimalloc.h"),
+		filepath.Join(staging, "dependencies", "mimalloc", "src", "static.c"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("materialized dependency missing %q: %v", path, err)
+		}
 	}
 }
 

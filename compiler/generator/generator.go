@@ -20,7 +20,27 @@ import (
 // order from the resolver, and every merged collection is deduplicated by
 // canonical identity in that order. config carries the build-time settings
 // that reach the generated runtime; its zero value selects the defaults.
+//
+// GenerationResult contains generated artifacts and path-free native runtime
+// requirements selected by the same demand facts that emitted the artifacts.
+type GenerationResult struct {
+	Files        map[string]string
+	Dependencies []string
+}
+
+// GenerateChecked preserves the original artifact-only generator API for
+// generator tests and internal callers that do not consume build metadata.
 func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Program, config Config) (map[string]string, error) {
+	result, err := GenerateCheckedWithMetadata(graph, programs, config)
+	if err != nil {
+		return nil, err
+	}
+	return result.Files, nil
+}
+
+// GenerateCheckedWithMetadata emits artifacts and the deterministic native
+// dependency identities required to compile and link those artifacts.
+func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string]checker.Program, config Config) (GenerationResult, error) {
 	files := make(map[string]string, 1+2*len(graph.Order))
 	modules := make([]*moduleEmission, 0, len(graph.Order))
 	literals := newLiteralRegistry()
@@ -33,24 +53,24 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 			// total by construction; a caller that assembled the checked map
 			// independently of the graph gets a diagnostic, never a silently
 			// omitted module.
-			return nil, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the graph names module %s at source key %s, but no checked program has that key", canonical, key)}
+			return GenerationResult{}, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the graph names module %s at source key %s, but no checked program has that key", canonical, key)}
 		}
 		emission, discoveryErr := discoverModuleEmission(program, canonical, key, literals)
 		if discoveryErr != nil {
-			return nil, compilerTypes.StampModule(discoveryErr, key)
+			return GenerationResult{}, compilerTypes.StampModule(discoveryErr, key)
 		}
 		modules = append(modules, emission)
 	}
 	merged, mergeErr := mergeProgramEmission(modules, literals)
 	if mergeErr != nil {
-		return nil, mergeErr
+		return GenerationResult{}, mergeErr
 	}
 	var root *moduleEmission
 	for _, emission := range modules {
 		isRoot := emission.canonicalID == entrypointCanonical
 		moduleC, moduleH, emissionErr := emitModulePair(emission, merged, isRoot)
 		if emissionErr != nil {
-			return nil, compilerTypes.StampModule(emissionErr, emission.logicalKey)
+			return GenerationResult{}, compilerTypes.StampModule(emissionErr, emission.logicalKey)
 		}
 		files["modules/"+emission.canonicalID+".c"] = moduleC
 		files["modules/"+emission.canonicalID+".h"] = moduleH
@@ -62,7 +82,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		// The entrypoint module is always emitted; its absence means the
 		// caller's order or program keys disagree with the root name, a
 		// generation defect, never a quiet hexal.h-less success.
-		return nil, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the entrypoint module %s is not among the emitted modules", entrypointCanonical)}
+		return GenerationResult{}, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the entrypoint module %s is not among the emitted modules", entrypointCanonical)}
 	}
 	header, headerErr := hexalHeader(hexalHeaderInput{
 		sizeLiterals: merged.sizeLiterals,
@@ -70,7 +90,7 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 		tags:         merged.tags,
 	})
 	if headerErr != nil {
-		return nil, headerErr
+		return GenerationResult{}, headerErr
 	}
 	files["hexal.h"] = header
 	// The demand-driven runtime components render after every
@@ -78,16 +98,20 @@ func GenerateChecked(graph *checker.ModuleGraph, programs map[string]checker.Pro
 	// internal error, never a silent overwrite.
 	components, componentErr := renderComponentArtifacts(merged, config)
 	if componentErr != nil {
-		return nil, componentErr
+		return GenerationResult{}, componentErr
 	}
 	for key, content := range components {
 		if _, exists := files[key]; exists {
-			return nil, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("duplicate generated artifact key %s", key)}
+			return GenerationResult{}, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("duplicate generated artifact key %s", key)}
 		}
 		files[key] = content
 	}
 	if tagErr := merged.tags.settled(); tagErr != nil {
-		return nil, tagErr
+		return GenerationResult{}, tagErr
 	}
-	return files, nil
+	dependencies := make([]string, 0, 1)
+	if merged.heapState != nil && (merged.heapState.required || len(merged.heapState.elements) > 0) {
+		dependencies = append(dependencies, "mimalloc")
+	}
+	return GenerationResult{Files: files, Dependencies: dependencies}, nil
 }

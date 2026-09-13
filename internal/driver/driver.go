@@ -173,6 +173,10 @@ func Build(options BuildOptions) (BuildResult, error) {
 	if err != nil {
 		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
 	}
+	native, err := materializeDependencies(staging, compileResult.Dependencies)
+	if err != nil {
+		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
+	}
 
 	output := options.Output
 	if output == "" {
@@ -183,10 +187,14 @@ func Build(options BuildOptions) (BuildResult, error) {
 		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
 	}
 
-	if err := compileTranslationUnits(backend, staging, cFiles, &result); err != nil {
+	if err := compileNativeDependencies(backend, staging, native, &result); err != nil {
 		return result, err
 	}
-	tempExe, err := linkObjects(backend, staging, cFilesToObjects(staging, cFiles), output, &result)
+	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, native.compileOptions, &result); err != nil {
+		return result, err
+	}
+	objects := append(cFilesToObjects(staging, cFiles), native.objects...)
+	tempExe, err := linkObjectsWithOptions(backend, staging, objects, nil, output, &result)
 	if err != nil {
 		return result, err
 	}
@@ -380,9 +388,14 @@ func cFilesToObjects(staging string, cFiles []string) []string {
 // logical-key order: one backend invocation per translation unit, each its
 // own C-compilation stage record with separated streams.
 func compileTranslationUnits(backend *backend.Backend, staging string, cFiles []string, result *BuildResult) error {
+	return compileTranslationUnitsWithOptions(backend, staging, cFiles, nil, result)
+}
+
+func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string, cFiles, options []string, result *BuildResult) error {
 	for _, source := range cFiles {
 		object := strings.TrimSuffix(source, ".c") + ".o"
-		invocation, err := backend.CompileOne(qualifiedTriple, []string{"-I", staging}, source, object)
+		compileOptions := append([]string{"-I", staging}, options...)
+		invocation, err := backend.CompileOne(qualifiedTriple, compileOptions, source, object)
 		if err != nil {
 			return &BuildError{Stage: StageCompile, Message: fmt.Sprintf("cannot run backend: %v", err)}
 		}
@@ -409,8 +422,12 @@ func compileTranslationUnits(backend *backend.Backend, staging string, cFiles []
 // linkObjects links every object through the backend in deterministic order.
 // The backend owns linker selection; the driver records the command.
 func linkObjects(backend *backend.Backend, staging string, objects []string, output string, result *BuildResult) (string, error) {
+	return linkObjectsWithOptions(backend, staging, objects, nil, output, result)
+}
+
+func linkObjectsWithOptions(backend *backend.Backend, staging string, objects, options []string, output string, result *BuildResult) (string, error) {
 	tempExe := output + ".tmp.exe"
-	invocation, err := backend.LinkObjects(qualifiedTriple, objects, tempExe, nil)
+	invocation, err := backend.LinkObjects(qualifiedTriple, objects, tempExe, options)
 	if err != nil {
 		return "", &BuildError{Stage: StageLink, Message: fmt.Sprintf("cannot run backend: %v", err)}
 	}

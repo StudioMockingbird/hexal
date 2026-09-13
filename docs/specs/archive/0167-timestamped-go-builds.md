@@ -1,7 +1,7 @@
 # ADR 0167: Timestamped Go Build Workflows
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implemented; closure pending
+- Status: Closed; implemented
 - Created: 2026-09-12
 - Supersedes: the plain `go install` and plain `go build` decision in ADR 0166
 - Coordinates with: ADR 0055 (filesystem and build driver) and ADR 0166

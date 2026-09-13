@@ -17,7 +17,7 @@ func TestGenerateHeapAllocationAndFree(t *testing.T) {
 	}
 	// The token and the three operation declarations own hexal/heap.h; the
 	// typed helper stays in the module header.
-	for _, want := range []string{"typedef unsigned char hex_heap;", "void *hex_heap_allocate(size_t size);", "void *hex_heap_allocate_zeroed(size_t count, size_t size);", "void hex_heap_free(void *pointer);"} {
+	for _, want := range []string{"typedef unsigned char hex_heap;", "void *hex_heap_allocate(size_t size);", "void *hex_heap_allocate_zeroed(size_t count, size_t size);", "void *hex_heap_allocate_or_null(size_t size);", "void *hex_heap_allocate_zeroed_or_null(size_t size);", "void hex_heap_free(void *pointer);"} {
 		if !strings.Contains(heapH, want) {
 			t.Fatalf("hexal/heap.h does not contain %q: %q", want, heapH)
 		}
@@ -39,6 +39,9 @@ func TestGenerateHeapAllocationAndFree(t *testing.T) {
 	}
 	if !strings.Contains(heapC, "#include \"hexal/heap.h\"") {
 		t.Fatalf("hexal/heap.c = %q, want its matching header first", heapC)
+	}
+	if !strings.Contains(heapC, "#include <mimalloc.h>") {
+		t.Fatalf("hexal/heap.c = %q, want the vendored allocator header", heapC)
 	}
 	for _, definition := range []string{
 		"void *hex_heap_allocate(size_t size) {",
@@ -72,8 +75,8 @@ func assertHeapOperationsCheckedAndTrapping(t *testing.T, heapC string) {
 	zeroed := heapOperationBody(t, heapC, "void *hex_heap_allocate_zeroed(size_t count, size_t size) {")
 	release := heapOperationBody(t, heapC, "void hex_heap_free(void *pointer) {")
 
-	if !strings.Contains(plain, "malloc(size)") || strings.Contains(plain, "calloc") || strings.Contains(plain, "memset") {
-		t.Fatalf("hex_heap_allocate = %q, want an unzeroed malloc", plain)
+	if !strings.Contains(plain, "mi_malloc(size)") || strings.Contains(plain, "mi_calloc") || strings.Contains(plain, "memset") {
+		t.Fatalf("hex_heap_allocate = %q, want an unzeroed mimalloc allocation", plain)
 	}
 	if strings.Contains(plain, "ckd_") {
 		t.Fatalf("hex_heap_allocate = %q, want no size arithmetic on a single size", plain)
@@ -81,11 +84,11 @@ func assertHeapOperationsCheckedAndTrapping(t *testing.T, heapC string) {
 	if !strings.Contains(zeroed, "ckd_mul(&total, count, size)") {
 		t.Fatalf("hex_heap_allocate_zeroed = %q, want the checked product", zeroed)
 	}
-	if !strings.Contains(zeroed, "calloc(count, size)") {
-		t.Fatalf("hex_heap_allocate_zeroed = %q, want calloc", zeroed)
+	if !strings.Contains(zeroed, "mi_calloc(count, size)") {
+		t.Fatalf("hex_heap_allocate_zeroed = %q, want mimalloc calloc", zeroed)
 	}
-	if strings.Index(zeroed, "ckd_mul") > strings.Index(zeroed, "calloc") {
-		t.Fatalf("hex_heap_allocate_zeroed = %q, want the overflow check before calloc", zeroed)
+	if strings.Index(zeroed, "ckd_mul") > strings.Index(zeroed, "mi_calloc") {
+		t.Fatalf("hex_heap_allocate_zeroed = %q, want the overflow check before mimalloc calloc", zeroed)
 	}
 	for name, body := range map[string]string{"hex_heap_allocate": plain, "hex_heap_allocate_zeroed": zeroed} {
 		if !strings.Contains(body, "[Runtime Error] heap allocation failed") {
@@ -96,8 +99,8 @@ func assertHeapOperationsCheckedAndTrapping(t *testing.T, heapC string) {
 		t.Fatalf("hex_heap_allocate_zeroed = %q, want the size trap distinct from failure", zeroed)
 	}
 	// Release owns no null, identity, liveness, or ownership check.
-	if strings.Count(release, "if") != 0 || !strings.Contains(release, "free(pointer)") {
-		t.Fatalf("hex_heap_free = %q, want an unconditional free", release)
+	if strings.Count(release, "if") != 0 || !strings.Contains(release, "mi_free(pointer)") {
+		t.Fatalf("hex_heap_free = %q, want an unconditional mimalloc free", release)
 	}
 	// Nothing recovers a header, offset, or allocator from an allocation.
 	for _, bad := range []string{"hex_heap_header", "offset", "->allocator", "->live", "uintptr_t allocator"} {

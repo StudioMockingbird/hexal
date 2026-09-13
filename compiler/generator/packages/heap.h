@@ -11,6 +11,8 @@ typedef unsigned char hex_heap;
 
 void *hex_heap_allocate(size_t size);
 void *hex_heap_allocate_zeroed(size_t count, size_t size);
+void *hex_heap_allocate_or_null(size_t size);
+void *hex_heap_allocate_zeroed_or_null(size_t size);
 void hex_heap_free(void *pointer);
 
 #endif
