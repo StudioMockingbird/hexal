@@ -123,6 +123,10 @@ func (scanner *starvationScanner) scanOperand(operand Operand) {
 			MutexConstructorExpression, MutexMethodCallExpression,
 			AtomicConstructorExpression, AtomicMethodCallExpression:
 			scanner.linked = true
+		case TimeExpression:
+			if node.Name == "task_sleep" {
+				scanner.linked = true
+			}
 		}
 	})
 }

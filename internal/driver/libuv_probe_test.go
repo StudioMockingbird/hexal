@@ -613,7 +613,6 @@ static _Thread_local hex_task current_task;
 
 hex_task *hex_task_current(void) { return &current_task; }
 void hex_task_event_arm(hex_task *value, void *pending) { value->pending_park = pending; }
-void hex_task_event_cancel(hex_task *value) { value->pending_park = nullptr; }
 void hex_task_event_wake(hex_task *value) {
     probe_state *state = (probe_state *)value->args;
     uv_mutex_lock(&state->wait.mutex);
@@ -635,13 +634,6 @@ void hex_task_event_suspend(hex_task *value) {
 
 static void fail(void *context) { *(int *)context = -1; }
 static void work(void *context) { *(int *)context = 2; }
-static void timer(void *context) { *(int *)context = 1; }
-static void dns(void *context, void *result, int status) {
-    *(int *)context = result != nullptr && status == 0 ? 3 : -1;
-}
-static void poll(void *context, int status, int events) {
-    *(int *)context = status == 0 && (events & UV_READABLE) != 0 ? 4 : -1;
-}
 static void parallel_work(void *context) { ((probe_state *)context)->value = 5; }
 static void parallel_fail(void *context) { ((probe_state *)context)->value = -1; }
 static void run_parallel(void *context) {
@@ -670,38 +662,8 @@ int main(void) {
     hex_event_runtime_init();
 
     int value = 0;
-    hex_event_timer_wait(1, timer, fail, &value);
-    if (value != 1) return 12;
-    value = 0;
     hex_event_work_call(work, fail, &value);
     if (value != 2) return 13;
-    value = 0;
-    hex_event_dns_lookup("localhost", "80", AF_INET, dns, fail, &value);
-    if (value != 3) return 14;
-
-    SOCKET receiver = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    SOCKET sender = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (receiver == INVALID_SOCKET || sender == INVALID_SOCKET) return 15;
-    struct sockaddr_in address = {0};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    if (bind(receiver, (const struct sockaddr *)&address, sizeof(address)) != 0) return 16;
-    int address_size = sizeof(address);
-    if (getsockname(receiver, (struct sockaddr *)&address, &address_size) != 0) return 17;
-    const char byte = 'x';
-    if (sendto(sender, &byte, 1, 0, (const struct sockaddr *)&address, sizeof(address)) != 1) return 18;
-    value = 0;
-    hex_event_poll_wait((intptr_t)receiver, UV_READABLE, poll, &value);
-    if (value != 4) return 19;
-    closesocket(sender);
-    closesocket(receiver);
-
-    value = 0;
-    hex_event_poll_wait((intptr_t)INVALID_SOCKET, UV_READABLE, poll, &value);
-    if (value != -1) return 24;
-    value = 0;
-    hex_event_dns_lookup(nullptr, nullptr, AF_INET, dns, fail, &value);
-    if (value != -1) return 25;
 
     enum { parallel_count = 64 };
     uv_thread_t threads[parallel_count];
@@ -717,13 +679,11 @@ int main(void) {
         uv_mutex_destroy(&parallel[index].wait.mutex);
     }
 
-    if (hex_event_idle_time() == UINT64_MAX) return 20;
     probe_state slow = {0};
     if (uv_mutex_init(&slow.wait.mutex) != 0 || uv_cond_init(&slow.wait.cond) != 0) return 26;
     uv_thread_t slow_thread;
     if (uv_thread_create(&slow_thread, run_slow, &slow) != 0) return 27;
     for (int attempt = 0; attempt < 100 && atomic_load(&slow_started) == 0; attempt++) uv_sleep(1);
-    hex_event_runtime_shutdown();
     uv_thread_join(&slow_thread);
     if (slow.value != 6) return 28;
     uv_cond_destroy(&slow.wait.cond);

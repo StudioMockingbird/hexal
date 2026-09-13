@@ -312,7 +312,8 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   restriction as a type declaration: it cannot name a type not yet declared.
 - Type and value names share one namespace. Protected names cannot be redeclared or shadowed.
   Protected types are every scalar plus `Size`, `Byte`, `Rune`, `String`, `Strand`, `Nil`, `EoS`,
-   `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, and constructors `Ptr`,
+   `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, `IO`, `Bytes`, `Seek`, `File`, `FileMode`,
+   `Duration`, `Instant`, `WallTime`, and constructors `Ptr`,
    `Slice`, `Fun`, `Array`, `List`, `Dict`, `Task`, `Channel`, `Atomic`, `Stash`, `Pool`.
    The retired `MutPtr` and `View` names stay reserved but name no type; the never-implemented
    `Ref`, `MutRef`, `Box`, and `MutSlice` names are free for user declaration.
@@ -771,7 +772,9 @@ destinations only. `none` means no fixed-width destination.
   Nil, are the only Nil comparison, and read no payload. Nil has no standalone value to compare.
 - String and Strand are not mutually comparable. Functions, allocators, and Dicts have no
   equality. An aggregate is comparable only when all recursively compared components are.
-- Ordering exists only for numeric scalars, Rune, String, and Strand. Text uses unsigned-byte
+- Ordering exists only for numeric scalars, Rune, String, and Strand. Duration, Instant, and WallTime
+  additionally compare and order by value against the same type, as defined under Time; they have
+  no aggregate equality. Text uses unsigned-byte
   lexicographic order with shorter prefix first.
 - Only `false` and `nil` are falsey. Truthiness applies to conditions and `!`, `and`, `or`; it is not
   Bool conversion or union narrowing. Logical operators return Bool and short-circuit left-to-right,
@@ -1155,6 +1158,7 @@ spawn function(args) -> Task<R> | Error
 Task<R>.join() -> R
 Task<R>.detach() -> no value
 Task.yield() -> no value
+Task.sleep(duration: Duration) -> no value
 ```
 
 - Spawn evaluates arguments once left-to-right and shallow-copies them; failure starts no task. R
@@ -1173,6 +1177,13 @@ Task.yield() -> no value
   initial commit is a Windows-only knob, and the usable region is the reserve less one guard page.
   Exceeding the reserve traps with `[Runtime Error] task stack overflow` rather than corrupting
   memory.
+- `Task.sleep(d)` parks only the current Task on the runtime event bridge; no scheduler worker
+  blocks. Using it selects the scheduler, so root may sleep. Zero returns immediately and is not a
+  scheduling point; like every parking operation it never satisfies the explicit-yield rule. A
+  duration above `Int64` maximum nanoseconds traps with `[Runtime Error] sleep duration too large`
+  before any timer starts. Sleep completes no earlier than the requested duration and promises no
+  upper lateness bound. Timer failure traps with `[Runtime Error] task sleep failed`. Root
+  completion does not wait for a detached sleeping Task.
 - Every repeating path through task-reachable literal `while true` visibly executes `Task.yield()` or
   compilation fails.
 - Spawn, join, Mutex, Channel, and sequentially consistent Atomic operations provide their specified
@@ -1238,6 +1249,47 @@ Atomic<T>.compare_exchange(expected: T, desired: T) -> Bool
   only placements. Nested object construction initializes each member in place. The resulting object
   is non-copyable but may be shared through `Ptr`. `@` of Atomic or an Atomic member is
   independently invalid. Pointers to enclosing Atomic-containing objects remain valid.
+
+## Time
+
+```text
+Duration.nanoseconds(value: UInt64)  -> Duration
+Duration.microseconds(value: UInt64) -> Duration
+Duration.milliseconds(value: UInt64) -> Duration
+Duration.seconds(value: UInt64)      -> Duration
+Duration.as_nanoseconds()            -> UInt64
+Duration.as_microseconds()           -> UInt64
+Duration.as_milliseconds()           -> UInt64
+Duration.as_seconds()                -> UInt64
+Instant.now()                        -> Instant
+Instant.elapsed()                    -> Duration
+Instant.duration_since(earlier: Instant) -> Duration
+WallTime.now()                       -> WallTime | Error
+WallTime.seconds()                   -> Int64
+WallTime.nanosecond()                -> UInt32
+```
+
+- `Duration`, `Instant`, and `WallTime` are protected value types with no scalar kind: numeric
+  operators, `to<T>()`, `print`, integer mixing, and construction other than the listed operations
+  are rejected. Arguments are exact `UInt64`/`Instant` values with no implicit conversion.
+- Duration is an unsigned nanosecond magnitude lowering to `uint64_t`. Unit constructors scale with
+  checked multiplication and trap with `[Runtime Error] duration overflow`; unit accessors
+  truncate toward zero. `Duration + Duration` traps on overflow with the same message and
+  `Duration - Duration` traps with `[Runtime Error] duration underflow` when the right operand is
+  larger. Duration has no `*` or `/`.
+- Instant is a monotonic timestamp from libuv's `uv_hrtime()` whose origin and representation are
+  not observable. `Instant - Instant` and `later.duration_since(earlier)` yield Duration and trap
+  with `[Runtime Error] invalid instant subtraction` when the left operand precedes the right;
+  `elapsed()` is `Instant.now()` minus the receiver. No other arithmetic accepts Instant.
+- WallTime is a UTC observation from C23 `timespec_get(TIME_UTC)`: signed Unix seconds and a
+  normalized `0..999_999_999` nanosecond fraction. It has no arithmetic and never converts to or
+  from Instant. Acquisition failure returns an Error with header `time unavailable` and message
+  `wall clock acquisition failed`, allocating nothing.
+- All three types support `==`, `!=`, `<`, `<=`, `>`, and `>=` against the same type; WallTime
+  orders by seconds, then fraction. Operands of different time types are rejected.
+- Selection: any time type or operation emits `hexal/time.h`/`hexal/time.c`. `Instant.now` and
+  `elapsed` additionally select libuv and its native bootstrap but not the scheduler; `WallTime`
+  selects no libuv; `Task.sleep` selects the scheduler and the event bridge.
 
 ## Byte streams
 
@@ -1310,6 +1362,54 @@ type Seek is union | Start as position: Size end | Current as offset: Int64 end 
 - Generated C confines all platform branches to `hexal/io.c`; no signature contains `#ifdef`,
   `FILE *`, or a platform type. Selecting IO, Bytes, or print selects the pair plus the
   `List<UInt8>` specialization once; programs using none emit no IO artifact.
+
+### `File`
+
+```text
+File.open(path: String, mode: FileMode) -> File | Error
+File.read(into: List<Byte>, max: Size)   -> Size | EoS | Error
+File.write(from: Slice<Byte>)            -> Size | Error
+File.seek(to: Seek)                      -> Size | Error
+File.flush()                             -> Nil | Error
+File.close()                             -> Nil | Error
+
+type FileMode is Read | Write | Append | ReadWrite | CreateNew end
+```
+
+- `File` and `FileMode` are protected. FileMode variants construct call-shaped, for example
+  `FileMode.Read()`. File lowers to `{ intptr_t desc, uint8_t access }` over one owned libuv file
+  descriptor; it is distinct from IO and exposes no descriptor, libuv, or platform name.
+- Modes: `Read` opens an existing file read-only; `Write` opens write-only, creating or truncating;
+  `Append` opens write-only, creating, and every write lands at the then-current end; `ReadWrite`
+  opens an existing file for both without truncation; `CreateNew` creates a write-only file and
+  fails when the path exists. New POSIX files request mode `0666` subject to the umask.
+- Paths are UTF-8 `String` values passed without normalization, canonicalization, case folding, or
+  absolute conversion. An embedded NUL fails before any request with header `invalid path` and
+  message `file open failed`.
+- Read is permitted by Read and ReadWrite; write and flush by Write, Append, ReadWrite, and
+  CreateNew; seek and close by every mode. Capability checking follows IO's two tiers and precedes
+  the zero-length path: a statically known mismatch rejects at the call, otherwise the operation
+  returns an Error with header `filesystem error` and message `file is not readable` or
+  `file is not writable`.
+- Read, write, EoS, zero-length, partial-transfer, per-call clamp (`UINT32_MAX` bytes), destination
+  reservation, copied-cursor, close-state, and placement rules match IO. Read and write use and
+  advance the shared descriptor position. `flush` completes after `uv_fs_fsync` succeeds. `seek`
+  runs directly, never through the worker pool. Every File owns its descriptor; close invalidates
+  every copy even on failure and is never retried. Only `File.close()` may appear in defer/errdefer.
+- Outside a Task each operation uses libuv's synchronous filesystem request; inside a Task it parks
+  only that Task on the event bridge. Filesystem requests share libuv's worker pool. Root completion
+  does not wait for a detached Task doing File work.
+- Failures carry a static operation message (`file open failed`, `file read failed`,
+  `file write failed`, `file seek failed`, `file flush failed`, `file close failed`) and one
+  portable header, identical on every target and never containing a path or native code:
+  `not found` (ENOENT), `permission denied` (EACCES, EPERM), `already exists` (EEXIST),
+  `invalid path` (ENAMETOOLONG, ELOOP, and EINVAL from open only), `not a directory`,
+  `is a directory`, `directory not empty`, `read only`, `busy`, `interrupted`, `cancelled`,
+  `unsupported` (ENOSYS, ENOTSUP), and `filesystem error` for every other result. No failure path
+  allocates. Existing IO headers are unchanged.
+- Selection: reachable File use emits `hexal/file.h`/`hexal/file.c` and selects libuv, mimalloc, and
+  the native bootstrap; File without the scheduler selects no event bridge. IO and print without
+  Task keep their direct path and select no libuv.
 
 ## Layout intrinsics
 
@@ -1453,8 +1553,13 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   emitted only when that family is reachable:   `hexal/runtime.c` (the `hex_runtime_trap`
   definition), `hexal/wrap.h`, `hexal/heap.h`/`hexal/heap.c`, `hexal/slice.h`, `hexal/string.h`/
   `hexal/string.c`, `hexal/error.h`, `hexal/list.h`, `hexal/dict.h`, `hexal/array.h`,
-  `hexal/numeric.h`, `hexal/print.h`/`hexal/print.c`, `hexal/equality.h`, and
-  `hexal/concurrency.h`/`hexal/concurrency.c`. Their source of truth is the compiler's embedded C/
+  `hexal/numeric.h`, `hexal/print.h`/`hexal/print.c`, `hexal/equality.h`,
+  `hexal/concurrency.h`/`hexal/concurrency.c`, `hexal/io.h`/`hexal/io.c`, `hexal/seek.h`,
+  `hexal/event.h`/`hexal/event.c`, `hexal/time.h`/`hexal/time.c`, and `hexal/file.h`/
+  `hexal/file.c`. A program that links libuv (scheduler, Instant, or File) also gets
+  `hex_runtime_native_init`, declared in `hexal.h` and defined in `hexal/runtime.c`; root `main`
+  calls it first, before any module statement and the scheduler, to install mimalloc as libuv's
+  allocator. Their source of truth is the compiler's embedded C/
   header templates; a `.c` artifact is emitted only when it contains at least one definition.
   Component headers have stable `HEXAL_<COMPONENT>_H` guards, include `hexal.h` first and then only
   their declared dependencies (heap, slice, string, error, list, dict, array, numeric, print,

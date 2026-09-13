@@ -1,7 +1,8 @@
 # RFC 0169: libuv Runtime Bridge Cleanup
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; cleanup of the RFC 0145 runtime bridge
+- Status: Closed; implemented. Initialization failure, native-work saturation,
+  and park-race fixtures run under the tagged driver gate
 - Created: 2026-09-13
 - Updated: 2026-09-13
 - Scope: centralize libuv bootstrap, remove unused speculative bridge

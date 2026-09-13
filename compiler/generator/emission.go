@@ -22,6 +22,9 @@ type cHeaderRequirements struct {
 	headers map[string]bool
 	eos     bool
 	trap    bool
+	// native selects the program-wide libuv bootstrap: its hexal.h
+	// declaration, its hexal/runtime.c definition, and the root main call.
+	native bool
 }
 
 func (requirements *cHeaderRequirements) add(headers ...string) {
@@ -69,6 +72,8 @@ type moduleEmission struct {
 	endianSpecs       []endianSpec
 	printState        *generatedPrintState
 	ioState           *generatedStreamState
+	timeState         *generatedTimeState
+	fileState         *generatedFileState
 	concurrencyState  *generatedConcurrencyState
 	wrapState         *generatedWrapState
 	stashState        *stashHelpers
@@ -153,6 +158,8 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	}
 	emission.printState = printState
 	emission.ioState = discoverGeneratedStreams(program, logicalKey, literals)
+	emission.timeState = discoverGeneratedTime(program, logicalKey, literals)
+	emission.fileState = discoverGeneratedFiles(program, logicalKey, literals)
 	emission.wrapState = discoverGeneratedWraps(program)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
 	if concurrencyErr != nil {
@@ -170,6 +177,14 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		emission.stringUsed = true
 		heapState.required = true
 	}
+	if len(emission.timeState.wallUnions) > 0 {
+		// WallTime.now builds its failure Error from the module file literal
+		// and a static String message.
+		literals.used = true
+		literals.strand = true
+		emission.stringUsed = true
+		emission.errorUsed = true
+	}
 	if emission.errorUsed {
 		// Error's representation names the String and Strand types, so the
 		// string component is a required dependency of error.h.
@@ -183,7 +198,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		literals.used = true
 		emission.stringUsed = true
 	}
-	if (emission.ioState != nil && emission.ioState.used) || (emission.printState != nil && emission.printState.used) {
+	if (emission.ioState != nil && emission.ioState.used) || (emission.printState != nil && emission.printState.used) || emission.fileState.used {
 		// print's descriptor write-all sink selects hexal/io.c exactly like a
 		// direct stream operation does (see io_component.go's own selection
 		// condition), so it carries the identical dependency set: the Byte
@@ -266,6 +281,12 @@ type programEmission struct {
 	// ioState merges every module's stream families; selecting IO, Bytes, or
 	// print emits the component pair once program-wide.
 	ioState *generatedStreamState
+	// timeState merges every module's time demand; any time type or
+	// operation emits hexal/time.h and hexal/time.c once program-wide.
+	timeState *generatedTimeState
+	// fileState merges every module's File demand; File emits hexal/file.h and
+	// hexal/file.c once program-wide.
+	fileState *generatedFileState
 	// seekUsed is true when any module's stream state reaches Bytes.seek or
 	// IO.seek, selecting hexal/seek.h once program-wide. It is tracked
 	// separately from ioState's own four merged flags, which exist only for
@@ -318,6 +339,8 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		},
 		wrapState:    &generatedWrapState{seen: make(map[string]bool)},
 		ioState:      &generatedStreamState{},
+		timeState:    &generatedTimeState{},
+		fileState:    &generatedFileState{},
 		adapterSites: make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -351,6 +374,9 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 			merged.ioState.closeIO = merged.ioState.closeIO || module.ioState.closeIO
 			merged.seekUsed = merged.seekUsed || module.ioState.seekIO || module.ioState.seekBytes
 		}
+		mergeTimeInto(merged.timeState, module.timeState)
+		mergeFileInto(merged.fileState, module.fileState)
+		merged.seekUsed = merged.seekUsed || module.fileState != nil && module.fileState.seek
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
 		mergeWrapState(merged.wrapState, module.wrapState)
@@ -392,6 +418,10 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		}
 		mergeNumericSpecs(merged, module)
 		mergeEqualityTypes(merged, module)
+	}
+	if libuvSelected(merged) {
+		// The native bootstrap installs mimalloc as libuv's allocator.
+		merged.heapState.required = true
 	}
 	if merged.concurrencyState.used {
 		// Scheduler-owned control blocks use the same allocator boundary as
@@ -551,6 +581,18 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 				requirements.add("stdatomic.h")
 			}
 		}
+		if module.fileState != nil && module.fileState.used {
+			// The File core spells descriptors as intptr_t, reserves list
+			// capacity with ckd_add, and traps on an unrepresentable size.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h")
+			requirements.trap = true
+		}
+		if module.timeState != nil && module.timeState.used {
+			// Time values spell uint64_t/int64_t/uint32_t, and checked Duration
+			// arithmetic and Instant subtraction trap.
+			requirements.add("stdint.h")
+			requirements.trap = true
+		}
 		if module.stashState != nil && module.stashState.required {
 			// The bump-allocation core sizes and grows blocks with ckd_add
 			// and ckd_mul, spells sizes as size_t, and traps on an
@@ -586,6 +628,11 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 	if merged.wrapState != nil && len(merged.wrapState.order) > 0 {
 		// The signed wrapping helpers adapt ckd_* result-pointer macros.
 		requirements.add("stdckdint.h")
+	}
+	if libuvSelected(merged) {
+		// The native bootstrap traps when allocator installation fails.
+		requirements.native = true
+		requirements.trap = true
 	}
 	if requirements.trap {
 		// The one program-wide trap declaration and root definition own
@@ -894,6 +941,11 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		// module ever declares or defines main() or process-wide runtime
 		// state.
 		moduleBody.WriteString("int main(void) {\n")
+		if merged.requirements != nil && merged.requirements.native {
+			// The native bootstrap precedes every module statement and the
+			// scheduler, so no libuv call can run before its allocator.
+			moduleBody.WriteString("    hex_runtime_native_init();\n")
+		}
 		if merged.concurrencyState != nil && merged.concurrencyState.used {
 			moduleBody.WriteString("    hex_scheduler_init();\n")
 		}
@@ -929,6 +981,8 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		heaps:       emission.heapState,
 		printState:  emission.printState,
 		streams:     emission.ioState,
+		time:        emission.timeState,
+		files:       emission.fileState,
 		concurrency: emission.concurrencyState,
 		stringState: stringState,
 		tags:        merged.tags,
@@ -998,6 +1052,8 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, moduleNumericComponent(emission)...)
 	components = append(components, modulePrintComponent(emission)...)
 	components = append(components, moduleStreamComponent(emission)...)
+	components = append(components, moduleFileComponent(emission)...)
+	components = append(components, moduleTimeComponent(emission)...)
 	components = append(components, moduleEqualityComponent(emission)...)
 	return components
 }
@@ -1023,6 +1079,8 @@ type moduleHeaderInput struct {
 	heaps       *heapHelpers
 	printState  *generatedPrintState
 	streams     *generatedStreamState
+	time        *generatedTimeState
+	files       *generatedFileState
 	concurrency *generatedConcurrencyState
 	stringState *literalRegistry
 	tags        *tagRegistry
@@ -1054,6 +1112,8 @@ type hexalHeaderModel struct {
 	SizeAsserts  []string
 	Eos          bool
 	TrapDeclared bool
+	// NativeDeclared declares the program-wide libuv bootstrap.
+	NativeDeclared bool
 	// Tags are the finalized program-wide discriminant constants, in enum
 	// order; empty when no reachable general union or ADT exists.
 	Tags []string
@@ -1073,6 +1133,7 @@ func hexalHeader(input hexalHeaderInput) (string, error) {
 		model.Includes = headers
 		model.Eos = input.requirements.eos
 		model.TrapDeclared = input.requirements.trap
+		model.NativeDeclared = input.requirements.native
 	}
 	return renderComponent(componentArtifact{key: "hexal.h", template: "hexal.h", model: model})
 }
@@ -1123,6 +1184,12 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 		return "", err
 	}
 	if err := writeStreamInlineHelpers(&result, input.streams, input.stringState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeTimeInlineHelpers(&result, input.time, input.stringState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeFileInlineHelpers(&result, input.files, input.stringState, input.tags); err != nil {
 		return "", err
 	}
 	if input.prototypes != "" {
@@ -1313,7 +1380,7 @@ func (writer *nominalBodyWriter) ensureObject(object *compilerTypes.ObjectType) 
 
 func (writer *nominalBodyWriter) ensureAdt(adtType compilerTypes.Type) {
 	adt := adtType.Adt
-	if adt == nil || writer.definedAdt[adt] || compilerTypes.IsSeek(adtType) {
+	if adt == nil || writer.definedAdt[adt] || compilerTypes.IsBuiltinAdt(adtType) {
 		// Seek is a fixed, module-ownerless built-in ADT emitted once, by
 		// seekComponents/moduleSeekComponent, into a shared header instead
 		// of repeated inline per module; see the identical skip this

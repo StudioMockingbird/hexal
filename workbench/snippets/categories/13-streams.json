@@ -109,6 +109,37 @@
       },
       "features": ["streams", "adts", "unions", "errors"],
       "reservedWords": ["fun", "do", "end", "if", "then", "is", "mut", "defer", "try", "return", "nil"]
+    },
+    {
+      "id": "streams-file-round-trip",
+      "name": "File round trip",
+      "description": "Write, flush, reopen, and read a regular file, and branch on a portable Error header.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun round_trip(h: Heap): Nil | Error do",
+          "    out := try File.open(\"notes.txt\", FileMode.Write())",
+          "    defer out.close()",
+          "    wrote := try out.write(\"hello file\\n\".bytes())",
+          "    try out.flush()",
+          "    input := try File.open(\"notes.txt\", FileMode.Read())",
+          "    defer input.close()",
+          "    buffer: List<Byte> := List<Byte>(h)",
+          "    defer buffer.free(h)",
+          "    got: Size | EoS | Error := input.read(buffer, 4096)",
+          "    missing := File.open(\"settings.toml\", FileMode.Read())",
+          "    if missing is Error then",
+          "        if missing.header == \"not found\" then",
+          "            print(\"using defaults\\n\")",
+          "        end",
+          "    end",
+          "    return nil",
+          "end",
+          "done: Nil | Error := round_trip(Heap())"
+        ]
+      },
+      "features": ["files", "streams", "errors", "defer"],
+      "reservedWords": ["fun", "do", "end", "try", "defer", "if", "is", "then", "return", "nil"]
     }
   ]
 }

@@ -1,7 +1,8 @@
 # RFC 0170: libuv File
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented. `docs/reference.md` documents the File and
+  FileMode surface
 - Created: 2026-09-13
 - Updated: 2026-09-13
 - Scope: add regular-file open, read, write, seek, flush, and close over libuv

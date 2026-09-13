@@ -18,6 +18,10 @@ type listComponentModel struct {
 	// hexal/string.h -- a direct dependency of this file, not something a
 	// consumer's own include order can be relied on to supply first.
 	NeedsHeapString bool
+	// NeedsConcurrency is true when some element is a Task, Channel, or Mutex
+	// handle, whose typedef hexal/concurrency.h owns; a component .c that
+	// includes this header directly cannot rely on a module include order.
+	NeedsConcurrency bool
 }
 
 // listComponentRecord is one reachable List specialization's spelling facts:
@@ -37,7 +41,8 @@ type listComponentRecord struct {
 	SliceCName    string
 	MutSliceCName string
 	// NeedsHeapString is true when this specialization's element is String.
-	NeedsHeapString bool
+	NeedsHeapString  bool
+	NeedsConcurrency bool
 }
 
 // listComponentRecordFor builds the spelling record of one List
@@ -60,13 +65,14 @@ func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceS
 		mutSliceCName = slice.CName
 	}
 	return listComponentRecord{
-		CName:           list.CName,
-		Suffix:          listSuffix(list),
-		ElementSpelling: elementSpelling,
-		AtReadReturn:    atReadReturn,
-		SliceCName:      sliceCName,
-		MutSliceCName:   mutSliceCName,
-		NeedsHeapString: compilerTypes.IsString(element),
+		CName:            list.CName,
+		Suffix:           listSuffix(list),
+		ElementSpelling:  elementSpelling,
+		AtReadReturn:     atReadReturn,
+		SliceCName:       sliceCName,
+		MutSliceCName:    mutSliceCName,
+		NeedsHeapString:  compilerTypes.IsString(element),
+		NeedsConcurrency: element.Task != nil || element.Channel != nil || compilerTypes.IsMutex(element),
 	}
 }
 
@@ -90,7 +96,7 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/list.h",
 		template: "list.h",
-		model:    listComponentModel{Lists: records, NeedsSlice: listRecordsNeedSlice(records), NeedsHeapString: listRecordsNeedHeapString(records)},
+		model:    listComponentModel{Lists: records, NeedsSlice: listRecordsNeedSlice(records), NeedsHeapString: listRecordsNeedHeapString(records), NeedsConcurrency: listRecordsNeedConcurrency(records)},
 	}}, nil
 }
 
@@ -126,6 +132,17 @@ func listRecordsNeedSlice(records []listComponentRecord) bool {
 func listRecordsNeedHeapString(records []listComponentRecord) bool {
 	for _, record := range records {
 		if record.NeedsHeapString {
+			return true
+		}
+	}
+	return false
+}
+
+// listRecordsNeedConcurrency reports whether any list element spells a
+// concurrency handle typedef.
+func listRecordsNeedConcurrency(records []listComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsConcurrency {
 			return true
 		}
 	}

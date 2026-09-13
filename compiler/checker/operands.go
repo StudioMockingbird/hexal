@@ -255,6 +255,14 @@ const (
 	// OperandType is that adapted receiver type; ResultType is the
 	// operation's structural result union.
 	StreamMethodCallExpression
+	// TimeExpression is one time-surface operation. Name selects it
+	// (duration_<unit>, duration_as_<unit>, duration_add, duration_sub,
+	// instant_now, instant_elapsed, instant_since, wall_now, wall_seconds,
+	// wall_nanosecond, compare, or task_sleep); Arguments holds every operand
+	// in written order, receiver first; OperandType is the time type the
+	// operation acts on; Operator is set only for compare. wall_now carries
+	// its source site for the Error it may construct.
+	TimeExpression
 	// FunctionLiteralExpression is a non-capturing anonymous function value
 	// checked in expression position: stored, passed, returned, or invoked
 	// directly. Function carries its checked signature and body; ResultType

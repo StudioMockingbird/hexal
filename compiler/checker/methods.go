@@ -400,6 +400,15 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "IO" {
 		return checkIOTypeCall(call, variable, ctx)
 	}
+	// Duration.<unit>(value), Instant.now(), and WallTime.now() name the
+	// built-in time types.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && (variable.Name.Lexeme == "Duration" || variable.Name.Lexeme == "Instant" || variable.Name.Lexeme == "WallTime") {
+		return checkTimeTypeCall(call, variable, ctx)
+	}
+	// File.open(path, mode) names the built-in File type.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "File" {
+		return checkFileTypeCall(call, variable, ctx)
+	}
 	// Bytes.over(buffer) names the built-in Bytes type.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Bytes" {
 		return checkBytesTypeCall(call, variable, ctx)
@@ -431,6 +440,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if receiverDiagnostics := initializerDiagnostics(receiver); len(receiverDiagnostics) > 0 {
 		return receiver
 	}
+	receiver = narrowedReceiver(receiver)
 	// The compiler-owned `to<Dest>()` conversion resolves on eligible scalar
 	// receivers before user method lookup. A receiver depending on a generic
 	// parameter defers to specialization.
@@ -505,11 +515,18 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if compilerTypes.IsIO(receiver.typ) {
 		return checkIOStreamMethodCall(call, callee, receiver, ctx)
 	}
+	if compilerTypes.IsFile(receiver.typ) {
+		return checkFileMethodCall(call, callee, receiver, ctx)
+	}
 	if receiver.typ.Element != nil && compilerTypes.IsBytes(*receiver.typ.Element) {
 		return checkBytesStreamMethodCall(call, callee, receiver, ctx)
 	}
 	if compilerTypes.IsBytes(receiver.typ) {
 		return checkBytesStreamMethodCall(call, callee, receiver, ctx)
+	}
+	// Time value operations dispatch on the three time receiver types.
+	if compilerTypes.IsTime(receiver.typ) {
+		return checkTimeMethodCall(call, callee, receiver, ctx)
 	}
 	// String methods dispatch on the built-in String receiver type.
 	if compilerTypes.IsString(receiver.typ) {

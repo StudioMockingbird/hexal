@@ -10,7 +10,6 @@
 {{end}}{{end}}
 #include "hexal/concurrency.h"
 #include "hexal/heap.h"
-#include <mimalloc.h>
 #include <uv.h>
 {{if .Event}}#include "hexal/event.h"
 {{end -}}
@@ -25,15 +24,6 @@
 #include <unistd.h>
 {{end -}}
 #endif
-
-// Libuv and Hexal share one allocator so memory ownership remains paired
-// across the runtime boundary. Bootstrap calls this before any other libuv
-// operation and never changes the callbacks while libuv owns allocations.
-static void hex_install_libuv_allocator(void) {
-    if (uv_replace_allocator(mi_malloc, mi_realloc, mi_calloc, mi_free) != 0) {
-        hex_runtime_trap("[Runtime Error] libuv allocator installation failed\n");
-    }
-}
 
 static bool hex_mutex_raw_init(hex_mutex_raw *mutex) {
     uv_mutex_t *native = (uv_mutex_t *)hex_heap_allocate_or_null(sizeof(uv_mutex_t));
@@ -345,15 +335,6 @@ void hex_task_event_arm(hex_task *task, void *pending) {
     atomic_store_explicit(&task->park_phase, HEX_PARK_PARKING, memory_order_release);
 }
 
-void hex_task_event_cancel(hex_task *task) {
-    uint8_t expected = HEX_PARK_PARKING;
-    if (!atomic_compare_exchange_strong_explicit(&task->park_phase, &expected, HEX_PARK_RUNNING,
-                                                  memory_order_acq_rel, memory_order_acquire)) {
-        hex_runtime_trap("[Runtime Error] event submission changed Task state\n");
-    }
-    task->pending_park = nullptr;
-}
-
 // hex_ready_publish is the one shared ready-queue publication: it appends
 // to the existing FIFO under the ready mutex, then signals one worker for
 // an ordinary Task or broadcasts for root so worker zero necessarily wakes.
@@ -645,8 +626,8 @@ static void hex_worker_zero_bootstrap(void *param) {
 // runs the root statements next, and dispatch begins on root's first switch
 // into the worker-zero bootstrap. The root fiber is the converted main
 // thread context; its statements run as the Hexal entry point.
+// The program bootstrap has already installed the libuv allocator.
 void hex_scheduler_init(void) {
-    hex_install_libuv_allocator();
     // Worker zero is the initial process thread; its overflow handler and
     // alternate signal stack are established before any Task runs.
     hex_worker_guard_setup();

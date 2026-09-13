@@ -65,6 +65,10 @@ func discoverGeneratedStreams(program checker.Program, logicalKey string, litera
 	state := &generatedStreamState{}
 	visitor := &programVisitor{
 		Expression: func(node checker.Expression) error {
+			if isFileNode(node) {
+				// File owns its own discovery; it never selects the IO pair.
+				return nil
+			}
 			switch node.Kind {
 			case checker.StreamConstructorExpression:
 				state.used = true
@@ -143,6 +147,9 @@ func streamAdapterSuffix(union compilerTypes.Type) string {
 // renderStreamConstructor renders one standard-handle constructor through its
 // per-module open adapter.
 func renderStreamConstructor(node checker.Expression, state *expressionValidation) (string, error) {
+	if isFileNode(node) {
+		return renderFileOpen(node, state)
+	}
 	if !compilerTypes.IsIO(node.OperandType) {
 		return "", unknownExpressionDiagnostic("stream constructor without a checked IO result")
 	}
@@ -175,6 +182,9 @@ func isBytesReceiver(node checker.Expression) bool {
 // result-union adapter. The receiver arrives already adapted: an IO value for
 // OS-backed operations, a Ptr<mut Bytes> value for memory ones.
 func renderStreamMethod(node checker.Expression, state *expressionValidation) (string, error) {
+	if isFileNode(node) {
+		return renderFileMethod(node, state)
+	}
 	receiver, _, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 	if err != nil {
 		return "", err
@@ -245,6 +255,9 @@ func streamErrorArm(tags *tagRegistry, literals *literalRegistry, file string, u
 // validateStreamConstructor checks one standard-handle constructor fail-closed:
 // IO receiver shape, a known handle name, and exactly the IO | Error union.
 func validateStreamConstructor(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if isFileNode(node) {
+		return validateFileConstructor(node, expected, state)
+	}
 	if !compilerTypes.IsIO(node.OperandType) || node.ResultType.Union == nil {
 		return unknownExpressionDiagnostic("stream constructor has invalid checked metadata")
 	}
@@ -282,6 +295,9 @@ func validateBytesOverExpression(node checker.Expression, expected *compilerType
 // validateStreamMethodCall checks one read/write/seek/close: receiver form,
 // argument count and shapes, and exactly the operation's canonical union.
 func validateStreamMethodCall(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if isFileNode(node) {
+		return validateFileMethodCall(node, expected, state)
+	}
 	if node.Operand == nil {
 		return unknownExpressionDiagnostic("stream method without a checked receiver")
 	}

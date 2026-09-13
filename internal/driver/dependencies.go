@@ -58,6 +58,9 @@ func materializeDependencies(staging string, dependencies []compiler.RuntimeDepe
 			object := filepath.Join(staging, "objects", "mimalloc.o")
 			result.objects = append(result.objects, object)
 			result.linkObjects = append(result.linkObjects, object)
+			// mimalloc's own Windows link set (CMakeLists mi_libraries); MinGW
+			// supplies some implicitly, MSVC-target toolchains supply none.
+			result.linkOptions = append(result.linkOptions, "-lpsapi", "-lshell32", "-luser32", "-ladvapi32", "-lbcrypt")
 		case compiler.RuntimeLibuv:
 			if err := moduledeps.Verify(); err != nil {
 				return nativeDependency{}, err
@@ -190,4 +193,31 @@ func compileNativeDependencies(selected *backend.Backend, staging string, depend
 		}
 	}
 	return nil
+}
+
+// DependencyPlan is the materialized native-dependency input set of one
+// program: the compile options generated translation units and dependency
+// sources share, each dependency source, and the link options the final
+// executable needs. External qualification harnesses build dependencies from
+// it exactly as the driver does rather than keeping a second source list.
+type DependencyPlan struct {
+	CompileOptions []string
+	Sources        []string
+	LinkOptions    []string
+}
+
+// PlanDependencies materializes the embedded dependency snapshots under
+// staging and returns their build plan.
+func PlanDependencies(staging string, dependencies []compiler.RuntimeDependency) (DependencyPlan, error) {
+	native, err := materializeDependencies(staging, dependencies)
+	if err != nil {
+		return DependencyPlan{}, err
+	}
+	return DependencyPlan{CompileOptions: native.compileOptions, Sources: native.sources, LinkOptions: native.linkOptions}, nil
+}
+
+// SourceOptions returns the complete option list for compiling one dependency
+// source, including its optimization level and dependency-specific defines.
+func (plan DependencyPlan) SourceOptions(source string) []string {
+	return nativeCompileOptions(source, plan.CompileOptions)
 }

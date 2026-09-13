@@ -14,15 +14,18 @@ gets deleted.
 | Work | Spec |
 | --- | --- |
 | Explicit `unsafe do ... end` blocks for individually classified unprovable operations; incorrect unsafe assertions may permit C undefined behavior | [0155](specs/0155-unsafe-blocks.md) |
-| Remove unreachable speculative timer, poll, DNS, shutdown, and metrics code from the implemented libuv bridge; close its initialization diagnostic and request-lifetime gaps | [0169](specs/0169-libuv-runtime-bridge.md) |
-| Add a compact libuv File/FileMode surface with stable portable Error headers | [0170](specs/0170-libuv-io-and-filesystem.md) |
-| Add unsigned nanosecond Duration, monotonic Instant, UTC WallTime, and no-result Task sleep over C23 and libuv | [0171](specs/0171-libuv-time.md) |
 
 ### Coordination umbrella; not independently executable
 
 | Work | Disposition | Spec |
 | --- | --- | --- |
 | libuv capability ownership and child-RFC coordination | Umbrella only; child surfaces remain independently gated | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md) |
+
+### Design proposed; review before implementation
+
+| Work | Remaining gate | Spec |
+| --- | --- | --- |
+| Replace module imports and declaration-prefixed exports with leading/trailing boundary blocks; add fixed, mutable, and direct Atomic statically initialized module values | Detailed review and explicit implementation selection | [0179](specs/0179-module-boundary-blocks.md) |
 
 ### Design settled; implementation blocked
 

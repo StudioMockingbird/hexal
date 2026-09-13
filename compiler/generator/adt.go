@@ -40,7 +40,7 @@ func writeAdtForwardDeclarations(result *strings.Builder, state *generatedAdtSta
 		return
 	}
 	for _, adtType := range state.order {
-		if compilerTypes.IsSeek(adtType) {
+		if compilerTypes.IsBuiltinAdt(adtType) {
 			continue
 		}
 		name := adtType.Adt.CName

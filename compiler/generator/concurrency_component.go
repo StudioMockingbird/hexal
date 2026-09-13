@@ -48,7 +48,7 @@ func eventSelected(merged *programEmission) bool {
 	if merged.concurrencyState == nil || !merged.concurrencyState.used {
 		return false
 	}
-	if merged.printUsed {
+	if merged.printUsed || merged.timeState != nil && merged.timeState.sleep || merged.fileState != nil && merged.fileState.used {
 		return true
 	}
 	return merged.ioState != nil && (merged.ioState.readIO || merged.ioState.writeIO || merged.ioState.seekIO || merged.ioState.closeIO)

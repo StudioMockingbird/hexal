@@ -303,9 +303,14 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return "hex_task_detach(" + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred task method without a captured receiver")
+	case checker.TimeExpression:
+		return timeCall(node, arguments)
 	case checker.StreamMethodCallExpression:
 		// The checker admits only close as a deferred stream operation; the
 		// captured receiver feeds the module-owned result-union adapter.
+		if isFileNode(node) {
+			return fileMethodCall(node, arguments)
+		}
 		if node.Name != "close" || len(arguments) != 1 {
 			return "", unknownExpressionDiagnostic("deferred stream call without a captured stream")
 		}

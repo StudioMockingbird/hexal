@@ -81,7 +81,7 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.HeapAllocateExpression, checker.HeapFreeExpression, checker.VolatileWriteExpression,
-		checker.StreamConstructorExpression, checker.StreamMethodCallExpression,
+		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
 		checker.MatchExpression:
 		return true
 	}
@@ -387,6 +387,9 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 			return hoistOperandSequence(node.Arguments, body, state, indent)
 		}
 		return hoistReceiverAndOperandsSequence(node.Operand, node.OperandType, node.Arguments, body, state, indent)
+	case checker.TimeExpression:
+		// Every time operand, receiver included, lands in one C expression.
+		return hoistOperandSequence(node.Arguments, body, state, indent)
 	case checker.ChannelConstructorExpression:
 		// Channel<T>.new(heap, capacity) has no receiver; renderChannelConstructor
 		// was verified and updated to consult hoistedSequencing for both arguments.

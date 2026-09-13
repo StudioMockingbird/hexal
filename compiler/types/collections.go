@@ -242,7 +242,7 @@ func Storable(typ Type, position Position) bool {
 	// long-lived aggregate storage while the shallow-copy alias model is
 	// the only lifetime rule. Pointer receivers stay formable because the
 	// Bytes operation surface is defined on Ptr<mut Bytes>.
-	if IsIO(typ) {
+	if IsIO(typ) || IsFile(typ) {
 		switch position {
 		case PositionBinding, PositionUnionMember, PositionFunctionParam,
 			PositionFunctionResult, PositionTaskArgument, PositionTaskResult,

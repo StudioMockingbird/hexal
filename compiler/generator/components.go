@@ -107,7 +107,7 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 		components = append(components, componentArtifact{
 			key:      "hexal/runtime.c",
 			template: "runtime.c",
-			model:    struct{}{},
+			model:    runtimeSourceModel{Native: merged.requirements.native},
 		})
 	}
 	// Each migrated family contributes its artifacts through its own
@@ -134,6 +134,8 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 			return concurrencyComponents(merged, config)
 		},
 		eventComponents,
+		timeComponents,
+		fileComponents,
 	}
 	for _, family := range families {
 		familyArtifacts, err := family(merged)

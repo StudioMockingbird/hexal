@@ -881,6 +881,8 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateBytesOverExpression(node, expected, state)
 	case checker.StreamMethodCallExpression:
 		return validateStreamMethodCall(node, expected, state)
+	case checker.TimeExpression:
+		return validateTimeExpression(node, expected, state)
 	case checker.UnionWidenExpression:
 		return validateUnionWiden(node, expected, state)
 	case checker.UnionTestExpression:

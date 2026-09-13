@@ -17,7 +17,7 @@ func seekComponents(merged *programEmission) ([]componentArtifact, error) {
 // moduleSeekComponent selects hexal/seek.h for a module that reaches
 // Bytes.seek or IO.seek.
 func moduleSeekComponent(emission *moduleEmission) []string {
-	if emission == nil || emission.ioState == nil || !(emission.ioState.seekIO || emission.ioState.seekBytes) {
+	if emission == nil || !(emission.ioState != nil && (emission.ioState.seekIO || emission.ioState.seekBytes) || emission.fileState != nil && emission.fileState.seek) {
 		return nil
 	}
 	return []string{"hexal/seek.h"}

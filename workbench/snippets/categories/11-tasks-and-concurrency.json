@@ -332,6 +332,31 @@
       ]},
       "features": ["channels", "errors", "defer", "unions", "truthiness"],
       "reservedWords": ["fun", "return", "end", "do", "try", "defer", "if", "is", "then"]
+    },
+    {
+      "id": "concurrency-time-and-sleep",
+      "name": "Durations, instants, and Task sleep",
+      "description": "Build Durations with checked units, measure a Task sleep with the monotonic clock, and read wall time.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun nap(ms: UInt64): Bool do",
+          "    start := Instant.now()",
+          "    Task.sleep(Duration.milliseconds(ms))",
+          "    return start.elapsed() >= Duration.milliseconds(ms)",
+          "end",
+          "fun stamp(): Int64 | Error do",
+          "    now := try WallTime.now()",
+          "    return now.seconds()",
+          "end",
+          "budget := Duration.seconds(1) + Duration.milliseconds(250)",
+          "print(budget.as_milliseconds(), \"\\n\")",
+          "print(nap(10), \"\\n\")",
+          "unix: Int64 | Error := stamp()"
+        ]
+      },
+      "features": ["time", "tasks", "errors"],
+      "reservedWords": ["fun", "do", "end", "try", "return"]
     }
   ]
 }

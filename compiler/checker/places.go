@@ -137,11 +137,17 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 					diagnostic: missingMemberDiagnostic(receiver.typ, expression.Property),
 				}
 			}
+			// A union binding narrowed to this object selects through its
+			// payload; the payload is the same storage, so writability is kept.
+			receiverNode := receiver.source.Node
+			if receiver.storageType.Union != nil && !compilerTypes.IsUnion(receiver.typ) {
+				receiverNode = valueFromPlace(receiver).source.Node
+			}
 			return checkedExpression{
 				source: Operand{
 					Kind:        VariableOperand,
 					Type:        member.Type,
-					Node:        memberNode(receiver.source.Node, member),
+					Node:        memberNode(receiverNode, member),
 					Addressable: receiver.source.Addressable,
 					Writable:    receiver.source.Writable && member.Mutable,
 				},
@@ -488,4 +494,21 @@ func collectionRootForOperand(source Operand, names *scope, fallback BindingID) 
 
 func isTrackedCollection(typ compilerTypes.Type) bool {
 	return typ.List != nil || typ.Dict != nil
+}
+
+// narrowedReceiver makes a union binding narrowed to one member select that
+// member's payload, so every receiver dispatch sees the narrowed storage
+// rather than the union. The payload is the same storage, so addressability
+// and writability are kept; the binding's own flow facts stay on the union.
+func narrowedReceiver(receiver checkedExpression) checkedExpression {
+	if receiver.storageType.Union == nil || compilerTypes.IsUnion(receiver.typ) {
+		return receiver
+	}
+	payload := valueFromPlace(receiver)
+	if payload.source.Node.Kind != UnionPayloadExpression {
+		return receiver
+	}
+	receiver.source.Node = payload.source.Node
+	receiver.storageType = compilerTypes.Type{}
+	return receiver
 }

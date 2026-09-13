@@ -123,8 +123,11 @@ func checkSpawnExpression(expression parser.SpawnExpression, ctx checkContext) c
 // checkTaskTypeCall resolves Task.yield() (a type-qualified intrinsic).
 func checkTaskTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
+	if property.Lexeme == "sleep" {
+		return checkTaskSleepCall(call, property, ctx)
+	}
 	if property.Lexeme != "yield" || len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Task has no such operation; use Task.yield()"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Task has no such operation; use Task.yield() or Task.sleep(duration)"))}
 	}
 	if !ctx.names.inFunction() {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Task.yield() is valid only inside a function"))}

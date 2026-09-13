@@ -137,6 +137,11 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 			case checker.TaskYieldExpression:
 				state.used = true
 				state.yield = true
+			case checker.TimeExpression:
+				if node.Name == "task_sleep" {
+					// Sleep parks the current Task, so it selects the scheduler.
+					state.used = true
+				}
 			case checker.TaskMethodCallExpression:
 				state.used = true
 				if node.OperandType != (compilerTypes.Type{}) {

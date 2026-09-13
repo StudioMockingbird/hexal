@@ -1,7 +1,10 @@
 # RFC 0171: Time and Task Sleep
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented. `docs/reference.md` documents the time surface;
+  the early-wake re-arm and maximum
+  accepted sleep are verified structurally and by trap fixture rather than through
+  an injected clock seam
 - Created: 2026-09-13
 - Updated: 2026-09-13
 - Scope: add duration, monotonic measurement, wall time, and Task sleep

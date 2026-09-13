@@ -180,7 +180,7 @@ func buildGeneratedC(t *testing.T, tc toolchain, result compiler.CompilationResu
 	compileCacheMu.Unlock()
 
 	entry.once.Do(func() {
-		entry.result = doBuild(tc, result.Files, flags, buildRoot, key.artifactHash, t.Name())
+		entry.result = doBuild(tc, result.Files, result.Dependencies, flags, buildRoot, key.artifactHash, t.Name())
 	})
 	if entry.result.err != nil {
 		t.Fatalf("%s rejected generated C: %v", tc.Name, entry.result.err)
@@ -196,7 +196,14 @@ func buildGeneratedC(t *testing.T, tc toolchain, result compiler.CompilationResu
 // subtestName is t.Name() from whichever caller happened to run the build --
 // identifying, not necessarily the specific caller that later reads the
 // cached result, an accepted imprecision of any dedup cache.
-func doBuild(tc toolchain, files map[string]string, flags []string, buildRoot, artifactHash, subtestName string) buildResult {
+func doBuild(tc toolchain, files map[string]string, dependencies []compiler.RuntimeDependency, flags []string, buildRoot, artifactHash, subtestName string) buildResult {
+	var native *dependencyBuild
+	if len(dependencies) > 0 {
+		native = buildDependencies(tc, dependencies, buildRoot)
+		if native.err != nil {
+			return buildResult{err: native.err}
+		}
+	}
 	dir := filepath.Join(buildRoot, artifactHash, tc.Name)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return buildResult{err: err}
@@ -214,6 +221,9 @@ func doBuild(tc toolchain, files map[string]string, flags []string, buildRoot, a
 	args := append([]string{}, tc.Command[1:]...)
 	args = append(args, flags...)
 	args = append(args, "-I", dir)
+	if native != nil {
+		args = append(args, native.includeOptions...)
+	}
 	names := make([]string, 0, len(files))
 	for name := range files {
 		names = append(names, name)
@@ -224,12 +234,14 @@ func doBuild(tc toolchain, files map[string]string, flags []string, buildRoot, a
 			args = append(args, filepath.Join(dir, name))
 		}
 	}
-	// The scheduler runtime needs a real thread library on
-	// POSIX targets; the Windows primitives this suite's own host targets
-	// need nothing extra (libuv is linked by the driver qualification path and
-	// libc/kernel32, not a separate link dependency).
+	// The scheduler runtime needs a real thread library on POSIX targets;
+	// Windows link libraries arrive with the dependency plan above.
 	if runtime.GOOS != "windows" && strings.Contains(strings.Join(names, " "), "concurrency.c") {
 		args = append(args, "-lpthread")
+	}
+	if native != nil {
+		args = append(args, native.objects...)
+		args = append(args, native.linkOptions...)
 	}
 	args = append(args, "-o", exe)
 

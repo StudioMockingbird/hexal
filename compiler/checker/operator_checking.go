@@ -84,6 +84,11 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return checkedExpression{token: expression.Operator, diagnostics: diagnostics}
 	}
 
+	// Time values admit only their defined comparisons and arithmetic.
+	if compilerTypes.IsTime(left.typ) || compilerTypes.IsTime(right.typ) {
+		return checkTimeBinary(operator, left, right, expression.Operator)
+	}
+
 	// Null tests own the == and != pairs that mention Nil: a null
 	// test yields Bool, while pairs without a Nil side stay with ordinary
 	// scalar equality below.

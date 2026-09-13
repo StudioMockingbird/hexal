@@ -316,7 +316,7 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
 		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
-		checker.StreamConstructorExpression, checker.StreamMethodCallExpression:
+		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression:
 		// Discarding a constructor or a pure computation's result is legal;
 		// at worst it leaks an allocation or wastes a computation, both the
 		// programmer's choice.
@@ -1000,6 +1000,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderBytesOver(node, state)
 	case checker.StreamMethodCallExpression:
 		return renderStreamMethod(node, state)
+	case checker.TimeExpression:
+		return renderTimeExpression(node, state)
 	case checker.LayoutExpression:
 		// The C23 compiler is the final authority for the selected target
 		// layout; the checker already proved T complete.
@@ -1625,7 +1627,8 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
-		checker.LayoutExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression, checker.SliceBridgeExpression:
+		checker.LayoutExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression, checker.SliceBridgeExpression,
+		checker.TimeExpression:
 		return node.ResultType, true
 	case checker.HeapFreeExpression:
 		return compilerTypes.Type{}, false

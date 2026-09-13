@@ -224,7 +224,12 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 		}
 		targetSourceMember, _ := operandMembers.At(sourceIndex)
 		fmt.Fprintf(&builder, "%scase %s:\n", indent, state.tags.unionMemberTag(successMember))
-		fmt.Fprintf(&builder, "%s    %s = (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultTemp, success.CName, state.tags.unionMemberTag(successMember), state.tags.unionPayloadField(successMember), temp, state.tags.unionPayloadField(targetSourceMember))
+		if compilerTypes.IsNil(successMember) || compilerTypes.IsEoS(successMember) {
+			// Nil and EoS are tag-only members with no payload field to copy.
+			fmt.Fprintf(&builder, "%s    %s = (%s){ .tag = %s };\n", indent, resultTemp, success.CName, state.tags.unionMemberTag(successMember))
+		} else {
+			fmt.Fprintf(&builder, "%s    %s = (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultTemp, success.CName, state.tags.unionMemberTag(successMember), state.tags.unionPayloadField(successMember), temp, state.tags.unionPayloadField(targetSourceMember))
+		}
 		fmt.Fprintf(&builder, "%s    break;\n", indent)
 	}
 	fmt.Fprintf(&builder, "%sdefault:\n%s    abort();\n%s}\n", indent, indent, indent)

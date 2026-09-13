@@ -3,12 +3,6 @@
 
 #include "hexal.h"
 {{if .Scheduler}}
-#if defined(_WIN32)
-#include <windows.h>
-{{if not .TargetWindows -}}
-#else
-{{end -}}
-#endif
 /* Native guards are opaque here; concurrency.c owns their libuv storage. */
 typedef struct hex_mutex_raw {
     void *native;
@@ -62,7 +56,6 @@ void hex_task_complete(hex_task *task);
 extern hex_task *hex_root_task;
 hex_task *hex_task_current(void);
 void hex_task_event_arm(hex_task *task, void *pending);
-void hex_task_event_cancel(hex_task *task);
 void hex_task_event_suspend(hex_task *task);
 void hex_task_event_wake(hex_task *task);
 void hex_scheduler_init(void);

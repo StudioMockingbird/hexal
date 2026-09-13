@@ -34,7 +34,9 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 	if !strings.Contains(header, "#include \"hexal.h\"") {
 		t.Fatalf("hexal/concurrency.h lacks its hexal.h include: %q", header)
 	}
-	for _, forbidden := range []string{"#include \"hexal/heap.h\"", "#include \"hexal/error.h\""} {
+	// A platform header here would reach every module before <uv.h> and
+	// break its winsock2-before-windows.h ordering.
+	for _, forbidden := range []string{"#include \"hexal/heap.h\"", "#include \"hexal/error.h\"", "windows.h"} {
 		if strings.Contains(header, forbidden) {
 			t.Fatalf("hexal/concurrency.h carries an undeclared dependency %q: %q", forbidden, header)
 		}
@@ -61,8 +63,6 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		"void hex_scheduler_init(void) {",
-		"static void hex_install_libuv_allocator(void) {",
-		"uv_replace_allocator(mi_malloc, mi_realloc, mi_calloc, mi_free)",
 		"hex_task *hex_task_spawn(hex_task_entry entry, size_t args_size, size_t args_align, const void *args, size_t result_size, size_t result_align) {",
 		"void *hex_task_join(hex_task *task) {",
 		"static _Thread_local hex_task *hex_current_task;",
@@ -72,14 +72,22 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 			t.Fatalf("hexal/concurrency.c defines %q %d times, want once: %q", fragment, strings.Count(source, fragment), source)
 		}
 	}
-	initStart := strings.Index(source, "void hex_scheduler_init(void) {")
-	if initStart < 0 {
-		t.Fatalf("hex_scheduler_init missing: %q", source)
+	// Allocator installation is the program bootstrap, not a
+	// scheduler side effect; root main calls it before the scheduler.
+	for _, forbidden := range []string{"uv_replace_allocator", "mimalloc.h", "hex_install_libuv_allocator"} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("hexal/concurrency.c retains scheduler-owned allocator installation %q", forbidden)
+		}
 	}
-	allocatorCall := strings.Index(source[initStart:], "hex_install_libuv_allocator();")
-	firstLibuvCall := strings.Index(source[initStart:], "hex_mutex_raw_init(&hex_ready_mutex)")
-	if allocatorCall < 0 || firstLibuvCall < 0 || allocatorCall >= firstLibuvCall {
-		t.Fatalf("libuv allocator must install before the scheduler's first libuv operation: %q", source)
+	if strings.Count(files["hexal/runtime.c"], "uv_replace_allocator(mi_malloc, mi_realloc, mi_calloc, mi_free)") != 1 ||
+		!strings.Contains(files["hexal.h"], "void hex_runtime_native_init(void);") {
+		t.Fatalf("libuv program lacks the one native bootstrap:\n%s\n%s", files["hexal/runtime.c"], files["hexal.h"])
+	}
+	mainC := files["modules/app.c"]
+	bootstrap := strings.Index(mainC, "    hex_runtime_native_init();\n")
+	scheduler := strings.Index(mainC, "    hex_scheduler_init();\n")
+	if bootstrap < 0 || scheduler < 0 || bootstrap > scheduler || bootstrap != strings.Index(mainC, "int main(void) {\n")+len("int main(void) {\n") {
+		t.Fatalf("root main must call the native bootstrap first, before the scheduler:\n%s", mainC)
 	}
 	// hexal.h owns none of the concurrency family.
 	for _, forbidden := range []string{"hex_scheduler_", "typedef struct hex_task", "typedef struct hex_chan", "typedef struct hex_mutex_control", "hex_task_entry_", "hex_task_spawn(", "hex_chan_send(", "hex_mutex_new("} {
@@ -645,13 +653,20 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 			if testCase.event {
 				eventSource := files["hexal/event.c"]
 				for _, required := range []string{
-					"uv_queue_work", "uv_timer_start", "uv_poll_init_socket",
-					"uv_getaddrinfo", "uv_metrics_idle_time", "hex_event_work_failure",
-					"work->failure(work->context)", "hex_event_runtime_shutdown",
-					"hex_task_event_cancel(task)",
+					"uv_queue_work", "hex_event_work_failure", "work->failure(work->context)",
+					"[Runtime Error] event runtime initialization failed",
 				} {
 					if !strings.Contains(eventSource, required) {
 						t.Fatalf("%s: generated event bridge must contain %s:\n%s", testCase.name, required, eventSource)
+					}
+				}
+				// The bridge carries no unreachable facility.
+				for _, removed := range []string{
+					"timer", "poll", "dns", "getaddrinfo", "shutdown", "metrics", "idle", "uv_key", "abort()",
+					"hex_task_event_cancel",
+				} {
+					if strings.Contains(eventSource+files["hexal/event.h"], removed) {
+						t.Fatalf("%s: event bridge retains removed facility %s:\n%s", testCase.name, removed, eventSource)
 					}
 				}
 				if !strings.Contains(files["hexal/io.c"], "hex_event_work_call") {

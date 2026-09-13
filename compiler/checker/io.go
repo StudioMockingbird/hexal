@@ -354,7 +354,7 @@ func seedStreamBindingFacts(flow *flowState, id BindingID, declaredType compiler
 	if flow == nil {
 		return
 	}
-	if compilerTypes.IsIO(declaredType) {
+	if compilerTypes.IsIO(declaredType) || compilerTypes.IsFile(declaredType) {
 		flow.trackFreed(id)
 		flow.setCapability(id, streamInitializerCapability(flow, source.Node))
 		return
@@ -396,6 +396,9 @@ func streamInitializerCapability(flow *flowState, node Expression) uint8 {
 	}
 	switch inner.Kind {
 	case StreamConstructorExpression:
+		if inner.Name == "open" {
+			return fileOpenCapability(*inner)
+		}
 		capability, _ := compilerTypes.CapabilityFromConstructor(inner.Name)
 		return uint8(capability)
 	case VariableExpression:

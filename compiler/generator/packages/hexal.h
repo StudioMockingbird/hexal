@@ -12,5 +12,6 @@ typedef enum hex_tag {
 {{end}}} hex_tag;
 {{end}}{{if .TrapDeclared}}
 [[noreturn]] void hex_runtime_trap(const char *message);
+{{end}}{{if .NativeDeclared}}void hex_runtime_native_init(void);
 {{end}}
 #endif
