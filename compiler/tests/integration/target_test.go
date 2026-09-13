@@ -53,7 +53,7 @@ func TestHostNeutralRetainsBothBranches(t *testing.T) {
 	}
 	combined := result.Files["hexal/concurrency.c"] + result.Files["hexal/concurrency.h"] + result.Files["hexal/io.c"]
 	for _, marker := range []string{
-		"#else", "pthread_create", "ucontext_t", "CreateFiberEx",
+		"#else", "uv_thread_create", "ucontext_t", "CreateFiberEx",
 	} {
 		if !strings.Contains(combined, marker) {
 			t.Fatalf("host-neutral output lacks dual-platform marker %q", marker)

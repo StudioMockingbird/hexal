@@ -87,6 +87,14 @@ func (backend *Backend) CompileOneDialect(triple, dialect string, options []stri
 	return backend.Run(args...)
 }
 
+// ArchiveObjects creates one static archive through the selected backend's
+// bundled archiver. The archive is target-independent after its input objects
+// have been compiled for the requested target.
+func (backend *Backend) ArchiveObjects(objects []string, archive string) (Result, error) {
+	args := append([]string{"ar", "rcs", archive}, objects...)
+	return backend.Run(args...)
+}
+
 // LinkObjects links objects into an executable through the backend, which
 // owns linker selection internally. Extra options append after the objects.
 func (backend *Backend) LinkObjects(triple string, objects []string, executable string, options []string) (Result, error) {

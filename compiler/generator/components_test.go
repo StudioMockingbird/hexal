@@ -14,6 +14,7 @@ func TestComponentTemplatesCompleteAndUnique(t *testing.T) {
 		"string.h", "string.c", "error.h", "list.h", "dict.h", "array.h",
 		"numeric.h", "print.h", "print.c", "concurrency.h", "concurrency.c",
 		"equality.h", "io.h", "io.c", "seek.h", "stash.h", "stash.c", "pool.h",
+		"event.h", "event.c",
 	}
 	seen := make(map[string]int)
 	for _, name := range componentTemplateNames() {

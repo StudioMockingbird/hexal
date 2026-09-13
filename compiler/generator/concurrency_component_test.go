@@ -340,7 +340,7 @@ func TestConcurrencyTemplatesRenderModel(t *testing.T) {
 	if !strings.HasSuffix(header, "\n#endif\n") {
 		t.Fatalf("hexal/concurrency.h must end with exactly one trailing newline: %q", header)
 	}
-	source, err := renderComponent(componentArtifact{key: "hexal/concurrency.c", template: "concurrency.c", model: concurrencySourceModel{Scheduler: true, Channels: true, Mutex: true}})
+	source, err := renderComponent(componentArtifact{key: "hexal/concurrency.c", template: "concurrency.c", model: concurrencySourceModel{Scheduler: true, Channels: true, Mutex: true, StackSizeExpression: "1u << 20", FiberCommit: "0", FiberReserve: "0"}})
 	if err != nil {
 		t.Fatalf("concurrency.c render error = %v", err)
 	}
@@ -576,17 +576,17 @@ func TestConcurrencyMutexHandoffReturnsWithoutReenteringAcquisition(t *testing.T
 	}
 }
 
-// The blocking pool selects only for one combination: the scheduler runtime
+// The event bridge selects only for one combination: the scheduler runtime
 // (Task, Channel, or Mutex) reaching a native descriptor transfer
 // (IO.read/write/seek/close) or print's descriptor write-all sink. Every
 // other combination (IO alone, print alone, Task alone, Atomic beside IO, or
-// Bytes beside Task) selects no pool at all.
-func TestConcurrencyBlockingSelectionMatrix(t *testing.T) {
+// Bytes beside Task) selects no event bridge at all.
+func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 	spawnJoin := "fun square(value: Int32): Int32 do\n    return value * value\nend\n"
 	for _, testCase := range []struct {
-		name     string
-		source   string
-		blocking bool
+		name   string
+		source string
+		event  bool
 	}{
 		{
 			"io only",
@@ -628,34 +628,48 @@ func TestConcurrencyBlockingSelectionMatrix(t *testing.T) {
 			program := checkedGeneratorSource(t, testCase.source)
 			files := generateOne(t, program)
 			combined := files["hexal/concurrency.h"] + files["hexal/concurrency.c"] + files["hexal/io.c"]
-			count := strings.Count(combined, "hex_blocking")
-			if testCase.blocking {
-				if count == 0 {
-					t.Fatalf("%s: want the blocking pool selected, found no hex_blocking text", testCase.name)
+			if strings.Contains(combined, "hex_blocking") {
+				t.Fatalf("%s: generated runtime still contains the removed worker pool", testCase.name)
+			}
+			if testCase.event {
+				eventSource := files["hexal/event.c"]
+				for _, required := range []string{
+					"uv_queue_work", "uv_timer_start", "uv_poll_init_socket",
+					"uv_getaddrinfo", "uv_metrics_idle_time", "hex_event_work_failure",
+					"work->failure(work->context)", "hex_event_runtime_shutdown",
+					"hex_task_event_cancel(task)",
+				} {
+					if !strings.Contains(eventSource, required) {
+						t.Fatalf("%s: generated event bridge must contain %s:\n%s", testCase.name, required, eventSource)
+					}
 				}
-				if n := strings.Count(files["hexal/concurrency.c"], "static int hex_blocking_worker(void *unused) {"); n != 1 {
-					t.Fatalf("%s: hex_blocking_worker defined %d times, want exactly once:\n%s", testCase.name, n, files["hexal/concurrency.c"])
+				if !strings.Contains(files["hexal/io.c"], "hex_event_work_call") {
+					t.Fatalf("%s: want libuv event bridge selected", testCase.name)
 				}
-				if n := strings.Count(files["hexal/concurrency.c"], "static void hex_blocking_init(void) {"); n != 1 {
-					t.Fatalf("%s: hex_blocking_init defined %d times, want exactly once:\n%s", testCase.name, n, files["hexal/concurrency.c"])
+			} else if _, ok := files["hexal/event.c"]; ok {
+				t.Fatalf("%s: want no event bridge", testCase.name)
+			}
+			if testCase.name == "task only" {
+				concurrency := files["hexal/concurrency.c"]
+				for _, required := range []string{"uv_thread_create", "uv_thread_detach", "uv_mutex_init", "uv_cond_init", "uv_available_parallelism"} {
+					if !strings.Contains(concurrency, required) {
+						t.Fatalf("task-only scheduler must use libuv %s:\n%s", required, concurrency)
+					}
 				}
-				if !strings.Contains(files["hexal/concurrency.c"], "hex_current_task") {
-					t.Fatalf("%s: hex_blocking_call must read hex_current_task in hexal/concurrency.c", testCase.name)
+				for _, removed := range []string{"_beginthreadex", "pthread_create", "pthread_mutex", "pthread_cond", "GetSystemInfo", "sysconf(_SC_NPROCESSORS_ONLN)"} {
+					if strings.Contains(concurrency, removed) {
+						t.Fatalf("task-only scheduler retains superseded native facility %s", removed)
+					}
 				}
-				if strings.Contains(files["hexal/io.c"], "hex_current_task") {
-					t.Fatalf("%s: hexal/io.c must never reference hex_current_task directly, only hexal/concurrency.c may:\n%s", testCase.name, files["hexal/io.c"])
-				}
-			} else if count != 0 {
-				t.Fatalf("%s: want no blocking pool, found %d hex_blocking occurrences across concurrency.h/.c and io.c", testCase.name, count)
 			}
 		})
 	}
 }
 
-// Pooled IO frontends must see complete job types and entry definitions before
+// Event-bridge IO frontends must see complete job types and entry definitions before
 // their first use. Generated C is checked as text because ordinary tests do
 // not invoke an external C compiler.
-func TestBlockingIODeclarationsPrecedeFrontendUses(t *testing.T) {
+func TestEventIODeclarationsPrecedeFrontendUses(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    stream: IO := try IO.stdin()\n    buffer: List<Byte> := List<Byte>(h)\n    defer buffer.free(h)\n    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
 	ioSource := generateOne(t, program)["hexal/io.c"]
 	for _, operation := range []string{"read", "write", "seek", "close", "write_all"} {
@@ -665,7 +679,7 @@ func TestBlockingIODeclarationsPrecedeFrontendUses(t *testing.T) {
 			t.Fatalf("hex_io_%s_job definition must precede its frontend use: definition=%d use=%d", operation, definition, use)
 		}
 		entryDefinition := strings.Index(ioSource, "static void hex_io_"+operation+"_entry(void *raw)")
-		entryUse := strings.Index(ioSource, "hex_blocking_call(hex_io_"+operation+"_entry, &job);")
+		entryUse := strings.Index(ioSource, "hex_event_work_call(hex_io_"+operation+"_entry, hex_io_"+operation+"_failure, &job);")
 		if entryDefinition < 0 || entryUse < 0 || entryDefinition >= entryUse {
 			t.Fatalf("hex_io_%s_entry definition must precede its frontend use: definition=%d use=%d", operation, entryDefinition, entryUse)
 		}

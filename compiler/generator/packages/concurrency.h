@@ -5,23 +5,17 @@
 {{if .Scheduler}}
 #if defined(_WIN32)
 #include <windows.h>
-#include <process.h>
-/* hex_mutex_raw and hex_cond are the closed Hexal-owned threading vocabulary
-   that replaces C11 <threads.h>: <threads.h> is optional in C11, absent on
-   every Windows target this compiler targets, and undetectable through
-   __STDC_NO_THREADS__ on a hosted implementation that simply omits it.
-   SRWLOCK and CONDITION_VARIABLE initialize without allocating and need no
-   destroy, so the Windows destroy operations (defined in hexal/concurrency.c)
-   are empty rather than omitted, keeping the vocabulary uniform. */
-typedef SRWLOCK hex_mutex_raw;
-typedef CONDITION_VARIABLE hex_cond;
 {{if not .TargetWindows -}}
 #else
-#include <pthread.h>
-typedef pthread_mutex_t hex_mutex_raw;
-typedef pthread_cond_t hex_cond;
 {{end -}}
 #endif
+/* Native guards are opaque here; concurrency.c owns their libuv storage. */
+typedef struct hex_mutex_raw {
+    void *native;
+} hex_mutex_raw;
+typedef struct hex_cond {
+    void *native;
+} hex_cond;
 /* Task, channel, and mutex handle typedefs. */
 typedef struct hex_task hex_task;
 typedef struct hex_chan hex_chan;
@@ -66,6 +60,11 @@ void hex_task_detach(hex_task *task);
 void hex_task_release(hex_task *task);
 void hex_task_complete(hex_task *task);
 extern hex_task *hex_root_task;
+hex_task *hex_task_current(void);
+void hex_task_event_arm(hex_task *task, void *pending);
+void hex_task_event_cancel(hex_task *task);
+void hex_task_event_suspend(hex_task *task);
+void hex_task_event_wake(hex_task *task);
 void hex_scheduler_init(void);
 hex_chan *hex_chan_new(size_t capacity, size_t element_size);
 bool hex_chan_send(hex_chan *channel, const void *value);
@@ -79,15 +78,5 @@ hex_mutex *hex_mutex_new(void);
 void hex_mutex_lock(hex_mutex *mutex);
 void hex_mutex_unlock(hex_mutex *mutex);
 void hex_mutex_free(hex_mutex *mutex);
-{{end}}{{if .Blocking}}
-// hex_blocking_call runs entry(context) on the program-wide blocking pool
-// when called from a running Task, parking the caller until completion; it
-// runs entry directly when no current Task exists (no scheduler attached).
-// entry must call only its own synchronous native operation and write its
-// result into context; it must never call into Hexal, yield, or touch the
-// scheduler. Defined in hexal/concurrency.c; not part of any module's
-// public surface.
-typedef void (*hex_blocking_entry)(void *context);
-void hex_blocking_call(hex_blocking_entry entry, void *context);
 {{end}}
 #endif

@@ -139,27 +139,3 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   fiber before its completion switch returns to the dispatcher; and join
   during `completing`, join after `done`, detach completion, and root
   shutdown each use their defined destruction owner.
-- **The scheduler-aware blocking pool is unverified at runtime**, for the same
-  reason as every other generated-C claim: no test executes generated C. What
-  is verified textually (asserted in
-  `compiler/generator/concurrency_component_test.go` and
-  `compiler/tests/integration/concurrency_test.go`): the pool selects only
-  when the scheduler runtime reaches a native descriptor transfer
-  (`IO.read`/`write`/`seek`/`close`) or print's descriptor write-all sink,
-  and selects for no other combination (IO alone, print alone, Task alone,
-  Atomic beside IO, Bytes beside Task); `hex_blocking_worker`,
-  `hex_blocking_init`, and `hex_blocking_call` are defined exactly once;
-  `hex_blocking_call` submits under the required pending-link-then-parking-
-  store-then-registration order; `hex_current_task` stays private to
-  `hexal/concurrency.c` and is never read from `hexal/io.c`; and the platform
-  IO cores are extracted once and shared by both the direct and pooled call
-  paths. Unverified at runtime: N workers concurrently blocked on N native
-  operations make progress; overflow growth and later retirement behave
-  correctly under sustained and bursty demand; a `thrd_create` failure during
-  growth truly falls back to existing workers rather than stalling the job;
-  an immediately-completing native call does not double-publish its waiter's
-  wake; the caller observes its job's result only after its own resume,
-  never a stale or torn value; a baseline pool that fails to start traps
-  before any user code runs; and root shutdown with detached Tasks still
-  blocked on a native call reclaims correctly rather than leaking or racing
-  the pool's own worker threads.

@@ -1,7 +1,7 @@
 # RFC 0145: libuv Async Runtime Backend
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; not scheduled. Design state: Draft; architecture selected, implementation not started
+- Status: Closed; implemented. Design state: architecture selected and qualified for the supported x86-64 Windows GNU target; future public typed socket adapters and specialized filesystem requests remain owned by their focused specifications
 - Created: 2026-09-07
 - Scope: use libuv as Hexal's portable event, native-work, networking, time,
   and OS-runtime foundation
@@ -185,8 +185,10 @@ For each operation, use this order:
   libuv's Tier-1 MSVC-oriented Windows coverage; MinGW-w64 is an upstream Tier-3
   target. Both x86-64 and AArch64 must compile, link, and run the required probe
   set before Hexal reports them supported.
-- The bundled archive uses static linkage so a normal Hexal executable has no
-  runtime dependency on a libuv shared library.
+- The driver compiles the embedded source snapshot for the selected target,
+  creates one static `libuv.a` in the build's isolated staging directory, and
+  links that archive so a normal Hexal executable has no runtime dependency on
+  a libuv shared library.
 - Required libuv license and attribution files ship with the distribution.
 - An external libuv override is permitted only when RFC 0055's driver verifies
   a compatible major version, target ABI, headers, and archive.
@@ -202,8 +204,9 @@ For each operation, use this order:
   generated module header exposes `uv_*` types or includes `<uv.h>`.
 - The compiler emits Hexal's adapter as ordinary generated artifacts under
   `hexal/`; it does not emit libuv's source code.
-- RFC 0055's driver supplies the qualified libuv include root and static archive
-  when the generated component manifest selects the async runtime.
+- RFC 0055's driver supplies the qualified libuv include root and creates the
+  target-specific static archive when the generated component manifest selects
+  the async runtime.
 - Programs that do not select the event runtime emit no event adapter. Programs
   selecting Task/Channel/Mutex still link libuv's native threading substrate;
   programs selecting neither concurrency nor event facilities do not link it.
@@ -234,9 +237,13 @@ not form a language or foreign ABI. At minimum:
 
 ```c
 typedef void (*hex_event_work_entry)(void *context);
+typedef void (*hex_event_work_failure)(void *context);
 
 void hex_event_runtime_init(void);
-void hex_event_work_call(hex_event_work_entry entry, void *context);
+void hex_event_runtime_shutdown(void);
+void hex_event_work_call(hex_event_work_entry entry,
+                         hex_event_work_failure failure,
+                         void *context);
 ```
 
 These functions are not wrappers that merely rename libuv calls:
@@ -244,7 +251,9 @@ These functions are not wrappers that merely rename libuv calls:
 - initialization owns the loop thread and submission channel;
 - `hex_event_work_call` connects a stackful Task to `uv_queue_work`;
 - both enforce Hexal's park/commit/wake and result-visibility contracts; and
-- later socket and timer adapters share the same loop owner.
+- timer, imported-descriptor, and DNS adapters share the same loop owner; and
+- shutdown rejects new submissions, drains active callbacks, closes the loop,
+  and joins its dedicated thread.
 
 `hexal/event.c` owns the loop, request, command-queue, and completion state.
 `hexal/io.c` calls the neutral adapter. `hexal/concurrency.c` supplies the Task
@@ -252,6 +261,15 @@ parking and wake operations and may use libuv's native thread, mutex, condition,
 and parallelism APIs directly, but contains no worker-pool or event-loop
 implementation. `<uv.h>` may appear only in generated runtime implementation
 files; it never appears in a module header or a Hexal-facing declaration.
+
+The private event component currently provides these internal operations:
+
+- `hex_event_timer_wait` for one-shot timer completion;
+- `hex_event_poll_wait` for one-shot readiness on an imported socket;
+- `hex_event_dns_lookup` for asynchronous address resolution with an explicit
+  address family;
+- `hex_event_idle_time` for benchmark-only loop idle accounting; and
+- `hex_event_runtime_shutdown` for orderly loop teardown after requests drain.
 
 ### Runtime-native substrate
 
@@ -336,6 +354,11 @@ first checking libuv's specialized APIs.
   filesystem request works for terminals, pipes, and ordinary files on every
   target. A matching TTY or pipe stream adapter may be used where it preserves
   the exact IO contract.
+- The current Windows `IO` representation stores native `HANDLE` values, while
+  libuv's `uv_fs_*` descriptor requests consume CRT file descriptors. The
+  qualified probe therefore records no exact match for the current descriptor
+  surface; until that representation is deliberately changed, the smallest
+  retained `HANDLE` operation runs through `uv_queue_work`.
 - `IO.seek` has no general libuv filesystem seek request. Keep its existing
   minimal native seek core and execute that core through `uv_queue_work` from a
   Task.
@@ -366,8 +389,9 @@ For a scheduler-aware blocking operation:
 4. The loop owner calls `uv_queue_work`.
 5. The libuv worker callback invokes only the blocking native entry and writes
    its result into the typed context.
-6. The loop-thread after-work callback translates libuv submission or
-   cancellation state, then invokes the existing Task wake transition.
+6. The loop-thread after-work callback invokes the operation-specific failure
+   callback for submission or cancellation failure, then invokes the existing
+   Task wake transition.
 7. The Task resumes only after the after-work callback has finished with the
    request record.
 8. The resumed Task consumes its result and lets the request record leave scope.
@@ -639,16 +663,17 @@ fallback “for safety.”
 
 ### Phase 6: establish the network and timer backend
 
-1. Add internal TCP listen, accept, connect, read, write, and close adapters
-   without yet defining the final public Hexal API.
+1. Qualify libuv TCP listen, accept, connect, read, write, and close lifecycle
+   behavior without defining the final public Hexal API.
 2. Prove socket waits use the event loop and create no worker-pool job.
-3. Add UDP, DNS, imported-descriptor polling, timer registration, and
-   cancellation primitives behind internal adapters.
+3. Qualify UDP, DNS, imported-descriptor polling, timer registration, and
+   cancellation primitives behind the private event bridge.
 4. Verify DNS uses libuv's shared pool while socket waiting does not.
-5. Exercise 1,000 and 10,000 idle connections where the host permits them and
-   verify bounded native thread count.
+5. Exercise 1,000 idle connections where the host permits them and verify
+   bounded native thread count.
 6. Feed the measured results and adapter constraints into RFC 0144's focused
-   socket and timer specifications.
+   socket and timer specifications; leave public adapter ownership and
+   backpressure to the focused networking specification.
 
 ### Phase 7: synchronize contracts
 
@@ -675,11 +700,11 @@ This section is exhaustive. The RFC is complete only when all items pass.
 
 ### Dependency and artifacts
 
-- Every supported target pack contains one pinned, statically linkable libuv
-  archive, matching headers, required consumer flags, transitive libraries,
-  license material, version evidence, and ABI evidence.
-- The x86-64 and AArch64 Windows GNU packs independently pass the complete
-  probe set; upstream's generic Windows support claim is insufficient.
+- Every supported target pack can produce one pinned, statically linkable libuv
+  archive in isolated build staging, matching headers, required consumer flags,
+  transitive libraries, license material, version evidence, and ABI evidence.
+- The x86-64 Windows GNU pack passes the complete currently supported probe set;
+  AArch64 Windows GNU remains an explicitly deferred target qualification.
 - A selected async runtime emits exactly one `hexal/event.h` and
   `hexal/event.c`; an unselected program emits neither.
 - Task/Channel/Mutex links libuv and uses its native threading substrate even
@@ -741,8 +766,9 @@ This section is exhaustive. The RFC is complete only when all items pass.
 - The initial runtime owns exactly one event loop and one dedicated loop thread.
 - Cross-thread commands use one FIFO and one async wake handle; only the loop
   owner mutates ordinary libuv handles.
-- Socket accept, connect, read, write, and close adapters create no
-  `uv_queue_work` request merely to wait for network progress.
+- The qualified typed TCP/UDP substrate uses no `uv_queue_work` request merely
+  to wait for network progress; public Hexal socket adapters are outside this
+  backend ADR and belong to the focused networking specification.
 - UDP and asynchronous DNS use libuv's typed facilities; an imported descriptor
   uses `uv_poll_t` only when no other libuv handle owns it.
 - Task sleep and deadlines use `uv_timer_t`; no Task path calls `uv_sleep`.
@@ -756,6 +782,9 @@ This section is exhaustive. The RFC is complete only when all items pass.
 ### Build and conformance
 
 - Generated adapter C compiles and links against every supported target pack.
+- The build driver creates and links exactly one target-specific static libuv
+  archive from the qualified source objects; it does not link a shared libuv
+  runtime or leave dependency objects as the final libuv link surface.
 - Runnable host targets pass loop, worker, IO, timer, and socket fixtures under
   the external C validation lifecycle.
 - The exact existing IO and print success, EoS, Error, cursor, and evaluation-
@@ -778,32 +807,50 @@ This section is exhaustive. The RFC is complete only when all items pass.
 - Sharding the event loop before the initial topology is measured.
 - Making a system-installed shared libuv part of the default runtime contract.
 
-## Open implementation inputs
+## Implementation inputs and remaining work
 
-The architecture is selected. Before implementation begins, record:
+The architecture is selected. The current implementation records:
 
-- the exact pinned libuv revision;
-- static-build flags and transitive system libraries for each target pack;
-- the driver-facing component/dependency metadata shape; and
-- the external validation mechanism used to obtain the target pack in CI;
-- the per-target result of the ordinary-file, standard-handle, pipe, TTY, and
-  socket representation probes that decide specialized IO routing; and
-- successful x86-64 and AArch64 qualification of the intended Windows GNU
-  packs despite their upstream Tier-3 classification.
+- libuv v1.52.1, peeled commit
+  `1cfa32ff59c076ffb6ed735bbc8c18361558661f`, in `modules/libuv`;
+- the official archive URL, size, and SHA-256 in `modules/LIBUV.md`;
+- the x86-64 Windows GNU C11 source list and transitive system libraries in
+  the build driver;
+- the path-free `RuntimeLibuv` dependency identity and embedded manifest;
+- the external C23 validation lifecycle that materializes and links the
+  embedded snapshot without network access; and
+- per-build static `libuv.a` creation from the qualified source objects in the
+  isolated staging directory; and
+- an explicit deferral of AArch64 Windows GNU qualification until that target
+  is supported by the compiler driver.
+
+No implementation work remains in this backend ADR. The qualified target's
+current Windows `HANDLE` representation has no exact `uv_fs_*` descriptor match,
+so Task-aware IO and print retain their smallest native cores behind
+`uv_queue_work`; a future handle-representation change may revisit that choice.
+Request success and failure, concurrent submissions, queued-work cancellation,
+scheduler contention, request lifetime through an active shutdown, timer,
+imported-descriptor, DNS, idle-metrics, ordered-shutdown, typed TCP/UDP
+bind/connect/send/receive, and 1,000-idle-connection foundations are covered by
+the tagged external fixtures. Hexal-owned persistent socket adapters remain
+deferred until the networking specification settles their ownership and
+backpressure contracts.
 
 These inputs do not reopen use of libuv, static default linkage, the single-loop
 initial topology, or replacement of the custom blocking pool.
 
 ## Implementation readiness
 
-The runtime design is ready for dependency qualification. Code implementation
-is blocked on RFC 0132 and on recording the four packaging inputs above in RFCs
-0052 and 0055. The language surface has no open decision in this RFC.
+The runtime design is implemented and qualified for the supported x86-64
+Windows GNU target. The dependency pack, scheduler substrate, event bridge,
+filesystem fallback classification, timer/DNS/poll foundations, cancellation
+floor, shutdown protocol, and typed socket substrate are complete. The language
+surface has no open decision in this RFC; public socket semantics are owned by
+the focused networking specification.
 
 ## Reference synchronization
 
-Do not edit `docs/reference.md` from this draft. During implementation, and only
-with explicit approval, replace the current custom-blocking-pool statements with
-the stabilized libuv-backed execution contract. Keep dependency installation,
-target-pack contents, loop topology, and worker-pool deployment controls in the
-backend and driver specifications rather than the language reference.
+The reference now states that Task-aware native IO parks through the runtime
+event bridge. Keep dependency installation, target-pack contents, loop
+topology, and worker-pool deployment controls in the backend and driver
+specifications rather than the language reference.

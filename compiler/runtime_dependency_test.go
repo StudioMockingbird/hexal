@@ -29,6 +29,18 @@ func TestCompileOmitsMimallocForScalarProgram(t *testing.T) {
 	}
 }
 
+func TestCompileReportsLibuvForTaskProgram(t *testing.T) {
+	result := Compile(map[string]string{
+		"app.hex": "fun work(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn work()\n    return task.join()\nend\n",
+	}, "app.hex", Project{})
+	if result.ExitCode != ExitSuccess {
+		t.Fatalf("ExitCode = %d, want success: %v", result.ExitCode, result.Stderr)
+	}
+	if !reflect.DeepEqual(result.Dependencies, []RuntimeDependency{RuntimeLibuv, RuntimeMimalloc}) {
+		t.Fatalf("Dependencies = %v, want [%q, %q]", result.Dependencies, RuntimeLibuv, RuntimeMimalloc)
+	}
+}
+
 func TestCompileFailureReturnsEmptyRuntimeDependencies(t *testing.T) {
 	result := Compile(map[string]string{
 		"app.hex": "value: Int32 := \"wrong\"\n",

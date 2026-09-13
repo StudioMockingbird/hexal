@@ -13,16 +13,15 @@ func ioComponents(merged *programEmission, config Config) ([]componentArtifact, 
 	}
 	return []componentArtifact{
 		{key: "hexal/io.h", template: "io.h", model: struct{}{}},
-		{key: "hexal/io.c", template: "io.c", model: ioSourceModel{Blocking: blockingSelected(merged), TargetWindows: targetIsWindows(config)}},
+		{key: "hexal/io.c", template: "io.c", model: ioSourceModel{Event: eventSelected(merged), TargetWindows: targetIsWindows(config)}},
 	}, nil
 }
 
-// ioSourceModel is the render model for packages/io.c: whether the blocking
-// pool is selected, so each native transfer routes through hex_blocking_call
-// instead of calling its private synchronous core directly, and whether the
-// selected profile is Windows, so inactive POSIX branches are omitted.
+// ioSourceModel is the render model for packages/io.c: whether the libuv event
+// bridge is selected for Task-aware native transfers, and whether the selected
+// profile is Windows so inactive POSIX branches are omitted.
 type ioSourceModel struct {
-	Blocking      bool
+	Event         bool
 	TargetWindows bool
 }
 

@@ -109,9 +109,12 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 	if tagErr := merged.tags.settled(); tagErr != nil {
 		return GenerationResult{}, tagErr
 	}
-	dependencies := make([]string, 0, 1)
+	dependencies := make([]string, 0, 2)
 	if merged.heapState != nil && (merged.heapState.required || len(merged.heapState.elements) > 0) {
 		dependencies = append(dependencies, "mimalloc")
+	}
+	if merged.concurrencyState != nil && merged.concurrencyState.used {
+		dependencies = append(dependencies, "libuv")
 	}
 	return GenerationResult{Files: files, Dependencies: dependencies}, nil
 }

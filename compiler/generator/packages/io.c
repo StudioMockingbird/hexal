@@ -1,5 +1,5 @@
 ﻿#include "hexal/io.h"
-{{if .Blocking}}#include "hexal/concurrency.h"
+{{if .Event}}#include "hexal/event.h"
 {{end}}#include <stdckdint.h>
 
 #ifdef _WIN32
@@ -134,7 +134,7 @@ static hex_io_transfer hex_io_write_transfer(hex_io stream, const uint8_t *data,
 static hex_io_position hex_io_seek_move(hex_io stream, int64_t offset, int whence);
 static hex_io_status_only hex_io_close_native(hex_io stream);
 static bool hex_io_write_all_native(intptr_t desc, const uint8_t *data, size_t length);
-{{if .Blocking}}
+{{if .Event}}
 typedef struct hex_io_read_job {
     hex_io stream;
     uint8_t *target;
@@ -147,6 +147,14 @@ static void hex_io_read_entry(void *raw) {
     job->result = hex_io_read_transfer(job->stream, job->target, job->request);
 }
 
+static void hex_io_read_failure(void *raw) {
+    hex_io_read_job *job = (hex_io_read_job *)raw;
+#ifdef _WIN32
+    job->result = (hex_io_transfer){.status = HEX_IO_ERROR, .code = ERROR_OUTOFMEMORY};
+#else
+    job->result = (hex_io_transfer){.status = HEX_IO_ERROR, .code = ENOMEM};
+#endif
+}
 typedef struct hex_io_write_job {
     hex_io stream;
     const uint8_t *data;
@@ -159,6 +167,14 @@ static void hex_io_write_entry(void *raw) {
     job->result = hex_io_write_transfer(job->stream, job->data, job->request);
 }
 
+static void hex_io_write_failure(void *raw) {
+    hex_io_write_job *job = (hex_io_write_job *)raw;
+#ifdef _WIN32
+    job->result = (hex_io_transfer){.status = HEX_IO_ERROR, .code = ERROR_OUTOFMEMORY};
+#else
+    job->result = (hex_io_transfer){.status = HEX_IO_ERROR, .code = ENOMEM};
+#endif
+}
 typedef struct hex_io_seek_job {
     hex_io stream;
     int64_t offset;
@@ -171,6 +187,14 @@ static void hex_io_seek_entry(void *raw) {
     job->result = hex_io_seek_move(job->stream, job->offset, job->whence);
 }
 
+static void hex_io_seek_failure(void *raw) {
+    hex_io_seek_job *job = (hex_io_seek_job *)raw;
+#ifdef _WIN32
+    job->result = (hex_io_position){.status = HEX_IO_ERROR, .code = ERROR_OUTOFMEMORY};
+#else
+    job->result = (hex_io_position){.status = HEX_IO_ERROR, .code = ENOMEM};
+#endif
+}
 typedef struct hex_io_close_job {
     hex_io stream;
     hex_io_status_only result;
@@ -181,6 +205,14 @@ static void hex_io_close_entry(void *raw) {
     job->result = hex_io_close_native(job->stream);
 }
 
+static void hex_io_close_failure(void *raw) {
+    hex_io_close_job *job = (hex_io_close_job *)raw;
+#ifdef _WIN32
+    job->result = (hex_io_status_only){.status = HEX_IO_ERROR, .code = ERROR_OUTOFMEMORY};
+#else
+    job->result = (hex_io_status_only){.status = HEX_IO_ERROR, .code = ENOMEM};
+#endif
+}
 typedef struct hex_io_write_all_job {
     intptr_t desc;
     const uint8_t *data;
@@ -192,7 +224,11 @@ static void hex_io_write_all_entry(void *raw) {
     hex_io_write_all_job *job = (hex_io_write_all_job *)raw;
     job->result = hex_io_write_all_native(job->desc, job->data, job->length);
 }
-{{end}}
+
+static void hex_io_write_all_failure(void *raw) {
+    hex_io_write_all_job *job = (hex_io_write_all_job *)raw;
+    job->result = false;
+}{{end}}
 
 hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
     if ((stream.access & HEX_IO_ACCESS_READ) == 0) {
@@ -208,8 +244,8 @@ hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
     }
     hex_list_reserve_at_least_UInt8(into, needed);
     uint8_t *target = into->data + into->length;
-{{if .Blocking}}    hex_io_read_job job = {.stream = stream, .target = target, .request = request};
-    hex_blocking_call(hex_io_read_entry, &job);
+{{if .Event}}    hex_io_read_job job = {.stream = stream, .target = target, .request = request};
+    hex_event_work_call(hex_io_read_entry, hex_io_read_failure, &job);
     hex_io_transfer transfer = job.result;
 {{else}}    hex_io_transfer transfer = hex_io_read_transfer(stream, target, request);
 {{end}}    if (transfer.status == HEX_IO_OK) {
@@ -237,8 +273,8 @@ hex_io_transfer hex_io_write(hex_io stream, hex_slice_UInt8 from) {
         return (hex_io_transfer){.status = HEX_IO_OK, .count = 0};
     }
     size_t request = from.length > HEX_IO_MAX_REQUEST ? HEX_IO_MAX_REQUEST : from.length;
-{{if .Blocking}}    hex_io_write_job job = {.stream = stream, .data = from.data, .request = request};
-    hex_blocking_call(hex_io_write_entry, &job);
+{{if .Event}}    hex_io_write_job job = {.stream = stream, .data = from.data, .request = request};
+    hex_event_work_call(hex_io_write_entry, hex_io_write_failure, &job);
     return job.result;
 {{else}}    return hex_io_write_transfer(stream, from.data, request);
 {{end}}}
@@ -274,22 +310,22 @@ static hex_io_position hex_io_seek_move(hex_io stream, int64_t offset, int whenc
 }
 
 hex_io_position hex_io_seek_start(hex_io stream, uint64_t position) {
-{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = (int64_t)position, .whence = 0};
-    hex_blocking_call(hex_io_seek_entry, &job);
+{{if .Event}}    hex_io_seek_job job = {.stream = stream, .offset = (int64_t)position, .whence = 0};
+    hex_event_work_call(hex_io_seek_entry, hex_io_seek_failure, &job);
     return job.result;
 {{else}}    return hex_io_seek_move(stream, (int64_t)position, 0);
 {{end}}}
 
 hex_io_position hex_io_seek_current(hex_io stream, int64_t offset) {
-{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = 1};
-    hex_blocking_call(hex_io_seek_entry, &job);
+{{if .Event}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = 1};
+    hex_event_work_call(hex_io_seek_entry, hex_io_seek_failure, &job);
     return job.result;
 {{else}}    return hex_io_seek_move(stream, offset, 1);
 {{end}}}
 
 hex_io_position hex_io_seek_end(hex_io stream, int64_t offset) {
-{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = 2};
-    hex_blocking_call(hex_io_seek_entry, &job);
+{{if .Event}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = 2};
+    hex_event_work_call(hex_io_seek_entry, hex_io_seek_failure, &job);
     return job.result;
 {{else}}    return hex_io_seek_move(stream, offset, 2);
 {{end}}}
@@ -298,8 +334,8 @@ hex_io_status_only hex_io_close(hex_io stream) {
     if (!stream.owned) {
         hex_runtime_trap("[Runtime Error] close of a borrowed stream\n");
     }
-{{if .Blocking}}    hex_io_close_job job = {.stream = stream};
-    hex_blocking_call(hex_io_close_entry, &job);
+{{if .Event}}    hex_io_close_job job = {.stream = stream};
+    hex_event_work_call(hex_io_close_entry, hex_io_close_failure, &job);
     return job.result;
 {{else}}    return hex_io_close_native(stream);
 {{end}}}
@@ -312,8 +348,8 @@ static hex_io_status_only hex_io_close_native(hex_io stream) {
 }
 
 bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
-{{if .Blocking}}    hex_io_write_all_job job = {.desc = desc, .data = data, .length = length};
-    hex_blocking_call(hex_io_write_all_entry, &job);
+{{if .Event}}    hex_io_write_all_job job = {.desc = desc, .data = data, .length = length};
+    hex_event_work_call(hex_io_write_all_entry, hex_io_write_all_failure, &job);
     return job.result;
 {{else}}    return hex_io_write_all_native(desc, data, length);
 {{end}}}
@@ -383,8 +419,8 @@ hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
     }
     hex_list_reserve_at_least_UInt8(into, needed);
     uint8_t *target = into->data + into->length;
-{{if .Blocking}}    hex_io_read_job job = {.stream = stream, .target = target, .request = request};
-    hex_blocking_call(hex_io_read_entry, &job);
+{{if .Event}}    hex_io_read_job job = {.stream = stream, .target = target, .request = request};
+    hex_event_work_call(hex_io_read_entry, hex_io_read_failure, &job);
     hex_io_transfer transfer = job.result;
 {{else}}    hex_io_transfer transfer = hex_io_read_transfer(stream, target, request);
 {{end}}    if (transfer.status == HEX_IO_OK) {
@@ -409,8 +445,8 @@ hex_io_transfer hex_io_write(hex_io stream, hex_slice_UInt8 from) {
         return (hex_io_transfer){.status = HEX_IO_OK, .count = 0};
     }
     size_t request = from.length > HEX_IO_MAX_REQUEST ? HEX_IO_MAX_REQUEST : from.length;
-{{if .Blocking}}    hex_io_write_job job = {.stream = stream, .data = from.data, .request = request};
-    hex_blocking_call(hex_io_write_entry, &job);
+{{if .Event}}    hex_io_write_job job = {.stream = stream, .data = from.data, .request = request};
+    hex_event_work_call(hex_io_write_entry, hex_io_write_failure, &job);
     return job.result;
 {{else}}    return hex_io_write_transfer(stream, from.data, request);
 {{end}}}
@@ -427,22 +463,22 @@ hex_io_position hex_io_seek_start(hex_io stream, uint64_t position) {
     if (position > (uint64_t)INT64_MAX) {
         return (hex_io_position){.status = HEX_IO_ERROR, .code = (long long)EINVAL};
     }
-{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = (int64_t)position, .whence = SEEK_SET};
-    hex_blocking_call(hex_io_seek_entry, &job);
+{{if .Event}}    hex_io_seek_job job = {.stream = stream, .offset = (int64_t)position, .whence = SEEK_SET};
+    hex_event_work_call(hex_io_seek_entry, hex_io_seek_failure, &job);
     return job.result;
 {{else}}    return hex_io_seek_move(stream, (int64_t)position, SEEK_SET);
 {{end}}}
 
 hex_io_position hex_io_seek_current(hex_io stream, int64_t offset) {
-{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = SEEK_CUR};
-    hex_blocking_call(hex_io_seek_entry, &job);
+{{if .Event}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = SEEK_CUR};
+    hex_event_work_call(hex_io_seek_entry, hex_io_seek_failure, &job);
     return job.result;
 {{else}}    return hex_io_seek_move(stream, offset, SEEK_CUR);
 {{end}}}
 
 hex_io_position hex_io_seek_end(hex_io stream, int64_t offset) {
-{{if .Blocking}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = SEEK_END};
-    hex_blocking_call(hex_io_seek_entry, &job);
+{{if .Event}}    hex_io_seek_job job = {.stream = stream, .offset = offset, .whence = SEEK_END};
+    hex_event_work_call(hex_io_seek_entry, hex_io_seek_failure, &job);
     return job.result;
 {{else}}    return hex_io_seek_move(stream, offset, SEEK_END);
 {{end}}}
@@ -461,8 +497,8 @@ hex_io_status_only hex_io_close(hex_io stream) {
     if (!stream.owned) {
         hex_runtime_trap("[Runtime Error] close of a borrowed stream\n");
     }
-{{if .Blocking}}    hex_io_close_job job = {.stream = stream};
-    hex_blocking_call(hex_io_close_entry, &job);
+{{if .Event}}    hex_io_close_job job = {.stream = stream};
+    hex_event_work_call(hex_io_close_entry, hex_io_close_failure, &job);
     return job.result;
 {{else}}    return hex_io_close_native(stream);
 {{end}}}
@@ -488,8 +524,8 @@ static bool hex_io_write_all_native(intptr_t desc, const uint8_t *data, size_t l
 }
 
 bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
-{{if .Blocking}}    hex_io_write_all_job job = {.desc = desc, .data = data, .length = length};
-    hex_blocking_call(hex_io_write_all_entry, &job);
+{{if .Event}}    hex_io_write_all_job job = {.desc = desc, .data = data, .length = length};
+    hex_event_work_call(hex_io_write_all_entry, hex_io_write_all_failure, &job);
     return job.result;
 {{else}}    return hex_io_write_all_native(desc, data, length);
 {{end}}}

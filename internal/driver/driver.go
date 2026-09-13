@@ -193,8 +193,8 @@ func Build(options BuildOptions) (BuildResult, error) {
 	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, native.compileOptions, &result); err != nil {
 		return result, err
 	}
-	objects := append(cFilesToObjects(staging, cFiles), native.objects...)
-	tempExe, err := linkObjectsWithOptions(backend, staging, objects, nil, output, &result)
+	objects := append(cFilesToObjects(staging, cFiles), native.linkObjects...)
+	tempExe, err := linkObjectsWithOptions(backend, staging, objects, native.linkOptions, output, &result)
 	if err != nil {
 		return result, err
 	}

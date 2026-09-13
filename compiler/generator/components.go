@@ -133,6 +133,7 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 		func(merged *programEmission) ([]componentArtifact, error) {
 			return concurrencyComponents(merged, config)
 		},
+		eventComponents,
 	}
 	for _, family := range families {
 		familyArtifacts, err := family(merged)

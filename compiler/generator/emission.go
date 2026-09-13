@@ -269,7 +269,7 @@ type programEmission struct {
 	// seekUsed is true when any module's stream state reaches Bytes.seek or
 	// IO.seek, selecting hexal/seek.h once program-wide. It is tracked
 	// separately from ioState's own four merged flags, which exist only for
-	// the blocking pool's native-descriptor demand fact and deliberately
+	// the event bridge's native-descriptor demand fact and deliberately
 	// exclude seekBytes (an in-memory seek never blocks).
 	seekUsed bool
 	// stashUsed is true when any module constructs or operates on a Stash,
@@ -341,7 +341,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		}
 		if module.ioState != nil && module.ioState.used {
 			merged.ioState.used = true
-			// The blocking pool's demand fact (concurrencyComponents) needs
+			// The event bridge's demand fact (concurrencyComponents) needs
 			// exactly these four operation flags program-wide; every other
 			// generatedStreamState field stays module-local, discovered
 			// directly from each module's own rendering pass.

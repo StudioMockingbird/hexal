@@ -39,13 +39,12 @@ func targetIsWindows(config Config) bool {
 	return config.Target == compilerTypes.TargetX86_64WindowsGNU
 }
 
-// blockingSelected reports whether the program selects the blocking pool:
+// eventSelected reports whether the program selects the event bridge:
 // the scheduler runtime combined with a reachable native blocking path
 // (IO.read, IO.write, IO.seek, owned IO.close, or print's descriptor
 // write-all sink). Standard-handle lookup, capability checks, zero-length
-// transfers, and Bytes operations are not blocking jobs and contribute no
-// flag here, so a Bytes-only or Bytes-plus-Task program selects no pool.
-func blockingSelected(merged *programEmission) bool {
+// transfers, and Bytes operations are direct paths and contribute no flag.
+func eventSelected(merged *programEmission) bool {
 	if merged.concurrencyState == nil || !merged.concurrencyState.used {
 		return false
 	}
@@ -66,11 +65,11 @@ func concurrencyComponents(merged *programEmission, config Config) ([]componentA
 	if state == nil || !state.used && len(state.atomics) == 0 {
 		return nil, nil
 	}
-	blocking := blockingSelected(merged)
+	event := eventSelected(merged)
 	artifacts := []componentArtifact{
-		{key: "hexal/concurrency.h", template: "concurrency.h", model: concurrencyHeaderModelFrom(state, blocking, targetIsWindows(config))},
+		{key: "hexal/concurrency.h", template: "concurrency.h", model: concurrencyHeaderModelFrom(state, event, targetIsWindows(config))},
 	}
-	source := concurrencySourceModelFrom(state, config, blocking)
+	source := concurrencySourceModelFrom(state, config, event)
 	if source.Scheduler || source.Channels || source.Mutex {
 		// The source artifact is emitted only when it contains at least one
 		// runtime core definition; an atomic-only program gets
@@ -86,7 +85,7 @@ func concurrencyComponents(merged *programEmission, config Config) ([]componentA
 // without the scheduler prelude or the runtime entry-point declarations.
 type concurrencyHeaderModel struct {
 	Scheduler     bool
-	Blocking      bool
+	Event         bool
 	TargetWindows bool
 	Tasks         []string
 	Channels      []string
@@ -107,7 +106,7 @@ type concurrencyAtomicModel struct {
 // stack values render to.
 type concurrencySourceModel struct {
 	Scheduler     bool
-	Blocking      bool
+	Event         bool
 	Channels      bool
 	Mutex         bool
 	TargetWindows bool
@@ -123,8 +122,8 @@ type concurrencySourceModel struct {
 
 // concurrencyHeaderModelFrom builds the header model from the program-wide
 // state, pre-sorting every data-driven handle and entry list by its C name.
-func concurrencyHeaderModelFrom(state *generatedConcurrencyState, blocking bool, windows bool) concurrencyHeaderModel {
-	model := concurrencyHeaderModel{Scheduler: state.used, Blocking: blocking, TargetWindows: windows}
+func concurrencyHeaderModelFrom(state *generatedConcurrencyState, event bool, windows bool) concurrencyHeaderModel {
+	model := concurrencyHeaderModel{Scheduler: state.used, Event: event, TargetWindows: windows}
 	taskNames := slices.Sorted(maps.Keys(state.taskTypes))
 	for _, name := range taskNames {
 		model.Tasks = append(model.Tasks, taskSuffix(state.taskTypes[name]))
@@ -155,10 +154,10 @@ func concurrencyHeaderModelFrom(state *generatedConcurrencyState, blocking bool,
 // follow the scheduler requirement, the Channel core its handle use, and the
 // Mutex core any selected Mutex operation. The config's stack sizes are
 // spelled for the two platform allocation sites.
-func concurrencySourceModelFrom(state *generatedConcurrencyState, config Config, blocking bool) concurrencySourceModel {
+func concurrencySourceModelFrom(state *generatedConcurrencyState, config Config, event bool) concurrencySourceModel {
 	return concurrencySourceModel{
 		Scheduler:           state.used,
-		Blocking:            blocking,
+		Event:               event,
 		Channels:            len(state.channels) > 0,
 		Mutex:               state.mutexNew || state.mutexLock || state.mutexUnlock || state.mutexFree,
 		TargetWindows:       targetIsWindows(config),

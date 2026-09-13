@@ -224,9 +224,9 @@ func doBuild(tc toolchain, files map[string]string, flags []string, buildRoot, a
 			args = append(args, filepath.Join(dir, name))
 		}
 	}
-	// The scheduler and blocking-pool runtime need a real thread library on
+	// The scheduler runtime needs a real thread library on
 	// POSIX targets; the Windows primitives this suite's own host targets
-	// need nothing extra (SRWLOCK/CONDITION_VARIABLE/_beginthreadex are
+	// need nothing extra (libuv is linked by the driver qualification path and
 	// libc/kernel32, not a separate link dependency).
 	if runtime.GOOS != "windows" && strings.Contains(strings.Join(names, " "), "concurrency.c") {
 		args = append(args, "-lpthread")

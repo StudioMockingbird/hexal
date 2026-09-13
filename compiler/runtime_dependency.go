@@ -9,6 +9,7 @@ type RuntimeDependency string
 
 const (
 	RuntimeMimalloc RuntimeDependency = "mimalloc"
+	RuntimeLibuv    RuntimeDependency = "libuv"
 )
 
 func runtimeDependencies(values []string) []RuntimeDependency {
@@ -16,10 +17,11 @@ func runtimeDependencies(values []string) []RuntimeDependency {
 	seen := make(map[RuntimeDependency]bool, len(values))
 	for _, value := range values {
 		switch RuntimeDependency(value) {
-		case RuntimeMimalloc:
-			if !seen[RuntimeMimalloc] {
-				seen[RuntimeMimalloc] = true
-				dependencies = append(dependencies, RuntimeMimalloc)
+		case RuntimeMimalloc, RuntimeLibuv:
+			dependency := RuntimeDependency(value)
+			if !seen[dependency] {
+				seen[dependency] = true
+				dependencies = append(dependencies, dependency)
 			}
 		default:
 			panic("generator returned unknown runtime dependency " + value)

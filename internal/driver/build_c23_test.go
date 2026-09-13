@@ -183,7 +183,7 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err != nil || probe.ExitCode != 0 {
 		t.Fatalf("driver c object failed to compile: %v\n%s", err, probe.Stderr)
 	}
-	objects := append(cFilesToObjects(staging, cFiles), native.objects...)
+	objects := append(cFilesToObjects(staging, cFiles), native.linkObjects...)
 	objects = append(objects, probeObject)
 	output := filepath.Join(dir, "build", "main"+exeSuffix())
 	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {

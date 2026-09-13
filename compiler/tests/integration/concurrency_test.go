@@ -381,7 +381,7 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 	concurrencyC := moduleFile(t, result, "hexal/concurrency.c")
 	for _, trap := range []string{
 		"hex_runtime_trap(\"[Runtime Error] scheduler mutex initialization failed\\n\");",
-		"hex_runtime_trap(\"[Runtime Error] native threading operation failed\\n\");",
+		"hex_runtime_trap(\"[Runtime Error] condition initialization failed\\n\");",
 		"hex_runtime_trap(\"[Runtime Error] scheduler allocation failed\\n\");",
 		"hex_runtime_trap(\"[Runtime Error] scheduler fiber initialization failed\\n\");",
 		"hex_runtime_trap(\"[Runtime Error] scheduler worker-zero context creation failed\\n\");",
@@ -413,11 +413,9 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 }
 
 // A program combining a Task with a descriptor IO transfer selects the
-// blocking pool end to end: hex_blocking_call wired into io.c's read path,
-// the pool's runtime defined exactly once in concurrency.c, and the
-// current-Task lookup kept private to concurrency.c. A Task-only program
-// compiled the same way selects no pool at all.
-func TestBlockingPoolEndToEnd(t *testing.T) {
+// libuv event bridge end to end. A Task-only program compiled the same way
+// selects no event bridge.
+func TestEventBridgeEndToEnd(t *testing.T) {
 	source := "fun helper(): Int32 do\n" +
 		"    return 1\n" +
 		"end\n" +
@@ -436,29 +434,23 @@ func TestBlockingPoolEndToEnd(t *testing.T) {
 	result := assertCompiles(t, source)
 	concurrencyC := moduleFile(t, result, "hexal/concurrency.c")
 	ioBody := ioC(t, result)
-	if !strings.Contains(ioBody, "hex_blocking_call(hex_io_read_entry, &job);") {
-		t.Fatalf("hexal/io.c must route the read transfer through hex_blocking_call:\n%s", ioBody)
+	if !strings.Contains(ioBody, "hex_event_work_call(hex_io_read_entry, hex_io_read_failure, &job);") {
+		t.Fatalf("hexal/io.c must route the read transfer through the event bridge:\n%s", ioBody)
 	}
 	if strings.Contains(ioBody, "hex_current_task") {
 		t.Fatalf("hexal/io.c must never reference hex_current_task directly:\n%s", ioBody)
 	}
-	for _, fragment := range []string{
-		"static int hex_blocking_worker(void *unused) {",
-		"static void hex_blocking_init(void) {",
-		"void hex_blocking_call(hex_blocking_entry entry, void *context) {",
-	} {
-		if n := strings.Count(concurrencyC, fragment); n != 1 {
-			t.Fatalf("hexal/concurrency.c defines %q %d times, want exactly once:\n%s", fragment, n, concurrencyC)
-		}
+	if !strings.Contains(result.Files["hexal/event.c"], "uv_queue_work") {
+		t.Fatalf("hexal/event.c must submit work to libuv:\n%s", result.Files["hexal/event.c"])
 	}
-	if !strings.Contains(concurrencyC, "hex_blocking_init();\n") {
-		t.Fatalf("hex_scheduler_init must start the blocking pool:\n%s", concurrencyC)
+	if strings.Contains(concurrencyC, "hex_blocking") || strings.Contains(ioBody, "hex_blocking") {
+		t.Fatalf("generated runtime retains the removed worker pool")
 	}
 
 	taskOnly := "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n"
 	solo := assertCompiles(t, taskOnly)
-	if strings.Contains(moduleFile(t, solo, "hexal/concurrency.c"), "hex_blocking") {
-		t.Fatalf("a Task-only program must select no blocking pool:\n%s", moduleFile(t, solo, "hexal/concurrency.c"))
+	if _, ok := solo.Files["hexal/event.c"]; ok {
+		t.Fatalf("a Task-only program must select no event bridge")
 	}
 }
 
