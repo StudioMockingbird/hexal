@@ -46,6 +46,24 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 				function: true,
 			}
 		}
+		if binding.kind == moduleValueBinding {
+			// A local static module value: Module stays empty, matching
+			// FunctionReferenceExpression's own-module convention, and the
+			// generator qualifies it with the generating module's own owner.
+			return checkedExpression{
+				source: Operand{
+					Kind:        VariableOperand,
+					Type:        binding.typ,
+					Name:        expression.Name.Lexeme,
+					Addressable: true,
+					Writable:    binding.mutable,
+					Node:        Expression{Kind: ModuleValueExpression, Name: expression.Name.Lexeme, ResultType: binding.typ, Mutable: binding.mutable},
+				},
+				typ:   binding.typ,
+				use:   binding.use,
+				token: expression.Name,
+			}
+		}
 		if binding.kind == genericFunctionBinding {
 			// A generic function is not a value without a Fun<...> target to
 			// infer its arguments from.
@@ -228,6 +246,20 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 			typ:      function.Type,
 			token:    expression.Property,
 			function: true,
+		}
+	}
+	if value, ok := names.registry.exportedModuleValue(target, expression.Property.Lexeme); ok {
+		return checkedExpression{
+			source: Operand{
+				Kind:        VariableOperand,
+				Type:        value.Type,
+				Name:        expression.Property.Lexeme,
+				Addressable: !value.Atomic,
+				Writable:    value.Mutable,
+				Node:        Expression{Kind: ModuleValueExpression, Name: expression.Property.Lexeme, ResultType: value.Type, Module: target, Mutable: value.Mutable},
+			},
+			typ:   value.Type,
+			token: expression.Property,
 		}
 	}
 	diagnostic := privateToModuleDiagnostic(expression.Property, expression.Property.Lexeme, target)

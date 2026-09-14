@@ -47,7 +47,7 @@ func TestDiscoverAssignsSlashSeparatedKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeSource(t, dir, "main.hex", "print(\"x\")\n")
-	writeSource(t, filepath.Join(dir, "nested"), "helper.hex", "export fun f(): Int32 do\n    return 1\nend\n")
+	writeSource(t, filepath.Join(dir, "nested"), "helper.hex", "fun f(): Int32 do\n    return 1\nend\nexport\n    f\nend\n")
 
 	sources, err := discover(dir, stagingPath(dir, ""))
 	if err != nil {

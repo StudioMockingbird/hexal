@@ -379,6 +379,21 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 					resultSpelling = standaloneResultSpelling(*callee.ResultType.Signature.Result)
 				}
 				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
+			case checker.ModuleValueExpression:
+				if node.Module == "" || node.Module == state.moduleID {
+					return nil
+				}
+				owner := moduleOwner(node.Module, state.owner)
+				symbol := moduleValueCName(node.Name, owner)
+				if emitted[symbol] {
+					return nil
+				}
+				emitted[symbol] = true
+				result.WriteString(moduleValueExternDeclaration(checker.ModuleValueDeclaration{
+					Name:    node.Name,
+					Type:    node.ResultType,
+					Mutable: node.Mutable,
+				}, owner))
 			case checker.MethodCallExpression:
 				if node.Owner == nil || node.Owner.ModuleID == "" || node.Owner.ModuleID == state.moduleID {
 					return nil

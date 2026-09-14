@@ -279,7 +279,7 @@ func checkUnionEquality(operator Operator, left, right checkedExpression, token 
 	leftMembers := compilerTypes.UnionMembers(left.typ)
 	for index := 0; index < leftMembers.Len(); index++ {
 		if member, _ := leftMembers.At(index); !compilerTypes.IsNil(member) {
-			if ok, _ := equalityAvailable(member); !ok {
+			if ok, _ := EqualityAvailable(member); !ok {
 				diagnostic := typeErrorAt(token, fmt.Sprintf("union member %s does not support equality", member.Name))
 				return &checkedExpression{token: token, diagnostic: &diagnostic}
 			}

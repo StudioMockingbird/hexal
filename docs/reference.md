@@ -33,19 +33,24 @@ Five lexical/parser rules are not expressible in EBNF:
   matching.
 
 ```ebnf
-program = lexical-separation , { top-level-item } ;
+program = lexical-separation , [ import-block ] , { top-level-item }
+          , [ export-block ] ;
 lexical-separation = ? whitespace and comments are discarded between tokens,
                        except where same-line is required ? ;
 same-line = ? no line break occurs before the next token ? ;
 
-top-level-item = import-declaration | [ "export" ] , declaration-item
-                 | statement ;
-import-declaration = "module" , identifier , "=" , "import"
-                     , module-path-literal ;
+top-level-item = declaration-item | static-module-value | statement ;
+import-block = "import" , import-entry , { "," , import-entry } , "end" ;
+import-entry = identifier , "from" , module-path-literal ;
 module-path-literal = ? a quoted literal scanned only when the previous
-                        token is "import" on the same line; the payload
-                        between quotes is taken verbatim (no escape decoding);
-                        a backslash in the payload is invalid ? ;
+                        token is the contextual identifier "from"; the
+                        payload between quotes is taken verbatim (no escape
+                        decoding); a backslash in the payload is invalid ? ;
+export-block = "export" , export-entry , { "," , export-entry } , "end" ;
+export-entry = identifier , [ "." , identifier ] ;
+static-module-value = "static" , [ "mut" ] , identifier
+                      , ( ":=" , expression
+                        | ":" , type-expression , ":=" , expression ) ;
 declaration-item = type-declaration | function-declaration
                    | method-declaration ;
 type-declaration = "type" , identifier , [ generic-parameter-list ]
@@ -213,7 +218,7 @@ reserved-word = "true" | "false" | "nil" | "eos" | "mut"
                 | "end" | "return" | "if" | "elseif" | "else"
                 | "while" | "break" | "continue" | "defer" | "try"
                 | "errdefer" | "spawn" | "as" | "match" | "then"
-                | "self" | "for" | "in" | "do" | "module" | "import"
+                | "self" | "for" | "in" | "do" | "static" | "import"
                 | "export" ;
 integer-literal = decimal-integer | hexadecimal-integer
                   | binary-integer | octal-integer ;
@@ -313,7 +318,10 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - Type and value names share one namespace. Protected names cannot be redeclared or shadowed.
   Protected types are every scalar plus `Size`, `Byte`, `Rune`, `String`, `Strand`, `Nil`, `EoS`,
    `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, `IO`, `Bytes`, `Seek`, `File`, `FileMode`,
-   `Duration`, `Instant`, `WallTime`, and constructors `Ptr`,
+   `Duration`, `Instant`, `WallTime`, `Address`, `Dns`, `Tcp`, `TcpConnection`, `TcpListener`,
+   `Process`, `Pipe`, `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`,
+   `ProcessStream`, `ExitStatus`, `Signal`, `Signals`,
+   and constructors `Ptr`,
    `Slice`, `Fun`, `Array`, `List`, `Dict`, `Task`, `Channel`, `Atomic`, `Stash`, `Pool`.
    The retired `MutPtr` and `View` names stay reserved but name no type; the never-implemented
    `Ref`, `MutRef`, `Box`, and `MutSlice` names are free for user declaration.
@@ -347,8 +355,12 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   not an absolute host path or import alias, determines nominal type, function, method, generic,
   specialization, generated-symbol, and artifact identity. Same-named declarations in distinct
   canonical modules are distinct.
-- `module Alias = import "<path>"` binds `Alias` only in the importing module. Imports form the
-  module prefix and must precede every other item. Import aliases occupy their own namespace and
+- A file has at most one import block and at most one export block. The import block, when
+  present, is the file's first top-level construct; the export block, when present, is its last.
+  Either or both may be absent.
+- `import` `Alias` `from` `"<path>"` , { `,` `Alias` `from` `"<path>"` } , `end` binds each `Alias`
+  only in the importing module. `from` is a contextual keyword, recognized only immediately after
+  an import alias; it is never reserved elsewhere. Import aliases occupy their own namespace and
   cannot shadow or be shadowed.
 - An import path starts with `./` or one or more `../`, uses `/`, and contains identifier path
   components with an optional terminal `.hex`. Resolution is lexical relative to the importing
@@ -360,21 +372,38 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   once. Duplicate imports of one canonical module and every dependency cycle are Module Errors.
 - For identical source strings and entrypoint, traversal, diagnostics, statistics, and generated
   file contents are deterministic. `Files` map iteration order has no meaning.
-- The entrypoint module may contain declarations and executable statements. Every imported module
-  is declarations-only: it has no executable statements, value bindings, initializer, runtime
-  Heap, import-time effects, or final-expression result.
-- Declarations are private by default. `export` may prefix only a module-level type, function, or
-  method declaration. An importer accesses exported declarations only through its local
-  alias; wildcard and unqualified imports do not exist.
+- The entrypoint module may contain executable statements and root value bindings. Every imported
+  module is declarations-only: it has no executable statements, root value bindings, initializer,
+  runtime Heap, import-time effects, or final-expression result. A `static` module value
+  declaration is not an executable statement and is accepted at top level in any module,
+  entrypoint or imported.
+- `static [mut] name [: type] := expr` declares a module value: program-lifetime storage private to
+  its defining module unless named in that module's export block. A fixed (non-`mut`) declaration's
+  initializer must be built entirely from the closed static-initializer set: literals, `Array`
+  literals, struct construction, ADT variant construction, and structural-union injection, applied
+  recursively, plus one exception for a direct fixed `Atomic<T>(literal)` construction. A `mut`
+  declaration accepts the same initializer set and permits later assignment to the value; `mut`
+  and a direct fixed `Atomic<T>` are mutually exclusive, since `Atomic`'s own operations are the
+  only mutation path for a fixed Atomic module value. A module value is visible to every
+  declaration and statement in its own module regardless of source position, exactly like a
+  module-level function.
+- Declarations, including module values, are private by default. An export block lists the bare
+  names of module-level types, functions, and module values, and `Type.method` for an exported
+  method, that the defining module makes available; each name or `Type.method` pair may appear at
+  most once, and only a module-level type, function, method, or module value may be named. An
+  importer accesses exported declarations only through its local alias; wildcard and unqualified
+  imports do not exist. A module-scope anonymous function literal declares no source name and can
+  never appear in an export block; a function declared at local (non-module) scope is not itself a
+  module-level declaration and is equally ineligible.
 - An exported declaration's complete interface closes over builtins and exported types only,
   including types reached through aliases, aggregates, generic arguments, parameters, results,
   receivers, members, and ADT payloads. Private types may remain inside an exported function or
   generic body when absent from its interface.
-- Qualified types, functions, ADT variants, and exported methods retain the defining module's
-  identity; renaming an import alias changes no identity. Within each module, type declarations
-  retain source-order visibility; function and method visibility is order-independent (see
-  Programs, names, and bindings). Successfully checked exports are available to importers
-  regardless of the export's textual position in the defining module.
+- Qualified types, functions, ADT variants, exported methods, and exported module values retain the
+  defining module's identity; renaming an import alias changes no identity. Within each module,
+  type declarations retain source-order visibility; function, method, and module-value visibility
+  is order-independent (see Programs, names, and bindings). Successfully checked exports are
+  available to importers regardless of the export's textual position in the defining module.
 - Only a nominal type's defining module may declare methods for it. Imported types and
   transparent aliases of imported types may call exported methods but cannot receive new methods.
 - Generated module artifacts, symbol linkage, header ownership, and source mapping are specified
@@ -588,17 +617,20 @@ HeapAllocation
   `Fun<(T1, T2) : R>`; omitting `: R` gives `Fun<(T1, T2)>` and forbids a value-returning `return`.
   A generic literal declares type parameters between `fun` and its signature: `fun<T>(value: T): T do ... end`.
   The literal is a postfix base: a same-line call suffix invokes it directly, valid only where an
-  expression is expected, never as a call statement. It declares no source name and cannot use `export`.
+  expression is expected, never as a call statement. It declares no source name and can never be
+  named in an export block.
 - `fun name(...) do ... end` at statement position (inside a function or method body, or nested
   inside a branch, loop, or bare block) is rejected: Syntax Error, named function declarations are
-  only valid at module scope. `export fun` remains rejected outside module scope.
+  only valid at module scope. A function declared at local scope is not a module-level declaration
+  and can never be named in an export block either.
 - An inferred fixed declaration (`name := ...`) whose initializer is directly a function literal,
   after stripping only grouping-only parentheses, behaves differently by scope. At module scope it
   is declaration sugar over the same function form as a named declaration: it emits the helper
   function and no function-pointer storage, is fixed and self-recursive, participates in forward
   calls and mutual recursion with every other module-level function and method exactly like a named
-  declaration, and is accepted in a declaration-only imported module. It remains private, since
-  `export` prefixes only the named function-declaration form. At local scope the same syntax is
+  declaration, and is accepted in a declaration-only imported module. Its bound name is an ordinary
+  module-level function name and may be named in the export block exactly like a named declaration.
+  At local scope the same syntax is
   ordinary source-ordered runtime data: fixed by default, mutable with `mut`, receives no
   self-recursion name, and cannot be called before its own declaration is reached in its enclosing
   block. A written type, a call or other suffix on the initializer, or a binding initialized from an
@@ -832,13 +864,78 @@ Every other source/arity combination is invalid.
 ## Errors
 
 ```text
-Error(header: Strand, message: String) -> Error
+type ErrorKind is union
+    | NotFound
+    | PermissionDenied
+    | AlreadyExists
+    | InvalidInput
+    | InvalidPath
+    | NotADirectory
+    | IsADirectory
+    | DirectoryNotEmpty
+    | ReadOnly
+    | Busy
+    | Interrupted
+    | Cancelled
+    | TimedOut
+    | Unsupported
+    | ResourceExhausted
+    | Closed
+    | AddressInUse
+    | AddressUnavailable
+    | ConnectionRefused
+    | ConnectionReset
+    | ConnectionAborted
+    | HostUnreachable
+    | NetworkUnreachable
+    | BrokenPipe
+    | NotConnected
+    | Other as header: Strand end
+end
+
+Error(kind: ErrorKind, message: String) -> Error
+Error.header()                         -> Strand
+ErrorKind.header()                     -> Strand
 ```
 
+- `ErrorKind` is a protected compiler-owned nominal type; it cannot be redeclared or shadowed. Every
+  unit variant is constructed with the ordinary call shape (`ErrorKind.NotFound()`); `Other` is the
+  only payload variant and stores one caller-supplied `header: Strand`. `ErrorKind` is complete,
+  finite, copyable, equality-comparable, non-orderable, and no more Dict-key eligible than an
+  equivalent ADT. `==` and `!=` compare variant identity; two `Other` values are equal only when
+  their header bytes are equal.
+- `ErrorKind.header() -> Strand` and `Error.header() -> Strand` derive the same display header
+  without allocation: the fixed text below for a unit variant, or the stored header for `Other`.
+  Header text is presentation only; classification and equality never compare it.
+- A type-mode `match` whose scrutinee is exactly `ErrorKind` requires a final `else`, even when the
+  written arms already name every variant the compiler currently knows: `match on ErrorKind requires
+  a final else arm`. The variant set may grow with later native capabilities; this is
+  source-compatible because of that required `else`. Matching narrows only the selected variant;
+  `Other`'s payload is read only through `header()`, not through a narrowed match binding.
+- Fixed unit headers: `NotFound` "not found", `PermissionDenied` "permission denied",
+  `AlreadyExists` "already exists", `InvalidInput` "invalid input", `InvalidPath` "invalid path",
+  `NotADirectory` "not a directory", `IsADirectory` "is a directory",
+  `DirectoryNotEmpty` "directory not empty", `ReadOnly` "read only", `Busy` "busy",
+  `Interrupted` "interrupted", `Cancelled` "cancelled", `TimedOut` "timed out",
+  `Unsupported` "unsupported", `ResourceExhausted` "resource exhausted", `Closed` "closed",
+  `AddressInUse` "address in use", `AddressUnavailable` "address unavailable",
+  `ConnectionRefused` "connection refused", `ConnectionReset` "connection reset",
+  `ConnectionAborted` "connection aborted", `HostUnreachable` "host unreachable",
+  `NetworkUnreachable` "network unreachable", `BrokenPipe` "broken pipe",
+  `NotConnected` "not connected".
 - Protected nominal `Error` has fixed immutable fields `file: String`, `line: Size`, `column: Size`,
-  `header: Strand`, `message: String`.
-- `Error(header, message)` is the only constructor and injects the current module's logical
-  source key plus one-based line and UTF-8 byte column. Propagation preserves the location.
+  `kind: ErrorKind`, `message: String`. There is no stored `header` field.
+- `Error(kind, message)` is the only constructor and injects the current module's logical
+  source key plus one-based line and UTF-8 byte column. Propagation preserves the location. A
+  Strand-first (or otherwise non-ErrorKind) first argument is rejected: `Error requires ErrorKind as
+  its first argument; use Error(ErrorKind.Other(header = ...), message)`.
+- Classification compares `error.kind`, never `error.header()` display text. Two Errors differing
+  only in kind compare unequal even when their headers are byte-equal.
+- Runtime-constructed Errors use one portable `ErrorKind` classification: libuv-backed capabilities
+  map their native status through one common mapper (RFC 0180); IO's native POSIX/Windows codes map
+  through their own small front-end that agrees with it on shared conditions; every native and
+  non-native producer's message remains a fixed, allocation-free operation string that never embeds
+  a native number.
 - Fallible functions return structural unions containing Error; there are no exceptions or hidden
   result channels. Error copying is shallow. Runtime `message` String storage must remain live while
   any alias can be inspected or printed.
@@ -1143,8 +1240,10 @@ Object members use declaration order and ` = `. Record variants print only the a
 Array/Slice/List use `[]` when empty. Dict uses `:`, `{}` when empty, and unspecified entry order.
 
 - Float32/64 use `%g` precision 9/17; signed zero and `inf`, `-inf`, `nan` are preserved. A direct
-  Error prints `file:line:column: header: message` with no trailing newline; nested, it uses the
-  object form with declaration-ordered fields and quoted text.
+  Error prints `file:line:column: header: message` with no trailing newline, where `header` is
+  `error.kind`'s derived header text; nested, it uses the object form with declaration-ordered
+  fields (`kind` prints its derived header text; there is no separate `header` member) and quoted
+  text. A direct or nested `ErrorKind` prints its derived header text.
 - A whole call is atomic relative to print and standard text writes. It does not flush per call.
   Root defers finish before process exit; shutdown then flushes stdout/applicable stderr.
   Detected output failure is unrecoverable.
@@ -1163,7 +1262,8 @@ Task.sleep(duration: Duration) -> no value
 
 - Spawn evaluates arguments once left-to-right and shallow-copies them; failure starts no task. R
   must be valid in FunctionResult and TaskResult, complete, finite, and copyable. Spawn Error is
-  separate from returned R.
+  separate from returned R. Task creation failure (allocation) returns Error with kind
+  `ErrorKind.ResourceExhausted()`.
 - `join()` waits, copies the exact result, and reclaims storage. `detach()` discards result and
   arranges reclamation. Exactly one successful join or detach is allowed across aliases.
 - Scheduler-owned stacks/control/queues need no allocator. `Task.yield()` is the explicit scheduling
@@ -1203,11 +1303,13 @@ Channel<T>.is_closed() -> Bool
 ```
 
 - Bounded MPMC FIFO; capacity zero fails at compile time when known, otherwise with Error. Full send
-  and empty receive park Task, not worker.
+  and empty receive park Task, not worker. Construction failure (allocation) returns Error with kind
+  `ErrorKind.ResourceExhausted()`.
 - T must be valid in ChannelElement, complete, finite, and copyable, which excludes top-level EoS and
   any value transitively containing Atomic. Elements copy shallowly. Error is a valid T.
-- Send after close returns Error. Close is idempotent, preserves queued values, and wakes waiters;
-  closed/drained receive returns eos. Receive adds no Error result member.
+- Send after close returns Error with kind `ErrorKind.Closed()`. Close is idempotent, preserves
+  queued values, and wakes waiters; closed/drained receive returns eos. Receive adds no Error result
+  member.
 - Free requires closed, empty, unused state and releases only Channel storage.
 
 ### `Mutex`
@@ -1223,7 +1325,7 @@ Mutex.free(heap: Heap) -> no value
   lock, wrong-owner/double unlock, or freeing locked/waited Mutex is programmer error. Invalid states
   detectable from a live control block trap, including recursive lock and wrong-owner unlock. Freed
   control blocks need not be retained to diagnose stale aliases; use after free is not guaranteed to
-  trap.
+  trap. Construction failure (allocation) returns Error with kind `ErrorKind.ResourceExhausted()`.
 
 ### `Atomic<T>`
 
@@ -1283,7 +1385,7 @@ WallTime.nanosecond()                -> UInt32
   `elapsed()` is `Instant.now()` minus the receiver. No other arithmetic accepts Instant.
 - WallTime is a UTC observation from C23 `timespec_get(TIME_UTC)`: signed Unix seconds and a
   normalized `0..999_999_999` nanosecond fraction. It has no arithmetic and never converts to or
-  from Instant. Acquisition failure returns an Error with header `time unavailable` and message
+  from Instant. Acquisition failure returns an Error with kind `ErrorKind.Unsupported()` and message
   `wall clock acquisition failed`, allocating nothing.
 - All three types support `==`, `!=`, `<`, `<=`, `>`, and `>=` against the same type; WallTime
   orders by seconds, then fraction. Operands of different time types are rejected.
@@ -1353,10 +1455,12 @@ type Seek is union | Start as position: Size end | Current as offset: Int64 end 
   operation is a parked Task, not a blocked one. A call made outside any Task runs directly, with
   no pool involved. Bytes never uses the pool, since its transfers are pure memory operations.
   Source-visible semantics and failures for IO and print are unchanged either way.
-- Failures carry a bounded ASCII Strand header `IO <operation> errno=<code>` (POSIX) or
-  `winerr=<code>` (Windows), zero-filled with one NUL, plus a static message such as `read failed`
-  or `stream is not writable`; no Heap is required on a failure path. Native codes are diagnostic
-  data; portable source must not depend on their values.
+- Failures carry a portable `ErrorKind` classified from the native POSIX errno or Windows code (a
+  small front-end owned by `hexal/io.c`, agreeing with the common libuv mapper on shared conditions)
+  plus a static message such as `read failed` or `stream is not writable`; an unmapped native code
+  uses `ErrorKind.Other(header = "IO error")`. A capability mismatch (`not readable`/`not writable`)
+  uses `PermissionDenied`; a Bytes self-read or overlapping write uses `InvalidInput`. No Heap is
+  required on a failure path, and no header or message contains a native number.
 - `print` shares the descriptor write-all backend of stdout: one buffering domain, short-write and
   EINTR retries inside print's private sink, trap only when a complete print cannot finish.
 - Generated C confines all platform branches to `hexal/io.c`; no signature contains `#ifdef`,
@@ -1377,39 +1481,340 @@ type FileMode is Read | Write | Append | ReadWrite | CreateNew end
 ```
 
 - `File` and `FileMode` are protected. FileMode variants construct call-shaped, for example
-  `FileMode.Read()`. File lowers to `{ intptr_t desc, uint8_t access }` over one owned libuv file
-  descriptor; it is distinct from IO and exposes no descriptor, libuv, or platform name.
+  `FileMode.Read()`. File lowers to a generation-checked handle plus an access mask, over one
+  owned native descriptor in a heap-allocated (mimalloc-backed, not source-level `Heap`) control
+  block; it is distinct from IO and exposes no descriptor, libuv, generation, or platform name.
+- A File value is an ordinary copyable handle: every copy names the same descriptor and observes
+  one shared lifecycle. Because closing is generation-checked rather than relying on a shallow-copy
+  alias lifetime, File occupies every ordinary complete-value position -- bindings, parameters,
+  results, struct and ADT payload members, union members, Array/Slice/List elements, Dict values,
+  pointer pointees, Heap/Stash/Pool allocations, Task arguments/results, and Channel elements --
+  unlike IO, which is restricted to the ephemeral positions its own shallow-copy model allows. File
+  has no equality, ordering, hash, or print contract and is invalid as a Dict key.
 - Modes: `Read` opens an existing file read-only; `Write` opens write-only, creating or truncating;
   `Append` opens write-only, creating, and every write lands at the then-current end; `ReadWrite`
   opens an existing file for both without truncation; `CreateNew` creates a write-only file and
   fails when the path exists. New POSIX files request mode `0666` subject to the umask.
 - Paths are UTF-8 `String` values passed without normalization, canonicalization, case folding, or
-  absolute conversion. An embedded NUL fails before any request with header `invalid path` and
-  message `file open failed`.
+  absolute conversion. An embedded NUL fails before any request with kind `ErrorKind.InvalidPath()`
+  and message `file open failed`.
 - Read is permitted by Read and ReadWrite; write and flush by Write, Append, ReadWrite, and
   CreateNew; seek and close by every mode. Capability checking follows IO's two tiers and precedes
   the zero-length path: a statically known mismatch rejects at the call, otherwise the operation
-  returns an Error with header `filesystem error` and message `file is not readable` or
+  returns an Error with kind `ErrorKind.PermissionDenied()` and message `file is not readable` or
   `file is not writable`.
 - Read, write, EoS, zero-length, partial-transfer, per-call clamp (`UINT32_MAX` bytes), destination
-  reservation, copied-cursor, close-state, and placement rules match IO. Read and write use and
-  advance the shared descriptor position. `flush` completes after `uv_fs_fsync` succeeds. `seek`
-  runs directly, never through the worker pool. Every File owns its descriptor; close invalidates
-  every copy even on failure and is never retried. Only `File.close()` may appear in defer/errdefer.
+  reservation, copied-cursor, and placement rules match IO. Read and write use and advance the
+  shared descriptor position. `flush` completes after `uv_fs_fsync` succeeds. `seek` runs directly,
+  never through the worker pool. Only `File.close()` may appear in defer/errdefer.
+- Closing resolves the handle, transitions its slot from live to closing (which rejects every new
+  operation immediately, from any copy), then runs the native close; the slot recycles once every
+  operation that resolved before the transition has finished, whichever finishes last. A statically
+  provable double-close on one binding is a check error ("this stream was closed on every path");
+  an escaped or aliased use that the checker cannot prove -- a second copy, a copy stored in a
+  struct or collection, a copy crossing a Task boundary -- instead returns the owning operation's
+  Error with kind `ErrorKind.Closed()` at runtime. Neither path ever dereferences released control
+  storage: a closed or stale handle's copy is detected before any native call runs.
 - Outside a Task each operation uses libuv's synchronous filesystem request; inside a Task it parks
   only that Task on the event bridge. Filesystem requests share libuv's worker pool. Root completion
   does not wait for a detached Task doing File work.
 - Failures carry a static operation message (`file open failed`, `file read failed`,
   `file write failed`, `file seek failed`, `file flush failed`, `file close failed`) and one
-  portable header, identical on every target and never containing a path or native code:
-  `not found` (ENOENT), `permission denied` (EACCES, EPERM), `already exists` (EEXIST),
-  `invalid path` (ENAMETOOLONG, ELOOP, and EINVAL from open only), `not a directory`,
-  `is a directory`, `directory not empty`, `read only`, `busy`, `interrupted`, `cancelled`,
-  `unsupported` (ENOSYS, ENOTSUP), and `filesystem error` for every other result. No failure path
-  allocates. Existing IO headers are unchanged.
-- Selection: reachable File use emits `hexal/file.h`/`hexal/file.c` and selects libuv, mimalloc, and
-  the native bootstrap; File without the scheduler selects no event bridge. IO and print without
-  Task keep their direct path and select no libuv.
+  portable `ErrorKind`, identical on every target and never containing a path or native code.
+  File-specific categories and contextual overrides: `InvalidPath` (ENAMETOOLONG, ELOOP, and EINVAL
+  from open only), `NotADirectory`, `IsADirectory`, `DirectoryNotEmpty`, `ReadOnly`, `Busy`,
+  `PermissionDenied` for a statically-known-mismatch capability failure, and `Closed` for an
+  escaped or stale handle. Every other libuv condition classifies through the shared handle
+  component's common mapper (below); an unmapped result uses `Other(header = "filesystem error")`.
+  A control-block allocation failure after a successful native open returns `ResourceExhausted`
+  without publishing a handle, and closes the just-opened native descriptor first. No failure path
+  performs an additional allocation to report itself.
+- Selection: reachable File use emits `hexal/file.h`/`hexal/file.c` plus the shared
+  `hexal/handle.h`/`hexal/handle.c` pair, and selects libuv, mimalloc, and the native bootstrap;
+  File without the scheduler selects no event bridge. IO and print without Task keep their direct
+  path and select no libuv.
+
+### The shared handle registry
+
+Every long-lived libuv-backed capability -- File, TcpConnection and TcpListener, Process and Pipe,
+and Signals -- resolves through one program-wide, generation-checked handle registry rather than
+each defining its own liveness state and libuv error switch.
+
+- A handle is `{ slot, generation }`: an opaque slot identity plus the generation it was published
+  under. Slot storage lives in fixed-size chunks allocated once and never moved or freed before
+  process exit, so a published slot's address, and therefore every outstanding copy of a handle
+  naming it, stays valid for the rest of the process even while the registry grows. Only chunk
+  growth and free-slot selection take the one program-wide registry lock; every resolve, release,
+  and close synchronizes through the resolved slot's own private lock, never that shared one.
+- A slot carries a lifecycle state (`free -> opening -> live -> closing -> free-or-retired`), the
+  capability kind that reserved it, a private control-block pointer, and an in-flight operation
+  count. Resolving locks the slot, accepts only a `live` state with a matching generation and
+  capability kind, increments the count, and returns the pinned control-block pointer before
+  unlocking; releasing decrements the count under the same lock. Closing locks the slot and
+  linearizes `live -> closing` immediately, which is what makes every other copy observe closed
+  from that instant; recycling -- clearing the control block, incrementing the generation, and
+  returning the slot to the free list -- waits until every operation that resolved before the
+  closing transition has released, whichever operation (the closer or a still-running one)
+  finishes last. A generation that would wrap on reuse retires the slot permanently instead.
+- Registry, slot, and control-block storage use the runtime's private mimalloc-backed allocator,
+  never source-level `Heap`; a materialized result collection a capability's own operation returns
+  still uses the caller's `Heap`. Allocation failure returns Error and publishes no partial handle.
+- One shared mapper (`hexal/handle.c`) classifies the libuv conditions common to every capability
+  into a stable, target-independent `ErrorKind`: `NotFound`, `PermissionDenied`, `AlreadyExists`,
+  `InvalidInput`, `ResourceExhausted` (`ENOMEM`, `ENOBUFS`, `EMFILE`, `ENFILE`), `Unsupported`,
+  `Cancelled`, `Interrupted`, `TimedOut`, `AddressInUse`, `AddressUnavailable`, `ConnectionRefused`,
+  `ConnectionReset`, `ConnectionAborted`, `HostUnreachable`, `NetworkUnreachable`, `BrokenPipe`, and
+  `NotConnected`. An unmapped or capability-specific condition falls through to that capability's
+  own `Other` fallback; no capability duplicates this switch.
+- Selection: reachable use of any handle-backed capability emits exactly one
+  `hexal/handle.h`/`hexal/handle.c` pair; a program using none emits neither file. The generated
+  public surface exposes no libuv type, pointer, request, callback, or numeric error code.
+
+### Networking
+
+```text
+type Address is union
+    | IPv4 as bytes: Array<Byte, 4>, port: UInt16 end
+    | IPv6 as bytes: Array<Byte, 16>, port: UInt16, scope: UInt32 end
+end
+
+Address.parse(text: String, port: UInt16) -> Address | Error
+Address.format(heap: Heap)                -> String
+Dns.resolve(heap: Heap, host: String, service: String)
+                                             -> List<Address> | Error
+
+Tcp.connect(address: Address)                 -> TcpConnection | Error
+Tcp.listen(address: Address, backlog: Size)   -> TcpListener | Error
+
+TcpListener.accept()                          -> TcpConnection | Error
+TcpListener.close()                           -> Nil | Error
+
+TcpConnection.read(into: List<Byte>, max: Size)
+                                             -> Size | EoS | Error
+TcpConnection.write(from: Slice<Byte>)        -> Nil | Error
+TcpConnection.shutdown()                      -> Nil | Error
+TcpConnection.no_delay(enabled: Bool)         -> Nil | Error
+TcpConnection.close()                         -> Nil | Error
+```
+
+- `Address`, `Dns`, `Tcp`, `TcpConnection`, and `TcpListener` are protected and cannot be
+  redeclared or shadowed. `Address` is an ordinary inline ADT: `IPv4` and `IPv6` construct and
+  match through the general ADT rules. IPv4 stores four network-order bytes and a host-order
+  port; IPv6 stores sixteen network-order bytes, a host-order port, and a numeric scope. No
+  Address value allocates, and Address has no equality, ordering, hash, or print contract.
+- `Address.parse` accepts a numeric IPv4 or IPv6 literal only and performs no DNS lookup; an
+  embedded NUL or malformed literal returns `InvalidInput`. A scoped IPv6 literal accepts only a
+  decimal numeric scope after `%`; interface-name scopes are not supported. `Address.format`
+  emits the numeric host address without a port, allocated from `heap`, appending
+  `%<unsigned-decimal-scope>` itself for a nonzero IPv6 scope; every valid Address has a bounded
+  representation, so formatting is infallible.
+- `Dns.resolve` accepts a host plus a numeric or named service, rejects an embedded NUL before
+  submission, and allocates its returned `List<Address>` from `heap`, preserving libuv's result
+  order. DNS has no close or cancellation surface.
+- `TcpConnection` and `TcpListener` use the shared generation-checked handle representation and
+  occupy every ordinary complete-value position, exactly like File; `close` invalidates every
+  copy and is the only operation valid in `defer`/`errdefer`.
+- `backlog` must be positive and fit libuv's `int`; otherwise `Tcp.listen` returns `InvalidInput`
+  before native submission. Binding an IPv6 listener always passes the IPv6-only option; v1 never
+  changes IPv4 acceptance according to a host's dual-stack default.
+- `shutdown` closes only the write half; reads remain valid until EoS or close. `write` is
+  write-all: success means every source byte was accepted, submitted as sequential chunks within
+  libuv's representable length; failure after partial progress returns Error without exposing the
+  completed prefix. A write borrows its source Slice, and a read appends into its destination
+  List and reserves capacity before native submission, until the call returns; the programmer
+  owns not mutating, growing, or freeing that storage from another Task meanwhile.
+- DNS and TCP operations always run inside a Task; there is no synchronous fallback path for a
+  parking operation, so root-level use still requires the scheduler bootstrap even without an
+  explicit Task, Channel, Mutex, or spawn elsewhere in the program. A positive read count is
+  ordinary success; `eos` appears only when the peer ended the stream and no byte was delivered by
+  that call. POSIX runtime initialization ignores `SIGPIPE` before any socket or pipe write can
+  run, so a closed peer becomes `BrokenPipe` instead of terminating the process.
+- This implementation admits one active read, one active write, and one active accept at a time
+  per connection or listener: a second concurrent call of the same kind returns Error with kind
+  `Busy` immediately rather than joining a FIFO wait queue.
+- Errors: networking first applies the shared handle registry's portable libuv ErrorKind mapper.
+  Local contract failures additionally use `InvalidInput` (malformed numeric address, invalid
+  backlog), `Busy` (a second concurrent read, write, or accept), `Closed` (a closed handle or a
+  close-cancelled socket operation), and `Other` with a fixed operation-specific header
+  (`"name resolution failed"` for DNS, `"network error"` for TCP/listener) for every other
+  condition. Messages name the failed operation, never embed host text or addresses, and every
+  Error carries the Hexal call site's source location.
+- Selection: reachable networking use emits `hexal/network.h`/`hexal/network.c`. Address
+  parse/format alone selects only the network component and libuv's address helpers, not the
+  scheduler, event bridge, or handle component; DNS and TCP additionally select the handle
+  component (for TCP's copied-handle registry and DNS and TCP's shared error mapper), the event
+  bridge, and the scheduler bootstrap.
+- UDP, multicast, keepalive, reusable-port controls, batched receive, interface discovery, and
+  foreign socket adoption are not part of this implementation.
+
+### Processes and IPC
+
+```text
+type Environment is union
+    | Inherit
+    | Replace as values: List<EnvironmentVariable> end
+end
+
+type EnvironmentVariable is struct
+    name: String,
+    value: String,
+end
+
+type ProcessStream is Ignore | Inherit | Pipe end
+
+type ProcessOptions is struct
+    program: String,
+    arguments: List<String>,
+    environment: Environment,
+    working_directory: String | Nil,
+    input: ProcessStream,
+    output: ProcessStream,
+    error: ProcessStream,
+end
+
+type ExitStatus is union
+    | Exited as code: Int64 end
+    | Terminated
+end
+
+type StartedProcess is struct
+    process: Process,
+    input: Pipe | Nil,
+    output: Pipe | Nil,
+    error: Pipe | Nil,
+end
+
+Process.start(options: ProcessOptions) -> StartedProcess | Error
+Process.wait()                         -> ExitStatus | Error
+Process.terminate()                    -> Nil | Error
+Process.close()                        -> Nil | Error
+
+Pipe.read(into: List<Byte>, max: Size) -> Size | EoS | Error
+Pipe.write(from: Slice<Byte>)          -> Nil | Error
+Pipe.shutdown()                        -> Nil | Error
+Pipe.close()                           -> Nil | Error
+```
+
+- `Process`, `Pipe`, `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`,
+  `ProcessStream`, and `ExitStatus` are protected and cannot be redeclared or shadowed. `Process`
+  and `Pipe` use RFC 0180's generation-checked copied-handle representation, exactly like File and
+  TcpConnection, and occupy every ordinary complete-value position.
+  `Environment`, `ProcessStream`, and `ExitStatus` are ordinary inline ADTs: their variants
+  construct and match through the general ADT rules, for example
+  `match status is | ExitStatus.Exited then status.code | ExitStatus.Terminated then -1 end`.
+  `ProcessOptions`, `EnvironmentVariable`, and `StartedProcess` are ordinary inline structs.
+- `program` names the executable; `arguments` holds only the arguments after argument zero, which
+  the runtime supplies from `program`. No shell parses `program` or any argument, so argument
+  boundaries, order, empty strings, and UTF-8 bytes are preserved exactly. An embedded NUL in
+  `program`, an argument, `working_directory`, an environment name, or an environment value
+  returns `InvalidInput` before native submission. A relative `program` uses the host's ordinary
+  executable search (Windows may consider the current directory before PATH, unlike a POSIX
+  `execvp` search); an absolute path avoids that ambiguity.
+- `Environment.Inherit()` copies the parent environment at spawn. `Environment.Replace(values =
+  ...)` supplies exactly the given `EnvironmentVariable` entries and does not merge them with the
+  parent environment; there is no `NAME=value` parsing surface. A name must be non-empty and
+  contain neither `=` nor NUL; a value must contain no NUL. A duplicate name (POSIX compares
+  byte-for-byte, Windows case-insensitively) returns `InvalidInput` before submission. Entry order
+  has no semantic effect.
+- `working_directory = nil` inherits the parent's current directory. `ProcessStream.Ignore()`
+  connects no parent-facing stream; `.Inherit()` uses the matching parent standard stream;
+  `.Pipe()` creates one parent-facing `Pipe`. `StartedProcess.input`, `.output`, and `.error` are
+  non-Nil exactly where the matching option requested `Pipe()`; `input` is writable, `output` and
+  `error` are readable, and an operation contrary to that capability returns `PermissionDenied`.
+- Exit code is libuv's signed 64-bit result; `ExitStatus.Terminated()` means the target reported
+  signal termination, produced only when the platform reports it. `wait()` may be called
+  concurrently and after exit; every successful call observes the same cached `ExitStatus`. An
+  exit-completion-first race delivers that value to an already-parked wait; a close-first race
+  delivers `Closed` to active waiters instead, and a later exit still reaps the child privately.
+- `terminate()` is the one termination request: `uv_process_kill(process, SIGTERM)` on every
+  target (POSIX delivers catchable `SIGTERM`; Windows implements it as forceful `TerminateProcess`
+  through libuv). It has no separate forceful companion and no `kill()`.
+- `close()` never kills a live process and never closes its native handle before the exit callback
+  has reaped the child; it invalidates the public handle immediately, and private state releases
+  once both the reap and the native close finish. Root completion never implicitly waits for or
+  terminates a child: an unwaited, unterminated process becomes an ordinary external process. Only
+  `Process.close()` and `Pipe.close()` may appear in `defer`/`errdefer`.
+- `Pipe` uses the same pull-read, FIFO write-all, borrowed-buffer, and close-wakes-waiters
+  contracts TcpConnection uses (see Networking above), including this implementation's one
+  active read and one active write at a time per Pipe. A caller must concurrently drain a
+  requested stdout/stderr `Pipe` while the child may write to it; waiting for exit before reading
+  can deadlock once the OS pipe buffer fills, since Hexal adds no unbounded capture buffer.
+- Named local IPC endpoints, IPC handle passing, raw process IDs, a wait deadline, Task
+  cancellation, and a second termination operation are not part of this implementation.
+- Errors: process and Pipe operations first apply the shared handle registry's portable libuv
+  ErrorKind mapper. Local contract failures additionally use `InvalidInput` (an invalid option or
+  embedded NUL), `PermissionDenied` (a Pipe direction mismatch), `Closed` (a closed Process or
+  Pipe, including a close-cancelled Pipe operation), and `Other` with a fixed header
+  (`"process error"` for Process operations, `"pipe error"` for Pipe operations) for every other
+  condition. Messages name the failed operation, never embed command text, arguments, or paths,
+  and every Error carries the Hexal call site's source location.
+- Selection: constructing or inspecting `ProcessOptions`, `Environment`, `ProcessStream`,
+  `ExitStatus`, `EnvironmentVariable`, or `StartedProcess` alone emits only `hexal/process.h`'s
+  type definitions (which embed the shared `hex_handle` representation, a disclosed simplification
+  with no scheduler or libuv cost of its own). A reachable Process or Pipe operation additionally
+  emits `hexal/process.c` and selects the handle component, the event bridge, the scheduler
+  bootstrap, libuv, and the native bootstrap.
+
+### Signals
+
+```text
+type Signal is Interrupt | Hangup | Terminate end
+
+Signals(subscriptions: Slice<Signal>) -> Signals | Error
+Signals.next()                        -> Signal | EoS | Error
+Signals.close()                       -> Nil | Error
+```
+
+- `Signal` and `Signals` are protected and cannot be redeclared or shadowed. `Signal` is an
+  ordinary inline ADT: `Signal.Interrupt()`, `Signal.Hangup()`, and `Signal.Terminate()` construct
+  and match through the general ADT rules. `Signals` uses the shared generation-checked handle
+  representation and occupies every ordinary complete-value position, exactly like File and
+  Process; construction takes no source-level Heap.
+- Construction copies the subscription values out of `subscriptions` before returning and retains
+  no pointer to it; the Slice may be freed or go out of scope immediately after the call. An empty
+  or duplicate-containing Slice returns `InvalidInput` before native registration.
+- Linux and macOS support all three variants. Windows supports Interrupt and Hangup only;
+  requesting Terminate on Windows returns Unsupported before installing any watcher. Windows
+  Hangup delivery is best-effort: a console/window close may force process termination after a
+  short platform-controlled cleanup interval. A variant unsupported by the selected target is
+  rejected by construction, never silently turned into an inert watcher.
+- Each subscription stores one pending bit per subscribed Signal. Repeated occurrences of an
+  already-pending Signal coalesce; distinct Signals remain independently pending. `next()` clears
+  and returns one pending Signal in stable Signal declaration order (Interrupt, Hangup, Terminate);
+  occurrence counts are not observable, and arrival order between different Signal variants is not
+  preserved. Every active Signals resource subscribed to a Signal receives it -- there is no
+  process-global winner.
+- One `next()` may be active per Signals resource; a concurrent second call returns Busy without
+  consuming a pending event. Event selection and `close()` linearize under the same slot
+  synchronization: whichever wins first determines the outcome for the active waiter. A `next()`
+  already parked when close wins receives EoS; a new `next()` through an already closed handle
+  returns Closed instead.
+- No native signal handler executes Hexal work: the libuv callback that sets a pending bit and
+  wakes a parked Task runs on the loop thread, performs no allocation, and invokes no user code.
+  Signal sending, raw signal numbers, and target-specific signal names are not part of this
+  surface; Process control or unsafe C interoperability own sending. Root completion performs no
+  implicit subscription close -- close explicitly, normally through `defer`.
+- `Signals.close()` is a valid `defer`/`errdefer` cleanup call; it is the only operation valid
+  there.
+- Errors: Signal operations first apply the shared handle registry's portable libuv ErrorKind
+  mapper. Local contract failures additionally use `InvalidInput` (an empty or duplicate
+  subscription set), `Unsupported` (a requested variant the target cannot deliver), `Busy` (a
+  second concurrent `next()`), `Closed` (a closed subscription operation other than an already
+  parked `next()`), and `Other` with a fixed `"signal error"` header for every other condition.
+  Messages name the failed operation, contain no native signal number, and every Error carries the
+  Hexal call site's source location.
+- Selection: constructing or matching a `Signal` variant alone emits only `hexal/signal.h`'s type
+  definitions (which embed the shared `hex_handle` representation, a disclosed simplification with
+  no scheduler or libuv cost of its own). A reachable `Signals` construction, `next`, or `close`
+  additionally emits `hexal/signal.c` and selects the handle component, the event bridge, the
+  scheduler bootstrap, libuv, and the native bootstrap. A collection specialized over `Signal`
+  (`List<Signal>`, `Array<Signal, N>`, `Slice<Signal>`, `Dict<K, Signal>`, `Pool<Signal>`) is
+  rendered in each consuming module's own header rather than the shared collection component, a
+  header-ordering accommodation with no effect on program behavior; equality (`==`/`!=`) over such
+  a collection is not part of this implementation, though bare `Signal == Signal` comparison is.
+- Sending signals, exposing signal numbers, synchronous fault handling (stack overflow,
+  segmentation faults), Task cancellation, deadlines, and preserving a foreign handler installed
+  before a Hexal subscription are not part of this implementation.
 
 ## Layout intrinsics
 
@@ -1555,12 +1960,15 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   `hexal/string.c`, `hexal/error.h`, `hexal/list.h`, `hexal/dict.h`, `hexal/array.h`,
   `hexal/numeric.h`, `hexal/print.h`/`hexal/print.c`, `hexal/equality.h`,
   `hexal/concurrency.h`/`hexal/concurrency.c`, `hexal/io.h`/`hexal/io.c`, `hexal/seek.h`,
-  `hexal/event.h`/`hexal/event.c`, `hexal/time.h`/`hexal/time.c`, and `hexal/file.h`/
-  `hexal/file.c`. A program that links libuv (scheduler, Instant, or File) also gets
-  `hex_runtime_native_init`, declared in `hexal.h` and defined in `hexal/runtime.c`; root `main`
-  calls it first, before any module statement and the scheduler, to install mimalloc as libuv's
-  allocator. Their source of truth is the compiler's embedded C/
-  header templates; a `.c` artifact is emitted only when it contains at least one definition.
+  `hexal/event.h`/`hexal/event.c`, `hexal/time.h`/`hexal/time.c`, `hexal/handle.h`/
+  `hexal/handle.c`, `hexal/file.h`/`hexal/file.c`, and `hexal/network.h`/`hexal/network.c`. A
+  program that links libuv (scheduler, Instant, File, or networking) also gets
+  `hex_runtime_native_init`, declared in `hexal.h` and defined in
+  `hexal/runtime.c`; root `main` calls it first, before any module statement and the scheduler, to
+  install mimalloc as libuv's allocator. A program selecting the handle registry (currently: any
+  File use) also gets a `hex_handle_registry_init` call immediately after. Their source of truth
+  is the compiler's embedded C/header templates; a `.c` artifact is emitted only when it contains
+  at least one definition.
   Component headers have stable `HEXAL_<COMPONENT>_H` guards, include `hexal.h` first and then only
   their declared dependencies (heap, slice, string, error, list, dict, array, numeric, print,
   equality, concurrency follow the acyclic component graph), and are emitted once per compilation.
@@ -1593,6 +2001,15 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   Root selection adds nothing to this header. Its guard is
   `HEX_MODULE_<encoded-owner>_H`; it includes no module header and declares no `main()`. C consumers
   include the desired module header, not `hexal.h` directly.
+- Each module value gets one definition in its owning module's `.c` file, in checked declaration
+  order, using generated symbol `hex_v_<encoded-owner>_<name>`. A fixed value's definition carries
+  C `const`; a `mut` value's does not; a direct fixed `Atomic<T>` keeps its existing `_Atomic`
+  spelling without `const`. An exported module value additionally gets one `extern`-qualified
+  declaration, with matching `const`, in its owning module's header. An importer never includes
+  another module's header for this: every module referencing a foreign module value declares its
+  own `extern` prototype for it, exactly like a foreign function or method prototype. No module-init
+  function or accessor wrapper exists; a consumer reads, writes, or takes the address of the same
+  storage the owning module defines.
 - `modules/<canonical>.c` is one module's translation unit: it includes only its own module
   header, and declares a `static` prototype for each of its private functions and methods, in
   source order, before any of that module's function or method definitions. It then defines its

@@ -106,9 +106,9 @@ func TestGeneratedUnionNamesAreDeterministic(t *testing.T) {
 
 func TestSameUnionAcrossModulesProducesOneName(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module A = import \"./a\"\nmodule B = import \"./b\"\na_val: A.Result := true\nb_val: B.Result := 1\n",
-		"a.hex":   "export type Result is union Int32 | Bool end\n",
-		"b.hex":   "export type Result is union Int32 | Bool end\n",
+		"app.hex": "import\n    A from \"./a\"\n,\n    B from \"./b\"\nend\na_val: A.Result := true\nb_val: B.Result := 1\n",
+		"a.hex":   "type Result is union Int32 | Bool end\nexport\n    Result\nend\n",
+		"b.hex":   "type Result is union Int32 | Bool end\nexport\n    Result\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -122,9 +122,9 @@ func TestSameUnionAcrossModulesProducesOneName(t *testing.T) {
 
 func TestStructurallyDifferentModuleUnionsProduceDistinctNames(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nm_val: M.Point | Bool := true\ns_val: S.Point | Bool := true\n",
-		"m.hex":   "export type Point is struct x: Int32, end\n",
-		"s.hex":   "export type Point is struct x: Int32, end\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nm_val: M.Point | Bool := true\ns_val: S.Point | Bool := true\n",
+		"m.hex":   "type Point is struct x: Int32, end\nexport\n    Point\nend\n",
+		"s.hex":   "type Point is struct x: Int32, end\nexport\n    Point\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -297,9 +297,9 @@ func TestUnionBaseCollidingWithNominalNameIsSuffixed(t *testing.T) {
 // and the same-type assignment emits no widening helper.
 func TestReversedImportedObjectUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Point | S.Point := M.make()\nb: S.Point | M.Point := a\n",
-		"m.hex":   "export type Point is struct x: Int32, end\nexport fun make(): Point do\n    return Point(x = 1,)\nend\n",
-		"s.hex":   "export type Point is struct x: Int32, end\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\na: M.Point | S.Point := M.make()\nb: S.Point | M.Point := a\n",
+		"m.hex":   "type Point is struct x: Int32, end\nfun make(): Point do\n    return Point(x = 1,)\nend\nexport\n    Point,\n    make\nend\n",
+		"s.hex":   "type Point is struct x: Int32, end\nexport\n    Point\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -319,9 +319,9 @@ func TestReversedImportedObjectUnionsInternTogether(t *testing.T) {
 // alone cannot satisfy this case because ADTs sort by short name.
 func TestReversedImportedADTUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Shape | S.Shape := M.make()\nb: S.Shape | M.Shape := a\n",
-		"m.hex":   "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport fun make(): Shape do\n    return Shape.Circle(r = 1)\nend\n",
-		"s.hex":   "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\na: M.Shape | S.Shape := M.make()\nb: S.Shape | M.Shape := a\n",
+		"m.hex":   "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun make(): Shape do\n    return Shape.Circle(r = 1)\nend\nexport\n    Shape,\n    make\nend\n",
+		"s.hex":   "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport\n    Shape\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -340,9 +340,9 @@ func TestReversedImportedADTUnionsInternTogether(t *testing.T) {
 // branch of the display key needs the same canonical tie-break.
 func TestReversedImportedPointerUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nmut p: M.Point := M.make()\na: Ptr<M.Point> | Ptr<S.Point> := @p\nb: Ptr<S.Point> | Ptr<M.Point> := a\n",
-		"m.hex":   "export type Point is struct x: Int32, end\nexport fun make(): Point do\n    return Point(x = 1,)\nend\n",
-		"s.hex":   "export type Point is struct x: Int32, end\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nmut p: M.Point := M.make()\na: Ptr<M.Point> | Ptr<S.Point> := @p\nb: Ptr<S.Point> | Ptr<M.Point> := a\n",
+		"m.hex":   "type Point is struct x: Int32, end\nfun make(): Point do\n    return Point(x = 1,)\nend\nexport\n    Point,\n    make\nend\n",
+		"s.hex":   "type Point is struct x: Int32, end\nexport\n    Point\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -361,8 +361,8 @@ func TestReversedImportedPointerUnionsInternTogether(t *testing.T) {
 // identically in every header that declares the function against it.
 func TestCrossModuleUnionResultSpelledIdentically(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nvalue: M.Maybe := M.make()\n",
-		"m.hex":   "export type Maybe is union Int32 | Nil end\nexport fun make(): Maybe do\n    return nil\nend\n",
+		"app.hex": "import\n    M from \"./m\"\nend\nvalue: M.Maybe := M.make()\n",
+		"m.hex":   "type Maybe is union Int32 | Nil end\nfun make(): Maybe do\n    return nil\nend\nexport\n    Maybe,\n    make\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {

@@ -184,12 +184,12 @@ func TestDispatchTableMemberDiagnosticsAndCShape(t *testing.T) {
 
 func TestDispatchTableMemberAcrossModule(t *testing.T) {
 	result := compiler.Compile(map[string]string{
-		"app.hex": "module Lib = import \"./lib\"\n" +
+		"app.hex": "import\n    Lib from \"./lib\"\nend\n" +
 			"table: Lib.Ops := Lib.make()\n" +
 			"result: Int32 := table.callback(5)\n",
-		"lib.hex": "export type Ops is struct callback: Fun<(Int32) : Int32>, end\n" +
+		"lib.hex": "type Ops is struct callback: Fun<(Int32) : Int32>, end\n" +
 			"fun handler(value: Int32): Int32 do\n    return value\nend\n" +
-			"export fun make(): Ops do\n    return Ops(callback = handler, )\nend\n",
+			"fun make(): Ops do\n    return Ops(callback = handler, )\nend\nexport\n    Ops,\n    make\nend\n",
 	}, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess || len(result.Stderr) != 0 {
 		t.Fatalf("cross-module dispatch table rejected: %#v", result.Stderr)
@@ -455,7 +455,7 @@ func TestGeneratedMutualRecursionIsDeterministic(t *testing.T) {
 // An exported function's prototype comes from the module header only; the
 // module C file never duplicates it as a static prototype.
 func TestGeneratedExportedFunctionPrototypeIsNotDuplicated(t *testing.T) {
-	result := assertCompiles(t, "export fun square(value: Int32): Int32 do\n    return value * value\nend\n")
+	result := assertCompiles(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nexport\n    square\nend\n")
 	body := rootC(t, result)
 	if strings.Contains(body, "static int32_t hex_f_m3_app_square") {
 		t.Fatalf("modules/app.c = %q, want no static prototype or definition for an exported function", body)

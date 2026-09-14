@@ -125,5 +125,9 @@ static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
 {{if .NeedsSlice}}#include "hexal/slice.h"
 {{end}}{{if .NeedsHeapString}}#include "hexal/string.h"
 {{end}}{{if .NeedsConcurrency}}#include "hexal/concurrency.h"
+{{end}}{{if .NeedsFile}}#include "hexal/file.h"
+{{end}}{{if .NeedsNetwork}}#include "hexal/network.h"
+{{end}}{{if .NeedsProcess}}#include "hexal/process.h"
+{{end}}{{if .NeedsSignal}}#include "hexal/signal.h"
 {{end}}{{template "listbody" .}}
 #endif

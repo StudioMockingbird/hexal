@@ -9,7 +9,7 @@ import (
 // representation, the module header includes it, and hexal.h no longer
 // carries the definition.
 func TestErrorComponentSelectedByUse(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(): Int32 | Error do\n    return Error(\"Read Error\", \"bad\")\nend")
+	program := checkedGeneratorSource(t, "fun demo(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"bad\")\nend")
 	files := generateOne(t, program)
 	errorH, exists := files["hexal/error.h"]
 	if !exists {
@@ -27,14 +27,19 @@ func TestErrorComponentSelectedByUse(t *testing.T) {
 		t.Fatalf("hexal/error.h must include hexal.h then hexal/string.h: %q", errorH)
 	}
 	for _, want := range []string{
+		"typedef struct hex_t_ErrorKind {",
+		"hex_tag tag;",
+		"hex_strand other_header;",
+		"} hex_t_ErrorKind;",
 		"typedef struct hex_t_Error hex_t_Error;",
 		"struct hex_t_Error {",
 		"const hex_string *hex_m_file;",
 		"size_t hex_m_line;",
 		"size_t hex_m_column;",
-		"hex_strand hex_m_header;",
+		"hex_t_ErrorKind hex_m_kind;",
 		"const hex_string *hex_m_message;",
 		"};",
+		"static inline hex_strand hex_error_kind_header(hex_t_ErrorKind kind) {",
 	} {
 		if !strings.Contains(errorH, want) {
 			t.Fatalf("hexal/error.h = %q, want %q", errorH, want)

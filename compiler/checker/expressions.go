@@ -133,17 +133,30 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 			continue
 		}
 		seen[member.Name] = true
+		// A builtin object built at Go init() time (ProcessOptions, Environment's
+		// Replace payload) carries List members with a fixed, non-arena identity,
+		// since List's own interning lives on the per-compilation arena and isn't
+		// reachable at init() time. Re-resolving through the live arena here
+		// recovers the identity a real List<T> binding actually has; for
+		// ordinary structs (already declared against this same arena) it is a
+		// cache hit that returns the identical type unchanged.
+		memberType := member.Type
+		if memberType.List != nil {
+			if live := ctx.typeEnvironment.ListType(memberType.List.Element); live != (compilerTypes.Type{}) {
+				memberType = live
+			}
+		}
 		memberUse := member.Use
-		if memberUse.Type == (compilerTypes.Type{}) {
-			memberUse = compilerTypes.NewTypeUse(member.Type)
+		if memberUse.Type == (compilerTypes.Type{}) || memberType != member.Type {
+			memberUse = compilerTypes.NewTypeUse(memberType)
 		}
 		checked := checkInitializer(argument, memberUse, *label, ctx)
 		if nestedDiagnostics := initializerDiagnostics(checked); len(nestedDiagnostics) > 0 {
 			diagnostics = append(diagnostics, nestedDiagnostics...)
 			continue
 		}
-		if !assignable(member.Type, checked.typ) {
-			diagnostics = append(diagnostics, typeMismatchDiagnostic(member.Type, checked.typ, checked.token))
+		if !assignable(memberType, checked.typ) {
+			diagnostics = append(diagnostics, typeMismatchDiagnostic(memberType, checked.typ, checked.token))
 			continue
 		}
 		values = append(values, ObjectMemberValue{Member: member, Source: checked.source})

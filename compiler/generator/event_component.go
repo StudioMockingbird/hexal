@@ -7,8 +7,8 @@ func eventComponents(merged *programEmission) ([]componentArtifact, error) {
 		return nil, nil
 	}
 	model := eventSourceModel{
-		Sleep: merged.timeState != nil && merged.timeState.sleep,
-		File:  merged.fileState != nil && merged.fileState.used,
+		Sleep:  merged.timeState != nil && merged.timeState.sleep,
+		Handle: handleSelected(merged),
 	}
 	return []componentArtifact{
 		{key: "hexal/event.h", template: "event.h", model: model},
@@ -17,8 +17,9 @@ func eventComponents(merged *programEmission) ([]componentArtifact, error) {
 }
 
 // eventSourceModel gates the Task sleep timer command and the component
-// command API File requests submit through.
+// command API every handle-backed or parking capability's requests submit
+// through: File, TCP, and DNS.
 type eventSourceModel struct {
-	Sleep bool
-	File  bool
+	Sleep  bool
+	Handle bool
 }

@@ -251,3 +251,29 @@ func renderTryExpression(node checker.Expression, state *expressionValidation) (
 	}
 	return name, nil
 }
+
+// renderErrorHeader renders Error.header(): the allocation-free header
+// derived from the receiver's stored kind.
+func renderErrorHeader(node checker.Expression, state *expressionValidation) (string, error) {
+	if node.Operand == nil || !compilerTypes.IsError(node.OperandType) {
+		return "", unknownExpressionDiagnostic("Error.header has invalid checked metadata")
+	}
+	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("hex_error_kind_header(%s.hex_m_kind)", receiver), nil
+}
+
+// renderErrorKindHeader renders ErrorKind.header(): the same derivation
+// called directly on a classification value.
+func renderErrorKindHeader(node checker.Expression, state *expressionValidation) (string, error) {
+	if node.Operand == nil || !compilerTypes.IsErrorKind(node.OperandType) {
+		return "", unknownExpressionDiagnostic("ErrorKind.header has invalid checked metadata")
+	}
+	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("hex_error_kind_header(%s)", receiver), nil
+}

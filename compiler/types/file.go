@@ -52,7 +52,35 @@ func IsFileMode(typ Type) bool { return typ.Adt != nil && typ.Adt == FileModeTyp
 
 // IsBuiltinAdt reports whether typ is a compiler-owned ADT whose struct lives
 // in a shared component header rather than in any module header.
-func IsBuiltinAdt(typ Type) bool { return IsSeek(typ) || IsFileMode(typ) }
+func IsBuiltinAdt(typ Type) bool {
+	return IsSeek(typ) || IsFileMode(typ) || IsErrorKind(typ) || IsAddress(typ) ||
+		IsEnvironment(typ) || IsProcessStream(typ) || IsExitStatus(typ) || IsSignal(typ)
+}
+
+// IsBuiltinObject reports whether object is a compiler-owned struct whose
+// body lives in a shared component header (hexal/process.h) rather than in
+// any module header, mirroring IsBuiltinAdt for the Object family.
+func IsBuiltinObject(object *ObjectType) bool {
+	return object != nil && (object == EnvironmentVariableType.Object || object == ProcessOptionsType.Object || object == StartedProcessType.Object)
+}
+
+// IsBuiltinUnion reports whether union is one of the fixed structural `T |
+// Nil` unions a builtin process/IPC field carries (String | Nil for
+// ProcessOptions.working_directory, Pipe | Nil for StartedProcess's stream
+// fields). Its body is hand-written once in hexal/process.h alongside the
+// object that embeds it, mirroring IsBuiltinAdt and IsBuiltinObject; every
+// other union in a program is emitted generically per module.
+func IsBuiltinUnion(union Type) bool {
+	if union.Union == nil {
+		return false
+	}
+	for _, candidate := range builtinStructuralUnions {
+		if candidate.Union == union.Union {
+			return true
+		}
+	}
+	return false
+}
 
 // CapabilityFromFileMode maps one FileMode variant index to the capability a
 // File opened with it carries.

@@ -110,14 +110,15 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, 
 		result.WriteString("    hex_print_text((const uint8_t *)\":\", 1);\n    hex_print_size(value->hex_m_line);\n")
 		result.WriteString("    hex_print_text((const uint8_t *)\":\", 1);\n    hex_print_size(value->hex_m_column);\n")
 		result.WriteString("    hex_print_text((const uint8_t *)\": \", 2);\n")
-		result.WriteString("    hex_print_text(value->hex_m_header.data, value->hex_m_header.length);\n")
+		result.WriteString("    hex_strand header = hex_error_kind_header(value->hex_m_kind);\n")
+		result.WriteString("    hex_print_text(header.data, hex_strand_byte_length(header));\n")
 		result.WriteString("    hex_print_text((const uint8_t *)\": \", 2);\n")
 		result.WriteString("    hex_print_text(value->hex_m_message->data, value->hex_m_message->byte_length);\n}\n")
 		result.WriteString("static void hex_print_error_nested(const hex_t_Error *value) {\n")
 		result.WriteString("    hex_print_text((const uint8_t *)\"Error { file = \", 15);\n    hex_print_quoted_text(value->hex_m_file->data, value->hex_m_file->byte_length);\n")
 		result.WriteString("    hex_print_text((const uint8_t *)\", line = \", 9);\n    hex_print_size(value->hex_m_line);\n")
 		result.WriteString("    hex_print_text((const uint8_t *)\", column = \", 11);\n    hex_print_size(value->hex_m_column);\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\", header = \", 11);\n    hex_print_quoted_text(value->hex_m_header.data, value->hex_m_header.length);\n")
+		result.WriteString("    hex_print_text((const uint8_t *)\", kind = \", 9);\n    hex_strand nested_header = hex_error_kind_header(value->hex_m_kind);\n    hex_print_quoted_text(nested_header.data, hex_strand_byte_length(nested_header));\n")
 		result.WriteString("    hex_print_text((const uint8_t *)\", message = \", 12);\n    hex_print_quoted_text(value->hex_m_message->data, value->hex_m_message->byte_length);\n")
 		result.WriteString("    hex_print_text((const uint8_t *)\" }\", 2);\n}\n")
 	}
@@ -157,6 +158,8 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type, tag
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_quoted_rune(*(const uint32_t *)value);\n}\n", typ.CName)
 	case compilerTypes.IsError(typ):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_error_nested(value);\n}\n", typ.CName)
+	case compilerTypes.IsErrorKind(typ):
+		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_strand text = hex_error_kind_header(*(const hex_t_ErrorKind *)value);\n    hex_print_text(text.data, hex_strand_byte_length(text));\n}\n", typ.CName)
 	case compilerTypes.Equal(typ, compilerTypes.Bool):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_bool(*(const bool *)value);\n}\n", typ.CName)
 	case compilerTypes.Equal(typ, compilerTypes.Nil):
@@ -306,7 +309,7 @@ func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, ind
 		fmt.Fprintf(body, "%s    hex_print_text(%s.data, length);\n", indent, name)
 		fmt.Fprintf(body, "%s}\n", indent)
 	case compilerTypes.IsError(typ):
-		fmt.Fprintf(body, "%shex_print_error_direct(%s);\n", indent, name)
+		fmt.Fprintf(body, "%shex_print_error_direct(&%s);\n", indent, name)
 	default:
 		// Aggregates use their nested helper at the top level too;
 		// pointer-semantic values pass their pointer directly.

@@ -238,11 +238,12 @@ func Storable(typ Type, position Position) bool {
 		return false
 	}
 	// Stream bootstrap restriction: IO may cross a Task boundary as a
-	// shallow copy; Bytes borrows its List and cannot. Neither survives in
-	// long-lived aggregate storage while the shallow-copy alias model is
-	// the only lifetime rule. Pointer receivers stay formable because the
-	// Bytes operation surface is defined on Ptr<mut Bytes>.
-	if IsIO(typ) || IsFile(typ) {
+	// shallow copy but has no generation-checked lifetime, so it does not
+	// survive in long-lived aggregate storage. File instead carries a
+	// generation-checked handle: closing invalidates every copy at runtime,
+	// so it is safe in every ordinary complete-value position and falls
+	// through to the unrestricted default below.
+	if IsIO(typ) {
 		switch position {
 		case PositionBinding, PositionUnionMember, PositionFunctionParam,
 			PositionFunctionResult, PositionTaskArgument, PositionTaskResult,

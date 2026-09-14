@@ -118,7 +118,9 @@ func checkFunctionBody(declaration parser.FunctionDeclaration, signature functio
 		Type:         signature.functionType,
 		SourceLine:   declaration.Name.Line,
 		SourceColumn: declaration.Name.Column,
-		Exported:     declaration.Exported,
+		// Exported is stamped later by applyExportFlags: the trailing export
+		// block resolves against the checked interface this function only
+		// finishes building below, so it cannot be known yet here.
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 

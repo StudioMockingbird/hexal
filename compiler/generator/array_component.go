@@ -17,6 +17,13 @@ type arrayComponentModel struct {
 	// dependency of this file, not something a consumer's own include order
 	// can be relied on to supply first.
 	NeedsHeapString bool
+	// NeedsFile, NeedsNetwork, and NeedsProcess are true when some element is
+	// File, a networking type, or a process/IPC type, whose typedefs
+	// hexal/file.h, hexal/network.h, and hexal/process.h own.
+	NeedsFile    bool
+	NeedsNetwork bool
+	NeedsProcess bool
+	NeedsSignal  bool
 }
 
 // arrayComponentRecord is one reachable Array specialization's spelling
@@ -40,6 +47,10 @@ type arrayComponentRecord struct {
 	NeedsAtMut bool
 	// NeedsHeapString is true when this specialization's element is String.
 	NeedsHeapString bool
+	NeedsFile       bool
+	NeedsNetwork    bool
+	NeedsProcess    bool
+	NeedsSignal     bool
 }
 
 // arrayComponentRecordFor builds the spelling record of one Array
@@ -65,6 +76,10 @@ func arrayComponentRecordFor(array compilerTypes.Type, sliceState *generatedSlic
 		NeedsAt:         demand.read,
 		NeedsAtMut:      demand.write,
 		NeedsHeapString: compilerTypes.IsString(element),
+		NeedsFile:       compilerTypes.IsFile(element),
+		NeedsNetwork:    elementNeedsNetwork(element),
+		NeedsProcess:    elementNeedsProcess(element),
+		NeedsSignal:     elementNeedsSignal(element),
 	}
 }
 
@@ -90,7 +105,11 @@ func arrayComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/array.h",
 		template: "array.h",
-		model:    arrayComponentModel{Arrays: records, NeedsSlice: recordsNeedSlice(records), NeedsHeapString: arrayRecordsNeedHeapString(records)},
+		model: arrayComponentModel{
+			Arrays: records, NeedsSlice: recordsNeedSlice(records), NeedsHeapString: arrayRecordsNeedHeapString(records),
+			NeedsFile: arrayRecordsNeedFile(records), NeedsNetwork: arrayRecordsNeedNetwork(records),
+			NeedsProcess: arrayRecordsNeedProcess(records), NeedsSignal: arrayRecordsNeedSignal(records),
+		},
 	}}, nil
 }
 
@@ -126,6 +145,49 @@ func recordsNeedSlice(records []arrayComponentRecord) bool {
 func arrayRecordsNeedHeapString(records []arrayComponentRecord) bool {
 	for _, record := range records {
 		if record.NeedsHeapString {
+			return true
+		}
+	}
+	return false
+}
+
+// arrayRecordsNeedFile reports whether any array element is File.
+func arrayRecordsNeedFile(records []arrayComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsFile {
+			return true
+		}
+	}
+	return false
+}
+
+// arrayRecordsNeedNetwork reports whether any array element spells a
+// networking type.
+func arrayRecordsNeedNetwork(records []arrayComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsNetwork {
+			return true
+		}
+	}
+	return false
+}
+
+// arrayRecordsNeedProcess reports whether any array element spells a
+// process/IPC type.
+func arrayRecordsNeedProcess(records []arrayComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsProcess {
+			return true
+		}
+	}
+	return false
+}
+
+// arrayRecordsNeedSignal reports whether any array element spells a
+// signal-observation type.
+func arrayRecordsNeedSignal(records []arrayComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsSignal {
 			return true
 		}
 	}

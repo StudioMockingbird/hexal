@@ -200,7 +200,8 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 		Name:         name,
 		SourceLine:   declaration.Name.Line,
 		SourceColumn: declaration.Name.Column,
-		Exported:     declaration.Exported,
+		// Exported is stamped later by applyExportFlags; see the identical
+		// note on checkFunctionBody.
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
@@ -372,6 +373,24 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 			return checkQualifiedFunctionCall(call, callee.Property, target, ctx)
 		}
 	}
+	// Address.parse(text, port), Dns.resolve(heap, host, service), and
+	// Tcp.connect/listen(...) name their built-in namespaces by their own
+	// operation name, ahead of ADT-variant construction below so
+	// Address.IPv4/IPv6 still resolve as ordinary variant constructors.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Address" && name == "parse" {
+		return checkAddressTypeCall(call, variable, ctx)
+	}
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Dns" && name == "resolve" {
+		return checkDnsTypeCall(call, variable, ctx)
+	}
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Tcp" && (name == "connect" || name == "listen") {
+		return checkTcpTypeCall(call, variable, ctx)
+	}
+	// Process.start(options) names the built-in Process type by its own
+	// operation name.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Process" && name == "start" {
+		return checkProcessTypeCall(call, variable, ctx)
+	}
 	// Owner.Variant(...) where Owner names an ADT (or a generic ADT
 	// template): the current construction syntax for ADT variants. This
 	// precedes every other dispatch below because it needs call arguments to
@@ -517,6 +536,41 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	}
 	if compilerTypes.IsFile(receiver.typ) {
 		return checkFileMethodCall(call, callee, receiver, ctx)
+	}
+	// Address.format(), TcpListener.{accept,close}(), and
+	// TcpConnection.{read,write,shutdown,no_delay,close}() dispatch on their
+	// built-in networking receiver types.
+	if compilerTypes.IsAddress(receiver.typ) {
+		return checkAddressMethodCall(call, callee, receiver, ctx)
+	}
+	if compilerTypes.IsTcpListener(receiver.typ) {
+		return checkTcpListenerMethodCall(call, callee, receiver, ctx)
+	}
+	if compilerTypes.IsTcpConnection(receiver.typ) {
+		return checkTcpConnectionMethodCall(call, callee, receiver, ctx)
+	}
+	// Process.{wait,terminate,close}() and Pipe.{read,write,shutdown,close}()
+	// dispatch on their built-in process/IPC receiver types.
+	if compilerTypes.IsProcess(receiver.typ) {
+		return checkProcessMethodCall(call, callee, receiver, ctx)
+	}
+	if compilerTypes.IsPipe(receiver.typ) {
+		return checkPipeMethodCall(call, callee, receiver, ctx)
+	}
+	// Signals.{next,close}() dispatches on its built-in signal-observation
+	// receiver type.
+	if compilerTypes.IsSignals(receiver.typ) {
+		return checkSignalsMethodCall(call, callee, receiver, ctx)
+	}
+	// Error.header() and ErrorKind.header() dispatch on their built-in
+	// receiver types, ahead of the generic object-method and ADT-variant
+	// paths below (Error is Object-based; ErrorKind is Adt-based and has no
+	// object to own a method).
+	if compilerTypes.IsError(receiver.typ) {
+		return checkErrorMethodCall(call, callee, receiver, ctx)
+	}
+	if compilerTypes.IsErrorKind(receiver.typ) {
+		return checkErrorKindMethodCall(call, callee, receiver, ctx)
 	}
 	if receiver.typ.Element != nil && compilerTypes.IsBytes(*receiver.typ.Element) {
 		return checkBytesStreamMethodCall(call, callee, receiver, ctx)

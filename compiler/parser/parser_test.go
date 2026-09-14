@@ -416,10 +416,10 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 		source     string
 		importLine int
 	}{
-		{"type declaration", "type T is struct n: Int32 end\nmodule a = import \"./a\"\n", 2},
-		{"function declaration", "fun f(): Int32 do\n    return 1\nend\nmodule a = import \"./a\"\n", 4},
-		{"method declaration", "type T is struct n: Int32 end\nmethod T.act() do\nend\nmodule a = import \"./a\"\n", 4},
-		{"executable statement", "x: Int32 := 1\nmodule a = import \"./a\"\n", 2},
+		{"type declaration", "type T is struct n: Int32 end\nimport\n    a from \"./a\"\nend\n", 2},
+		{"function declaration", "fun f(): Int32 do\n    return 1\nend\nimport\n    a from \"./a\"\nend\n", 4},
+		{"method declaration", "type T is struct n: Int32 end\nmethod T.act() do\nend\nimport\n    a from \"./a\"\nend\n", 4},
+		{"executable statement", "x: Int32 := 1\nimport\n    a from \"./a\"\nend\n", 2},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			tokens, err := lexer.Lex(testCase.source)
@@ -436,7 +436,7 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 			}
 			var positioned *compilerTypes.Diagnostic
 			for index := range diagnostics {
-				if diagnostics[index].Message == "imports must precede all other top-level items" {
+				if diagnostics[index].Message == "import block must be the first top-level construct" {
 					positioned = &diagnostics[index]
 				}
 			}
@@ -448,7 +448,7 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 			}
 		})
 	}
-	if _, err := Parse(mustLex(t, "module a = import \"./a\"\nmodule b = import \"./b\"\nx: Int32 := 1\n")); err != nil {
+	if _, err := Parse(mustLex(t, "import\n    a from \"./a\"\n,\n    b from \"./b\"\nend\nx: Int32 := 1\n")); err != nil {
 		t.Fatalf("Parse rejected an imports-first program: %v", err)
 	}
 }

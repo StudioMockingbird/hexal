@@ -55,7 +55,7 @@ var RequiredReservedWords = []string{
 	"true", "false", "nil", "eos", "mut", "@", "type", "and", "or", "is",
 	"fun", "struct", "union", "method", "end", "return", "if", "elseif", "else", "while", "break",
 	"continue", "defer", "try", "errdefer", "spawn", "as", "match", "then",
-	"self", "for", "in", "do", "module", "import", "export",
+	"self", "for", "in", "do", "import", "export", "static",
 }
 
 // RequiredFeatures is the workbench's explicit feature-coverage contract.

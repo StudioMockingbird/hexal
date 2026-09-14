@@ -1,0 +1,26 @@
+{
+  "id": "signals",
+  "name": "Signals",
+  "snippets": [
+    {
+      "id": "signals-wait-for-shutdown",
+      "name": "Wait for a shutdown signal",
+      "description": "Subscribe to Interrupt and Hangup, then park on the next() event until one arrives, EoS is reported, or the handle closes.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun wait_for_shutdown(): Signal | EoS | Error do",
+          "    wanted: Array<Signal, 2> := [Signal.Interrupt(), Signal.Hangup()]",
+          "    signals := try Signals(wanted.slice(0, wanted.length()))",
+          "    defer signals.close()",
+          "    signal := try signals.next()",
+          "    return signal",
+          "end",
+          "out: Signal | EoS | Error := wait_for_shutdown()"
+        ]
+      },
+      "features": ["signals", "errors", "try-errdefer", "collections"],
+      "reservedWords": ["fun", "do", "end", "try", "defer", "return"]
+    }
+  ]
+}

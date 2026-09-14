@@ -363,7 +363,7 @@ func checkArguments(callee string, expected []compilerTypes.TypeUse, written []p
 // only positional arguments, exactly like an ordinary call.
 func checkBareConstructorCall(call parser.CallExpression, callee parser.VariableExpression, expectedType compilerTypes.Type, ctx checkContext) (checkedExpression, bool) {
 	switch callee.Name.Lexeme {
-	case "Heap", "Stash", "Pool", "List", "Dict", "Channel", "Mutex", "Atomic", "Error":
+	case "Heap", "Stash", "Pool", "List", "Dict", "Channel", "Mutex", "Atomic", "Error", "Signals":
 		if diagnostic := rejectNamedArguments(call); diagnostic != nil {
 			return checkedExpression{token: callee.Name, diagnostic: diagnostic}, true
 		}
@@ -384,6 +384,8 @@ func checkBareConstructorCall(call parser.CallExpression, callee parser.Variable
 			return checkMutexTypeCall(call, callee.Name, ctx), true
 		case "Atomic":
 			return checkAtomicTypeCall(call, callee.Name, ctx), true
+		case "Signals":
+			return checkSignalsTypeCall(call, callee.Name, ctx), true
 		default: // "Error"
 			return checkErrorNewCall(call, callee.Name, ctx), true
 		}

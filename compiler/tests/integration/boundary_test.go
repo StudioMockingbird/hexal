@@ -45,7 +45,7 @@ func TestPathTraversalModulePathIsRejected(t *testing.T) {
 // path segment, checked positively over a program the allowlist accepts.
 func TestAcceptedCompilationNeverEmitsTraversalArtifactNames(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":               "module Shapes = import \"./graphics/shapes_2\"\nx: Int32 := 1\n",
+		"app.hex":               "import\n    Shapes from \"./graphics/shapes_2\"\nend\nx: Int32 := 1\n",
 		"graphics/shapes_2.hex": "fun area(): Int32 do\n    return 1\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -73,7 +73,7 @@ func TestLegalModulePathsCompile(t *testing.T) {
 		{
 			"nested identifier path",
 			map[string]string{
-				"app.hex":               "module Shapes = import \"./graphics/shapes_2\"\nx: Int32 := 1\n",
+				"app.hex":               "import\n    Shapes from \"./graphics/shapes_2\"\nend\nx: Int32 := 1\n",
 				"graphics/shapes_2.hex": "fun area(): Int32 do\n    return 1\nend\n",
 			},
 			"app.hex",
@@ -81,7 +81,7 @@ func TestLegalModulePathsCompile(t *testing.T) {
 		{
 			"mixed-case components",
 			map[string]string{
-				"App.hex":              "module Shapes = import \"./Graphics/Shapes2\"\nx: Int32 := 1\n",
+				"App.hex":              "import\n    Shapes from \"./Graphics/Shapes2\"\nend\nx: Int32 := 1\n",
 				"Graphics/Shapes2.hex": "fun area(): Int32 do\n    return 1\nend\n",
 			},
 			"App.hex",

@@ -109,7 +109,7 @@
         "    if key == 1 then",
         "        return 100",
         "    end",
-        "    return Error(\"Lookup Error\", \"unknown key\")",
+        "    return Error(ErrorKind.Other(header = \"Lookup Error\"), \"unknown key\")",
         "end",
         "value: Int32 | Error:= lookup(1)"
       ]},

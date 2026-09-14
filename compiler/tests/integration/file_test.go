@@ -23,7 +23,7 @@ func fileFacetSource() string {
 		"    try input.close()\n" +
 		"    result := File.open(\"settings.toml\", FileMode.Read())\n" +
 		"    if result is Error then\n" +
-		"        if result.header == \"not found\" then\n" +
+		"        if result.kind == ErrorKind.NotFound() then\n" +
 		"            return nil\n" +
 		"        end\n" +
 		"    end\n" +
@@ -41,6 +41,25 @@ func TestFileSurfaceAcceptsSettledOperations(t *testing.T) {
 	assertCompiles(t, "fun g(f: File): Int32 do\n    return 1\nend\nfun f(): Nil | Error do\n    x := try File.open(\"a\", FileMode.Write())\n    t := try spawn g(x)\n    return nil\nend\n")
 }
 
+// A File's generation-checked handle makes closing safe from any copy, so it
+// occupies every ordinary complete-value position, not only the ephemeral
+// ones a raw shallow-copy value like IO is restricted to.
+func TestFileOccupiesEveryCommonHandleStoragePosition(t *testing.T) {
+	for _, source := range []string{
+		// Struct member (ObjectMember).
+		"type Holder is struct f: File end\nfun make(h: Heap): Nil | Error do\n    x := try File.open(\"a\", FileMode.Write())\n    holder := Holder(f = x)\n    try holder.f.close()\n    return nil\nend",
+		// ADT payload.
+		"type Wrapped is union | Present as f: File end | Absent end\nfun make(): Nil | Error do\n    x := try File.open(\"a\", FileMode.Write())\n    w := Wrapped.Present(f = x)\n    return nil\nend",
+		// Array element.
+		"fun make(): Nil | Error do\n    x := try File.open(\"a\", FileMode.Write())\n    files: Array<File, 1> := [x]\n    try files[0].close()\n    return nil\nend",
+		// List element and Dict value.
+		"fun make(h: Heap): Nil | Error do\n    x := try File.open(\"a\", FileMode.Write())\n    files: List<File> := List<File>(h)\n    defer files.free(h)\n    files.push(x)\n    try files[0].close()\n    return nil\nend",
+		"fun make(h: Heap): Nil | Error do\n    x := try File.open(\"a\", FileMode.Write())\n    files: Dict<Int32, File> := Dict<Int32, File>(h)\n    defer files.free(h)\n    files.insert(1, x)\n    try files.get(1).close()\n    return nil\nend",
+	} {
+		assertCompiles(t, source)
+	}
+}
+
 func TestFileSurfaceRejectsUnlistedOperations(t *testing.T) {
 	for _, testCase := range []struct{ source, want string }{
 		{"type File is UInt64", "built-in type File cannot be redeclared"},
@@ -53,7 +72,6 @@ func TestFileSurfaceRejectsUnlistedOperations(t *testing.T) {
 		{"fun f(): Nil | Error do\n    x := try File.open(\"a\", FileMode.Read())\n    r := x.flush()\n    return nil\nend", "stream is not writable"},
 		{"fun f(): Nil | Error do\n    x := try File.open(\"a\", FileMode.Read())\n    try x.close()\n    try x.close()\n    return nil\nend", "this stream was closed on every path"},
 		{"fun f(): Nil | Error do\n    x := try File.open(\"a\", FileMode.Write())\n    defer x.flush()\n    return nil\nend", "only File.close() may be deferred"},
-		{"fun f(h: Heap) do\n    files: List<File> := List<File>(h)\nend", "File is not a list element type"},
 	} {
 		assertRejects(t, testCase.source, testCase.want)
 	}
@@ -108,8 +126,8 @@ func TestFileGeneratedCContract(t *testing.T) {
 	if strings.Contains(header, "uv_") || strings.Contains(header, "uv.h") || strings.Contains(header, "#ifdef") || strings.Contains(header, "HANDLE") {
 		t.Fatalf("file.h must expose no libuv, platform, or conditional name:\n%s", header)
 	}
-	if !strings.Contains(header, "intptr_t desc;") || !strings.Contains(header, "uint8_t access;") || strings.Contains(header, "owned") {
-		t.Fatalf("File lowers to a descriptor and access mask only:\n%s", header)
+	if !strings.Contains(header, "hex_handle handle;") || !strings.Contains(header, "uint8_t access;") || strings.Contains(header, "owned") {
+		t.Fatalf("File lowers to a generation-checked handle and access mask only:\n%s", header)
 	}
 	source := result.Files["hexal/file.c"]
 	for _, required := range []string{
@@ -125,16 +143,37 @@ func TestFileGeneratedCContract(t *testing.T) {
 		"uv_fs_close(loop, &request->fs, request->desc, done)",
 		"uv_translate_sys_error((int)GetLastError())",
 		"uv_translate_sys_error(errno)",
-		"text = opening ? \"invalid path\" : \"filesystem error\";",
+		"return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidPath};",
+		"return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput};",
+		"hex_handle_error_kind(status, &mapped)",
+		"hex_handle_resolve(file.handle, HEX_HANDLE_KIND_FILE)",
+		"hex_handle_close_begin(file.handle, HEX_HANDLE_KIND_FILE)",
 	} {
 		if !strings.Contains(source, required) {
 			t.Fatalf("file.c lacks %q:\n%s", required, source)
 		}
 	}
-	for _, header := range []string{"not found", "permission denied", "already exists", "invalid path", "not a directory", "is a directory", "directory not empty", "read only", "busy", "interrupted", "cancelled", "unsupported", "filesystem error"} {
-		if !strings.Contains(source, "text = \""+header+"\";") && !strings.Contains(source, "\""+header+"\"") {
-			t.Fatalf("file.c lacks portable header %q", header)
+	// File-specific categories and contextual overrides stay in file.c.
+	for _, kind := range []string{"PermissionDenied", "InvalidPath", "NotADirectory", "IsADirectory", "DirectoryNotEmpty", "ReadOnly", "Busy", "Closed"} {
+		if !strings.Contains(source, "hex_tag_ErrorKind_"+kind) {
+			t.Fatalf("file.c lacks portable classification %q", kind)
 		}
+	}
+	// Shared libuv conditions classify through the common handle mapper, not
+	// a second switch duplicated into File.
+	handle := result.Files["hexal/handle.c"]
+	for _, kind := range []string{"NotFound", "PermissionDenied", "AlreadyExists", "InvalidInput", "ResourceExhausted", "Unsupported", "Cancelled", "Interrupted", "TimedOut", "AddressInUse", "AddressUnavailable", "ConnectionRefused", "ConnectionReset", "ConnectionAborted", "HostUnreachable", "NetworkUnreachable", "BrokenPipe", "NotConnected"} {
+		if !strings.Contains(handle, "hex_tag_ErrorKind_"+kind) {
+			t.Fatalf("handle.c lacks common portable classification %q", kind)
+		}
+	}
+	for _, kind := range []string{"NotFound", "AlreadyExists", "Interrupted", "Cancelled", "Unsupported"} {
+		if strings.Contains(source, "hex_tag_ErrorKind_"+kind) {
+			t.Fatalf("file.c must not duplicate the common classification %q", kind)
+		}
+	}
+	if !strings.Contains(source, "\"filesystem error\"") {
+		t.Fatalf("file.c lacks its Other fallback header:\n%s", source)
 	}
 	if strings.Count(source, "uv_fs_req_cleanup(") != 1 || strings.Contains(source, "uv_queue_work") || strings.Contains(source, "errno=") || strings.Contains(source, "winerr=") {
 		t.Fatalf("file.c must clean each request in one place, never use the work pool, and expose no native code:\n%s", source)

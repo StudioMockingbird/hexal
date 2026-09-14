@@ -58,6 +58,10 @@ func NewArena() *Arena {
 	for _, builtin := range builtinTypes {
 		arena.ReserveDefinitionName(builtin.CName, builtin)
 	}
+	for _, union := range builtinStructuralUnions {
+		arena.unionTypes[union.CanonicalKey] = union
+		arena.ReserveDefinitionName(union.CName, union)
+	}
 	return arena
 }
 

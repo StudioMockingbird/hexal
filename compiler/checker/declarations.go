@@ -16,7 +16,9 @@ func trackablePointerBinding(bound binding) bool {
 	// versioned freed state for the handle itself, distinct from the
 	// provenance-tracked allocations it owns.
 	return bound.kind == dataBinding && !bound.parameter && !bound.loopBinder &&
-		(bound.typ.Element != nil || compilerTypes.IsIO(bound.typ) || compilerTypes.IsFile(bound.typ) || compilerTypes.IsStash(bound.typ) || compilerTypes.IsPool(bound.typ))
+		(bound.typ.Element != nil || compilerTypes.IsIO(bound.typ) || compilerTypes.IsFile(bound.typ) || compilerTypes.IsStash(bound.typ) || compilerTypes.IsPool(bound.typ) ||
+			compilerTypes.IsTcpConnection(bound.typ) || compilerTypes.IsTcpListener(bound.typ) ||
+			compilerTypes.IsProcess(bound.typ) || compilerTypes.IsPipe(bound.typ) || compilerTypes.IsSignals(bound.typ))
 }
 
 func directPointerBinding(source Operand, target compilerTypes.Type) BindingID {

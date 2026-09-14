@@ -171,8 +171,8 @@ func TestTimeGeneratedCContract(t *testing.T) {
 		t.Fatalf("sleep must wake only from its close callback, never uv_sleep, and never form an absolute target:\n%s", event)
 	}
 	adapter := rootH(t, result)
-	if !strings.Contains(adapter, ".hex_m_header = { .data = \"time unavailable\" }") {
-		t.Fatalf("WallTime.now adapter lacks its static header:\n%s", adapter)
+	if !strings.Contains(adapter, ".hex_m_kind = (hex_t_ErrorKind){ .tag = hex_tag_ErrorKind_Unsupported }") {
+		t.Fatalf("WallTime.now adapter lacks its Unsupported kind:\n%s", adapter)
 	}
 	if !strings.Contains(adapter, ".hex_m_message = &hex_lit_") || !strings.Contains(result.Files["hexal/string.c"], "byte_length = 29") {
 		t.Fatalf("WallTime.now failure message must be the static 29-byte literal:\n%s", adapter)

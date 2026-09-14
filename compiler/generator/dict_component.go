@@ -10,6 +10,14 @@ import (
 // pre-sorted record per reachable Dict specialization.
 type dictComponentModel struct {
 	Dicts []dictComponentRecord
+	// NeedsFile and NeedsNetwork are true when some specialization's value is
+	// File or a networking type, whose typedefs hexal/file.h and
+	// hexal/network.h own; a component header naming them directly cannot
+	// rely on a consuming module's own include order to supply them first.
+	NeedsFile    bool
+	NeedsNetwork bool
+	NeedsProcess bool
+	NeedsSignal  bool
 }
 
 // dictComponentRecord is one reachable Dict specialization's spelling and
@@ -36,6 +44,10 @@ type dictComponentRecord struct {
 	HashHelper        string
 	StrandKey         bool
 	EmitHash          bool
+	NeedsFile         bool
+	NeedsNetwork      bool
+	NeedsProcess      bool
+	NeedsSignal       bool
 }
 
 // dictComponentRecordFor builds the spelling record of one Dict
@@ -64,6 +76,10 @@ func dictComponentRecordFor(dict compilerTypes.Type, hashEmitted map[string]bool
 		HashHelper:        hashHelper,
 		StrandKey:         strandKey,
 		EmitHash:          !hashEmitted[hashHelper],
+		NeedsFile:         compilerTypes.IsFile(dict.Dict.Value),
+		NeedsNetwork:      elementNeedsNetwork(dict.Dict.Value),
+		NeedsProcess:      elementNeedsProcess(dict.Dict.Value),
+		NeedsSignal:       elementNeedsSignal(dict.Dict.Value),
 	}
 }
 
@@ -87,10 +103,19 @@ func dictComponents(merged *programEmission) ([]componentArtifact, error) {
 	if len(records) == 0 {
 		return nil, nil
 	}
+	needsFile, needsNetwork, needsProcess, needsSignal := false, false, false, false
+	for _, record := range records {
+		needsFile = needsFile || record.NeedsFile
+		needsNetwork = needsNetwork || record.NeedsNetwork
+		needsProcess = needsProcess || record.NeedsProcess
+		needsSignal = needsSignal || record.NeedsSignal
+	}
 	return []componentArtifact{{
 		key:      "hexal/dict.h",
 		template: "dict.h",
-		model:    dictComponentModel{Dicts: records},
+		model: dictComponentModel{
+			Dicts: records, NeedsFile: needsFile, NeedsNetwork: needsNetwork, NeedsProcess: needsProcess, NeedsSignal: needsSignal,
+		},
 	}}, nil
 }
 

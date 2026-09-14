@@ -37,5 +37,9 @@ static inline {{.MutSliceCName}} hex_array_mut_slice_{{.Suffix}}({{.CName}} *arr
 #include "hexal.h"
 {{if .NeedsSlice}}#include "hexal/slice.h"
 {{end}}{{if .NeedsHeapString}}#include "hexal/string.h"
+{{end}}{{if .NeedsFile}}#include "hexal/file.h"
+{{end}}{{if .NeedsNetwork}}#include "hexal/network.h"
+{{end}}{{if .NeedsProcess}}#include "hexal/process.h"
+{{end}}{{if .NeedsSignal}}#include "hexal/signal.h"
 {{end}}{{template "arraybody" .}}
 #endif

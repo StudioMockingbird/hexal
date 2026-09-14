@@ -295,8 +295,8 @@ func TestConcurrencyComponentAbsentWithoutConcurrency(t *testing.T) {
 func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 	parsed := make(map[string]parser.Program, 2)
 	for key, source := range map[string]string{
-		"app.hex":  "module Math = import \"./math\"\nresult: Int32 | Error := Math.compute()\n",
-		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nexport fun compute(): Int32 | Error do\n    task: Task<Int32> := try spawn double(21)\n    return task.join()\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 | Error := Math.compute()\n",
+		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    task: Task<Int32> := try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {

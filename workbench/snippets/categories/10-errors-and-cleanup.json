@@ -10,7 +10,7 @@
       "sources": {"app.hex": [
         "fun validate(score: Int32): Int32 | Error do",
         "    if (score < 0) or (score > 100) then",
-        "        return Error(\"Validation Error\", \"score out of range\")",
+        "        return Error(ErrorKind.Other(header = \"Validation Error\"), \"score out of range\")",
         "    end",
         "    return score",
         "end",
@@ -32,7 +32,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun read_score(): Int32 | Error do",
-        "    return Error(\"Read Error\", \"no score\")",
+        "    return Error(ErrorKind.Other(header = \"Read Error\"), \"no score\")",
         "end",
         "fun load_total(): Int32 | Error do",
         "    first: Int32:= try read_score()",
@@ -73,7 +73,7 @@
         "fun apply(value: Int32): Int32 | Error do",
         "    errdefer rollback()",
         "    if value < 0 then",
-        "        return Error(\"Apply Error\", \"negative\")",
+        "        return Error(ErrorKind.Other(header = \"Apply Error\"), \"negative\")",
         "    end",
         "    return value",
         "end"
@@ -184,15 +184,15 @@
     {
       "id": "errors-error-construction",
       "name": "Error construction",
-      "description": "Construct an Error with Error.new and inspect its header and message fields.",
+      "description": "Construct an Error with Error.new and inspect its header() and message fields.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun fail(): Int32 | Error do",
-        "    return Error(\"Input Error\", \"missing value\")",
+        "    return Error(ErrorKind.Other(header = \"Input Error\"), \"missing value\")",
         "end",
         "fun inspect(): Bool do",
-        "    err: Error:= Error(\"Input Error\", \"missing value\")",
-        "    return (err.header == \"Input Error\") and (err.message == \"missing value\")",
+        "    err: Error:= Error(ErrorKind.Other(header = \"Input Error\"), \"missing value\")",
+        "    return (err.header() == \"Input Error\") and (err.message == \"missing value\")",
         "end"
       ]},
       "features": ["errors", "unions", "text"],
@@ -227,7 +227,7 @@
         "    defer cleanup()",
         "    errdefer cleanup()",
         "    if fail then",
-        "        return Error(\"Work Error\", \"failed\")",
+        "        return Error(ErrorKind.Other(header = \"Work Error\"), \"failed\")",
         "    end",
         "    return nil",
         "end"
@@ -282,7 +282,7 @@
         "end",
         "fun risky(fail: Bool): Int32 | Error do",
         "    if fail then",
-        "        return Error(\"Risk\", \"failed\")",
+        "        return Error(ErrorKind.Other(header = \"Risk\"), \"failed\")",
         "    end",
         "    return 10",
         "end",

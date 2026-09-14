@@ -21,7 +21,7 @@ func TestNarrowedUnionReceiversReadPayload(t *testing.T) {
 		"    end\n"+
 		"    e: IO | Error := IO.stdin()\n"+
 		"    if e is Error then\n"+
-		"        print(e.header)\n"+
+		"        print(e.header())\n"+
 		"    end\n"+
 		"    return 0\n"+
 		"end\n")

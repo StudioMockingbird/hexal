@@ -48,7 +48,7 @@ func generateProgram(seed uint64) generatedProgram {
 	}
 
 	app := fmt.Sprintf(
-		"module Lib = import \"./lib\"\n"+
+		"import\n    Lib from \"./lib\"\nend\n"+
 			"type GenSignal is union | GenAlpha | GenBeta as level: Int32 end end\n"+
 			"fun run(h: Heap): Int32 do\n"+
 			"    point: Lib.GenPoint := Lib.GenMakePoint()\n"+
@@ -68,13 +68,14 @@ func generateProgram(seed uint64) generatedProgram {
 			"total: Int32 := run(h)\n",
 		signalConstruct, genericType, genericType, literal,
 	)
-	lib := "export type GenPoint is struct x: Int32, y: Int32 end\n" +
-		"export fun GenMakePoint(): GenPoint do\n" +
+	lib := "type GenPoint is struct x: Int32, y: Int32 end\n" +
+		"fun GenMakePoint(): GenPoint do\n" +
 		"    return GenPoint(x = 1, y = 2)\n" +
 		"end\n" +
-		"export fun GenIdentity<T>(value: T): T do\n" +
+		"fun GenIdentity<T>(value: T): T do\n" +
 		"    return value\n" +
-		"end\n"
+		"end\n" +
+		"export\n    GenPoint,\n    GenMakePoint,\n    GenIdentity\nend\n"
 
 	return generatedProgram{
 		seed:       seed,

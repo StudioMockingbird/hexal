@@ -11,10 +11,40 @@ import (
 // generator.
 type Program struct {
 	TypeDeclarations     []TypeDeclaration
+	ModuleValues         []ModuleValueDeclaration
 	Statements           []Statement
 	SpecializedFunctions []FunctionDeclaration
 	SpecializedMethods   []MethodDeclaration
 	Defers               []DeferredAction
+	// GenericTypeNames, GenericFunctionNames, and GenericMethodNames name
+	// every module-level open generic type/function/method template this
+	// module declared: an open template carries no canonical
+	// TypeDeclaration/Statement of its own under its bare name (only its
+	// eventual specializations do, under a mangled name), so the export
+	// block resolves against these instead of checked.TypeDeclarations and
+	// checked.Statements.
+	GenericTypeNames     []string
+	GenericFunctionNames []string
+	GenericMethodNames   map[string][]string // owner type name -> method names
+}
+
+// ModuleValueDeclaration is a checked top-level `static` module value:
+// program-lifetime storage lowered directly to C static storage, distinct
+// from Declaration (an executable local, valid only in the entrypoint). It
+// is retained outside the executable statement list exactly like
+// TypeDeclaration. Atomic marks the one direct fixed Atomic<T> exception,
+// whose storage and access rules differ from an ordinary module value.
+type ModuleValueDeclaration struct {
+	Name         string
+	Binding      BindingID
+	Type         compilerTypes.Type
+	TypeUse      compilerTypes.TypeUse
+	Source       Operand
+	Mutable      bool
+	Atomic       bool
+	Exported     bool // stamped later by applyExportFlags
+	SourceLine   int
+	SourceColumn int
 }
 
 // Statement is one generator-ready checked statement.
@@ -292,13 +322,30 @@ func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
 		// for diagnostics.
 		moduleDiagnostics = moduleDiagnostics.InModule(key)
 		diagnostics = append(diagnostics, moduleDiagnostics...)
-		checked[key] = moduleChecked
 		if len(moduleDiagnostics) == 0 {
+			// The export block names declarations by their checked interface
+			// (a qualified entry needs a method's resolved owner name), so it
+			// resolves only after the module checks clean. Its result then
+			// stamps every exported declaration's Exported flag before this
+			// checked program is either stored or published: the generator's
+			// exported-prototype and module-value-declaration writers read
+			// that flag directly, and the registry's own tables must agree
+			// with it.
+			exports, exportDiagnostics := resolveExportEntries(node.Program, moduleChecked)
+			if len(exportDiagnostics) > 0 {
+				diagnostics = append(diagnostics, exportDiagnostics.InModule(key)...)
+				checked[key] = moduleChecked
+				continue
+			}
+			applyExportFlags(&moduleChecked, exports)
+			checked[key] = moduleChecked
 			// A clean module publishes its exported interface before its own
 			// closure is validated, so importers see complete records and the
 			// walker can prove its own exports against the registry.
-			registry.registerExports(moduleID, moduleChecked)
+			registry.registerExports(moduleID, exports, moduleChecked)
 			diagnostics = append(diagnostics, registry.checkExportedClosure(moduleID, moduleChecked).InModule(key)...)
+		} else {
+			checked[key] = moduleChecked
 		}
 	}
 	// After every module checks, fold each defining module's specialization
@@ -405,27 +452,32 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 	// every type look available regardless of position.
 	typeIndexByName := make(map[string]int)
 
-	// Pass 1: imports, then type declarations, in source order. Imports are
-	// always a contiguous prefix (enforced by the parser), so every one is
-	// always reached before any type here. Type declarations retain their
-	// own existing source-order resolution rules; only function and method
-	// visibility becomes order-independent below.
-	for index, item := range items {
-		switch statement := item.(type) {
-		case parser.ImportDeclaration:
+	// The import block, when present, is always the file's leading construct
+	// and structurally separate from Items; every alias binds before pass 1
+	// reaches any type declaration.
+	if program.Import != nil {
+		for _, entry := range program.Import.Entries {
 			// The target is the graph's resolved edge, recorded in the
 			// registry: the checker reads resolution, it never repeats it.
-			target, ok := registry.importTarget(moduleID, statement.Alias.Lexeme)
+			target, ok := registry.importTarget(moduleID, entry.Alias.Lexeme)
 			if !ok {
 				// A resolved graph always publishes every edge's target; a
 				// missing entry is an internal inconsistency, so it fails
 				// closed instead of binding an empty module id.
-				diagnostics = append(diagnostics, unknownAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" has no resolved module target"))
+				diagnostics = append(diagnostics, unknownAt(entry.Alias, "import alias "+entry.Alias.Lexeme+" has no resolved module target"))
 				continue
 			}
-			if !environment.define(statement.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
-				diagnostics = append(diagnostics, nameErrorAt(statement.Alias, "import alias "+statement.Alias.Lexeme+" conflicts with an existing name"))
+			if !environment.define(entry.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
+				diagnostics = append(diagnostics, nameErrorAt(entry.Alias, "import alias "+entry.Alias.Lexeme+" conflicts with an existing name"))
 			}
+		}
+	}
+
+	// Pass 1: type declarations, in source order. Type declarations retain
+	// their own existing source-order resolution rules; only function and
+	// method visibility becomes order-independent below.
+	for index, item := range items {
+		switch statement := item.(type) {
 		case parser.TypeDeclaration:
 			if _, exists := typeIndexByName[statement.Name.Lexeme]; !exists {
 				typeIndexByName[statement.Name.Lexeme] = index
@@ -438,6 +490,23 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				typeEnvironment.DeclareAliasUse(statement.Name.Lexeme, checkedDeclaration.TypeUse)
 				checked.TypeDeclarations = append(checked.TypeDeclarations, checkedDeclaration)
 			}
+		}
+	}
+
+	// Pass 1.5: static module values, fully checked and registered before any
+	// function body. Module values are visible throughout their defining
+	// module independent of textual position, and their initializers cannot
+	// refer to another module value, so no ordering graph is needed here.
+	for _, item := range items {
+		declaration, ok := item.(parser.ModuleValueDeclaration)
+		if !ok {
+			continue
+		}
+		checkedValue, statementDiagnostics := checkModuleValueDeclaration(declaration, ctx)
+		diagnostics = append(diagnostics, statementDiagnostics...)
+		if len(statementDiagnostics) == 0 {
+			environment.define(declaration.Name.Lexeme, binding{typ: checkedValue.Type, use: checkedValue.TypeUse, mutable: checkedValue.Mutable, kind: moduleValueBinding, id: checkedValue.Binding})
+			checked.ModuleValues = append(checked.ModuleValues, checkedValue)
 		}
 	}
 
@@ -496,8 +565,10 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			}
 		}
 		switch statement := item.(type) {
-		case parser.TypeDeclaration, parser.ImportDeclaration:
+		case parser.TypeDeclaration:
 			// Already fully handled in pass 1.
+		case parser.ModuleValueDeclaration:
+			// Already fully handled in pass 1.5.
 		case parser.Declaration:
 			if literal, isSugar := directFunctionLiteralSugar(statement); isSugar {
 				// A direct inferred fixed literal declaration is checked as
@@ -636,6 +707,20 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 	checked.SpecializedFunctions = specializedFunctionList(environment.generics)
 	checked.SpecializedMethods = specializedMethodList(environment.generics)
 	checked.Defers = append(checked.Defers, environment.defers...)
+	for name := range environment.generics.types {
+		checked.GenericTypeNames = append(checked.GenericTypeNames, name)
+	}
+	for name, open := range environment.generics.functions {
+		if !open.local {
+			checked.GenericFunctionNames = append(checked.GenericFunctionNames, name)
+		}
+	}
+	for _, open := range environment.generics.methods {
+		if checked.GenericMethodNames == nil {
+			checked.GenericMethodNames = make(map[string][]string)
+		}
+		checked.GenericMethodNames[open.ObjectName] = append(checked.GenericMethodNames[open.ObjectName], open.Name)
+	}
 
 	if len(diagnostics) > 0 {
 		return checked, diagnostics
@@ -659,8 +744,8 @@ func topLevelItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 	switch node := item.(type) {
 	case parser.TypeDeclaration:
 		return node.Name, true
-	case parser.ImportDeclaration:
-		return node.Alias, true
+	case parser.ModuleValueDeclaration:
+		return node.Name, true
 	case parser.FunctionDeclaration:
 		return node.Name, true
 	case parser.MethodDeclaration:

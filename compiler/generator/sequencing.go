@@ -82,6 +82,7 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.HeapAllocateExpression, checker.HeapFreeExpression, checker.VolatileWriteExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
+		checker.NetworkExpression,
 		checker.MatchExpression:
 		return true
 	}
@@ -376,13 +377,15 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 		return hoistReceiverAndOperandsSequence(node.Operand, node.OperandType, node.Arguments, body, state, indent)
 	case checker.MethodCallExpression:
 		return hoistMethodCallSequence(node, body, state, indent)
-	case checker.AtomicMethodCallExpression, checker.StreamMethodCallExpression:
-		// Both combine their receiver with every argument in one C call
-		// (renderAtomicMethod, renderStreamMethod, both verified and
-		// updated to consult hoistedSequencing for receiver and arguments
-		// alike): compare_exchange's expected/desired pair and read's
-		// into/maximum pair each land in one call with no C ordering
-		// guarantee between them or against the receiver.
+	case checker.AtomicMethodCallExpression, checker.StreamMethodCallExpression, checker.NetworkExpression:
+		// All three combine their receiver (when one exists) with every
+		// argument in one C call (renderAtomicMethod, renderStreamMethod,
+		// renderNetworkExpression, all verified and updated to consult
+		// hoistedSequencing for receiver and arguments alike):
+		// compare_exchange's expected/desired pair and read's into/maximum
+		// pair each land in one call with no C ordering guarantee between
+		// them or against the receiver. A static networking call (Address.parse,
+		// Dns.resolve, Tcp.connect/listen) has no receiver at all.
 		if node.Operand == nil {
 			return hoistOperandSequence(node.Arguments, body, state, indent)
 		}

@@ -23,14 +23,15 @@ func checkModules(t *testing.T, app, math string) (map[string]Program, error) {
 		map[string][]ModuleEdge{"app": edgesToMath(appProgram)}))
 }
 
-// edgesToMath records one resolved edge per import declaration in program,
-// each naming the helper's single dependency.
+// edgesToMath records one resolved edge per import entry in program, each
+// naming the helper's single dependency.
 func edgesToMath(program parser.Program) []ModuleEdge {
 	edges := make([]ModuleEdge, 0, 1)
-	for _, item := range program.Items {
-		if importDecl, ok := item.(parser.ImportDeclaration); ok {
-			edges = append(edges, ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: "math"})
-		}
+	if program.Import == nil {
+		return edges
+	}
+	for _, entry := range program.Import.Entries {
+		edges = append(edges, ModuleEdge{Alias: entry.Alias.Lexeme, Target: "math"})
 	}
 	return edges
 }
@@ -40,8 +41,8 @@ func edgesToMath(program parser.Program) []ModuleEdge {
 // id for the downstream stage.
 func TestQualifiedCallResolvesExportedFunction(t *testing.T) {
 	checked, err := checkModules(t,
-		"module Math = import \"./math\"\nresult: Int32 := Math.add(2, 3)\n",
-		"export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
+		"import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
+		"fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\nexport\n    add\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified call: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestQualifiedCallResolvesExportedFunction(t *testing.T) {
 // visibility failure at the property.
 func TestQualifiedCallRejectsPrivateFunction(t *testing.T) {
 	_, err := checkModules(t,
-		"module Math = import \"./math\"\nresult: Int32 := Math.add(2, 3)\n",
+		"import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
 		"fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
 	requireMessage(t, err, "declaration add is private to module math")
 }
@@ -74,8 +75,8 @@ func TestQualifiedCallRejectsPrivateFunction(t *testing.T) {
 // target's identity (Int32), not the alias name.
 func TestQualifiedTypeResolvesExportedAndRejectsPrivate(t *testing.T) {
 	checked, err := checkModules(t,
-		"module Math = import \"./math\"\nshape: Math.Shape := 0\n",
-		"export type Shape is Int32\n")
+		"import\n    Math from \"./math\"\nend\nshape: Math.Shape := 0\n",
+		"type Shape is Int32\nexport\n    Shape\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified type: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestQualifiedTypeResolvesExportedAndRejectsPrivate(t *testing.T) {
 		t.Fatalf("app statement = %#v, want the transparent alias target Int32", declaration)
 	}
 	_, err = checkModules(t,
-		"module Math = import \"./math\"\nshape: Math.Shape := 0\n",
+		"import\n    Math from \"./math\"\nend\nshape: Math.Shape := 0\n",
 		"type Shape is Int32\n")
 	requireMessage(t, err, "declaration Shape is private to module math")
 }
@@ -98,8 +99,8 @@ func TestQualifiedTypeKeepsUnknownModuleAlias(t *testing.T) {
 // defining module checks clean first; the closure walk runs afterward.
 func TestExportedClosureRejectsPrivateType(t *testing.T) {
 	_, err := checkModules(t,
-		"module Math = import \"./math\"\n",
-		"type Secret is struct x: Int32 end\nexport fun f(): Secret do\n    return Secret(x = 1)\nend\n")
+		"import\n    Math from \"./math\"\nend\n",
+		"type Secret is struct x: Int32 end\nfun f(): Secret do\n    return Secret(x = 1)\nend\nexport\n    f\nend\n")
 	requireMessage(t, err, "exported function f exposes private type Secret")
 }
 
@@ -107,16 +108,16 @@ func TestExportedClosureRejectsPrivateType(t *testing.T) {
 // containers; cycles through aliases terminate.
 func TestExportedClosureWalksNestedAndCycles(t *testing.T) {
 	_, err := checkModules(t,
-		"module Math = import \"./math\"\n",
-		"type Secret is struct x: Int32 end\nexport type Node is struct next: Ptr<mut Node> | Nil, items: List<Secret> end\nexport fun f(): Node do\n    return Node(next = nil, items = List<Secret>(Heap()))\nend\n")
+		"import\n    Math from \"./math\"\nend\n",
+		"type Secret is struct x: Int32 end\ntype Node is struct next: Ptr<mut Node> | Nil, items: List<Secret> end\nfun f(): Node do\n    return Node(next = nil, items = List<Secret>(Heap()))\nend\nexport\n    Node,\n    f\nend\n")
 	requireMessage(t, err, "exported function f exposes private type Secret")
 }
 
 // An exported function over only builtin and exported types closes clean.
 func TestExportedClosureAcceptsExportedInterface(t *testing.T) {
 	checked, err := checkModules(t,
-		"module Math = import \"./math\"\n",
-		"export type Point is struct x: Int32, y: Int32 end\nexport fun f(p: Ptr<Point>): Point do\n    return Point(x = 1, y = 2)\nend\n")
+		"import\n    Math from \"./math\"\nend\n",
+		"type Point is struct x: Int32, y: Int32 end\nfun f(p: Ptr<Point>): Point do\n    return Point(x = 1, y = 2)\nend\nexport\n    Point,\n    f\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected a closed exported interface: %v", err)
 	}
@@ -130,8 +131,8 @@ func TestExportedClosureAcceptsExportedInterface(t *testing.T) {
 // template declarations themselves.
 func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 	checked, err := checkModules(t,
-		"module Math = import \"./math\"\n",
-		"export type Box<T> is struct item: T end\nexport fun new_box<T>(item: T): Box<T> do\n    return Box<T>(item = item)\nend\n")
+		"import\n    Math from \"./math\"\nend\n",
+		"type Box<T> is struct item: T end\nfun new_box<T>(item: T): Box<T> do\n    return Box<T>(item = item)\nend\nexport\n    Box,\n    new_box\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the generic interface: %v", err)
 	}
@@ -144,8 +145,8 @@ func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 // module's exported ADT; the result carries the target's ADT identity.
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	checked, err := checkModules(t,
-		"module Math = import \"./math\"\ns: Math.Shape := Math.Circle(x = 1)\nu: Math.Shape := Math.Square()\n",
-		"export type Shape is union | Circle as x: Int32 end | Square end\n")
+		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Circle(x = 1)\nu: Math.Shape := Math.Square()\n",
+		"type Shape is union | Circle as x: Int32 end | Square end\nexport\n    Shape\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified variants: %v", err)
 	}
@@ -167,8 +168,8 @@ func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 // visibility failure at the variant.
 func TestQualifiedVariantRejectsUnknownExport(t *testing.T) {
 	_, err := checkModules(t,
-		"module Math = import \"./math\"\ns: Math.Shape := Math.Circle(x = 1)\n",
-		"export type Shape is union | Other as x: Int32 end | Empty end\n")
+		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Circle(x = 1)\n",
+		"type Shape is union | Other as x: Int32 end | Empty end\nexport\n    Shape\nend\n")
 	requireMessage(t, err, "declaration Circle is private to module math")
 }
 
@@ -176,15 +177,15 @@ func TestQualifiedVariantRejectsUnknownExport(t *testing.T) {
 // there are no wildcard imports.
 func TestUnqualifiedUseOfExportedNameFails(t *testing.T) {
 	_, err := checkModules(t,
-		"module Math = import \"./math\"\nresult: Int32 := add(2, 3)\n",
-		"export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
+		"import\n    Math from \"./math\"\nend\nresult: Int32 := add(2, 3)\n",
+		"fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\nexport\n    add\nend\n")
 	requireMessage(t, err, "unknown function add; functions must be declared before use")
 }
 
 // A dangling alias whose target has no source resolves nowhere: the bare
 // receiver keeps failing as an unknown variable.
 func TestDanglingAliasQualifiedCallKeepsUnknownVariable(t *testing.T) {
-	app := parseProgram(t, "module Math = import \"./math\"\nresult: Int32 := Math.add(2, 3)\n")
+	app := parseProgram(t, "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n")
 	_, err := CheckModules(graphOf("app", []string{"app"}, map[string]parser.Program{"app.hex": app}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "math"}}}))
 	requireMessage(t, err, "unknown variable Math")
 }

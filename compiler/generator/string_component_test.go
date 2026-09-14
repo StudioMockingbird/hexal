@@ -170,8 +170,8 @@ func TestStringComponentAbsentWithoutStrings(t *testing.T) {
 func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 	parsed := make(map[string]parser.Program, 2)
 	for key, source := range map[string]string{
-		"app.hex":  "module Math = import \"./math\"\nresult: Int32 := Math.compute()\n",
-		"math.hex": "export fun compute(): Int32 do\n    text: String := \"hello\"\n    return 1\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.compute()\n",
+		"math.hex": "fun compute(): Int32 do\n    text: String := \"hello\"\n    return 1\nend\nexport\n    compute\nend\n",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {

@@ -122,44 +122,76 @@ b5: Strand := box5.get()`,
 	{
 		name: "multi-module",
 		sources: map[string]string{
-			"app.hex": `module A = import "./a"
-module B = import "./b"
-module D = import "./extra/d"
-module E = import "./extra/e"
-module F = import "./extra/f"
-module G = import "./extra/g"
+			"app.hex": `import
+    A from "./a",
+    B from "./b",
+    D from "./extra/d",
+    E from "./extra/e",
+    F from "./extra/f",
+    G from "./extra/g"
+end
 answer: Int32 := A.run() + B.run() + D.run() + E.run() + F.run() + G.run()`,
-			"a.hex": `module C = import "./util/c"
-export fun run(): Int32 do
+			"a.hex": `import
+    C from "./util/c"
+end
+fun run(): Int32 do
     origin: C.Point := C.origin()
     return origin.width() + 1
+end
+export
+    run
 end`,
-			"b.hex": `module C = import "./util/c"
-export fun run(): Int32 do
+			"b.hex": `import
+    C from "./util/c"
+end
+fun run(): Int32 do
     return C.scale(2)
+end
+export
+    run
 end`,
-			"util/c.hex": `export type Point is struct x: Int32, y: Int32 end
-export fun origin(): Point do
+			"util/c.hex": `type Point is struct x: Int32, y: Int32 end
+fun origin(): Point do
     return Point(x = 10, y = 20)
 end
-export method Point.width(): Int32 do
+method Point.width(): Int32 do
     return self.x
 end
-export fun scale(multiplier: Int32): Int32 do
+fun scale(multiplier: Int32): Int32 do
     return origin().width() * multiplier
+end
+export
+    Point,
+    origin,
+    Point.width,
+    scale
 end`,
-			"extra/d.hex": `module C = import "../util/c"
-export fun run(): Int32 do
+			"extra/d.hex": `import
+    C from "../util/c"
+end
+fun run(): Int32 do
     return C.scale(3)
+end
+export
+    run
 end`,
-			"extra/e.hex": `export fun run(): Int32 do
+			"extra/e.hex": `fun run(): Int32 do
     return 5
+end
+export
+    run
 end`,
-			"extra/f.hex": `export fun run(): Int32 do
+			"extra/f.hex": `fun run(): Int32 do
     return 6
+end
+export
+    run
 end`,
-			"extra/g.hex": `export fun run(): Int32 do
+			"extra/g.hex": `fun run(): Int32 do
     return 7
+end
+export
+    run
 end`,
 		},
 		entrypoint: "app.hex",
@@ -256,7 +288,7 @@ end
 fun rollback() do
 end
 fun level3(): Int32 | Error do
-    return Error("Level Three", "three")
+    return Error(ErrorKind.Other(header = "Level Three"), "three")
 end
 fun level2(): Int32 | Error do
     errdefer rollback()

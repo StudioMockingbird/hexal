@@ -33,7 +33,7 @@ func requireMessage(t *testing.T, err error, want string) {
 // reference fails as an ordinary unknown variable because the scope skips
 // alias bindings entirely.
 func TestImportAliasIsNotAValue(t *testing.T) {
-	app := parseProgram(t, "module Math = import \"./vec3\"\nresult: Int32 := Math\n")
+	app := parseProgram(t, "import\n    Math from \"./vec3\"\nend\nresult: Int32 := Math\n")
 	dep := parseProgram(t, "value: Int32 := 1\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	requireMessage(t, err, "unknown variable Math")
@@ -42,7 +42,7 @@ func TestImportAliasIsNotAValue(t *testing.T) {
 // An import alias colliding with an existing module binding is a Name Error
 // at the alias; a later import redeclaring an alias is the same conflict.
 func TestImportAliasConflictsWithExistingName(t *testing.T) {
-	app := parseProgram(t, "module Math = import \"./vec3\"\nmodule Math = import \"./wye\"\n")
+	app := parseProgram(t, "import\n    Math from \"./vec3\"\n,\n    Math from \"./wye\"\nend\n")
 	vec3 := parseProgram(t, "value: Int32 := 1\n")
 	wye := parseProgram(t, "other: Int32 := 2\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "wye", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": vec3, "wye.hex": wye}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}, {Alias: "Math", Target: "wye"}}}))
@@ -53,13 +53,13 @@ func TestImportAliasConflictsWithExistingName(t *testing.T) {
 // first non-import top-level item and rejects any later import as a Syntax
 // Error, so the checker never sees a misplaced import.
 func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
-	tokens, lexErr := lexer.Lex("x: Int32 := 1\nmodule Math = import \"./math\"\n")
+	tokens, lexErr := lexer.Lex("x: Int32 := 1\nimport\n    Math from \"./math\"\nend\n")
 	if lexErr != nil {
 		t.Fatalf("Lex returned an error: %v", lexErr)
 	}
 	if _, parseErr := parser.Parse(tokens); parseErr == nil {
 		t.Fatal("Parse accepted an import after a declaration")
-	} else if message := parseErr.Error(); !strings.Contains(message, "imports must precede all other top-level items") {
+	} else if message := parseErr.Error(); !strings.Contains(message, "import block must be the first top-level construct") {
 		t.Fatalf("Parse error = %v, want the misplaced-import Syntax Error", message)
 	}
 }
@@ -67,7 +67,7 @@ func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
 // An imported module's top level is declarations only; every executable
 // statement is rejected and skipped entirely.
 func TestImportedModuleRejectsExecutableStatements(t *testing.T) {
-	app := parseProgram(t, "module Math = import \"./vec3\"\n")
+	app := parseProgram(t, "import\n    Math from \"./vec3\"\nend\n")
 	dep := parseProgram(t, "x: Int32 := 1\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	requireMessage(t, err, "imported module vec3 contains executable statements")
@@ -75,7 +75,7 @@ func TestImportedModuleRejectsExecutableStatements(t *testing.T) {
 
 // A dependency with only declarations checks clean in its own scope.
 func TestImportedModuleDeclarationsOnly(t *testing.T) {
-	app := parseProgram(t, "module Math = import \"./vec3\"\n")
+	app := parseProgram(t, "import\n    Math from \"./vec3\"\nend\n")
 	dep := parseProgram(t, "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
 	checked, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	if err != nil {
@@ -88,7 +88,7 @@ func TestImportedModuleDeclarationsOnly(t *testing.T) {
 
 // A function parameter may not shadow an import alias.
 func TestParameterCannotShadowImportAlias(t *testing.T) {
-	app := parseProgram(t, "module Math = import \"./vec3\"\nfun f(Math: Int32) do\nend\n")
+	app := parseProgram(t, "import\n    Math from \"./vec3\"\nend\nfun f(Math: Int32) do\nend\n")
 	dep := parseProgram(t, "value: Int32 := 1\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	requireMessage(t, err, "import alias Math conflicts with an existing name")

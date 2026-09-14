@@ -84,7 +84,7 @@ func TestStreamGeneratedCContract(t *testing.T) {
 	if strings.Count(body, "[Runtime Error] close of a borrowed stream") != 2 {
 		t.Fatalf("borrowed close must trap on both platforms:\n%s", body)
 	}
-	if strings.Count(body, "EINTR") != 1 {
+	if strings.Count(body, "if (errno == EINTR) {") != 1 {
 		t.Fatalf("only the write-all sink may retry EINTR:\n%s", body)
 	}
 	if !strings.Contains(body, "SSIZE_MAX") || !strings.Contains(body, "0xFFFFFFFFull") {

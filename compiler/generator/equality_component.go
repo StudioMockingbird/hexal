@@ -85,6 +85,10 @@ func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalit
 		model.Includes = appendUnique(model.Includes, "hexal/string.h")
 		model.NeedStddef = true
 		model.NeedString = true
+	case compilerTypes.IsErrorKind(typ):
+		model.Includes = appendUnique(model.Includes, "hexal/error.h")
+		model.Includes = appendUnique(model.Includes, "hexal/string.h")
+		model.NeedString = true
 	case compilerTypes.IsSeek(typ):
 		model.Includes = appendUnique(model.Includes, "hexal/seek.h")
 	case compilerTypes.IsFileMode(typ):

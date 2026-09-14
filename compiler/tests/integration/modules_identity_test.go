@@ -8,9 +8,9 @@ import (
 
 func TestSameNamedTypesInDifferentModulesAreDistinct(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":    "module Math = import \"./math\"\nmodule Shapes = import \"./shapes\"\nm: Math.Point := 0\ns: Shapes.Point := m\n",
-		"math.hex":   "export type Point is Int32\n",
-		"shapes.hex": "export type Point is Int32\n",
+		"app.hex":    "import\n    Math from \"./math\"\n,\n    Shapes from \"./shapes\"\nend\nm: Math.Point := 0\ns: Shapes.Point := m\n",
+		"math.hex":   "type Point is Int32\nexport\n    Point\nend\n",
+		"shapes.hex": "type Point is Int32\nexport\n    Point\nend\n",
 	}
 	// Both aliases resolve to transparent Int32 aliases, so the assignment
 	// is legal; the point is that neither resolver leaks the other module.
@@ -20,9 +20,9 @@ func TestSameNamedTypesInDifferentModulesAreDistinct(t *testing.T) {
 
 func TestNominalTypesAcrossModulesStayDistinct(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":    "module Math = import \"./math\"\nmodule Shapes = import \"./shapes\"\nm: Math.Point := Math.make()\ns: Shapes.Point := m\n",
-		"math.hex":   "export type Point is struct x: Int32, y: Int32 end\nexport fun make(): Point do\n    return Point(x = 1, y = 2)\nend\n",
-		"shapes.hex": "export type Point is struct x: Int32, y: Int32 end\n",
+		"app.hex":    "import\n    Math from \"./math\"\n,\n    Shapes from \"./shapes\"\nend\nm: Math.Point := Math.make()\ns: Shapes.Point := m\n",
+		"math.hex":   "type Point is struct x: Int32, y: Int32 end\nfun make(): Point do\n    return Point(x = 1, y = 2)\nend\nexport\n    Point,\n    make\nend\n",
+		"shapes.hex": "type Point is struct x: Int32, y: Int32 end\nexport\n    Point\nend\n",
 	}
 	// math.Point and shapes.Point are distinct nominal identities despite
 	// identical structure and name: the cross-module assignment fails even
@@ -33,8 +33,8 @@ func TestNominalTypesAcrossModulesStayDistinct(t *testing.T) {
 
 func TestCannotDeclareMethodsForImportedType(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":      "module Geometry = import \"./geometry\"\nmethod Geometry.Point.rotate(): Geometry.Point do\n    return self\nend\n",
-		"geometry.hex": "export type Point is struct x: Int32, y: Int32 end\n",
+		"app.hex":      "import\n    Geometry from \"./geometry\"\nend\nmethod Geometry.Point.rotate(): Geometry.Point do\n    return self\nend\n",
+		"geometry.hex": "type Point is struct x: Int32, y: Int32 end\nexport\n    Point\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "cannot declare methods for imported type Geometry.Point")
@@ -42,8 +42,8 @@ func TestCannotDeclareMethodsForImportedType(t *testing.T) {
 
 func TestCannotDeclareMethodsThroughAliasOfImportedType(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":      "module Geometry = import \"./geometry\"\ntype LocalPoint is Geometry.Point\nmethod LocalPoint.rotate(): LocalPoint do\n    return self\nend\n",
-		"geometry.hex": "export type Point is struct x: Int32, y: Int32 end\n",
+		"app.hex":      "import\n    Geometry from \"./geometry\"\nend\ntype LocalPoint is Geometry.Point\nmethod LocalPoint.rotate(): LocalPoint do\n    return self\nend\n",
+		"geometry.hex": "type Point is struct x: Int32, y: Int32 end\nexport\n    Point\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "cannot declare methods for imported type LocalPoint")
@@ -51,16 +51,16 @@ func TestCannotDeclareMethodsThroughAliasOfImportedType(t *testing.T) {
 
 func TestMethodCallsOnImportedTypesWork(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point := Geometry.make()\nlength: Int32 := p.length_squared()\n",
-		"geometry.hex": "export type Point is struct x: Int32, y: Int32 end\nexport fun make(): Point do\n    return Point(x = 3, y = 4)\nend\nexport method Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n",
+		"app.hex":      "import\n    Geometry from \"./geometry\"\nend\np: Geometry.Point := Geometry.make()\nlength: Int32 := p.length_squared()\n",
+		"geometry.hex": "type Point is struct x: Int32, y: Int32 end\nfun make(): Point do\n    return Point(x = 3, y = 4)\nend\nmethod Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\nexport\n    Point,\n    make,\n    Point.length_squared\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "geometry")
 }
 
 func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":      "module Geometry = import \"./geometry\"\np: Geometry.Point := Geometry.make()\nlength: Int32 := p.length_squared()\n",
-		"geometry.hex": "export type Point is struct x: Int32, y: Int32 end\nexport fun make(): Point do\n    return Point(x = 3, y = 4)\nend\nmethod Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\n",
+		"app.hex":      "import\n    Geometry from \"./geometry\"\nend\np: Geometry.Point := Geometry.make()\nlength: Int32 := p.length_squared()\n",
+		"geometry.hex": "type Point is struct x: Int32, y: Int32 end\nfun make(): Point do\n    return Point(x = 3, y = 4)\nend\nmethod Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\nexport\n    Point,\n    make\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "declaration length_squared is private to module geometry")
@@ -68,8 +68,8 @@ func TestPrivateMethodOnExportedTypeRejected(t *testing.T) {
 
 func TestGenericSpecializationsOwnedByDefiningModule(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\na: Int32 := Math.identity<Int32>(1)\nb: Float64 := Math.identity<Float64>(2.0)\nc: Int32 := Math.identity<Int32>(3)\n",
-		"math.hex": "export fun identity<T>(value: T): T do\n    return value\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\na: Int32 := Math.identity<Int32>(1)\nb: Float64 := Math.identity<Float64>(2.0)\nc: Int32 := Math.identity<Int32>(3)\n",
+		"math.hex": "fun identity<T>(value: T): T do\n    return value\nend\nexport\n    identity\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
 }
@@ -80,9 +80,9 @@ func TestGenericSpecializationsOwnedByDefiningModule(t *testing.T) {
 // never collapse onto one C type.
 func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 	sources := map[string]string{
-		"m.hex": "export type Point is struct x: Int32 end\nexport fun point(): Point do\n    return Point(x = 1)\nend\n",
-		"s.hex": "export type Point is struct y: Int64, z: Int64 end\nexport fun point(): Point do\n    return Point(y = 1, z = 2)\nend\n",
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun demo(h: Heap) do\n" +
+		"m.hex": "type Point is struct x: Int32 end\nfun point(): Point do\n    return Point(x = 1)\nend\nexport\n    Point,\n    point\nend\n",
+		"s.hex": "type Point is struct y: Int64, z: Int64 end\nfun point(): Point do\n    return Point(y = 1, z = 2)\nend\nexport\n    Point,\n    point\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nfun demo(h: Heap) do\n" +
 			"    lm: List<M.Point> := List<M.Point>(h)\n" +
 			"    ls: List<S.Point> := List<S.Point>(h)\n" +
 			"    dm: Dict<Int32, M.Point> := Dict<Int32, M.Point>(h)\n" +
@@ -132,9 +132,9 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 // specializations.
 func TestIdenticalLayoutStillNominalDistinctAcrossModules(t *testing.T) {
 	sources := map[string]string{
-		"m.hex":   "export type Point is struct x: Int32, y: Int32 end\n",
-		"s.hex":   "export type Point is struct x: Int32, y: Int32 end\n",
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun demo(h: Heap) do\n    a: List<M.Point> := List<M.Point>(h)\n    b: List<S.Point> := List<S.Point>(h)\nend\n",
+		"m.hex":   "type Point is struct x: Int32, y: Int32 end\nexport\n    Point\nend\n",
+		"s.hex":   "type Point is struct x: Int32, y: Int32 end\nexport\n    Point\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nfun demo(h: Heap) do\n    a: List<M.Point> := List<M.Point>(h)\n    b: List<S.Point> := List<S.Point>(h)\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "m", "s")
@@ -148,9 +148,9 @@ func TestIdenticalLayoutStillNominalDistinctAcrossModules(t *testing.T) {
 // discriminated union, so each value carries its own module's layout.
 func TestSameNamedTypeUnionMembersStayDistinct(t *testing.T) {
 	sources := map[string]string{
-		"m.hex": "export type Point is struct x: Int32 end\nexport fun point(): Point do\n    return Point(x = 1)\nend\n",
-		"s.hex": "export type Point is struct y: Int64, z: Int64 end\nexport fun point(): Point do\n    return Point(y = 1, z = 2)\nend\n",
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun demo() do\n" +
+		"m.hex": "type Point is struct x: Int32 end\nfun point(): Point do\n    return Point(x = 1)\nend\nexport\n    Point,\n    point\nend\n",
+		"s.hex": "type Point is struct y: Int64, z: Int64 end\nfun point(): Point do\n    return Point(y = 1, z = 2)\nend\nexport\n    Point,\n    point\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nfun demo() do\n" +
 			"    pm: M.Point := M.point()\n" +
 			"    u: (M.Point | S.Point) := pm\n" +
 			"end\n",
@@ -186,18 +186,19 @@ func TestSingleModuleProducesSingleSpecialization(t *testing.T) {
 // cases run in the same compilation.
 func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 	sources := map[string]string{
-		"m.hex": "export type Point is struct x: Int32 end\n",
-		"s.hex": "export type Point is struct y: Int64, z: Int64 end\n",
-		"lib.hex": "export fun take_list(v: List<Int32>): Nil | Error do\n    return nil\nend\n" +
-			"export fun take_dict(v: Dict<Int32, Int32>): Nil | Error do\n    return nil\nend\n" +
-			"export fun take_array(v: Array<Int32, 2>): Int32 do\n    return v[0]\nend\n" +
-			"export fun take_view(v: Slice<Int32>): Int32 do\n    return v[0]\nend\n" +
-			"export type Holder is struct values: List<Int32> end\n" +
-			"export fun make_holder(values: List<Int32>): Holder do\n    return Holder(values = values)\nend\n" +
-			"export fun take_holder(h: Holder): Nil | Error do\n    return nil\nend\n" +
-			"export fun make_list(h: Heap): List<Int32> do\n    return List<Int32>(h)\nend\n" +
-			"export fun identity<T>(value: T): T do\n    return value\nend\n",
-		"app.hex": "module Lib = import \"./lib\"\nmodule M = import \"./m\"\nmodule S = import \"./s\"\n" +
+		"m.hex": "type Point is struct x: Int32 end\nexport\n    Point\nend\n",
+		"s.hex": "type Point is struct y: Int64, z: Int64 end\nexport\n    Point\nend\n",
+		"lib.hex": "fun take_list(v: List<Int32>): Nil | Error do\n    return nil\nend\n" +
+			"fun take_dict(v: Dict<Int32, Int32>): Nil | Error do\n    return nil\nend\n" +
+			"fun take_array(v: Array<Int32, 2>): Int32 do\n    return v[0]\nend\n" +
+			"fun take_view(v: Slice<Int32>): Int32 do\n    return v[0]\nend\n" +
+			"type Holder is struct values: List<Int32> end\n" +
+			"fun make_holder(values: List<Int32>): Holder do\n    return Holder(values = values)\nend\n" +
+			"fun take_holder(h: Holder): Nil | Error do\n    return nil\nend\n" +
+			"fun make_list(h: Heap): List<Int32> do\n    return List<Int32>(h)\nend\n" +
+			"fun identity<T>(value: T): T do\n    return value\nend\n" +
+			"export\n    take_list,\n    take_dict,\n    take_array,\n    take_view,\n    Holder,\n    make_holder,\n    take_holder,\n    make_list,\n    identity\nend\n",
+		"app.hex": "import\n    Lib from \"./lib\"\n,\n    M from \"./m\"\n,\n    S from \"./s\"\nend\n" +
 			"fun demo(h: Heap): Nil | Error do\n" +
 			"    l: List<Int32> := Lib.make_list(h)\n" +
 			"    Lib.take_list(l)\n" +
@@ -242,9 +243,9 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 //
 // No test compiles generated C, so ordering is asserted on the text.
 func TestModuleOwnedCollectionElementsDeclareBeforeUse(t *testing.T) {
-	point := "export type Point is struct x: Int32, y: Int32 end\n"
-	color := "export type Color is struct r: Int32 end\n"
-	prelude := "module M = import \"./m\"\nmodule S = import \"./s\"\nh: Heap := Heap()\n"
+	point := "type Point is struct x: Int32, y: Int32 end\nexport\n    Point\nend\n"
+	color := "type Color is struct r: Int32 end\nexport\n    Color\nend\n"
+	prelude := "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nh: Heap := Heap()\n"
 
 	cases := []struct {
 		name           string

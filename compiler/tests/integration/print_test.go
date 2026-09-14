@@ -61,11 +61,11 @@ func TestPrintNestedStringQuoting(t *testing.T) {
 }
 
 func TestPrintError(t *testing.T) {
-	result := compileSource("fun demo() do\n    err: Error := Error(\"File Error\", \"file not found\")\n    print(err)\nend")
+	result := compileSource("fun demo() do\n    err: Error := Error(ErrorKind.Other(header = \"File Error\"), \"file not found\")\n    print(err)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_print_error_direct") || !strings.Contains(rootC(t, result), "hex_print_error_direct(hex_print_arg_1);") {
+	if !strings.Contains(rootH(t, result), "hex_print_error_direct") || !strings.Contains(rootC(t, result), "hex_print_error_direct(&hex_print_arg_1);") {
 		t.Fatalf("generated output = %q %q, want direct Error print", rootC(t, result), rootH(t, result))
 	}
 }

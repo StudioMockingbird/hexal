@@ -217,7 +217,7 @@ const (
 	Do
 	ByteLiteral
 	RuneLiteral
-	Module
+	Static
 	Import
 	Export
 	ModulePathLiteral
@@ -262,7 +262,7 @@ var keywords = map[string]TokenKind{
 	"for":      For,
 	"in":       In,
 	"do":       Do,
-	"module":   Module,
+	"static":   Static,
 	"import":   Import,
 	"export":   Export,
 }
@@ -416,8 +416,8 @@ func (kind TokenKind) String() string {
 		return "in"
 	case Do:
 		return "do"
-	case Module:
-		return "module"
+	case Static:
+		return "static"
 	case Import:
 		return "import"
 	case Export:
@@ -695,11 +695,14 @@ func scanToken(source string, index, line, column, depth int, previous Token) ([
 		column++
 	case ch == '"':
 		startColumn := column
-		// The literal immediately after `import` on the same line is a
-		// module path: a raw quoted payload with no escape decoding. A
-		// backslash is rejected outright; module paths are plain
-		// relative path spellings.
-		isModulePath := previous.Kind == Import && previous.Line == line
+		// The literal immediately after the contextual `from` on the same
+		// line is a module path: a raw quoted payload with no escape
+		// decoding. A backslash is rejected outright; module paths are plain
+		// relative path spellings. No other valid Hexal construct juxtaposes
+		// a bare identifier directly against a string literal, so this
+		// lexical heuristic never misfires on an ordinary `from` identifier
+		// used elsewhere.
+		isModulePath := previous.Kind == Identifier && previous.Lexeme == "from" && previous.Line == line
 		if isModulePath {
 			start := index
 			index++

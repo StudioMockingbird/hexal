@@ -39,10 +39,11 @@ type ModuleRegistry struct {
 type moduleEntry struct {
 	imports map[string]string // import alias -> canonical module id
 
-	exports   map[string]bool                  // exported declaration names, from the AST
-	functions map[string]FunctionDeclaration   // exported functions by name
-	types     map[string]compilerTypes.TypeUse // exported type names -> resolved use
-	methods   map[string][]MethodDeclaration   // receiver type name -> exported methods
+	exports      map[string]bool                     // exported declaration names, from the AST
+	functions    map[string]FunctionDeclaration      // exported functions by name
+	types        map[string]compilerTypes.TypeUse    // exported type names -> resolved use
+	methods      map[string][]MethodDeclaration      // receiver type name -> exported methods
+	moduleValues map[string]exportedModuleValueEntry // exported static module values by name
 
 	// genericFunctions holds the module's exported generic function
 	// templates. Importers resolve qualified generic calls through them and
@@ -57,10 +58,12 @@ type moduleEntry struct {
 	methodSpecializations   map[string]MethodDeclaration
 }
 
-// buildModuleRegistry collects every module's import aliases and export flags
-// in the graph's dependency order. Import targets are read from the graph's
-// resolved edges: resolution happened once, during reachability, and the
-// checker never re-derives it.
+// buildModuleRegistry collects every module's import aliases in the graph's
+// dependency order. Import targets are read from the graph's resolved edges:
+// resolution happened once, during reachability, and the checker never
+// re-derives it. Export sets are resolved later, per module, by
+// registerExports: a qualified `Type.method` entry needs the module's
+// checked interface (the method's resolved owner name), not just its syntax.
 func buildModuleRegistry(graph *ModuleGraph) *ModuleRegistry {
 	registry := &ModuleRegistry{
 		modules:    make(map[string]*moduleEntry, len(graph.Order)),
@@ -76,43 +79,150 @@ func buildModuleRegistry(graph *ModuleGraph) *ModuleRegistry {
 		for _, edge := range node.Imports {
 			entry.imports[edge.Alias] = edge.Target
 		}
-		// Exports are top-level items only and never statements, so a program
-		// assembled from Statements alone has nothing to register.
-		for _, item := range node.Program.Items {
-			switch item := item.(type) {
-			case parser.TypeDeclaration:
-				if item.Exported {
-					entry.exports[item.Name.Lexeme] = true
-				}
-			case parser.FunctionDeclaration:
-				if item.Exported {
-					entry.exports[item.Name.Lexeme] = true
-				}
-			case parser.MethodDeclaration:
-				if item.Exported {
-					entry.exports[item.Name.Lexeme] = true
-				}
-			}
-		}
 		registry.modules[moduleID] = entry
 	}
 	return registry
 }
 
-// registerExports publishes one module's checked exported interface into the
-// registry after the module checks clean. Only names marked exported by the
-// AST are recorded; private declarations and specialization records (whose
+// resolveExportEntries validates one module's trailing export block against
+// its checked interface and returns the resolved export set (types and
+// functions by bare name, methods by "Type.method", module values by bare
+// name) plus diagnostics for unknown, duplicate, or re-exported entries. A
+// module with no export block exports nothing.
+func resolveExportEntries(program parser.Program, checked Program) (map[string]bool, compilerTypes.Diagnostics) {
+	exports := make(map[string]bool)
+	if program.Export == nil {
+		return exports, nil
+	}
+	diagnostics := make(compilerTypes.Diagnostics, 0)
+
+	typeNames := make(map[string]bool, len(checked.TypeDeclarations))
+	for _, declaration := range checked.TypeDeclarations {
+		if declaration.Name != "" {
+			typeNames[declaration.Name] = true
+		}
+	}
+	// An open generic type template's bare name resolves only its
+	// specializations into checked.TypeDeclarations (under a mangled name),
+	// so the template itself is named here separately for export resolution.
+	for _, name := range checked.GenericTypeNames {
+		typeNames[name] = true
+	}
+	functionNames := make(map[string]bool)
+	methodOwners := make(map[string]map[string]bool)
+	for _, statement := range checked.Statements {
+		switch declaration := statement.(type) {
+		case FunctionDeclaration:
+			functionNames[declaration.Name] = true
+		case MethodDeclaration:
+			if methodOwners[declaration.Object.Name] == nil {
+				methodOwners[declaration.Object.Name] = make(map[string]bool)
+			}
+			methodOwners[declaration.Object.Name][declaration.Name] = true
+		}
+	}
+	// An open generic function or method template carries no canonical
+	// Statement of its own (only its specializations do), so it is named
+	// here separately for export resolution.
+	for _, name := range checked.GenericFunctionNames {
+		functionNames[name] = true
+	}
+	for owner, names := range checked.GenericMethodNames {
+		if methodOwners[owner] == nil {
+			methodOwners[owner] = make(map[string]bool)
+		}
+		for _, name := range names {
+			methodOwners[owner][name] = true
+		}
+	}
+	moduleValueNames := make(map[string]bool, len(checked.ModuleValues))
+	for _, value := range checked.ModuleValues {
+		moduleValueNames[value.Name] = true
+	}
+	importAliases := make(map[string]bool)
+	if program.Import != nil {
+		for _, entry := range program.Import.Entries {
+			importAliases[entry.Alias.Lexeme] = true
+		}
+	}
+
+	seen := make(map[string]bool)
+	for _, entry := range program.Export.Entries {
+		key := entry.Name.Lexeme
+		if entry.Method != nil {
+			key += "." + entry.Method.Lexeme
+		}
+		if seen[key] {
+			diagnostics = append(diagnostics, nameErrorAt(entry.Name, "export entry "+key+" is listed more than once"))
+			continue
+		}
+		seen[key] = true
+		if entry.Method != nil {
+			if !methodOwners[entry.Name.Lexeme][entry.Method.Lexeme] {
+				diagnostics = append(diagnostics, nameErrorAt(*entry.Method, "unknown method "+key+" in this module"))
+				continue
+			}
+			exports[key] = true
+			continue
+		}
+		if importAliases[entry.Name.Lexeme] {
+			diagnostics = append(diagnostics, nameErrorAt(entry.Name, "cannot export import alias "+entry.Name.Lexeme+"; re-exports are not supported"))
+			continue
+		}
+		if typeNames[entry.Name.Lexeme] || functionNames[entry.Name.Lexeme] || moduleValueNames[entry.Name.Lexeme] {
+			exports[entry.Name.Lexeme] = true
+			continue
+		}
+		diagnostics = append(diagnostics, nameErrorAt(entry.Name, "unknown declaration "+entry.Name.Lexeme+" in this module"))
+	}
+	return exports, diagnostics
+}
+
+// applyExportFlags stamps every exported FunctionDeclaration and
+// MethodDeclaration in checked with the resolved export set, since the
+// export block resolves against the checked interface and so necessarily
+// runs after checkFunctionBody/checkMethodBody already built these nodes
+// with their (always-false, pre-resolution) Exported field. TypeDeclaration
+// carries no such field: its exported state lives only in the registry.
+func applyExportFlags(checked *Program, exports map[string]bool) {
+	for index, statement := range checked.Statements {
+		switch declaration := statement.(type) {
+		case FunctionDeclaration:
+			if exports[declaration.Name] {
+				declaration.Exported = true
+				checked.Statements[index] = declaration
+			}
+		case MethodDeclaration:
+			if exports[declaration.Object.Name+"."+declaration.Name] {
+				declaration.Exported = true
+				checked.Statements[index] = declaration
+			}
+		}
+	}
+	for index, value := range checked.ModuleValues {
+		if exports[value.Name] {
+			value.Exported = true
+			checked.ModuleValues[index] = value
+		}
+	}
+}
+
+// registerExports publishes one module's resolved exported interface into
+// the registry, after the module checks clean and its export block has
+// resolved. Private declarations and specialization records (whose
 // sanitized names never appear in the export set) never enter the tables, so
 // a cross-module resolution either finds an exported name or reports it
 // private.
-func (registry *ModuleRegistry) registerExports(moduleID string, checked Program) {
+func (registry *ModuleRegistry) registerExports(moduleID string, exports map[string]bool, checked Program) {
 	entry := registry.modules[moduleID]
 	if entry == nil {
 		return
 	}
+	entry.exports = exports
 	entry.functions = make(map[string]FunctionDeclaration)
 	entry.types = make(map[string]compilerTypes.TypeUse)
 	entry.methods = make(map[string][]MethodDeclaration)
+	entry.moduleValues = make(map[string]exportedModuleValueEntry)
 	for _, declaration := range checked.TypeDeclarations {
 		// An open generic template carries no canonical type of its own and
 		// is not recorded here; its specializations still close over the
@@ -128,11 +238,37 @@ func (registry *ModuleRegistry) registerExports(moduleID string, checked Program
 				entry.functions[declaration.Name] = declaration
 			}
 		case MethodDeclaration:
-			if entry.exports[declaration.Name] {
+			if entry.exports[declaration.Object.Name+"."+declaration.Name] {
 				entry.methods[declaration.Object.Name] = append(entry.methods[declaration.Object.Name], declaration)
 			}
 		}
 	}
+	for _, value := range checked.ModuleValues {
+		if entry.exports[value.Name] {
+			entry.moduleValues[value.Name] = exportedModuleValueEntry{Type: value.Type, Mutable: value.Mutable, Atomic: value.Atomic}
+		}
+	}
+}
+
+// exportedModuleValueEntry is the checked interface an importer resolves a
+// `static` module value against: its type, mutability, and whether it is the
+// direct fixed Atomic exception (importers may not copy, assign, address, or
+// rebind it; only its qualified operations are valid).
+type exportedModuleValueEntry struct {
+	Type    compilerTypes.Type
+	Mutable bool
+	Atomic  bool
+}
+
+// exportedModuleValue resolves one exported module value of the target
+// module by name.
+func (registry *ModuleRegistry) exportedModuleValue(moduleID, name string) (exportedModuleValueEntry, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return exportedModuleValueEntry{}, false
+	}
+	value, ok := entry.moduleValues[name]
+	return value, ok
 }
 
 // exportedFunction resolves one exported function of the target module by
@@ -169,11 +305,14 @@ func (registry *ModuleRegistry) registerGenerics(moduleID string, generics *gene
 	if entry == nil || generics == nil {
 		return
 	}
+	// Every module-level template is recorded here unconditionally: this
+	// runs before the module's own export block resolves (registerExports
+	// runs later, against the checked interface this pass is still
+	// building), so the export gate is applied at lookup time in
+	// genericFunction instead, against the same *moduleEntry this mutates.
 	entry.genericFunctions = make(map[string]*openGenericFunction, len(generics.functions))
 	for name, open := range generics.functions {
-		if entry.exports[name] {
-			entry.genericFunctions[name] = open
-		}
+		entry.genericFunctions[name] = open
 	}
 	entry.functionSpecializations = make(map[string]FunctionDeclaration, len(generics.functionSpecializations))
 	for key, declaration := range generics.functionSpecializations {
@@ -190,7 +329,7 @@ func (registry *ModuleRegistry) registerGenerics(moduleID string, generics *gene
 // record the result with the defining module.
 func (registry *ModuleRegistry) genericFunction(moduleID, name string) (*openGenericFunction, bool) {
 	entry, ok := registry.modules[moduleID]
-	if !ok {
+	if !ok || !entry.exports[name] {
 		return nil, false
 	}
 	open, ok := entry.genericFunctions[name]
@@ -381,7 +520,7 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 				diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
 			}
 		case MethodDeclaration:
-			if !entry.exports[declaration.Name] {
+			if !entry.exports[declaration.Object.Name+"."+declaration.Name] {
 				continue
 			}
 			private := registry.privateTypeInUse(declaration.SelfType, seenObjects, seenADTs)

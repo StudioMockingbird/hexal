@@ -170,7 +170,7 @@ func TestDoesNotBindFailedDeclaration(t *testing.T) {
 // match-arm bodies; `else` is its own opener.
 func TestExplicitBlockOpenersAccepted(t *testing.T) {
 	assertCompiles(t, "fun identity(value: Int32): Int32 do\n    return value\nend\nvalue: Int32 := identity(1)\n")
-	assertCompiles(t, "export fun generic<T>(value: T): T do\n    return value\nend\n")
+	assertCompiles(t, "fun generic<T>(value: T): T do\n    return value\nend\nexport\n    generic\nend\n")
 	assertCompiles(t, "fun recursive(value: Int32): Int32 do\n    return recursive(value)\nend\n")
 	assertCompiles(t, "type Point is struct x: Int32, end\nmethod Point.getX(): Int32 do\n    return self.x\nend\np: Point := Point(x = 1,)\nvalue: Int32 := p.getX()\n")
 	assertCompiles(t, "fun reset() do\nend\nreset()\n")

@@ -241,8 +241,8 @@ func TestHexalHeaderIncludesPrecedeDeclarations(t *testing.T) {
 // written EoS).
 func TestHexalHeaderEosSharedAcrossModules(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":   "module Files = import \"./files\"\nfun run(): Int32 do\n    return 1\nend\n",
-		"files.hex": "export fun helper(): Bool do\n    end_marker: EoS := eos\n    return true\nend\n",
+		"app.hex":   "import\n    Files from \"./files\"\nend\nfun run(): Int32 do\n    return 1\nend\n",
+		"files.hex": "fun helper(): Bool do\n    end_marker: EoS := eos\n    return true\nend\nexport\n    helper\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {

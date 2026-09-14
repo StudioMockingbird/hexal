@@ -33,14 +33,28 @@ func TestFunctionCannotCaptureRootLocal(t *testing.T) {
 }
 
 func TestNoNativeModuleConstantsOrStatics(t *testing.T) {
-	// No global/static syntax exists: the words are ordinary identifiers or
-	// rejected, and a root binding never produces C file-scope storage.
-	source := "static: Int32 := 1\nglobal: Int32 := 2\n"
+	// `global` remains an ordinary identifier and a root binding never
+	// produces C file-scope storage; only an explicit `static` declaration
+	// does (TestStaticModuleValueLowersAsFileScopeStorage below).
+	source := "global: Int32 := 2\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}
-	if strings.Contains(rootH(t, result), "hex_v_static") || strings.Contains(rootH(t, result), "hex_v_global") {
-		t.Fatalf("root bindings emitted file-scope storage:\n%s", rootH(t, result))
+	if strings.Contains(rootH(t, result), "hex_v_global") {
+		t.Fatalf("root binding emitted file-scope storage:\n%s", rootH(t, result))
+	}
+}
+
+// A `static` module value, unlike an ordinary root binding, is the one
+// spelling that does emit program-lifetime C file-scope storage.
+func TestStaticModuleValueLowersAsFileScopeStorage(t *testing.T) {
+	source := "static count: Int32 := 1\nread: Int32 := count\n"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	if !strings.Contains(rootC(t, result), "const int32_t hex_v_") {
+		t.Fatalf("static module value did not lower as fixed C file-scope storage:\n%s", rootC(t, result))
 	}
 }

@@ -10,14 +10,14 @@ import (
 // Equality and ordering eligibility, the lossless numeric comparison
 // widening, and the deep-comparison nodes for non-scalar values.
 
-// equalityAvailable reports whether typ supports == and !=, returning the
+// EqualityAvailable reports whether typ supports == and !=, returning the
 // first member name that makes it unavailable. Pointers compare identity,
 // so any pointer type is available; functions and allocator handles are not.
-func equalityAvailable(typ compilerTypes.Type) (bool, string) {
+func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 	switch {
 	case typ.Object != nil:
 		for _, member := range typ.Object.Members {
-			if ok, _ := equalityAvailable(member.Type); !ok {
+			if ok, _ := EqualityAvailable(member.Type); !ok {
 				return false, "member " + member.Name
 			}
 		}
@@ -25,7 +25,7 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 	case typ.Adt != nil:
 		for _, variant := range typ.Adt.Variants {
 			for _, member := range variant.Payload {
-				if ok, _ := equalityAvailable(member.Type); !ok {
+				if ok, _ := EqualityAvailable(member.Type); !ok {
 					return false, "member " + member.Name
 				}
 			}
@@ -33,25 +33,25 @@ func equalityAvailable(typ compilerTypes.Type) (bool, string) {
 		return true, ""
 	case typ.Union != nil:
 		for _, member := range typ.Union.Members {
-			if ok, reason := equalityAvailable(member); !ok {
+			if ok, reason := EqualityAvailable(member); !ok {
 				return false, reason
 			}
 		}
 		return true, ""
 	case typ.NullableBase != nil:
-		return equalityAvailable(*typ.NullableBase)
+		return EqualityAvailable(*typ.NullableBase)
 	case typ.Array != nil:
-		if ok, _ := equalityAvailable(typ.Array.Element); !ok {
+		if ok, _ := EqualityAvailable(typ.Array.Element); !ok {
 			return false, "element type " + typ.Array.Element.Name
 		}
 		return true, ""
 	case typ.Slice != nil:
-		if ok, _ := equalityAvailable(typ.Slice.Element); !ok {
+		if ok, _ := EqualityAvailable(typ.Slice.Element); !ok {
 			return false, "element type " + typ.Slice.Element.Name
 		}
 		return true, ""
 	case typ.List != nil:
-		if ok, _ := equalityAvailable(typ.List.Element); !ok {
+		if ok, _ := EqualityAvailable(typ.List.Element); !ok {
 			return false, "element type " + typ.List.Element.Name
 		}
 		return true, ""
@@ -177,7 +177,7 @@ func checkDeepComparison(operator Operator, left, right checkedExpression, token
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Node: node}
 		return &checkedExpression{source: source, typ: compilerTypes.Bool, token: token}
 	}
-	if ok, reason := equalityAvailable(typ); !ok {
+	if ok, reason := EqualityAvailable(typ); !ok {
 		return &checkedExpression{token: token, diagnostic: equalityUnavailableDiagnostic(typ, reason, token)}
 	}
 	leftNode := expressionNode(left.source)

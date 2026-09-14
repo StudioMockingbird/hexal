@@ -99,21 +99,58 @@ func (failure blockFailure) Error() string { return failure.err.Error() }
 // block failure instead of stopping at it.
 func (failure blockFailure) Unwrap() error { return failure.err }
 
-// Parse consumes every recoverable top-level item through EOF. Invalid items
-// are discarded during synchronization so valid later items remain available
-// to the checker.
+// Parse consumes an optional leading import block, every recoverable
+// top-level item, and an optional trailing export block through EOF. Invalid
+// items are discarded during synchronization so valid later items remain
+// available to the checker.
 func Parse(tokens []lexer.Token) (Program, error) {
 	if len(tokens) == 0 {
 		return Program{}, compilerTypes.NewDiagnostic(compilerTypes.SyntaxError, "parser", 1, 1, "expected a declaration")
 	}
 
 	parser := Parser{tokens: tokens}
+	program := Program{}
+	if parser.check(lexer.Import) {
+		block, err := parser.importBlock()
+		if err != nil {
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(err)...)
+			parser.synchronize(parser.current)
+		} else {
+			program.Import = &block
+		}
+	}
+
 	items := make([]TopLevelItem, 0)
 	statements := make([]Statement, 0)
-	// hasNonImport marks the first top-level item the import prefix cannot
-	// span; any import parsed after it is misplaced.
-	hasNonImport := false
+	exportClosed := false
 	for !parser.check(lexer.EOF) {
+		if exportClosed {
+			next := parser.peek()
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(next, "export block must be the final top-level construct"))...)
+			parser.synchronize(parser.current)
+			if parser.check(lexer.EOF) {
+				break
+			}
+			parser.advance()
+			continue
+		}
+		if parser.check(lexer.Import) {
+			keyword := parser.peek()
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(keyword, "import block must be the first top-level construct"))...)
+			parser.synchronize(parser.current)
+			continue
+		}
+		if parser.check(lexer.Export) {
+			block, err := parser.exportBlock()
+			if err != nil {
+				parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(err)...)
+				parser.synchronize(parser.current)
+				continue
+			}
+			program.Export = &block
+			exportClosed = true
+			continue
+		}
 		start := parser.current
 		item, err := parser.topLevelItem()
 		if err != nil {
@@ -129,23 +166,13 @@ func Parse(tokens []lexer.Token) (Program, error) {
 			}
 			continue
 		}
-		// The import prefix closes at the first non-import item: an import
-		// after any other top-level item is a Syntax Error at its own
-		// keyword, and the misplaced item is dropped so no alias reaches the
-		// checker.
-		if importDecl, isImport := item.(ImportDeclaration); isImport && hasNonImport {
-			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(importDecl.ImportKeyword, "imports must precede all other top-level items"))...)
-			continue
-		}
 		items = append(items, item)
 		if statement, ok := item.(Statement); ok {
 			statements = append(statements, statement)
 		}
-		if _, isImport := item.(ImportDeclaration); !isImport {
-			hasNonImport = true
-		}
 	}
-	program := Program{Items: items, Statements: statements}
+	program.Items = items
+	program.Statements = statements
 	if len(parser.diagnostics) > 0 {
 		return program, parser.diagnostics
 	}
@@ -154,20 +181,19 @@ func Parse(tokens []lexer.Token) (Program, error) {
 
 func (parser *Parser) topLevelItem() (TopLevelItem, error) {
 	switch {
-	case parser.check(lexer.Export):
-		return parser.exportedDeclaration()
-	case parser.check(lexer.Module):
-		return parser.importDeclaration()
-	case parser.check(lexer.Import):
-		// A bare `import` lacks the mandatory `module <alias> =` prefix; route
-		// through importDeclaration so the diagnostic points at the keyword.
-		return parser.importDeclaration()
 	case parser.check(lexer.Type):
 		return parser.typeDeclaration(false)
 	case parser.check(lexer.Fun):
 		return parser.functionDeclaration(false)
 	case parser.check(lexer.Method):
 		return parser.methodDeclaration(false)
+	case parser.check(lexer.Static):
+		keyword := parser.advance()
+		value, err := parser.staticModuleValue(keyword)
+		if err != nil {
+			return nil, err
+		}
+		return value, nil
 	}
 	statement, err := parser.statement()
 	if err != nil {
@@ -176,54 +202,127 @@ func (parser *Parser) topLevelItem() (TopLevelItem, error) {
 	return statement, nil
 }
 
-// exportedDeclaration consumes a leading `export` and requires the exportable
-// declaration forms: a module-level type, function, or method
-// declaration. Anything else is a Syntax Error.
-func (parser *Parser) exportedDeclaration() (TopLevelItem, error) {
-	parser.advance()
-	switch {
-	case parser.check(lexer.Type):
-		return parser.typeDeclaration(true)
-	case parser.check(lexer.Fun):
-		return parser.functionDeclaration(true)
-	case parser.check(lexer.Method):
-		return parser.methodDeclaration(true)
+// staticModuleValue parses `[mut] name [: type] := expr` immediately after
+// consuming the introducing `static` keyword.
+func (parser *Parser) staticModuleValue(keyword lexer.Token) (ModuleValueDeclaration, error) {
+	mutable := false
+	if parser.check(lexer.Mut) {
+		parser.advance()
+		mutable = true
 	}
-	next := parser.peek()
-	parser.synchronize(parser.current)
-	return nil, parser.errorAt(next, "export may prefix only a module-level type, function, or method declaration")
+	name, err := parser.consume(lexer.Identifier, "an identifier after 'static'")
+	if err != nil {
+		return ModuleValueDeclaration{}, err
+	}
+	if parser.check(lexer.ColonEqual) {
+		operator := parser.advance()
+		initializer, err := parser.expression()
+		if err != nil {
+			return ModuleValueDeclaration{}, err
+		}
+		return ModuleValueDeclaration{Keyword: keyword, Mutable: mutable, Name: name, Initializer: initializer, Operator: operator}, nil
+	}
+	if _, err := parser.consume(lexer.Colon, "':'"); err != nil {
+		return ModuleValueDeclaration{}, err
+	}
+	typeExpression, err := parser.typeExpression()
+	if err != nil {
+		return ModuleValueDeclaration{}, err
+	}
+	if parser.check(lexer.Equal) {
+		equal := parser.advance()
+		return ModuleValueDeclaration{}, parser.errorAt(equal, "binding declarations require ':='; '=' assigns to an existing place")
+	}
+	operator, err := parser.consume(lexer.ColonEqual, "':=' after a declaration type")
+	if err != nil {
+		return ModuleValueDeclaration{}, err
+	}
+	initializer, err := parser.expression()
+	if err != nil {
+		return ModuleValueDeclaration{}, err
+	}
+	return ModuleValueDeclaration{Keyword: keyword, Mutable: mutable, Name: name, Type: typeExpression, Initializer: initializer, Operator: operator}, nil
 }
 
-// importDeclaration parses the exact form
-// `module <identifier> = import <module-path-literal>` and binds the alias.
-func (parser *Parser) importDeclaration() (ImportDeclaration, error) {
-	moduleKeyword, err := parser.consume(lexer.Module, "'module'")
-	if err != nil {
-		return ImportDeclaration{}, err
+// importBlock parses the file's one leading import list:
+// `import alias from "path", alias from "path", end`. from is contextual: it
+// is recognized only here, by lexeme, never reserved.
+func (parser *Parser) importBlock() (ImportBlock, error) {
+	keyword := parser.advance()
+	if parser.check(lexer.End) {
+		parser.advance()
+		return ImportBlock{}, parser.errorAt(keyword, "import block requires at least one entry")
 	}
-	alias, err := parser.consume(lexer.Identifier, "an identifier after 'module'")
-	if err != nil {
-		return ImportDeclaration{}, err
+	var entries []ImportEntry
+	for {
+		alias, err := parser.consume(lexer.Identifier, "an import alias")
+		if err != nil {
+			return ImportBlock{}, err
+		}
+		from := parser.peek()
+		if from.Kind != lexer.Identifier || from.Lexeme != "from" {
+			return ImportBlock{}, parser.errorAtCurrent("expected 'from' after an import alias")
+		}
+		parser.advance()
+		path, err := parser.consume(lexer.ModulePathLiteral, "a module path literal after 'from'")
+		if err != nil {
+			return ImportBlock{}, err
+		}
+		entries = append(entries, ImportEntry{Alias: alias, From: from, Path: path})
+		if parser.check(lexer.Comma) {
+			parser.advance()
+			if parser.check(lexer.End) {
+				break
+			}
+			continue
+		}
+		break
 	}
-	equal, err := parser.consume(lexer.Equal, "'='")
+	end, err := parser.consume(lexer.End, "'end' to close the import block")
 	if err != nil {
-		return ImportDeclaration{}, err
+		return ImportBlock{}, err
 	}
-	importKeyword, err := parser.consume(lexer.Import, "'import'")
+	return ImportBlock{Keyword: keyword, Entries: entries, End: end}, nil
+}
+
+// exportBlock parses the file's one trailing export list:
+// `export name, Type.method, end`.
+func (parser *Parser) exportBlock() (ExportBlock, error) {
+	keyword := parser.advance()
+	if parser.check(lexer.End) {
+		parser.advance()
+		return ExportBlock{}, parser.errorAt(keyword, "export block requires at least one entry")
+	}
+	var entries []ExportEntry
+	for {
+		name, err := parser.consume(lexer.Identifier, "an exported name")
+		if err != nil {
+			return ExportBlock{}, err
+		}
+		entry := ExportEntry{Name: name}
+		if parser.check(lexer.Dot) {
+			parser.advance()
+			method, err := parser.consume(lexer.Identifier, "a method name after '.'")
+			if err != nil {
+				return ExportBlock{}, err
+			}
+			entry.Method = &method
+		}
+		entries = append(entries, entry)
+		if parser.check(lexer.Comma) {
+			parser.advance()
+			if parser.check(lexer.End) {
+				break
+			}
+			continue
+		}
+		break
+	}
+	end, err := parser.consume(lexer.End, "'end' to close the export block")
 	if err != nil {
-		return ImportDeclaration{}, err
+		return ExportBlock{}, err
 	}
-	path, err := parser.consume(lexer.ModulePathLiteral, "a module path literal after 'import'")
-	if err != nil {
-		return ImportDeclaration{}, err
-	}
-	return ImportDeclaration{
-		ModuleKeyword: moduleKeyword,
-		Alias:         alias,
-		Equal:         equal,
-		ImportKeyword: importKeyword,
-		Path:          path,
-	}, nil
+	return ExportBlock{Keyword: keyword, Entries: entries, End: end}, nil
 }
 
 func (parser *Parser) peek() lexer.Token {
@@ -573,7 +672,7 @@ func (parser *Parser) atStatementStart() bool {
 		return true
 	}
 	if parser.check(lexer.Type) || parser.check(lexer.Fun) || parser.check(lexer.Method) ||
-		parser.check(lexer.Module) || parser.check(lexer.Import) || parser.check(lexer.Export) ||
+		parser.check(lexer.Static) || parser.check(lexer.Import) || parser.check(lexer.Export) ||
 		parser.check(lexer.If) || parser.check(lexer.While) || parser.check(lexer.For) ||
 		parser.check(lexer.Break) || parser.check(lexer.Continue) || parser.check(lexer.Return) ||
 		parser.check(lexer.Self) {

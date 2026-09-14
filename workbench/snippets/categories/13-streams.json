@@ -113,7 +113,7 @@
     {
       "id": "streams-file-round-trip",
       "name": "File round trip",
-      "description": "Write, flush, reopen, and read a regular file, and branch on a portable Error header.",
+      "description": "Write, flush, reopen, and read a regular file, and branch on a portable Error kind.",
       "entrypoint": "app.hex",
       "sources": {
         "app.hex": [
@@ -129,7 +129,7 @@
           "    got: Size | EoS | Error := input.read(buffer, 4096)",
           "    missing := File.open(\"settings.toml\", FileMode.Read())",
           "    if missing is Error then",
-          "        if missing.header == \"not found\" then",
+          "        if missing.kind == ErrorKind.NotFound() then",
           "            print(\"using defaults\\n\")",
           "        end",
           "    end",

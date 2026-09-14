@@ -162,5 +162,9 @@ static inline void hex_dict_free_{{.Suffix}}(hex_heap h, {{.CName}} *dict) {
 #include "hexal.h"
 #include "hexal/heap.h"
 #include "hexal/string.h"
-{{template "dictbody" .}}
+{{if .NeedsFile}}#include "hexal/file.h"
+{{end}}{{if .NeedsNetwork}}#include "hexal/network.h"
+{{end}}{{if .NeedsProcess}}#include "hexal/process.h"
+{{end}}{{if .NeedsSignal}}#include "hexal/signal.h"
+{{end}}{{template "dictbody" .}}
 #endif

@@ -883,6 +883,8 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateStreamMethodCall(node, expected, state)
 	case checker.TimeExpression:
 		return validateTimeExpression(node, expected, state)
+	case checker.NetworkExpression:
+		return validateNetworkExpression(node, expected, state)
 	case checker.UnionWidenExpression:
 		return validateUnionWiden(node, expected, state)
 	case checker.UnionTestExpression:
@@ -1018,6 +1020,30 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 			return unknownExpressionDiagnostic("bit cast result does not match its expected type")
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+	case checker.ErrorHeaderExpression:
+		if node.Operand == nil || !compilerTypes.IsError(node.OperandType) || !compilerTypes.IsStrand(node.ResultType) {
+			return unknownExpressionDiagnostic("Error.header has invalid checked metadata")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("Error.header result does not match its expected type")
+		}
+		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+	case checker.ErrorKindHeaderExpression:
+		if node.Operand == nil || !compilerTypes.IsErrorKind(node.OperandType) || !compilerTypes.IsStrand(node.ResultType) {
+			return unknownExpressionDiagnostic("ErrorKind.header has invalid checked metadata")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("ErrorKind.header result does not match its expected type")
+		}
+		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+	case checker.ModuleValueExpression:
+		if node.Name == "" || node.ResultType == (compilerTypes.Type{}) {
+			return unknownExpressionDiagnostic("module value reference has invalid checked metadata")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("module value reference does not match its expected type")
+		}
+		return nil
 	case checker.EndianConversionExpression:
 		if node.Operand == nil || node.Element == (compilerTypes.Type{}) || node.MemberIndex < 0 || node.MemberIndex > 1 {
 			return unknownExpressionDiagnostic("endian conversion has invalid checked metadata")
@@ -1553,6 +1579,11 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 			}
 		}
 		return generatedPlace{typ: binding.typ, addressable: true, writable: binding.mutable}, nil
+	case checker.ModuleValueExpression:
+		if node.Name == "" || node.ResultType == (compilerTypes.Type{}) {
+			return generatedPlace{}, unknownExpressionDiagnostic("place module value has invalid checked metadata")
+		}
+		return generatedPlace{typ: node.ResultType, addressable: true, writable: node.Mutable}, nil
 	case checker.MemberExpression:
 		if node.Operand == nil || node.Member == nil || !validSourceName(node.Member.Name) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place member has invalid checked metadata")

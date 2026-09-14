@@ -42,29 +42,29 @@ func resultAcceptsError(result compilerTypes.Type) bool {
 	return false
 }
 
-// checkErrorNewCall resolves the built-in `Error(header, message)`
+// checkErrorNewCall resolves the built-in `Error(kind, message)`
 // construction. The compiler supplies file, line, and column from the Error
-// token; only header and message are source arguments.
+// token; only kind and message are source arguments.
 func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Error must be created with Error(header, message)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Error must be created with Error(kind, message)"))}
 	}
 	if len(call.Arguments) != 2 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, fmt.Sprintf("Error expects 2 arguments (header, message); got %d", len(call.Arguments))))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, fmt.Sprintf("Error expects 2 arguments (kind, message); got %d", len(call.Arguments))))}
 	}
-	header := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.StrandType), tokenOf(call.Arguments[0]), ctx)
-	if diagnostics := initializerDiagnostics(header); len(diagnostics) > 0 {
+	kind := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.ErrorKindType), tokenOf(call.Arguments[0]), ctx)
+	if diagnostics := initializerDiagnostics(kind); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 	}
-	if !compilerTypes.IsStrand(header.typ) {
-		return checkedExpression{token: header.token, diagnostic: diagnosticAt(typeErrorAt(header.token, "Error.new expects header: Strand and message: String; got "+header.typ.Name))}
+	if !compilerTypes.IsErrorKind(kind.typ) {
+		return checkedExpression{token: kind.token, diagnostic: diagnosticAt(typeErrorAt(kind.token, "Error requires ErrorKind as its first argument; use Error(ErrorKind.Other(header = ...), message)"))}
 	}
 	message := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.StringType), tokenOf(call.Arguments[1]), ctx)
 	if diagnostics := initializerDiagnostics(message); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
 	}
 	if !compilerTypes.IsString(message.typ) {
-		return checkedExpression{token: message.token, diagnostic: diagnosticAt(typeErrorAt(message.token, "Error.new expects header: Strand and message: String; got "+message.typ.Name))}
+		return checkedExpression{token: message.token, diagnostic: diagnosticAt(typeErrorAt(message.token, "Error expects kind: ErrorKind and message: String; got "+message.typ.Name))}
 	}
 
 	object := compilerTypes.ErrorType.Object
@@ -85,12 +85,53 @@ func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, ctx check
 			{Member: member("file"), Source: fileOperand},
 			{Member: member("line"), Source: lineOperand},
 			{Member: member("column"), Source: columnOperand},
-			{Member: member("header"), Source: header.source},
+			{Member: member("kind"), Source: kind.source},
 			{Member: member("message"), Source: message.source},
 		},
 	}
 	source := Operand{Kind: ObjectOperand, Type: compilerTypes.ErrorType, Name: "new", Object: &value}
 	return checkedExpression{source: source, typ: compilerTypes.ErrorType, token: callee}
+}
+
+// checkErrorMethodCall resolves Error.header(), the allocation-free derived
+// display header. It is the only Error method: every other field is read as
+// an ordinary object member.
+func checkErrorMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
+	if callee.Property.Lexeme != "header" {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Error has no method named "+callee.Property.Lexeme))}
+	}
+	if len(call.TypeArguments) != 0 || len(call.Arguments) != 0 {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "header takes no arguments"))}
+	}
+	receiver = valueFromPlace(receiver)
+	node := Expression{
+		Kind:        ErrorHeaderExpression,
+		Operand:     &receiver.source.Node,
+		OperandType: compilerTypes.ErrorType,
+		ResultType:  compilerTypes.StrandType,
+	}
+	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.StrandType, Name: "header", Node: node}
+	return checkedExpression{source: source, typ: compilerTypes.StrandType, token: callee.Property}
+}
+
+// checkErrorKindMethodCall resolves ErrorKind.header(), the same allocation-
+// free derived display header method on the classification value itself.
+func checkErrorKindMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
+	if callee.Property.Lexeme != "header" {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "ErrorKind has no method named "+callee.Property.Lexeme))}
+	}
+	if len(call.TypeArguments) != 0 || len(call.Arguments) != 0 {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "header takes no arguments"))}
+	}
+	receiver = valueFromPlace(receiver)
+	node := Expression{
+		Kind:        ErrorKindHeaderExpression,
+		Operand:     &receiver.source.Node,
+		OperandType: compilerTypes.ErrorKindType,
+		ResultType:  compilerTypes.StrandType,
+	}
+	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.StrandType, Name: "header", Node: node}
+	return checkedExpression{source: source, typ: compilerTypes.StrandType, token: callee.Property}
 }
 
 // checkTryExpression resolves the `try` form: the operand must be a

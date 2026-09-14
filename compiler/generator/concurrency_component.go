@@ -51,6 +51,15 @@ func eventSelected(merged *programEmission) bool {
 	if merged.printUsed || merged.timeState != nil && merged.timeState.sleep || merged.fileState != nil && merged.fileState.used {
 		return true
 	}
+	if merged.networkState != nil && (merged.networkState.dns || merged.networkState.tcp) {
+		return true
+	}
+	if merged.processState != nil && merged.processState.operations {
+		return true
+	}
+	if merged.signalState != nil && merged.signalState.operations {
+		return true
+	}
 	return merged.ioState != nil && (merged.ioState.readIO || merged.ioState.writeIO || merged.ioState.seekIO || merged.ioState.closeIO)
 }
 
@@ -188,10 +197,22 @@ func fiberArgument(value uint64) string {
 }
 
 // moduleConcurrencyComponent selects hexal/concurrency.h for a module whose
-// generated machinery uses the concurrency cores or atomics.
+// generated machinery uses the concurrency cores or atomics, or whose own
+// DNS or TCP use has no synchronous fallback and so requires hex_task_current
+// and the scheduler bootstrap even without an explicit Task, Channel,
+// Mutex, or spawn.
 func moduleConcurrencyComponent(emission *moduleEmission) []string {
 	state := emission.concurrencyState
 	if state != nil && (state.used || len(state.atomics) > 0) {
+		return []string{"hexal/concurrency.h"}
+	}
+	if emission.networkState != nil && (emission.networkState.dns || emission.networkState.tcp) {
+		return []string{"hexal/concurrency.h"}
+	}
+	if emission.processState != nil && emission.processState.operations {
+		return []string{"hexal/concurrency.h"}
+	}
+	if emission.signalState != nil && emission.signalState.operations {
 		return []string{"hexal/concurrency.h"}
 	}
 	return nil

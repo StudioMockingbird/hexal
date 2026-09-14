@@ -5,6 +5,7 @@
    has no seek request. */
 #include "hexal/file.h"
 #include "hexal/heap.h"
+#include "hexal/list.h"
 {{- if .Event}}
 #include "hexal/event.h"
 {{- end}}
@@ -26,6 +27,12 @@ enum {
 // uv_buf_init counts an unsigned int, so one call transfers at most
 // UINT32_MAX bytes, matching the Windows IO clamp.
 constexpr size_t HEX_FILE_MAX_REQUEST = UINT32_MAX;
+
+// hex_file_control is the capability control block the handle registry pins
+// for the lifetime of one open descriptor.
+typedef struct hex_file_control {
+    uv_file desc;
+} hex_file_control;
 
 static const int hex_file_flags[5] = {
     UV_FS_O_RDONLY,
@@ -125,6 +132,14 @@ static ssize_t hex_file_run(hex_file_request *request) {
     return result;
 }
 
+// hex_file_force_close runs a raw native close for a descriptor whose handle
+// was never published: construction failed after the native open already
+// succeeded, so nothing else can ever reach or resolve this descriptor.
+static void hex_file_force_close(uv_file desc) {
+    hex_file_request request = {.operation = HEX_FILE_CLOSE, .desc = desc};
+    (void)hex_file_run(&request);
+}
+
 hex_file_opened hex_file_open(const hex_string *path, uint8_t variant) {
     if (memchr(path->data, 0, path->byte_length) != nullptr) {
         return (hex_file_opened){.status = HEX_FILE_INVALID_PATH};
@@ -142,14 +157,33 @@ hex_file_opened hex_file_open(const hex_string *path, uint8_t variant) {
     if (result < 0) {
         return (hex_file_opened){.status = (int)result};
     }
-    return (hex_file_opened){.status = 0, .file = {.desc = (intptr_t)result, .access = hex_file_access[variant]}};
+    uv_file desc = (uv_file)result;
+    hex_file_control *control = (hex_file_control *)hex_heap_allocate_or_null(sizeof(hex_file_control));
+    if (control == nullptr) {
+        hex_file_force_close(desc);
+        return (hex_file_opened){.status = HEX_FILE_ALLOCATION_FAILED};
+    }
+    hex_handle handle = hex_handle_reserve(HEX_HANDLE_KIND_FILE);
+    if (handle.slot == nullptr) {
+        hex_heap_free(control);
+        hex_file_force_close(desc);
+        return (hex_file_opened){.status = HEX_FILE_ALLOCATION_FAILED};
+    }
+    control->desc = desc;
+    hex_handle_publish(handle, control);
+    return (hex_file_opened){.status = 0, .file = {.handle = handle, .access = hex_file_access[variant]}};
 }
 
 hex_file_transfer hex_file_read(hex_file file, hex_list_UInt8 *into, size_t max) {
     if ((file.access & HEX_FILE_ACCESS_READ) == 0) {
         return (hex_file_transfer){.status = HEX_FILE_NOT_READABLE};
     }
+    hex_handle_lease lease = hex_handle_resolve(file.handle, HEX_HANDLE_KIND_FILE);
+    if (lease.control == nullptr) {
+        return (hex_file_transfer){.status = HEX_FILE_CLOSED};
+    }
     if (max == 0) {
+        hex_handle_release(lease);
         return (hex_file_transfer){.status = 0, .count = 0};
     }
     size_t count = max > HEX_FILE_MAX_REQUEST ? HEX_FILE_MAX_REQUEST : max;
@@ -160,10 +194,11 @@ hex_file_transfer hex_file_read(hex_file file, hex_list_UInt8 *into, size_t max)
     hex_list_reserve_at_least_UInt8(into, needed);
     hex_file_request request = {
         .operation = HEX_FILE_READ,
-        .desc = (uv_file)file.desc,
+        .desc = ((hex_file_control *)lease.control)->desc,
         .buffer = uv_buf_init((char *)(into->data + into->length), (unsigned int)count),
     };
     ssize_t result = hex_file_run(&request);
+    hex_handle_release(lease);
     if (result < 0) {
         return (hex_file_transfer){.status = (int)result};
     }
@@ -178,16 +213,22 @@ hex_file_transfer hex_file_write(hex_file file, hex_slice_UInt8 from) {
     if ((file.access & HEX_FILE_ACCESS_WRITE) == 0) {
         return (hex_file_transfer){.status = HEX_FILE_NOT_WRITABLE};
     }
+    hex_handle_lease lease = hex_handle_resolve(file.handle, HEX_HANDLE_KIND_FILE);
+    if (lease.control == nullptr) {
+        return (hex_file_transfer){.status = HEX_FILE_CLOSED};
+    }
     if (from.length == 0) {
+        hex_handle_release(lease);
         return (hex_file_transfer){.status = 0, .count = 0};
     }
     size_t count = from.length > HEX_FILE_MAX_REQUEST ? HEX_FILE_MAX_REQUEST : from.length;
     hex_file_request request = {
         .operation = HEX_FILE_WRITE,
-        .desc = (uv_file)file.desc,
+        .desc = ((hex_file_control *)lease.control)->desc,
         .buffer = uv_buf_init((char *)from.data, (unsigned int)count),
     };
     ssize_t result = hex_file_run(&request);
+    hex_handle_release(lease);
     if (result < 0) {
         return (hex_file_transfer){.status = (int)result};
     }
@@ -199,98 +240,115 @@ hex_file_transfer hex_file_write(hex_file file, hex_slice_UInt8 from) {
 // the portable header table applies; on Windows that needs the OS error of
 // the descriptor's handle rather than a CRT errno.
 hex_file_transfer hex_file_seek(hex_file file, uint8_t whence, int64_t offset) {
+    hex_handle_lease lease = hex_handle_resolve(file.handle, HEX_HANDLE_KIND_FILE);
+    if (lease.control == nullptr) {
+        return (hex_file_transfer){.status = HEX_FILE_CLOSED};
+    }
+    uv_file desc = ((hex_file_control *)lease.control)->desc;
+    hex_file_transfer outcome;
 #ifdef _WIN32
     DWORD method = whence == 0 ? FILE_BEGIN : whence == 1 ? FILE_CURRENT : FILE_END;
     LARGE_INTEGER target = {.QuadPart = offset};
     LARGE_INTEGER moved;
-    if (!SetFilePointerEx((HANDLE)uv_get_osfhandle((uv_file)file.desc), target, &moved, method)) {
-        return (hex_file_transfer){.status = uv_translate_sys_error((int)GetLastError())};
+    if (!SetFilePointerEx((HANDLE)uv_get_osfhandle(desc), target, &moved, method)) {
+        outcome = (hex_file_transfer){.status = uv_translate_sys_error((int)GetLastError())};
+    } else {
+        outcome = (hex_file_transfer){.status = 0, .count = (size_t)moved.QuadPart};
     }
-    return (hex_file_transfer){.status = 0, .count = (size_t)moved.QuadPart};
 #else
-    off_t moved = lseek((int)file.desc, (off_t)offset, whence == 0 ? SEEK_SET : whence == 1 ? SEEK_CUR : SEEK_END);
+    off_t moved = lseek((int)desc, (off_t)offset, whence == 0 ? SEEK_SET : whence == 1 ? SEEK_CUR : SEEK_END);
     if (moved < 0) {
-        return (hex_file_transfer){.status = uv_translate_sys_error(errno)};
+        outcome = (hex_file_transfer){.status = uv_translate_sys_error(errno)};
+    } else {
+        outcome = (hex_file_transfer){.status = 0, .count = (size_t)moved};
     }
-    return (hex_file_transfer){.status = 0, .count = (size_t)moved};
 #endif
+    hex_handle_release(lease);
+    return outcome;
 }
 
 int hex_file_flush(hex_file file) {
     if ((file.access & HEX_FILE_ACCESS_WRITE) == 0) {
         return HEX_FILE_NOT_WRITABLE;
     }
-    hex_file_request request = {.operation = HEX_FILE_FSYNC, .desc = (uv_file)file.desc};
+    hex_handle_lease lease = hex_handle_resolve(file.handle, HEX_HANDLE_KIND_FILE);
+    if (lease.control == nullptr) {
+        return HEX_FILE_CLOSED;
+    }
+    hex_file_request request = {.operation = HEX_FILE_FSYNC, .desc = ((hex_file_control *)lease.control)->desc};
     ssize_t result = hex_file_run(&request);
+    hex_handle_release(lease);
     return result < 0 ? (int)result : 0;
 }
 
 // Close is never retried: every copy is invalid afterwards even on failure.
+// hex_handle_close_begin linearizes the slot at live -> closing before the
+// native close runs, so a racing copy's operation observes closed instead of
+// touching the descriptor this call is about to release.
 int hex_file_close(hex_file file) {
-    hex_file_request request = {.operation = HEX_FILE_CLOSE, .desc = (uv_file)file.desc};
+    void *control = hex_handle_close_begin(file.handle, HEX_HANDLE_KIND_FILE);
+    if (control == nullptr) {
+        return HEX_FILE_CLOSED;
+    }
+    hex_file_request request = {.operation = HEX_FILE_CLOSE, .desc = ((hex_file_control *)control)->desc};
     ssize_t result = hex_file_run(&request);
+    hex_handle_close_finish(file.handle);
     return result < 0 ? (int)result : 0;
 }
 
-// The portable File header table. EINVAL means an invalid path only for
-// open; every other operation reports it as a generic filesystem error.
-hex_t_Error hex_file_error(size_t line, size_t column, const hex_string *file, int status, bool opening, const hex_string *message) {
-    const char *text;
+// The portable File classification: File-specific categories and contextual
+// overrides first (EINVAL means an invalid path only for open, every other
+// operation reports it as InvalidInput), then File's own synthetic statuses,
+// then the shared handle component's common libuv mapper for every condition
+// that is not File-specific. Unmapped failures use Other with the fixed
+// "filesystem error" header.
+static hex_t_ErrorKind hex_file_error_kind(int status, bool opening) {
     switch (status) {
     case HEX_FILE_INVALID_PATH:
     case UV_ENAMETOOLONG:
     case UV_ELOOP:
-        text = "invalid path";
-        break;
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidPath};
     case UV_EINVAL:
-        text = opening ? "invalid path" : "filesystem error";
-        break;
-    case UV_ENOENT:
-        text = "not found";
-        break;
-    case UV_EACCES:
-    case UV_EPERM:
-        text = "permission denied";
-        break;
-    case UV_EEXIST:
-        text = "already exists";
-        break;
+        if (opening) {
+            return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidPath};
+        }
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput};
     case UV_ENOTDIR:
-        text = "not a directory";
-        break;
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_NotADirectory};
     case UV_EISDIR:
-        text = "is a directory";
-        break;
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_IsADirectory};
     case UV_ENOTEMPTY:
-        text = "directory not empty";
-        break;
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_DirectoryNotEmpty};
     case UV_EROFS:
-        text = "read only";
-        break;
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ReadOnly};
     case UV_EBUSY:
-        text = "busy";
-        break;
-    case UV_EINTR:
-        text = "interrupted";
-        break;
-    case UV_ECANCELED:
-        text = "cancelled";
-        break;
-    case UV_ENOSYS:
-    case UV_ENOTSUP:
-        text = "unsupported";
-        break;
-    default:
-        text = "filesystem error";
-        break;
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Busy};
+    case HEX_FILE_NOT_READABLE:
+    case HEX_FILE_NOT_WRITABLE:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_PermissionDenied};
+    case HEX_FILE_CLOSED:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Closed};
+    case HEX_FILE_ALLOCATION_FAILED:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted};
+    default: {
+        hex_t_ErrorKind mapped;
+        if (hex_handle_error_kind(status, &mapped)) {
+            return mapped;
+        }
+        hex_strand header = {0};
+        static const char text[] = "filesystem error";
+        memcpy(header.data, text, sizeof(text) - 1);
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Other, .other_header = header};
     }
-    hex_strand header = {0};
-    memcpy(header.data, text, strlen(text));
+    }
+}
+
+hex_t_Error hex_file_error(size_t line, size_t column, const hex_string *file, int status, bool opening, const hex_string *message) {
     return (hex_t_Error){
         .hex_m_file = file,
         .hex_m_line = line,
         .hex_m_column = column,
-        .hex_m_header = header,
+        .hex_m_kind = hex_file_error_kind(status, opening),
         .hex_m_message = message,
     };
 }

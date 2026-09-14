@@ -27,6 +27,17 @@ type generatedEqualityState struct {
 	compareNeed bool
 }
 
+// equalityIneligibleElement reports whether element is a generation-checked
+// handle with no language equality contract (File, TcpConnection,
+// TcpListener): a raw C == on its struct is invalid, and the checker's own
+// equalityAvailable already refuses to let Hexal source compare a
+// collection over it, so no synthesized helper is ever called.
+func equalityIneligibleElement(element compilerTypes.Type) bool {
+	return compilerTypes.IsFile(element) || compilerTypes.IsTcpConnection(element) || compilerTypes.IsTcpListener(element) ||
+		compilerTypes.IsProcess(element) || compilerTypes.IsPipe(element) || compilerTypes.IsSignals(element) ||
+		compilerTypes.IsSignal(element)
+}
+
 // discoverEqualityTypes walks the program collecting the compared types and,
 // recursively, every nested type their helpers must compare. Types are
 // collected dependency-first so emission order is valid.
@@ -47,27 +58,33 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 					return nil
 				}
 				state.seenObjects[typ.Object] = true
+				if ok, _ := checker.EqualityAvailable(typ); !ok {
+					return nil
+				}
 				state.order = append(state.order, typ)
 			case typ.Adt != nil:
 				if state.seenADTs[typ.Adt] {
 					return nil
 				}
 				state.seenADTs[typ.Adt] = true
+				if ok, _ := checker.EqualityAvailable(typ); !ok {
+					return nil
+				}
 				state.order = append(state.order, typ)
 			case typ.Array != nil:
-				if state.seenArrays[typ.Array] {
+				if state.seenArrays[typ.Array] || equalityIneligibleElement(typ.Array.Element) {
 					return nil
 				}
 				state.seenArrays[typ.Array] = true
 				state.order = append(state.order, typ)
 			case typ.Slice != nil:
-				if state.seenSlices[typ.Slice] {
+				if state.seenSlices[typ.Slice] || equalityIneligibleElement(typ.Slice.Element) {
 					return nil
 				}
 				state.seenSlices[typ.Slice] = true
 				state.order = append(state.order, typ)
 			case typ.List != nil:
-				if state.seenLists[typ.List] {
+				if state.seenLists[typ.List] || equalityIneligibleElement(typ.List.Element) {
 					return nil
 				}
 				state.seenLists[typ.List] = true
@@ -249,6 +266,14 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 			memberRight := equalityOperand(right+"."+field, member.Type)
 			writeEqualityComparisons(body, memberLeft, memberRight, member.Type, indent, tags)
 		}
+	case compilerTypes.IsErrorKind(typ):
+		// ErrorKind's Other is the only payload-carrying variant among 26 and
+		// lives in one flat other_header field, not a per-variant payload
+		// union (see hexal/error.h); Other's tag is the only case whose
+		// bytes can differ, so equality does not need a full tag switch.
+		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
+		fmt.Fprintf(body, "%sif (%s.tag == %s && memcmp(%s.other_header.data, %s.other_header.data, 32) != 0) return false;\n",
+			indent, left, errorKindTag(tags, "Other"), left, right)
 	case typ.Adt != nil:
 		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
 		fmt.Fprintf(body, "%sswitch (%s.tag) {\n", indent, left)

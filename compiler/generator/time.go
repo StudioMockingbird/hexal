@@ -12,10 +12,7 @@ import (
 // metadata validation, and the module-owned WallTime.now adapter that builds
 // the structural result union.
 
-const (
-	timeHeaderUnavailable  = "time unavailable"
-	timeMessageUnavailable = "wall clock acquisition failed"
-)
+const timeMessageUnavailable = "wall clock acquisition failed"
 
 // generatedTimeState records one module's (or the merged program's) time
 // demand. used selects hexal/time.h; instant selects the libuv monotonic
@@ -237,11 +234,11 @@ func writeTimeInlineHelpers(result *strings.Builder, state *generatedTimeState, 
 				"    if (hex_wall_time_now(&now)) {\n"+
 				"        return (%s){ .tag = %s, .payload.%s = now };\n"+
 				"    }\n"+
-				"    return (%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = &%s, .hex_m_line = line, .hex_m_column = column, .hex_m_header = { .data = \"%s\" }, .hex_m_message = &%s } };\n"+
+				"    return (%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = &%s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = (hex_t_ErrorKind){ .tag = %s }, .hex_m_message = &%s } };\n"+
 				"}\n",
 			union.CName, streamAdapterSuffix(union),
 			union.CName, wallTag, wallField,
-			union.CName, errorTag, errorField, literals.CName(state.fileLiteral), timeHeaderUnavailable, literals.CName(message))
+			union.CName, errorTag, errorField, literals.CName(state.fileLiteral), errorKindTag(tags, "Unsupported"), literals.CName(message))
 	}
 	return nil
 }

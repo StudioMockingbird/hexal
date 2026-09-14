@@ -316,7 +316,8 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
 		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
-		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression:
+		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
+		checker.NetworkExpression:
 		// Discarding a constructor or a pure computation's result is legal;
 		// at worst it leaks an allocation or wastes a computation, both the
 		// programmer's choice.
@@ -819,6 +820,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", unknownExpressionDiagnostic("function reference without a source name")
 		}
 		return privateCName(functionNameKind, node.Name, moduleOwner(node.Module, state.owner)), nil
+	case checker.ModuleValueExpression:
+		if node.Name == "" {
+			return "", unknownExpressionDiagnostic("module value without a source name")
+		}
+		return moduleValueCName(node.Name, moduleOwner(node.Module, state.owner)), nil
 	case checker.FunctionLiteralExpression:
 		if node.LocalHelperOrdinal == 0 {
 			return "", unknownExpressionDiagnostic("function literal without an assigned helper ordinal")
@@ -1002,6 +1008,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderStreamMethod(node, state)
 	case checker.TimeExpression:
 		return renderTimeExpression(node, state)
+	case checker.NetworkExpression:
+		return renderNetworkExpression(node, state)
 	case checker.LayoutExpression:
 		// The C23 compiler is the final authority for the selected target
 		// layout; the checker already proved T complete.
@@ -1097,6 +1105,10 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderAdtConstruct(node, state)
 	case checker.AdtPayloadExpression:
 		return renderAdtPayload(node, state)
+	case checker.ErrorHeaderExpression:
+		return renderErrorHeader(node, state)
+	case checker.ErrorKindHeaderExpression:
+		return renderErrorKindHeader(node, state)
 	case checker.MatchExpression:
 		return "", unknownExpressionDiagnostic("match expressions lower at statement level")
 	case checker.PrintExpression:
@@ -1628,7 +1640,8 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.LayoutExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression, checker.SliceBridgeExpression,
-		checker.TimeExpression:
+		checker.TimeExpression, checker.ErrorHeaderExpression, checker.ErrorKindHeaderExpression, checker.ModuleValueExpression,
+		checker.NetworkExpression:
 		return node.ResultType, true
 	case checker.HeapFreeExpression:
 		return compilerTypes.Type{}, false

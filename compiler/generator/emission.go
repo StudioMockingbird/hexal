@@ -74,6 +74,9 @@ type moduleEmission struct {
 	ioState           *generatedStreamState
 	timeState         *generatedTimeState
 	fileState         *generatedFileState
+	networkState      *generatedNetworkState
+	processState      *generatedProcessState
+	signalState       *generatedSignalState
 	concurrencyState  *generatedConcurrencyState
 	wrapState         *generatedWrapState
 	stashState        *stashHelpers
@@ -160,6 +163,9 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.ioState = discoverGeneratedStreams(program, logicalKey, literals)
 	emission.timeState = discoverGeneratedTime(program, logicalKey, literals)
 	emission.fileState = discoverGeneratedFiles(program, logicalKey, literals)
+	emission.networkState = discoverGeneratedNetwork(program, logicalKey, literals)
+	emission.processState = discoverGeneratedProcess(program, logicalKey, literals)
+	emission.signalState = discoverGeneratedSignal(program, logicalKey, literals)
 	emission.wrapState = discoverGeneratedWraps(program)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
 	if concurrencyErr != nil {
@@ -198,12 +204,17 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		literals.used = true
 		emission.stringUsed = true
 	}
-	if (emission.ioState != nil && emission.ioState.used) || (emission.printState != nil && emission.printState.used) || emission.fileState.used {
+	if (emission.ioState != nil && emission.ioState.used) || (emission.printState != nil && emission.printState.used) || emission.fileState.used ||
+		(emission.networkState != nil && emission.networkState.tcp) || (emission.processState != nil && emission.processState.operations) {
 		// print's descriptor write-all sink selects hexal/io.c exactly like a
 		// direct stream operation does (see io_component.go's own selection
 		// condition), so it carries the identical dependency set: the Byte
 		// list, the byte Slice, the Error object with its String and Strand
 		// fields, heap allocation through List growth, and the shared trap.
+		// tcp_read and pipe_read reference hex_list_UInt8 and its
+		// reserve/grow helpers unconditionally in their generated C, so a
+		// program reaching either without ever writing List<Byte> itself
+		// still needs it forced reachable, exactly like File's own read.
 		ensureByteList(listState)
 		ensureSliceUInt8(sliceState)
 		literals.used = true
@@ -236,6 +247,13 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// that merely has an array would emit a component holding nothing
 		// but its include guard.
 		sliceState.required = true
+	}
+	if emission.errorUsed {
+		// Selecting Error registers every ErrorKind variant into the
+		// program-wide tag registry, even when no source expression in this
+		// module constructs one: hex_error_kind_header's switch must always
+		// be complete.
+		emission.adtState.ensureRegistered(compilerTypes.ErrorKindType)
 	}
 	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program), arrays: arrayState}
 	return emission, nil
@@ -287,6 +305,16 @@ type programEmission struct {
 	// fileState merges every module's File demand; File emits hexal/file.h and
 	// hexal/file.c once program-wide.
 	fileState *generatedFileState
+	// networkState merges every module's Address/Dns/Tcp demand; reachable
+	// use emits hexal/network.h and hexal/network.c once program-wide.
+	networkState *generatedNetworkState
+	// processState merges every module's Process/Pipe/ProcessOptions demand;
+	// reachable use emits hexal/process.h and hexal/process.c once
+	// program-wide.
+	processState *generatedProcessState
+	// signalState merges every module's Signal/Signals demand; reachable use
+	// emits hexal/signal.h and hexal/signal.c once program-wide.
+	signalState *generatedSignalState
 	// seekUsed is true when any module's stream state reaches Bytes.seek or
 	// IO.seek, selecting hexal/seek.h once program-wide. It is tracked
 	// separately from ioState's own four merged flags, which exist only for
@@ -341,6 +369,9 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		ioState:      &generatedStreamState{},
 		timeState:    &generatedTimeState{},
 		fileState:    &generatedFileState{},
+		networkState: &generatedNetworkState{},
+		processState: &generatedProcessState{},
+		signalState:  &generatedSignalState{},
 		adapterSites: make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -376,6 +407,9 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		}
 		mergeTimeInto(merged.timeState, module.timeState)
 		mergeFileInto(merged.fileState, module.fileState)
+		mergeNetworkInto(merged.networkState, module.networkState)
+		mergeProcessInto(merged.processState, module.processState)
+		mergeSignalInto(merged.signalState, module.signalState)
 		merged.seekUsed = merged.seekUsed || module.fileState != nil && module.fileState.seek
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
@@ -418,6 +452,24 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		}
 		mergeNumericSpecs(merged, module)
 		mergeEqualityTypes(merged, module)
+	}
+	if merged.networkState != nil && (merged.networkState.dns || merged.networkState.tcp) {
+		// DNS and TCP have no synchronous fallback path: every reachable
+		// operation parks, so the scheduler bootstrap is required even
+		// without an explicit Task, Channel, Mutex, or spawn elsewhere.
+		merged.concurrencyState.used = true
+	}
+	if merged.processState != nil && merged.processState.operations {
+		// Every Process/Pipe operation parks or spawns a native resource;
+		// merely constructing or inspecting ProcessOptions and its sibling
+		// inline types selects none of this.
+		merged.concurrencyState.used = true
+	}
+	if merged.signalState != nil && merged.signalState.operations {
+		// Every Signals construction or method parks or registers a native
+		// watcher; merely constructing or matching a Signal value selects
+		// none of this.
+		merged.concurrencyState.used = true
 	}
 	if libuvSelected(merged) {
 		// The native bootstrap installs mimalloc as libuv's allocator.
@@ -585,6 +637,26 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			// The File core spells descriptors as intptr_t, reserves list
 			// capacity with ckd_add, and traps on an unrepresentable size.
 			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h")
+			requirements.trap = true
+		}
+		if module.networkState != nil && module.networkState.used {
+			// The network core spells ports and scopes as uint16_t/uint32_t,
+			// reserves list capacity with ckd_add, and traps on an
+			// unrepresentable size or a missing Task.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h")
+			requirements.trap = true
+		}
+		if module.processState != nil && module.processState.operations {
+			// The process core snapshots argv/envp sizes with ckd_add,
+			// spells stream selectors as uint8_t, and traps on an
+			// unrepresentable size or a missing Task.
+			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h")
+			requirements.trap = true
+		}
+		if module.signalState != nil && module.signalState.operations {
+			// The signal core spells raw subscription values as uint8_t and
+			// traps on a missing Task.
+			requirements.add("stddef.h", "stdint.h")
 			requirements.trap = true
 		}
 		if module.timeState != nil && module.timeState.used {
@@ -831,6 +903,29 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	var moduleBody strings.Builder
 	moduleBody.WriteString("#include \"modules/" + canonicalID + ".h\"\n\n")
 
+	// Module value definitions precede every function/method definition and
+	// prototype in this file: their static initializers reference no other
+	// declaration, so ordinary C forward-declaration concerns do not apply,
+	// but every function in this module may read or write them from the
+	// first line of the file onward.
+	moduleValueRenderState := &expressionValidation{
+		variables:      make(map[string]generatedBinding),
+		bindings:       make(map[checker.BindingID]generatedBinding),
+		bindingNames:   make(map[checker.BindingID]string),
+		usedNames:      make(map[string]bool),
+		functions:      functions,
+		methods:        methods,
+		generatedTypes: typeState,
+		strings:        stringState,
+		tags:           merged.tags,
+		owner:          owner,
+		filename:       logicalKey,
+		moduleID:       canonicalID,
+	}
+	if err := writeModuleValueDefinitions(&moduleBody, program.ModuleValues, owner, moduleValueRenderState); err != nil {
+		return "", "", err
+	}
+
 	// Function definitions sit at file scope in source order, after the
 	// object definitions the header already carries. Module-level
 	// visibility is order-independent, so a private function or method may
@@ -946,6 +1041,11 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 			// scheduler, so no libuv call can run before its allocator.
 			moduleBody.WriteString("    hex_runtime_native_init();\n")
 		}
+		if handleSelected(merged) {
+			// The handle registry backs every copied-handle capability's
+			// resolve, so it must exist before any module statement runs.
+			moduleBody.WriteString("    hex_handle_registry_init();\n")
+		}
 		if merged.concurrencyState != nil && merged.concurrencyState.used {
 			moduleBody.WriteString("    hex_scheduler_init();\n")
 		}
@@ -969,6 +1069,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	// self-contained in the owning module's translation unit.
 	var headerPrototypes strings.Builder
 	writeExportedPrototypes(&headerPrototypes, program, owner)
+	writeExportedModuleValueDeclarations(&headerPrototypes, program.ModuleValues, owner)
 	writeForeignPrototypes(&headerPrototypes, program, renderState)
 	var extraFrames strings.Builder
 	writeSpawnArgFrames(&extraFrames, routedFrames(emission, merged.adapterSites[canonicalID]))
@@ -983,6 +1084,9 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		streams:     emission.ioState,
 		time:        emission.timeState,
 		files:       emission.fileState,
+		network:     emission.networkState,
+		process:     emission.processState,
+		signal:      emission.signalState,
 		concurrency: emission.concurrencyState,
 		stringState: stringState,
 		tags:        merged.tags,
@@ -1053,6 +1157,9 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, modulePrintComponent(emission)...)
 	components = append(components, moduleStreamComponent(emission)...)
 	components = append(components, moduleFileComponent(emission)...)
+	components = append(components, moduleNetworkComponent(emission)...)
+	components = append(components, moduleProcessComponent(emission)...)
+	components = append(components, moduleSignalComponent(emission)...)
 	components = append(components, moduleTimeComponent(emission)...)
 	components = append(components, moduleEqualityComponent(emission)...)
 	return components
@@ -1081,6 +1188,9 @@ type moduleHeaderInput struct {
 	streams     *generatedStreamState
 	time        *generatedTimeState
 	files       *generatedFileState
+	network     *generatedNetworkState
+	process     *generatedProcessState
+	signal      *generatedSignalState
 	concurrency *generatedConcurrencyState
 	stringState *literalRegistry
 	tags        *tagRegistry
@@ -1192,6 +1302,15 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	if err := writeFileInlineHelpers(&result, input.files, input.stringState, input.tags); err != nil {
 		return "", err
 	}
+	if err := writeNetworkInlineHelpers(&result, input.network, input.stringState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeProcessInlineHelpers(&result, input.process, input.stringState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeSignalInlineHelpers(&result, input.signal, input.stringState, input.tags); err != nil {
+		return "", err
+	}
 	if input.prototypes != "" {
 		result.WriteString("\n/* Exported and foreign function prototypes. */\n")
 		result.WriteString(input.prototypes)
@@ -1263,6 +1382,9 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 // own name in scope before its body can name a pointer to itself.
 func writeObjectForwardDeclarations(result *strings.Builder, objects []*compilerTypes.ObjectType, filename string) {
 	for _, object := range objects {
+		if compilerTypes.IsBuiltinObject(object) {
+			continue
+		}
 		result.WriteString("\n")
 		if object.SourceLine > 0 {
 			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, filename)
@@ -1368,7 +1490,10 @@ func (writer *nominalBodyWriter) ensureType(typ compilerTypes.Type) {
 }
 
 func (writer *nominalBodyWriter) ensureObject(object *compilerTypes.ObjectType) {
-	if object == nil || writer.definedObj[object] {
+	if object == nil || writer.definedObj[object] || compilerTypes.IsBuiltinObject(object) {
+		// ProcessOptions, EnvironmentVariable, and StartedProcess are
+		// compiler-owned structs whose bodies are hand-written once in
+		// hexal/process.h, mirroring the identical IsBuiltinAdt skip above.
 		return
 	}
 	writer.definedObj[object] = true
@@ -1398,7 +1523,10 @@ func (writer *nominalBodyWriter) ensureAdt(adtType compilerTypes.Type) {
 
 func (writer *nominalBodyWriter) ensureUnion(union compilerTypes.Type) {
 	info := union.Union
-	if info == nil || writer.definedUnion[info] {
+	if info == nil || writer.definedUnion[info] || compilerTypes.IsBuiltinUnion(union) {
+		// String | Nil and Pipe | Nil, ProcessOptions and StartedProcess's
+		// fixed structural fields, are hand-written once in hexal/process.h
+		// alongside the objects that embed them.
 		return
 	}
 	writer.definedUnion[info] = true

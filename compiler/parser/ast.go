@@ -3,11 +3,61 @@ package parser
 
 import "hexal/compiler/lexer"
 
-// Program is the syntax tree for a complete Hexal source file.
+// Program is the syntax tree for a complete Hexal source file. Import and
+// Export are structurally singular and positional (the file's first and last
+// top-level constructs respectively), so they are dedicated optional fields
+// rather than ordinary TopLevelItems.
 type Program struct {
+	Import     *ImportBlock
 	Items      []TopLevelItem
 	Statements []Statement
+	Export     *ExportBlock
 }
+
+// ImportBlock is the file's one leading import list, when present.
+type ImportBlock struct {
+	Keyword lexer.Token
+	Entries []ImportEntry
+	End     lexer.Token
+}
+
+// ImportEntry binds one local alias to one module path: `alias from "path"`.
+// From is the contextual `from` token itself, retained for diagnostics.
+type ImportEntry struct {
+	Alias lexer.Token
+	From  lexer.Token
+	Path  lexer.Token // the module-path literal, raw quoted spelling
+}
+
+// ExportBlock is the file's one trailing export list, when present.
+type ExportBlock struct {
+	Keyword lexer.Token
+	Entries []ExportEntry
+	End     lexer.Token
+}
+
+// ExportEntry names one exported declaration or module value. Method is
+// non-nil for a qualified `Type.method` entry, which names one method of the
+// locally declared type Name; it is never an imported-name path.
+type ExportEntry struct {
+	Name   lexer.Token
+	Method *lexer.Token
+}
+
+// ModuleValueDeclaration is a top-level `static [mut] name [: type] := expr`
+// module value: program-lifetime storage initialized directly to C static
+// storage, never an executable local. It is distinct from Declaration, which
+// remains the entrypoint's ordinary executable-local spelling.
+type ModuleValueDeclaration struct {
+	Keyword     lexer.Token
+	Mutable     bool
+	Name        lexer.Token
+	Type        TypeExpression // nil for the inferred form
+	Initializer Expression
+	Operator    lexer.Token
+}
+
+func (ModuleValueDeclaration) topLevelItemNode() {}
 
 // TopLevelItem is an ordered source construct. Type declarations remain
 // outside Statements because they have no runtime emission.
@@ -23,8 +73,9 @@ type Statement interface {
 
 // TypeDeclaration names an already-resolvable type expression. The checker
 // turns it into a transparent alias without adding an executable statement.
-// Exported records an `export` prefix; it is a Hexal-visibility marker only
-// and never changes the lowering.
+// Export visibility is resolved separately against the file's trailing
+// export block; it is a Hexal-visibility marker only and never changes the
+// lowering.
 type TypeDeclaration struct {
 	Keyword    lexer.Token
 	Name       lexer.Token
@@ -34,19 +85,6 @@ type TypeDeclaration struct {
 }
 
 func (TypeDeclaration) topLevelItemNode() {}
-
-// ImportDeclaration binds one local alias to one module path. It is a
-// top-level item but never a statement: imports are declarations-only and
-// carry no runtime emission of their own.
-type ImportDeclaration struct {
-	ModuleKeyword lexer.Token
-	Alias         lexer.Token
-	Equal         lexer.Token
-	ImportKeyword lexer.Token
-	Path          lexer.Token // the module-path literal, raw quoted spelling
-}
-
-func (ImportDeclaration) topLevelItemNode() {}
 
 // ObjectTypeExpression declares an ordered set of named members. It is only
 // produced for a struct definition's body or an ADT payload's body; ordinary

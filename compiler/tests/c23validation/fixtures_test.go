@@ -38,7 +38,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "error-try-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun cleanup(value: Int32) do\nend\nfun read_count(): Int32 | Error do\n    return Error(\"Read Error\", \"no count\")\nend\nfun demo(release: Bool): Int32 | Error do\n    errdefer cleanup(1)\n    defer cleanup(2)\n    mut total: Int32 := 0\n    while true do\n        count: Int32 := try read_count()\n        total = total + count\n        break\n    end\n    if release then\n        return Error(\"Final Error\", \"done\")\n    end\n    return total\nend"},
+		sources:    map[string]string{"app.hex": "fun cleanup(value: Int32) do\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(release: Bool): Int32 | Error do\n    errdefer cleanup(1)\n    defer cleanup(2)\n    mut total: Int32 := 0\n    while true do\n        count: Int32 := try read_count()\n        total = total + count\n        break\n    end\n    if release then\n        return Error(ErrorKind.Other(header = \"Final Error\"), \"done\")\n    end\n    return total\nend"},
 	},
 	{
 		name:       "bitwise-compiles",
@@ -103,7 +103,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "error-control-flow-failure-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun cleanup(label: Int32) do\n    print(label)\nend\nfun read_count(): Int32 | Error do\n    return Error(\"Read Error\", \"no count\")\nend\nfun swallow(): Bool do\n    print(\"!\")\n    return false\nend\nfun inner(): Int32 | Error do\n    errdefer cleanup(3)\n    defer cleanup(2)\n    defer cleanup(1)\n    count: Int32 := try read_count()\n    return count\nend\nfun outer(): Bool do\n    outcome: Int32 | Error := inner()\n    result: Bool := match outcome is\n    | Error then\n        swallow()\n    | Int32 then\n        outcome == 0\n    end\n    return result\nend\nprint(outer())\n"},
+		sources:     map[string]string{"app.hex": "fun cleanup(label: Int32) do\n    print(label)\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun swallow(): Bool do\n    print(\"!\")\n    return false\nend\nfun inner(): Int32 | Error do\n    errdefer cleanup(3)\n    defer cleanup(2)\n    defer cleanup(1)\n    count: Int32 := try read_count()\n    return count\nend\nfun outer(): Bool do\n    outcome: Int32 | Error := inner()\n    result: Bool := match outcome is\n    | Error then\n        swallow()\n    | Int32 then\n        outcome == 0\n    end\n    return result\nend\nprint(outer())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "123!false"},
 	},
 	{
@@ -264,6 +264,293 @@ var fixtureCatalog = []fixture{
 		// exchange returns the value it replaced (9, set by the preceding
 		// store), not the value it just installed (4).
 		sources:     map[string]string{"app.hex": "fun demo(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>(5)\n    old: Int32 := counter.fetch_add(3)\n    counter.fetch_sub(2)\n    counter.store(9)\n    loaded: Int32 := counter.load()\n    swapped: Int32 := counter.exchange(4)\n    expected: Bool := counter.compare_exchange(4, 6)\n    refused: Bool := counter.compare_exchange(4, 6)\n    final: Int32 := counter.load()\n    return (old == 5) and (loaded == 9) and (swapped == 9) and expected and !refused and (final == 6)\nend\nprint(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "network-address-and-dns-compiles",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Nil | Error do\n" +
+			"    v4 := try Address.parse(\"127.0.0.1\", 80)\n" +
+			"    v6 := try Address.parse(\"::1\", 80)\n" +
+			"    text4 := v4.format(h)\n" +
+			"    text6 := v6.format(h)\n" +
+			"    addresses := try Dns.resolve(h, \"localhost\", \"80\")\n" +
+			"    return nil\n" +
+			"end\n" +
+			"out: Nil | Error := demo(Heap())\n"},
+	},
+	{
+		name:       "network-tcp-loopback-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun serve(listener: TcpListener): Nil | Error do\n" +
+			"    connection := try listener.accept()\n" +
+			"    defer connection.close()\n" +
+			"    buffer: List<Byte> := List<Byte>(Heap())\n" +
+			"    defer buffer.free(Heap())\n" +
+			"    received := try connection.read(buffer, 64)\n" +
+			"    if received is Size then\n" +
+			"        view := buffer.slice(0, received)\n" +
+			"        try connection.write(view)\n" +
+			"    end\n" +
+			"    return nil\n" +
+			"end\n" +
+			"fun client(address: Address): Bool | Error do\n" +
+			"    connection := try Tcp.connect(address)\n" +
+			"    defer connection.close()\n" +
+			"    try connection.write(\"ping\".bytes())\n" +
+			"    buffer: List<Byte> := List<Byte>(Heap())\n" +
+			"    defer buffer.free(Heap())\n" +
+			"    received := try connection.read(buffer, 64)\n" +
+			"    if received is Size then\n" +
+			"        return received == 4\n" +
+			"    end\n" +
+			"    return false\n" +
+			"end\n" +
+			"fun run(): Bool | Error do\n" +
+			"    address := try Address.parse(\"127.0.0.1\", 18734)\n" +
+			"    listener := try Tcp.listen(address, 4)\n" +
+			"    defer listener.close()\n" +
+			"    task := try spawn serve(listener)\n" +
+			"    ok := try client(address)\n" +
+			"    task.join()\n" +
+			"    return ok\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    outcome := run()\n" +
+			"    result: Bool := match outcome is\n" +
+			"    | Bool then outcome\n" +
+			"    | Error then false\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "process-options-and-pipe-compiles",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Nil | Error do\n" +
+			"    arguments := List<String>(h)\n" +
+			"    arguments.push(\"--flag\")\n" +
+			"    variables := List<EnvironmentVariable>(h)\n" +
+			"    variables.push(EnvironmentVariable(name = \"KEY\", value = \"value\"))\n" +
+			"    options := ProcessOptions(\n" +
+			"        program = \"does-not-exist-xyz\",\n" +
+			"        arguments = arguments,\n" +
+			"        environment = Environment.Replace(values = variables),\n" +
+			"        working_directory = nil,\n" +
+			"        input = ProcessStream.Pipe(),\n" +
+			"        output = ProcessStream.Pipe(),\n" +
+			"        error = ProcessStream.Ignore(),\n" +
+			"    )\n" +
+			"    started := try Process.start(options)\n" +
+			"    try started.process.terminate()\n" +
+			"    status := try started.process.wait()\n" +
+			"    exit_code: Int64 := match status is\n" +
+			"    | ExitStatus.Exited then status.code\n" +
+			"    | ExitStatus.Terminated then -1\n" +
+			"    end\n" +
+			"    input := started.input\n" +
+			"    if input != nil then\n" +
+			"        try input.write(\"hi\".bytes())\n" +
+			"        try input.shutdown()\n" +
+			"        try input.close()\n" +
+			"    end\n" +
+			"    output := started.output\n" +
+			"    if output != nil then\n" +
+			"        buffer: List<Byte> := List<Byte>(h)\n" +
+			"        defer buffer.free(h)\n" +
+			"        received := try output.read(buffer, 64)\n" +
+			"        if received is Size then\n" +
+			"            try output.write(\"ping\".bytes())\n" +
+			"        end\n" +
+			"        try output.shutdown()\n" +
+			"        try output.close()\n" +
+			"    end\n" +
+			"    try started.process.close()\n" +
+			"    return nil\n" +
+			"end\n" +
+			"out: Nil | Error := demo(Heap())\n"},
+	},
+	{
+		name:       "process-spawn-wait-runs",
+		entrypoint: "app.hex",
+		hosts:      []string{"windows"},
+		sources: map[string]string{"app.hex": "fun run(): Bool | Error do\n" +
+			"    arguments := List<String>(Heap())\n" +
+			"    arguments.push(\"/c\")\n" +
+			"    arguments.push(\"exit\")\n" +
+			"    arguments.push(\"7\")\n" +
+			"    options := ProcessOptions(\n" +
+			"        program = \"cmd.exe\",\n" +
+			"        arguments = arguments,\n" +
+			"        environment = Environment.Inherit(),\n" +
+			"        working_directory = nil,\n" +
+			"        input = ProcessStream.Ignore(),\n" +
+			"        output = ProcessStream.Ignore(),\n" +
+			"        error = ProcessStream.Ignore(),\n" +
+			"    )\n" +
+			"    started := try Process.start(options)\n" +
+			"    status := try started.process.wait()\n" +
+			"    try started.process.close()\n" +
+			"    return match status is\n" +
+			"    | ExitStatus.Exited then status.code == 7\n" +
+			"    | ExitStatus.Terminated then false\n" +
+			"    end\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    outcome := run()\n" +
+			"    result: Bool := match outcome is\n" +
+			"    | Bool then outcome\n" +
+			"    | Error then false\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "process-pipe-echo-runs",
+		entrypoint: "app.hex",
+		hosts:      []string{"windows"},
+		sources: map[string]string{"app.hex": "fun run(): Bool | Error do\n" +
+			"    arguments := List<String>(Heap())\n" +
+			"    arguments.push(\"/c\")\n" +
+			"    arguments.push(\"echo\")\n" +
+			"    arguments.push(\"hi\")\n" +
+			"    options := ProcessOptions(\n" +
+			"        program = \"cmd.exe\",\n" +
+			"        arguments = arguments,\n" +
+			"        environment = Environment.Inherit(),\n" +
+			"        working_directory = nil,\n" +
+			"        input = ProcessStream.Ignore(),\n" +
+			"        output = ProcessStream.Pipe(),\n" +
+			"        error = ProcessStream.Ignore(),\n" +
+			"    )\n" +
+			"    started := try Process.start(options)\n" +
+			"    buffer: List<Byte> := List<Byte>(Heap())\n" +
+			"    defer buffer.free(Heap())\n" +
+			"    mut ok: Bool := false\n" +
+			"    output := started.output\n" +
+			"    if output != nil then\n" +
+			"        while true do\n" +
+			"            received := try output.read(buffer, 64)\n" +
+			"            if received is EoS then\n" +
+			"                break\n" +
+			"            end\n" +
+			"            if received == 0 then\n" +
+			"                break\n" +
+			"            end\n" +
+			"        end\n" +
+			"        try output.close()\n" +
+			"        ok = (buffer.length() >= 2) and (buffer[0] == 104) and (buffer[1] == 105)\n" +
+			"    end\n" +
+			"    status := try started.process.wait()\n" +
+			"    try started.process.close()\n" +
+			"    exited: Bool := match status is\n" +
+			"    | ExitStatus.Exited then status.code == 0\n" +
+			"    | ExitStatus.Terminated then false\n" +
+			"    end\n" +
+			"    return ok and exited\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    outcome := run()\n" +
+			"    result: Bool := match outcome is\n" +
+			"    | Bool then outcome\n" +
+			"    | Error then false\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "file-in-collection-positions-compiles",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun make(h: Heap): Nil | Error do\n" +
+			"    x := try File.open(\"a\", FileMode.Write())\n" +
+			"    files: List<File> := List<File>(h)\n" +
+			"    defer files.free(h)\n" +
+			"    files.push(x)\n" +
+			"    try files[0].close()\n" +
+			"    y := try File.open(\"b\", FileMode.Write())\n" +
+			"    fixed: Array<File, 1> := [y]\n" +
+			"    try fixed[0].close()\n" +
+			"    z := try File.open(\"c\", FileMode.Write())\n" +
+			"    byOwner: Dict<Int32, File> := Dict<Int32, File>(h)\n" +
+			"    defer byOwner.free(h)\n" +
+			"    byOwner.insert(1, z)\n" +
+			"    try byOwner.get(1).close()\n" +
+			"    return nil\n" +
+			"end\n" +
+			"out: Nil | Error := make(Heap())\n"},
+	},
+	{
+		name:       "process-in-collection-positions-compiles",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun make(h: Heap): Nil | Error do\n" +
+			"    arguments := List<String>(h)\n" +
+			"    options := ProcessOptions(\n" +
+			"        program = \"does-not-exist-xyz\",\n" +
+			"        arguments = arguments,\n" +
+			"        environment = Environment.Inherit(),\n" +
+			"        working_directory = nil,\n" +
+			"        input = ProcessStream.Ignore(),\n" +
+			"        output = ProcessStream.Ignore(),\n" +
+			"        error = ProcessStream.Ignore(),\n" +
+			"    )\n" +
+			"    started := try Process.start(options)\n" +
+			"    processes: List<Process> := List<Process>(h)\n" +
+			"    defer processes.free(h)\n" +
+			"    processes.push(started.process)\n" +
+			"    try processes[0].close()\n" +
+			"    started2 := try Process.start(options)\n" +
+			"    fixed: Array<Process, 1> := [started2.process]\n" +
+			"    try fixed[0].close()\n" +
+			"    return nil\n" +
+			"end\n" +
+			"out: Nil | Error := make(Heap())\n"},
+	},
+	{
+		name:       "signals-subscribe-compiles",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun wait_for_shutdown(): Signal | EoS | Error do\n" +
+			"    wanted: Array<Signal, 2> := [Signal.Interrupt(), Signal.Hangup()]\n" +
+			"    signals := try Signals(wanted.slice(0, wanted.length()))\n" +
+			"    defer signals.close()\n" +
+			"    signal := try signals.next()\n" +
+			"    return signal\n" +
+			"end\n" +
+			"out: Signal | EoS | Error := wait_for_shutdown()\n"},
+	},
+	{
+		name:       "signals-close-wakes-waiter-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun waiter(s: Signals): Signal | EoS | Error do\n" +
+			"    return s.next()\n" +
+			"end\n" +
+			"fun run(): Bool | Error do\n" +
+			"    wanted: Array<Signal, 1> := [Signal.Interrupt()]\n" +
+			"    signals := try Signals(wanted.slice(0, wanted.length()))\n" +
+			"    task := try spawn waiter(signals)\n" +
+			"    try signals.close()\n" +
+			"    outcome := task.join()\n" +
+			"    result: Bool := match outcome is\n" +
+			"    | Signal then false\n" +
+			"    | EoS then true\n" +
+			"    | Error then true\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    outcome := run()\n" +
+			"    result: Bool := match outcome is\n" +
+			"    | Bool then outcome\n" +
+			"    | Error then false\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"print(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 }

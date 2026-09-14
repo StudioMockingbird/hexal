@@ -17,7 +17,7 @@ import (
 // output without sorting first fails this within a few runs.
 func TestCompilationIsDeterministic(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module Shapes = import \"./shapes\"\n" +
+		"app.hex": "import\n    Shapes from \"./shapes\"\nend\n" +
 			"fun run(h: Heap): Int32 do\n" +
 			"    values: List<Int32> := List<Int32>(h)\n" +
 			"    defer values.free(h)\n" +
@@ -30,7 +30,7 @@ func TestCompilationIsDeterministic(t *testing.T) {
 			"end\n" +
 			"h: Heap := Heap()\n" +
 			"total: Int32 := run(h)\n",
-		"shapes.hex": "export fun corners(): Int32 do\n    return 4\nend\n",
+		"shapes.hex": "fun corners(): Int32 do\n    return 4\nend\nexport\n    corners\nend\n",
 	}
 	first := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if first.ExitCode != compiler.ExitSuccess {

@@ -856,6 +856,18 @@ func Assignable(target, source Type) bool {
 		}
 		return true
 	}
+	if target.List != nil && source.List != nil {
+		// Two List<T> specializations sharing one canonical key are the same
+		// physical hex_list_<T> struct: List's own interning lives on the
+		// per-compilation arena, so a builtin object built at package init()
+		// time (before any arena exists) necessarily gets a distinct
+		// identity from a live environment.ListType(...) call for the
+		// identical element, even though both describe the same generated
+		// type. CanonicalKey, not CName, is the comparison: it is the
+		// recursive, module-qualified identity Type.CanonicalKey documents,
+		// exactly the fact this fallback needs.
+		return target.CanonicalKey == source.CanonicalKey && target.CanonicalKey != ""
+	}
 	return false
 }
 
@@ -1195,7 +1207,7 @@ func IsProtectedTypeName(name string) bool {
 		return true
 	}
 	switch name {
-	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Slice", "Task", "Channel", "Atomic", "Stash", "Pool":
+	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Slice", "Task", "Channel", "Atomic", "Stash", "Pool", "Dns", "Tcp":
 		return true
 	}
 	return false
@@ -1331,7 +1343,7 @@ func errorType() Type {
 			{Name: "file", Type: StringType},
 			{Name: "line", Type: SizeType},
 			{Name: "column", Type: SizeType},
-			{Name: "header", Type: StrandType},
+			{Name: "kind", Type: ErrorKindType},
 			{Name: "message", Type: StringType},
 		},
 	}

@@ -34,8 +34,8 @@ var failureBenchmarkPrograms = []benchmarkProgram{
 	{
 		name: "resolve",
 		sources: map[string]string{
-			"app.hex":   "module Missing = import \"./absent\"\nmodule Bad = import \"nonrelative\"\nvalue: Int32 := 1\n",
-			"cycle.hex": "module Back = import \"./app\"\nexport fun f(): Int32 do\n    return 1\nend\n",
+			"app.hex":   "import\n    Missing from \"./absent\"\n,\n    Bad from \"nonrelative\"\nend\nvalue: Int32 := 1\n",
+			"cycle.hex": "import\n    Back from \"./app\"\nend\nfun f(): Int32 do\n    return 1\nend\nexport\n    f\nend\n",
 		},
 		entrypoint: "app.hex",
 	},

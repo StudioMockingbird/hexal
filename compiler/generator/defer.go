@@ -102,11 +102,11 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 		}
 		captured = append(captured, name)
 	case checker.ChannelMethodCallExpression, checker.MutexMethodCallExpression, checker.TaskMethodCallExpression, checker.StreamMethodCallExpression,
-		checker.StashMethodCallExpression, checker.PoolMethodCallExpression:
+		checker.StashMethodCallExpression, checker.PoolMethodCallExpression, checker.NetworkExpression:
 		// defer ch.free(h), mutex.unlock(), task.join(), stream.close(),
-		// stash.destroy(), or pool.free(node)/destroy() captures the handle
-		// at registration so the cleanup always targets the exact handle the
-		// defer saw.
+		// stash.destroy(), pool.free(node)/destroy(), or
+		// connection/listener.close() captures the handle at registration so
+		// the cleanup always targets the exact handle the defer saw.
 		if node.Operand == nil {
 			return unknownExpressionDiagnostic("deferred handle method without a receiver")
 		}
@@ -305,6 +305,29 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		return "", unknownExpressionDiagnostic("deferred task method without a captured receiver")
 	case checker.TimeExpression:
 		return timeCall(node, arguments)
+	case checker.NetworkExpression:
+		// The checker admits only close as a deferred networking or
+		// process/IPC operation; the captured receiver feeds the
+		// module-owned result-union adapter.
+		if len(arguments) != 1 {
+			return "", unknownExpressionDiagnostic("deferred network call without a captured receiver")
+		}
+		suffix := streamAdapterSuffix(node.ResultType)
+		site := fmt.Sprintf("%d, %d", node.SourceLine, node.SourceColumn)
+		switch node.Name {
+		case "tcp_close":
+			if compilerTypes.IsTcpListener(node.OperandType) {
+				return fmt.Sprintf("hex_tcp_listener_close_%s(%s, %s)", suffix, arguments[0], site), nil
+			}
+			return fmt.Sprintf("hex_tcp_close_%s(%s, %s)", suffix, arguments[0], site), nil
+		case "process_close":
+			return fmt.Sprintf("hex_process_close_%s(%s, %s)", suffix, arguments[0], site), nil
+		case "pipe_close":
+			return fmt.Sprintf("hex_pipe_close_%s(%s, %s)", suffix, arguments[0], site), nil
+		case "signals_close":
+			return fmt.Sprintf("hex_signals_close_%s(%s, %s)", suffix, arguments[0], site), nil
+		}
+		return "", unknownExpressionDiagnostic("deferred network call without a captured receiver")
 	case checker.StreamMethodCallExpression:
 		// The checker admits only close as a deferred stream operation; the
 		// captured receiver feeds the module-owned result-union adapter.

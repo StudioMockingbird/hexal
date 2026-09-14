@@ -103,6 +103,9 @@ func writeUnionForwardDeclarations(result *strings.Builder, state *generatedUnio
 		return
 	}
 	for _, union := range state.order {
+		if compilerTypes.IsBuiltinUnion(union) {
+			continue
+		}
 		name := union.CName
 		fmt.Fprintf(result, "\ntypedef struct %s %s;\n", name, name)
 	}

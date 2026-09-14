@@ -680,7 +680,7 @@ func TestDeclarationOnlyHandleReachabilityLinksConcurrency(t *testing.T) {
 	}{
 		{"channel parameter", "fun consume(c: Channel<Int32>): Int32 do\n    return 1\nend\n", "fun consume(c: Channel<Int32>): Int32 do\n    c.close()\n    return 1\nend\n", "hex_channel_Int32", true},
 		{"task parameter", "fun consume(t: Task<Int32>): Int32 do\n    return 1\nend\n", "fun consume(t: Task<Int32>): Int32 do\n    t.join()\n    return 1\nend\n", "hex_task_Int32", true},
-		{"channel return", "fun source(h: Heap): Channel<Int32> | Error do\n    return Error(\"x\", \"y\")\nend\n", "fun source(h: Heap): Channel<Int32> | Error do\n    return Channel<Int32>(h, 2)\nend\n", "hex_channel_Int32", true},
+		{"channel return", "fun source(h: Heap): Channel<Int32> | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\n", "fun source(h: Heap): Channel<Int32> | Error do\n    return Channel<Int32>(h, 2)\nend\n", "hex_channel_Int32", true},
 		{"mutex parameter", "fun protect(m: Mutex) do\nend\n", "fun protect(m: Mutex) do\n    m.lock()\n    m.unlock()\nend\n", "hex_mutex", true},
 		{"atomic object member", "type Counter is struct value: Atomic<Int32> end\n", "type Counter is struct value: Atomic<Int32> end\nfun run() do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    counter.store(1)\nend\n", "hex_atomic_Int32", false},
 	}

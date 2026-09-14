@@ -28,7 +28,7 @@ func assertStderrContains(t *testing.T, result compiler.CompilationResult, want 
 
 func TestMultiModuleCleanProgramsGenerate(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -40,8 +40,8 @@ func TestMultiModuleCleanProgramsGenerate(t *testing.T) {
 
 func TestRelativeImportsResolve(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":             "module Tools = import \"./libs/tools\"\n",
-		"libs/tools.hex":      "module Shared = import \"../shared\"\n",
+		"app.hex":             "import\n    Tools from \"./libs/tools\"\nend\n",
+		"libs/tools.hex":      "import\n    Shared from \"../shared\"\nend\n",
 		"shared.hex":          "fun shared_helper(): Int32 do\n    return 1\nend\n",
 		"graphics/shapes.hex": "fun area(): Int32 do\n    return 1\nend\n",
 	}
@@ -52,12 +52,12 @@ func TestRelativeImportsResolve(t *testing.T) {
 }
 
 func TestImportAboveRootFails(t *testing.T) {
-	result := compiler.Compile(map[string]string{"app.hex": "module Up = import \"../up\"\n"}, "app.hex", compiler.Project{})
+	result := compiler.Compile(map[string]string{"app.hex": "import\n    Up from \"../up\"\nend\n"}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "import resolves above the logical source-map root")
 }
 
 func TestImportPathMustBeRelative(t *testing.T) {
-	result := compiler.Compile(map[string]string{"app.hex": "module M = import \"math\"\n"}, "app.hex", compiler.Project{})
+	result := compiler.Compile(map[string]string{"app.hex": "import\n    M from \"math\"\nend\n"}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "import path \"math\" is not relative")
 }
 
@@ -66,26 +66,26 @@ func TestHexSuffixSpellingResolvesSameModule(t *testing.T) {
 	// of the same canonical module in one file is a duplicate, not a
 	// missing module.
 	result := compiler.Compile(map[string]string{
-		"app.hex":  "module A = import \"./math\"\nmodule B = import \"./math.hex\"\n",
+		"app.hex":  "import\n    A from \"./math\"\n,\n    B from \"./math.hex\"\nend\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "duplicate import of canonical module math")
 }
 
 func TestImportNotFound(t *testing.T) {
-	result := compiler.Compile(map[string]string{"app.hex": "module Nope = import \"./nope\"\n"}, "app.hex", compiler.Project{})
+	result := compiler.Compile(map[string]string{"app.hex": "import\n    Nope from \"./nope\"\nend\n"}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "imported module \"./nope\" was not found")
 
 	// A non-.hex extension is a different module name, not a suffix rule.
-	result = compiler.Compile(map[string]string{"app.hex": "module Txt = import \"./math.txt\"\n"}, "app.hex", compiler.Project{})
+	result = compiler.Compile(map[string]string{"app.hex": "import\n    Txt from \"./math.txt\"\nend\n"}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "imported module \"./math.txt\" was not found")
 }
 
 func TestImportCycleReportsCanonicalChain(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":       "module Math = import \"./math\"\n",
-		"math.hex":      "module Constants = import \"./constants\"\n",
-		"constants.hex": "module App = import \"./app\"\n",
+		"app.hex":       "import\n    Math from \"./math\"\nend\n",
+		"math.hex":      "import\n    Constants from \"./constants\"\nend\n",
+		"constants.hex": "import\n    App from \"./app\"\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "import cycle: app -> math -> constants -> app")
@@ -96,7 +96,7 @@ func TestCaseDistinctModulesAreDistinct(t *testing.T) {
 	// imported, so the unreachable Math.hex's bad contents are ignored and
 	// only app + math artifacts are generated.
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 		"Math.hex": "broken executable\n",
 	}
@@ -109,7 +109,7 @@ func TestCaseDistinctModulesAreDistinct(t *testing.T) {
 
 func TestImportAliasConflictsWithExistingBinding(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":   "module Math = import \"./math\"\nmodule Math = import \"./math2\"\n",
+		"app.hex":   "import\n    Math from \"./math\"\n,\n    Math from \"./math2\"\nend\n",
 		"math.hex":  "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 		"math2.hex": "fun sub(x: Int32, y: Int32): Int32 do\n    return x - y\nend\n",
 	}
@@ -119,7 +119,7 @@ func TestImportAliasConflictsWithExistingBinding(t *testing.T) {
 
 func TestParameterCannotShadowImportAlias(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\nfun f(Math: Int32) do\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nfun f(Math: Int32) do\nend\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -128,11 +128,11 @@ func TestParameterCannotShadowImportAlias(t *testing.T) {
 
 func TestImportsMustPrecedeOtherItems(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "value: Int32 := 1\nmodule Math = import \"./math\"\n",
+		"app.hex":  "value: Int32 := 1\nimport\n    Math from \"./math\"\nend\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
-	assertStderrContains(t, result, "imports must precede all other top-level items")
+	assertStderrContains(t, result, "import block must be the first top-level construct")
 }
 
 // The import prefix ends at the first non-import item of any kind: a type,
@@ -151,17 +151,17 @@ func TestImportAfterAnyDeclarationRejected(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			sources := map[string]string{
-				"app.hex":  testCase.prefix + "module Math = import \"./math\"\n",
-				"math.hex": "export fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
+				"app.hex":  testCase.prefix + "import\n    Math from \"./math\"\nend\n",
+				"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\nexport\n    add\nend\n",
 			}
 			result := compiler.Compile(sources, "app.hex", compiler.Project{})
-			assertStderrContains(t, result, "imports must precede all other top-level items")
+			assertStderrContains(t, result, "import block must be the first top-level construct")
 		})
 	}
 	// Imports-only-first programs remain accepted.
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\ntype T is struct n: Int32 end\nexport fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
-		"math.hex": "export fun helper(): Int32 do\n    return 1\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\ntype T is struct n: Int32 end\nfun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\nexport\n    add\nend\n",
+		"math.hex": "fun helper(): Int32 do\n    return 1\nend\nexport\n    helper\nend\n",
 	}
 	compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
@@ -169,7 +169,7 @@ func TestImportAfterAnyDeclarationRejected(t *testing.T) {
 
 func TestImportedModuleIsDeclarationsOnly(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\n",
 		"math.hex": "value: Int32 := 1\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -203,15 +203,15 @@ func TestUnreachableSourcesAreIgnored(t *testing.T) {
 
 func TestStatsSumOverReachableModules(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "module Math = import \"./math\"\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "math")
-	// Two logical lines (1 app + 3 math), plus one trailing newline per
-	// source file: 2 + 4 = 6.
-	if result.Stats.SourceLines != 6 {
-		t.Fatalf("SourceLines = %d, want 6 (app + math, trailing newlines counted)", result.Stats.SourceLines)
+	// Six logical lines (3 app + 3 math), plus one trailing newline per
+	// source file: 4 + 4 = 8.
+	if result.Stats.SourceLines != 8 {
+		t.Fatalf("SourceLines = %d, want 8 (app + math, trailing newlines counted)", result.Stats.SourceLines)
 	}
 	if result.Stats.TokenCount == 0 {
 		t.Fatalf("TokenCount = 0, want the summed reachable token count")

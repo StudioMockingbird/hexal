@@ -14,6 +14,18 @@ type generatedAdtState struct {
 	seen  map[*compilerTypes.AdtType]bool
 }
 
+// ensureRegistered records typ in the ADT order if it is not already
+// present, even though no source expression in this module may construct it.
+// ErrorKind uses this: selecting Error registers every ErrorKind variant into
+// the program-wide tag registry, not only the variants a program constructs.
+func (state *generatedAdtState) ensureRegistered(typ compilerTypes.Type) {
+	if typ.Adt == nil || state.seen[typ.Adt] {
+		return
+	}
+	state.seen[typ.Adt] = true
+	state.order = append(state.order, typ)
+}
+
 func discoverGeneratedADTs(program checker.Program) *generatedAdtState {
 	state := &generatedAdtState{seen: make(map[*compilerTypes.AdtType]bool)}
 	visitor := &programVisitor{
@@ -95,6 +107,23 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 	variant := &adt.Variants[node.VariantIndex]
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "(%s){ .tag = %s", adt.CName, state.tags.adtVariantTag(adt, node.VariantIndex))
+	if compilerTypes.IsErrorKind(node.ResultType) {
+		// ErrorKind's Other is the only payload-carrying variant among 26, so
+		// its header lives in one flat other_header field rather than a
+		// per-variant payload union (see hexal/error.h).
+		if len(node.Arguments) != len(variant.Payload) {
+			return "", unknownExpressionDiagnostic("ADT construction payload count does not match its variant")
+		}
+		if len(variant.Payload) == 1 {
+			value, err := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
+			if err != nil {
+				return "", err
+			}
+			fmt.Fprintf(&builder, ", .other_header = %s", value)
+		}
+		builder.WriteString(" }")
+		return builder.String(), nil
+	}
 	if len(variant.Payload) > 0 {
 		if len(node.Arguments) != len(variant.Payload) {
 			return "", unknownExpressionDiagnostic("ADT construction payload count does not match its variant")

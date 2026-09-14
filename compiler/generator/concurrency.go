@@ -278,18 +278,16 @@ func (state *generatedConcurrencyState) messageLiteral(literals *literalRegistry
 }
 
 // writeErrorHelper emits the runtime Error-construction helper hex_sched_error
-// once, before any operation family that can fail.
+// once, before any operation family that can fail. The caller supplies the
+// exact ErrorKind for its own failure reason: Task, Channel, and Mutex
+// creation report ResourceExhausted; Channel send after close reports Closed.
 func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder, literals *literalRegistry) {
-	fmt.Fprintf(result, "\nstatic inline hex_t_Error hex_sched_error(size_t line, size_t column, const hex_string *message) {\n")
+	fmt.Fprintf(result, "\nstatic inline hex_t_Error hex_sched_error(hex_t_ErrorKind kind, size_t line, size_t column, const hex_string *message) {\n")
 	fmt.Fprintf(result, "    return (hex_t_Error){\n")
 	fmt.Fprintf(result, "        .hex_m_file = &%s,\n", literals.CName(state.fileLiteral))
 	fmt.Fprintf(result, "        .hex_m_line = line,\n")
 	fmt.Fprintf(result, "        .hex_m_column = column,\n")
-	fmt.Fprintf(result, "        .hex_m_header = (hex_strand){{")
-	for _, character := range []byte("Scheduler") {
-		fmt.Fprintf(result, " %d,", character)
-	}
-	fmt.Fprintf(result, " 0 }},\n")
+	fmt.Fprintf(result, "        .hex_m_kind = kind,\n")
 	fmt.Fprintf(result, "        .hex_m_message = message,\n")
 	fmt.Fprintf(result, "    };\n}\n")
 }
@@ -427,8 +425,8 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 				channelMember, _ := unionMembers.At(channelIndex)
 				errorMember, _ := unionMembers.At(errorIndex)
 				message := state.messageLiteral(literals, state.channelCreationFailed)
-				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(hex_heap h, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)h;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = channel };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
-					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(channelMember), tags.unionPayloadField(channelMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), message)
+				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(hex_heap h, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)h;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = channel };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error((hex_t_ErrorKind){ .tag = %s }, line, column, &%s) };\n}\n",
+					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(channelMember), tags.unionPayloadField(channelMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), errorKindTag(tags, "ResourceExhausted"), message)
 			}
 		}
 		if state.channelSend {
@@ -440,8 +438,8 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 				nilMember, _ := unionMembers.At(nilIndex)
 				errorMember, _ := unionMembers.At(errorIndex)
 				message := state.messageLiteral(literals, state.channelSendFailed)
-				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
-					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(nilMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), message)
+				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error((hex_t_ErrorKind){ .tag = %s }, line, column, &%s) };\n}\n",
+					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(nilMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), errorKindTag(tags, "Closed"), message)
 			}
 		}
 		// The receive union is emitted for every used Channel<T>: receive
@@ -481,8 +479,8 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 			mutexMember, _ := mutexMembers.At(mutexIndex)
 			errorMember, _ := mutexMembers.At(errorIndex)
 			message := state.messageLiteral(literals, state.mutexCreationFailed)
-			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(hex_heap h, size_t line, size_t column, const hex_string *message) {\n    (void)h;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = mutex };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error(line, column, &%s) };\n}\n",
-				union.CName, union.CName, tags.unionMemberTag(mutexMember), tags.unionPayloadField(mutexMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), message)
+			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(hex_heap h, size_t line, size_t column, const hex_string *message) {\n    (void)h;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = mutex };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error((hex_t_ErrorKind){ .tag = %s }, line, column, &%s) };\n}\n",
+				union.CName, union.CName, tags.unionMemberTag(mutexMember), tags.unionPayloadField(mutexMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), errorKindTag(tags, "ResourceExhausted"), message)
 		}
 	}
 	fmt.Fprintf(result, "\nstatic inline void hex_mutex_free_hex_mutex(hex_heap h, hex_mutex *mutex) {\n    (void)h;\n    hex_mutex_free(mutex);\n}\n")
@@ -629,9 +627,9 @@ func renderSpawnExpression(node checker.Expression, state *expressionValidation)
 	spawnMembers := compilerTypes.UnionMembers(union)
 	taskMember, _ := spawnMembers.At(taskIndex)
 	errorMember, _ := spawnMembers.At(errorIndex)
-	return fmt.Sprintf("(%s ? (%s){ .tag = %s, .payload.%s = %s } : (%s){ .tag = %s, .payload.%s = hex_sched_error(%d, %d, &%s) })",
+	return fmt.Sprintf("(%s ? (%s){ .tag = %s, .payload.%s = %s } : (%s){ .tag = %s, .payload.%s = hex_sched_error((hex_t_ErrorKind){ .tag = %s }, %d, %d, &%s) })",
 		taskTemp, union.CName, state.tags.unionMemberTag(taskMember), state.tags.unionPayloadField(taskMember), taskTemp,
-		union.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(errorMember), node.SourceLine, node.SourceColumn, message), nil
+		union.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(errorMember), errorKindTag(state.tags, "ResourceExhausted"), node.SourceLine, node.SourceColumn, message), nil
 }
 
 // errorMessageLiteral resolves one failure message literal registered during

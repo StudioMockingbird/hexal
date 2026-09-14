@@ -241,7 +241,8 @@ func streamMemberRef(tags *tagRegistry, union compilerTypes.Type, member compile
 	return tags.unionMemberTag(resolved), tags.unionPayloadField(resolved)
 }
 
-// streamErrorArm spells one Error payload construction for a stream adapter.
+// streamErrorArm spells one Error payload construction for a stream adapter
+// whose failure carries a native code classified through hex_io_error.
 func streamErrorArm(tags *tagRegistry, literals *literalRegistry, file string, union compilerTypes.Type, operation, code, payload string) (string, error) {
 	handle, ok := literals.Lookup(payload)
 	if !ok {
@@ -250,6 +251,20 @@ func streamErrorArm(tags *tagRegistry, literals *literalRegistry, file string, u
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
 	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = hex_io_error(line, column, %s, \"%s\", %s, &%s) }",
 		union.CName, tag, field, file, operation, code, literals.CName(handle)), nil
+}
+
+// streamErrorArmWithKind spells one Error payload construction for a
+// non-native stream failure (a capability mismatch or a Bytes contract
+// violation): it carries no native code, so it constructs its ErrorKind
+// directly instead of routing through hex_io_error's native classification.
+func streamErrorArmWithKind(tags *tagRegistry, literals *literalRegistry, file string, union compilerTypes.Type, kindVariant, payload string) (string, error) {
+	handle, ok := literals.Lookup(payload)
+	if !ok {
+		return "", unknownExpressionDiagnostic("stream failure message is missing from the literal registry: " + payload)
+	}
+	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
+	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = %s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = (hex_t_ErrorKind){ .tag = %s }, .hex_m_message = &%s } }",
+		union.CName, tag, field, file, errorKindTag(tags, kindVariant), literals.CName(handle)), nil
 }
 
 // validateStreamConstructor checks one standard-handle constructor fail-closed:
@@ -381,6 +396,9 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 	errorArm := func(operation, code, payload string, union compilerTypes.Type) (string, error) {
 		return streamErrorArm(tags, literals, file, union, operation, code, payload)
 	}
+	errorArmWithKind := func(kindVariant, payload string, union compilerTypes.Type) (string, error) {
+		return streamErrorArmWithKind(tags, literals, file, union, kindVariant, payload)
+	}
 
 	if state.constructor && len(state.openUnions) > 0 {
 		union := state.openUnions[0]
@@ -412,7 +430,7 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 			return armErr
 		}
 		if state.readIO {
-			notReadable, armErr := errorArm("read", "0", streamMessageNotReadable, union)
+			notReadable, armErr := errorArmWithKind("PermissionDenied", streamMessageNotReadable, union)
 			if armErr != nil {
 				return armErr
 			}
@@ -437,7 +455,7 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 				readFailed)
 		}
 		if state.readBytes {
-			selfRead, armErr := errorArm("read", "0", streamMessageSelfRead, union)
+			selfRead, armErr := errorArmWithKind("InvalidInput", streamMessageSelfRead, union)
 			if armErr != nil {
 				return armErr
 			}
@@ -470,7 +488,7 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 			return armErr
 		}
 		if state.writeIO {
-			notWritable, armErr := errorArm("write", "0", streamMessageNotWritable, union)
+			notWritable, armErr := errorArmWithKind("PermissionDenied", streamMessageNotWritable, union)
 			if armErr != nil {
 				return armErr
 			}
@@ -492,7 +510,7 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 				writeFailed)
 		}
 		if state.writeBytes {
-			overlap, armErr := errorArm("write", "0", streamMessageOverlap, union)
+			overlap, armErr := errorArmWithKind("InvalidInput", streamMessageOverlap, union)
 			if armErr != nil {
 				return armErr
 			}

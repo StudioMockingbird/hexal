@@ -3,7 +3,7 @@
 #include "hexal/time.h"
 {{- end}}
 #include <uv.h>
-{{- if not .File}}
+{{- if not .Handle}}
 
 // One command is one intrusive request record owned by a parked Task's fiber
 // stack. The record stays live until its terminal loop-thread callback has
@@ -110,7 +110,7 @@ static void hex_event_park(hex_task *task, hex_event_command *command) {
     hex_event_enqueue(command);
     hex_task_event_suspend(task);
 }
-{{- if .File}}
+{{- if .Handle}}
 
 void hex_event_submit(hex_task *task, hex_event_command *command) {
     hex_event_park(task, command);

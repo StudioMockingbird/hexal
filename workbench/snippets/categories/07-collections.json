@@ -104,7 +104,7 @@
       "sources": {"app.hex": [
         "fun pop_safe(values: List<Int32>): Int32 | Error do",
         "    if values.length() == 0 then",
-        "        return Error(\"catalog\", \"stack underflow\")",
+        "        return Error(ErrorKind.Other(header = \"catalog\"), \"stack underflow\")",
         "    end",
         "    return values.pop()",
         "end",

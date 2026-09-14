@@ -1,0 +1,77 @@
+{
+  "id": "processes",
+  "name": "Processes and IPC",
+  "snippets": [
+    {
+      "id": "processes-spawn-and-wait",
+      "name": "Spawn a process and wait for it",
+      "description": "Build a ProcessOptions request, start the child, and match its ExitStatus once it exits.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun run_worker(h: Heap): Int64 | Error do",
+          "    arguments: List<String> := List<String>(h)",
+          "    arguments.push(\"--once\")",
+          "    options: ProcessOptions := ProcessOptions(",
+          "        program = \"worker\",",
+          "        arguments = arguments,",
+          "        environment = Environment.Inherit(),",
+          "        working_directory = nil,",
+          "        input = ProcessStream.Inherit(),",
+          "        output = ProcessStream.Ignore(),",
+          "        error = ProcessStream.Ignore(),",
+          "    )",
+          "    started: StartedProcess := try Process.start(options)",
+          "    status: ExitStatus := try started.process.wait()",
+          "    try started.process.close()",
+          "    return match status is",
+          "    | ExitStatus.Exited then status.code",
+          "    | ExitStatus.Terminated then -1",
+          "    end",
+          "end",
+          "code: Int64 | Error := run_worker(Heap())"
+        ]
+      },
+      "features": ["processes", "errors", "try-errdefer", "collections"],
+      "reservedWords": ["fun", "do", "end", "try", "return", "nil", "match", "is", "then"]
+    },
+    {
+      "id": "processes-pipe-output",
+      "name": "Read a child's piped output",
+      "description": "Spawn a child with a piped stdout and drain it into a byte list before waiting for exit.",
+      "entrypoint": "app.hex",
+      "sources": {
+        "app.hex": [
+          "fun run_worker(h: Heap): Nil | Error do",
+          "    options: ProcessOptions := ProcessOptions(",
+          "        program = \"worker\",",
+          "        arguments = List<String>(h),",
+          "        environment = Environment.Inherit(),",
+          "        working_directory = nil,",
+          "        input = ProcessStream.Ignore(),",
+          "        output = ProcessStream.Pipe(),",
+          "        error = ProcessStream.Ignore(),",
+          "    )",
+          "    started: StartedProcess := try Process.start(options)",
+          "    output: Pipe | Nil := started.output",
+          "    if output != nil then",
+          "        buffer: List<Byte> := List<Byte>(h)",
+          "        defer buffer.free(h)",
+          "        received: Size | EoS := try output.read(buffer, 256)",
+          "        if received is Size then",
+          "            try output.write(\"ack\".bytes())",
+          "        end",
+          "        try output.close()",
+          "    end",
+          "    try started.process.wait()",
+          "    try started.process.close()",
+          "    return nil",
+          "end",
+          "done: Nil | Error := run_worker(Heap())"
+        ]
+      },
+      "features": ["processes", "errors", "try-errdefer", "collections", "nullability"],
+      "reservedWords": ["fun", "do", "end", "try", "return", "nil", "if", "then", "is", "defer"]
+    }
+  ]
+}

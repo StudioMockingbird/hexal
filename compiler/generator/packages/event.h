@@ -7,7 +7,7 @@ typedef void (*hex_event_work_entry)(void *context);
 typedef void (*hex_event_work_failure)(void *context);
 void hex_event_runtime_init(void);
 void hex_event_work_call(hex_event_work_entry entry, hex_event_work_failure failure, void *context);
-{{- if .File}}
+{{- if .Handle}}
 
 // A component request embeds this intrusive command first. start runs on the
 // loop thread, which alone may call libuv request and handle functions; the

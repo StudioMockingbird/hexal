@@ -271,6 +271,35 @@ const (
 	// declaration sugar and is checked as the equivalent named function
 	// declaration instead, never as this expression kind.
 	FunctionLiteralExpression
+	// ErrorHeaderExpression is Error.header(): the allocation-free display
+	// header derived from the receiver's kind. Operand is the Error receiver.
+	ErrorHeaderExpression
+	// ErrorKindHeaderExpression is ErrorKind.header(): the same derivation
+	// called directly on a classification value. Operand is the ErrorKind
+	// receiver.
+	ErrorKindHeaderExpression
+	// ModuleValueExpression reads a `static` module value's program-lifetime
+	// storage. Name is the bare declared name; Module is the defining
+	// module's canonical id for an imported value, empty for one declared in
+	// the generating module itself (matching FunctionReferenceExpression's
+	// Module convention). It is also the target of an assignment or the
+	// operand of an address-of expression naming this storage; both reuse
+	// the same node generically, reading writability from Mutable.
+	ModuleValueExpression
+	// NetworkExpression is one libuv-backed networking or process/IPC
+	// operation, both sharing this one generic node shape. Name selects it:
+	// address_parse, address_format, dns_resolve, tcp_connect, tcp_listen,
+	// tcp_accept, tcp_read, tcp_write, tcp_shutdown, tcp_no_delay, tcp_close
+	// (networking); process_start, process_wait, process_terminate,
+	// process_close, pipe_read, pipe_write, pipe_shutdown, pipe_close
+	// (processes and IPC); signals_new, signals_next, signals_close (ordinary
+	// signal observation). Operand is the receiver for an instance
+	// operation and nil for a static namespace call (address_parse,
+	// dns_resolve, tcp_connect, tcp_listen, process_start, signals_new). Arguments holds
+	// every non-receiver operand in written order. OperandType is the
+	// receiver's handle type for an instance operation, AddressType for
+	// address_format, and the zero Type for a static call.
+	NetworkExpression
 )
 
 // Operator is the resolved semantic operator carried by a checked operation.
@@ -361,6 +390,10 @@ type Expression struct {
 	Kind    ExpressionKind
 	Name    string
 	Binding BindingID
+	// Mutable belongs to ModuleValueExpression alone: whether the referenced
+	// module value is a `static mut` (writable) or a fixed `static`
+	// (read-only). Every other kind leaves it false and unused.
+	Mutable bool
 	// CollectionRoot identifies the copied List or Dict state represented by
 	// this expression. Zero means the expression is not a tracked collection
 	// place or its identity cannot be established statically.

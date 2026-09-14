@@ -66,21 +66,41 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 	return false
 }
 
+// moduleRoutedElement reports whether element forces its own collection
+// specialization to the consuming module's own header rather than the
+// shared component: a module-emitted type, or Signal. hexal/signal.h needs
+// hexal/error.h, which needs hexal/string.h, which needs hex_slice_UInt8 --
+// hexal/slice.h is positioned ahead of all of them precisely so they can
+// rely on it already being complete, so no shared component naming a Signal
+// specialization directly (slice.h itself, or another component's own
+// "matching slice" cross-reference to hex_slice_Signal, e.g. array.h's)
+// can include hexal/signal.h without inverting that dependency direction.
+// The module header's own body renders after every component #include,
+// where hexal/signal.h -- pulled in by moduleSignalComponent -- is already
+// complete, so every Signal-element specialization (List, Array, Dict,
+// Slice, Pool alike, not just the one directly reaching Signal) is routed
+// there together for one consistent, always-available definition. File,
+// TcpConnection, and Process have the identical layering conflict and are
+// not fixed here.
+func moduleRoutedElement(element compilerTypes.Type) bool {
+	return typeIsModuleEmitted(element) || elementNeedsSignal(element)
+}
+
 // collectionElementModuleTyped reports whether one collection specialization
 // spells a module-emitted type: the element of a list, array, slice, or pool,
 // or the value of a dict (the key is always a builtin Int32 or Strand).
 func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 	switch {
 	case typ.List != nil:
-		return typeIsModuleEmitted(typ.List.Element)
+		return moduleRoutedElement(typ.List.Element)
 	case typ.Array != nil:
-		return typeIsModuleEmitted(typ.Array.Element)
+		return moduleRoutedElement(typ.Array.Element)
 	case typ.Slice != nil:
-		return typeIsModuleEmitted(typ.Slice.Element)
+		return moduleRoutedElement(typ.Slice.Element)
 	case typ.Dict != nil:
-		return typeIsModuleEmitted(typ.Dict.Value)
+		return moduleRoutedElement(typ.Dict.Value)
 	case typ.Pool != nil:
-		return typeIsModuleEmitted(typ.Pool.Element)
+		return moduleRoutedElement(typ.Pool.Element)
 	}
 	return false
 }

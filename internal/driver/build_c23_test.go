@@ -120,8 +120,8 @@ func TestBuildCompilesRuntimeComponents(t *testing.T) {
 func TestBuildResolvesImports(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
-	writeSource(t, dir, "util.hex", "export fun double(value: Int32): Int32 do\n    return value * 2\nend\n")
-	writeSource(t, dir, "main.hex", "module Util = import \"./util\"\nprint(Util.double(21))\n")
+	writeSource(t, dir, "util.hex", "fun double(value: Int32): Int32 do\n    return value * 2\nend\nexport\n    double\nend\n")
+	writeSource(t, dir, "main.hex", "import\n    Util from \"./util\"\nend\nprint(Util.double(21))\n")
 
 	result, err := Build(BuildOptions{Root: dir})
 	if err != nil {

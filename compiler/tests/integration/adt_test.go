@@ -113,8 +113,8 @@ func TestMatchExhaustivenessDiagnostic(t *testing.T) {
 // that variant's own payload.
 func TestMatchImportedADTVariantsNarrowPayload(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nshape: M.Shape := M.make()\narea: Int32 := match shape is\n| M.Circle then shape.r * shape.r\n| M.Square then shape.a * shape.a\nend\n",
-		"m.hex":   "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport fun make(): Shape do\n    return Shape.Circle(r = 3)\nend\n",
+		"app.hex": "import\n    M from \"./m\"\nend\nshape: M.Shape := M.make()\narea: Int32 := match shape is\n| M.Circle then shape.r * shape.r\n| M.Square then shape.a * shape.a\nend\n",
+		"m.hex":   "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun make(): Shape do\n    return Shape.Circle(r = 3)\nend\nexport\n    Shape,\n    make\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -132,16 +132,16 @@ func TestMatchImportedADTVariantsNarrowPayload(t *testing.T) {
 // collapse onto the shared short name.
 func TestMatchSameNamedUnionMembersNarrowDistinctly(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun work_m(p: M.Point): Int32 do\n    return 1\nend\nfun work_s(p: S.Point): Int32 do\n    return 2\nend\nu: M.Point | S.Point := M.make()\nresult: Int32 := match u is\n| M.Point then work_m(u)\n| S.Point then work_s(u)\nend\n",
-		"m.hex":   "export type Point is struct mx: Int32 end\nexport fun make(): Point do\n    return Point(mx = 1)\nend\n",
-		"s.hex":   "export type Point is struct sy: Int32 end\nexport fun make(): Point do\n    return Point(sy = 2)\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nfun work_m(p: M.Point): Int32 do\n    return 1\nend\nfun work_s(p: S.Point): Int32 do\n    return 2\nend\nu: M.Point | S.Point := M.make()\nresult: Int32 := match u is\n| M.Point then work_m(u)\n| S.Point then work_s(u)\nend\n",
+		"m.hex":   "type Point is struct mx: Int32 end\nfun make(): Point do\n    return Point(mx = 1)\nend\nexport\n    Point,\n    make\nend\n",
+		"s.hex":   "type Point is struct sy: Int32 end\nfun make(): Point do\n    return Point(sy = 2)\nend\nexport\n    Point,\n    make\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	swapped := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nfun work_m(p: M.Point): Int32 do\n    return 1\nend\nfun work_s(p: S.Point): Int32 do\n    return 2\nend\nu: M.Point | S.Point := M.make()\nresult: Int32 := match u is\n| M.Point then work_s(u)\n| S.Point then work_m(u)\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nfun work_m(p: M.Point): Int32 do\n    return 1\nend\nfun work_s(p: S.Point): Int32 do\n    return 2\nend\nu: M.Point | S.Point := M.make()\nresult: Int32 := match u is\n| M.Point then work_s(u)\n| S.Point then work_m(u)\nend\n",
 		"m.hex":   sources["m.hex"],
 		"s.hex":   sources["s.hex"],
 	}
@@ -155,16 +155,16 @@ func TestMatchSameNamedUnionMembersNarrowDistinctly(t *testing.T) {
 // alias, in canonical member order regardless of written order.
 func TestMatchMissingImportedMemberUsesAlias(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nu: M.Point | S.Point := M.make()\nresult: Int32 := match u is\n| M.Point then 1\nend\n",
-		"m.hex":   "export type Point is struct mx: Int32 end\nexport fun make(): Point do\n    return Point(mx = 1)\nend\n",
-		"s.hex":   "export type Point is struct sy: Int32 end\nexport fun make(): Point do\n    return Point(sy = 2)\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nu: M.Point | S.Point := M.make()\nresult: Int32 := match u is\n| M.Point then 1\nend\n",
+		"m.hex":   "type Point is struct mx: Int32 end\nfun make(): Point do\n    return Point(mx = 1)\nend\nexport\n    Point,\n    make\nend\n",
+		"s.hex":   "type Point is struct sy: Int32 end\nfun make(): Point do\n    return Point(sy = 2)\nend\nexport\n    Point,\n    make\nend\n",
 	}
 	first := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if first.ExitCode != compiler.ExitFailure || len(first.Stderr) == 0 || !strings.Contains(first.Stderr[0], "match is not exhaustive; missing S.Point") {
 		t.Fatalf("diagnostics = %#v, want missing S.Point", first.Stderr)
 	}
 	reversed := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nu: S.Point | M.Point := M.make()\nresult: Int32 := match u is\n| M.Point then 1\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nu: S.Point | M.Point := M.make()\nresult: Int32 := match u is\n| M.Point then 1\nend\n",
 		"m.hex":   sources["m.hex"],
 		"s.hex":   sources["s.hex"],
 	}
@@ -178,17 +178,17 @@ func TestMatchMissingImportedMemberUsesAlias(t *testing.T) {
 // missing constructed member qualifies its nominal leaves.
 func TestMatchMissingImportedVariantAndConstructedMembers(t *testing.T) {
 	variant := map[string]string{
-		"app.hex": "module M = import \"./m\"\nshape: M.Shape := M.make()\narea: Int32 := match shape is\n| M.Circle then 1\nend\n",
-		"m.hex":   "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport fun make(): Shape do\n    return Shape.Circle(r = 3)\nend\n",
+		"app.hex": "import\n    M from \"./m\"\nend\nshape: M.Shape := M.make()\narea: Int32 := match shape is\n| M.Circle then 1\nend\n",
+		"m.hex":   "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun make(): Shape do\n    return Shape.Circle(r = 3)\nend\nexport\n    Shape,\n    make\nend\n",
 	}
 	result := compiler.Compile(variant, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "match is not exhaustive; missing M.Square") {
 		t.Fatalf("diagnostics = %#v, want missing M.Square", result.Stderr)
 	}
 	constructed := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nmut a: M.Point := M.make()\nu: Ptr<mut M.Point> | Ptr<mut S.Point> := @a\nresult: Int32 := match u is\n| Ptr<mut M.Point> then 1\nend\n",
-		"m.hex":   "export type Point is struct mx: Int32 end\nexport fun make(): Point do\n    return Point(mx = 1)\nend\n",
-		"s.hex":   "export type Point is struct sy: Int32 end\nexport fun make(): Point do\n    return Point(sy = 2)\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nmut a: M.Point := M.make()\nu: Ptr<mut M.Point> | Ptr<mut S.Point> := @a\nresult: Int32 := match u is\n| Ptr<mut M.Point> then 1\nend\n",
+		"m.hex":   "type Point is struct mx: Int32 end\nfun make(): Point do\n    return Point(mx = 1)\nend\nexport\n    Point,\n    make\nend\n",
+		"s.hex":   "type Point is struct sy: Int32 end\nfun make(): Point do\n    return Point(sy = 2)\nend\nexport\n    Point,\n    make\nend\n",
 	}
 	constructedResult := compiler.Compile(constructed, "app.hex", compiler.Project{})
 	if constructedResult.ExitCode != compiler.ExitFailure || len(constructedResult.Stderr) == 0 || !strings.Contains(constructedResult.Stderr[0], "match is not exhaustive; missing Ptr<mut S.Point>") {
@@ -201,15 +201,15 @@ func TestMatchMissingImportedVariantAndConstructedMembers(t *testing.T) {
 // a missing arm reports its alias-qualified member.
 func TestMatchSameNamedConstructedAndADTUnions(t *testing.T) {
 	pointModules := map[string]string{
-		"m.hex": "export type Point is struct mx: Int32 end\nexport fun make(): Point do\n    return Point(mx = 1)\nend\n",
-		"s.hex": "export type Point is struct sy: Int32 end\nexport fun make(): Point do\n    return Point(sy = 2)\nend\n",
+		"m.hex": "type Point is struct mx: Int32 end\nfun make(): Point do\n    return Point(mx = 1)\nend\nexport\n    Point,\n    make\nend\n",
+		"s.hex": "type Point is struct sy: Int32 end\nfun make(): Point do\n    return Point(sy = 2)\nend\nexport\n    Point,\n    make\nend\n",
 	}
 	shapeModules := map[string]string{
-		"m.hex": "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport fun make(): Shape do\n    return Shape.Circle(r = 3)\nend\n",
-		"s.hex": "export type Shape is union | Round as d: Int32 end | Flat as w: Int32 end end\nexport fun make(): Shape do\n    return Shape.Round(d = 4)\nend\n",
+		"m.hex": "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun make(): Shape do\n    return Shape.Circle(r = 3)\nend\nexport\n    Shape,\n    make\nend\n",
+		"s.hex": "type Shape is union | Round as d: Int32 end | Flat as w: Int32 end end\nfun make(): Shape do\n    return Shape.Round(d = 4)\nend\nexport\n    Shape,\n    make\nend\n",
 	}
 	complete := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Point := M.make()\nu: Ptr<M.Point> | Ptr<S.Point> := @a\nv: Int32 := match u is\n| Ptr<M.Point> then 1\n| Ptr<S.Point> then 2\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\na: M.Point := M.make()\nu: Ptr<M.Point> | Ptr<S.Point> := @a\nv: Int32 := match u is\n| Ptr<M.Point> then 1\n| Ptr<S.Point> then 2\nend\n",
 		"m.hex":   pointModules["m.hex"],
 		"s.hex":   pointModules["s.hex"],
 	}
@@ -217,7 +217,7 @@ func TestMatchSameNamedConstructedAndADTUnions(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	missingPtr := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\na: M.Point := M.make()\nu: Ptr<M.Point> | Ptr<S.Point> := @a\nv: Int32 := match u is\n| Ptr<M.Point> then 1\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\na: M.Point := M.make()\nu: Ptr<M.Point> | Ptr<S.Point> := @a\nv: Int32 := match u is\n| Ptr<M.Point> then 1\nend\n",
 		"m.hex":   pointModules["m.hex"],
 		"s.hex":   pointModules["s.hex"],
 	}
@@ -225,7 +225,7 @@ func TestMatchSameNamedConstructedAndADTUnions(t *testing.T) {
 		t.Fatalf("diagnostics = %#v, want missing Ptr<S.Point>", result.Stderr)
 	}
 	completeShapes := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nu: M.Shape | S.Shape := M.make()\nv: Int32 := match u is\n| M.Shape then 1\n| S.Shape then 2\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nu: M.Shape | S.Shape := M.make()\nv: Int32 := match u is\n| M.Shape then 1\n| S.Shape then 2\nend\n",
 		"m.hex":   shapeModules["m.hex"],
 		"s.hex":   shapeModules["s.hex"],
 	}
@@ -233,7 +233,7 @@ func TestMatchSameNamedConstructedAndADTUnions(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	missingShape := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nu: M.Shape | S.Shape := M.make()\nv: Int32 := match u is\n| M.Shape then 1\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nu: M.Shape | S.Shape := M.make()\nv: Int32 := match u is\n| M.Shape then 1\nend\n",
 		"m.hex":   shapeModules["m.hex"],
 		"s.hex":   shapeModules["s.hex"],
 	}
@@ -293,9 +293,9 @@ func TestGenericADTUnitVariantNoPayload(t *testing.T) {
 // keeps the distinct types apart, each defined once.
 func TestTwoModulesDeclaringSameADTStayDistinct(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "module M = import \"./m\"\nmodule S = import \"./s\"\nb: M.Shape := M.make()\nc: S.Shape := S.make()\n",
-		"m.hex":   "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport fun make(): Shape do\n    return Shape.Circle(r = 1)\nend\n",
-		"s.hex":   "export type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport fun make(): Shape do\n    return Shape.Circle(r = 1)\nend\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nb: M.Shape := M.make()\nc: S.Shape := S.make()\n",
+		"m.hex":   "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun make(): Shape do\n    return Shape.Circle(r = 1)\nend\nexport\n    Shape,\n    make\nend\n",
+		"s.hex":   "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun make(): Shape do\n    return Shape.Circle(r = 1)\nend\nexport\n    Shape,\n    make\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {

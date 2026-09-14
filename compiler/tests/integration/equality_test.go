@@ -250,14 +250,14 @@ func TestProgramOwnedEqualitySharedAcrossModules(t *testing.T) {
     rightList: List<Int32> := List<Int32>(h)
     leftList.push(1)
     rightList.push(1)
-    leftError: Error := Error("x", "y")
-    rightError: Error := Error("x", "y")
+    leftError: Error := Error(ErrorKind.Other(header = "x"), "y")
+    rightError: Error := Error(ErrorKind.Other(header = "x"), "y")
     return (left == right) and (leftView == rightView) and (leftList == rightList) and (leftError == rightError)
 end
 `
 	result := compiler.Compile(map[string]string{
-		"app.hex":  "module Math = import \"./math\"\n" + compare + "root: Bool := compare(Heap())\nother: Bool := Math.compare(Heap())\n",
-		"math.hex": "export " + compare,
+		"app.hex":  "import\n    Math from \"./math\"\nend\n" + compare + "root: Bool := compare(Heap())\nother: Bool := Math.compare(Heap())\n",
+		"math.hex": compare + "export\n    compare\nend\n",
 	}, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v)", result.ExitCode, result.Stderr)

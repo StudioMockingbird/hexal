@@ -2,13 +2,23 @@
 #define HEXAL_FILE_H
 
 #include "hexal.h"
-#include "hexal/list.h"
 #include "hexal/slice.h"
 #include "hexal/error.h"
+#include "hexal/handle.h"
 
-// desc stores the numeric libuv descriptor without exposing its typedef.
+// hex_list_UInt8 is used here only by pointer (as File.read's destination).
+// hexal/list.h itself includes this header when a File-element List is
+// reachable, and a mutual #include would leave one side's struct incomplete
+// when the other needs it whole (list.h's inline push/pop bodies need the
+// full hex_file this header defines below), so this stays a forward
+// declaration instead of a full include.
+typedef struct hex_list_UInt8 hex_list_UInt8;
+
+// handle names one open descriptor through the shared generation-checked
+// registry; access is immutable metadata fixed at open time, so it needs no
+// registry protection of its own.
 typedef struct hex_file {
-    intptr_t desc;
+    hex_handle handle;
     uint8_t access;
 } hex_file;
 
@@ -23,6 +33,8 @@ enum {
     HEX_FILE_NOT_READABLE = 2,
     HEX_FILE_NOT_WRITABLE = 3,
     HEX_FILE_INVALID_PATH = 4,
+    HEX_FILE_CLOSED = 5,
+    HEX_FILE_ALLOCATION_FAILED = 6,
 };
 
 typedef struct hex_file_opened {

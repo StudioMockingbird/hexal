@@ -232,13 +232,28 @@ func checkVariantConstructorCall(call parser.CallExpression, ownerName string, a
 			continue
 		}
 		seen[field.Name] = true
-		checked := checkInitializer(argumentExpression, field.Use, *label, ctx)
+		// A builtin ADT variant built at Go init() time (Environment.Replace)
+		// carries List payload fields with a fixed, non-arena identity, since
+		// List's own interning lives on the per-compilation arena and isn't
+		// reachable at init() time. Re-resolving through the live arena here
+		// recovers the identity a real List<T> binding actually has; for
+		// ordinary variants (already declared against this same arena) it is
+		// a cache hit that returns the identical type unchanged.
+		fieldType := field.Type
+		fieldUse := field.Use
+		if fieldType.List != nil {
+			if live := ctx.typeEnvironment.ListType(fieldType.List.Element); live != (compilerTypes.Type{}) {
+				fieldType = live
+				fieldUse = compilerTypes.NewTypeUse(live)
+			}
+		}
+		checked := checkInitializer(argumentExpression, fieldUse, *label, ctx)
 		if nestedDiagnostics := initializerDiagnostics(checked); len(nestedDiagnostics) > 0 {
 			diagnostics = append(diagnostics, nestedDiagnostics...)
 			continue
 		}
-		if !assignable(field.Type, checked.typ) {
-			diagnostics = append(diagnostics, typeMismatchDiagnostic(field.Type, checked.typ, checked.token))
+		if !assignable(fieldType, checked.typ) {
+			diagnostics = append(diagnostics, typeMismatchDiagnostic(fieldType, checked.typ, checked.token))
 			continue
 		}
 		byField[field.Name] = checked.source
@@ -324,6 +339,9 @@ func unionMemberIndex(union, member compilerTypes.Type) int {
 func variantPayloadPlace(receiver checkedExpression, property lexer.Token) checkedExpression {
 	if receiver.variant == nil {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "ADT payload fields are only accessible inside a narrowed match arm"))}
+	}
+	if compilerTypes.IsErrorKind(receiver.storageType) {
+		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "ErrorKind payload is available only through header()"))}
 	}
 	memberIndex := -1
 	for index := range receiver.variant.Payload {
@@ -544,6 +562,10 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 	isADT := compilerTypes.IsADT(scrutineeType)
 	isUnion := compilerTypes.IsUnion(scrutineeType)
 	isBool := compilerTypes.Equal(scrutineeType, compilerTypes.Bool)
+	// ErrorKind's variant set may grow with later native capabilities, so
+	// every ErrorKind match requires a final else even when the written arms
+	// already cover every variant the compiler currently knows.
+	isErrorKind := compilerTypes.IsErrorKind(scrutineeType)
 	coverage := buildMatchCoverage(scrutineeType, expression.TypeMode)
 
 	scrutineeNode := expressionNode(scrutinee.source)
@@ -551,6 +573,7 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 	armTags := make([]int, 0, len(expression.Arms))
 	var resultType compilerTypes.Type
 	hasResult := false
+	hasElse := false
 	// finishArm checks one resolved arm body and enforces result agreement,
 	// recording its lowering tag. A non-nil return is the arm diagnostic.
 	finishArm := func(arm parser.MatchArm, tag int, variant *compilerTypes.AdtVariant, member *compilerTypes.Type) *checkedExpression {
@@ -574,7 +597,11 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 			if armIndex != len(expression.Arms)-1 {
 				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "else must be the final match arm"))}
 			}
-			if !coverage.open && !coverage.uncovered() {
+			hasElse = true
+			// A currently-complete explicit ErrorKind variant list still
+			// requires else and must not reject it as unreachable: future
+			// compiler versions may add variants this else alone will cover.
+			if !isErrorKind && !coverage.open && !coverage.uncovered() {
 				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "duplicate or unreachable match pattern"))}
 			}
 			coverage.coverAll()
@@ -718,6 +745,9 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 				}
 			}
 		}
+	}
+	if isErrorKind && !hasElse {
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match on ErrorKind requires a final else arm"))}
 	}
 	if coverage.uncovered() {
 		missing := coverage.firstMissing()

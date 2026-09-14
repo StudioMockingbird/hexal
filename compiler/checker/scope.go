@@ -18,6 +18,11 @@ const (
 	functionBinding
 	genericFunctionBinding
 	aliasBinding
+	// moduleValueBinding is a `static` module value: program-lifetime module
+	// storage visible throughout its defining module independent of textual
+	// position, unlike an ordinary dataBinding root value (main-local,
+	// unreachable from a function body).
+	moduleValueBinding
 )
 
 // scope is one lexical name frame. Module bindings remain in module and are
@@ -865,7 +870,7 @@ func (names *scope) lookup(name string) (binding, lookupStatus) {
 		}
 	}
 	if bound, ok := names.module[name]; ok && bound.kind != aliasBinding {
-		if names.inFunction() && bound.kind != functionBinding && bound.kind != genericFunctionBinding {
+		if names.inFunction() && bound.kind != functionBinding && bound.kind != genericFunctionBinding && bound.kind != moduleValueBinding {
 			return bound, nameModuleData
 		}
 		return bound, nameFound

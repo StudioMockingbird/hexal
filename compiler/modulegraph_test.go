@@ -30,7 +30,7 @@ func resolvedEdgeTarget(t *testing.T, sources map[string]string, entrypoint, fro
 // the one that differs in kind: the mirror silently accepted it, while the
 // resolver (the only implementation left) rejects a non-relative path.
 func TestModuleGraphEdgesCarryResolvedPaths(t *testing.T) {
-	dependency := "export fun value(): Int32 do\n    return 1\nend\n"
+	dependency := "fun value(): Int32 do\n    return 1\nend\nexport\n    value\nend\n"
 	for _, testCase := range []struct {
 		name       string
 		sources    map[string]string
@@ -40,30 +40,30 @@ func TestModuleGraphEdgesCarryResolvedPaths(t *testing.T) {
 	}{
 		{
 			name:       "sibling",
-			sources:    map[string]string{"app.hex": "module M = import \"./math\"\n", "math.hex": dependency},
+			sources:    map[string]string{"app.hex": "import\n    M from \"./math\"\nend\n", "math.hex": dependency},
 			entrypoint: "app.hex", fromModule: "app", want: "math",
 		},
 		{
 			name:       "sibling spelled with .hex",
-			sources:    map[string]string{"app.hex": "module M = import \"./math.hex\"\n", "math.hex": dependency},
+			sources:    map[string]string{"app.hex": "import\n    M from \"./math.hex\"\nend\n", "math.hex": dependency},
 			entrypoint: "app.hex", fromModule: "app", want: "math",
 		},
 		{
 			name:       "nested",
-			sources:    map[string]string{"app.hex": "module M = import \"./graphics/shapes\"\n", "graphics/shapes.hex": dependency},
+			sources:    map[string]string{"app.hex": "import\n    M from \"./graphics/shapes\"\nend\n", "graphics/shapes.hex": dependency},
 			entrypoint: "app.hex", fromModule: "app", want: "graphics/shapes",
 		},
 		{
 			name: "parent-relative",
 			sources: map[string]string{
-				"graphics/app.hex": "module M = import \"../shared/tools\"\n", "shared/tools.hex": dependency,
+				"graphics/app.hex": "import\n    M from \"../shared/tools\"\nend\n", "shared/tools.hex": dependency,
 			},
 			entrypoint: "graphics/app.hex", fromModule: "graphics/app", want: "shared/tools",
 		},
 		{
 			name: "nested under the importer's own directory",
 			sources: map[string]string{
-				"graphics/app.hex": "module M = import \"./shared/tools.hex\"\n", "graphics/shared/tools.hex": dependency,
+				"graphics/app.hex": "import\n    M from \"./shared/tools.hex\"\nend\n", "graphics/shared/tools.hex": dependency,
 			},
 			entrypoint: "graphics/app.hex", fromModule: "graphics/app", want: "graphics/shared/tools",
 		},
@@ -79,7 +79,7 @@ func TestModuleGraphEdgesCarryResolvedPaths(t *testing.T) {
 		})
 	}
 	t.Run("bare path is not relative", func(t *testing.T) {
-		sources := map[string]string{"app.hex": "module M = import \"math/vec3\"\n", "math/vec3.hex": dependency}
+		sources := map[string]string{"app.hex": "import\n    M from \"math/vec3\"\nend\n", "math/vec3.hex": dependency}
 		if _, err := reachableModules(sources, "app.hex"); err == nil {
 			t.Fatal("reachableModules accepted a non-relative import path")
 		}
@@ -91,12 +91,12 @@ func TestModuleGraphEdgesCarryResolvedPaths(t *testing.T) {
 // supplied: never a reconstruction.
 func TestModuleGraphInvariants(t *testing.T) {
 	sources := map[string]string{
-		"graphics/app.hex": "module Shapes = import \"./shapes\"\nmodule Tools = import \"../shared/tools\"\n" +
+		"graphics/app.hex": "import\n    Shapes from \"./shapes\"\n,\n    Tools from \"../shared/tools\"\nend\n" +
 			"result: Int32 := Shapes.corners() + Tools.value()\n",
-		"graphics/shapes.hex": "module Tools = import \"../shared/tools\"\n" +
-			"export fun corners(): Int32 do\n    return Tools.value()\nend\n",
-		"shared/tools.hex": "export fun value(): Int32 do\n    return 1\nend\n",
-		"unreachable.hex":  "export fun unused(): Int32 do\n    return 0\nend\n",
+		"graphics/shapes.hex": "import\n    Tools from \"../shared/tools\"\nend\n" +
+			"fun corners(): Int32 do\n    return Tools.value()\nend\nexport\n    corners\nend\n",
+		"shared/tools.hex": "fun value(): Int32 do\n    return 1\nend\nexport\n    value\nend\n",
+		"unreachable.hex":  "fun unused(): Int32 do\n    return 0\nend\nexport\n    unused\nend\n",
 	}
 	graph, err := reachableModules(sources, "graphics/app.hex")
 	if err != nil {

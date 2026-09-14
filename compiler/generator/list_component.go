@@ -22,6 +22,13 @@ type listComponentModel struct {
 	// handle, whose typedef hexal/concurrency.h owns; a component .c that
 	// includes this header directly cannot rely on a module include order.
 	NeedsConcurrency bool
+	// NeedsFile, NeedsNetwork, and NeedsProcess are true when some element is
+	// File, a networking type, or a process/IPC type, whose typedefs
+	// hexal/file.h, hexal/network.h, and hexal/process.h own.
+	NeedsFile    bool
+	NeedsNetwork bool
+	NeedsProcess bool
+	NeedsSignal  bool
 }
 
 // listComponentRecord is one reachable List specialization's spelling facts:
@@ -43,6 +50,10 @@ type listComponentRecord struct {
 	// NeedsHeapString is true when this specialization's element is String.
 	NeedsHeapString  bool
 	NeedsConcurrency bool
+	NeedsFile        bool
+	NeedsNetwork     bool
+	NeedsProcess     bool
+	NeedsSignal      bool
 }
 
 // listComponentRecordFor builds the spelling record of one List
@@ -73,6 +84,10 @@ func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceS
 		MutSliceCName:    mutSliceCName,
 		NeedsHeapString:  compilerTypes.IsString(element),
 		NeedsConcurrency: element.Task != nil || element.Channel != nil || compilerTypes.IsMutex(element),
+		NeedsFile:        compilerTypes.IsFile(element),
+		NeedsNetwork:     elementNeedsNetwork(element),
+		NeedsProcess:     elementNeedsProcess(element),
+		NeedsSignal:      elementNeedsSignal(element),
 	}
 }
 
@@ -96,7 +111,11 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/list.h",
 		template: "list.h",
-		model:    listComponentModel{Lists: records, NeedsSlice: listRecordsNeedSlice(records), NeedsHeapString: listRecordsNeedHeapString(records), NeedsConcurrency: listRecordsNeedConcurrency(records)},
+		model: listComponentModel{
+			Lists: records, NeedsSlice: listRecordsNeedSlice(records), NeedsHeapString: listRecordsNeedHeapString(records),
+			NeedsConcurrency: listRecordsNeedConcurrency(records), NeedsFile: listRecordsNeedFile(records), NeedsNetwork: listRecordsNeedNetwork(records),
+			NeedsProcess: listRecordsNeedProcess(records), NeedsSignal: listRecordsNeedSignal(records),
+		},
 	}}, nil
 }
 
@@ -143,6 +162,49 @@ func listRecordsNeedHeapString(records []listComponentRecord) bool {
 func listRecordsNeedConcurrency(records []listComponentRecord) bool {
 	for _, record := range records {
 		if record.NeedsConcurrency {
+			return true
+		}
+	}
+	return false
+}
+
+// listRecordsNeedFile reports whether any list element is File.
+func listRecordsNeedFile(records []listComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsFile {
+			return true
+		}
+	}
+	return false
+}
+
+// listRecordsNeedNetwork reports whether any list element spells a
+// networking type.
+func listRecordsNeedNetwork(records []listComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsNetwork {
+			return true
+		}
+	}
+	return false
+}
+
+// listRecordsNeedProcess reports whether any list element spells a
+// process/IPC type.
+func listRecordsNeedProcess(records []listComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsProcess {
+			return true
+		}
+	}
+	return false
+}
+
+// listRecordsNeedSignal reports whether any list element spells a
+// signal-observation type.
+func listRecordsNeedSignal(records []listComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsSignal {
 			return true
 		}
 	}

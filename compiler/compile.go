@@ -375,13 +375,11 @@ func (s *reachState) visit(canonical string) error {
 
 	s.stack = append(s.stack, canonical)
 	imported := make(map[string]bool)
-	for _, item := range program.Items {
-		importDecl, ok := item.(parser.ImportDeclaration)
-		if !ok {
-			continue
-		}
-		if err := s.resolveImport(canonical, importDecl, imported); err != nil {
-			return err
+	if program.Import != nil {
+		for _, entry := range program.Import.Entries {
+			if err := s.resolveImport(canonical, entry, imported); err != nil {
+				return err
+			}
 		}
 	}
 	s.stack = s.stack[:len(s.stack)-1]
@@ -389,12 +387,12 @@ func (s *reachState) visit(canonical string) error {
 	return nil
 }
 
-// resolveImport resolves one import declaration of fromModule, recording
-// every resolution diagnostic it can prove and recursing into the target.
-// imported holds the canonical ids fromModule has already bound in this file.
-// A lex/parse failure inside the target aborts the whole scan: the target's
+// resolveImport resolves one import entry of fromModule, recording every
+// resolution diagnostic it can prove and recursing into the target. imported
+// holds the canonical ids fromModule has already bound in this file. A
+// lex/parse failure inside the target aborts the whole scan: the target's
 // imports are unknown, so the reachable set is incomplete.
-func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportDeclaration, imported map[string]bool) error {
+func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEntry, imported map[string]bool) error {
 	line, column := importDecl.Path.Line, importDecl.Path.Column
 	rawPath := importDecl.Path.Lexeme
 	target, err := resolveImportPath(fromModule, rawPath)

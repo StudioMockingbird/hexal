@@ -46,56 +46,127 @@ constexpr size_t HEX_IO_MAX_REQUEST = (size_t)SSIZE_MAX;
 
 [[noreturn]] extern void hex_runtime_trap(const char *message);
 
-// Renders "IO <operation> <errno|winerr>=<code>" into the inline Strand
-// payload: one terminating NUL, zero-filled tail. Every operation name and
-// supported code width fits 31 payload bytes by construction; exceeding the
-// bound is a compiler-contract violation and traps rather than truncating.
-static hex_strand hex_io_header(const char *operation, bool windows_codes, long long code) {
-    static const char digits[] = "0123456789";
-    char composed[64];
-    size_t used = 0;
-    for (const char *part = "IO "; *part != '\0'; part++) {
-        composed[used++] = *part;
+// hex_io_error_kind maps one native failure code to the portable ErrorKind
+// front-end. IO does not link libuv; this is the small POSIX/Windows mapper
+// RFC 0181 keeps agreeing with the common libuv mapper on shared conditions.
+// It contains no errno or Win32 number in its Other fallback header.
+static hex_t_ErrorKind hex_io_error_kind(bool windows_codes, long long code) {
+#ifdef _WIN32
+    if (windows_codes) {
+        switch ((uint32_t)code) {
+        case ERROR_FILE_NOT_FOUND:
+        case ERROR_PATH_NOT_FOUND:
+            return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_NotFound};
+        case ERROR_ACCESS_DENIED:
+            return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_PermissionDenied};
+        case ERROR_INVALID_HANDLE:
+        case ERROR_INVALID_PARAMETER:
+        case ERROR_NEGATIVE_SEEK:
+            return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput};
+        case ERROR_BROKEN_PIPE:
+        case ERROR_NO_DATA:
+            return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_BrokenPipe};
+        case ERROR_NOT_ENOUGH_MEMORY:
+        case ERROR_OUTOFMEMORY:
+            return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted};
+        case ERROR_OPERATION_ABORTED:
+            return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Cancelled};
+        default:
+            break;
+        }
     }
-    for (const char *part = operation; *part != '\0'; part++) {
-        composed[used++] = *part;
+{{if not .TargetWindows -}}
+#else
+    (void)windows_codes;
+    switch (code) {
+    case ENOENT:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_NotFound};
+    case EACCES:
+    case EPERM:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_PermissionDenied};
+    case EEXIST:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_AlreadyExists};
+    case EINVAL:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput};
+    case ENAMETOOLONG:
+    case ELOOP:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidPath};
+    case ENOTDIR:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_NotADirectory};
+    case EISDIR:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_IsADirectory};
+    case ENOTEMPTY:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_DirectoryNotEmpty};
+    case EROFS:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ReadOnly};
+    case EBUSY:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Busy};
+    case EINTR:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Interrupted};
+#ifdef ECANCELED
+    case ECANCELED:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Cancelled};
+#endif
+    case ETIMEDOUT:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_TimedOut};
+    case ENOSYS:
+#if defined(ENOTSUP)
+    case ENOTSUP:
+#endif
+#if defined(EOPNOTSUPP) && (!defined(ENOTSUP) || EOPNOTSUPP != ENOTSUP)
+    case EOPNOTSUPP:
+#endif
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Unsupported};
+    case ENOMEM:
+    case ENOBUFS:
+    case EMFILE:
+    case ENFILE:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted};
+    case EADDRINUSE:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_AddressInUse};
+    case EADDRNOTAVAIL:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_AddressUnavailable};
+    case ECONNREFUSED:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ConnectionRefused};
+    case ECONNRESET:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ConnectionReset};
+    case ECONNABORTED:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ConnectionAborted};
+    case EHOSTUNREACH:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_HostUnreachable};
+    case ENETUNREACH:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_NetworkUnreachable};
+    case EPIPE:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_BrokenPipe};
+    case ENOTCONN:
+        return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_NotConnected};
+    default:
+        break;
     }
-    for (const char *part = windows_codes ? " winerr=" : " errno="; *part != '\0'; part++) {
-        composed[used++] = *part;
+{{end -}}
+#endif
+    hex_strand fallback = {{"{0}"}};
+    static const char text[] = "IO error";
+    for (size_t index = 0; index < sizeof(text) - 1; index++) {
+        fallback.data[index] = (uint8_t)text[index];
     }
-    unsigned long long magnitude = windows_codes ? (unsigned long long)(uint32_t)code : (unsigned long long)code;
-    char reversed[24];
-    size_t width = 0;
-    do {
-        reversed[width++] = digits[magnitude % 10];
-        magnitude /= 10;
-    } while (magnitude != 0);
-    while (width > 0) {
-        composed[used++] = reversed[--width];
-    }
-    if (used > 31) {
-        hex_runtime_trap("[Runtime Error] IO error header exceeded its inline capacity\n");
-    }
-    hex_strand header = {{"{0}"}};
-    for (size_t index = 0; index < used; index++) {
-        header.data[index] = (uint8_t)composed[index];
-    }
-    return header;
+    return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Other, .other_header = fallback};
 }
 
 hex_t_Error hex_io_error(size_t line, size_t column, const hex_string *file, const char *operation, long long code, const hex_string *message) {
+    (void)operation;
 #ifdef _WIN32
-    hex_strand header = hex_io_header(operation, true, code);
+    hex_t_ErrorKind kind = hex_io_error_kind(true, code);
 {{if not .TargetWindows -}}
 #else
-    hex_strand header = hex_io_header(operation, false, code);
+    hex_t_ErrorKind kind = hex_io_error_kind(false, code);
 {{end -}}
 #endif
     return (hex_t_Error){
         .hex_m_file = file,
         .hex_m_line = line,
         .hex_m_column = column,
-        .hex_m_header = header,
+        .hex_m_kind = kind,
         .hex_m_message = message,
     };
 }

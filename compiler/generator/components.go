@@ -135,7 +135,11 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 		},
 		eventComponents,
 		timeComponents,
+		handleComponents,
 		fileComponents,
+		networkComponents,
+		processComponents,
+		signalComponents,
 	}
 	for _, family := range families {
 		familyArtifacts, err := family(merged)

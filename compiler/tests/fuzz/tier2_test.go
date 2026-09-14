@@ -310,7 +310,7 @@ func assertSingleSpecialization(t failer, whole, function, concreteType string) 
 // two independent call sites with the same concrete type argument and
 // checks that exactly one specialization was generated for both to share.
 func TestMonomorphizationUniqueness(t *testing.T) {
-	app := "module Lib = import \"./lib\"\n" +
+	app := "import\n    Lib from \"./lib\"\nend\n" +
 		"fun runA(): Int32 do\n" +
 		"    return Lib.GenIdentity<Int32>(3)\n" +
 		"end\n" +
@@ -319,9 +319,10 @@ func TestMonomorphizationUniqueness(t *testing.T) {
 		"end\n" +
 		"a: Int32 := runA()\n" +
 		"b: Int32 := runB()\n"
-	lib := "export fun GenIdentity<T>(value: T): T do\n" +
+	lib := "fun GenIdentity<T>(value: T): T do\n" +
 		"    return value\n" +
-		"end\n"
+		"end\n" +
+		"export\n    GenIdentity\nend\n"
 	result := compiler.Compile(map[string]string{"app.hex": app, "lib.hex": lib}, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("stderr=%v", result.Stderr)

@@ -95,7 +95,14 @@ func (environment *Environment) AdtVariant(name, variant string) (*AdtVariant, b
 	if environment == nil {
 		return nil, false
 	}
+	// Falls back to the immutable builtin registry exactly like Lookup, so a
+	// qualified match pattern against a builtin ADT (ExitStatus.Exited,
+	// FileMode.Read) resolves the same way a qualified variant construction
+	// call already does.
 	typ, ok := environment.names[name]
+	if !ok {
+		typ, ok = builtinTypes[name]
+	}
 	if !ok || typ.Adt == nil {
 		return nil, false
 	}

@@ -113,6 +113,7 @@ Hexal Task
 | Native scheduler substrate | RFC 0145 | None; preserve it |
 | Runtime allocation | RFC 0146 | None; preserve it |
 | Event-loop and Task bridge | RFC 0145 | Focused operations extend the existing bridge |
+| Long-lived libuv handle lifecycle and portable Error mapping | None | RFC 0180; networking, process, pipe, and signal children reuse it |
 | Existing standard IO | Native operation through `uv_queue_work` in a Task; direct outside a Task | RFC 0170 must not reopen this without an explicit representation migration |
 | Files and directories | No public path-based API | RFC 0170 |
 | Time and Task sleep | No public API | RFC 0171 |
@@ -178,6 +179,9 @@ Every child RFC must:
 
 - RFC 0169 is a behavior-preserving cleanup of the implemented RFC 0145 bridge;
   it does not reimplement that bridge or own future capability surfaces.
+- RFC 0180 owns the shared generation-checked copied-handle lifecycle, private
+  runtime allocation, and common libuv Error categories. A child capability
+  owns only its distinct wrapper type and capability-specific state/errors.
 - Cancellation is specified by the operation that first requires it. A later
   public Task-cancellation RFC may unify source-level policy, but must not be a
   prerequisite for private timer, DNS, filesystem, or socket cancellation.

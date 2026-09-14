@@ -36,7 +36,11 @@ type sliceComponentRecord struct {
 }
 
 // sliceComponentRecordFor builds the spelling record of one Slice
-// specialization.
+// specialization. Its element is never a Signal (or, latently, File,
+// TcpConnection, or Process): collectionElementModuleTyped routes those to
+// the consuming module's own header instead, so this component's own
+// #include list never needs to name hexal/signal.h and hit the layering
+// conflict that creates.
 func sliceComponentRecordFor(slice compilerTypes.Type) sliceComponentRecord {
 	prefix := "hex_slice_"
 	if slice.Slice.Writable {

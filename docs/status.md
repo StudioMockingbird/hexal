@@ -21,12 +21,6 @@ gets deleted.
 | --- | --- | --- |
 | libuv capability ownership and child-RFC coordination | Umbrella only; child surfaces remain independently gated | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md) |
 
-### Design proposed; review before implementation
-
-| Work | Remaining gate | Spec |
-| --- | --- | --- |
-| Replace module imports and declaration-prefixed exports with leading/trailing boundary blocks; add fixed, mutable, and direct Atomic statically initialized module values | Detailed review and explicit implementation selection | [0179](specs/0179-module-boundary-blocks.md) |
-
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
@@ -65,6 +59,36 @@ it remains visible because hiding it would not make it less true.
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
+- **Networking (closed RFC 0172) serializes contending TCP callers by
+  rejection, not by a FIFO wait queue.** A second concurrent read, write, or
+  accept on one connection or listener while the first is still in flight
+  returns Error with kind `Busy` immediately, instead of joining the queue
+  RFC 0172's text specifies. Building genuine FIFO Task-parking
+  synchronization for this was judged disproportionate to a first
+  implementation; the common case (one caller per connection or listener at
+  a time) is unaffected and is exercised end to end -- including a real TCP
+  loopback connect/listen/accept/read/write/close exchange -- by the tagged
+  C23 suite.
+- **Processes and IPC (closed RFC 0173) makes the identical Busy-not-FIFO
+  trade Networking makes, for the identical reason.** A second concurrent
+  read or write on one Pipe while the first is still in flight returns Error
+  with kind `Busy` immediately rather than joining a queue; the common case
+  (one caller per Pipe at a time) is exercised end to end -- a real
+  `uv_spawn` child, exit-status wait, and piped-stdout read/write/close --
+  by the tagged C23 suite (`process-spawn-wait-runs`, `process-pipe-echo-runs`).
+- **Signals (closed RFC 0176) routes any collection specialized over `Signal` (List, Array, Slice,
+  Dict, Pool) to the consuming module's own header instead of the shared collection component, and
+  excludes such a collection from eager equality-helper generation.** `hexal/signal.h` needs
+  `hexal/error.h`, which needs `hexal/string.h`, which needs `hex_slice_UInt8` -- but
+  `hexal/slice.h` is positioned ahead of all three specifically so they can rely on it already
+  being complete, so no shared component can include `hexal/signal.h` without inverting that
+  dependency direction. Routing the specialization to module-owned rendering (where
+  `hexal/signal.h` is already `#include`d) sidesteps the conflict entirely, at the cost of
+  `List<Signal> == List<Signal>` and its Array/Slice/Dict/Pool equivalents not being generated;
+  bare `Signal == Signal` is unaffected. File, TcpConnection, and Process have the identical
+  layering conflict for their own element collections and are not fixed here. Exercised end to end
+  -- a real subscription racing a concurrent `close()` against a parked `next()` -- by the tagged
+  C23 suite (`signals-subscribe-compiles`, `signals-close-wakes-waiter-runs`).
 - **Runtime traps are verified for a curated dozen, not the full derived
   inventory.** `compiler/tests/c23validation` now runs a real, tagged
   (`go test -tags c23`) suite: `TestC23Suite` compiles every fixture under
