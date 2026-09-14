@@ -14,12 +14,24 @@ gets deleted.
 | Work | Spec |
 | --- | --- |
 | Explicit `unsafe do ... end` blocks for individually classified unprovable operations; incorrect unsafe assertions may permit C undefined behavior | [0155](specs/0155-unsafe-blocks.md) |
+| Program entry and exit: immutable process arguments, UInt8 root return status, cleanup ordering, and target entry ABI | [0182](specs/0182-program-entry-and-exit.md) |
 
 ### Coordination umbrella; not independently executable
 
 | Work | Disposition | Spec |
 | --- | --- | --- |
 | libuv capability ownership and child-RFC coordination | Umbrella only; child surfaces remain independently gated | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md) |
+
+### Implementation-ready completion tracks
+
+| Work | Spec |
+| --- | --- |
+| Fix Dict deletion so removing a bucket never breaks lookup through the remaining collision chain | [0183](specs/0183-compiler-runtime-completion.md) |
+| Complete runtime execution tests for every Task park/commit/wake race and destruction owner | [0183](specs/0183-compiler-runtime-completion.md) |
+| Expand tagged generated-C coverage to every reachable stable runtime-trap family | [0183](specs/0183-compiler-runtime-completion.md) |
+| Add UBSan broadly and ASan where fibers either are absent or have correct sanitizer switch annotations | [0183](specs/0183-compiler-runtime-completion.md) |
+| Replace wholesale helper-family emission with deterministic demand-driven emission | [0183](specs/0183-compiler-runtime-completion.md) |
+| Compile, link, and run representative generated programs on every target before claiming that target as supported | [0183](specs/0183-compiler-runtime-completion.md) |
 
 ### Design settled; implementation blocked
 
@@ -28,6 +40,7 @@ gets deleted.
 | Project-local content-addressed C object cache with deterministic keys, generated-header dependency closure, concurrent-build locking, integrity checks, and atomic publication | ADR 0055 and a future stable backend identity | [0164](specs/0164-content-addressed-c-object-cache.md) |
 | Rescope `Box<T>` and scoped references after RFC 0165 invalidated the Ref and Box designs; do not implement as written | RFC 0165 | [0149](specs/0149-box-and-call-scoped-references.md) |
 | Rescope ownership and lifetime work after RFC 0165 rejected affine ownership, implicit moves, and automatic cleanup; do not implement as written | RFC 0165 | [0110](specs/0110-affine-ownership-and-stashes.md) |
+| Program path queries, Size-valued available parallelism, and secure `Entropy.fill` | RFC 0182's single generated entry adapter | [0178](specs/0178-libuv-os-services.md) |
 
 ### Revisit later; not scheduled
 
@@ -46,13 +59,11 @@ that disagrees with `docs/reference.md` is wrong.
 
 ## Open bugs
 
-A bug is real whether or not its owning spec is scheduled. The final entry is
-owned by an unrelated deferred spec and therefore has no route to a fix today;
-it remains visible because hiding it would not make it less true.
+A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec |
 | --- | --- |
-| Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | **deferred, and misowned** -- [0151](specs/deferred/0151-remove-strand-and-modernize-arrays.md) is about removing `Strand` and array spelling, not Dict probing. This is a live correctness defect in shipped code and needs a real owner |
+| Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | [0183](specs/0183-compiler-runtime-completion.md) |
 | `reference.md` names POSIX x86-64 as a supported Task target although RFC 0052 has qualified only Windows x64 | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md); reference correction requires explicit user approval |
 
 ## Known coverage gaps

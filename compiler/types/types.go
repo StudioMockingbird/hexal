@@ -1207,7 +1207,7 @@ func IsProtectedTypeName(name string) bool {
 		return true
 	}
 	switch name {
-	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Slice", "Task", "Channel", "Atomic", "Stash", "Pool", "Dns", "Tcp":
+	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Slice", "Task", "Channel", "Atomic", "Stash", "Pool", "Dns", "Tcp", "Terminal":
 		return true
 	}
 	return false

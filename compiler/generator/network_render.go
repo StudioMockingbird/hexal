@@ -16,6 +16,9 @@ func renderNetworkExpression(node checker.Expression, state *expressionValidatio
 	if isSignalOperation(node.Name) {
 		return renderSignalExpression(node, state)
 	}
+	if isTerminalOperation(node.Name) {
+		return renderTerminalExpression(node, state)
+	}
 	suffix := streamAdapterSuffix(node.ResultType)
 	site := fmt.Sprintf("%d, %d", node.SourceLine, node.SourceColumn)
 	switch node.Name {
@@ -140,6 +143,9 @@ func validateNetworkExpression(node checker.Expression, expected *compilerTypes.
 	}
 	if isSignalOperation(node.Name) {
 		return validateSignalExpression(node, state)
+	}
+	if isTerminalOperation(node.Name) {
+		return validateTerminalExpression(node, state)
 	}
 	wantArguments := -1
 	wantOperand := false

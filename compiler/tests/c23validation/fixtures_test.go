@@ -553,4 +553,66 @@ var fixtureCatalog = []fixture{
 			"print(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
+	{
+		name:       "terminal-is-attached-and-size-compiles",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun describe(stream: IO): TerminalSize | Error do\n" +
+			"    attached: Bool := try Terminal.is_attached(stream)\n" +
+			"    if attached then\n" +
+			"        size: TerminalSize := try Terminal.size(stream)\n" +
+			"        return size\n" +
+			"    end\n" +
+			"    return Error(ErrorKind.InvalidInput(), \"not attached\")\n" +
+			"end\n" +
+			"fun run(): TerminalSize | Error do\n" +
+			"    stream: IO := try IO.stdout()\n" +
+			"    return describe(stream)\n" +
+			"end\n" +
+			"out: TerminalSize | Error := run()\n"},
+	},
+	{
+		name:       "terminal-redirected-stdout-not-attached-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun check(): Bool | Error do\n" +
+			"    stream: IO := try IO.stdout()\n" +
+			"    attached: Bool := try Terminal.is_attached(stream)\n" +
+			"    return attached\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    outcome := check()\n" +
+			"    result: Bool := match outcome is\n" +
+			"    | Bool then outcome\n" +
+			"    | Error then true\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "false"},
+	},
+	{
+		name:       "terminal-redirected-size-is-invalid-input-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun kind_is_invalid_input(kind: ErrorKind): Bool do\n" +
+			"    result: Bool := match kind is\n" +
+			"    | ErrorKind.InvalidInput then true\n" +
+			"    | else then false\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"fun check(): TerminalSize | Error do\n" +
+			"    stream: IO := try IO.stdout()\n" +
+			"    size: TerminalSize := try Terminal.size(stream)\n" +
+			"    return size\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    outcome := check()\n" +
+			"    result: Bool := match outcome is\n" +
+			"    | TerminalSize then false\n" +
+			"    | Error then kind_is_invalid_input(outcome.kind)\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
 }

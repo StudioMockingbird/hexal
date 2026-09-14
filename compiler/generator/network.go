@@ -52,11 +52,12 @@ func discoverGeneratedNetwork(program checker.Program, logicalKey string, litera
 	state := &generatedNetworkState{}
 	visitor := &programVisitor{
 		Expression: func(node checker.Expression) error {
-			if node.Kind != checker.NetworkExpression || isProcessOperation(node.Name) || isSignalOperation(node.Name) {
-				// Process/Pipe and Signals operations share
+			if node.Kind != checker.NetworkExpression || isProcessOperation(node.Name) || isSignalOperation(node.Name) || isTerminalOperation(node.Name) {
+				// Process/Pipe, Signals, and Terminal operations share
 				// checker.NetworkExpression's Kind but are discovered
-				// separately by discoverGeneratedProcess/discoverGeneratedSignal;
-				// they select neither Address nor Dns/Tcp.
+				// separately by discoverGeneratedProcess/discoverGeneratedSignal/
+				// discoverGeneratedTerminal; they select neither Address nor
+				// Dns/Tcp.
 				return nil
 			}
 			state.used = true

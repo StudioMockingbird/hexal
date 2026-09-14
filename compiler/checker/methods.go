@@ -386,6 +386,12 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Tcp" && (name == "connect" || name == "listen") {
 		return checkTcpTypeCall(call, variable, ctx)
 	}
+	// Terminal.is_attached(stream) and Terminal.size(stream) name the
+	// built-in namespace by its own operation name, exactly like Dns and Tcp
+	// above.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Terminal" && (name == "is_attached" || name == "size") {
+		return checkTerminalTypeCall(call, variable, ctx)
+	}
 	// Process.start(options) names the built-in Process type by its own
 	// operation name.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Process" && name == "start" {

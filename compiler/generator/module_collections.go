@@ -83,7 +83,7 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 // TcpConnection, and Process have the identical layering conflict and are
 // not fixed here.
 func moduleRoutedElement(element compilerTypes.Type) bool {
-	return typeIsModuleEmitted(element) || elementNeedsSignal(element)
+	return typeIsModuleEmitted(element) || elementNeedsSignal(element) || elementNeedsTerminal(element)
 }
 
 // collectionElementModuleTyped reports whether one collection specialization

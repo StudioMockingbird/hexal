@@ -77,6 +77,7 @@ type moduleEmission struct {
 	networkState      *generatedNetworkState
 	processState      *generatedProcessState
 	signalState       *generatedSignalState
+	terminalState     *generatedTerminalState
 	concurrencyState  *generatedConcurrencyState
 	wrapState         *generatedWrapState
 	stashState        *stashHelpers
@@ -166,6 +167,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.networkState = discoverGeneratedNetwork(program, logicalKey, literals)
 	emission.processState = discoverGeneratedProcess(program, logicalKey, literals)
 	emission.signalState = discoverGeneratedSignal(program, logicalKey, literals)
+	emission.terminalState = discoverGeneratedTerminal(program, logicalKey, literals)
 	emission.wrapState = discoverGeneratedWraps(program)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
 	if concurrencyErr != nil {
@@ -315,6 +317,10 @@ type programEmission struct {
 	// signalState merges every module's Signal/Signals demand; reachable use
 	// emits hexal/signal.h and hexal/signal.c once program-wide.
 	signalState *generatedSignalState
+	// terminalState merges every module's TerminalSize/Terminal demand;
+	// reachable use emits hexal/terminal.h and hexal/terminal.c once
+	// program-wide.
+	terminalState *generatedTerminalState
 	// seekUsed is true when any module's stream state reaches Bytes.seek or
 	// IO.seek, selecting hexal/seek.h once program-wide. It is tracked
 	// separately from ioState's own four merged flags, which exist only for
@@ -365,14 +371,15 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 			channelSendUnions:    make(map[string]compilerTypes.Type),
 			channelReceiveUnions: make(map[string]compilerTypes.Type),
 		},
-		wrapState:    &generatedWrapState{seen: make(map[string]bool)},
-		ioState:      &generatedStreamState{},
-		timeState:    &generatedTimeState{},
-		fileState:    &generatedFileState{},
-		networkState: &generatedNetworkState{},
-		processState: &generatedProcessState{},
-		signalState:  &generatedSignalState{},
-		adapterSites: make(map[string][]spawnSite),
+		wrapState:     &generatedWrapState{seen: make(map[string]bool)},
+		ioState:       &generatedStreamState{},
+		timeState:     &generatedTimeState{},
+		fileState:     &generatedFileState{},
+		networkState:  &generatedNetworkState{},
+		processState:  &generatedProcessState{},
+		signalState:   &generatedSignalState{},
+		terminalState: &generatedTerminalState{},
+		adapterSites:  make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
 	arrayOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -410,6 +417,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		mergeNetworkInto(merged.networkState, module.networkState)
 		mergeProcessInto(merged.processState, module.processState)
 		mergeSignalInto(merged.signalState, module.signalState)
+		mergeTerminalInto(merged.terminalState, module.terminalState)
 		merged.seekUsed = merged.seekUsed || module.fileState != nil && module.fileState.seek
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
@@ -658,6 +666,12 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			// traps on a missing Task.
 			requirements.add("stddef.h", "stdint.h")
 			requirements.trap = true
+		}
+		if module.terminalState != nil && module.terminalState.used {
+			// TerminalSize spells its two fields as size_t. Neither query
+			// traps: every failure is a structured Error, never an internal
+			// invariant violation.
+			requirements.add("stddef.h")
 		}
 		if module.timeState != nil && module.timeState.used {
 			// Time values spell uint64_t/int64_t/uint32_t, and checked Duration
@@ -1087,6 +1101,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		network:     emission.networkState,
 		process:     emission.processState,
 		signal:      emission.signalState,
+		terminal:    emission.terminalState,
 		concurrency: emission.concurrencyState,
 		stringState: stringState,
 		tags:        merged.tags,
@@ -1160,6 +1175,7 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, moduleNetworkComponent(emission)...)
 	components = append(components, moduleProcessComponent(emission)...)
 	components = append(components, moduleSignalComponent(emission)...)
+	components = append(components, moduleTerminalComponent(emission)...)
 	components = append(components, moduleTimeComponent(emission)...)
 	components = append(components, moduleEqualityComponent(emission)...)
 	return components
@@ -1191,6 +1207,7 @@ type moduleHeaderInput struct {
 	network     *generatedNetworkState
 	process     *generatedProcessState
 	signal      *generatedSignalState
+	terminal    *generatedTerminalState
 	concurrency *generatedConcurrencyState
 	stringState *literalRegistry
 	tags        *tagRegistry
@@ -1309,6 +1326,9 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 		return "", err
 	}
 	if err := writeSignalInlineHelpers(&result, input.signal, input.stringState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeTerminalInlineHelpers(&result, input.terminal, input.stringState, input.tags); err != nil {
 		return "", err
 	}
 	if input.prototypes != "" {

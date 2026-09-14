@@ -5,7 +5,7 @@
   runtime substrate is implemented; child language surfaces remain
   independently gated
 - Created: 2026-09-13
-- Updated: 2026-09-13
+- Updated: 2026-09-14
 - Scope: assign libuv-backed operating-system capabilities to focused RFCs
 - Baseline: RFC 0145 and RFC 0146 are closed and implemented
 - Does not authorize: implementing a child language surface or editing
@@ -33,12 +33,14 @@ The compiler and generated runtime already provide:
   bridge only when called from a Task;
 - direct synchronous native IO outside a Task;
 - demand-driven `hexal/event.h` and `hexal/event.c`; and
-- mimalloc installed through `uv_replace_allocator` during scheduler startup,
-  before the scheduler's other libuv use.
-
-That last ownership is too narrow for child capabilities that use libuv without
-Task. RFC 0169 moves it to one demand-driven program bootstrap before such a
-child may implement a File-only or Instant-only path.
+- one demand-driven native bootstrap that installs mimalloc through
+  `uv_replace_allocator` before every other libuv call, independently of
+  scheduler selection;
+- the shared generation-checked handle registry and portable libuv ErrorKind
+  mapper;
+- File, Duration/Instant/WallTime, Task sleep, Address/DNS/TCP, Process/Pipe,
+  Signals, and Terminal source surfaces; and
+- exact component selection for those implemented capabilities.
 
 The old `hex_blocking_*` pool and replaced Windows/POSIX scheduler wrappers no
 longer exist. Child RFCs must start from this baseline and must not schedule
@@ -69,7 +71,7 @@ Consequences:
 - A source-facing capability is added only when its focused RFC establishes a
   cohesive Hexal use case. Availability in libuv alone is not sufficient.
 
-## Runtime topology
+## Asynchronous runtime topology
 
 ```text
 Hexal Task
@@ -81,6 +83,9 @@ Hexal Task
     -> scheduler worker resumes Hexal code
 ```
 
+- This topology applies only to asynchronous or Task-parking operations.
+  Stateless queries and synchronous calls may use libuv directly after native
+  bootstrap and do not traverse the event FIFO.
 - No libuv callback executes Hexal user code.
 - The loop-owner thread exclusively mutates ordinary libuv handles unless the
   libuv API explicitly permits cross-thread use.
@@ -98,8 +103,10 @@ Hexal Task
 - `hexal/event.h` and `hexal/event.c` are selected only when a reachable Task
   operation can suspend on native work or a focused child RFC requires the
   event loop.
-- Existing IO or print without Task uses its direct synchronous native path and
-  does not select libuv.
+- Existing IO or print without Task currently uses its direct synchronous
+  native path and does not select libuv. A child that changes this must state
+  the complete compile-time demand and accepted cost; runtime terminal
+  detection cannot make a link-time dependency conditional.
 - A future event-driven capability selects libuv and the event component even
   when no source-level Task value is written explicitly, because its operation
   requires the Hexal runtime to park and resume execution.
@@ -113,21 +120,21 @@ Hexal Task
 | Native scheduler substrate | RFC 0145 | None; preserve it |
 | Runtime allocation | RFC 0146 | None; preserve it |
 | Event-loop and Task bridge | RFC 0145 | Focused operations extend the existing bridge |
-| Long-lived libuv handle lifecycle and portable Error mapping | None | RFC 0180; networking, process, pipe, and signal children reuse it |
+| Long-lived libuv handle lifecycle and portable Error mapping | Implemented shared generation-checked registry and ErrorKind mapper | Children reuse it; none may add a parallel registry or mapper |
 | Existing standard IO | Native operation through `uv_queue_work` in a Task; direct outside a Task | RFC 0170 must not reopen this without an explicit representation migration |
-| Files and directories | No public path-based API | RFC 0170 |
-| Time and Task sleep | No public API | RFC 0171 |
-| TCP, UDP, DNS, and imported-descriptor polling | Private substrate only where present | RFC 0172 |
-| Processes and process IPC | None | RFC 0173 |
-| TTY | Existing standard-handle behavior only | RFC 0174 |
-| Filesystem watchers | None | RFC 0175 |
-| Ordinary signals | None; stack-overflow handling remains special | RFC 0176 |
-| Dynamic libraries | None | RFC 0177 |
-| Random and system information | Existing narrow runtime queries only | RFC 0178 |
+| Files and directories | File operations implemented; broader directory operations absent | RFC 0170 is closed; new directory surface requires a focused RFC |
+| Time and Task sleep | Duration, Instant, WallTime, and Task.sleep implemented | RFC 0171 is closed |
+| TCP, UDP, DNS, and imported-descriptor polling | Address, DNS, and TCP implemented; UDP and imported-descriptor polling absent | UDP or polling requires a focused RFC |
+| Processes and process IPC | Process and parent/child standard-stream Pipe implemented; named IPC and handle passing absent | RFC 0173 is closed; deferred IPC requires a focused RFC |
+| TTY | Terminal detection, dimensions, and Windows Unicode print implemented; raw mode and resize notification absent | RFC 0174 is closed |
+| Filesystem watchers | None | RFC 0175 is deferred |
+| Ordinary signals | Signals implemented; stack-overflow handling remains separate | RFC 0176 is closed |
+| Dynamic libraries | None | RFC 0177 is deferred |
+| Secure entropy and focused program queries | Existing narrow runtime queries only | RFC 0178 |
 | Performance and loop scaling | Single loop | RFC 0144, after measurement |
 
-`uv_poll_t` belongs to RFC 0172 as the fallback for an imported pollable
-descriptor that no typed libuv handle owns. It is not an unspecified C-interop
+Imported-descriptor polling and any `uv_poll_t` use were not implemented by RFC
+0172. They require a focused future RFC and remain outside the C-interop
 surface.
 
 ## Accepted constraints
@@ -189,6 +196,9 @@ Every child RFC must:
   RFCs record the counters needed to validate their own operations.
 - The build driver remains separate from runtime filesystem APIs. The compiler
   remains string-in/string-out.
+- After every non-deferred child closes, close and archive this coordination
+  index. Deferred ideas retain their own records and do not keep the umbrella
+  active indefinitely.
 
 ## Reference synchronization
 

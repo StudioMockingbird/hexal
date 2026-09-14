@@ -320,7 +320,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
    `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, `IO`, `Bytes`, `Seek`, `File`, `FileMode`,
    `Duration`, `Instant`, `WallTime`, `Address`, `Dns`, `Tcp`, `TcpConnection`, `TcpListener`,
    `Process`, `Pipe`, `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`,
-   `ProcessStream`, `ExitStatus`, `Signal`, `Signals`,
+   `ProcessStream`, `ExitStatus`, `Signal`, `Signals`, `Terminal`, `TerminalSize`,
    and constructors `Ptr`,
    `Slice`, `Fun`, `Array`, `List`, `Dict`, `Task`, `Channel`, `Atomic`, `Stash`, `Pool`.
    The retired `MutPtr` and `View` names stay reserved but name no type; the never-implemented
@@ -1815,6 +1815,60 @@ Signals.close()                       -> Nil | Error
 - Sending signals, exposing signal numbers, synchronous fault handling (stack overflow,
   segmentation faults), Task cancellation, deadlines, and preserving a foreign handler installed
   before a Hexal subscription are not part of this implementation.
+
+### Terminal
+
+```text
+Terminal.is_attached(stream: IO) -> Bool | Error
+Terminal.size(stream: IO)        -> TerminalSize | Error
+
+type TerminalSize is struct
+    columns: Size,
+    rows: Size,
+end
+```
+
+- `Terminal` is a protected compiler-owned namespace type with no values. `TerminalSize` is a
+  protected, ordinary immutable struct: it constructs, compares, and prints through the general
+  struct rules, for example `TerminalSize(columns = 80, rows = 24)`.
+- `is_attached` returns `false` for a valid non-terminal stream (redirected output, a file, a
+  pipe); this is success, not Error. It performs no allocation and changes no terminal state or
+  stream ownership.
+- `size` succeeds only for an attached terminal, returning its visible column and row counts (the
+  visible window, never a larger scrollback buffer). A valid non-terminal stream returns
+  `ErrorKind.InvalidInput()` with message `stream is not a terminal`; a native zero or negative
+  dimension returns `ErrorKind.InvalidInput()` with message `terminal dimensions are invalid`.
+- Both operations are stateless queries: neither initializes a loop, retains a terminal handle,
+  changes terminal mode, or takes ownership of `stream`. A closed, stale, or unavailable stream
+  returns the existing operation's Error classification; Terminal does not create a second
+  liveness model.
+- Windows classifies the current stdout handle at each logical `print` call (see below), so
+  replacing a standard handle affects only the next call, never a process-lifetime cache; the
+  same applies to `is_attached`/`size`, which classify fresh on every call.
+- `IO.write` remains a byte-stream operation with no text conversion. Redirected `print` output
+  keeps the original UTF-8 bytes on every target; only an attached Windows console additionally
+  converts and delivers `print`'s text through native UTF-8-to-UTF-16 conversion and
+  `WriteConsoleW`, through a fixed-size stack buffer with no heap allocation, chunked so a
+  multibyte scalar (and the UTF-16 surrogate pair it can produce) is never split. Quoted `String`
+  and `Rune` rendering batch each run of unescaped text through this same conversion instead of
+  emitting it one byte at a time. `print` remains write-all and source-ordered on every target;
+  conversion or console-write failure retains the exact runtime trap
+  `[Runtime Error] standard output write failed`.
+- Errors: Terminal operations first apply the shared IO native-error mapper (the same one File,
+  IO, and Bytes use; Terminal keeps no second native-error classification table). Beyond the two
+  local `InvalidInput` cases above, any other classification failure uses fixed message
+  `terminal detection failed` and any other size-query failure uses fixed message
+  `terminal size query failed`. Messages name no native error number, and every Error carries the
+  Hexal call site's source location.
+- Selection: constructing or matching a `TerminalSize` value alone emits only
+  `hexal/terminal.h`'s type definition. A reachable `Terminal.is_attached` or `Terminal.size` call
+  additionally emits `hexal/terminal.c`; neither operation selects the event bridge, the
+  scheduler, the shared handle registry, or (on the qualified Windows target) libuv. A collection
+  specialized over `TerminalSize` is rendered in each consuming module's own header rather than
+  the shared collection component, the same header-ordering accommodation Signal uses, with no
+  effect on program behavior.
+- Raw mode, terminal input, resize notification, escape-sequence parsing, a full-screen UI
+  framework, and a public libuv handle are not part of this implementation.
 
 ## Layout intrinsics
 

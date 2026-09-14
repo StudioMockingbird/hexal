@@ -61,7 +61,7 @@ func IsBuiltinAdt(typ Type) bool {
 // body lives in a shared component header (hexal/process.h) rather than in
 // any module header, mirroring IsBuiltinAdt for the Object family.
 func IsBuiltinObject(object *ObjectType) bool {
-	return object != nil && (object == EnvironmentVariableType.Object || object == ProcessOptionsType.Object || object == StartedProcessType.Object)
+	return object != nil && (object == EnvironmentVariableType.Object || object == ProcessOptionsType.Object || object == StartedProcessType.Object || object == TerminalSizeType.Object)
 }
 
 // IsBuiltinUnion reports whether union is one of the fixed structural `T |
