@@ -11,8 +11,12 @@ func TestADTDeclarationWithRecordVariants(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_tag_m3_app_Shape_Circle") || !strings.Contains(rootC(t, result), ".payload.Circle") {
-		t.Fatalf("generated output = H:%q C:%q, want ADT tag and payload", rootH(t, result), rootC(t, result))
+	// The tag is referenced directly by the construction in modules/app.c;
+	// whether it also appears in modules/app.h depends on unrelated helper
+	// emission (e.g. equality), so both files are accepted.
+	rootH, rootC := rootH(t, result), rootC(t, result)
+	if !strings.Contains(rootH, "hex_tag_m3_app_Shape_Circle") && !strings.Contains(rootC, "hex_tag_m3_app_Shape_Circle") || !strings.Contains(rootC, ".payload.Circle") {
+		t.Fatalf("generated output = H:%q C:%q, want ADT tag and payload", rootH, rootC)
 	}
 }
 
@@ -35,8 +39,12 @@ func TestADTUnitVariantEnumBehavior(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_tag_m3_app_Direction_North") || strings.Contains(rootH(t, result), "payload") {
-		t.Fatalf("generated header = %q, want tag-only unit variants", rootH(t, result))
+	// The tag is referenced directly by the construction in modules/app.c;
+	// whether it also appears in modules/app.h depends on unrelated helper
+	// emission (e.g. equality), so both files are accepted.
+	rootH, rootC := rootH(t, result), rootC(t, result)
+	if !strings.Contains(rootH, "hex_tag_m3_app_Direction_North") && !strings.Contains(rootC, "hex_tag_m3_app_Direction_North") || strings.Contains(rootH, "payload") {
+		t.Fatalf("generated output = H:%q C:%q, want tag-only unit variants", rootH, rootC)
 	}
 }
 
@@ -257,8 +265,12 @@ func TestGeneratedADTTagLayoutAndInvalidTagTrap(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_tag_m3_app_Shape_Circle") || !strings.Contains(rootH(t, result), "typedef struct hex_t_m3_app_Shape") {
-		t.Fatalf("generated header = %q, want deterministic tag-and-payload layout", rootH(t, result))
+	// The tag is referenced directly by the construction in modules/app.c;
+	// whether it also appears in modules/app.h depends on unrelated helper
+	// emission (e.g. equality), so both files are accepted.
+	rootH, rootC := rootH(t, result), rootC(t, result)
+	if !strings.Contains(rootH, "hex_tag_m3_app_Shape_Circle") && !strings.Contains(rootC, "hex_tag_m3_app_Shape_Circle") || !strings.Contains(rootH, "typedef struct hex_t_m3_app_Shape") {
+		t.Fatalf("generated output = H:%q C:%q, want deterministic tag-and-payload layout", rootH, rootC)
 	}
 }
 
@@ -274,8 +286,14 @@ func TestGenericADTSpecializesAndMatches(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootH(t, result), "hex_tag_m3_app_Result_Int32__Bool__Ok") || !strings.Contains(rootC(t, result), ".payload.Ok.hex_m_value") {
-		t.Fatalf("generated output = H:%q C:%q, want specialized ADT and match", rootH(t, result), rootC(t, result))
+	// The tag itself is referenced directly by the match's own generated
+	// comparison in modules/app.c; whether it also appears in modules/app.h
+	// depends on unrelated helper emission (e.g. equality), so both files
+	// are accepted, matching TestGenerateADTDefinitionAndConstruction's
+	// pattern in the generator package.
+	rootH, rootC := rootH(t, result), rootC(t, result)
+	if !strings.Contains(rootH, "hex_tag_m3_app_Result_Int32__Bool__Ok") && !strings.Contains(rootC, "hex_tag_m3_app_Result_Int32__Bool__Ok") || !strings.Contains(rootC, ".payload.Ok.hex_m_value") {
+		t.Fatalf("generated output = H:%q C:%q, want specialized ADT and match", rootH, rootC)
 	}
 }
 

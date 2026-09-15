@@ -53,7 +53,10 @@ func TestUnionNullTestsAndTruthiness(t *testing.T) {
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected Nil/truthiness source: %v", result.Stderr)
 	}
-	if !strings.Contains(hexalH(t, result), "#include <stddef.h>") || !strings.Contains(rootH(t, result), "_truthy") || !strings.Contains(rootC(t, result), ".tag !=") {
+	// No == or != deep comparison of this union appears in the source (only
+	// a Nil test and an if-condition), so equality's own <stddef.h>
+	// requirement is not selected; truthiness is, from the if condition.
+	if !strings.Contains(rootH(t, result), "_truthy") || !strings.Contains(rootC(t, result), ".tag !=") {
 		t.Fatalf("null/truthiness output = H:%q C:%q", rootH(t, result), rootC(t, result))
 	}
 }
@@ -249,12 +252,19 @@ func TestInt32NilWrapperUsesCorrectedStem(t *testing.T) {
 	for _, want := range []string{
 		"typedef struct hex_t_Int32_Nil",
 		"hex_tag tag;",
-		"case hex_tag_Int32:",
-		"case hex_tag_Nil:",
 		"int32_t hex_m_Int32;",
 	} {
 		if !strings.Contains(rootH, want) {
 			t.Fatalf("wrapper stem missing %q from header:\n%s", want, rootH)
+		}
+	}
+	// The tag enum itself lives in the shared hexal.h; this program never
+	// uses the union in a truthiness context, so no _truthy switch (the
+	// case hex_tag_... lines that used to double as this check) is emitted.
+	hexalH := hexalH(t, result)
+	for _, want := range []string{"hex_tag_Int32", "hex_tag_Nil"} {
+		if !strings.Contains(hexalH, want) {
+			t.Fatalf("tag enum missing %q from hexal.h:\n%s", want, hexalH)
 		}
 	}
 	if strings.Contains(rootH, "member_") {

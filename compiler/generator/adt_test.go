@@ -28,7 +28,14 @@ func TestGenerateADTUnitVariantsHaveNoPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(rootH, "hex_tag_m3_app_Direction_East") || strings.Contains(rootH, "payload") {
+	// The tag enum itself lives in the shared hexal.h, not modules/app.h; a
+	// use of the tag (here Direction.East()'s own construction) is what this
+	// program's own files are checked for, matching the sibling
+	// TestGenerateADTDefinitionAndConstruction's rootC-or-rootH pattern.
+	if !strings.Contains(rootC, "hex_tag_m3_app_Direction_East") && !strings.Contains(rootH, "hex_tag_m3_app_Direction_East") {
+		t.Fatalf("generated output does not contain the tag: C := %q H=%q", rootC, rootH)
+	}
+	if strings.Contains(rootH, "payload") {
 		t.Fatalf("generated header = %q, want tag-only unit variant", rootH)
 	}
 	if !strings.Contains(rootC, ".tag = hex_tag_m3_app_Direction_East") {

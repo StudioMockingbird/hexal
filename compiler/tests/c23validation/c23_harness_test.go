@@ -147,11 +147,30 @@ var (
 // is labelled Debt (names the open gap it tolerates, removed when that gap
 // closes) or Principle (names the language guarantee it protects,
 // permanent); an unlabelled suppression does not belong here.
+//
+// Equality, print, and union widening/truthiness are demand-driven: a
+// helper is emitted only for a type and operation the checked program
+// actually exercises (see equality.go's addComparedType, unions.go's
+// markTruthy, and print.go's needsNested). Heap, Stash, and IO were
+// already demand-driven before this was checked. An unsuppressed run of
+// the complete snippet catalog confirms no remaining helper-family
+// over-emission causes any of these four warnings; every one it still
+// reports is a top-level workbench-snippet pattern with nothing to do
+// with generator emission, e.g. a `demo()` function or a `code := f()`
+// binding a snippet declares purely to demonstrate that construct
+// compiles, never calling or reading it again on purpose. None of these
+// four can be removed without either rewriting every such snippet to
+// consume its own demonstration values (defeating their purpose as
+// minimal examples) or generating a `(void)` discard for every checked
+// binding and parameter (a correctness-neutral but pervasive codegen
+// change well outside this gap's scope), so each stays Debt against that
+// different, out-of-scope cause rather than the helper-family gap this
+// comment used to (inaccurately) name for all four.
 var warningFlags = []string{
-	"-Wno-unused-function",         // Debt: the generator emits whole helper families (equality, print, union, heap, io) demand-independently; narrowing this is that gap's job, not this suite's.
-	"-Wno-unused-variable",         // Debt: same generator over-emission gap as above, for module-scope helper state rather than functions.
-	"-Wno-unused-parameter",        // Debt: same generator over-emission gap, for helper parameters unused by a given instantiation.
-	"-Wno-unused-but-set-variable", // Debt: same generator over-emission gap, for a helper local written but never read by a given instantiation.
+	"-Wno-unused-function",         // Debt: workbench snippets that declare a function purely to demonstrate its syntax compiles, never calling it.
+	"-Wno-unused-variable",         // Debt: workbench snippets that bind a demonstration value purely to show it type-checks, never reading it again.
+	"-Wno-unused-parameter",        // Debt: same workbench-snippet pattern as unused-variable, for a declared function's own unused parameter.
+	"-Wno-unused-but-set-variable", // Debt: same workbench-snippet pattern, for a mutable binding written (e.g. by a loop) but never read afterward.
 }
 
 // buildGeneratedC materializes every artifact under a fresh subdirectory of

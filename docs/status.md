@@ -27,7 +27,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Replace wholesale helper-family emission with deterministic demand-driven emission | [0183](specs/0183-compiler-runtime-completion.md) |
 | Compile, link, and run representative generated programs on every target before claiming that target as supported | [0183](specs/0183-compiler-runtime-completion.md) |
 
 ### Design settled; implementation blocked
@@ -152,6 +151,36 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   link its runtime and Task fibers lack sanitizer switch annotations. TSan
   is out of scope entirely; user-space fibers need their own feasibility
   decision.
+- **Equality, print, and union widening/truthiness are now demand-driven; the
+  four `-Wno-unused-*` suppressions in `compiler/tests/c23validation`'s Tier 1
+  build stay in place, but for a different, disclosed reason than the one
+  they used to name.** `discoverEqualityTypes` (`equality.go`) collected an
+  equality helper for every Object/ADT/Array/Slice/List/union type merely
+  *mentioned* anywhere in the program, whether or not `==`/`!=` was ever
+  applied to it; it now collects one only from an actual
+  `DeepEqualityExpression`/`UnionEqualityExpression` site, plus the one real
+  dependency writeUnionEquality itself calls by name (a union's own List
+  member). `discoverGeneratedUnions` emitted every discovered union's
+  `_truthy` helper unconditionally; it now emits one only for a union
+  actually evaluated in a boolean context (an if/while condition, or an
+  operand of not/and/or). `discoverGeneratedPrint` emitted every print-reachable
+  type's `hex_print_nested_*` helper unconditionally; it now skips it for a
+  type (String, Strand, a scalar, Error) that only ever appears as a bare
+  top-level print argument, since `writePrintArgument` formats those
+  directly and never calls their nested form. Heap, Stash, and IO were
+  already demand-driven before this was checked; no change was needed
+  there. An unsuppressed run of the complete snippet catalog under
+  `-Wall -Wextra -Werror` confirms no helper-family over-emission remains:
+  every warning it still reports is a top-level workbench-snippet pattern
+  wholly unrelated to generator emission -- a `demo()` function or a
+  `code := f()` binding a snippet declares purely to demonstrate that one
+  construct compiles, never calling or reading it again on purpose. None of
+  the four suppressions can be removed without either rewriting every such
+  snippet to consume its own demonstration values (defeating their purpose
+  as minimal examples) or emitting a `(void)` discard for every checked
+  binding and parameter program-wide (a correctness-neutral but pervasive
+  codegen change with no connection to this gap), so each remains, with its
+  rationale in `c23_harness_test.go` corrected to name the real cause.
 - **Compiling real generated C surfaced multiple generator defects across the
   snippet catalog.** Every failure reproduced so far is now fixed and
   re-verified compiling clean under all three toolchains, most recently (RFC

@@ -38,9 +38,79 @@ func equalityIneligibleElement(element compilerTypes.Type) bool {
 		compilerTypes.IsSignal(element)
 }
 
-// discoverEqualityTypes walks the program collecting the compared types and,
-// recursively, every nested type their helpers must compare. Types are
-// collected dependency-first so emission order is valid.
+// addComparedType registers typ as needing an equality helper if it is one
+// of the aggregate kinds this pass owns and is not already recorded,
+// mirroring the exact call sites that reference a compared type's helper by
+// name: the top-level operand of a DeepEqualityExpression or
+// UnionEqualityExpression (render.go, unions.go's writeUnionEquality), and,
+// recursively, a List member of a union that supports equality -- the one
+// case writeUnionEquality itself calls another type's helper directly
+// (unions.go) rather than inlining the comparison. Every other structural
+// descent (Object and Adt members, Array/Slice/List elements) is compared
+// inline by writeEqualityComparisons and never calls a helper by name, so it
+// is deliberately not walked here: a type only this pass's own inlining ever
+// reaches needs no standalone definition, and emitting one anyway is
+// exactly the over-emission this pass exists to stop.
+func (state *generatedEqualityState) addComparedType(typ compilerTypes.Type) {
+	switch {
+	case typ.Object != nil:
+		if state.seenObjects[typ.Object] {
+			return
+		}
+		state.seenObjects[typ.Object] = true
+		if ok, _ := checker.EqualityAvailable(typ); !ok {
+			return
+		}
+		state.order = append(state.order, typ)
+	case typ.Adt != nil:
+		if state.seenADTs[typ.Adt] {
+			return
+		}
+		state.seenADTs[typ.Adt] = true
+		if ok, _ := checker.EqualityAvailable(typ); !ok {
+			return
+		}
+		state.order = append(state.order, typ)
+	case typ.Array != nil:
+		if state.seenArrays[typ.Array] || equalityIneligibleElement(typ.Array.Element) {
+			return
+		}
+		state.seenArrays[typ.Array] = true
+		state.order = append(state.order, typ)
+	case typ.Slice != nil:
+		if state.seenSlices[typ.Slice] || equalityIneligibleElement(typ.Slice.Element) {
+			return
+		}
+		state.seenSlices[typ.Slice] = true
+		state.order = append(state.order, typ)
+	case typ.List != nil:
+		if state.seenLists[typ.List] || equalityIneligibleElement(typ.List.Element) {
+			return
+		}
+		state.seenLists[typ.List] = true
+		state.order = append(state.order, typ)
+	case typ.Union != nil:
+		if state.seenUnions[typ.Union] {
+			return
+		}
+		state.seenUnions[typ.Union] = true
+		state.order = append(state.order, typ)
+		if !unionSupportsEquality(typ) {
+			return
+		}
+		members := compilerTypes.UnionMembers(typ)
+		for index := 0; index < members.Len(); index++ {
+			if member, _ := members.At(index); member.List != nil {
+				state.addComparedType(member)
+			}
+		}
+	}
+}
+
+// discoverEqualityTypes walks the program collecting exactly the types
+// compared by `==`/`!=` (DeepEqualityExpression, UnionEqualityExpression),
+// plus their equality-helper dependencies. A type never compared is never
+// collected, even if it appears elsewhere in the program.
 func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 	state := &generatedEqualityState{
 		seenObjects: make(map[*compilerTypes.ObjectType]bool),
@@ -51,59 +121,16 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 		seenUnions:  make(map[*compilerTypes.UnionInfo]bool),
 	}
 	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
-			switch {
-			case typ.Object != nil:
-				if state.seenObjects[typ.Object] {
-					return nil
-				}
-				state.seenObjects[typ.Object] = true
-				if ok, _ := checker.EqualityAvailable(typ); !ok {
-					return nil
-				}
-				state.order = append(state.order, typ)
-			case typ.Adt != nil:
-				if state.seenADTs[typ.Adt] {
-					return nil
-				}
-				state.seenADTs[typ.Adt] = true
-				if ok, _ := checker.EqualityAvailable(typ); !ok {
-					return nil
-				}
-				state.order = append(state.order, typ)
-			case typ.Array != nil:
-				if state.seenArrays[typ.Array] || equalityIneligibleElement(typ.Array.Element) {
-					return nil
-				}
-				state.seenArrays[typ.Array] = true
-				state.order = append(state.order, typ)
-			case typ.Slice != nil:
-				if state.seenSlices[typ.Slice] || equalityIneligibleElement(typ.Slice.Element) {
-					return nil
-				}
-				state.seenSlices[typ.Slice] = true
-				state.order = append(state.order, typ)
-			case typ.List != nil:
-				if state.seenLists[typ.List] || equalityIneligibleElement(typ.List.Element) {
-					return nil
-				}
-				state.seenLists[typ.List] = true
-				state.order = append(state.order, typ)
-			case typ.Union != nil:
-				if state.seenUnions[typ.Union] {
-					return nil
-				}
-				state.seenUnions[typ.Union] = true
-				state.order = append(state.order, typ)
-			}
-			return nil
-		},
 		Expression: func(node checker.Expression) error {
 			switch node.Kind {
 			case checker.DeepEqualityExpression:
 				if compilerTypes.IsString(node.OperandType) {
 					state.needString = true
+					return nil
 				}
+				state.addComparedType(node.OperandType)
+			case checker.UnionEqualityExpression:
+				state.addComparedType(node.OperandType)
 			case checker.StringCompareExpression:
 				if compilerTypes.IsString(node.OperandType) {
 					state.compareNeed = true

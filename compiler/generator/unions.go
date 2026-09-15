@@ -11,10 +11,42 @@ import (
 // generatedUnionState records tagged unions in dependency order. Union C names
 // are already compilation-local canonical metadata; this registry prevents
 // duplicate helper declarations when aliases or nested uses repeat a union.
+// truthy separately records which of those unions are actually evaluated in
+// a boolean context (an if/while condition, or an operand of not/and/or):
+// the wrapper struct stays type-driven (declared, needed regardless), but
+// its _truthy helper is operation-driven, matching the exact call sites
+// truthinessExpression itself renders from.
 type generatedUnionState struct {
 	names     map[*compilerTypes.UnionInfo]string
 	order     []compilerTypes.Type
 	widenings []unionWidening
+	truthy    map[*compilerTypes.UnionInfo]bool
+}
+
+// markTruthy records that typ was evaluated in a boolean context, if it is a
+// union; every other type is ignored, since truthiness for non-union values
+// is either a raw Bool or an unconditional constant with no helper to emit.
+func (state *generatedUnionState) markTruthy(typ compilerTypes.Type) {
+	if typ.Union != nil {
+		state.truthy[typ.Union] = true
+	}
+}
+
+// unionConditionsNeedingTruthy visits the checked statement forms that
+// evaluate a condition's truthiness -- if/elseif and while -- marking each
+// condition's own type. Logical not/and/or are handled in
+// discoverGeneratedUnions's Expression callback instead, since they are
+// checked expression nodes rather than statements.
+func (state *generatedUnionState) markStatementTruthy(statement checker.Statement) {
+	switch typed := statement.(type) {
+	case checker.IfStatement:
+		state.markTruthy(typed.Condition.Type)
+		for _, branch := range typed.ElseIf {
+			state.markTruthy(branch.Condition.Type)
+		}
+	case checker.WhileStatement:
+		state.markTruthy(typed.Condition.Type)
+	}
 }
 
 type unionWidening struct {
@@ -64,7 +96,7 @@ func (state *generatedUnionState) addWideningTypes(source, destination compilerT
 }
 
 func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, error) {
-	state := &generatedUnionState{names: make(map[*compilerTypes.UnionInfo]string)}
+	state := &generatedUnionState{names: make(map[*compilerTypes.UnionInfo]string), truthy: make(map[*compilerTypes.UnionInfo]bool)}
 	visitor := &programVisitor{
 		Type: func(typ compilerTypes.Type) error {
 			if typ.Union != nil {
@@ -79,12 +111,31 @@ func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, err
 			}
 			return nil
 		},
+		Statement: func(statement checker.Statement) error {
+			state.markStatementTruthy(statement)
+			return nil
+		},
 		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.UnionWidenExpression {
 				state.addWidening(node)
 			}
 			if node.Kind == checker.CollectionMethodCallExpression && node.Name == "find" && node.Element.Union != nil && node.ResultType.Union != nil {
 				state.addWideningTypes(node.Element, node.ResultType)
+			}
+			if node.Kind == checker.UnaryOperationExpression && node.Operator == checker.LogicalNotOperator {
+				state.markTruthy(node.OperandType)
+				if node.Operand != nil {
+					state.markTruthy(node.Operand.ResultType)
+				}
+			}
+			if node.Kind == checker.BinaryOperationExpression && (node.Operator == checker.LogicalAndOperator || node.Operator == checker.LogicalOrOperator) {
+				state.markTruthy(node.OperandType)
+				if node.Left != nil {
+					state.markTruthy(node.Left.ResultType)
+				}
+				if node.Right != nil {
+					state.markTruthy(node.Right.ResultType)
+				}
 			}
 			return nil
 		},
@@ -123,7 +174,9 @@ func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, 
 		writeUnionWidening(result, widening, tags)
 	}
 	for _, union := range state.order {
-		writeUnionTruthiness(result, union, tags)
+		if state.truthy[union.Union] {
+			writeUnionTruthiness(result, union, tags)
+		}
 		// Equality helpers are emitted by writeEqualityDefinitions after
 		// every struct definition, so recursive member compares resolve.
 	}

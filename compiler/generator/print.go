@@ -17,6 +17,31 @@ import (
 type generatedPrintState struct {
 	used  bool
 	types []compilerTypes.Type
+	// needsNested records which discovered types actually need their
+	// hex_print_nested_X helper defined: every aggregate (used through that
+	// same helper even as a bare top-level argument, see
+	// printFormatsDirectlyAtTopLevel below) and any type -- aggregate or
+	// not -- reached as a structural descendant of some print argument
+	// (an object member, ADT payload field, or collection element), since
+	// an aggregate's own nested helper recurses into its members through
+	// exactly that call. A leaf type (String, Strand, a scalar, Error)
+	// that only ever appears as a bare top-level argument needs no nested
+	// helper at all: writePrintArgument formats it directly.
+	needsNested map[string]bool
+}
+
+// printFormatsDirectlyAtTopLevel mirrors writePrintArgument's own explicit
+// cases exactly: every other type falls to that function's default branch,
+// which calls the type's nested helper even for a top-level argument.
+func printFormatsDirectlyAtTopLevel(typ compilerTypes.Type) bool {
+	switch {
+	case compilerTypes.Equal(typ, compilerTypes.Bool), compilerTypes.Equal(typ, compilerTypes.Nil),
+		compilerTypes.IsSignedInteger(typ), compilerTypes.IsUnsignedInteger(typ) && !compilerTypes.IsRune(typ),
+		compilerTypes.IsRune(typ), compilerTypes.Equal(typ, compilerTypes.Float32), compilerTypes.Equal(typ, compilerTypes.Float64),
+		compilerTypes.IsString(typ), compilerTypes.IsStrand(typ), compilerTypes.IsError(typ):
+		return true
+	}
+	return false
 }
 
 // discoverGeneratedPrint collects the argument types print needs helpers
@@ -71,14 +96,35 @@ func discoverGeneratedPrint(program checker.Program) (*generatedPrintState, erro
 		}
 		return nil
 	}
+	state.needsNested = make(map[string]bool)
+	markNested := func(typ compilerTypes.Type) {
+		if typ != (compilerTypes.Type{}) {
+			state.needsNested[typ.Name] = true
+		}
+	}
 	visitor := &programVisitor{
 		// The structural descent from a print argument's type reuses the
 		// walker's type walk, keeping print's argument-scoped criteria.
+		// walkTypeTree visits in pre-order (the argument's own root type
+		// first, then its structural descendants), so the first callback
+		// per argument is exactly that argument's own top-level type.
 		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.PrintExpression {
 				state.used = true
 				for _, argument := range node.Arguments {
-					if err := walkTypeTree(argument.Type, addType); err != nil {
+					first := true
+					visit := func(typ compilerTypes.Type) error {
+						if first {
+							first = false
+							if !printFormatsDirectlyAtTopLevel(typ) {
+								markNested(typ)
+							}
+						} else {
+							markNested(typ)
+						}
+						return addType(typ)
+					}
+					if err := walkTypeTree(argument.Type, visit); err != nil {
 						return err
 					}
 				}
@@ -99,9 +145,11 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, 
 		return
 	}
 	errorUsedByPrint := false
+	errorNestedNeeded := false
 	for _, typ := range state.types {
 		if compilerTypes.IsError(typ) {
 			errorUsedByPrint = true
+			errorNestedNeeded = state.needsNested[typ.Name]
 			break
 		}
 	}
@@ -115,6 +163,8 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, 
 		result.WriteString("    hex_print_text(out, header.data, hex_strand_byte_length(header));\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\": \", 2);\n")
 		result.WriteString("    hex_print_text(out, value->hex_m_message->data, value->hex_m_message->byte_length);\n}\n")
+	}
+	if errorNestedNeeded {
 		result.WriteString("static void hex_print_error_nested(hex_print_buffer *out, const hex_t_Error *value) {\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\"Error { file = \", 15);\n    hex_print_quoted_text(out, value->hex_m_file->data, value->hex_m_file->byte_length);\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\", line = \", 9);\n    hex_print_size(out, value->hex_m_line);\n")
@@ -124,6 +174,9 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, 
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\" }\", 2);\n}\n")
 	}
 	for _, typ := range state.types {
+		if !state.needsNested[typ.Name] {
+			continue
+		}
 		// A container helper calls the helpers of its element and member
 		// types, which may follow it in discovery order, so every nested
 		// helper is declared before any definition; the generated C must
@@ -131,6 +184,9 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, 
 		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value);\n", typ.CName)
 	}
 	for _, typ := range state.types {
+		if !state.needsNested[typ.Name] {
+			continue
+		}
 		writePrintNestedHelper(result, typ, tags)
 	}
 }
