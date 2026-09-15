@@ -110,7 +110,7 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 		return GenerationResult{}, tagErr
 	}
 	dependencies := make([]string, 0, 2)
-	if merged.heapState != nil && (merged.heapState.required || len(merged.heapState.elements) > 0) {
+	if merged.heapState.selected() {
 		dependencies = append(dependencies, "mimalloc")
 	}
 	if libuvSelected(merged) {

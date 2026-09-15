@@ -2,6 +2,7 @@ package checker
 
 import (
 	"fmt"
+	"go/constant"
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
@@ -144,6 +145,60 @@ func checkHeapAllocate(call parser.CallExpression, callee parser.PropertyExpress
 		Kind:        HeapAllocateExpression,
 		Operand:     &receiverNode,
 		Arguments:   []Operand{initial.source},
+		OperandType: compilerTypes.Heap,
+		ResultType:  result,
+		Element:     element,
+	}
+	source := Operand{Kind: ExpressionOperand, Type: result, Node: node}
+	return checkedExpression{source: source, typ: result, token: callee.Property}
+}
+
+// checkHeapAligned resolves h.allocate_aligned<T>(initial, alignment) into a
+// checked HeapAllocateAlignedExpression returning Ptr<mut T>. Alignment is the
+// requested minimum; the effective alignment also accounts for T's natural
+// alignment, which the target C compiler owns.
+func checkHeapAllocateAligned(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
+	if len(call.Arguments) != 2 {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "allocate_aligned expects 2 arguments (initial, alignment)"))}
+	}
+	if len(call.TypeArguments) != 1 {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "allocate_aligned requires exactly one type argument"))}
+	}
+	elementUse, diagnostic := resolveTypeUse(call.TypeArguments[0], callee.Property, ctx.typeEnvironment, ctx.names.generics)
+	if diagnostic != nil {
+		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	}
+	element := elementUse.Type
+	if !compilerTypes.Eligible(element, compilerTypes.PositionHeapAllocation) {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "allocation requires a complete finite type"))}
+	}
+	initial := checkInitializer(call.Arguments[0], elementUse, callee.Property, ctx)
+	if diagnostics := initializerDiagnostics(initial); len(diagnostics) > 0 {
+		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
+	if initial.typ != (compilerTypes.Type{}) && !assignable(element, initial.typ) {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("allocation initializer requires %s; got %s", element.Name, initial.typ.Name)))}
+	}
+	alignment := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[1]), ctx)
+	if diagnostics := initializerDiagnostics(alignment); len(diagnostics) > 0 {
+		return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
+	if !assignable(compilerTypes.SizeType, alignment.typ) {
+		return checkedExpression{token: alignment.token, diagnostic: diagnosticAt(typeErrorAt(alignment.token, fmt.Sprintf("allocate_aligned requires Size; got %s", alignment.typ.Name)))}
+	}
+	// A compile-time-known alignment is decided here; a dynamic one is
+	// validated by the allocation primitive before it reaches mimalloc.
+	if alignment.known != nil && alignment.known.Constant != nil {
+		if value, exact := constant.Uint64Val(alignment.known.Constant); exact && (value == 0 || value&(value-1) != 0) {
+			return checkedExpression{token: alignment.token, diagnostic: diagnosticAt(typeErrorAt(alignment.token, fmt.Sprintf("alignment must be a non-zero power of two; got %d", value)))}
+		}
+	}
+	receiverNode := expressionNode(receiver.source)
+	result := ctx.typeEnvironment.MutPtrType(element)
+	node := Expression{
+		Kind:        HeapAllocateAlignedExpression,
+		Operand:     &receiverNode,
+		Arguments:   []Operand{initial.source, alignment.source},
 		OperandType: compilerTypes.Heap,
 		ResultType:  result,
 		Element:     element,

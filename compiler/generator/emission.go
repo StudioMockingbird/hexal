@@ -355,7 +355,7 @@ type programEmission struct {
 // canonical identity, and slice order is preserved or re-sorted explicitly.
 func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) (*programEmission, error) {
 	merged := &programEmission{
-		heapState:   &heapHelpers{seen: make(map[string]bool)},
+		heapState:   &heapHelpers{seen: make(map[string]bool), alignedSeen: make(map[string]bool)},
 		sliceState:  &generatedSliceState{seen: make(map[*compilerTypes.SliceInfo]bool)},
 		stringState: literals,
 		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool)},
@@ -523,8 +523,7 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		if err := collectTypeRequirements(module.program, requirements); err != nil {
 			return nil, err
 		}
-		heapState := module.heapState
-		if heapState != nil && (heapState.required || len(heapState.elements) > 0) {
+		if module.heapState.selected() {
 			// The Heap operations use the selected allocator, size_t from
 			// <stddef.h>, and the ckd_mul checked arithmetic
 			// from <stdckdint.h>. Diagnostic traps report through the one
@@ -808,6 +807,15 @@ func mergeHeapInto(merged, state *heapHelpers) {
 		if !merged.seen[element.Name] {
 			merged.seen[element.Name] = true
 			merged.elements = append(merged.elements, element)
+		}
+	}
+	if merged.alignedSeen == nil {
+		merged.alignedSeen = make(map[string]bool)
+	}
+	for _, element := range state.alignedElements {
+		if !merged.alignedSeen[element.Name] {
+			merged.alignedSeen[element.Name] = true
+			merged.alignedElements = append(merged.alignedElements, element)
 		}
 	}
 }

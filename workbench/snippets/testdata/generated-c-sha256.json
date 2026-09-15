@@ -805,6 +805,15 @@
       "modules/app.c": "cfcd66594473e19f23dd993342e73e78cf76e1a89b4002d846b124a31ce2ad06",
       "modules/app.h": "1b200dfe9e8ad267a30bacc9e9dc7dc2dae5a63e67367a3e867903eacc0e4870"
     },
+    "memory-heap-aligned": {
+      "hexal.h": "ddfdf76fb7097f15a2cb7cee5d33b97f8e9ce68ab92649e14ce305d405fb2129",
+      "hexal/heap.c": "d6bddbd6dd7e71205a4a353397c5fb3de843f17cfbadc21c7800e91199990482",
+      "hexal/heap.h": "8f280d5419c1473c5368ccf23e2f84b3704790bf52c8f8de62ddc580f7c16f90",
+      "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
+      "hexal/wrap.h": "32738ac72fffbdca0ced6674503260a054c6f34f992790c7d2024ef83420af5b",
+      "modules/app.c": "943a9ddc16c76f9f553a79476442099fe4efb8667d68bffccabfe7b20ab0cf93",
+      "modules/app.h": "c6feeeda2cf294fc2ff69e6208654e029d523405a5844d55f0b3ea9aeb8c4261"
+    },
     "memory-heap-integer": {
       "hexal.h": "ddfdf76fb7097f15a2cb7cee5d33b97f8e9ce68ab92649e14ce305d405fb2129",
       "hexal/heap.c": "be1166f9cb1b740a6b8c8655655ae3653f3d60765ae4ef8cc64fd1d9d8da6734",

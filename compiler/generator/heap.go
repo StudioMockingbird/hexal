@@ -14,17 +14,33 @@ type heapHelpers struct {
 	elements []compilerTypes.Type
 	seen     map[string]bool
 	required bool // base helpers needed even without typed allocations (Strings)
+	// alignedElements records the element types allocated with an explicit
+	// alignment. It is separate from elements because the aligned typed
+	// helper and the shared aligned primitive are emitted only where a
+	// reachable aligned allocation actually needs them.
+	alignedElements []compilerTypes.Type
+	alignedSeen     map[string]bool
+}
+
+// selected reports whether this compilation needs the Heap machinery at all.
+func (state *heapHelpers) selected() bool {
+	return state != nil && (state.required || len(state.elements) > 0 || len(state.alignedElements) > 0)
 }
 
 func discoverHeapHelpers(program checker.Program) (*heapHelpers, error) {
-	state := &heapHelpers{seen: make(map[string]bool)}
+	state := &heapHelpers{seen: make(map[string]bool), alignedSeen: make(map[string]bool)}
 	visitor := &programVisitor{
 		Expression: func(node checker.Expression) error {
-			if node.Kind == checker.HeapAllocateExpression {
+			if node.Kind == checker.HeapAllocateExpression || node.Kind == checker.HeapAllocateAlignedExpression {
 				if node.Element == (compilerTypes.Type{}) || !compilerTypes.IsCompleteValue(node.Element) {
 					return unknownExpressionDiagnostic("heap allocation without a complete checked element type")
 				}
-				if !state.seen[node.Element.Name] {
+				if node.Kind == checker.HeapAllocateAlignedExpression {
+					if !state.alignedSeen[node.Element.Name] {
+						state.alignedSeen[node.Element.Name] = true
+						state.alignedElements = append(state.alignedElements, node.Element)
+					}
+				} else if !state.seen[node.Element.Name] {
 					state.seen[node.Element.Name] = true
 					state.elements = append(state.elements, node.Element)
 				}
@@ -63,10 +79,25 @@ func writeHeapAllocateHelpers(result *strings.Builder, state *heapHelpers) {
 		fmt.Fprintf(result, "    *pointer = initial;\n")
 		fmt.Fprintf(result, "    return pointer;\n}\n")
 	}
+	for _, element := range state.alignedElements {
+		helper := heapAllocateAlignedHelper(element)
+		fmt.Fprintf(result, "\nstatic %s %s(hex_heap h, %s initial, size_t alignment) {\n", typeSpelling(compilerTypes.MutPtrType(element)), helper, typeSpelling(element))
+		fmt.Fprintf(result, "    (void)h;\n")
+		// alignof is spelled in generated C because the target C compiler and
+		// ABI, not the host-neutral checker, own the element's natural
+		// alignment.
+		fmt.Fprintf(result, "    %s *pointer = hex_heap_allocate_aligned(sizeof(%s), alignment, alignof(%s));\n", typeSpelling(element), typeSpelling(element), typeSpelling(element))
+		fmt.Fprintf(result, "    *pointer = initial;\n")
+		fmt.Fprintf(result, "    return pointer;\n}\n")
+	}
 }
 
 func heapAllocateHelper(element compilerTypes.Type) string {
 	return "hex_heap_allocate_" + compilerTypes.SanitizeIdentifier(element.Name)
+}
+
+func heapAllocateAlignedHelper(element compilerTypes.Type) string {
+	return "hex_heap_allocate_aligned_" + compilerTypes.SanitizeIdentifier(element.Name)
 }
 
 func renderHeapAllocate(node checker.Expression, state *expressionValidation) (string, error) {
@@ -82,6 +113,25 @@ func renderHeapAllocate(node checker.Expression, state *expressionValidation) (s
 		return "", err
 	}
 	return heapAllocateHelper(node.Element) + "(" + receiver + ", " + initial + ")", nil
+}
+
+func renderHeapAllocateAligned(node checker.Expression, state *expressionValidation) (string, error) {
+	if node.Operand == nil || len(node.Arguments) != 2 || node.Element == (compilerTypes.Type{}) {
+		return "", unknownExpressionDiagnostic("aligned heap allocation has invalid checked metadata")
+	}
+	receiver, err := renderHoistedReceiver(node.Operand, compilerTypes.Heap, state)
+	if err != nil {
+		return "", err
+	}
+	initial, initialErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
+	if initialErr != nil {
+		return "", initialErr
+	}
+	alignment, alignmentErr := renderHoistedOperand(&node.Arguments[1].Node, node.Arguments[1], state)
+	if alignmentErr != nil {
+		return "", alignmentErr
+	}
+	return heapAllocateAlignedHelper(node.Element) + "(" + receiver + ", " + initial + ", " + alignment + ")", nil
 }
 
 func renderHeapFree(node checker.Expression, state *expressionValidation) (string, error) {

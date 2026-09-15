@@ -80,7 +80,7 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
-		checker.HeapAllocateExpression, checker.HeapFreeExpression, checker.VolatileWriteExpression,
+		checker.HeapAllocateExpression, checker.HeapAllocateAlignedExpression, checker.HeapFreeExpression, checker.VolatileWriteExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
 		checker.NetworkExpression,
 		checker.MatchExpression:
@@ -391,6 +391,14 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 		if node.Operand == nil {
 			return hoistOperandSequence(node.Arguments, body, state, indent)
 		}
+		return hoistReceiverAndOperandsSequence(node.Operand, node.OperandType, node.Arguments, body, state, indent)
+	case checker.HeapAllocateAlignedExpression:
+		// The typed helper takes the Heap token, the initializer, and the
+		// requested alignment in one C call, which sequences none of them
+		// against each other; renderHeapAllocateAligned consults
+		// hoistedSequencing for all three. The ordering matters: the
+		// initializer must be fully evaluated before an invalid dynamic
+		// alignment traps inside the helper.
 		return hoistReceiverAndOperandsSequence(node.Operand, node.OperandType, node.Arguments, body, state, indent)
 	case checker.TimeExpression:
 		// Every time operand, receiver included, lands in one C expression.

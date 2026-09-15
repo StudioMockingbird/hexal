@@ -911,6 +911,23 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 			return err
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
+	case checker.HeapAllocateAlignedExpression:
+		if node.Operand == nil || len(node.Arguments) != 2 || node.Element == (compilerTypes.Type{}) || !compilerTypes.IsCompleteValue(node.Element) || node.Element.Signature != nil || !supportedGeneratedTypeWithState(node.ResultType, state) || node.ResultType.Element == nil || !compilerTypes.Equal(*node.ResultType.Element, node.Element) {
+			return unknownExpressionDiagnostic("aligned heap allocation has invalid checked metadata")
+		}
+		if !compilerTypes.Equal(node.Arguments[1].Type, compilerTypes.SizeType) {
+			return unknownExpressionDiagnostic("aligned heap allocation alignment is not a Size")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("aligned heap allocation result does not match its expected type")
+		}
+		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
+			return err
+		}
+		if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
+			return err
+		}
+		return validateCheckedOperandWithState(node.Arguments[1], state)
 	case checker.HeapFreeExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
 			return unknownExpressionDiagnostic("heap free has invalid checked metadata")

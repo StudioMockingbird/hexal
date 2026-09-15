@@ -517,6 +517,8 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		switch name {
 		case "allocate":
 			return checkHeapAllocate(call, callee, receiver, ctx)
+		case "allocate_aligned":
+			return checkHeapAllocateAligned(call, callee, receiver, ctx)
 		case "free":
 			return checkHeapFree(call, callee, receiver, ctx)
 		}

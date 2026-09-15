@@ -83,6 +83,12 @@ const (
 	UnionEqualityExpression
 	// HeapAllocateExpression allocates one T from a Heap and initializes it.
 	HeapAllocateExpression
+	// HeapAllocateAlignedExpression allocates one T from a Heap at a
+	// requested minimum alignment and initializes it. Arguments holds the
+	// initializer and the requested alignment in that order; the effective
+	// alignment also accounts for T's natural alignment, which only the
+	// target C compiler and ABI know.
+	HeapAllocateAlignedExpression
 	// HeapFreeExpression releases a Heap allocation identified by a pointer.
 	HeapFreeExpression
 	// AdtConstructExpression constructs one variant of a nominal ADT.

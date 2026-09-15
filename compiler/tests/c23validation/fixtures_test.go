@@ -658,4 +658,43 @@ var fixtureCatalog = []fixture{
 			"print(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "131"},
 	},
+	{
+		name:       "aligned-allocation-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap, dynamic: Size): Int32 do\n" +
+			"    over: Ptr<mut Int32> := h.allocate_aligned<Int32>(13, 64)\n" +
+			"    defer h.free(over)\n" +
+			"    natural: Ptr<mut Int32> := h.allocate_aligned<Int32>(29, align_of<Int32>())\n" +
+			"    defer h.free(natural)\n" +
+			"    under: Ptr<mut Int32> := h.allocate_aligned<Int32>(7, 1)\n" +
+			"    defer h.free(under)\n" +
+			"    moving: Ptr<mut Int32> := h.allocate_aligned<Int32>(3, dynamic)\n" +
+			"    defer h.free(moving)\n" +
+			"    return (^over) + (^natural) + (^under) + (^moving)\n" +
+			"end\n" +
+			"print(demo(Heap(), 128))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "52"},
+	},
+	{
+		name:       "aligned-allocation-zero-alignment-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap, alignment: Size): Int32 do\n" +
+			"    p: Ptr<mut Int32> := h.allocate_aligned<Int32>(13, alignment)\n" +
+			"    defer h.free(p)\n" +
+			"    return ^p\n" +
+			"end\n" +
+			"print(demo(Heap(), 0))\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid allocation alignment"},
+	},
+	{
+		name:       "aligned-allocation-non-power-of-two-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap, alignment: Size): Int32 do\n" +
+			"    p: Ptr<mut Int32> := h.allocate_aligned<Int32>(13, alignment)\n" +
+			"    defer h.free(p)\n" +
+			"    return ^p\n" +
+			"end\n" +
+			"print(demo(Heap(), 48))\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid allocation alignment"},
+	},
 }
