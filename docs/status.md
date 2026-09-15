@@ -13,8 +13,13 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Explicit `unsafe do ... end` blocks for individually classified unprovable operations; incorrect unsafe assertions may permit C undefined behavior | [0155](specs/0155-unsafe-blocks.md) |
-| Program entry and exit: immutable process arguments, UInt8 root return status, cleanup ordering, and target entry ABI | [0182](specs/0182-program-entry-and-exit.md) |
+| Add lexical `unsafe do ... end` blocks and require them for every `Slice.from_pointer` bridge | [0155](specs/0155-unsafe-blocks.md) |
+| Add unsafe-gated raw pointer offset, indexing, and pointee casts with direct C23 lowering | [0156](specs/0156-fenced-pointer-arithmetic.md) |
+| Add initialized aligned Heap allocation through C23 `alignof` and mimalloc aligned allocation | [0189](specs/0189-aligned-heap-allocation.md) |
+| Whole-call print buffering and stdout serialization so concurrent output cannot interleave within one `print(...)` call | [0184](specs/0184-atomic-print-transactions.md) |
+| Add driver-level debug and release build modes with deterministic versioned Windows PDB publication | [0187](specs/0187-build-modes.md) |
+| Complete struct-only method receivers with non-copyable receiver rejection, stale-comment cleanup, tests, and approved reference synchronization | [0162](specs/0162-struct-only-method-receivers.md) |
+| Repair qualified generic types and defining-module specialization of exported generics | [0190](specs/0190-cross-module-generic-correctness.md) |
 
 ### Coordination umbrella; not independently executable
 
@@ -29,7 +34,7 @@ gets deleted.
 | Fix Dict deletion so removing a bucket never breaks lookup through the remaining collision chain | [0183](specs/0183-compiler-runtime-completion.md) |
 | Complete runtime execution tests for every Task park/commit/wake race and destruction owner | [0183](specs/0183-compiler-runtime-completion.md) |
 | Expand tagged generated-C coverage to every reachable stable runtime-trap family | [0183](specs/0183-compiler-runtime-completion.md) |
-| Add UBSan broadly and ASan where fibers either are absent or have correct sanitizer switch annotations | [0183](specs/0183-compiler-runtime-completion.md) |
+| Add executable UBSan coverage across the runnable generated-C fixture catalog | [0183](specs/0183-compiler-runtime-completion.md) |
 | Replace wholesale helper-family emission with deterministic demand-driven emission | [0183](specs/0183-compiler-runtime-completion.md) |
 | Compile, link, and run representative generated programs on every target before claiming that target as supported | [0183](specs/0183-compiler-runtime-completion.md) |
 
@@ -37,17 +42,9 @@ gets deleted.
 
 | Work | Blocked by | Spec |
 | --- | --- | --- |
-| Project-local content-addressed C object cache with deterministic keys, generated-header dependency closure, concurrent-build locking, integrity checks, and atomic publication | ADR 0055 and a future stable backend identity | [0164](specs/0164-content-addressed-c-object-cache.md) |
-| Rescope `Box<T>` and scoped references after RFC 0165 invalidated the Ref and Box designs; do not implement as written | RFC 0165 | [0149](specs/0149-box-and-call-scoped-references.md) |
-| Rescope ownership and lifetime work after RFC 0165 rejected affine ownership, implicit moves, and automatic cleanup; do not implement as written | RFC 0165 | [0110](specs/0110-affine-ownership-and-stashes.md) |
-| Program path queries, Size-valued available parallelism, and secure `Entropy.fill` | RFC 0182's single generated entry adapter | [0178](specs/0178-libuv-os-services.md) |
-
-### Revisit later; not scheduled
-
-| Work | Spec |
-| --- | --- |
-| Extract and revisit RFC 0158's debug tracking allocator as a standalone test/workbench facility; do not schedule its consuming-receiver design | [0158](specs/deferred/0158-consuming-receivers-and-tracking-alloc.md) |
-| Extract and revisit RFC 0157's aligned allocation separately from uninitialized allocation | [0157](specs/deferred/0157-uninit-allocation-and-alignment.md) |
+| Establish the standard-library module boundary and migrate compiler-owned capability namespaces | RFC 0190 | [0186](specs/0186-standard-library-boundary.md) |
+| Program entry and exit: immutable process arguments, UInt8 root return status, cleanup ordering, and target entry ABI | RFC 0186 | [0182](specs/0182-program-entry-and-exit.md) |
+| Program path queries, Size-valued available parallelism, and secure entropy fill | RFC 0186 | [0178](specs/0178-libuv-os-services.md) |
 
 ## Deferred ideas
 
@@ -64,6 +61,8 @@ A bug is real whether or not its owning spec is scheduled.
 | Bug | Owning spec |
 | --- | --- |
 | Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | [0183](specs/0183-compiler-runtime-completion.md) |
+| A source `print(...)` call emits multiple independent writes, so concurrent Tasks can interleave one formatted value and pay multiple worker round trips | [0184](specs/0184-atomic-print-transactions.md) |
+| Exported generic functions are specialized in the importing module's environment, breaking defining-module generic type resolution and misattributing declaration diagnostics | [0190](specs/0190-cross-module-generic-correctness.md) |
 | `reference.md` names POSIX x86-64 as a supported Task target although RFC 0052 has qualified only Windows x64 | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md); reference correction requires explicit user approval |
 
 ## Known coverage gaps
@@ -121,8 +120,10 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   the rest of `reference.md`'s trap inventory (shift count, close failure,
   Mutex misuse, task stack overflow, and others) has no fixture yet, and
   `print`'s output forms are not exhaustive over every printable type. The
-  sanitizer tier (UBSan on every runnable host fixture, ASan where the
-  artifact set excludes `hexal/concurrency.c`) does not exist yet.
+  UBSan execution over every runnable host fixture does not exist yet and is
+  owned by RFC 0183. ASan remains separately deferred under RFC 0185 because
+  the installed Windows Zig backend cannot link its runtime and Task fibers
+  lack sanitizer switch annotations.
 - **Compiling real generated C surfaced multiple generator defects across the
   snippet catalog.** Every failure reproduced so far is now fixed and
   re-verified compiling clean under all three toolchains, most recently (RFC

@@ -1,14 +1,16 @@
 # RFC 0178: Program Paths and Secure Entropy
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Design and execution plan settled; implementation blocked on RFC
-  0182's generated entry adapter
+- Status: Implementation-ready after RFC 0186; design and execution plan
+  settled, implementation not started
 - Created: 2026-09-13
-- Updated: 2026-09-14
+- Updated: 2026-09-15
 - Scope: expose the minimum path facts and secure system random bytes needed by
   ordinary command-line and server programs
-- Depends on: RFC 0168, RFC 0182's generated entry adapter, and the implemented
-  RFCs 0169, 0170, 0171, 0180, and 0181
+- Depends on: RFC 0168, RFC 0186, and the implemented RFCs 0169, 0170, 0171,
+  0180, and 0181
+- Coordinates with: RFC 0182 for the shared `std/program` module and any future
+  target whose libuv executable-path backend requires `uv_setup_args`
 - Does not add: a general OS-reflection namespace, mutable process-global
   environment, process title, system metrics, deterministic pseudo-randomness,
   or a process-exit surface
@@ -21,11 +23,11 @@ Replace the former libuv API catalog with a focused v1:
 - current, home, temporary, and executable paths; and
 - available parallelism.
 
-RFC 0182 owns process arguments and exit status. Their entrypoint, unwind, and
-Task semantics are independent of libuv OS queries and are not hidden here.
-The present RFC is otherwise implementation-ready, but `uv_exepath` requires
-`uv_setup_args`; implementation therefore waits for RFC 0182's one authoritative
-entry adapter rather than creating a competing adapter here.
+RFC 0182 owns process arguments and exit status. Its entrypoint, unwind, and
+Task semantics are independent of these OS queries. The pinned Windows, Linux,
+and macOS `uv_exepath` backends do not require `uv_setup_args`, so this RFC is
+not blocked on RFC 0182. A future target whose pinned backend does require setup
+must coordinate with RFC 0182's one authoritative adapter.
 
 ## Scope decision
 
@@ -57,17 +59,25 @@ entry adapter rather than creating a competing adapter here.
 ## Proposed source surface
 
 ```text
-Program.current_directory(heap: Heap) -> String | Error
-Program.home_directory(heap: Heap) -> String | Error
-Program.temporary_directory(heap: Heap) -> String | Error
-Program.executable_path(heap: Heap) -> String | Error
-Program.available_parallelism() -> Size
+import
+    Prog from "std/program",
+    Ent from "std/entropy"
+end
 
-Entropy.fill(into: Slice<mut Byte>) -> Nil | Error
+Prog.current_directory(heap: Heap) -> String | Error
+Prog.home_directory(heap: Heap) -> String | Error
+Prog.temporary_directory(heap: Heap) -> String | Error
+Prog.executable_path(heap: Heap) -> String | Error
+Prog.available_parallelism() -> Size
+
+Ent.fill(into: Slice<mut Byte>) -> Nil | Error
 ```
 
-- `Program` and `Entropy` are protected
-  compiler-owned namespace types and have no values.
+- `current_directory`, `home_directory`, `temporary_directory`,
+  `executable_path`, and `available_parallelism` are exported functions of
+  `std/program`; `fill` is an exported function of `std/entropy`.
+- `Prog` and `Ent` above are ordinary file-local import aliases. This RFC adds
+  no protected `Program` or `Entropy` name.
 - Path results are owned Hexal Strings allocated from the caller's Heap.
 - Available parallelism is a non-zero estimate, matching libuv's contract. It
   does not expose scheduler worker count or mutate scheduler policy.
@@ -75,13 +85,13 @@ Entropy.fill(into: Slice<mut Byte>) -> Nil | Error
 All signatures are settled for v1. Size follows Hexal's count convention rather
 than exposing libuv's `unsigned int` return type.
 
-RFCs 0178 and 0182 extend the same protected `Program` namespace. Whichever
-lands first creates its compiler identity; the second reuses and extends it.
-Neither RFC creates a parallel `Program` type or duplicates operation metadata.
+RFCs 0178 and 0182 extend the same `std/program` core-library declaration table
+and generated program component. RFC 0186 establishes that module boundary
+first; neither RFC creates a namespace type or duplicate runtime component.
 
 ## Secure random contract
 
-- `Entropy.fill` fills the entire destination or returns Error; short success is
+- `std/entropy.fill` fills the entire destination or returns Error; short success is
   impossible.
 - An empty Slice succeeds immediately, touches no memory, and submits no libuv
   request.
@@ -99,7 +109,7 @@ Neither RFC creates a parallel `Program` type or duplicates operation metadata.
   completed; after any chunk fails, the entire destination remains unspecified.
 - Failure uses the common libuv ErrorKind mapper with fixed message
   `secure random fill failed`; no native code or backend text is retained.
-- Entropy use selects libuv and the native bootstrap. Task-aware use additionally
+- Entropy-module use selects libuv and the native bootstrap. Task-aware use additionally
   selects the event bridge; synchronous-only use does not.
 - There is no prior entropy backend to remove.
 
@@ -110,17 +120,28 @@ Neither RFC creates a parallel `Program` type or duplicates operation metadata.
   mutex because libuv documents them as not thread-safe. Concurrent foreign
   mutation of the process environment while either query executes is an unsafe
   C-interop conflict; Hexal exposes no environment mutation in v1.
-- Retry only the documented `UV_ENOBUFS` sizing protocol, with checked size
-  arithmetic. After initial sizing, permit at most two growth retries if the
-  process-global value changes between sizing and retrieval. Continued
-  `UV_ENOBUFS` returns `ErrorKind.Busy()` with fixed message
-  `path changed during query`.
+- Initialize that mutex exactly once with `uv_once` before either query and
+  destroy no process-lifetime synchronization object during ordinary return.
+- For current, home, and temporary directory, retry the documented
+  `UV_ENOBUFS` sizing protocol with checked size arithmetic. After initial
+  sizing, permit at most two growth retries if the process-global value changes
+  between sizing and retrieval. Continued `UV_ENOBUFS` returns
+  `ErrorKind.Busy()` with fixed message `path changed during query`.
+- `uv_exepath` does not provide that protocol: pinned backends can return
+  success after filling only `capacity - 1` bytes. Treat that exact length as
+  possible truncation, grow geometrically, and retry. Start at 4 KiB. Windows
+  permits growth through 128 KiB, which exceeds the pinned backend's maximum
+  32,768 UTF-16-code-unit path after UTF-8/WTF-8 expansion; other targets permit
+  growth through 1 MiB. Saturation at the bound returns
+  `ErrorKind.ResourceExhausted()` with fixed message
+  `executable path unavailable`. Every growth calculation is checked.
 - Copy the successful UTF-8 bytes into the caller's Heap before releasing
   temporary runtime storage.
-- POSIX path bytes are not guaranteed to be UTF-8. A successful native query
-  whose result is not valid UTF-8 returns `ErrorKind.InvalidPath()` with fixed
-  message `path is not valid UTF-8`; no lossy replacement or byte-path surface
-  is introduced.
+- Validate every successful path on every target as UTF-8. POSIX can return
+  arbitrary path bytes, and pinned Windows libuv converts ill-formed UTF-16 to
+  WTF-8; either can therefore fail validation. Invalid bytes return
+  `ErrorKind.InvalidPath()` with fixed message `path is not valid UTF-8`; no
+  lossy replacement or byte-path surface is introduced.
 - Perform no normalization, canonicalization, symlink resolution, separator
   rewriting, or case folding.
 - Home and temporary directory are observations, not security guarantees and
@@ -128,11 +149,13 @@ Neither RFC creates a parallel `Program` type or duplicates operation metadata.
 - Outside a Task, these libuv helpers execute synchronously. Inside a Task,
   every path query uses the existing `uv_queue_work` bridge and parks only that
   Task; in particular, home-directory lookup may consult the host account
-  database and must not block a scheduler worker.
-- Executable-path reachability on POSIX requires RFC 0182's generated entry adapter to
-  call `argv = uv_setup_args(argc, argv)` exactly once before any argument
-  snapshot, module statement, or executable-path query. Libuv may own or
-  replace argv; the returned pointer is the authoritative POSIX invocation.
+  database and must not block a scheduler worker. The uniform bridge imposes a
+  worker round trip on cheap queries; v1 accepts that cost to keep one Task
+  execution rule.
+- No initial Windows, Linux, or macOS executable-path query widens the generated
+  C entrypoint or calls `uv_setup_args`. A future target profile whose pinned
+  libuv backend requires setup must use RFC 0182's adapter and returned
+  authoritative argv rather than adding another entry path.
 - Native/query failures use the common ErrorKind mapper with fixed messages
   `current directory unavailable`, `home directory unavailable`,
   `temporary directory unavailable`, and `executable path unavailable`.
@@ -140,11 +163,12 @@ Neither RFC creates a parallel `Program` type or duplicates operation metadata.
   operation-specific message. Empty successful paths are invalid and use
   `ErrorKind.InvalidPath()`.
 
-## Namespace decision
+## Module decision
 
-- `Program` owns paths and available parallelism here; RFC 0182 adds arguments.
-- `Entropy` owns secure system entropy. `Random` remains available to a future
-  deterministic pseudo-random library and is not a protected name here.
+- `std/program` owns paths and available parallelism here; RFC 0182 adds
+  arguments to that module.
+- `std/entropy` owns secure system entropy. `Random` remains available to a
+  future deterministic pseudo-random library and is not a protected name here.
 - There is no general `Os` namespace. A later focused capability adds its own
   cohesive type rather than extending an unbounded miscellaneous catalog.
 
@@ -157,40 +181,44 @@ entry ABI independently nor adds an exit operation.
 
 ### Phase 1: metadata and checked surface
 
-1. Add protected `Program` and `Entropy` identities to `compiler/types` without
-   grammar changes.
-2. Register the five Program operations and `Entropy.fill` in the checker,
-   including exact arguments, results, protected-name rejection, and fail-closed
+1. Extend RFC 0186's `std/program` and `std/entropy` core-library tables with
+   the six exported module functions above; add no protected identity.
+2. Register the five program operations and entropy `fill` in the checker,
+   including exact arguments, results, import-alias resolution, and fail-closed
    unknown-operation diagnostics.
 3. Extend checked-call identities rather than recognizing source spellings in
    the generator.
 
 ### Phase 2: component discovery
 
-1. Add focused generator discovery for Program paths, available parallelism,
-   and Entropy independently.
-2. Select libuv and native bootstrap for any operation here. Select the event
-   bridge and scheduler only when checked reachability can call a path or
-   Entropy operation from a Task.
+1. Add focused generator discovery for program paths, available parallelism,
+   and entropy independently.
+2. Select libuv and native bootstrap for any operation here. When a checked
+   call occurs from Task code, additionally select the existing event bridge;
+   the presence of Task code already selects the scheduler.
 3. Emit no program-query or entropy artifact when neither family is reachable.
 
 ### Phase 3: Program runtime
 
-1. Add `compiler/generator/packages/program.h` and `program.c` as source
-   templates; keep libuv and platform types private to the C file.
-2. Implement the four path queries with checked sizing, two growth retries,
-   UTF-8 validation, caller-Heap copying, exact ErrorKind/message mapping, and
-   the existing worker bridge inside Tasks.
-3. Implement `Program.available_parallelism()` as a checked conversion from
+1. Add `program.h` and `program.c` under RFC 0186's
+   `compiler/corelib/runtime/`; keep libuv and platform types private to the C
+   file.
+2. Implement current/home/temporary queries with their documented sizing and
+   two-retry rule; implement executable path with success-saturation detection,
+   bounded growth, and checked arithmetic. Apply all-target UTF-8 validation,
+   caller-Heap copying, exact ErrorKind/message mapping, and the existing
+   worker bridge inside Tasks.
+3. Implement `std/program.available_parallelism()` as a checked conversion from
    libuv's guaranteed non-zero value to Size, with no scheduler-policy side
    effect.
-4. Coordinate POSIX executable-path setup with RFC 0182's single entry adapter;
-   never introduce a second `uv_setup_args` call.
+4. Assert that Windows, Linux, and macOS executable-path demand retains
+   `main(void)` in the absence of RFC 0182 argument demand. Document the
+   coordination requirement for any later backend that needs `uv_setup_args`.
 
 ### Phase 4: Entropy runtime
 
-1. Add `compiler/generator/packages/entropy.h` and `entropy.c` as source
-   templates.
+1. Add `entropy.h` and `entropy.c` under RFC 0186's
+   `compiler/corelib/runtime/`.
 2. Implement empty success, synchronous non-Task fill, asynchronous Task fill,
    sequential request chunking, exact failure mapping, and result-before-wake
    publication.
@@ -204,7 +232,7 @@ entry ABI independently nor adds an exit operation.
 2. Add tagged C23 fixtures for direct and Task paths, exact errors, path
    encoding, entropy chunk boundaries, demand selection, and source mapping.
 3. Measure generated size, link time, runtime allocations, and Task/non-Task
-   latency independently for Program and Entropy.
+   latency independently for the program and entropy components.
 4. Run ordinary and tagged gates on every qualified target; regenerate only
    manifest artifacts intentionally changed by this surface.
 5. Update `docs/reference.md` only after behavior stabilizes and only with
@@ -217,21 +245,27 @@ This list is exhaustive:
 - secure entropy empty and non-empty fills, full success, failure, Task and non-
   Task paths, the `0x7fffffff` chunk boundary, buffer synchronization, and
   unspecified failure contents;
-- resizing races and exact ownership for every path query;
-- invalid POSIX UTF-8, empty path, exact failure kind/message, direct non-Task
-  query, and Task-parking query;
+- sizing races and exact ownership for current/home/temporary queries;
+- executable-path success saturation, multiple growth steps, Windows 128-KiB
+  and other-target 1-MiB bounds, and exact bounded failure;
+- invalid POSIX UTF-8, invalid Windows WTF-8, empty path, exact failure
+  kind/message, direct non-Task query, and Task-parking query;
+- exactly-once home/temp mutex initialization and concurrent query
+  serialization;
 - non-zero available parallelism without changing scheduler configuration;
 - Size is the exact available-parallelism result and Random remains an
   unprotected user-available name;
 - exact demand selection and absence of unrelated OS-query APIs;
 - no environment access or mutation, cwd mutation, process title, metrics, user/group,
   interface, time-of-day, or deterministic PRNG surface; and
+- no entrypoint widening or `uv_setup_args` for executable-path demand on
+  Windows, Linux, or macOS; and
 - ordinary and tagged C23 gates with manifest movement confined to the exact
   programs selecting these capabilities.
 
 ## Reference synchronization
 
 Do not edit `docs/reference.md` from this draft. Approved implementation adds
-only the settled Program path, parallelism, and Entropy
-contracts after behavior stabilizes. RFC 0182 owns argument and process-status
+only the settled `std/program` path/parallelism and `std/entropy` contracts
+after behavior stabilizes. RFC 0182 owns argument and process-status
 synchronization.

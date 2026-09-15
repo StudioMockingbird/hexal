@@ -1,12 +1,11 @@
 # ADR 0164: Content-Addressed C Object Cache
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implementation-ready; blocked on ADR 0055 and a future stable backend
-  identity
+- Status: Implementation-ready; deferred until a stable backend identity exists
 - Created: 2026-09-11
 - Updated: 2026-09-12
-- Depends on: ADR 0055's deterministic per-translation-unit object pipeline and
-  a stable backend identity deliberately deferred by RFC 0052
+- Depends on: implemented ADR 0055's deterministic per-translation-unit object
+  pipeline and a future stable backend identity
 - Does not update `docs/reference.md`: this is driver behavior, not a language
   or compiler-output contract
 

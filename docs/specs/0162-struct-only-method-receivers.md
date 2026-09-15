@@ -1,13 +1,20 @@
 # RFC 0162: Struct-Only Method Receivers
 
-- Kind: Language Semantics
-- Status: Implementation-ready; implementation not started
+- Kind: Feature Specification (Rust-Style RFC)
+- Status: Implementation-ready completion pass; core behavior landed on
+  2026-09-10, while non-copyable receiver rejection, stale-comment cleanup,
+  tests, and the approved canonical-reference synchronization remain
 - Created: 2026-09-10
+- Updated: 2026-09-15
 - Depends on: the current method declaration and call contracts in `docs/reference.md`
-- Coordinates with: RFC 0165 (pointer spelling and slice migration)
-- Supersedes on implementation: the pointer-receiver portion of RFC 0165
-- Does not update `docs/reference.md`: synchronize only after implementation
-  stabilizes and the user explicitly approves the reference edit
+- Coordinates with: implemented RFC 0161 (current pointer spelling and
+  mutability model)
+- Reference synchronization approved by the user on 2026-09-15; apply it only
+  after the remaining behavior and tests stabilize
+- Supersedes on completion: the pointer-receiver method semantics still stated
+  in `docs/reference.md`
+- Updates `docs/reference.md` after the remaining implementation and tests
+  stabilize; the user approved that synchronization on 2026-09-15
 
 ## Summary
 
@@ -31,6 +38,17 @@ members, allocation, foreign interfaces, and explicit functions.
 This RFC deliberately chooses one method form. A method receiver is a fixed
 value copy; it is never an alias to caller storage and never grants mutation of
 the caller's value.
+
+## Completion gaps
+
+- Compiler behavior and focused tests implement struct-only value receivers.
+- The canonical reference still says user methods may target `T`, `Ptr<T>`, or
+  `Ptr<mut T>` and describes pointer-receiver mutation. The approved
+  synchronization must land after the remaining code and tests and before this
+  RFC closes.
+- The checker currently accepts a method whose receiver struct transitively
+  contains Atomic even though the receiver contract copies `self` and such a
+  struct is non-copyable. This RFC requires rejecting that declaration.
 
 ## Goals
 
@@ -68,6 +86,12 @@ After type resolution, `struct-receiver` must denote a local nominal struct
 type declared with `type Name is struct ... end`. A transparent alias may name
 that same struct but does not create another method owner or namespace.
 
+The resolved receiver must also be shallow-copyable under the existing value
+copy classification. A struct that directly or transitively contains
+`Atomic<T>` or another non-copyable value is not a valid method receiver. This
+keeps every method receiver a real value snapshot; the compiler never changes
+one receiver into a hidden alias merely because copying it is invalid.
+
 The following are invalid method receivers:
 
 ```hexal
@@ -81,6 +105,12 @@ The invalid receiver diagnostic is:
 
 ```text
 method receiver must be a struct type; got <type>
+```
+
+A struct receiver that is not shallow-copyable reports:
+
+```text
+method receiver must be shallow-copyable; got <type>
 ```
 
 The diagnostic is produced by the checker, before method-body checking or
@@ -127,7 +157,7 @@ A call on `Ptr<T>` or `Ptr<mut T>` may autoderef one pointer layer, copy the
 pointee as the method receiver, and then invoke the same `T` method:
 
 ```hexal
-point: Point := Point(x = 3, y = 4)
+mut point: Point := Point(x = 3, y = 4)
 reader: Ptr<Point> := @point
 writer: Ptr<mut Point> := @point
 
@@ -208,6 +238,8 @@ Inventory and reconcile:
 
 - parser and checker acceptance of `T`, pointer, nullable, alias, generic,
   union, primitive, and imported receivers;
+- parser comments that still describe pointer-constructor receiver forms, and
+  generator comments that still call the declaration an `impl` method;
 - receiver adaptation and method-call typing, retaining only exact value
   dispatch and one-layer pointer-to-value copying;
 - `self` binding writability, field mutation diagnostics, and explicit mutable
@@ -236,6 +268,13 @@ This section is exhaustive.
 - A transparent alias resolves to its underlying struct and does not create a
   second method namespace.
 - Methods for imported structs are rejected by the existing ownership rule.
+- A method declaration on a struct that directly contains `Atomic<T>` is
+  rejected with the exact shallow-copyable diagnostic above.
+- A method declaration on a struct that transitively contains `Atomic<T>` is
+  rejected with the same diagnostic, including when the method is called only
+  through `Ptr<T>` or `Ptr<mut T>`.
+- An explicit free function taking `Ptr<Shared>` remains the non-copying way to
+  operate on a non-copyable struct.
 - `Ptr<T>`, `Ptr<mut T>`, nullable receivers, unions, primitives, builtin
   generic types, and non-struct nominal types are rejected with the specified
   receiver diagnostic.
@@ -260,6 +299,10 @@ This section is exhaustive.
 - The ordinary Go suite, tagged checks, generated-C text assertions, and the
   snippet manifest pass with only the specified method-receiver changes.
 
+## Open questions
+
+None.
+
 ## Detailed implementation plan
 
 ### Phase 1: baseline and inventory
@@ -277,7 +320,10 @@ This section is exhaustive.
    receiver-form handling.
 3. Retain one-layer pointer autoderef to a copied `T` for method calls.
 4. Preserve fixed, read-only `self` semantics and existing local-copy rules.
-5. Add focused diagnostics for every invalid receiver category.
+5. Reject direct and transitive non-copyable receiver structs with the exact
+   shallow-copyable diagnostic; reuse the existing copy classification rather
+   than creating a method-specific approximation.
+6. Add focused diagnostics for every invalid receiver category.
 
 ### Phase 3: generator and migration
 
@@ -290,9 +336,10 @@ This section is exhaustive.
 
 ### Phase 4: conformance and reference
 
-1. Run the exhaustive Validation cases with focused integration coverage.
-2. Review every manifest movement against the allowed receiver changes.
-3. Synchronize `docs/reference.md` once implementation behavior stabilizes and
+1. Remove the stale parser/generator comments named by the Required sweep.
+2. Run the exhaustive Validation cases with focused integration coverage.
+3. Review every manifest movement against the allowed receiver changes.
+4. Synchronize `docs/reference.md` once implementation behavior stabilizes and
    the user approves the edit.
-4. Update status only after code, tests, generated output, and reference agree.
-5. Rebuild and restart the workbench before handoff.
+5. Update status only after code, tests, generated output, and reference agree.
+6. Rebuild and restart the workbench before handoff.

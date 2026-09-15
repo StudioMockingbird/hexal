@@ -1,15 +1,11 @@
 # RFC 0155: Explicit `unsafe do ... end` Blocks
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started. The first-consumer
-  sequencing below (RFCs 0149/0153) lapsed with RFC 0165, which removed every
-  unsafe-capable operation: Phase 3 must not be implemented as written. Scheduling
-  needs a new classified consumer. Later RFCs extend the operation
-  set without changing this lexical mechanism
+- Status: Implementation-ready; implementation not started
 - Created: 2026-09-09
-- Updated: 2026-09-10
-- Coordinates with: RFC 0039 (foreign operations), RFC 0110 (unproven owner
-  invalidation), RFC 0149 (ownership and references), and RFC 0153 (slices)
+- Updated: 2026-09-15
+- Coordinates with: RFC 0039 (future foreign operations), RFC 0156 (pointer
+  arithmetic and casts), and implemented RFC 0161 (current Ptr/Slice model)
 - Does not update `docs/reference.md`: synchronize only after implementation
   stabilizes and the user explicitly approves the reference edit
 
@@ -20,23 +16,27 @@ locally:
 
 ```hexal
 unsafe do
-    stash.reset()
+    bytes := Slice<Byte>.from_pointer(pointer, length)
+    consume(bytes)
 end
 ```
 
 The block grants permission only to operations individually classified as
-unsafe-capable. It does not disable parsing, typing, ownership, bounds,
+unsafe-capable. It does not disable parsing, typing, bounds,
 exhaustiveness, or generated-C checks.
 
-Hexal's no-undefined-behavior guarantee applies to safe Hexal. Inside unsafe,
-the programmer asserts the documented preconditions of each unsafe-capable
-operation. If that assertion is false, generated C may have undefined behavior.
-An unsafe block does not imply that an invalid operation will trap.
+For each operation this mechanism eventually gates, ordinary syntax retains
+that operation's safe contract. Inside unsafe, the programmer asserts its
+documented preconditions; a false assertion may produce undefined behavior.
+This RFC does not claim to eliminate every existing manual-lifetime hazard.
 
 ## Grammar
 
 ```ebnf
-unsafe-statement = "unsafe" , "do" , statement-list , "end" ;
+statement = non-control-statement | return-statement
+            | if-statement | while-statement | for-statement
+            | local-function-declaration | unsafe-statement ;
+unsafe-statement = "unsafe" , "do" , block , "end" ;
 ```
 
 - `unsafe` is a reserved word.
@@ -60,31 +60,36 @@ unsafe-statement = "unsafe" , "do" , statement-list , "end" ;
   unavailable afterward. Generated C need not add braces solely for the unsafe
   permission when its existing unique-name and control-flow lowering preserves
   that source scope.
-- A deferred action is checked in the context in which it will execute, not
-  merely where it is registered. Consequently, placing `defer` or `errdefer`
-  inside an unsafe block does not authorize an unsafe-capable operation that
-  runs after that block has ended.
+- A value needed afterward is declared outside and assigned inside, or is
+  consumed inside the block. Unsafe does not introduce a second expression
+  form solely to return one value from the region.
+- Unsafe permission is checked where an operation is written, including inside
+  a deferred action. A deferred unsafe-capable operation written inside the
+  block is authorized even though it executes later; its author asserts that
+  the operation's preconditions will hold at execution.
 
-## Initial unsafe-capable operations
+## Initial unsafe-capable operation
 
-- `Slice<T>.from_pointer` and `Slice<mut T>.from_pointer` when the pointer's
-  live provenance cannot be proved locally. The capability remains confined to
-  the direct call or lexical borrow block required by RFC 0153.
-- Stash reset/destroy when local provenance cannot prove that no live Ref,
-  Slice, raw pointer, or foreign retention depends on the region.
-- Pool destruction and `pool.free(slot)` retain RFC 0110's runtime ownership,
-  range, alignment, and live-slot validation. Neither requires unsafe solely
-  because provenance is unknown.
-- Foreign/raw-memory operations that RFC 0039 explicitly classifies as unsafe.
+- Every `Slice<T>.from_pointer` and `Slice<mut T>.from_pointer` call requires an
+  active unsafe block. The compiler cannot prove the supplied region's length,
+  lifetime, alignment, initialization, provenance, or future validity.
+- Pointer-mode and argument-shape checks remain ordinary checks: a writable
+  Slice still requires `Ptr<mut T>`, length is still Size, and nullable or
+  incompatible pointers remain invalid inside unsafe.
+- `Slice.empty`, Array/List/String slicing, indexing, and re-slicing do not
+  require unsafe.
+- Stash reset/destroy and Pool operations retain their current compile-time and
+  runtime contracts and do not change in this RFC.
+- RFC 0156 and RFC 0039 may add further individually classified consumers later.
 
-The block does not itself add pointer arithmetic, unchecked indexing, arbitrary
-casts, manual union-tag writes, or any other operation. Each new unsafe
-operation requires its own specification and validation.
+The block does not itself add pointer arithmetic, unchecked indexing,
+arbitrary casts, manual union-tag writes, or any other operation. Each new
+unsafe operation requires its own specification and validation.
 
 ## Diagnostics
 
-- An unsafe-capable operation outside the block reports that the operation
-  requires an `unsafe do ... end` block and names the unproved condition.
+- `Slice.from_pointer` outside the block reports Type Error:
+  `Slice.from_pointer requires an unsafe do ... end block`.
 - An operation that is invalid regardless of safety reports its ordinary
   earliest-phase diagnostic.
 - An unsafe block containing no unsafe-capable operation is valid; no warning is
@@ -101,7 +106,7 @@ operation requires its own specification and validation.
 
 - Preserving the no-undefined-behavior guarantee after an unsafe precondition is
   violated. Unsafe is the explicit opt-out required for full C expressiveness.
-- Disabling ownership or lifetime tracking wholesale.
+- Disabling ordinary local cleanup or lifetime diagnostics wholesale.
 - Unsafe functions, unsafe types, capability tokens, or effect propagation.
 - Inferring that a function is unsafe from its body.
 - Treating every raw-pointer use as unsafe in this first version.
@@ -110,8 +115,7 @@ operation requires its own specification and validation.
 
 - parser keywords, statement dispatch, recovery, and block termination;
 - checked-statement representation and traversal;
-- Stash/Pool provenance diagnostics owned by RFC 0110;
-- unknown-provenance Slice construction owned by RFC 0153;
+- current Slice construction and pointer-mode checks;
 - foreign/raw-operation gates owned by RFC 0039;
 - generator statement dispatch and source mapping;
 - reserved-word, formatting, snippet, and diagnostic tests.
@@ -121,35 +125,44 @@ operation requires its own specification and validation.
 This section is exhaustive.
 
 - `unsafe do ... end` parses as one statement and supports nesting.
-- Unknown-provenance Slice.from_pointer and unproved Stash reset/destroy fail
-  outside and succeed inside the block when every ordinary type/shape
-  precondition holds.
-- Pool.free retains its runtime slot validation and gains no blanket unsafe
-  requirement.
+- A binding declared inside is rejected after the block; an outer mutable
+  binding assigned inside remains available afterward.
+- Read-only and writable `Slice.from_pointer` fail outside and succeed inside
+  the block when their ordinary type/shape preconditions hold.
+- The outside-block failure uses the exact diagnostic above.
+- A writable Slice from `Ptr<T>`, a mismatched element pointer, a nullable
+  pointer before narrowing, and a non-Size length retain their existing earlier
+  diagnostics inside unsafe.
+- `Slice.empty`, Array/List/String slicing, indexing, and re-slicing compile
+  outside unsafe unchanged.
+- Stash and Pool operations gain no unsafe requirement.
 - An unsafe-capable operation inside a safe wrapper does not make its caller
   unsafe.
-- Type errors, use-after-move, duplicate cleanup, invalid construction,
+- Type errors, locally proved repeated release, invalid construction,
   out-of-bounds constants, and unsupported operations remain rejected inside
   unsafe with their ordinary diagnostics.
-- Unsafe context does not escape through a call, return, deferred statement,
-  nested function, Task, or Channel.
-- A deferred Stash reset/destroy remains valid when its safety is locally
-  proved. If the operation needs unsafe permission, registering it inside an
-  unsafe block does not authorize its later execution and is rejected; the
-  operation must execute directly within an active unsafe block.
+- Unsafe context does not escape through a call: a function containing
+  `Slice.from_pointer` must contain its own unsafe block, while a safe caller
+  may call a wrapper whose body contains that block.
+- A deferred unsafe-capable operation is accepted when written inside unsafe
+  and rejected when written outside it, regardless of where the defer later
+  executes.
 - Empty and capability-free unsafe blocks compile without warning.
 - Generated C for a valid unsafe block equals the lowering of its enclosed
   statements except for normal source-location movement; no unsafe runtime
   artifact is emitted.
-- Existing manifest hashes outside snippets deliberately adding unsafe syntax
-  do not move.
+- Existing `Slice.from_pointer` tests and snippets migrate to explicit unsafe
+  blocks. Manifest movement is limited to artifacts whose source mapping moves
+  because of that syntax and to the new unsafe snippet.
 
 ## Detailed implementation plan
 
 ### Phase 1: syntax and checked representation
 
 1. Reserve `unsafe` and parse the block with existing `end` recovery.
-2. Add an explicit checked unsafe statement so parser/checker/generator
+2. Add `unsafe-statement` to the normative statement alternatives and reuse the
+   existing `block` production; do not create a parallel statement-list rule.
+3. Add an explicit checked unsafe statement so parser/checker/generator
    dispatch remains fail-closed.
 
 ### Phase 2: capability context
@@ -159,20 +172,23 @@ This section is exhaustive.
 2. Add one shared predicate for operations whose owning RFC marks them unsafe-
    capable; do not scatter keyword checks through unrelated code.
 3. Preserve ordinary validation before granting the narrow unsafe exemption.
+4. Reuse ordinary lexical-scope entry, exit, local cleanup, and deferred-action
+   handling for the enclosed block.
 
-### Phase 3: first consumers
+### Phase 3: Slice bridge
 
-1. Integrate RFC 0110's unproven Stash invalidation gates while preserving
-   Pool's runtime-validated safe operations.
-2. Integrate RFC 0153's unknown-provenance from_pointer gate.
-3. Integrate only the foreign/raw operations explicitly selected by RFC 0039.
+1. Require active unsafe depth in the shared `Slice.from_pointer` checker path
+   after ordinary callee/type resolution and before checked-node construction.
+2. Preserve every pointer mode, element identity, nullability, and Size check.
+3. Migrate all existing accepted `Slice.from_pointer` tests and snippets to
+   explicit unsafe blocks; add focused rejection outside the block.
 4. Confirm no other operation changes behavior.
 
 ### Phase 4: lowering and conformance
 
 1. Lower enclosed statements directly with existing source mapping.
-2. Implement every Validation case in focused parser/checker and integration
-   tests.
+2. Implement every Validation case in focused parser/checker and
+   integration tests.
 3. Add one compact workbench snippet and update the manifest only for that
    deliberate addition.
 4. Run ordinary and tagged C23 suites.

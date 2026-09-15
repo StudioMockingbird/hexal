@@ -1,8 +1,9 @@
 # RFC 0185: AddressSanitizer Fiber Coverage
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Design not started; blocked on an ASan-capable execution toolchain
-  and explicit fiber-switch instrumentation design
+- Status: Deferred; reactivate after a qualified POSIX target provides an
+  ASan-capable Clang execution gate and the fiber-switch instrumentation can be
+  designed and verified there
 - Created: 2026-09-14
 - Updated: 2026-09-14
 - Scope: make AddressSanitizer trustworthy for generated programs, including
@@ -41,8 +42,13 @@ Do not mark this RFC implementation-ready until the execution toolchain and
 fiber-transition mapping are both concrete. Non-fiber ASan experiments may
 inform the design but do not close this RFC.
 
+## Reactivation condition
+
+Reactivate after RFC 0183 Track 6 qualifies a POSIX target and that target can
+compile, link, and execute a minimal Clang ASan program. Then inventory and
+specify every fiber transition before implementation begins.
+
 ## Reference synchronization
 
 This work changes validation infrastructure, not the language contract. Do not
 edit `docs/reference.md` from this RFC.
-

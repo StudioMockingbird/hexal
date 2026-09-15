@@ -4,13 +4,13 @@
 - Status: Implementation-ready; design and execution plan settled,
   implementation not started
 - Created: 2026-09-14
-- Updated: 2026-09-14
+- Updated: 2026-09-15
 - Scope: make each source `print(...)` call one buffered, serialized standard-
   output transaction
 - Depends on: the current print, IO, native-threading, Task-worker, and
   demand-driven component contracts
-- Coordinates with: RFC 0174 for the Windows console text sink, RFC 0182 for
-  process return, and RFC 0183 Track 5 for print-helper demand
+- Coordinates with: closed RFC 0174's implemented Windows console text sink,
+  RFC 0182 for process return, and RFC 0183 Track 5 for print-helper demand
 - Does not add: source syntax, user-visible buffering controls, automatic
   flushing, a logging API, or libuv in print-only programs
 
@@ -19,7 +19,9 @@
 The reference requires one complete `print(...)` call to be atomic relative to
 other print and standard-output writes. The runtime does not implement that
 contract. Print helpers currently write each fragment immediately through
-`hex_io_write_all`.
+`hex_io_write_all`. Closed RFC 0174 added correct Windows-console Unicode
+conversion, but classification, conversion, and `WriteConsoleW` submission are
+still performed per fragment rather than per source print call.
 
 For example, printing an aggregate emits separate writes for its opening
 delimiter, members, separators, and closing delimiter. Concurrent Tasks can
@@ -56,13 +58,18 @@ to flush.
 - `hex_print_buffer` is private generated-runtime state.
 - It owns `data`, `length`, and `capacity`, plus 256 bytes of inline storage.
 - Initialization points `data` at the inline storage and allocates nothing.
-- Growth uses checked arithmetic, geometric capacity growth, and the bundled C
-  allocator's `realloc`/`free`. It does not select Heap, mimalloc, or libuv.
+- Growth uses checked arithmetic and geometric capacity growth. The first
+  growth allocates with the bundled C library's `malloc` and copies the inline
+  bytes; later growth uses `realloc`, and destroy uses `free`. It does not
+  select Heap, mimalloc, or libuv.
 - A failed growth traps with exact text
   `[Runtime Error] print buffer allocation failed`.
 - Appending zero bytes succeeds without allocation.
 - Destroy frees only grown storage and is safe after a successful or failed
   commit return. A runtime trap may terminate without cleanup.
+- One source call buffers its complete formatted result. Peak temporary memory
+  is therefore proportional to that call's output size; no streaming threshold
+  or fixed maximum is added in this RFC.
 
 The fixed inline size is an implementation contract for generated-code tests,
 not a source-visible capacity guarantee.
@@ -75,8 +82,9 @@ not a source-visible capacity guarantee.
   formatting share the same builder passed by the outer print call.
 - Helpers never call `hex_io_write_all`, `WriteFile`, `write`, or a terminal
   sink directly.
-- UTF-8 bytes remain unchanged. RFC 0174 may convert the completed buffer at
-  the terminal sink; it must not reintroduce fragment writes.
+- UTF-8 bytes remain unchanged. Move closed RFC 0174's implemented console
+  classification and conversion behind commit so it receives the complete
+  buffer once; do not alter the Terminal source API.
 - Deferred print captures its arguments at registration as today, then creates
   and commits one builder when the defer executes.
 
@@ -88,12 +96,21 @@ not a source-visible capacity guarantee.
   The worker acquires the existing generated native-mutex abstraction around
   the complete stdout write-all loop and releases it before publishing
   completion.
-- A concurrent `IO.write` targeting stdout uses that same critical section.
+- On an attached Windows console, that one job performs classification,
+  UTF-8-to-UTF-16 conversion, and every `WriteConsoleW` chunk; conversion
+  chunks do not become separate jobs.
+- A concurrent `IO.write` targets stdout when its resolved native descriptor or
+  handle equals the process standard-output descriptor or handle at call time;
+  that write uses the same critical section. No source-level IO identity or
+  cached construction-time flag decides this.
 - The mutex is initialized by the existing native bootstrap before any Task can
   submit output and is destroyed only after no native output job can remain.
 - A scheduler worker never blocks on the stdout mutex: it parks after submitting
   the one native job. Contention occurs only among native worker jobs.
 - Short native writes remain inside the locked write-all loop.
+- The Windows console branch loops `WriteConsoleW` until every converted UTF-16
+  unit is written. Zero progress or native failure retains the existing output
+  trap; a short successful write is not itself failure.
 
 ## Failure behavior
 
@@ -108,6 +125,8 @@ not a source-visible capacity guarantee.
 ## Required sweep
 
 - direct descriptor writes in `compiler/generator/packages/print.c`;
+- per-fragment `GetStdHandle`/`GetConsoleMode`, UTF-8 conversion, and
+  `WriteConsoleW` worker submissions left by closed RFC 0174;
 - generated aggregate and Error helpers that call fragment sinks;
 - `renderPrintStatement` and deferred-print lowering;
 - repeated Task-worker submissions per logical print call;
@@ -148,16 +167,19 @@ not a source-visible capacity guarantee.
 
 1. Give stdout one write-all entry that both print commits and byte-exact
    `IO.write` use when their descriptor is stdout.
-2. In Task/event builds, initialize one native stdout mutex and hold it only in
+2. Compare the resolved native descriptor or handle with the current process
+   standard-output descriptor or handle before choosing that entry.
+3. In Task/event builds, initialize one native stdout mutex and hold it only in
    the native worker around the complete write-all loop.
-3. Retain the direct, dependency-free path when Task/event support is absent.
-4. Verify short writes, failure publication, shutdown ownership, and absence of
+4. Retain the direct, dependency-free path when Task/event support is absent.
+5. Verify short writes, failure publication, shutdown ownership, and absence of
    scheduler-worker blocking.
 
 ### Phase 5: coordination and conformance
 
-1. Make RFC 0174 consume the completed buffer once for terminal detection and
-   Unicode conversion.
+1. Relocate closed RFC 0174's implemented terminal detection and Unicode
+   conversion to consume the completed buffer once, including a
+   `WriteConsoleW` write-all loop.
 2. Make RFC 0183 Track 5 discover the revised print helpers rather than the
    deleted fragment-writing forms.
 3. Add focused generator and public integration tests for every Validation
@@ -179,10 +201,14 @@ This list is exhaustive:
 - checked growth, exact allocation-failure trap, and no partial output before
   commit;
 - short-write completion and existing output-failure trap behavior;
+- one Windows console classification and conversion sequence per complete
+  source print call, including short `WriteConsoleW` completion;
 - repeated concurrent Task prints never interleave within one call;
 - print and `IO.write` to stdout never interleave within either call;
 - writes to unrelated descriptors do not take stdout serialization;
+- stdout recognition follows native descriptor/handle equality at call time;
 - one Task worker submission per print call, including aggregate printing;
+- peak builder memory is permitted to grow with the complete formatted call;
 - print-only non-Task programs add no libuv, event, scheduler, mimalloc, or
   native-mutex dependency;
 - no persistent print buffer and no shutdown flush operation;
@@ -198,4 +224,3 @@ implementation preserves whole-call atomicity and no per-call flush, but must
 remove the unsupported statement that shutdown flushes a compiler-owned stdout
 buffer. Apply that correction only after behavior stabilizes and with explicit
 user approval.
-

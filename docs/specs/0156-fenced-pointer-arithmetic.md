@@ -1,149 +1,251 @@
-# RFC 0156: Fenced Pointer Arithmetic and Foreign-Owned Values
+# RFC 0156: Fenced Pointer Arithmetic and Casts
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion (proposal); not scheduled. Promote to
-  Implementation-ready only after RFC 0155 lands and RFC 0039's scope is
-  settled
+- Status: Implementation-ready; implementation not started
 - Created: 2026-09-10
-- Updated: 2026-09-10
-- Depends on: RFC 0154 (`Ptr<T>` / `Ptr<mut T>` spelling), RFC 0155
-  (`unsafe do ... end` lexical permission)
-- Coordinates with: RFC 0039 (foreign ownership and deallocator contracts),
-  RFC 0110 (escape and invalidation rules for owner-rooted pointers)
+- Updated: 2026-09-15
+- Depends on: RFC 0155 (`unsafe do ... end`)
+- Coordinates with: RFC 0039 (foreign declarations and ownership metadata)
 - Does not update `docs/reference.md`: synchronize only after implementation
-  is approved and behavior stabilizes
+  stabilizes and the user explicitly approves the reference edit
 
 ## Summary
 
-No systems language can keep allocator authorship to itself forever: bump
-allocators, slab allocators, ring buffers, and wire-format parsers all need
-address arithmetic. This proposal fences that power instead of deleting it:
+Add the minimum raw-pointer operations needed for allocators, binary formats,
+and C interoperability:
 
-1. `Ptr<mut T>` (and read-only `Ptr<T>`) gains offset and indexed access as
-   unsafe-capable operations, usable only inside `unsafe do ... end`.
-2. At minimum, an `extern c` declaration can name the C deallocator for a
-   foreign-owned value, so a C-built allocator can own Hexal values without
-   the default backend freeing (or leaking) them.
+```hexal
+unsafe do
+    next: Ptr<mut Byte> := bytes.offset(1)
+    value: Byte := bytes[1]
+    words: Ptr<mut UInt32> := bytes.cast<UInt32>()
+end
+```
 
-Neither part introduces user-implementable Hexal allocators (a Zig-style
-allocator interface remains future work); together they make Hexal complete
-for memory *infrastructure* written in C and consumed from Hexal, while safe
-Hexal keeps today's arithmetic-free guarantees.
-
-## Problem
-
-Safe Hexal has no address arithmetic on any type (reference Excluded
-features; RFC 0149 and RFC 0153 non-goals; RFC 0155 adds permission but no
-operations). Consequences:
-
-- A bump allocator over a slab, a pool with computed slots, or a parser over
-  a byte buffer cannot be written in Hexal at any safety level — not even
-  inside `unsafe`, because the operations do not exist.
-- A value allocated by a C allocator (arena, pool, mmap-backed region) has no
-  Hexal spelling for its ownership: the default backend would free foreign
-  storage, or the value leaks by design. RFC 0110's foreign transfer rules
-  assume RFC 0039 metadata that names no concrete deallocator form.
+All three operations require an enclosing `unsafe do ... end` block. They map
+directly to C23 pointer arithmetic, indexing, and casts. Hexal adds no bounds,
+provenance, lifetime, alignment, ownership, or allocation metadata.
 
 ## Goals
 
-- Make `unsafe do ... end` sufficient to write real allocator and parser code:
-  offset, indexed read/write, and one-past-end pointers over `Ptr<T>`.
-- Keep every arithmetic operation unsafe-capable, so safe code is provably
-  arithmetic-free by construction.
-- Give foreign-owned values a minimum viable contract: a named deallocator
-  that both explicit cleanup and automatic drop honor.
-- Add no operators: Hexal excludes operator overloading, so the surface is
-  compiler-owned methods, not `ptr + n`.
+- Make low-level address traversal and representation reinterpretation
+  expressible without adding pointer arithmetic operators.
+- Keep safe Hexal free of raw pointer arithmetic and casts.
+- Preserve `Ptr<T>` versus `Ptr<mut T>` access mode exactly.
+- Generate plain, readable C23 with no compiler-owned helper or runtime cost.
+- Keep foreign allocation and deallocation policy in RFC 0039.
 
 ## Non-goals
 
-- A user-implementable Hexal allocator interface (vtable, context passing).
-- Pointer casts, `bit_cast` on pointers, integer-to-pointer conversion, or
-  pointer-to-integer exposure beyond what C interop already describes.
-- Bounds-checked arithmetic: the fenced operations are deliberately raw. Any
-  checked alternative (slices already cover the checked range case) is a
-  separate proposal.
-- Settling RFC 0039's full ownership metadata; this RFC proposes only the
-  deallocator minimum it is blocked on.
+- Integer-to-pointer or pointer-to-integer conversion.
+- Pointer subtraction, ordering, signed offsets, or backward traversal.
+- Bounds-checked pointer arithmetic; use `Slice<T>` for checked ranges.
+- Pointer ownership, automatic cleanup, lifetime tracking, or provenance
+  tracking.
+- Converting `Ptr<T>` to `Ptr<mut T>`.
+- Pointer arithmetic over incomplete or erased pointee types.
+- User-defined methods on pointer types or operator overloading.
 
-## Proposed design
-
-### Arithmetic operations
+## Surface
 
 ```text
 Ptr<T>.offset(count: Size) -> Ptr<T>
 Ptr<mut T>.offset(count: Size) -> Ptr<mut T>
-Ptr<T>[index: Size] -> read-only-place<T>
-Ptr<mut T>[index: Size] -> writable-place<T>
+Ptr<T>.cast<U>() -> Ptr<U>
+Ptr<mut T>.cast<U>() -> Ptr<mut U>
+Ptr<T>[index: Size] -> read-only place T
+Ptr<mut T>[index: Size] -> writable place T
 ```
 
-- Both operations are unsafe-capable: outside `unsafe do ... end` the checker
-  rejects them naming the missing lexical permission (RFC 0155 diagnostic).
-- `offset` preserves the receiver's access mode; there is no upgrade from
-  `Ptr<T>` to `Ptr<mut T>`.
-- Results are ordinary storable, copyable raw pointers. Escape, retention,
-  and lifetime of an arithmetic pointer are the programmer's assertion under
-  RFC 0155's undefined-behavior statement; the checker tracks nothing further.
-- Producing a one-past-end pointer is valid; dereferencing it is an
-  unsafe-precondition violation, not a trap. Offset arithmetic itself never
-  traps on overflow: wraparound is part of the asserted-raw contract, matching
-  the C target rather than Hexal's checked arithmetic.
-- Null-pointer offset and dereference remain ordinary invalid operations
-  diagnosed before any unsafe permission is consulted.
+- `offset` is non-mutating. It returns a new pointer and never changes the
+  receiver binding.
+- `count` and `index` are forward-only `Size` values in this version.
+- Indexing produces a place. Reading it copies T; assignment is permitted only
+  through `Ptr<mut T>`.
+- Pointer indexing is rejected when T is itself Array, Slice, or List. Use
+  `(^pointer)[index]` to index the pointed-to collection, or `offset(index)` to
+  advance between collection objects. This avoids making `pointer[index]` look
+  like ordinary collection indexing while meaning "the next collection".
+- `cast<U>()` changes only the pointee type. It preserves the outer access mode
+  and therefore cannot upgrade read-only access.
+- U must be a type permitted as a Ptr pointee under the existing Ptr rules.
+  The cast does not require T and U to have the same size or alignment.
+- A cast to or from an erased or incomplete pointee is permitted, because the
+  cast itself does not inspect an object. `offset`, indexing, and `^` remain
+  invalid until the pointer has a complete pointee type.
+- No implicit pointer cast is introduced. Existing exact pointer identity and
+  outermost `Ptr<mut T>` to `Ptr<T>` weakening remain the only implicit pointer
+  conversions.
 
-### Foreign deallocator minimum
+## Unsafe contract
 
-An `extern c` value-returning declaration may name its deallocator:
+Every `offset`, pointer index, and pointer cast requires active lexical unsafe
+permission from RFC 0155.
 
-```text
-extern c arena_alloc(size: Size) -> Ptr<mut Byte> frees_with arena_free
+The programmer asserts all facts C requires but the checker cannot prove:
+
+- `offset` and indexing stay within one live C array object or produce exactly
+  its one-past pointer;
+- every dereferenced result is not one-past and names a live T object;
+- the address satisfies the target pointee's alignment;
+- the storage is initialized before reading;
+- a cast followed by access respects the C object-representation and effective-
+  type rules;
+- the pointer remains valid for every later use.
+
+Violating one of these assertions may cause undefined behavior. Unsafe
+permission does not suppress ordinary type, nullability, use-after-free, or
+mutability diagnostics that the compiler can still prove.
+
+## Evaluation
+
+- Receiver and arguments are evaluated exactly once.
+- Normal call/index evaluation order applies: receiver first, then count or
+  index.
+- `pointer[index]` has the same address meaning as `^pointer.offset(index)` but
+  does not construct a separately observable intermediate pointer.
+- Producing one-past is allowed. Indexing or dereferencing one-past is not.
+- C pointer arithmetic does not wrap. Overflow or movement outside the same
+  array object violates the unsafe contract.
+- A nullable pointer must be narrowed before any of these operations. Unsafe
+  does not make Nil a valid address.
+
+## C23 lowering
+
+For a pointer expression `p` and a Size expression `n`:
+
+```c
+p + n
+p[n]
+(target_pointer_type)p
 ```
 
-- The spelled deallocator is part of the declaration's contract, checked at
-  the foreign boundary like any other signature fact.
-- A value carrying a foreign deallocator is still an affine owner for move
-  purposes, but its cleanup — explicit early cleanup and RFC 0110 automatic
-  drop alike — routes to the named deallocator instead of the default
-  backend. Routing to only one of the two would either double-free or leak,
-  so the contract covers both or the declaration is rejected.
-- Passing a Hexal owner to a foreign consumer continues to follow RFC 0110's
-  transfer rules; this proposal adds no new transfer syntax.
+- Parentheses are added only as required by surrounding C precedence.
+- `Ptr<T>` lowers with pointee `const`; `Ptr<mut T>` does not. A cast preserves
+  that qualification according to the result Ptr mode.
+- No helper, checked arithmetic formula, trap, metadata, or runtime component
+  is emitted solely for these operations.
+- Existing source mapping identifies the Hexal operation.
 
 ## Diagnostics
 
-- Arithmetic outside `unsafe do ... end` reports the missing lexical
-  permission and names the operation.
-- Dereference of a null or provably-invalid arithmetic pointer reports the
-  ordinary invalid-operation diagnostic; unsafe permission never downgrades it.
-- A foreign declaration naming an unknown deallocator, or a deallocator whose
-  signature does not consume one pointer, is an ABI Error at the declaration.
-- A foreign-owned value reaching a cleanup path with no routed deallocator is
-  a compiler error, never a silent default-backend free.
+- `offset` outside unsafe reports Type Error:
+  `Ptr.offset requires an unsafe do ... end block`.
+- pointer indexing outside unsafe reports Type Error:
+  `pointer indexing requires an unsafe do ... end block`.
+- `cast` outside unsafe reports Type Error:
+  `Ptr.cast requires an unsafe do ... end block`.
+- Writing through indexed `Ptr<T>` reports the existing read-only pointer
+  diagnostic.
+- Arithmetic or indexing on an incomplete pointee reports Type Error:
+  `pointer arithmetic requires a complete pointee type; got <type>`.
+- Indexing a pointer whose pointee is Array, Slice, or List reports Type Error:
+  `pointer indexing of <type> is ambiguous; use (^pointer)[index] to index the collection or pointer.offset(index) to advance the pointer`.
+- A nullable receiver, wrong Size argument, invalid Ptr element, or use of
+  released storage keeps its existing earlier diagnostic.
 
-## Acceptance sketch
+## Required sweep
 
-Non-exhaustive: the implementing RFC promotes this to an exhaustive
-Validation section.
+Inventory and reconcile:
 
-- Offset/index on both pointer modes succeed inside `unsafe do ... end` and
-  fail outside it with the permission diagnostic.
-- Read-only pointers never yield writable places through either operation.
-- Generated C for the operations is plain pointer arithmetic with source
-  mapping; no runtime provenance metadata is emitted.
-- Foreign-owned values route both explicit and automatic cleanup to the named
-  deallocator; missing or mismatched deallocators fail at the declaration.
-- Existing manifest hashes outside deliberate additions do not move.
+- parser indexing and generic-call parsing, including `cast<U>()`;
+- checked expression and place representations;
+- pointer element eligibility, nullability, access-mode weakening, and freed-
+  state checks;
+- checker and generator dispatch for every new checked node;
+- constant and non-constant Size operands and evaluation-order preservation;
+- generated pointer spelling for nested, erased, imported, and nominal types;
+- pointer tests, Slice bridge tests, snippets, and manifest entries; and
+- `docs/reference.md` grammar, pointer semantics, unsafe consumers, and C23
+  lowering after explicit approval.
+
+Do not add a generic conversion system, an integer-address type, a foreign
+deallocator, or runtime provenance support while implementing this RFC.
+
+## Validation
+
+This section is exhaustive.
+
+- `offset` accepts `Ptr<T>` and `Ptr<mut T>` inside unsafe and preserves the
+  exact access mode.
+- The same calls fail outside unsafe with the exact diagnostic above.
+- Pointer indexing reads through both modes inside unsafe.
+- Pointer indexing of `Ptr<Array<T, N>>`, `Ptr<Slice<T>>`, and `Ptr<List<T>>`
+  is rejected with the exact ambiguity diagnostic; `(^pointer)[index]` retains
+  ordinary collection bounds checks and `pointer.offset(index)` retains raw
+  pointer-offset semantics.
+- Assignment through indexed `Ptr<mut T>` succeeds; assignment through indexed
+  `Ptr<T>` retains the read-only diagnostic.
+- Pointer indexing fails outside unsafe with the exact diagnostic above.
+- `cast<U>()` accepts both pointer modes inside unsafe, changes the pointee to
+  U, and preserves the outer access mode.
+- `cast<U>()` fails outside unsafe with the exact diagnostic above.
+- A cast on `Ptr<mut T>` has exact result `Ptr<mut U>`; that result may later
+  use the existing outermost weakening to `Ptr<U>`. A cast on `Ptr<T>` never
+  produces `Ptr<mut U>`.
+- Casting to and from `Ptr<Unknown>` succeeds inside unsafe, but offset,
+  indexing, and dereference remain rejected while the pointee is Unknown.
+- Pointer arithmetic/indexing on any other incomplete pointee uses the exact
+  complete-pointee diagnostic.
+- Nullable pointers require ordinary narrowing before offset, index, or cast.
+- Count/index requires Size; no signed or implicit numeric operand is admitted.
+- Receiver and operand side effects occur once and in source order.
+- A one-past result may be formed and compared for equality but is never
+  accepted as a valid dereference by any new static claim; runtime validity
+  remains the unsafe assertion.
+- Existing `^`, `@`, pointer equality, outermost weakening, Slice indexing,
+  and `Slice.from_pointer` behavior remain unchanged.
+- Generated C contains direct `+`, `[]`, and cast expressions with no new
+  helper or runtime component.
+- Existing snippet hashes do not move. New focused snippets add only their own
+  manifest entries.
+- Ordinary and tagged C23 suites pass.
+
+## Detailed implementation plan
+
+### Phase 1: baseline and checked forms
+
+1. Record pointer parser, checker, generator, test, snippet, and manifest
+   baselines after RFC 0155.
+2. Add distinct checked nodes for pointer offset, pointer indexing as a place,
+   and pointer cast; do not infer them from rendered method names later.
+3. Keep every new dispatch fail-closed.
+
+### Phase 2: checking
+
+1. Recognize only the exact compiler-owned `offset` and `cast` surfaces on Ptr.
+2. Reuse existing Ptr pointee, mode, nullability, and released-state facts.
+3. Require lexical unsafe permission after ordinary receiver/type resolution.
+4. Require Size for offset/index and a complete pointee for offset/index.
+5. Reject pointer-index syntax for Array, Slice, and List pointees while
+   retaining explicit dereference-then-index and `offset` as the two distinct
+   operations.
+6. Preserve mode through offset/cast and place writability through index.
+7. Permit erased/incomplete types only at the cast boundary; do not permit
+   dereference or arithmetic until the result pointee is complete.
+
+### Phase 3: lowering
+
+1. Render direct C pointer addition, indexing, and casts with each operand
+   evaluated once.
+2. Reuse the canonical nested pointer spelling so C `const` qualification is
+   preserved at the correct type layer.
+3. Emit no helper or runtime component solely for this feature.
+4. Add text assertions for exact readable lowering and source mapping.
+
+### Phase 4: conformance
+
+1. Implement every Validation case in focused parser/checker and integration
+   tests.
+2. Add compact workbench snippets only for genuinely new surfaces and update
+   only their manifest entries.
+3. Run ordinary and tagged C23 suites and review the manifest diff.
+4. Synchronize `docs/reference.md` only after behavior stabilizes and the user
+   explicitly approves that edit.
+5. Update status and close only after code, tests, generated C, and canonical
+   documentation agree.
+6. Rebuild and restart the workbench before handoff.
 
 ## Open questions
 
-1. Spelling: `offset(count)` method versus an `offset_by`/`advance` name — and
-   whether indexing should be spelled `ptr[index]` (proposed) or a named
-   `at(index)` method for visual distinction from Slice indexing.
-2. Whether `offset` on a null pointer should trap (fail-closed) or join the
-   asserted-raw contract (C-identical). The proposal currently traps nothing;
-   the alternative costs one branch per offset.
-3. The exact `extern c` deallocator attachment syntax; `frees_with` above is a
-   placeholder, not a decision.
-4. Whether a foreign-owned value may be moved into aggregates and collections
-   in v1, or is restricted to bindings and returns until its drop plan is
-   proven for recursive cleanup.
+None.

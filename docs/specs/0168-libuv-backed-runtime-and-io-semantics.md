@@ -126,11 +126,12 @@ Hexal Task
 | Time and Task sleep | Duration, Instant, WallTime, and Task.sleep implemented | RFC 0171 is closed |
 | TCP, UDP, DNS, and imported-descriptor polling | Address, DNS, and TCP implemented; UDP and imported-descriptor polling absent | UDP or polling requires a focused RFC |
 | Processes and process IPC | Process and parent/child standard-stream Pipe implemented; named IPC and handle passing absent | RFC 0173 is closed; deferred IPC requires a focused RFC |
-| TTY | Terminal detection, dimensions, and Windows Unicode print implemented; raw mode and resize notification absent | RFC 0174 is closed |
+| TTY | Terminal detection, dimensions, and Windows Unicode print implemented; raw mode and resize notification absent | RFC 0174 is closed; RFC 0184 owns whole-print transactions and deferred RFC 0188 owns the selected POSIX `isatty` cleanup after a POSIX target is qualified |
 | Filesystem watchers | None | RFC 0175 is deferred |
 | Ordinary signals | Signals implemented; stack-overflow handling remains separate | RFC 0176 is closed |
 | Dynamic libraries | None | RFC 0177 is deferred |
 | Secure entropy and focused program queries | Existing narrow runtime queries only | RFC 0178 |
+| Program entry and exit | Generated C `main(void)` with no Hexal argument or status surface | RFC 0182 owns arguments, root return, and any target-specific `uv_setup_args` call |
 | Performance and loop scaling | Single loop | RFC 0144, after measurement |
 
 Imported-descriptor polling and any `uv_poll_t` use were not implemented by RFC
@@ -141,7 +142,9 @@ surface.
 
 - Programs selecting the asynchronous runtime link the pinned static libuv
   archive and mimalloc.
-- Existing IO-only and print-only programs retain their smaller direct path.
+- Existing IO-only and print-only programs retain a direct path. RFC 0174's
+  native Windows-console branch and RFC 0184's call-local builder add no libuv
+  dependency by themselves.
 - Libuv filesystem, DNS, random, and `uv_queue_work` requests share libuv's
   global worker pool and may contend.
 - The first implementation accepts libuv's default pool policy and the
@@ -189,6 +192,12 @@ Every child RFC must:
 - RFC 0180 owns the shared generation-checked copied-handle lifecycle, private
   runtime allocation, and common libuv Error categories. A child capability
   owns only its distinct wrapper type and capability-specific state/errors.
+- RFC 0182 is the sole owner of generated process-entry widening and
+  `uv_setup_args`. A child that needs setup coordinates with that adapter and
+  never emits a second call.
+- RFC 0184 restores the existing whole-print atomicity contract over the
+  terminal-aware sink implemented by closed RFC 0174. It does not reopen the
+  Terminal source API.
 - Cancellation is specified by the operation that first requires it. A later
   public Task-cancellation RFC may unify source-level policy, but must not be a
   prerequisite for private timer, DNS, filesystem, or socket cancellation.

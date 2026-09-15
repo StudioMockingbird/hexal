@@ -1,15 +1,15 @@
 # RFC 0182: Program Entry and Exit
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design and execution plan settled,
-  implementation not started
+- Status: Implementation-ready after RFC 0186; design and execution plan
+  settled, implementation not started
 - Created: 2026-09-14
-- Updated: 2026-09-14
+- Updated: 2026-09-15
 - Scope: expose immutable process arguments and let the entry module select the
   process exit status
-- Depends on: the current module, root-defer, Task-root, String, Slice, Error,
-  target-profile, and native-bootstrap contracts
-- Coordinates with: RFC 0178 for the shared `Program` namespace and conditional
+- Depends on: RFC 0186 and the current module, root-defer, Task-root, String,
+  Slice, Error, target-profile, and native-bootstrap contracts
+- Coordinates with: RFC 0178 for the shared `std/program` module and conditional
   `uv_setup_args`, RFC 0184 for completed-call print output, and ADR 0055 for
   executable invocation
 - Does not add: a required user `main`, environment mutation, immediate process
@@ -20,14 +20,18 @@
 The selected entry module remains the program body. Add:
 
 ```text
-Program.arguments() -> Slice<String> | Error
+import
+    Prog from "std/program"
+end
+
+Prog.arguments() -> Slice<String> | Error
 ```
 
 At entry-module scope, `return` records one `UInt8` process status and enters
 the ordinary root cleanup path. Bare return and fallthrough mean zero.
 
 ```hexal
-result := Program.arguments()
+result := Prog.arguments()
 
 match result
     Slice<String> as args then
@@ -50,17 +54,20 @@ end
 | Status type | Exact `UInt8` | Gives every initial target one portable `0..255` source contract. |
 | Argument storage | Demand-driven immutable snapshot | Programs that never request arguments pay no conversion or storage cost. |
 
-The final root expression remains discarded. `Program.exit` is not added.
+The final root expression remains discarded. No `exit` library function is
+added.
 
 ## Source surface
 
 ```text
-Program.arguments() -> Slice<String> | Error
+arguments() -> Slice<String> | Error
 ```
 
-- `Program` is one protected compiler-owned namespace type with no values.
-  RFCs 0178 and 0182 extend the same identity; whichever lands first creates
-  it and the other reuses it.
+- `arguments` is an exported function of `std/program` and is available only
+  through an ordinary file-local import alias. This RFC adds no protected
+  `Program` name.
+- RFCs 0178 and 0182 extend RFC 0186's same core-library declaration table and
+  generated program component.
 - `arguments()` returns the host invocation in order, including element zero
   when supplied by the host. Zero arguments produce an empty Slice.
 - Repeated successful calls return equivalent views over the same immutable
@@ -69,7 +76,7 @@ Program.arguments() -> Slice<String> | Error
 - The Slice and String bytes are read-only. Callers neither mutate nor free
   their backing storage.
 - No snapshot, conversion buffer, or argument component is emitted solely for
-  a program that cannot reach `Program.arguments()`. Demand is based on checked
+  a program that cannot reach `std/program.arguments()`. Demand is based on checked
   reachability, not whether a runtime branch happens to execute; reachable but
   unexecuted use still selects and initializes the snapshot.
 
@@ -171,7 +178,7 @@ entry-module return requires UInt8; got <Type>
    bootstrap runs first and then `argv = uv_setup_args(argc, argv)` runs exactly
    once. None of the initial Windows, Linux, or macOS executable-path backends
    requires that setup by itself.
-3. If `Program.arguments()` is reachable, its immutable snapshot completes or
+3. If `std/program.arguments()` is reachable, its immutable snapshot completes or
    records failure before any module statement and before scheduler startup.
 4. Imported modules contribute declarations and storage only; they have no
    runtime initializer or executable top-level statements.
@@ -199,8 +206,8 @@ No Error is implicitly printed or converted to a process status.
 - A POSIX program needing arguments or a selected backend that requires
   `uv_setup_args` uses `int main(int argc, char **argv)`. Other POSIX programs
   retain `int main(void)`. Host pointers remain private to the root C file.
-- `Program.arguments()` selects demand-driven `hexal/program.h` and
-  `hexal/program.c`. RFC 0178 extends the same component for other Program
+- `std/program.arguments()` selects demand-driven `hexal/program.h` and
+  `hexal/program.c`. RFC 0178 extends the same component for other program
   operations; it does not create another Program runtime.
 - Root lowering owns one `uint8_t` status initialized to zero and one cleanup
   label. Every root return evaluates its value once, assigns the status, and
@@ -223,7 +230,7 @@ No Error is implicitly printed or converted to a process status.
 - program-component selection, Windows link dependencies, and source mapping;
 - workbench and driver process invocation;
 - snippets, manifest, and tagged runtime fixtures; and
-- RFC 0178 coordination so only one Program identity, component, native
+- RFC 0178 coordination so only one `std/program` declaration table, component, native
   bootstrap, and `uv_setup_args` call exists.
 
 ## Detailed implementation plan
@@ -246,9 +253,10 @@ No Error is implicitly printed or converted to a process status.
 4. Extend generator validation and walking exhaustively for the new checked
    statement.
 
-### Phase 3: Program metadata and demand
+### Phase 3: std/program metadata and demand
 
-1. Add or extend the single protected Program type and register `arguments`.
+1. Extend RFC 0186's `std/program` core-library declaration table with exported
+   module function `arguments`; add no protected type.
 2. Discover argument and executable-path demand program-wide.
 3. Select one program component, the target-specific entry signature, native
    bootstrap, conditional `uv_setup_args`, and Windows Shell32 dependency
@@ -311,7 +319,8 @@ This list is exhaustive:
 - unchanged function/method returns and continued root rejection of `try` and
   `errdefer`;
 - imported-module rejection with the exact source-mapped diagnostic;
-- one Program identity/component when combined with RFC 0178 operations;
+- one `std/program` declaration table and generated component when combined
+  with RFC 0178 operations;
 - no public native ABI types and deterministic generated artifacts; and
 - exact generated-C compilation, stdout/stderr, and process status under every
   qualified target gate.
@@ -319,7 +328,7 @@ This list is exhaustive:
 ## Reference synchronization
 
 Do not edit `docs/reference.md` from this specification. Approved
-implementation updates the grammar, Program arguments, root return, String
+implementation updates the grammar, `std/program` arguments, root return, String
 non-owning cleanup, lifecycle ordering, and C entry contract only after behavior
 stabilizes and with explicit user approval. It also removes the unsupported
 claim that shutdown flushes a compiler-owned stdout buffer; RFC 0184 owns

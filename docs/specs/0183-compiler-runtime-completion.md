@@ -4,11 +4,12 @@
 - Status: Implementation-ready; six independent tracks are settled and must
   land as separately attributable changes
 - Created: 2026-09-14
-- Updated: 2026-09-14
+- Updated: 2026-09-15
 - Scope: close six verified correctness, runtime-validation, generated-size,
   undefined-behavior-sanitizer, and target-qualification gaps
 - Coordinates with: RFC 0184 before Track 5 changes the print-helper family;
-  RFC 0185 owns AddressSanitizer and fiber-switch coverage
+  RFC 0185 owns AddressSanitizer and fiber-switch coverage; RFC 0187 extends
+  Track 6 qualification from the current canonical build to both build modes
 - Does not add: language syntax, semantics, public APIs, new target profiles,
   or permission to regenerate unrelated artifacts
 
@@ -170,21 +171,21 @@ runtime path share one fixture.
 - Keep TSan out of scope; user-space fibers require a separate feasibility
   decision.
 
-Sanitizers are an additional tagged lifecycle. Ordinary `go test ./...` remains
-pure Go and needs no external toolchain.
+UBSan is an additional tagged lifecycle. Ordinary `go test ./...` remains pure
+Go and needs no external toolchain.
 
 ### Implementation plan
 
 1. Add a UBSan capability probe per external toolchain and flag set. Cache it
    with the existing toolchain identity.
-2. Add a tagged sanitizer runner that reuses the fixture catalog, build cache,
+2. Add a tagged UBSan runner that reuses the fixture catalog, build cache,
    timeout, dependencies, and expected stdout/stderr.
 3. A developer-local run may skip an unavailable sanitizer toolchain, but a
    release/CI gate fails if no capable executing toolchain runs UBSan.
 4. Set deterministic UBSan options that abort on the first report and preserve
    stderr separately from expected Hexal trap stderr.
-5. Keep ASan flags and leak-check claims absent. The separate RFC 0185 status
-   item remains open until its own toolchain and fiber gates pass.
+5. Keep ASan flags and leak-check claims absent. Deferred RFC 0185 is
+   reactivated only after its toolchain and fiber gates pass.
 
 ## Track 5: Demand-driven helper emission
 
@@ -294,6 +295,9 @@ status prose are updated in the owning track.
 6. Remove only that track's status row when complete. The RFC remains active
    until all six rows close.
 7. Run Track 6 last as the final conformance gate.
+8. If Track 6 lands before RFC 0187, qualify the current canonical driver mode.
+   RFC 0187 must later rerun the same corpus in both debug and release before
+   either mode becomes part of a target's qualification claim.
 
 ## Validation
 
