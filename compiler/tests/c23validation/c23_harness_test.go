@@ -167,8 +167,18 @@ var warningFlags = []string{
 // is part of the cache key specifically so a cache hit can never outlive it.
 func buildGeneratedC(t *testing.T, tc toolchain, result compiler.CompilationResult, buildRoot string) string {
 	t.Helper()
+	return buildGeneratedCFlags(t, tc, result, buildRoot, nil)
+}
+
+// buildGeneratedCFlags is buildGeneratedC with additional flags appended
+// after the harness's own baseline (e.g. UBSan's sanitizer flags), sharing
+// the identical cache so a distinct flag set naturally becomes a distinct
+// cache entry rather than colliding with the plain build.
+func buildGeneratedCFlags(t *testing.T, tc toolchain, result compiler.CompilationResult, buildRoot string, extra []string) string {
+	t.Helper()
 	flags := []string{"-std=c23", "-Wall", "-Wextra", "-Werror"}
 	flags = append(flags, warningFlags...)
+	flags = append(flags, extra...)
 	key := compileCacheKey{artifactHash: canonicalArtifactHash(result.Files), toolchain: tc.Name, flags: strings.Join(flags, " "), buildRoot: buildRoot}
 
 	compileCacheMu.Lock()

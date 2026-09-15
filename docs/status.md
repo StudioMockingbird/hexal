@@ -14,6 +14,7 @@ gets deleted.
 | Work | Spec |
 | --- | --- |
 | Repair qualified generic types and defining-module specialization of exported generics | [0190](specs/0190-cross-module-generic-correctness.md) |
+| Check every open generic body at declaration, rejecting errors that hold for all type arguments | [0211](specs/0211-generic-declaration-checking.md) |
 | Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | [0039](specs/0039-c-interop-compiler-core.md) |
 
 ### Coordination umbrella; not independently executable
@@ -26,7 +27,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Add executable UBSan coverage across the runnable generated-C fixture catalog | [0183](specs/0183-compiler-runtime-completion.md) |
 | Replace wholesale helper-family emission with deterministic demand-driven emission | [0183](specs/0183-compiler-runtime-completion.md) |
 | Compile, link, and run representative generated programs on every target before claiming that target as supported | [0183](specs/0183-compiler-runtime-completion.md) |
 
@@ -39,7 +39,7 @@ gets deleted.
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0039, RFC 0192, and RFC 0193 | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 | Establish the standard-library module boundary and migrate compiler-owned capability namespaces | RFC 0190 | [0186](specs/0186-standard-library-boundary.md) |
 | Program entry and exit: immutable process arguments, UInt8 root return status, cleanup ordering, and target entry ABI | RFC 0186 | [0182](specs/0182-program-entry-and-exit.md) |
-| Program path queries, Size-valued available parallelism, and secure entropy fill | RFC 0186 | [0178](specs/0178-libuv-os-services.md) |
+| Program path queries, Size-valued available parallelism, and secure entropy fill | RFC 0186 and RFC 0182's entry adapter | [0178](specs/0178-libuv-os-services.md) |
 
 ## Deferred ideas
 
@@ -56,6 +56,7 @@ A bug is real whether or not its owning spec is scheduled.
 | Bug | Owning spec |
 | --- | --- |
 | Exported generic functions are specialized in the importing module's environment, breaking defining-module generic type resolution and misattributing declaration diagnostics | [0190](specs/0190-cross-module-generic-correctness.md) |
+| Open generic bodies are never checked at declaration, so an unused generic with an unknown name or an independent type error compiles | [0211](specs/0211-generic-declaration-checking.md) |
 | `reference.md` names POSIX x86-64 as a supported Task target although RFC 0052 has qualified only Windows x64 | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md); reference correction requires explicit user approval |
 | `reference.md`'s Pointers and nullability section states "Arithmetic, indexing, ... are unavailable", contradicting closed RFC 0156's unsafe-gated `Ptr.offset`/indexing/`.cast<U>()` | [0156](specs/archive/0156-fenced-pointer-arithmetic.md); reference correction requires explicit user approval per that RFC's own text |
 
@@ -122,11 +123,35 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   synchronization primitive can deterministically arrange), and `dictionary
   capacity is not representable` / `list capacity is not representable`
   (require holding close to 2^63 entries). `print`'s output forms are still
-  not exhaustive over every printable type. UBSan execution over every
-  runnable host fixture does not exist yet and is owned by RFC 0183. ASan
-  remains separately deferred under RFC 0185 because the installed Windows
-  Zig backend cannot link its runtime and Task fibers lack sanitizer switch
-  annotations.
+  not exhaustive over every printable type.
+- **UBSan (`-fsanitize=undefined -fno-sanitize-recover=all`) now runs every
+  runnable fixture in `compiler/tests/c23validation` on every toolchain able
+  to link and execute a sanitizer-instrumented binary at all** (`go test
+  -tags c23 -run TestC23SuiteUBSan`), asserting the fixture's own expectation
+  still holds and that no undefined behavior was reported. GCC is not
+  currently a capable toolchain in this environment: the installed mingw-w64
+  distribution ships no `libubsan`, so it is logged and skipped rather than
+  failing the run, matching the RFC's own "unsupported local toolchains skip
+  explicitly" allowance -- Clang and Zig both link and run, satisfying the
+  "at least one executing UBSan toolchain" release-gate requirement. The
+  function-type-mismatch check (`-fsanitize=function`) is disabled everywhere:
+  Hexal's Task entry points and libuv work-queue callbacks are intentionally
+  type-erased (stored generically, cast back to their real signature before
+  calling), the exact pattern that check exists to flag, and enabling it
+  fails the link on Windows with an unresolved
+  `__ubsan_handle_function_type_mismatch` symbol before any fixture can run.
+  A checked-in ignorelist (`compiler/tests/c23validation/testdata/ubsan-ignorelist.txt`)
+  additionally excludes reports attributed to the Windows SDK's own
+  `winnt.h`, whose `GetCurrentFiber`/`NtCurrentTeb` implementation computes a
+  member offset through a null-pointer cast -- a real member access UBSan's
+  `null` check flags, but the universally relied-upon, hardware-correct way
+  to read the current fiber's Thread Information Block, not a Hexal defect;
+  every other undefined-behavior category, including all of Hexal's own
+  generated C, is still checked with no exclusion. ASan remains separately
+  deferred under RFC 0185 because the installed Windows Zig backend cannot
+  link its runtime and Task fibers lack sanitizer switch annotations. TSan
+  is out of scope entirely; user-space fibers need their own feasibility
+  decision.
 - **Compiling real generated C surfaced multiple generator defects across the
   snippet catalog.** Every failure reproduced so far is now fixed and
   re-verified compiling clean under all three toolchains, most recently (RFC

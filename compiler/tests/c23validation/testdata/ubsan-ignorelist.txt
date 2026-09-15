@@ -1,0 +1,10 @@
+# UBSan special case list excluding undefined-behavior checks attributed to
+# source locations this project does not own and cannot fix: the Windows
+# SDK's own winnt.h defines GetCurrentFiber/GetFiberData/NtCurrentTeb via
+# FIELD_OFFSET(NT_TIB, ...), which computes a member offset through a
+# null-pointer cast -- a member access UBSan's "null" check flags even
+# though it is the universally relied-upon, hardware-correct way to read
+# the current fiber's Thread Information Block. The check still runs for
+# every other source location, Hexal's own generated C included.
+[undefined]
+src:*winnt.h
