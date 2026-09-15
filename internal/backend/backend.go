@@ -18,6 +18,12 @@ type Backend struct {
 	LibDir        string
 	ClangVersion  string
 	LinkerDefault string
+	// Directory is the working directory every invocation runs in, empty for
+	// the caller's own. It is not a convenience: the compiler records its
+	// working directory in the debug information it emits, so a caller that
+	// needs reproducible debug information must pin it to a path derived from
+	// the build's inputs rather than from wherever the user happened to stand.
+	Directory string
 }
 
 var libDirPattern = regexp.MustCompile(`\.lib_dir\s*=\s*"((?:[^"\\]|\\.)*)"`)
@@ -28,18 +34,18 @@ var clangVersionPattern = regexp.MustCompile(`(?m)^(?:zig\s*:\s*)?clang version 
 // version from `zig cc -v`. Callers supply the path; nothing here searches
 // for it.
 func NewBackend(exe string) (*Backend, error) {
-	version, err := output(exe, "version")
+	version, err := output(exe, "", "version")
 	if err != nil {
 		return nil, fmt.Errorf("zig version failed for %q: %w", exe, err)
 	}
 	backend := &Backend{Exe: exe, Version: strings.TrimSpace(version.Stdout)}
-	env, err := output(exe, "env")
+	env, err := output(exe, "", "env")
 	if err == nil {
 		if match := libDirPattern.FindStringSubmatch(env.Stdout); match != nil {
 			backend.LibDir = strings.ReplaceAll(match[1], `\\`, `\`)
 		}
 	}
-	ccVersion, err := output(exe, "cc", "-v")
+	ccVersion, err := output(exe, "", "cc", "-v")
 	if err == nil {
 		combined := ccVersion.Stdout + ccVersion.Stderr
 		if match := clangVersionPattern.FindStringSubmatch(combined); match != nil {
@@ -104,8 +110,9 @@ type Result struct {
 	ExitCode int
 }
 
-func output(exe string, args ...string) (Result, error) {
+func output(exe, directory string, args ...string) (Result, error) {
 	command := exec.Command(exe, args...)
+	command.Dir = directory
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -132,5 +139,5 @@ func (backend *Backend) Run(args ...string) (Result, error) {
 	if backend == nil || backend.Exe == "" {
 		return Result{}, fmt.Errorf("no backend selected")
 	}
-	return output(backend.Exe, args...)
+	return output(backend.Exe, backend.Directory, args...)
 }

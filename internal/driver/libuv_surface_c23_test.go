@@ -118,24 +118,24 @@ fun run(h: Heap): Nil | Error do
     try created.close()
     exists := File.open("fresh.txt", FileMode.CreateNew())
     if exists is Error then
-        print(exists.header, ": ", exists.message, "\n")
+        print(exists.header(), ": ", exists.message, "\n")
     end
     missing := File.open("absent.txt", FileMode.Read())
     if missing is Error then
-        print(missing.header, "\n")
+        print(missing.header(), "\n")
     end
     missingRW := File.open("absent.txt", FileMode.ReadWrite())
     if missingRW is Error then
-        print(missingRW.header, "\n")
+        print(missingRW.header(), "\n")
     end
     nul := File.open("bad\0name.txt", FileMode.Write())
     if nul is Error then
-        print(nul.header, ": ", nul.message, "\n")
+        print(nul.header(), ": ", nul.message, "\n")
     end
     reader := try File.open("notes.txt", FileMode.Read())
     denied := write_x(reader)
     if denied is Error then
-        print(denied.header, ": ", denied.message, "\n")
+        print(denied.header(), ": ", denied.message, "\n")
     end
     try reader.close()
     return nil
@@ -157,7 +157,7 @@ const fileFixtureStdout = "wrote 11 0\n" +
 	"not found\n" +
 	"not found\n" +
 	"invalid path: file open failed\n" +
-	"filesystem error: file is not writable\n"
+	"permission denied: file is not writable\n"
 
 func TestRuntimeFileSynchronousPath(t *testing.T) {
 	requireBackend(t)

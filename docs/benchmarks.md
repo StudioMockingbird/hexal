@@ -84,6 +84,39 @@ The one-line view. `BenchmarkCorpus` is the only end-to-end aggregate, so its
 | 2026-08-17 | 34,851,500 | 15,790,632 | 78,303 | first committed suite (RFC 0075) |
 | before 2026-08-17 | 350,200,000 | 15,790,000 | 78,364 | ad-hoc audit profile, not comparable |
 
+## Build mode comparison
+
+Debug versus release, measured for the driver's own generated executable
+output (not the Go-level compiler throughput the rest of this file tracks).
+`size` is the linked `.exe` in bytes; `generated_compile_ms`/`link_ms` are the
+one wall-clock backend invocation each stage took; `runtime_ms` is the best of
+five runs of the built program. Same append-only, dated-entry discipline as
+above.
+
+### 2026-09-15 — RFC 0187 lands
+
+Go 1.26.4 windows/amd64, pinned Zig 0.16.0 backend, same host as the current
+baseline above. Representative programs: `trivial` (one `print`), `collections`
+(a 200k-element `List<Int32>` push/iterate loop), `text` (20k `String`
+allocate/concat/free iterations).
+
+| Program | Mode | Size (bytes) | Compile (ms) | Link (ms) | Runtime (ms) |
+|---|---|---:|---:|---:|---:|
+| trivial | debug | 1,034,752 | 4,078 | 576 | 31 |
+| trivial | release | 274,944 | 4,222 | 506 | 29 |
+| collections | debug | 1,040,896 | 4,082 | 557 | 34 |
+| collections | release | 274,944 | 4,375 | 543 | 33 |
+| text | debug | 1,035,264 | 4,040 | 555 | 33 |
+| text | release | 275,456 | 4,277 | 518 | 28 |
+
+Release executables are consistently ~73% smaller (debug's target-native debug
+information dominates the size difference at this program scale) and strip
+cleanly. Compile/link wall time is within noise between modes; runtime at this
+representative scale is dominated by process startup rather than the `-O0`
+vs `-O2` difference, so it is not a signal either mode is meaningfully faster
+for small programs. Neither observation is a target — see the ratio note at
+the top of this file.
+
 ## Measurement history
 
 Newest first.

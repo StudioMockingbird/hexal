@@ -189,12 +189,11 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	tempExe, err := linkObjectsWithOptions(selected, staging, objects, nil, output, &result)
-	if err != nil {
+	stagedExe := filepath.Join(staging, "main.staged"+exeSuffix())
+	if err := linkObjectsWithOptions(selected, staging, objects, nil, stagedExe, &result); err != nil {
 		t.Fatalf("link with driver object failed: %v", err)
 	}
-	defer os.Remove(tempExe)
-	if err := publishExecutable(tempExe, output); err != nil {
+	if err := publishExecutable(stagedExe, output); err != nil {
 		t.Fatalf("publish failed: %v", err)
 	}
 	combined, err := exec.Command(output).CombinedOutput()

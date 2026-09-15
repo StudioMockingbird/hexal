@@ -77,9 +77,14 @@ usage:
   hexal help              print this message
 
 build options:
+  -mode <name>      debug or release (default: debug)
   -root <dir>       source root (default: current directory)
   -entry <key>      entrypoint logical key (default: main.hex)
   -out <path>       executable path (default: <root>/build/<entry>)
+
+Modes never change program behavior: generated C, output, and runtime trap
+messages are identical. debug is unoptimized with debug information and an
+undefined-behavior backstop; release is optimized, stripped, and smaller.
 `, version.String())
 }
 
@@ -87,12 +92,21 @@ func build(args []string) error {
 	flags := flag.NewFlagSet("build", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var options driver.BuildOptions
+	var mode string
+	flags.StringVar(&mode, "mode", "", "build mode: debug or release")
 	flags.StringVar(&options.Root, "root", "", "source root")
 	flags.StringVar(&options.Entrypoint, "entry", "", "entrypoint logical key")
 	flags.StringVar(&options.Output, "out", "", "executable path")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	// The mode is resolved before anything else so an unknown value fails
+	// ahead of discovery and compilation, not after them.
+	parsed, err := driver.ParseMode(mode)
+	if err != nil {
+		return err
+	}
+	options.Mode = parsed
 
 	result, err := driver.Build(options)
 	if err != nil {
