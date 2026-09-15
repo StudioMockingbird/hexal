@@ -89,12 +89,8 @@ int main(void) {
 			objects := []string{strings.TrimSuffix(eventSource, ".c") + ".o", strings.TrimSuffix(fixture, ".c") + ".o"}
 			objects = append(objects, native.linkObjects...)
 			output := filepath.Join(staging, "init_failure_probe"+exeSuffix())
-			tempExe, err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result)
-			if err != nil {
+			if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
 				failWithLastCommand(t, &result, err)
-			}
-			if err := os.Rename(tempExe, output); err != nil {
-				t.Fatal(err)
 			}
 			command := exec.Command(output)
 			var stdout, stderr bytes.Buffer

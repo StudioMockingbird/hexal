@@ -1,0 +1,473 @@
+//go:build c23
+
+package driver
+
+// Mode tests that spawn the real C toolchain: the exact arguments each mode
+// sends to the backend, the debug-information publication protocol, and the
+// observable properties each mode promises. Tagged `c23` like every other
+// toolchain-dependent suite here.
+//
+// Run with: go test -tags c23 ./internal/driver/
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
+)
+
+// buildInMode builds one program under mode and returns the completed result.
+func buildInMode(t *testing.T, dir string, mode BuildMode) BuildResult {
+	t.Helper()
+	result, err := Build(BuildOptions{Root: dir, Mode: mode})
+	if err != nil {
+		t.Fatalf("%s build failed: %v", mode, err)
+	}
+	return result
+}
+
+// containsSequence reports whether arguments carries want as a contiguous run,
+// so an option set is asserted in its exact order rather than as a bag.
+func containsSequence(arguments, want []string) bool {
+	if len(want) == 0 {
+		return true
+	}
+	for start := 0; start+len(want) <= len(arguments); start++ {
+		if strings.Join(arguments[start:start+len(want)], "\x00") == strings.Join(want, "\x00") {
+			return true
+		}
+	}
+	return false
+}
+
+// compiledSource is the translation unit one compile command names, taken
+// from the argument after -c. Classifying on the source and not on any
+// argument matters: a generated translation unit is compiled with the
+// dependency include roots on its command line, so a command that merely
+// mentions the dependency tree is not a dependency compile.
+func compiledSource(command CommandResult) string {
+	if command.Stage != StageCompile {
+		return ""
+	}
+	for index, argument := range command.Arguments {
+		if argument == "-c" && index+1 < len(command.Arguments) {
+			return command.Arguments[index+1]
+		}
+	}
+	return ""
+}
+
+func isDependencyCompile(command CommandResult) bool {
+	source := compiledSource(command)
+	return source != "" && strings.Contains(source, "dependencies")
+}
+
+func isGeneratedCompile(command CommandResult) bool {
+	source := compiledSource(command)
+	return source != "" && !strings.Contains(source, "dependencies")
+}
+
+// TestModeOptionsReachTheBackendExactly pins the whole contract between the
+// driver and a mode-unaware backend: every generated translation unit is
+// compiled with that mode's exact option run, the executable link carries its
+// exact link options, and vendored dependencies are compiled identically in
+// both modes.
+func TestModeOptionsReachTheBackendExactly(t *testing.T) {
+	requireBackend(t)
+	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
+		t.Run(string(mode), func(t *testing.T) {
+			dir := t.TempDir()
+			// A heap program pulls in a vendored dependency, so the
+			// dependency half of the assertion has something to observe.
+			writeSource(t, dir, "main.hex", "fun demo(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n")
+			result := buildInMode(t, dir, mode)
+			options := Options(mode)
+
+			generated, dependencies, links := 0, 0, 0
+			for _, command := range result.Commands {
+				switch {
+				case isGeneratedCompile(command):
+					generated++
+					if !containsSequence(command.Arguments, options.Compile) {
+						t.Fatalf("generated compile lacks the %s option run %v:\n%v", mode, options.Compile, command.Arguments)
+					}
+				case isDependencyCompile(command):
+					dependencies++
+					// Debugging a vendored dependency is not a Hexal user
+					// workflow, and identical dependency objects keep a future
+					// object cache simple.
+					if !containsSequence(command.Arguments, []string{"-O2"}) {
+						t.Fatalf("dependency compile is not optimized:\n%v", command.Arguments)
+					}
+					for _, unwanted := range options.Compile {
+						if unwanted == "-O2" {
+							continue
+						}
+						for _, argument := range command.Arguments {
+							if argument == unwanted {
+								t.Fatalf("dependency compile absorbed the %s mode option %q:\n%v", mode, unwanted, command.Arguments)
+							}
+						}
+					}
+				case command.Stage == StageLink:
+					links++
+					if !containsSequence(command.Arguments, options.Link) {
+						t.Fatalf("link lacks the %s option run %v:\n%v", mode, options.Link, command.Arguments)
+					}
+					if mode == ModeDebug {
+						for _, unwanted := range []string{"-s", "-Wl,--gc-sections"} {
+							for _, argument := range command.Arguments {
+								if argument == unwanted {
+									t.Fatalf("debug link carries the release option %q:\n%v", unwanted, command.Arguments)
+								}
+							}
+						}
+					}
+				}
+			}
+			if generated == 0 || dependencies == 0 || links != 1 {
+				t.Fatalf("recorded %d generated compiles, %d dependency compiles, %d links", generated, dependencies, links)
+			}
+		})
+	}
+}
+
+// TestGeneratedCIsByteIdenticalAcrossModes holds the principle the whole
+// feature rests on. The mode is a driver setting that never reaches the
+// compiler, so the artifacts cannot differ; this asserts it on the concrete
+// bytes rather than trusting the type.
+func TestGeneratedCIsByteIdenticalAcrossModes(t *testing.T) {
+	requireBackend(t)
+	sources := map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n"}
+	first := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	second := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	if len(first.Files) != len(second.Files) || len(first.Files) == 0 {
+		t.Fatalf("artifact counts %d and %d", len(first.Files), len(second.Files))
+	}
+	for name, content := range first.Files {
+		if second.Files[name] != content {
+			t.Fatalf("artifact %q differs between compilations", name)
+		}
+	}
+	// The identity encoder is what a mode change is allowed to move, and it
+	// must move for the same artifacts.
+	debug := buildIdentity(ModeDebug, "zig", first.Files, first.Dependencies, nil, nil)
+	release := buildIdentity(ModeRelease, "zig", first.Files, first.Dependencies, nil, nil)
+	if debug == release {
+		t.Fatal("the build identity does not distinguish the modes")
+	}
+}
+
+// TestModesProduceIdenticalProgramBehavior is the driver-level half of the
+// release conformance rule: one program, both modes, identical stdout,
+// stderr, and exit status.
+func TestModesProduceIdenticalProgramBehavior(t *testing.T) {
+	requireBackend(t)
+	const program = "fun demo(h: Heap): Int32 do\n" +
+		"    values: List<Int32> := List<Int32>(h)\n" +
+		"    defer values.free(h)\n" +
+		"    values.push(7)\n" +
+		"    values.push(35)\n" +
+		"    return values[0] + values[1]\n" +
+		"end\n" +
+		"print(demo(Heap()))\n" +
+		"print(1.0 / 3.0)\n"
+	var outputs, errors [2]string
+	var statuses [2]int
+	for index, mode := range []BuildMode{ModeDebug, ModeRelease} {
+		dir := t.TempDir()
+		writeSource(t, dir, "main.hex", program)
+		result := buildInMode(t, dir, mode)
+		var stdout, stderr bytes.Buffer
+		command := exec.Command(result.Executable)
+		command.Stdout = &stdout
+		command.Stderr = &stderr
+		err := command.Run()
+		if exit, ok := err.(*exec.ExitError); ok {
+			statuses[index] = exit.ExitCode()
+		} else if err != nil {
+			t.Fatalf("running the %s executable failed: %v", mode, err)
+		}
+		outputs[index], errors[index] = stdout.String(), stderr.String()
+	}
+	if outputs[0] != outputs[1] {
+		t.Fatalf("stdout differs: debug %q, release %q", outputs[0], outputs[1])
+	}
+	if errors[0] != errors[1] {
+		t.Fatalf("stderr differs: debug %q, release %q", errors[0], errors[1])
+	}
+	if statuses[0] != statuses[1] {
+		t.Fatalf("exit status differs: debug %d, release %d", statuses[0], statuses[1])
+	}
+}
+
+// TestReleaseIsSmallerAndCarriesNoDebugInformation checks the two properties
+// a release build is chosen for. RSDS is the CodeView record a linker writes
+// into an image that names an external debug file; a stripped image has
+// neither it nor the file name.
+func TestReleaseIsSmallerAndCarriesNoDebugInformation(t *testing.T) {
+	requireBackend(t)
+	sizes := map[BuildMode]int64{}
+	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
+		dir := t.TempDir()
+		writeSource(t, dir, "main.hex", "values: Array<Int32, 2> := [1, 2]\nprint(values[0])\n")
+		result := buildInMode(t, dir, mode)
+		info, err := os.Stat(result.Executable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sizes[mode] = info.Size()
+		raw, err := os.ReadFile(result.Executable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		carriesDebugInformation := bytes.Contains(raw, []byte("RSDS")) || bytes.Contains(raw, []byte(".pdb"))
+		if mode == ModeRelease && carriesDebugInformation {
+			t.Error("release executable carries debug information")
+		}
+		if mode == ModeDebug && !carriesDebugInformation {
+			t.Error("debug executable carries no debug information")
+		}
+	}
+	if sizes[ModeRelease] >= sizes[ModeDebug] {
+		t.Fatalf("release executable is %d bytes, not smaller than debug's %d", sizes[ModeRelease], sizes[ModeDebug])
+	}
+}
+
+// TestReleaseRemovesUnreferencedCode checks section collection concretely. The
+// unreferenced function below carries a distinctive literal, so the literal's
+// presence in the image is a direct observation of whether the function and
+// its data survived the link.
+func TestReleaseRemovesUnreferencedCode(t *testing.T) {
+	requireBackend(t)
+	const marker = "hexal-unreferenced-helper-marker-0187"
+	const program = "fun unused_helper(): String do\n" +
+		"    return \"" + marker + "\"\n" +
+		"end\n" +
+		"print(\"ok\")\n"
+	present := map[BuildMode]bool{}
+	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
+		dir := t.TempDir()
+		writeSource(t, dir, "main.hex", program)
+		result := buildInMode(t, dir, mode)
+		raw, err := os.ReadFile(result.Executable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		present[mode] = bytes.Contains(raw, []byte(marker))
+	}
+	if !present[ModeDebug] {
+		t.Fatal("debug dropped an unreferenced helper; it keeps symbols complete instead")
+	}
+	if present[ModeRelease] {
+		t.Fatal("release kept an unreferenced helper; section collection did not run")
+	}
+}
+
+// publishedPDBs lists the versioned debug files beside one executable.
+func publishedPDBs(t *testing.T, executable string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(strings.TrimSuffix(executable, exeSuffix()) + ".*.pdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return matches
+}
+
+// TestDebugPublishesOneImmutableVersionedPDB walks the whole publication
+// protocol: the name is derived from the identity and recorded inside the
+// executable, a rebuild of the same program republishes the same bytes under
+// the same name, no mutable convenience copy appears, and release publishes
+// nothing.
+func TestDebugPublishesOneImmutableVersionedPDB(t *testing.T) {
+	requireBackend(t)
+	dir := t.TempDir()
+	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
+
+	result := buildInMode(t, dir, ModeDebug)
+	published := publishedPDBs(t, result.Executable)
+	if len(published) != 1 {
+		t.Fatalf("debug published %d versioned debug files, want 1: %v", len(published), published)
+	}
+	name := filepath.Base(published[0])
+	if !strings.HasPrefix(name, "main.") || len(name) != len("main.")+64+len(".pdb") {
+		t.Fatalf("published name %q does not carry a full build identity", name)
+	}
+	// A mutable convenience copy could disagree with the executable a
+	// concurrent or interrupted build selected, so none is ever written.
+	if _, err := os.Stat(filepath.Join(filepath.Dir(result.Executable), "main.pdb")); err == nil {
+		t.Fatal("a mutable main.pdb convenience copy was written")
+	}
+	image, err := os.ReadFile(result.Executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(image, []byte(name)) {
+		t.Fatalf("executable does not name its debug information %q internally", name)
+	}
+	digest, err := fileDigest(published[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Same program, same identity: the already-published file is accepted as
+	// it stands and its bytes do not move.
+	rebuilt := buildInMode(t, dir, ModeDebug)
+	again := publishedPDBs(t, rebuilt.Executable)
+	if len(again) != 1 || again[0] != published[0] {
+		t.Fatalf("rebuild published %v, want exactly %v", again, published)
+	}
+	rebuiltDigest, err := fileDigest(again[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rebuiltDigest != digest {
+		t.Fatal("rebuilding the same program changed its published debug information")
+	}
+
+	// Release publishes no new debug file and deletes no retained one.
+	releaseResult, err := Build(BuildOptions{Root: dir, Mode: ModeRelease})
+	if err != nil {
+		t.Fatalf("release build failed: %v", err)
+	}
+	afterRelease := publishedPDBs(t, releaseResult.Executable)
+	if len(afterRelease) != 1 || afterRelease[0] != published[0] {
+		t.Fatalf("release changed the published debug files: %v", afterRelease)
+	}
+}
+
+// TestChangedProgramRetainsOldVersionedPDB pins the v1 retention rule: a
+// concurrent build may still reference an older file, so nothing is collected
+// here.
+func TestChangedProgramRetainsOldVersionedPDB(t *testing.T) {
+	requireBackend(t)
+	dir := t.TempDir()
+	writeSource(t, dir, "main.hex", "print(\"first\")\n")
+	first := buildInMode(t, dir, ModeDebug)
+	before := publishedPDBs(t, first.Executable)
+	if len(before) != 1 {
+		t.Fatalf("first build published %v", before)
+	}
+
+	writeSource(t, dir, "main.hex", "print(\"second\")\n")
+	second := buildInMode(t, dir, ModeDebug)
+	after := publishedPDBs(t, second.Executable)
+	if len(after) != 2 {
+		t.Fatalf("published files after a source change = %v, want the old one retained beside the new", after)
+	}
+}
+
+// TestDisagreeingPDBFailsBeforePublishingTheExecutable is the failure half of
+// the protocol: the previously published executable survives untouched, since
+// the executable publication is the commit point and is never reached.
+func TestDisagreeingPDBFailsBeforePublishingTheExecutable(t *testing.T) {
+	requireBackend(t)
+	dir := t.TempDir()
+	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
+	first := buildInMode(t, dir, ModeDebug)
+	published := publishedPDBs(t, first.Executable)
+	if len(published) != 1 {
+		t.Fatalf("first build published %v", published)
+	}
+	executableBefore, err := fileDigest(first.Executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Replace the published debug information with different bytes under the
+	// same identity. The rebuild reaches the same identity and must refuse.
+	if err := os.WriteFile(published[0], []byte("not this build's debug information"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Build(BuildOptions{Root: dir, Mode: ModeDebug})
+	if err == nil {
+		t.Fatal("a build whose debug information disagrees with the published file succeeded")
+	}
+	if !strings.Contains(err.Error(), "identical debug information") {
+		t.Fatalf("unexpected failure: %v", err)
+	}
+	executableAfter, err := fileDigest(first.Executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if executableAfter != executableBefore {
+		t.Fatal("a failed build replaced the previously published executable")
+	}
+}
+
+// TestDebugUndefinedBehaviorProbeTerminates proves the backstop is armed and
+// non-recoverable under the exact debug options: a deliberate signed overflow
+// must terminate the process with a diagnostic rather than continue with a
+// wrapped value.
+func TestDebugUndefinedBehaviorProbeTerminates(t *testing.T) {
+	selected := requireBackend(t)
+	dir := t.TempDir()
+	source := filepath.Join(dir, "undefined.c")
+	const probe = "#include <stdio.h>\n" +
+		"int add(int left, int right) { return left + right; }\n" +
+		"int main(void) {\n" +
+		"    volatile int largest = 2147483647;\n" +
+		"    printf(\"before\\n\");\n" +
+		"    fflush(stdout);\n" +
+		"    printf(\"after %d\\n\", add((int)largest, 1));\n" +
+		"    return 0;\n" +
+		"}\n"
+	if err := os.WriteFile(source, []byte(probe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	object := filepath.Join(dir, "undefined.o")
+	options := Options(ModeDebug)
+	compile, err := selected.CompileOne(qualifiedTriple, options.Compile, source, object)
+	if err != nil || compile.ExitCode != 0 {
+		t.Fatalf("probe failed to compile: %v\n%s", err, compile.Stderr)
+	}
+	binary := filepath.Join(dir, "undefined"+exeSuffix())
+	link, err := selected.LinkObjects(qualifiedTriple, []string{object}, binary, options.Link)
+	if err != nil || link.ExitCode != 0 {
+		t.Fatalf("probe failed to link: %v\n%s", err, link.Stderr)
+	}
+	var stdout, stderr bytes.Buffer
+	command := exec.Command(binary)
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	runErr := command.Run()
+	if runErr == nil {
+		t.Fatalf("the probe completed; the backstop is recoverable or absent (stdout %q)", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "after") {
+		t.Fatalf("the probe continued past undefined behavior: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "signed integer overflow") {
+		t.Fatalf("the probe terminated without a diagnostic: %q", stderr.String())
+	}
+}
+
+// TestDoctorReportsABackendRejectingAModeOption checks the reporting path with
+// the real backend by probing an option set it genuinely refuses. The table is
+// restored before the test returns, so no other test observes the extra entry.
+func TestDoctorReportsABackendRejectingAModeOption(t *testing.T) {
+	selected := requireBackend(t)
+	const rejected = BuildMode("rejected-by-the-backend")
+	modeOptionTable[rejected] = ModeOptions{Compile: []string{"-fhexal-no-such-option"}}
+	defer delete(modeOptionTable, rejected)
+
+	err := modeOptionProbe(selected, rejected)
+	if err == nil {
+		t.Fatal("the backend accepted an option that does not exist")
+	}
+	if !strings.Contains(err.Error(), string(rejected)) || !strings.Contains(err.Error(), "-fhexal-no-such-option") {
+		t.Fatalf("the problem does not name the mode and the option: %v", err)
+	}
+
+	// Both real modes must pass the same probe on a host where builds work.
+	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
+		if err := modeOptionProbe(selected, mode); err != nil {
+			t.Errorf("the backend rejects a %s mode option: %v", mode, err)
+		}
+	}
+}

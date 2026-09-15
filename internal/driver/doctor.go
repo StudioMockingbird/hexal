@@ -62,8 +62,47 @@ func Doctor() (report []string, problems []string) {
 	if probeErr := linkProbe(backend); probeErr != nil {
 		problems = append(problems, probeErr.Error())
 	}
+	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
+		if probeErr := modeOptionProbe(backend, mode); probeErr != nil {
+			problems = append(problems, probeErr.Error())
+		}
+	}
 
 	return report, problems
+}
+
+// modeOptionProbe compiles and links a minimal program with one mode's exact
+// compile and link options, so a backend that rejects any option of any mode
+// is reported here by mode and by the backend's own message, instead of
+// surfacing much later as a confusing failure of a real build.
+func modeOptionProbe(selected *backend.Backend, mode BuildMode) error {
+	dir, err := os.MkdirTemp("", "hexal-doctor-mode-")
+	if err != nil {
+		return fmt.Errorf("could not create a temporary directory for the %s mode probe: %v", mode, err)
+	}
+	defer os.RemoveAll(dir)
+
+	source := filepath.Join(dir, "mode.c")
+	if err := os.WriteFile(source, []byte("int main(void) { return 0; }\n"), 0o644); err != nil {
+		return fmt.Errorf("could not write the %s mode probe source: %v", mode, err)
+	}
+	options := Options(mode)
+	binary := filepath.Join(dir, "mode"+exeSuffix())
+	compile, err := selected.CompileOne(qualifiedTriple, options.Compile, source, binary+".o")
+	if err != nil {
+		return fmt.Errorf("%s mode probe failed to run: %v", mode, err)
+	}
+	if compile.ExitCode != 0 {
+		return fmt.Errorf("backend rejects a %s mode compile option (%s): %s", mode, strings.Join(options.Compile, " "), firstLine(compile.Stderr))
+	}
+	link, err := selected.LinkObjects(qualifiedTriple, []string{binary + ".o"}, binary, options.Link)
+	if err != nil {
+		return fmt.Errorf("%s mode probe failed to run: %v", mode, err)
+	}
+	if link.ExitCode != 0 {
+		return fmt.Errorf("backend rejects a %s mode link option (%s): %s", mode, strings.Join(options.Link, " "), firstLine(link.Stderr))
+	}
+	return nil
 }
 
 func backendPkgPinnedVersion() string {

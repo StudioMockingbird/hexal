@@ -82,10 +82,11 @@ type BuildResult struct {
 // BuildOptions carries what ADR 0055's Configuration section resolves from
 // flags and conventions. There is no project manifest in v1.
 type BuildOptions struct {
-	Root       string // source root; defaults to the working directory
-	Entrypoint string // logical key; defaults to main.hex
-	OutDir     string // intermediate root; defaults to <root>/build
-	Output     string // executable path; defaults to <outdir>/<entrypoint>.exe
+	Root       string    // source root; defaults to the working directory
+	Entrypoint string    // logical key; defaults to main.hex
+	OutDir     string    // intermediate root; defaults to <root>/build
+	Output     string    // executable path; defaults to <outdir>/<entrypoint>.exe
+	Mode       BuildMode // backend option set; defaults to debug
 }
 
 // hexalFailureMessage renders the Hexal-stage failure. Ordinary diagnostics
@@ -129,6 +130,10 @@ func Build(options BuildOptions) (BuildResult, error) {
 	if entrypoint == "" {
 		entrypoint = "main.hex"
 	}
+	mode, err := resolveMode(options.Mode)
+	if err != nil {
+		return result, &BuildError{Stage: StageConfiguration, Message: err.Error()}
+	}
 
 	if err := checkHost(); err != nil {
 		return result, &BuildError{Stage: StageConfiguration, Message: err.Error()}
@@ -160,7 +165,16 @@ func Build(options BuildOptions) (BuildResult, error) {
 	if outDir == "" {
 		outDir = filepath.Join(root, "build")
 	}
-	staging, err := freshStagingDir(outDir)
+	// The mode selects backend options here and nowhere else; the dependency
+	// options added further below are mode-independent by design.
+	selected := Options(mode)
+
+	// The identity is derived before anything touches the filesystem, because
+	// it names the staging tree: every object path and the linked executable
+	// path end up inside the debug information, so they must be functions of
+	// the build's inputs rather than of a random directory name.
+	identity := buildIdentity(mode, backendIdentity(backend), compileResult.Files, compileResult.Dependencies, selected.Compile, selected.Link)
+	staging, err := identityStagingDir(outDir, identity)
 	if err != nil {
 		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
 	}
@@ -168,6 +182,10 @@ func Build(options BuildOptions) (BuildResult, error) {
 	// publication completes or fails, so repeated builds cannot accumulate
 	// stale trees beside the executable.
 	defer os.RemoveAll(staging)
+	// The backend records its own working directory in the debug information
+	// it emits, so it is pinned to the identity-named tree for the same reason
+	// that tree is named after the identity at all.
+	backend.Directory = staging
 
 	cFiles, err := materialize(staging, compileResult.Files)
 	if err != nil {
@@ -183,33 +201,50 @@ func Build(options BuildOptions) (BuildResult, error) {
 		name := strings.TrimSuffix(filepath.Base(entrypoint), ".hex")
 		output = filepath.Join(outDir, name+exeSuffix())
 	}
+	// Resolved once here: the debug information published beside the
+	// executable is named from this directory, so a relative -out must not
+	// reach that decision unresolved.
+	output, err = filepath.Abs(output)
+	if err != nil {
+		return result, &BuildError{Stage: StageFilesystem, Message: fmt.Sprintf("cannot resolve output path %q: %v", options.Output, err)}
+	}
 	if err := validateOutputDestination(output); err != nil {
 		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
 	}
 
+	compileOptions := append(selected.Compile, native.compileOptions...)
+	linkOptions := append(selected.Link, native.linkOptions...)
+
 	if err := compileNativeDependencies(backend, staging, native, &result); err != nil {
 		return result, err
 	}
-	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, native.compileOptions, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, compileOptions, &result); err != nil {
 		return result, err
 	}
 	objects := append(cFilesToObjects(staging, cFiles), native.linkObjects...)
-	tempExe, err := linkObjectsWithOptions(backend, staging, objects, native.linkOptions, output, &result)
-	if err != nil {
+
+	// The executable is linked in staging under a basename carrying the build
+	// identity, so the backend names its debug information after that exact
+	// identity and the published executable records that name internally. A
+	// failed link or a failed publication leaves the previously published
+	// executable and every published debug file untouched; the staging tree,
+	// including this link, is removed either way.
+	stagedExe := filepath.Join(staging, versionedBasename(output, identity)+exeSuffix())
+	if err := linkObjectsWithOptions(backend, staging, objects, linkOptions, stagedExe, &result); err != nil {
 		return result, err
 	}
-	// A failed build removes its temporary executable, and a previously
-	// published executable is never touched before success.
-	published := false
-	defer func() {
-		if !published {
-			os.Remove(tempExe)
+	if mode == ModeDebug {
+		stagedPDB := strings.TrimSuffix(stagedExe, exeSuffix()) + ".pdb"
+		if _, statErr := os.Stat(stagedPDB); statErr == nil {
+			publishedPDB := filepath.Join(filepath.Dir(output), filepath.Base(stagedPDB))
+			if err := publishVersionedPDB(stagedPDB, publishedPDB); err != nil {
+				return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
+			}
 		}
-	}()
-	if err := publishExecutable(tempExe, output); err != nil {
+	}
+	if err := publishExecutable(stagedExe, output); err != nil {
 		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
 	}
-	published = true
 	result.Executable = output
 	return result, nil
 }
@@ -384,13 +419,10 @@ func cFilesToObjects(staging string, cFiles []string) []string {
 	return objects
 }
 
-// compileTranslationUnits compiles every generated .c in deterministic
-// logical-key order: one backend invocation per translation unit, each its
-// own C-compilation stage record with separated streams.
-func compileTranslationUnits(backend *backend.Backend, staging string, cFiles []string, result *BuildResult) error {
-	return compileTranslationUnitsWithOptions(backend, staging, cFiles, nil, result)
-}
-
+// compileTranslationUnitsWithOptions compiles every generated .c in
+// deterministic logical-key order: one backend invocation per translation
+// unit, each its own C-compilation stage record with separated streams. The
+// caller supplies the complete option list, mode options included.
 func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string, cFiles, options []string, result *BuildResult) error {
 	for _, source := range cFiles {
 		object := strings.TrimSuffix(source, ".c") + ".o"
@@ -419,37 +451,32 @@ func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string
 	return nil
 }
 
-// linkObjects links every object through the backend in deterministic order.
-// The backend owns linker selection; the driver records the command.
-func linkObjects(backend *backend.Backend, staging string, objects []string, output string, result *BuildResult) (string, error) {
-	return linkObjectsWithOptions(backend, staging, objects, nil, output, result)
-}
-
-func linkObjectsWithOptions(backend *backend.Backend, staging string, objects, options []string, output string, result *BuildResult) (string, error) {
-	tempExe := output + ".tmp.exe"
-	invocation, err := backend.LinkObjects(qualifiedTriple, objects, tempExe, options)
+// linkObjectsWithOptions links every object through the backend in
+// deterministic order into executable, which the caller places in staging so
+// a failed link can never disturb a published executable. The backend owns
+// linker selection; the driver records the exact command.
+func linkObjectsWithOptions(backend *backend.Backend, staging string, objects, options []string, executable string, result *BuildResult) error {
+	invocation, err := backend.LinkObjects(qualifiedTriple, objects, executable, options)
 	if err != nil {
-		return "", &BuildError{Stage: StageLink, Message: fmt.Sprintf("cannot run backend: %v", err)}
+		return &BuildError{Stage: StageLink, Message: fmt.Sprintf("cannot run backend: %v", err)}
 	}
-	_ = staging
 	result.Commands = append(result.Commands, CommandResult{
 		Stage:            StageLink,
 		Tool:             backend.Exe,
 		Arguments:        invocation.Args,
-		WorkingDirectory: filepath.Dir(output),
+		WorkingDirectory: staging,
 		Stdout:           invocation.Stdout,
 		Stderr:           invocation.Stderr,
 		ExitCode:         invocation.ExitCode,
 	})
 	if invocation.ExitCode != 0 {
-		os.Remove(tempExe)
-		return "", &BuildError{
+		return &BuildError{
 			Stage:   StageLink,
 			Message: "linking failed",
 			Command: &result.Commands[len(result.Commands)-1],
 		}
 	}
-	return tempExe, nil
+	return nil
 }
 
 // validateOutputDestination resolves the final executable's parent and

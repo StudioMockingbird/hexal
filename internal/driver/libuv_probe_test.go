@@ -198,13 +198,8 @@ int main(void) {
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, native.linkObjects...)
 	output := filepath.Join(staging, "typed_network_probe"+exeSuffix())
-	if _, err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
-	}
-	probe := output + ".tmp.exe"
-	defer os.Remove(probe)
-	if err := os.Rename(probe, output); err != nil {
-		t.Fatal(err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
 	if err != nil || string(run) != "ok\r\n" {
@@ -345,13 +340,8 @@ int main(void) {
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, native.linkObjects...)
 	output := filepath.Join(staging, "idle_connection_probe"+exeSuffix())
-	if _, err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
-	}
-	probe := output + ".tmp.exe"
-	defer os.Remove(probe)
-	if err := os.Rename(probe, output); err != nil {
-		t.Fatal(err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
 	if err != nil || string(run) != "ok\r\n" {
@@ -480,13 +470,8 @@ int main(void) {
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, native.linkObjects...)
 	output := filepath.Join(staging, "cancellation_probe"+exeSuffix())
-	if _, err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
-	}
-	probe := output + ".tmp.exe"
-	defer os.Remove(probe)
-	if err := os.Rename(probe, output); err != nil {
-		t.Fatal(err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
 	if err != nil || string(run) != "ok\r\n" {
@@ -705,13 +690,8 @@ int main(void) {
 	objects := []string{strings.TrimSuffix(eventSource, ".c") + ".o", strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, native.linkObjects...)
 	output := filepath.Join(staging, "event_foundation_probe"+exeSuffix())
-	if _, err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
-	}
-	probe := output + ".tmp.exe"
-	defer os.Remove(probe)
-	if err := os.Rename(probe, output); err != nil {
-		t.Fatal(err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
 	if err != nil || string(run) != "ok\r\n" {
