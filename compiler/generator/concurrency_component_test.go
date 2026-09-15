@@ -698,7 +698,9 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 func TestEventIODeclarationsPrecedeFrontendUses(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    stream: IO := try IO.stdin()\n    buffer: List<Byte> := List<Byte>(h)\n    defer buffer.free(h)\n    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
 	ioSource := generateOne(t, program)["hexal/io.c"]
-	for _, operation := range []string{"read", "write", "seek", "close", "write_all"} {
+	// A standard-output write-all is no longer its own submission: the print
+	// commit that needs it is already one job, and it runs inside that job.
+	for _, operation := range []string{"read", "write", "seek", "close"} {
 		definition := strings.Index(ioSource, "typedef struct hex_io_"+operation+"_job")
 		use := strings.Index(ioSource, "hex_io_"+operation+"_job job")
 		if definition < 0 || use < 0 || definition >= use {

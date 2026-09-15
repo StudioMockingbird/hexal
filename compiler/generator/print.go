@@ -9,9 +9,10 @@ import (
 )
 
 // The `print` builtin: arguments evaluate exactly once from left to right
-// into temporaries, then the generated helpers write each one in source
-// order. All helpers are length-aware, never use source bytes as format
-// strings, and check every write result.
+// into temporaries, then the generated helpers append each one in source
+// order to the call's own builder, which commits to standard output exactly
+// once. All helpers are length-aware, never use source bytes as format
+// strings, and no fragment can reach standard output before the commit.
 
 type generatedPrintState struct {
 	used  bool
@@ -105,29 +106,29 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, 
 		}
 	}
 	if errorUsedByPrint {
-		result.WriteString("static void hex_print_error_direct(const hex_t_Error *value) {\n")
-		result.WriteString("    hex_print_text(value->hex_m_file->data, value->hex_m_file->byte_length);\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\":\", 1);\n    hex_print_size(value->hex_m_line);\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\":\", 1);\n    hex_print_size(value->hex_m_column);\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\": \", 2);\n")
+		result.WriteString("static void hex_print_error_direct(hex_print_buffer *out, const hex_t_Error *value) {\n")
+		result.WriteString("    hex_print_text(out, value->hex_m_file->data, value->hex_m_file->byte_length);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\":\", 1);\n    hex_print_size(out, value->hex_m_line);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\":\", 1);\n    hex_print_size(out, value->hex_m_column);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\": \", 2);\n")
 		result.WriteString("    hex_strand header = hex_error_kind_header(value->hex_m_kind);\n")
-		result.WriteString("    hex_print_text(header.data, hex_strand_byte_length(header));\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\": \", 2);\n")
-		result.WriteString("    hex_print_text(value->hex_m_message->data, value->hex_m_message->byte_length);\n}\n")
-		result.WriteString("static void hex_print_error_nested(const hex_t_Error *value) {\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\"Error { file = \", 15);\n    hex_print_quoted_text(value->hex_m_file->data, value->hex_m_file->byte_length);\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\", line = \", 9);\n    hex_print_size(value->hex_m_line);\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\", column = \", 11);\n    hex_print_size(value->hex_m_column);\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\", kind = \", 9);\n    hex_strand nested_header = hex_error_kind_header(value->hex_m_kind);\n    hex_print_quoted_text(nested_header.data, hex_strand_byte_length(nested_header));\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\", message = \", 12);\n    hex_print_quoted_text(value->hex_m_message->data, value->hex_m_message->byte_length);\n")
-		result.WriteString("    hex_print_text((const uint8_t *)\" }\", 2);\n}\n")
+		result.WriteString("    hex_print_text(out, header.data, hex_strand_byte_length(header));\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\": \", 2);\n")
+		result.WriteString("    hex_print_text(out, value->hex_m_message->data, value->hex_m_message->byte_length);\n}\n")
+		result.WriteString("static void hex_print_error_nested(hex_print_buffer *out, const hex_t_Error *value) {\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\"Error { file = \", 15);\n    hex_print_quoted_text(out, value->hex_m_file->data, value->hex_m_file->byte_length);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\", line = \", 9);\n    hex_print_size(out, value->hex_m_line);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\", column = \", 11);\n    hex_print_size(out, value->hex_m_column);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\", kind = \", 9);\n    hex_strand nested_header = hex_error_kind_header(value->hex_m_kind);\n    hex_print_quoted_text(out, nested_header.data, hex_strand_byte_length(nested_header));\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\", message = \", 12);\n    hex_print_quoted_text(out, value->hex_m_message->data, value->hex_m_message->byte_length);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\" }\", 2);\n}\n")
 	}
 	for _, typ := range state.types {
 		// A container helper calls the helpers of its element and member
 		// types, which may follow it in discovery order, so every nested
 		// helper is declared before any definition; the generated C must
 		// compile warning-free as-is.
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value);\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value);\n", typ.CName)
 	}
 	for _, typ := range state.types {
 		writePrintNestedHelper(result, typ, tags)
@@ -151,102 +152,103 @@ func printNestedAddress(typ compilerTypes.Type, expression string) string {
 func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type, tags *tagRegistry) {
 	switch {
 	case compilerTypes.IsString(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const hex_string *text = value;\n    hex_print_quoted_text(text->data, text->byte_length);\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const hex_string *text = value;\n    hex_print_quoted_text(out, text->data, text->byte_length);\n}\n", typ.CName)
 	case compilerTypes.IsStrand(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_strand text = *(const hex_strand *)value;\n    size_t length = 0;\n    while (length < 32 && text.data[length] != 0) {\n        length++;\n    }\n    hex_print_quoted_text(text.data, length);\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_strand text = *(const hex_strand *)value;\n    size_t length = 0;\n    while (length < 32 && text.data[length] != 0) {\n        length++;\n    }\n    hex_print_quoted_text(out, text.data, length);\n}\n", typ.CName)
 	case compilerTypes.IsRune(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_quoted_rune(*(const uint32_t *)value);\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_quoted_rune(out, *(const uint32_t *)value);\n}\n", typ.CName)
 	case compilerTypes.IsError(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_error_nested(value);\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_error_nested(out, value);\n}\n", typ.CName)
 	case compilerTypes.IsErrorKind(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_strand text = hex_error_kind_header(*(const hex_t_ErrorKind *)value);\n    hex_print_text(text.data, hex_strand_byte_length(text));\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_strand text = hex_error_kind_header(*(const hex_t_ErrorKind *)value);\n    hex_print_text(out, text.data, hex_strand_byte_length(text));\n}\n", typ.CName)
 	case compilerTypes.Equal(typ, compilerTypes.Bool):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_bool(*(const bool *)value);\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_bool(out, *(const bool *)value);\n}\n", typ.CName)
 	case compilerTypes.Equal(typ, compilerTypes.Nil):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    (void)value;\n    hex_print_nil();\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    (void)value;\n    hex_print_nil(out);\n}\n", typ.CName)
 	case compilerTypes.IsSignedInteger(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_int%d(*(const int%d_t *)value);\n}\n", typ.CName, typ.Bits, typ.Bits)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_int%d(out, *(const int%d_t *)value);\n}\n", typ.CName, typ.Bits, typ.Bits)
 	case compilerTypes.IsUnsignedInteger(typ) && !compilerTypes.IsRune(typ):
 		if compilerTypes.Equal(typ, compilerTypes.SizeType) {
-			fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_size(*(const size_t *)value);\n}\n", typ.CName)
+			fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_size(out, *(const size_t *)value);\n}\n", typ.CName)
 		} else {
-			fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_uint%d(*(const uint%d_t *)value);\n}\n", typ.CName, typ.Bits, typ.Bits)
+			fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_uint%d(out, *(const uint%d_t *)value);\n}\n", typ.CName, typ.Bits, typ.Bits)
 		}
 	case compilerTypes.Equal(typ, compilerTypes.Float32):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_float32(*(const float *)value);\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_float32(out, *(const float *)value);\n}\n", typ.CName)
 	case compilerTypes.Equal(typ, compilerTypes.Float64):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    hex_print_float64(*(const double *)value);\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_float64(out, *(const double *)value);\n}\n", typ.CName)
 	case typ.Object != nil:
 		if len(typ.Object.Members) == 0 {
 			// An empty struct's private byte member is not part of its
 			// surface, so its print output is the bare "Name {}" form with
 			// no member list and no interior padding.
-			fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    (void)value;\n", typ.CName)
-			fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"%s {}\", %d);\n}\n", typ.Name, len(typ.Name)+3)
+			fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    (void)value;\n", typ.CName)
+			fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"%s {}\", %d);\n}\n", typ.Name, len(typ.Name)+3)
 			break
 		}
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"%s { \", %d);\n", typ.Name, len(typ.Name)+3)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n", typ.CName, typ.CName)
+		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"%s { \", %d);\n", typ.Name, len(typ.Name)+3)
 		for index, member := range typ.Object.Members {
 			if index > 0 {
-				fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\", \", 2);\n")
+				fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\", \", 2);\n")
 			}
-			fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
-			fmt.Fprintf(result, "    hex_print_nested_%s(%s);\n", member.Type.CName, printNestedAddress(member.Type, "v->"+privateCName(memberName, member.Name, "")))
+			fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
+			fmt.Fprintf(result, "    hex_print_nested_%s(out, %s);\n", member.Type.CName, printNestedAddress(member.Type, "v->"+privateCName(memberName, member.Name, "")))
 		}
-		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\" }\", 2);\n}\n")
+		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\" }\", 2);\n}\n")
 	case typ.Adt != nil:
 		adt := typ.Adt
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    switch (v->tag) {\n", typ.CName, typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    switch (v->tag) {\n", typ.CName, typ.CName)
 		for variantIndex, variant := range adt.Variants {
 			fmt.Fprintf(result, "    case %s:\n", tags.adtVariantTag(adt, variantIndex))
-			fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\"%s.%s\", %d);\n", adt.Name, variant.Name, len(adt.Name)+1+len(variant.Name))
+			fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\"%s.%s\", %d);\n", adt.Name, variant.Name, len(adt.Name)+1+len(variant.Name))
 			if len(variant.Payload) > 0 {
-				fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\" { \", 3);\n")
+				fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\" { \", 3);\n")
 				for index, member := range variant.Payload {
 					if index > 0 {
-						fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\", \", 2);\n")
+						fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\", \", 2);\n")
 					}
-					fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
-					fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n", member.Type.CName, printNestedAddress(member.Type, "v->payload."+variant.Name+".hex_m_"+member.Name))
+					fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
+					fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n", member.Type.CName, printNestedAddress(member.Type, "v->payload."+variant.Name+".hex_m_"+member.Name))
 				}
-				fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\" }\", 2);\n")
+				fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\" }\", 2);\n")
 			}
 			fmt.Fprintf(result, "        break;\n")
 		}
 		fmt.Fprintf(result, "    default:\n        abort();\n    }\n}\n")
 	case typ.Array != nil:
 		element := typ.Array.Element
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    for (size_t index = 0; index < %d; index++) {\n        if (index > 0) { hex_print_text((const uint8_t *)\", \", 2); }\n", typ.Array.Length)
-		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
-		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"]\", 1);\n}\n")
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    hex_print_text(out, (const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
+		fmt.Fprintf(result, "    for (size_t index = 0; index < %d; index++) {\n        if (index > 0) { hex_print_text(out, (const uint8_t *)\", \", 2); }\n", typ.Array.Length)
+		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
+		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"]\", 1);\n}\n")
 	case typ.Slice != nil:
 		element := typ.Slice.Element
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text((const uint8_t *)\", \", 2); }\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
-		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"]\", 1);\n}\n")
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    hex_print_text(out, (const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
+		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text(out, (const uint8_t *)\", \", 2); }\n")
+		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
+		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"]\", 1);\n}\n")
 	case typ.List != nil:
 		element := typ.List.Element
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text((const uint8_t *)\", \", 2); }\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
-		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"]\", 1);\n}\n")
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    hex_print_text(out, (const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
+		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text(out, (const uint8_t *)\", \", 2); }\n")
+		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
+		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"]\", 1);\n}\n")
 	case typ.Dict != nil:
 		key := typ.Dict.Key
 		valueType := typ.Dict.Value
-		fmt.Fprintf(result, "static void hex_print_nested_%s(const void *value) {\n    const %s *v = value;\n    hex_print_text((const uint8_t *)\"{\", 1);\n    bool first = true;\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    for (size_t index = 0; index < v->capacity; index++) {\n        if (!v->buckets[index].active) { continue; }\n        if (!first) { hex_print_text((const uint8_t *)\", \", 2); }\n        first = false;\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n", key.CName, printNestedAddress(key, "v->buckets[index].key"))
-		fmt.Fprintf(result, "        hex_print_text((const uint8_t *)\": \", 2);\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(%s);\n    }\n", valueType.CName, printNestedAddress(valueType, "v->buckets[index].value"))
-		fmt.Fprintf(result, "    hex_print_text((const uint8_t *)\"}\", 1);\n}\n")
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    hex_print_text(out, (const uint8_t *)\"{\", 1);\n    bool first = true;\n", typ.CName, typ.CName)
+		fmt.Fprintf(result, "    for (size_t index = 0; index < v->capacity; index++) {\n        if (!v->buckets[index].active) { continue; }\n        if (!first) { hex_print_text(out, (const uint8_t *)\", \", 2); }\n        first = false;\n")
+		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n", key.CName, printNestedAddress(key, "v->buckets[index].key"))
+		fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\": \", 2);\n")
+		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n    }\n", valueType.CName, printNestedAddress(valueType, "v->buckets[index].value"))
+		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"}\", 1);\n}\n")
 	}
 }
 
 // renderPrintStatement lowers one print call: each argument evaluates once
-// into a temporary in source order, then the helpers write it.
+// into a temporary in source order, then the helpers append it to the call's
+// own builder, which commits once and releases any grown storage.
 func renderPrintStatement(body *strings.Builder, node checker.Expression, state *expressionValidation, indent string) error {
 	if len(node.Arguments) == 0 {
 		return unknownExpressionDiagnostic("print without arguments")
@@ -262,42 +264,60 @@ func renderPrintStatement(body *strings.Builder, node checker.Expression, state 
 		fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(argument.Type, name, false), rendered)
 		names = append(names, name)
 	}
-	for index, argument := range node.Arguments {
-		if err := writePrintArgument(body, argument.Type, names[index], indent); err != nil {
+	types := make([]compilerTypes.Type, 0, len(node.Arguments))
+	for _, argument := range node.Arguments {
+		types = append(types, argument.Type)
+	}
+	return writePrintTransaction(body, types, names, state, indent)
+}
+
+// writePrintTransaction emits one complete print transaction over already
+// evaluated argument temporaries: one builder, every argument appended in
+// source order, one commit, one release.
+func writePrintTransaction(body *strings.Builder, types []compilerTypes.Type, names []string, state *expressionValidation, indent string) error {
+	state.printCounter++
+	buffer := fmt.Sprintf("hex_print_out_%d", state.printCounter)
+	fmt.Fprintf(body, "%shex_print_buffer %s;\n", indent, buffer)
+	fmt.Fprintf(body, "%shex_print_begin(&%s);\n", indent, buffer)
+	for index, typ := range types {
+		if err := writePrintArgument(body, typ, names[index], "&"+buffer, indent); err != nil {
 			return err
 		}
 	}
+	fmt.Fprintf(body, "%shex_print_commit(&%s);\n", indent, buffer)
+	fmt.Fprintf(body, "%shex_print_destroy(&%s);\n", indent, buffer)
 	return nil
 }
 
-// writePrintArgument emits one argument's direct (top-level) print form.
-func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, indent string) error {
+// writePrintArgument emits one argument's direct (top-level) print form,
+// appending to the transaction's builder.
+func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, buffer, indent string) error {
 	switch {
 	case compilerTypes.Equal(typ, compilerTypes.Bool):
-		fmt.Fprintf(body, "%shex_print_bool(%s);\n", indent, name)
+		fmt.Fprintf(body, "%shex_print_bool(%s, %s);\n", indent, buffer, name)
 	case compilerTypes.Equal(typ, compilerTypes.Nil):
-		fmt.Fprintf(body, "%shex_print_nil();\n", indent)
+		fmt.Fprintf(body, "%shex_print_nil(%s);\n", indent, buffer)
 	case compilerTypes.IsSignedInteger(typ):
 		width := typ.Bits
 		if compilerTypes.Equal(typ, compilerTypes.SizeType) {
-			fmt.Fprintf(body, "%shex_print_size(%s);\n", indent, name)
+			fmt.Fprintf(body, "%shex_print_size(%s, %s);\n", indent, buffer, name)
 		} else {
-			fmt.Fprintf(body, "%shex_print_int%d(%s);\n", indent, width, name)
+			fmt.Fprintf(body, "%shex_print_int%d(%s, %s);\n", indent, width, buffer, name)
 		}
 	case compilerTypes.IsUnsignedInteger(typ) && !compilerTypes.IsRune(typ):
 		if compilerTypes.Equal(typ, compilerTypes.SizeType) {
-			fmt.Fprintf(body, "%shex_print_size(%s);\n", indent, name)
+			fmt.Fprintf(body, "%shex_print_size(%s, %s);\n", indent, buffer, name)
 		} else {
-			fmt.Fprintf(body, "%shex_print_uint%d(%s);\n", indent, typ.Bits, name)
+			fmt.Fprintf(body, "%shex_print_uint%d(%s, %s);\n", indent, typ.Bits, buffer, name)
 		}
 	case compilerTypes.IsRune(typ):
-		fmt.Fprintf(body, "%shex_print_rune(%s);\n", indent, name)
+		fmt.Fprintf(body, "%shex_print_rune(%s, %s);\n", indent, buffer, name)
 	case compilerTypes.Equal(typ, compilerTypes.Float32):
-		fmt.Fprintf(body, "%shex_print_float32(%s);\n", indent, name)
+		fmt.Fprintf(body, "%shex_print_float32(%s, %s);\n", indent, buffer, name)
 	case compilerTypes.Equal(typ, compilerTypes.Float64):
-		fmt.Fprintf(body, "%shex_print_float64(%s);\n", indent, name)
+		fmt.Fprintf(body, "%shex_print_float64(%s, %s);\n", indent, buffer, name)
 	case compilerTypes.IsString(typ):
-		fmt.Fprintf(body, "%shex_print_text(%s->data, %s->byte_length);\n", indent, name, name)
+		fmt.Fprintf(body, "%shex_print_text(%s, %s->data, %s->byte_length);\n", indent, buffer, name, name)
 	case compilerTypes.IsStrand(typ):
 		// A Strand's logical payload ends at the first NUL byte of its
 		// 32-byte inline storage.
@@ -306,20 +326,21 @@ func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, ind
 		fmt.Fprintf(body, "%s    while (length < 32 && %s.data[length] != 0) {\n", indent, name)
 		fmt.Fprintf(body, "%s        length++;\n", indent)
 		fmt.Fprintf(body, "%s    }\n", indent)
-		fmt.Fprintf(body, "%s    hex_print_text(%s.data, length);\n", indent, name)
+		fmt.Fprintf(body, "%s    hex_print_text(%s, %s.data, length);\n", indent, buffer, name)
 		fmt.Fprintf(body, "%s}\n", indent)
 	case compilerTypes.IsError(typ):
-		fmt.Fprintf(body, "%shex_print_error_direct(&%s);\n", indent, name)
+		fmt.Fprintf(body, "%shex_print_error_direct(%s, &%s);\n", indent, buffer, name)
 	default:
 		// Aggregates use their nested helper at the top level too;
 		// pointer-semantic values pass their pointer directly.
-		fmt.Fprintf(body, "%shex_print_nested_%s(%s);\n", indent, typ.CName, printNestedAddress(typ, name))
+		fmt.Fprintf(body, "%shex_print_nested_%s(%s, %s);\n", indent, typ.CName, buffer, printNestedAddress(typ, name))
 	}
 	return nil
 }
 
-// renderDeferredPrint renders a deferred print action at cleanup time; the
-// arguments were captured at registration, so only the writing helpers run.
+// renderDeferredPrint renders a deferred print action at cleanup time. The
+// arguments were captured at registration; the formatting and the single
+// commit happen here, so a deferred call is one transaction like any other.
 func renderDeferredPrint(body *strings.Builder, action checker.DeferredAction, state *expressionValidation, indent string) error {
 	if action.Call == nil || action.Call.Node.Kind != checker.PrintExpression {
 		return unknownExpressionDiagnostic("deferred print action without a checked print call")
@@ -329,10 +350,9 @@ func renderDeferredPrint(body *strings.Builder, action checker.DeferredAction, s
 	if !ok || len(captured) != len(node.Arguments) {
 		return unknownExpressionDiagnostic("deferred print action without captured arguments")
 	}
-	for index, argument := range node.Arguments {
-		if err := writePrintArgument(body, argument.Type, captured[index], indent); err != nil {
-			return err
-		}
+	types := make([]compilerTypes.Type, 0, len(node.Arguments))
+	for _, argument := range node.Arguments {
+		types = append(types, argument.Type)
 	}
-	return nil
+	return writePrintTransaction(body, types, captured, state, indent)
 }
