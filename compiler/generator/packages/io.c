@@ -283,22 +283,6 @@ static void hex_io_close_failure(void *raw) {
 #else
     job->result = (hex_io_status_only){.status = HEX_IO_ERROR, .code = ENOMEM};
 #endif
-}
-typedef struct hex_io_write_all_job {
-    intptr_t desc;
-    const uint8_t *data;
-    size_t length;
-    bool result;
-} hex_io_write_all_job;
-
-static void hex_io_write_all_entry(void *raw) {
-    hex_io_write_all_job *job = (hex_io_write_all_job *)raw;
-    job->result = hex_io_write_all_native(job->desc, job->data, job->length);
-}
-
-static void hex_io_write_all_failure(void *raw) {
-    hex_io_write_all_job *job = (hex_io_write_all_job *)raw;
-    job->result = false;
 }{{end}}
 
 hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
@@ -350,10 +334,23 @@ hex_io_transfer hex_io_write(hex_io stream, hex_slice_UInt8 from) {
 {{else}}    return hex_io_write_transfer(stream, from.data, request);
 {{end}}}
 
+// A write whose resolved handle is the process standard output shares one
+// critical section with print commits, so neither can split the other. The
+// comparison resolves the standard handle at call time; no source-level
+// stream identity and no construction-time flag decides it.
 static hex_io_transfer hex_io_write_transfer(hex_io stream, const uint8_t *data, size_t request) {
-    DWORD moved = 0;
-    if (!WriteFile((HANDLE)stream.desc, data, (DWORD)request, &moved, nullptr)) {
-        return (hex_io_transfer){.status = HEX_IO_ERROR, .count = 0, .code = (long long)GetLastError()};
+{{if .Event}}    bool serialized = stream.desc == hex_io_stdout_desc();
+    if (serialized) {
+        hex_stdout_lock();
+    }
+{{end}}    DWORD moved = 0;
+    bool ok = WriteFile((HANDLE)stream.desc, data, (DWORD)request, &moved, nullptr);
+    long long code = ok ? 0 : (long long)GetLastError();
+{{if .Event}}    if (serialized) {
+        hex_stdout_unlock();
+    }
+{{end}}    if (!ok) {
+        return (hex_io_transfer){.status = HEX_IO_ERROR, .count = 0, .code = code};
     }
     return (hex_io_transfer){.status = HEX_IO_OK, .count = (size_t)moved};
 }
@@ -418,11 +415,14 @@ static hex_io_status_only hex_io_close_native(hex_io stream) {
     return (hex_io_status_only){.status = HEX_IO_OK};
 }
 
-bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
-{{if .Event}}    hex_io_write_all_job job = {.desc = desc, .data = data, .length = length};
-    hex_event_work_call(hex_io_write_all_entry, hex_io_write_all_failure, &job);
-    return job.result;
-{{else}}    return hex_io_write_all_native(desc, data, length);
+// Short writes stay inside the locked loop, so one standard-output transfer
+// completes before any other writer sees the descriptor.
+bool hex_io_stdout_write_all(const uint8_t *data, size_t length) {
+{{if .Event}}    hex_stdout_lock();
+    bool ok = hex_io_write_all_native(hex_io_stdout_desc(), data, length);
+    hex_stdout_unlock();
+    return ok;
+{{else}}    return hex_io_write_all_native(hex_io_stdout_desc(), data, length);
 {{end}}}
 
 static bool hex_io_write_all_native(intptr_t desc, const uint8_t *data, size_t length) {
@@ -500,10 +500,22 @@ hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
     return transfer;
 }
 
+// A write whose resolved descriptor is the process standard output shares one
+// critical section with print commits, so neither can split the other. The
+// comparison resolves the standard descriptor at call time; no source-level
+// stream identity and no construction-time flag decides it.
 static hex_io_transfer hex_io_write_transfer(hex_io stream, const uint8_t *data, size_t request) {
-    ssize_t moved = write((int)stream.desc, data, request);
-    if (moved < 0) {
-        return (hex_io_transfer){.status = HEX_IO_ERROR, .count = 0, .code = (long long)errno};
+{{if .Event}}    bool serialized = stream.desc == hex_io_stdout_desc();
+    if (serialized) {
+        hex_stdout_lock();
+    }
+{{end}}    ssize_t moved = write((int)stream.desc, data, request);
+    long long code = moved < 0 ? (long long)errno : 0;
+{{if .Event}}    if (serialized) {
+        hex_stdout_unlock();
+    }
+{{end}}    if (moved < 0) {
+        return (hex_io_transfer){.status = HEX_IO_ERROR, .count = 0, .code = code};
     }
     return (hex_io_transfer){.status = HEX_IO_OK, .count = (size_t)moved};
 }
@@ -594,11 +606,14 @@ static bool hex_io_write_all_native(intptr_t desc, const uint8_t *data, size_t l
     return true;
 }
 
-bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length) {
-{{if .Event}}    hex_io_write_all_job job = {.desc = desc, .data = data, .length = length};
-    hex_event_work_call(hex_io_write_all_entry, hex_io_write_all_failure, &job);
-    return job.result;
-{{else}}    return hex_io_write_all_native(desc, data, length);
+// Short writes stay inside the locked loop, so one standard-output transfer
+// completes before any other writer sees the descriptor.
+bool hex_io_stdout_write_all(const uint8_t *data, size_t length) {
+{{if .Event}}    hex_stdout_lock();
+    bool ok = hex_io_write_all_native(hex_io_stdout_desc(), data, length);
+    hex_stdout_unlock();
+    return ok;
+{{else}}    return hex_io_write_all_native(hex_io_stdout_desc(), data, length);
 {{end}}}
 
 {{end -}}

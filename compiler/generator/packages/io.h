@@ -65,7 +65,11 @@ hex_io_position hex_io_seek_end(hex_io stream, int64_t offset);
 hex_io_position hex_bytes_seek_from(hex_bytes *stream, uint8_t whence, int64_t offset);
 hex_bytes hex_bytes_over(hex_list_UInt8 *buffer);
 hex_io_status_only hex_io_close(hex_io stream);
-bool hex_io_write_all(intptr_t desc, const uint8_t *data, size_t length);
+// The one standard-output transfer. A print commit and a byte-exact write to
+// the standard-output descriptor both end here, under the same critical
+// section, so neither can split the other. It submits no work of its own, so
+// a caller already running as a native job stays one job.
+bool hex_io_stdout_write_all(const uint8_t *data, size_t length);
 intptr_t hex_io_stdout_desc(void);
 hex_t_Error hex_io_error(size_t line, size_t column, const hex_string *file, const char *operation, long long code, const hex_string *message);
 

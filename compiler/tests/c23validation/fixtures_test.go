@@ -5,6 +5,8 @@ package c23validation
 // The fixture data itself. Concurrency fixtures run under the same
 // ten-second process bound as every other fixture; see c23_harness_test.go.
 
+import "strings"
+
 var fixtureCatalog = []fixture{
 	// Compile-only: representative programs across the constructs whose
 	// generated C has never been read by a compiler before this suite.
@@ -696,5 +698,109 @@ var fixtureCatalog = []fixture{
 			"end\n" +
 			"print(demo(Heap(), 48))\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid allocation alignment"},
+
+	// One print call is one standard-output transaction. Both concurrency
+	// fixtures below have every writer emit the identical byte sequence, so
+	// the expected output is independent of which writer wins a race: the
+	// only way to fail them is for one call's fragments to be split by
+	// another writer, which shows up immediately as interleaved text.
+	{
+		name:       "print-tasks-never-interleave-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Point is struct\n    x: Int32,\n    y: Int32,\nend\n" +
+			"fun writer(): Bool do\n" +
+			"    p: Point := Point(x = 1, y = 2)\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < 4 do\n" +
+			"        print(p)\n" +
+			"        Task.yield()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    return true\n" +
+			"end\n" +
+			"fun run(): Nil | Error do\n" +
+			"    first: Task<Bool> := try spawn writer()\n" +
+			"    second: Task<Bool> := try spawn writer()\n" +
+			"    first.join()\n" +
+			"    second.join()\n" +
+			"    return nil\n" +
+			"end\n" +
+			"run()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: strings.Repeat("Point { x = 1, y = 2 }", 8)},
+	},
+	{
+		name:       "print-and-io-write-never-interleave-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Point is struct\n    x: Int32,\n    y: Int32,\nend\n" +
+			"fun writer(out: IO): Bool do\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < 4 do\n" +
+			"        wrote: Size | Error := out.write(\"Point { x = 1, y = 2 }\".bytes())\n" +
+			"        Task.yield()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    return true\n" +
+			"end\n" +
+			"fun printer(): Bool do\n" +
+			"    p: Point := Point(x = 1, y = 2)\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < 4 do\n" +
+			"        print(p)\n" +
+			"        Task.yield()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    return true\n" +
+			"end\n" +
+			"fun run(): Nil | Error do\n" +
+			"    out: IO := try IO.stdout()\n" +
+			"    first: Task<Bool> := try spawn writer(out)\n" +
+			"    second: Task<Bool> := try spawn printer()\n" +
+			"    first.join()\n" +
+			"    second.join()\n" +
+			"    return nil\n" +
+			"end\n" +
+			"run()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: strings.Repeat("Point { x = 1, y = 2 }", 8)},
+	},
+	// The formatter families the print catalog does not otherwise execute:
+	// Rune, Strand, Array, Slice, and a union variant with a payload. Each
+	// one appends to the same call's builder, so a helper threading the
+	// wrong destination shows up as missing output. Error printing is not
+	// included: a program that prints an Error emits a Strand length helper
+	// the String component only declares alongside interpolation, which is a
+	// separate component-selection defect this suite would otherwise trip on.
+	{
+		name:       "print-remaining-formatters-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Shape is union\n" +
+			"| Circle as r: Int32 end\n" +
+			"| Square as a: Int32 end\n" +
+			"end\n" +
+			"fun demo() do\n" +
+			"    letter: Rune := (65).to<Rune>()\n" +
+			"    label: Strand := \"tag\"\n" +
+			"    mut fixed: Array<Int32, 2> := [1, 2]\n" +
+			"    view: Slice<Int32> := fixed.slice(0, 2)\n" +
+			"    shape: Shape := Shape.Circle(r = 7)\n" +
+			"    print(letter, label, fixed, view, shape)\n" +
+			"end\n" +
+			"demo()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "Atag[1, 2][1, 2]Shape.Circle { r = 7 }"},
+	},
+	// The builder's inline storage is 256 bytes, so these lengths sit either
+	// side of its first growth: an empty call, the last inline length, the
+	// exact boundary, the first grown length, a call that grows between two
+	// arguments, and one far past any doubling step.
+	{
+		name:       "print-buffer-growth-boundaries-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "print(\"\")\n" +
+			"print(\"" + strings.Repeat("a", 255) + "\")\n" +
+			"print(\"" + strings.Repeat("b", 256) + "\")\n" +
+			"print(\"" + strings.Repeat("c", 257) + "\")\n" +
+			"print(\"" + strings.Repeat("d", 200) + "\", \"" + strings.Repeat("e", 100) + "\")\n" +
+			"print(\"" + strings.Repeat("f", 5000) + "\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: strings.Repeat("a", 255) + strings.Repeat("b", 256) +
+			strings.Repeat("c", 257) + strings.Repeat("d", 200) + strings.Repeat("e", 100) + strings.Repeat("f", 5000)},
 	},
 }

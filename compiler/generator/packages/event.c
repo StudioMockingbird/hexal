@@ -28,6 +28,7 @@ static uv_loop_t hex_event_loop;
 static uv_async_t hex_event_async;
 static uv_thread_t hex_event_thread;
 static uv_mutex_t hex_event_queue_mutex;
+static uv_mutex_t hex_event_stdout_mutex;
 static uv_mutex_t hex_event_ready_mutex;
 static uv_cond_t hex_event_ready_cond;
 static hex_event_command *hex_event_head;
@@ -88,8 +89,20 @@ static void hex_event_loop_thread(void *unused) {
     uv_run(&hex_event_loop, UV_RUN_DEFAULT);
 }
 
+// The standard-output guard is established here, before any Task can submit
+// output, and is never destroyed: the loop thread outlives every Hexal scope,
+// so there is no point at which no output job can still be in flight.
+void hex_stdout_lock(void) {
+    uv_mutex_lock(&hex_event_stdout_mutex);
+}
+
+void hex_stdout_unlock(void) {
+    uv_mutex_unlock(&hex_event_stdout_mutex);
+}
+
 void hex_event_runtime_init(void) {
-    if (uv_mutex_init(&hex_event_queue_mutex) != 0 || uv_mutex_init(&hex_event_ready_mutex) != 0 || uv_cond_init(&hex_event_ready_cond) != 0) {
+    if (uv_mutex_init(&hex_event_queue_mutex) != 0 || uv_mutex_init(&hex_event_stdout_mutex) != 0 ||
+        uv_mutex_init(&hex_event_ready_mutex) != 0 || uv_cond_init(&hex_event_ready_cond) != 0) {
         hex_runtime_trap("[Runtime Error] event runtime initialization failed\n");
     }
     if (uv_thread_create(&hex_event_thread, hex_event_loop_thread, nullptr) != 0) {

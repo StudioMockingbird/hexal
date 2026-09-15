@@ -114,7 +114,7 @@ func TestPrintSharesTheStreamBackend(t *testing.T) {
 	if strings.Contains(sink, "fwrite") {
 		t.Fatalf("print still writes through C stdio:\n%s", sink)
 	}
-	if !strings.Contains(sink, "hex_io_write_all") || !strings.Contains(sink, "hex_io_stdout_desc") {
+	if !strings.Contains(sink, "hex_io_stdout_write_all") {
 		t.Fatalf("print must transfer through the descriptor core:\n%s", sink)
 	}
 	if !hasFile(result, "hexal/io.h") || !hasFile(result, "hexal/io.c") {
