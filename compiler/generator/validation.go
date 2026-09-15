@@ -1115,6 +1115,12 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 			return err
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
+	case checker.PointerOffsetExpression:
+		return validatePointerOffset(node, expected, state)
+	case checker.PointerIndexExpression:
+		return validatePointerIndex(node, expected, state)
+	case checker.PointerCastExpression:
+		return validatePointerCast(node, expected, state)
 	case checker.SliceBridgeExpression:
 		return validateSliceBridgeExpression(node, expected, state)
 	case checker.PrintExpression:
@@ -1644,6 +1650,11 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 			return generatedPlace{}, unknownExpressionDiagnostic("place dereference result type does not match its pointee")
 		}
 		return generatedPlace{typ: *receiverType.Element, addressable: true, writable: receiverType.PointeeWritable}, nil
+	case checker.PointerIndexExpression:
+		if err := validatePointerIndex(node, nil, state); err != nil {
+			return generatedPlace{}, err
+		}
+		return generatedPlace{typ: node.ResultType, addressable: true, writable: node.OperandType.PointeeWritable}, nil
 	case checker.IndexExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place index has invalid checked metadata")

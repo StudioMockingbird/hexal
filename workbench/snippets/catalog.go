@@ -69,7 +69,7 @@ var RequiredFeatures = []string{
 	"try-errdefer", "heap-allocation", "arrays", "slices", "slice-pointer-bridge",
 	"lists", "dicts", "text", "print", "tasks",
 	"channels", "mutex", "atomics", "layout", "volatile", "unknown-pointers", "modules", "exports", "streams", "files", "time",
-	"unsafe",
+	"unsafe", "pointer-arithmetic",
 }
 
 // Load returns the embedded category files in lexical filename order.

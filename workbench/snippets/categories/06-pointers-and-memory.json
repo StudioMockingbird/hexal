@@ -91,6 +91,25 @@
       "reservedWords": ["fun", "return", "end", "do", "for", "in", "mut", "defer", "unsafe"]
     },
     {
+      "id": "memory-pointer-arithmetic",
+      "name": "Pointer arithmetic",
+      "description": "Traverse and reinterpret raw addresses inside an unsafe block.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Int32 do",
+        "    block: Ptr<mut Array<Int32, 4>>:= h.allocate<Array<Int32, 4>>([10, 20, 30, 40])",
+        "    defer h.free(block)",
+        "    unsafe do",
+        "        first: Ptr<mut Int32>:= block.cast<Int32>()",
+        "        third: Ptr<mut Int32>:= first.offset(2)",
+        "        return first[1] + (^third)",
+        "    end",
+        "end"
+      ]},
+      "features": ["pointer-arithmetic", "unsafe", "pointers", "heap-allocation", "arrays"],
+      "reservedWords": ["fun", "return", "end", "do", "defer", "unsafe"]
+    },
+    {
       "id": "memory-opaque-pointer",
       "name": "Opaque pointer",
       "description": "Erase and restore a pointer through Unknown.",

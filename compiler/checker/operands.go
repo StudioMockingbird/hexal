@@ -231,6 +231,21 @@ const (
 	// Arguments holds the written value; OperandType is the pointer type;
 	// Element is the integer element.
 	VolatileWriteExpression
+	// PointerOffsetExpression advances a pointer by a forward Size count
+	// within one array object. Operand is the receiver; Arguments holds the
+	// count; OperandType and ResultType are the same pointer type, so the
+	// access mode is preserved; Element is the pointee.
+	PointerOffsetExpression
+	// PointerIndexExpression is the place named by a pointer plus a forward
+	// Size index. Operand is the receiver; Arguments holds the index;
+	// OperandType is the pointer type; ResultType and Element are the pointee.
+	// The place is writable exactly when the pointer is Ptr<mut T>.
+	PointerIndexExpression
+	// PointerCastExpression reinterprets a pointer's pointee type. Operand is
+	// the receiver; OperandType is the source pointer type; ResultType is the
+	// destination pointer type, which preserves the source's access mode;
+	// Element is the destination pointee.
+	PointerCastExpression
 	// SliceBridgeExpression is Slice<T>.from_pointer(pointer, length) or
 	// Slice<T>.empty(). Name selects the form; Arguments holds the
 	// pointer and length for from_pointer; OperandType is the Slice type;

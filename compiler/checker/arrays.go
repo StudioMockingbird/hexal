@@ -132,6 +132,11 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; use rune_cursor() to walk Runes or bytes() for indexed byte access")
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
+	if element == (compilerTypes.Type{}) && receiver.typ.Element != nil {
+		// A pointer indexes raw addresses rather than a bounded collection,
+		// so it owns its own place rule.
+		return checkPointerIndexPlace(expression, receiver, ctx)
+	}
 	if element == (compilerTypes.Type{}) {
 		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, Slice<T>, or List<T>")
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}

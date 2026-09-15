@@ -367,10 +367,12 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 	switch node.Kind {
 	case checker.CallExpression:
 		return hoistReceiverAndOperandsSequence(node.Operand, node.OperandType, node.Arguments, body, state, indent)
-	case checker.IndexExpression, checker.VolatileWriteExpression:
-		// Both render their receiver through the plain renderReceiver path
-		// (verified against arrays.go and render.go) and combine it with
-		// exactly one argument in one C expression.
+	case checker.IndexExpression, checker.VolatileWriteExpression,
+		checker.PointerOffsetExpression, checker.PointerIndexExpression:
+		// All four render their receiver through the plain renderReceiver
+		// path (verified against arrays.go, render.go, and
+		// pointer_arithmetic.go) and combine it with exactly one argument in
+		// one C expression, which C does not sequence on its own.
 		if node.Operand == nil || len(node.Arguments) == 0 {
 			return nil
 		}

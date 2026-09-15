@@ -636,4 +636,26 @@ var fixtureCatalog = []fixture{
 			"print(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "41"},
 	},
+	{
+		name:       "fenced-pointer-arithmetic-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n" +
+			"    block: Ptr<mut Array<Int32, 4>> := h.allocate<Array<Int32, 4>>([10, 20, 30, 40])\n" +
+			"    defer h.free(block)\n" +
+			"    unsafe do\n" +
+			"        first: Ptr<mut Int32> := block.cast<Int32>()\n" +
+			"        mut total: Int32 := 0\n" +
+			"        mut index: Size := 0\n" +
+			"        while index < 4 do\n" +
+			"            total = total + first[index]\n" +
+			"            index = index + 1\n" +
+			"        end\n" +
+			"        third: Ptr<mut Int32> := first.offset(2)\n" +
+			"        first[0] = 1\n" +
+			"        return total + (^third) + first[0]\n" +
+			"    end\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "131"},
+	},
 }

@@ -1054,6 +1054,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", valueErr
 		}
 		return "*(volatile " + typeSpelling(node.Element) + " *)(" + receiver + ") = " + value, nil
+	case checker.PointerOffsetExpression:
+		return renderPointerOffset(node, state)
+	case checker.PointerIndexExpression:
+		return renderPointerIndex(node, state)
+	case checker.PointerCastExpression:
+		return renderPointerCast(node, state)
 	case checker.SliceBridgeExpression:
 		return renderSliceBridgeExpression(node, state)
 	case checker.MemberExpression:

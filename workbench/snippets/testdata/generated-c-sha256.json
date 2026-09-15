@@ -846,6 +846,17 @@
       "modules/app.c": "38a62ab64a9a6547affc7096bf10959a3bb43d6fed086dbae8e20cc5d36cbf96",
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
+    "memory-pointer-arithmetic": {
+      "hexal.h": "48162c935c448b6a7aa2e25a315d8b8cd75b3eb4dbcd03cd013f30d627014b22",
+      "hexal/array.h": "309d209bae1767ee8d74b52c8319228bd7b5ac0fd47957e03500091445fb4a8f",
+      "hexal/equality.h": "793e838921106628cf6a1c9a7017342959822558a3295345e7d28063bbf80b24",
+      "hexal/heap.c": "be1166f9cb1b740a6b8c8655655ae3653f3d60765ae4ef8cc64fd1d9d8da6734",
+      "hexal/heap.h": "76ff20dc37d56e1e0fc5fa4fedd3b9ef6a781112c99e99980cf8cb76f583b43a",
+      "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
+      "hexal/wrap.h": "32738ac72fffbdca0ced6674503260a054c6f34f992790c7d2024ef83420af5b",
+      "modules/app.c": "bd24e2eb216e919895cde60bd49e48cdc0f0940838289dd3d3d1dd527b747ebf",
+      "modules/app.h": "dbc1f1b7e82ed7f600062c4ce862e783dda1dbab55dd022f551a0191d4b68529"
+    },
     "memory-pointer-swap": {
       "hexal.h": "2b6858ee59a1b288de3ae4ff9ee8e5cbe14ffcd338f5958486e09de8d59cc92b",
       "hexal/wrap.h": "23a385a0c59b468f56254a7f01c413d77bd5399a9cee57f842d44567f324a918",

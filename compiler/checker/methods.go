@@ -490,6 +490,12 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if receiver.typ.Element != nil && !compilerTypes.IsNullable(receiver.typ) && (name == "read_volatile" || name == "write_volatile") {
 		return checkVolatileCall(call, callee, receiver, ctx)
 	}
+	// Raw address traversal and representation reinterpretation are owned by
+	// the pointer itself, ahead of the pointee's own method namespace: the
+	// receiver here is the pointer, never the object it refers to.
+	if receiver.typ.Element != nil && !compilerTypes.IsNullable(receiver.typ) && isCompilerOwnedPointerOperation(name) {
+		return checkPointerArithmeticCall(call, callee, receiver, ctx)
+	}
 	// Heap operations dispatch on the built-in receiver type.
 	if compilerTypes.IsHeap(receiver.typ) {
 		switch name {
