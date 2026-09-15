@@ -30,6 +30,19 @@ type QualifiedTypeExpression struct {
 
 func (QualifiedTypeExpression) typeExpressionNode() {}
 
+// QualifiedGenericTypeExpression refers to an exported generic type of an
+// imported module with concrete type arguments: Alias.Name<Arguments>.
+// Unlike QualifiedTypeExpression's dotted chain, exactly one alias and one
+// exported declaration name are carried; the RFC's qualified generic form is
+// not an arbitrary dotted path.
+type QualifiedGenericTypeExpression struct {
+	Module    lexer.Token
+	Name      lexer.Token
+	Arguments []TypeExpression
+}
+
+func (QualifiedGenericTypeExpression) typeExpressionNode() {}
+
 // GenericTypeExpression names a user generic type with concrete arguments.
 type GenericTypeExpression struct {
 	Name      lexer.Token
@@ -198,6 +211,16 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 				break
 			}
 		}
+		// Exactly one alias and one exported declaration name, followed by
+		// '<', is the qualified generic type form; a longer dotted chain, or
+		// no following '<', stays the ordinary qualified type.
+		if len(names) == 1 && parser.check(lexer.Less) {
+			arguments, err := parser.genericArgumentList()
+			if err != nil {
+				return nil, err
+			}
+			return QualifiedGenericTypeExpression{Module: name, Name: names[0], Arguments: arguments}, nil
+		}
 		return QualifiedTypeExpression{Module: name, Names: names}, nil
 	}
 	switch name.Lexeme {
@@ -268,27 +291,39 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 		return SliceTypeExpression{Keyword: name, Element: element, Writable: writable}, nil
 	}
 	if parser.check(lexer.Less) {
-		parser.advance()
-		arguments := make([]TypeExpression, 0, 1)
-		argument, err := parser.typeExpression()
+		arguments, err := parser.genericArgumentList()
 		if err != nil {
-			return nil, err
-		}
-		arguments = append(arguments, argument)
-		for parser.check(lexer.Comma) {
-			parser.advance()
-			argument, err := parser.typeExpression()
-			if err != nil {
-				return nil, err
-			}
-			arguments = append(arguments, argument)
-		}
-		if _, err := parser.consumeGenericClose("'>' after a generic type argument list"); err != nil {
 			return nil, err
 		}
 		return GenericTypeExpression{Name: name, Arguments: arguments}, nil
 	}
 	return NamedTypeExpression{Name: name}, nil
+}
+
+// genericArgumentList parses '<' argument (',' argument)* '>', the type
+// argument list shared by a local generic type use (Name<Args>) and a
+// qualified one (Alias.Name<Args>). The caller has already confirmed '<' is
+// next.
+func (parser *Parser) genericArgumentList() ([]TypeExpression, error) {
+	parser.advance()
+	arguments := make([]TypeExpression, 0, 1)
+	argument, err := parser.typeExpression()
+	if err != nil {
+		return nil, err
+	}
+	arguments = append(arguments, argument)
+	for parser.check(lexer.Comma) {
+		parser.advance()
+		argument, err := parser.typeExpression()
+		if err != nil {
+			return nil, err
+		}
+		arguments = append(arguments, argument)
+	}
+	if _, err := parser.consumeGenericClose("'>' after a generic type argument list"); err != nil {
+		return nil, err
+	}
+	return arguments, nil
 }
 
 func (parser *Parser) functionTypeExpression(keyword lexer.Token) (FunctionTypeExpression, error) {

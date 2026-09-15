@@ -466,8 +466,12 @@ func writeModulePrototypes(body *strings.Builder, program checker.Program, owner
 	}
 }
 
-// writeSpecializedPrototypes emits one static prototype per concrete
-// specialization so definitions can reference later specializations.
+// writeSpecializedPrototypes emits one prototype per concrete specialization
+// so definitions can reference later specializations. A specialization of a
+// template exported by this module keeps external linkage, matching its own
+// definition below and the compatible declaration every consumer's header
+// carries (writeForeignPrototypes); every other specialization -- reachable
+// only from within this module -- stays static.
 func writeSpecializedPrototypes(body *strings.Builder, functions []checker.FunctionDeclaration, methods []checker.MethodDeclaration, typeState *generatedTypeValidation, owner string) error {
 	emitted := 0
 	for _, declared := range functions {
@@ -489,7 +493,11 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 			}
 			parameters[index] = typeSpelling(parameter.Type)
 		}
-		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
+		linkage := "static "
+		if declared.Exported {
+			linkage = ""
+		}
+		fmt.Fprintf(body, "%s%s %s(%s);\n", linkage, resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
 		emitted++
 	}
 	for _, declared := range methods {
@@ -511,7 +519,11 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 			}
 			parameters = append(parameters, typeSpelling(parameter.Type))
 		}
-		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
+		linkage := "static "
+		if declared.Exported {
+			linkage = ""
+		}
+		fmt.Fprintf(body, "%s%s %s(%s);\n", linkage, resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
 		emitted++
 	}
 	if emitted > 0 {

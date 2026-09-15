@@ -67,6 +67,27 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		// Cross-module generics: an exported generic function specialized
+		// through an import alias, a generic method on that specialization,
+		// and an importer-owned nominal argument type (Point, declared only
+		// in app.hex) flowing into the defining module's own Box<T>. Proves
+		// the cross-module specialization's C definition actually links,
+		// not only that the checker accepts it.
+		name:       "cross-module-generics-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{
+			"lib.hex": "type Box<T> is struct\n    item: T,\nend\n" +
+				"method Box<T>.get(): T do\n    return self.item\nend\n" +
+				"fun new_box<T>(value: T): Box<T> do\n    return Box<T>(item = value)\nend\n" +
+				"export\n    Box, Box.get, new_box\nend\n",
+			"app.hex": "import\n    Lib from \"./lib\"\nend\n" +
+				"type Point is struct\n    x: Int32,\nend\n" +
+				"box: Lib.Box<Point> := Lib.new_box<Point>(Point(x = 7))\n" +
+				"print(box.get().x)\n",
+		},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "7"},
+	},
+	{
 		name:       "dict-removal-preserves-collision-chain-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +

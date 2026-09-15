@@ -1053,6 +1053,22 @@ func diagnosticAt(diagnostic compilerTypes.Diagnostic) *compilerTypes.Diagnostic
 	return &diagnostic
 }
 
+// diagnosticInDefiningModule stamps a diagnostic returned from specializing
+// an imported generic template with the defining module's own logical key,
+// before it propagates back up through the requesting module's own
+// checkModule call: CheckModules's own InModule stamp only ever applies to
+// an unstamped diagnostic, so a body or signature failure inside the
+// template still names the module that declares it, never the importer
+// that merely triggered the specialization. A nil diagnostic (success)
+// passes through unchanged.
+func diagnosticInDefiningModule(diagnostic *compilerTypes.Diagnostic, logicalKey string) *compilerTypes.Diagnostic {
+	if diagnostic == nil {
+		return nil
+	}
+	stamped := diagnostic.InModule(logicalKey)
+	return &stamped
+}
+
 // nameErrorAt, moduleErrorAt, semanticErrorAt, and unknownAt are
 // typeErrorAt's siblings for the checker's other categories. Every diagnostic
 // the checker reports is built by one of these five, so a category is never

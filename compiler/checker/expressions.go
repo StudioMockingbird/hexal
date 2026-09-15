@@ -107,6 +107,16 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 	if !ok {
 		return initializerValue{token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, "unknown type "+typeName.Lexeme))}
 	}
+	return checkObjectConstructorFields(call, typeName, literalType, expectedType, ctx)
+}
+
+// checkObjectConstructorFields checks one constructor call's arguments
+// against an already-resolved nominal struct type's declared members.
+// Shared by a bare Type(...) call (checkStructConstructorCall, which
+// resolves literalType from a local name or generic template) and a
+// qualified Alias.Type(...) or Alias.Type<T>(...) call (which resolves it
+// from the target module's exported interface instead).
+func checkObjectConstructorFields(call parser.CallExpression, typeName lexer.Token, literalType compilerTypes.Type, expectedType compilerTypes.Type, ctx checkContext) initializerValue {
 	if literalType.Object == nil {
 		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, typeName.Lexeme+" is not a constructible type"))}
 	}
@@ -180,6 +190,63 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 			return &diagnostics[0]
 		}(),
 	}
+}
+
+// checkQualifiedTypeConstructorCall checks Alias.Type(...) and
+// Alias.Type<T>(...): construction of a nominal struct exported by the
+// target module, concrete or generic. A concrete exported type's use is
+// resolved in the target module's own checked interface, exactly like a
+// non-generic exported function's signature. A generic exported type's
+// concrete arguments are resolved in the requesting module -- explicit
+// type arguments, or inferred from expectedType against the same open
+// template -- but the template itself specializes in its defining module's
+// retained context, exactly like an imported generic function. False means
+// name is not an exported type or generic type of target, so the caller
+// tries the next construction form (an ADT variant) or the qualified
+// visibility diagnostic.
+func checkQualifiedTypeConstructorCall(call parser.CallExpression, property lexer.Token, target string, expectedType compilerTypes.Type, ctx checkContext) (initializerValue, bool) {
+	name := property.Lexeme
+	if use, ok := ctx.names.registry.exportedType(target, name); ok {
+		return checkObjectConstructorFields(call, property, use.Type, expectedType, ctx), true
+	}
+	open, ok := ctx.names.registry.genericType(target, name)
+	if !ok {
+		return initializerValue{}, false
+	}
+	definingCtx, ok := ctx.names.registry.definingContext(target)
+	if !ok {
+		diagnostic := unknownAt(property, "defining module specialization environment is unavailable for "+target)
+		return initializerValue{token: property, diagnostic: &diagnostic}, true
+	}
+	var literalType compilerTypes.Type
+	if len(call.TypeArguments) > 0 {
+		arguments := make([]compilerTypes.Type, 0, len(call.TypeArguments))
+		for _, argumentExpression := range call.TypeArguments {
+			argumentUse, diagnostic := resolveTypeUse(argumentExpression, property, ctx.typeEnvironment, ctx.names.generics)
+			if diagnostic != nil {
+				return initializerValue{token: property, diagnostic: diagnostic}, true
+			}
+			arguments = append(arguments, argumentUse.Type)
+		}
+		specializedUse, diagnostic := specializeTypeUseArguments(open, arguments, property, definingCtx.typeEnvironment, definingCtx.names.generics)
+		if diagnostic := diagnosticInDefiningModule(diagnostic, definingCtx.names.logicalKey); diagnostic != nil {
+			return initializerValue{token: property, diagnostic: diagnostic}, true
+		}
+		literalType = specializedUse.Type
+	} else if expectedType.Object != nil {
+		if expectedOpen := definingCtx.names.generics.objectOpen[expectedType.Object]; expectedOpen == open {
+			specializedUse, diagnostic := specializeTypeUseArguments(open, definingCtx.names.generics.objectArguments[expectedType.Object], property, definingCtx.typeEnvironment, definingCtx.names.generics)
+			if diagnostic := diagnosticInDefiningModule(diagnostic, definingCtx.names.logicalKey); diagnostic != nil {
+				return initializerValue{token: property, diagnostic: diagnostic}, true
+			}
+			literalType = specializedUse.Type
+		}
+	}
+	if literalType.Object == nil {
+		diagnostic := typeErrorAt(property, fmt.Sprintf("cannot infer generic parameter for %s", name))
+		return initializerValue{token: property, diagnostic: &diagnostic}, true
+	}
+	return checkObjectConstructorFields(call, property, literalType, expectedType, ctx), true
 }
 
 // checkValue resolves an expression in value context. Assignment and

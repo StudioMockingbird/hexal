@@ -45,10 +45,12 @@ type moduleEntry struct {
 	methods      map[string][]MethodDeclaration      // receiver type name -> exported methods
 	moduleValues map[string]exportedModuleValueEntry // exported static module values by name
 
-	// genericFunctions holds the module's exported generic function
-	// templates. Importers resolve qualified generic calls through them and
-	// record the specialization with the defining module.
+	// genericFunctions, genericTypes, and genericMethods hold the module's
+	// exported generic templates. Importers resolve qualified generic uses
+	// through them and record the specialization with the defining module.
 	genericFunctions map[string]*openGenericFunction
+	genericTypes     map[string]*openGenericType
+	genericMethods   map[string]*openGenericMethod
 	// functionSpecializations and methodSpecializations are the defining
 	// module's specialization collections: its own requests, published by
 	// registerGenerics, plus every importer's, keyed by specialization key
@@ -56,6 +58,16 @@ type moduleEntry struct {
 	// sorts the keys and emits the records into the module's checked output.
 	functionSpecializations map[string]FunctionDeclaration
 	methodSpecializations   map[string]MethodDeclaration
+	// definingScope and definingEnvironment are this module's own top-level
+	// scope and type environment, retained after it checks clean. An
+	// importer's qualified generic use re-resolves the open template's
+	// signature and body against these -- the defining module's own private
+	// names, imports, and generic table -- instead of the importer's, per
+	// the defining-context contract. Both are nil until the module
+	// finishes checking; a module that fails to check clean is never
+	// reachable as an import target for a generic specialization.
+	definingScope       *scope
+	definingEnvironment *compilerTypes.Environment
 }
 
 // buildModuleRegistry collects every module's import aliases in the graph's
@@ -314,6 +326,14 @@ func (registry *ModuleRegistry) registerGenerics(moduleID string, generics *gene
 	for name, open := range generics.functions {
 		entry.genericFunctions[name] = open
 	}
+	entry.genericTypes = make(map[string]*openGenericType, len(generics.types))
+	for name, open := range generics.types {
+		entry.genericTypes[name] = open
+	}
+	entry.genericMethods = make(map[string]*openGenericMethod, len(generics.methods))
+	for key, open := range generics.methods {
+		entry.genericMethods[key] = open
+	}
 	entry.functionSpecializations = make(map[string]FunctionDeclaration, len(generics.functionSpecializations))
 	for key, declaration := range generics.functionSpecializations {
 		entry.functionSpecializations[key] = declaration
@@ -322,6 +342,55 @@ func (registry *ModuleRegistry) registerGenerics(moduleID string, generics *gene
 	for key, declaration := range generics.methodSpecializations {
 		entry.methodSpecializations[key] = declaration
 	}
+}
+
+// storeDefiningContext retains one module's own top-level scope and type
+// environment after it checks clean, so a later importer's qualified
+// generic use can re-resolve the open template's signature and body
+// against them. Called once, from checkModule, before diagnostics are
+// known; a module that fails to check clean is never reachable as an
+// import target for a generic specialization, so an unused retained
+// context for a failed module is harmless.
+func (registry *ModuleRegistry) storeDefiningContext(moduleID string, environment *scope, typeEnvironment *compilerTypes.Environment) {
+	entry := registry.modules[moduleID]
+	if entry == nil {
+		return
+	}
+	entry.definingScope = environment
+	entry.definingEnvironment = typeEnvironment
+}
+
+// definingContext returns the target module's own retained checkContext, so
+// an importer's qualified generic specialization resolves the template's
+// signature and body in its defining module rather than the importer's.
+func (registry *ModuleRegistry) definingContext(moduleID string) (checkContext, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok || entry.definingScope == nil || entry.definingEnvironment == nil {
+		return checkContext{}, false
+	}
+	return checkContext{names: entry.definingScope, typeEnvironment: entry.definingEnvironment}, true
+}
+
+// genericType resolves one exported generic type template of the target
+// module by name.
+func (registry *ModuleRegistry) genericType(moduleID, name string) (*openGenericType, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok || !entry.exports[name] {
+		return nil, false
+	}
+	open, ok := entry.genericTypes[name]
+	return open, ok
+}
+
+// genericMethod resolves one exported generic method template of the target
+// module by receiver type name and method name.
+func (registry *ModuleRegistry) genericMethod(moduleID, objectName, name string) (*openGenericMethod, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok || !entry.exports[objectName+"."+name] {
+		return nil, false
+	}
+	open, ok := entry.genericMethods[objectName+"."+name]
+	return open, ok
 }
 
 // genericFunction resolves one exported generic function template of the
@@ -349,6 +418,16 @@ func (registry *ModuleRegistry) specializationStore(moduleID string) map[string]
 	return entry.functionSpecializations
 }
 
+// methodSpecializationStore is specializationStore's counterpart for generic
+// methods.
+func (registry *ModuleRegistry) methodSpecializationStore(moduleID string) map[string]MethodDeclaration {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return nil
+	}
+	return entry.methodSpecializations
+}
+
 // exportedMethod resolves one exported method of the target module by
 // receiver type name and method name. Only exported
 // methods are recorded, so a private method resolves nowhere and the caller
@@ -370,14 +449,18 @@ func (registry *ModuleRegistry) exportedMethod(moduleID, objectName, name string
 // -- its own requests plus every importer's -- into its checked program.
 // The records are deduplicated by specialization key and
 // emitted in the deterministic order the generator consumes: declaration
-// name, then the canonical argument signature string.
+// name, then the canonical argument signature string. A specialization of an
+// exported template is stamped Exported here, exactly like an ordinary
+// declaration: the generator reads that flag to choose external over static
+// linkage, and a specialization reachable through any importer's alias must
+// link, whether or not this defining module also uses it internally.
 func (registry *ModuleRegistry) assembleSpecializations(moduleID string, program *Program) {
 	entry := registry.modules[moduleID]
 	if entry == nil {
 		return
 	}
-	program.SpecializedFunctions = sortedFunctionSpecializations(entry.functionSpecializations)
-	program.SpecializedMethods = sortedMethodSpecializations(entry.methodSpecializations)
+	program.SpecializedFunctions = sortedFunctionSpecializations(entry.functionSpecializations, entry.exports)
+	program.SpecializedMethods = sortedMethodSpecializations(entry.methodSpecializations, entry.exports)
 }
 
 // sortedFunctionSpecializations emits a generic-function specialization
@@ -385,11 +468,14 @@ func (registry *ModuleRegistry) assembleSpecializations(moduleID string, program
 // then canonical argument signature string). The keys are the interner's
 // specializeKey spellings, so sorting them is exactly the (decl, args) order
 // the generator consumes.
-func sortedFunctionSpecializations(collection map[string]FunctionDeclaration) []FunctionDeclaration {
+func sortedFunctionSpecializations(collection map[string]FunctionDeclaration, exports map[string]bool) []FunctionDeclaration {
 	keys := slices.Sorted(maps.Keys(collection))
 	result := make([]FunctionDeclaration, 0, len(keys))
 	for _, key := range keys {
-		result = append(result, collection[key])
+		declaration := collection[key]
+		templateName, _, _ := strings.Cut(key, "|")
+		declaration.Exported = exports[templateName]
+		result = append(result, declaration)
 	}
 	return result
 }
@@ -398,11 +484,16 @@ func sortedFunctionSpecializations(collection map[string]FunctionDeclaration) []
 // for generic-method collections. The method keys carry the receiver object
 // name and arguments before the method name and its own arguments, matching
 // the order the interner builds them in.
-func sortedMethodSpecializations(collection map[string]MethodDeclaration) []MethodDeclaration {
+func sortedMethodSpecializations(collection map[string]MethodDeclaration, exports map[string]bool) []MethodDeclaration {
 	keys := slices.Sorted(maps.Keys(collection))
 	result := make([]MethodDeclaration, 0, len(keys))
 	for _, key := range keys {
-		result = append(result, collection[key])
+		declaration := collection[key]
+		parts := strings.SplitN(key, "|", 4)
+		if len(parts) == 4 {
+			declaration.Exported = exports[parts[0]+"."+parts[2]]
+		}
+		result = append(result, declaration)
 	}
 	return result
 }

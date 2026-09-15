@@ -190,13 +190,16 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 
 // checkQualifiedGenericCall specializes an imported module's exported generic
 // function for the concrete request at hand and checks the call against the
-// specialized signature. The specialization is resolved and its body re-checked
-// in the requesting module's environment, exactly like a local generic call,
-// but the record is stored into the defining module's registry collection, so
-// its checked output carries the request. Repeated requests of one
-// (declaration, argument) pair reuse the one recorded specialization.
-// The requested body was not part of the defining module's starvation scan,
-// which ran before this request arrived.
+// specialized signature. Concrete arguments are resolved in the requesting
+// module's environment, exactly like a local generic call; the open
+// declaration's signature and body are then resolved only in the defining
+// module's own retained scope and type environment (registry.definingContext),
+// so a private name in that body sees the defining module's own imports and
+// declarations, never the requester's, and the record is stored into the
+// defining module's registry collection so its checked output carries the
+// request. Repeated requests of one (declaration, argument) pair reuse the
+// one recorded specialization. The requested body was not part of the
+// defining module's starvation scan, which ran before this request arrived.
 func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunction, property lexer.Token, target string, ctx checkContext) checkedExpression {
 	var arguments []compilerTypes.Type
 	if len(call.TypeArguments) > 0 {
@@ -227,7 +230,13 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 		}
 		arguments = inferred
 	}
-	specialized, diagnostic := specializeFunctionIn(open, arguments, ctx, ctx.names.registry.specializationStore(target))
+	definingCtx, ok := ctx.names.registry.definingContext(target)
+	if !ok {
+		diagnostic := unknownAt(property, "defining module specialization environment is unavailable for "+target)
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	specialized, diagnostic := specializeFunctionIn(open, arguments, definingCtx, ctx.names.registry.specializationStore(target))
+	diagnostic = diagnosticInDefiningModule(diagnostic, definingCtx.names.logicalKey)
 	if diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}

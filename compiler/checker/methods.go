@@ -381,6 +381,9 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		if target, ok := ctx.names.importAliasTarget(variable.Name.Lexeme); ok {
 			if _, functionOk := ctx.names.registry.exportedFunction(target, callee.Property.Lexeme); !functionOk {
 				if _, genericOk := ctx.names.registry.genericFunction(target, callee.Property.Lexeme); !genericOk {
+					if typeValue, ok := checkQualifiedTypeConstructorCall(call, callee.Property, target, expectedType, ctx); ok {
+						return typeValue
+					}
 					if adtValue, ok := checkModuleVariantConstructorCall(call, variable.Name.Lexeme, callee.Property, target, ctx); ok {
 						return adtValue
 					}
@@ -726,8 +729,15 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyExpression, name string, object *compilerTypes.ObjectType, receiver checkedExpression, ctx checkContext) checkedExpression {
 	method, ok := ctx.names.registry.exportedMethod(object.ModuleID, object.Name, name)
 	if !ok {
-		diagnostic := privateToModuleDiagnostic(callee.Property, name, object.ModuleID)
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		specialized, diagnostic, specializedOk := checkImportedGenericMethodCall(call, callee, object, name, receiver, ctx)
+		if diagnostic != nil {
+			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		}
+		if !specializedOk {
+			diagnostic := privateToModuleDiagnostic(callee.Property, name, object.ModuleID)
+			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		}
+		method = specialized
 	}
 	adapted, diagnostic := adaptReceiver(receiver, method, callee, ctx.typeEnvironment, ctx.names.flow)
 	if diagnostic != nil {
@@ -769,6 +779,67 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 		typ:    resultType,
 		token:  callee.Property,
 	}
+}
+
+// checkImportedGenericMethodCall resolves a method call whose receiver is a
+// cross-module generic specialization (e.g. an imported Box<Int32>'s own
+// get()), mirroring checkGenericMethodCall's local counterpart: the
+// receiver's own concrete arguments and the open method template are found
+// through the object's owning module's own retained generic table, never
+// the caller's, and the template specializes in that same defining context.
+// The method's own type arguments, if any, are inferred or checked exactly
+// like a local generic method call, in the caller's environment. The bool
+// result is false when object is not a generic specialization at all or
+// this module declares no such method template, so the caller reports the
+// ordinary visibility diagnostic instead.
+func checkImportedGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, object *compilerTypes.ObjectType, name string, receiver checkedExpression, ctx checkContext) (MethodDeclaration, *compilerTypes.Diagnostic, bool) {
+	definingCtx, ok := ctx.names.registry.definingContext(object.ModuleID)
+	if !ok {
+		return MethodDeclaration{}, nil, false
+	}
+	open, ok := definingCtx.names.generics.objectOpen[object]
+	if !ok {
+		return MethodDeclaration{}, nil, false
+	}
+	methodOpen, ok := ctx.names.registry.genericMethod(object.ModuleID, open.Name, name)
+	if !ok {
+		return MethodDeclaration{}, nil, false
+	}
+	receiverArguments := definingCtx.names.generics.objectArguments[object]
+	if receiverArguments == nil {
+		diagnostic := unknownAt(callee.Property, "generic method call without receiver arguments")
+		return MethodDeclaration{}, &diagnostic, true
+	}
+	var methodArguments []compilerTypes.Type
+	if len(call.TypeArguments) > 0 {
+		methodArguments = make([]compilerTypes.Type, 0, len(call.TypeArguments))
+		for _, argumentExpression := range call.TypeArguments {
+			argumentUse, diagnostic := resolveTypeUse(argumentExpression, callee.Property, ctx.typeEnvironment, ctx.names.generics)
+			if diagnostic != nil {
+				return MethodDeclaration{}, diagnostic, true
+			}
+			methodArguments = append(methodArguments, argumentUse.Type)
+		}
+		if len(methodArguments) != methodOpen.Generic.Arity {
+			diagnostic := typeErrorAt(callee.Property, "explicit generic argument count does not match declaration")
+			return MethodDeclaration{}, &diagnostic, true
+		}
+	} else {
+		inferred, diagnostic := inferMethodArguments(methodOpen, receiverArguments, call.Arguments, callee.Property, ctx)
+		if diagnostic != nil {
+			return MethodDeclaration{}, diagnostic, true
+		}
+		methodArguments = inferred
+	}
+	receiverValue := receiver.typ
+	if receiverValue.Object == nil && receiverValue.Element != nil {
+		receiverValue = *receiverValue.Element
+	}
+	specialized, diagnostic := specializeMethod(methodOpen, object, receiverValue, receiverArguments, methodArguments, definingCtx, ctx.names.registry.methodSpecializationStore(object.ModuleID))
+	if diagnostic := diagnosticInDefiningModule(diagnostic, definingCtx.names.logicalKey); diagnostic != nil {
+		return MethodDeclaration{}, diagnostic, true
+	}
+	return specialized, nil, true
 }
 
 // methodParameterTypes extracts the declared parameter types of a method

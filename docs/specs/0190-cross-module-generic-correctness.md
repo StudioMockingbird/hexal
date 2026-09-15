@@ -1,8 +1,30 @@
 # RFC 0190: Cross-Module Generic Correctness
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Implemented; cannot close until `docs/reference.md` is synchronized
+  with explicit user approval (see Reference impact below). The two real
+  bugs the Problem section names are both fixed and verified end to end
+  (checked, generated, compiled, linked, and run under the pinned backend):
+  a cross-module generic function/method specialization previously kept C
+  `static` linkage in its defining module while consumers declared it
+  external, so a linked program was never actually achievable; and an
+  imported generic's signature and body were rechecked in the importing
+  module's environment rather than its own defining module's, so a private
+  defining-module name (or a local reference to the module's own generic
+  type) failed to resolve and any diagnostic named the wrong file. Also
+  implemented: the qualified generic type syntax this fix required
+  (`Alias.Name<Arguments>`, in annotations, construction, and matching the
+  arity/visibility diagnostics a non-generic qualified type already has),
+  qualified generic struct construction (`Alias.Name(...)` and
+  `Alias.Name<T>(...)`, previously unsupported even for a non-generic
+  exported type), and a qualified generic method call on an imported
+  specialized receiver. Not implemented: RFC 0211's declaration-time
+  checking of open generic bodies (that RFC is not requested; this RFC
+  requires only that its checks, once RFC 0211 lands, run in the defining
+  module for exported generics, which the retained defining-context
+  mechanism now in place already satisfies structurally).
 - Created: 2026-09-15
+- Updated: 2026-09-16
 - Scope: make exported generic types, functions, and methods work through
   ordinary module aliases with defining-module resolution and correct source
   provenance

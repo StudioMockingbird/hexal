@@ -756,6 +756,10 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 		// specialization requests, so importers resolve and record against
 		// the defining module's collection.
 		registry.registerGenerics(moduleID, environment.generics)
+		// Retained so a later importer's qualified generic use re-resolves
+		// the open template's signature and body against this module's own
+		// scope and type environment, never the importer's.
+		registry.storeDefiningContext(moduleID, environment, typeEnvironment)
 	}
 	return checked, nil
 }

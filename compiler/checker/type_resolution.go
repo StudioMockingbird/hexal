@@ -51,6 +51,8 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		}
 		message := "unknown module alias " + expression.Module.Lexeme
 		return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Module, message))
+	case parser.QualifiedGenericTypeExpression:
+		return resolveQualifiedGenericTypeUse(expression, typeEnvironment, generics)
 	case parser.GenericTypeExpression:
 		if expression.Name.Lexeme == "List" {
 			return resolveListTypeUse(expression, fallback, typeEnvironment, generics)

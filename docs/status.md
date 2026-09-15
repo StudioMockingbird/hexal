@@ -13,7 +13,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Repair qualified generic types and defining-module specialization of exported generics | [0190](specs/0190-cross-module-generic-correctness.md) |
 | Check every open generic body at declaration, rejecting errors that hold for all type arguments | [0211](specs/0211-generic-declaration-checking.md) |
 | Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | [0039](specs/0039-c-interop-compiler-core.md) |
 
@@ -48,7 +47,6 @@ A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec |
 | --- | --- |
-| Exported generic functions are specialized in the importing module's environment, breaking defining-module generic type resolution and misattributing declaration diagnostics | [0190](specs/0190-cross-module-generic-correctness.md) |
 | Open generic bodies are never checked at declaration, so an unused generic with an unknown name or an independent type error compiles | [0211](specs/0211-generic-declaration-checking.md) |
 | `reference.md` names POSIX x86-64 as a supported Task target although RFC 0052 has qualified only Windows x64 | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md); reference correction requires explicit user approval |
 | `reference.md`'s Pointers and nullability section states "Arithmetic, indexing, ... are unavailable", contradicting closed RFC 0156's unsafe-gated `Ptr.offset`/indexing/`.cast<U>()` | [0156](specs/archive/0156-fenced-pointer-arithmetic.md); reference correction requires explicit user approval per that RFC's own text |

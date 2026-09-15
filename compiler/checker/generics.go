@@ -195,7 +195,7 @@ func specializedFunctionList(generics *genericTable) []FunctionDeclaration {
 	if generics == nil {
 		return nil
 	}
-	return sortedFunctionSpecializations(generics.functionSpecializations)
+	return sortedFunctionSpecializations(generics.functionSpecializations, nil)
 }
 
 // specializedMethodList returns the cached concrete method specializations in
@@ -204,12 +204,55 @@ func specializedMethodList(generics *genericTable) []MethodDeclaration {
 	if generics == nil {
 		return nil
 	}
-	return sortedMethodSpecializations(generics.methodSpecializations)
+	return sortedMethodSpecializations(generics.methodSpecializations, nil)
 }
 
 // specializeTypeUse resolves a written generic type use to its concrete
 // specialization. Object targets create fresh nominal objects; plain type
 // targets resolve under the parameter frame.
+// resolveQualifiedGenericTypeUse resolves Alias.Name<Arguments>: an exported
+// generic type of an imported module, specialized for the concrete request.
+// Concrete arguments are resolved in the requesting module's own environment
+// (typeEnvironment, generics), exactly like a qualified generic call's
+// arguments; the open declaration itself is then specialized against its
+// defining module's own retained scope and type environment, never the
+// requester's, so its layout closes over the defining module's own private
+// and exported names.
+func resolveQualifiedGenericTypeUse(expression parser.QualifiedGenericTypeExpression, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
+	if generics == nil || generics.registry == nil {
+		diagnostic := unknownAt(expression.Module, "qualified generic type use outside a generic table")
+		return compilerTypes.TypeUse{}, &diagnostic
+	}
+	target, ok := generics.registry.importTarget(generics.moduleID, expression.Module.Lexeme)
+	if !ok {
+		message := "unknown module alias " + expression.Module.Lexeme
+		return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Module, message))
+	}
+	open, ok := generics.registry.genericType(target, expression.Name.Lexeme)
+	if !ok {
+		diagnostic := privateToModuleDiagnostic(expression.Name, expression.Name.Lexeme, target)
+		return compilerTypes.TypeUse{}, &diagnostic
+	}
+	if len(expression.Arguments) != open.Declaration.Arity {
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, fmt.Sprintf("generic type %s expects %d type arguments; got %d", open.Name, open.Declaration.Arity, len(expression.Arguments))))
+	}
+	arguments := make([]compilerTypes.Type, 0, len(expression.Arguments))
+	for _, argumentExpression := range expression.Arguments {
+		argumentUse, diagnostic := resolveTypeUse(argumentExpression, expression.Name, typeEnvironment, generics)
+		if diagnostic != nil {
+			return compilerTypes.TypeUse{}, diagnostic
+		}
+		arguments = append(arguments, argumentUse.Type)
+	}
+	definingCtx, ok := generics.registry.definingContext(target)
+	if !ok {
+		diagnostic := unknownAt(expression.Name, "defining module specialization environment is unavailable for "+target)
+		return compilerTypes.TypeUse{}, &diagnostic
+	}
+	use, diagnostic := specializeTypeUseArguments(open, arguments, expression.Name, definingCtx.typeEnvironment, definingCtx.names.generics)
+	return use, diagnosticInDefiningModule(diagnostic, definingCtx.names.logicalKey)
+}
+
 func specializeTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if generics == nil {
 		diagnostic := unknownAt(fallback, "generic type use outside a generic table")
@@ -536,11 +579,14 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 }
 
 // specializeMethod creates or reuses the concrete declaration for one
-// specialization of a generic method.
-func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.ObjectType, receiverType compilerTypes.Type, receiverArguments []compilerTypes.Type, methodArguments []compilerTypes.Type, ctx checkContext) (MethodDeclaration, *compilerTypes.Diagnostic) {
+// specialization of a generic method. The record is cached in collection --
+// the requesting module's own table for a local generic method, or the
+// defining module's registry collection (registry.methodSpecializationStore)
+// for an imported one, exactly like specializeFunctionIn.
+func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.ObjectType, receiverType compilerTypes.Type, receiverArguments []compilerTypes.Type, methodArguments []compilerTypes.Type, ctx checkContext, collection map[string]MethodDeclaration) (MethodDeclaration, *compilerTypes.Diagnostic) {
 	generics := ctx.names.generics
 	key := open.ObjectName + "|" + argumentNames(receiverArguments) + "|" + open.Name + "|" + argumentNames(methodArguments)
-	if cached, ok := generics.methodSpecializations[key]; ok {
+	if cached, ok := collection[key]; ok {
 		return cached, nil
 	}
 	previousFrame := generics.frame
@@ -583,7 +629,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 		SourceLine:   open.Declaration.Name.Line,
 		SourceColumn: open.Declaration.Name.Column,
 	}
-	generics.methodSpecializations[key] = specialized
+	collection[key] = specialized
 	generics.active[key] = true
 	generics.open = false
 	selfID := ctx.names.newBindingID()
@@ -620,7 +666,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 		return MethodDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", methodName, result.Name)))
 	}
 	specialized.Body = statements
-	generics.methodSpecializations[key] = specialized
+	collection[key] = specialized
 	return specialized, nil
 }
 
@@ -958,7 +1004,7 @@ func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyEx
 	if receiverValue.Object == nil && receiverValue.Element != nil {
 		receiverValue = *receiverValue.Element
 	}
-	specialized, diagnostic := specializeMethod(open, object, receiverValue, receiverArguments, methodArguments, ctx)
+	specialized, diagnostic := specializeMethod(open, object, receiverValue, receiverArguments, methodArguments, ctx, ctx.names.generics.methodSpecializations)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
