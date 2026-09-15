@@ -346,7 +346,7 @@ func registerGenericFunction(declaration parser.FunctionDeclaration, ctx checkCo
 	return nil
 }
 
-// isGenericReceiver reports whether an impl receiver is a generic type use
+// isGenericReceiver reports whether a method receiver is a generic type use
 // naming the owner's parameters.
 func isGenericReceiver(expression parser.TypeExpression) bool {
 	_, ok := expression.(parser.GenericTypeExpression)
@@ -555,6 +555,10 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 	// function or literal declared in its body can, and that inner template
 	// specializes while this frame is still active.
 	generics.frame = mergedFrame(previousFrame, frame)
+	if diagnostic := methodReceiverCopyDiagnostic(receiverType, open.Declaration.Keyword); diagnostic != nil {
+		generics.frame = previousFrame
+		return MethodDeclaration{}, diagnostic
+	}
 	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, ctx.typeEnvironment, generics)
 	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, ctx.typeEnvironment, generics)
 	if len(parameterDiagnostics) > 0 {
@@ -944,7 +948,17 @@ func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyEx
 		}
 		methodArguments = inferred
 	}
-	specialized, diagnostic := specializeMethod(open, object, receiver.typ, receiverArguments, methodArguments, ctx)
+	// A receiver reached through a pointer specializes the method on the
+	// pointee struct, never on the pointer: the specialization is keyed by
+	// the owner's type arguments alone, so a pointer type here would decide
+	// the receiver form for every later call site as well, and would emit a
+	// pointer-receiver definition the language does not have.
+	// buildConcreteMethodCall's adaptation inserts the one-layer copy.
+	receiverValue := receiver.typ
+	if receiverValue.Object == nil && receiverValue.Element != nil {
+		receiverValue = *receiverValue.Element
+	}
+	specialized, diagnostic := specializeMethod(open, object, receiverValue, receiverArguments, methodArguments, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}

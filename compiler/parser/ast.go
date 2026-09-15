@@ -175,9 +175,9 @@ type AnonymousFunctionLiteral struct {
 
 func (AnonymousFunctionLiteral) expressionNode() {}
 
-// MethodDeclaration is a method attached to a receiver type. SelfType keeps the
-// written receiver form (Point, Ptr<Point>, Ptr<mut Point>) unresolved; the
-// checker decides whether it names a nominal object type. Exported records an
+// MethodDeclaration is a method attached to a receiver type. SelfType keeps
+// the written receiver form unresolved; the checker decides whether it names a
+// local nominal struct, which is the only valid receiver. Exported records an
 // `export` prefix.
 type MethodDeclaration struct {
 	Keyword         lexer.Token

@@ -75,7 +75,7 @@ func collectFunctionSignature(declaration parser.FunctionDeclaration, ctx checkC
 	} else if ctx.names.declaredHere(name) || rootValueNamesSoFar[name] {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, name+" is already declared"))
 	} else if method, taken := ctx.names.methods.cNames[name]; taken {
-		// hex_f_ is not injective: Point_translate and impl Point.translate
+		// hex_f_ is not injective: Point_translate and method Point.translate
 		// share one private C spelling, so one of them has to go.
 		diagnostics = append(diagnostics, collisionDiagnostic(name, method, declaration.Name))
 	}

@@ -140,11 +140,12 @@ func (parser *Parser) anonymousFunctionLiteral() (AnonymousFunctionLiteral, erro
 
 func (parser *Parser) methodDeclaration(exported bool) (MethodDeclaration, error) {
 	keyword := parser.advance()
-	// The receiver forms are exactly the identifier and pointer-constructor
-	// type expressions, so the shared type grammar covers them. A dotted
-	// receiver like Geometry.Point.rotate() parses as one qualified chain;
-	// its final component is peeled back into the method name below so the
-	// receiver type stays Geometry.Point. A plain local receiver like
+	// The receiver is parsed with the shared type grammar rather than a
+	// narrower receiver rule, so an invalid receiver reaches the checker and
+	// gets one clear semantic diagnostic instead of a confusing syntax error.
+	// A dotted receiver like Geometry.Point.rotate() parses as one qualified
+	// chain; its final component is peeled back into the method name below so
+	// the receiver type stays Geometry.Point. A plain local receiver like
 	// Point.translate() peels back to the ordinary named type Point.
 	parser.methodReceiver = true
 	selfType, err := parser.typeExpression()
