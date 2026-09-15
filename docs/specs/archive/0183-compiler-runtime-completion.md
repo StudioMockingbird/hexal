@@ -1,10 +1,58 @@
 # RFC 0183: Compiler and Runtime Completion Pass
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; six independent tracks are settled and must
-  land as separately attributable changes
+- Status: Closed. All six tracks landed as separately attributable changes and
+  all six status rows are removed from `docs/status.md`, per this plan's own
+  Completion rule:
+  - **Track 1 (Dict deletion correctness)**: fixed via backward-shift deletion
+    (Knuth's Algorithm R) in `hexal/dict.h`'s remove path, covered by two new
+    tagged fixtures plus a corrected golden-text unit test.
+  - **Track 2 (Task park/wake runtime verification)**: six new stress/ordering
+    fixtures (five in-memory, one native TCP loopback), stable across
+    repeated runs; found and fixed a real generator bug along the way (a
+    fixed module-level `Atomic<T>` rendered its wrapping constructor call,
+    not its own checked constant argument, as a static initializer, which C
+    rejects as non-constant). Process/Pipe/File/Signal repeated stress,
+    multi-waiter Channel close, and fine destruction-owner distinctions
+    remain unverified by this track; recorded in `docs/status.md`'s coverage
+    gaps.
+  - **Track 3 (Generated-C trap coverage)**: a guard test
+    (`trap_inventory_test.go`) derives every `[Runtime Error] ...` literal
+    the generator can emit and requires each one classified executable,
+    structural, or nondeterministic; 19 fixtures added to make every
+    previously-unverified executable claim real, four literals reclassified
+    to structural/nondeterministic with recorded reasoning.
+  - **Track 4 (UBSan coverage)**: every runnable fixture reruns under
+    `-fsanitize=undefined -fno-sanitize-recover=all` on every toolchain that
+    can link and execute a sanitizer-instrumented binary (Clang and Zig;
+    GCC's local mingw-w64 distribution ships no `libubsan` and is skipped
+    explicitly). Zero sanitizer reports across the full catalog.
+  - **Track 5 (Demand-driven helper emission)**: equality, print, and union
+    truthiness now emit a helper only for a type and operation the checked
+    program actually exercises; Heap, Stash, and IO were already
+    demand-driven. The four `-Wno-unused-*` Tier 1 suppressions remain, with
+    corrected rationale: an unsuppressed full-catalog run shows every
+    remaining warning traces to intentionally-unexercised workbench-snippet
+    example code, not generator emission.
+  - **Track 6 (Current target qualification)**: the fixture and snippet
+    catalog now also compiles, links, and runs under the one qualified
+    profile (`x86_64-windows-gnu`), not only the host-neutral surface every
+    other tagged test used; RFC 0052's own called-for foreign target-object
+    link fixture, prepared but never wired up, now exists and passes. Does
+    not additionally cross the qualified profile with the release build
+    mode; recorded in `docs/status.md`'s coverage gaps.
+
+  See `docs/status.md`'s "Known coverage gaps" for the exact, current
+  disclosure of what each track leaves open. Tracks 1 through 5 change
+  generated C and internal generator/test structure only, never a public
+  language contract, so none touch `docs/reference.md`. Track 6's only
+  reference implication -- removing `reference.md`'s claim that POSIX
+  x86-64 is a supported Task target, since only Windows x64 is qualified --
+  predates this RFC and remains exactly as already tracked in
+  `docs/status.md`'s Open bugs: pending explicit user approval, not
+  performed here.
 - Created: 2026-09-14
-- Updated: 2026-09-15
+- Updated: 2026-09-16
 - Scope: close six verified correctness, runtime-validation, generated-size,
   undefined-behavior-sanitizer, and target-qualification gaps
 - Coordinates with: RFC 0184 before Track 5 changes the print-helper family;

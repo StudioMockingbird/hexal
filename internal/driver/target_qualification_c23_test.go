@@ -1,0 +1,85 @@
+//go:build c23
+
+package driver
+
+// The one foreign target-object link fixture the qualified profile's own
+// Runtime and linkage section requires: proof that the pinned backend can
+// consume an ordinary target object it did not produce, alongside the
+// objects it compiled from Hexal-generated C, without checking a
+// platform-specific binary into the repository (testdata/mode-probe.c is
+// portable C, compiled fresh here on every run). The probe object's own
+// function is never called from Hexal source -- there is no C-interop
+// syntax to call it with yet -- so this proves only the backend's linker
+// accepts a foreign object in the same link, not language-level
+// interoperability; RFC 0039 owns that.
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
+)
+
+func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
+	selected := requireBackend(t)
+	dir := t.TempDir()
+
+	compileResult := compiler.Compile(map[string]string{"main.hex": "print(1)\n"}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	if len(compileResult.Stderr) > 0 {
+		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)
+	}
+
+	cFiles, err := materialize(dir, compileResult.Files)
+	if err != nil {
+		t.Fatalf("materialize: %v", err)
+	}
+	native, err := materializeDependencies(dir, compileResult.Dependencies)
+	if err != nil {
+		t.Fatalf("materializeDependencies: %v", err)
+	}
+	selected.Directory = dir
+	options := Options(ModeDebug)
+	compileOptions := append(append([]string{}, options.Compile...), native.compileOptions...)
+	linkOptions := append(append([]string{}, options.Link...), native.linkOptions...)
+	var result BuildResult
+	if err := compileNativeDependencies(selected, dir, native, &result); err != nil {
+		t.Fatalf("compiling native dependencies failed: %v", err)
+	}
+	if err := compileTranslationUnitsWithOptions(selected, dir, cFiles, compileOptions, &result); err != nil {
+		t.Fatalf("compiling Hexal-generated C failed: %v", err)
+	}
+	objects := append(cFilesToObjects(dir, cFiles), native.linkObjects...)
+
+	probeSource, err := filepath.Abs(filepath.Join("testdata", "mode-probe.c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	probeObject := filepath.Join(dir, "mode-probe.o")
+	invocation, err := selected.CompileOne(qualifiedTriple, options.Compile, probeSource, probeObject)
+	if err != nil {
+		t.Fatalf("cannot run backend on foreign source: %v", err)
+	}
+	if invocation.ExitCode != 0 {
+		t.Fatalf("compiling foreign target object failed: %s", invocation.Stderr)
+	}
+	objects = append(objects, probeObject)
+
+	binary := filepath.Join(dir, "combined"+exeSuffix())
+	if err := linkObjectsWithOptions(selected, dir, objects, linkOptions, binary, &result); err != nil {
+		t.Fatalf("linking Hexal objects with the foreign object failed: %v", err)
+	}
+
+	output, err := exec.Command(binary).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running the combined executable failed: %v\n%s", err, output)
+	}
+	if string(output) != "1" {
+		t.Fatalf("combined executable output = %q, want %q", output, "1")
+	}
+	if _, err := os.Stat(binary); err != nil {
+		t.Fatalf("expected executable at %s: %v", binary, err)
+	}
+}

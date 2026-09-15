@@ -23,12 +23,6 @@ gets deleted.
 | --- | --- | --- |
 | libuv capability ownership and child-RFC coordination | Umbrella only; child surfaces remain independently gated | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md) |
 
-### Implementation-ready completion tracks
-
-| Work | Spec |
-| --- | --- |
-| Compile, link, and run representative generated programs on every target before claiming that target as supported | [0183](specs/0183-compiler-runtime-completion.md) |
-
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
@@ -181,6 +175,36 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   binding and parameter program-wide (a correctness-neutral but pervasive
   codegen change with no connection to this gap), so each remains, with its
   rationale in `c23_harness_test.go` corrected to name the real cause.
+- **The fixture and snippet catalog now also compiles, links, and runs under
+  the one profile the compiler-owned registry currently qualifies
+  (`x86_64-windows-gnu`), not only the host-neutral `Project{}` every other
+  tagged test used.** `Project{}` keeps both platform branches and lets the
+  C compiler's own target macros select one at C-compile time; an explicit
+  profile instead has the Hexal compiler itself omit the inactive branch
+  (`TestExplicitProfileOmitsPosixBranches`,
+  `compiler/tests/integration/target_test.go`) -- a materially different
+  code path through every runtime component with concurrency or IO code
+  that, before `TestC23SuiteQualifiedProfile`
+  (`compiler/tests/c23validation/target_qualification_test.go`), had real
+  but far narrower real-toolchain execution coverage than the host-neutral
+  path: only `internal/driver`'s own hand-written qualification gate
+  (`TestBuildProducesRunnableExecutable` and its neighbors). Separately,
+  RFC 0052's own qualification text calls for one foreign target-object
+  link fixture proving the pinned backend can consume an object it did not
+  produce alongside Hexal-generated ones; a prepared probe source
+  (`internal/driver/testdata/mode-probe.c`) existed but was never wired
+  into a test, so `TestForeignTargetObjectLinksWithHexalObjects`
+  (`internal/driver/target_qualification_c23_test.go`) now compiles it,
+  links it with a full Hexal build's own objects, and runs the result.
+  Neither test extends the driver's own build API to accept an
+  externally-supplied object; that general capability remains owned by RFC
+  0039/0192, separately blocked. Both tests compile under the same
+  mode-agnostic flags (`-std=c23 -Wall -Wextra -Werror`) the rest of this
+  package always has; they do not additionally vary the qualified profile
+  across the debug/release distinction the now-closed build-modes RFC
+  added, so a defect specific to release-mode codegen combined with the
+  qualified (branch-pruned) profile specifically -- as opposed to either
+  dimension alone, both independently covered -- would not yet be caught.
 - **Compiling real generated C surfaced multiple generator defects across the
   snippet catalog.** Every failure reproduced so far is now fixed and
   re-verified compiling clean under all three toolchains, most recently (RFC
