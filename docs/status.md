@@ -13,12 +13,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Add lexical `unsafe do ... end` blocks and require them for every `Slice.from_pointer` bridge | [0155](specs/0155-unsafe-blocks.md) |
-| Add unsafe-gated raw pointer offset, indexing, and pointee casts with direct C23 lowering | [0156](specs/0156-fenced-pointer-arithmetic.md) |
-| Add initialized aligned Heap allocation through C23 `alignof` and mimalloc aligned allocation | [0189](specs/0189-aligned-heap-allocation.md) |
-| Whole-call print buffering and stdout serialization so concurrent output cannot interleave within one `print(...)` call | [0184](specs/0184-atomic-print-transactions.md) |
-| Add driver-level debug and release build modes with deterministic versioned Windows PDB publication | [0187](specs/0187-build-modes.md) |
-| Complete struct-only method receivers with non-copyable receiver rejection, stale-comment cleanup, tests, and approved reference synchronization | [0162](specs/0162-struct-only-method-receivers.md) |
 | Repair qualified generic types and defining-module specialization of exported generics | [0190](specs/0190-cross-module-generic-correctness.md) |
 
 ### Coordination umbrella; not independently executable
@@ -42,6 +36,10 @@ gets deleted.
 
 | Work | Blocked by | Spec |
 | --- | --- | --- |
+| Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | RFC 0155 | [0039](specs/0039-c-interop-compiler-core.md) |
+| Compile and link command-line-supplied C sources, objects, archives, and system libraries | RFC 0039 | [0192](specs/0192-command-line-c-build-inputs.md) |
+| Automatically generate typed binding modules for reachable C-header imports | RFC 0039 and RFC 0192 | [0193](specs/0193-automatic-c-header-bindings.md) |
+| Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0039, RFC 0192, and RFC 0193 | [0209](specs/0209-raylib-external-package-conformance-plan.md) |
 | Establish the standard-library module boundary and migrate compiler-owned capability namespaces | RFC 0190 | [0186](specs/0186-standard-library-boundary.md) |
 | Program entry and exit: immutable process arguments, UInt8 root return status, cleanup ordering, and target entry ABI | RFC 0186 | [0182](specs/0182-program-entry-and-exit.md) |
 | Program path queries, Size-valued available parallelism, and secure entropy fill | RFC 0186 | [0178](specs/0178-libuv-os-services.md) |
@@ -61,9 +59,9 @@ A bug is real whether or not its owning spec is scheduled.
 | Bug | Owning spec |
 | --- | --- |
 | Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | [0183](specs/0183-compiler-runtime-completion.md) |
-| A source `print(...)` call emits multiple independent writes, so concurrent Tasks can interleave one formatted value and pay multiple worker round trips | [0184](specs/0184-atomic-print-transactions.md) |
 | Exported generic functions are specialized in the importing module's environment, breaking defining-module generic type resolution and misattributing declaration diagnostics | [0190](specs/0190-cross-module-generic-correctness.md) |
 | `reference.md` names POSIX x86-64 as a supported Task target although RFC 0052 has qualified only Windows x64 | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md); reference correction requires explicit user approval |
+| `reference.md`'s Pointers and nullability section states "Arithmetic, indexing, ... are unavailable", contradicting closed RFC 0156's unsafe-gated `Ptr.offset`/indexing/`.cast<U>()` | [0156](specs/archive/0156-fenced-pointer-arithmetic.md); reference correction requires explicit user approval per that RFC's own text |
 
 ## Known coverage gaps
 
@@ -188,3 +186,4 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   fiber before its completion switch returns to the dispatcher; and join
   during `completing`, join after `done`, detach completion, and root
   shutdown each use their defined destruction owner.
+- To verify; import block must always be at the top of the mocule. export block must always be at the end. import, export and unsafe can only be at root level.

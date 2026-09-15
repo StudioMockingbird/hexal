@@ -594,13 +594,26 @@ HeapAllocation
   must match their declarations; result-producing bodies cannot fall through.
 - Infallible commands with no payload return no value. Fallible commands with no success payload
   return `Nil | Error`.
-- `method Receiver.name(...)` adds an implicit fixed `self`, no fields or runtime dispatch. User
-  targets are nominal `T`, `Ptr<T>`, or `Ptr<mut T>`. Value receivers copy; Ptr reads caller storage;
-  `Ptr<mut T>` may write its `mut` members.
-- Receiver adaptation order: exact target; outermost `Ptr<mut T>` weakening; pointer dereference to copied
-  `T`; implicit `@` from a capability-compatible addressable `T`.
-- One method name exists at most once across an object's receiver forms. It cannot equal a member
-  name or be extracted as a function value.
+- `method T.name(...)` declares a method on exactly one nominal struct type `T` (`type T is struct
+  ... end`, or a transparent alias naming it, which creates no second method owner). No other
+  receiver form exists: `Ptr<T>`, `Ptr<mut T>`, a nullable type, a union, a primitive, a builtin
+  generic type, or a non-struct nominal type is rejected with `method receiver must be a struct
+  type; got <type>`. `T` must also be shallow-copyable under the same classification an ordinary
+  value copy uses; a struct that directly or transitively contains `Atomic<T>` (or another
+  non-copyable value) is rejected with `method receiver must be shallow-copyable; got <type>`, even
+  when the method is reached only through `Ptr<T>` or `Ptr<mut T>`. An explicit function taking
+  `Ptr<mut T>` remains the non-copying way to operate on a non-copyable struct.
+- `self` is an implicit fixed binding of type `T`, copied when the method is entered. Assigning to
+  `self` or writing `self.field` is rejected; a method that needs to mutate copies `self` into a
+  `mut` local first and returns the modified copy as an ordinary `T` value. A method call on a `T`
+  value uses it directly. A call on `Ptr<T>` or `Ptr<mut T>` autoderefs exactly one pointer layer,
+  copies the pointee, and invokes the same value-receiver method on that copy; neither pointer mode
+  grants mutation of the original, and a nullable pointer must be narrowed first. More than one
+  pointer layer is never implicitly dereferenced for method dispatch. In-place mutation through a
+  pointer is expressed with an explicit function taking `Ptr<mut T>`, not with a method.
+- One method name exists at most once per struct. It cannot equal a member name or be extracted as
+  a function value. Only the struct's defining module may declare its methods; an imported struct
+  may call exported methods but cannot receive local ones.
 - `receiver.name(arguments)` resolves to a method first. Only when no method named `name` exists,
   and the receiver's type has a member `name` of an exact or nullable `Fun<...>` type, does the
   call resolve to an indirect call through that member instead, with the member's signature
