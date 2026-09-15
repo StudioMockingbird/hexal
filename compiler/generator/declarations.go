@@ -238,7 +238,7 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 	return nil
 }
 
-// writeMethodDefinition emits a checked impl method as a file-scope C
+// writeMethodDefinition emits a checked method declaration as a file-scope C
 // function. The implicit receiver is the first fixed parameter carrying the
 // struct value; method receivers are always structs, so C receives a
 // structure copy.

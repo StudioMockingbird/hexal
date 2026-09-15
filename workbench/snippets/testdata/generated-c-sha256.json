@@ -805,6 +805,15 @@
       "modules/app.c": "cfcd66594473e19f23dd993342e73e78cf76e1a89b4002d846b124a31ce2ad06",
       "modules/app.h": "1b200dfe9e8ad267a30bacc9e9dc7dc2dae5a63e67367a3e867903eacc0e4870"
     },
+    "memory-heap-aligned": {
+      "hexal.h": "ddfdf76fb7097f15a2cb7cee5d33b97f8e9ce68ab92649e14ce305d405fb2129",
+      "hexal/heap.c": "d6bddbd6dd7e71205a4a353397c5fb3de843f17cfbadc21c7800e91199990482",
+      "hexal/heap.h": "8f280d5419c1473c5368ccf23e2f84b3704790bf52c8f8de62ddc580f7c16f90",
+      "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
+      "hexal/wrap.h": "32738ac72fffbdca0ced6674503260a054c6f34f992790c7d2024ef83420af5b",
+      "modules/app.c": "943a9ddc16c76f9f553a79476442099fe4efb8667d68bffccabfe7b20ab0cf93",
+      "modules/app.h": "c6feeeda2cf294fc2ff69e6208654e029d523405a5844d55f0b3ea9aeb8c4261"
+    },
     "memory-heap-integer": {
       "hexal.h": "ddfdf76fb7097f15a2cb7cee5d33b97f8e9ce68ab92649e14ce305d405fb2129",
       "hexal/heap.c": "be1166f9cb1b740a6b8c8655655ae3653f3d60765ae4ef8cc64fd1d9d8da6734",
@@ -846,6 +855,17 @@
       "modules/app.c": "38a62ab64a9a6547affc7096bf10959a3bb43d6fed086dbae8e20cc5d36cbf96",
       "modules/app.h": "b04574fd0ae7f925d3d818d7b2768d7e25bc949fc9c039b40537e3c217531387"
     },
+    "memory-pointer-arithmetic": {
+      "hexal.h": "48162c935c448b6a7aa2e25a315d8b8cd75b3eb4dbcd03cd013f30d627014b22",
+      "hexal/array.h": "309d209bae1767ee8d74b52c8319228bd7b5ac0fd47957e03500091445fb4a8f",
+      "hexal/equality.h": "793e838921106628cf6a1c9a7017342959822558a3295345e7d28063bbf80b24",
+      "hexal/heap.c": "be1166f9cb1b740a6b8c8655655ae3653f3d60765ae4ef8cc64fd1d9d8da6734",
+      "hexal/heap.h": "76ff20dc37d56e1e0fc5fa4fedd3b9ef6a781112c99e99980cf8cb76f583b43a",
+      "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
+      "hexal/wrap.h": "32738ac72fffbdca0ced6674503260a054c6f34f992790c7d2024ef83420af5b",
+      "modules/app.c": "bd24e2eb216e919895cde60bd49e48cdc0f0940838289dd3d3d1dd527b747ebf",
+      "modules/app.h": "dbc1f1b7e82ed7f600062c4ce862e783dda1dbab55dd022f551a0191d4b68529"
+    },
     "memory-pointer-swap": {
       "hexal.h": "2b6858ee59a1b288de3ae4ff9ee8e5cbe14ffcd338f5958486e09de8d59cc92b",
       "hexal/wrap.h": "23a385a0c59b468f56254a7f01c413d77bd5399a9cee57f842d44567f324a918",
@@ -859,7 +879,7 @@
       "hexal/heap.h": "76ff20dc37d56e1e0fc5fa4fedd3b9ef6a781112c99e99980cf8cb76f583b43a",
       "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
       "hexal/slice.h": "92cd770f7de914a421885f0599bcdd612993b07883eb435e1b297d6d0cb95042",
-      "modules/app.c": "e7ae9fdd70a0239194cd87893302b5c6e7a6b0d6f5732b612c65338f898385ba",
+      "modules/app.c": "100db8e8cf51c9ed7c8933fb091683e627a0f953c9826812c707e6805ec883b3",
       "modules/app.h": "feb5a7bf86319ef00c0b4d3902b1b1c962f8b96d4199b8f85b9c8f84b75bef6a"
     },
     "memory-pool-fixed-capacity": {
@@ -898,6 +918,17 @@
       "hexal/wrap.h": "32738ac72fffbdca0ced6674503260a054c6f34f992790c7d2024ef83420af5b",
       "modules/app.c": "c86b57db3b430f0a4feaed87a09b52e65d1845d6e83ea4e820164d41da66b919",
       "modules/app.h": "bb796b24b11902033a2b367ca7d7f8205dbd687561f849a8e564360318a34e65"
+    },
+    "memory-unsafe-block": {
+      "hexal.h": "48162c935c448b6a7aa2e25a315d8b8cd75b3eb4dbcd03cd013f30d627014b22",
+      "hexal/equality.h": "e7a6e19f86f240c2997a014a100c5a9a5d778d4814324bb2808610e763068421",
+      "hexal/heap.c": "be1166f9cb1b740a6b8c8655655ae3653f3d60765ae4ef8cc64fd1d9d8da6734",
+      "hexal/heap.h": "76ff20dc37d56e1e0fc5fa4fedd3b9ef6a781112c99e99980cf8cb76f583b43a",
+      "hexal/runtime.c": "3bea6ef5961c993b1dc6aa6f444dcced7fa3233e5fd6290e086db58f2ff2f5f5",
+      "hexal/slice.h": "92cd770f7de914a421885f0599bcdd612993b07883eb435e1b297d6d0cb95042",
+      "hexal/wrap.h": "32738ac72fffbdca0ced6674503260a054c6f34f992790c7d2024ef83420af5b",
+      "modules/app.c": "9f04cb767920805a33df1c99fe19dd72bbe7c51bac61aa021337b7f92933f60d",
+      "modules/app.h": "8bf5caf41e32dbabcd374c7e727a78cc968da8fa26b04e87b7d504a1338a5e45"
     },
     "memory-volatile-register": {
       "hexal.h": "c3efec6e319d78c6192a057d339aa3be8ed16cedcfe3c22e5e8d041607f0ca8f",

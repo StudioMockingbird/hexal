@@ -38,6 +38,8 @@ func statementFallsThrough(statement Statement) bool {
 		return true
 	case BreakStatement, ContinueStatement:
 		return true
+	case UnsafeStatement:
+		return FallsThrough(statement.Body)
 	default:
 		return true
 	}
@@ -128,6 +130,9 @@ func checkStatement(statement parser.Statement, ctx checkContext, loopDepth int)
 		return checked, binding{}, false, diagnostics
 	case parser.ForStatement:
 		checked, diagnostics := checkForStatement(statement, ctx, loopDepth)
+		return checked, binding{}, false, diagnostics
+	case parser.UnsafeStatement:
+		checked, diagnostics := checkUnsafeStatement(statement, ctx, loopDepth)
 		return checked, binding{}, false, diagnostics
 	case parser.BreakStatement:
 		if loopDepth == 0 {
@@ -372,6 +377,8 @@ func statementTerminates(statement Statement) bool {
 	switch statement := statement.(type) {
 	case ReturnStatement, BreakStatement, ContinueStatement:
 		return true
+	case UnsafeStatement:
+		return sequenceTerminates(statement.Body)
 	case IfStatement:
 		// Every branch must terminate for the if itself to terminate.
 		if statement.Else == nil {
@@ -590,6 +597,8 @@ func (scanner *iterationMutationScanner) walkStatements(statements []Statement) 
 			scanner.walkStatements(node.Body)
 		case ForStatement:
 			scanner.walkOperand(node.Source, node.SourceLine, node.SourceColumn)
+			scanner.walkStatements(node.Body)
+		case UnsafeStatement:
 			scanner.walkStatements(node.Body)
 		case FunctionDeclaration:
 			scanner.walkStatements(node.Body)

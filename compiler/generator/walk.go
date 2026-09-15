@@ -213,6 +213,9 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 		return walkStatementOperand(statement.Source, visit)
 	case checker.WhileStatement:
 		return walkStatementOperand(statement.Condition, visit)
+	case checker.UnsafeStatement:
+		// No expressions of its own; the enclosed statements are the
+		// caller's recursion, exactly like a control-flow body.
 	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration, checker.MethodDeclaration:
 		// No expressions reachable directly from these shapes; nested
 		// bodies are the caller's recursion.
@@ -629,6 +632,10 @@ func (state *walkState) walkStatements(statements []checker.Statement) error {
 			if err := state.walkOperand(statement.Condition); err != nil {
 				return err
 			}
+			if err := state.walkStatements(statement.Body); err != nil {
+				return err
+			}
+		case checker.UnsafeStatement:
 			if err := state.walkStatements(statement.Body); err != nil {
 				return err
 			}

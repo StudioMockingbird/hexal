@@ -140,11 +140,12 @@ func (parser *Parser) anonymousFunctionLiteral() (AnonymousFunctionLiteral, erro
 
 func (parser *Parser) methodDeclaration(exported bool) (MethodDeclaration, error) {
 	keyword := parser.advance()
-	// The receiver forms are exactly the identifier and pointer-constructor
-	// type expressions, so the shared type grammar covers them. A dotted
-	// receiver like Geometry.Point.rotate() parses as one qualified chain;
-	// its final component is peeled back into the method name below so the
-	// receiver type stays Geometry.Point. A plain local receiver like
+	// The receiver is parsed with the shared type grammar rather than a
+	// narrower receiver rule, so an invalid receiver reaches the checker and
+	// gets one clear semantic diagnostic instead of a confusing syntax error.
+	// A dotted receiver like Geometry.Point.rotate() parses as one qualified
+	// chain; its final component is peeled back into the method name below so
+	// the receiver type stays Geometry.Point. A plain local receiver like
 	// Point.translate() peels back to the ordinary named type Point.
 	parser.methodReceiver = true
 	selfType, err := parser.typeExpression()
@@ -415,6 +416,24 @@ func (parser *Parser) ifStatement() (IfStatement, error) {
 		ElseKeyword: elseKeyword,
 		End:         end,
 	}, nil
+}
+
+// unsafeStatement parses `unsafe do ... end`. It reuses the shared block
+// production, so recovery and nesting behave exactly like every other block.
+func (parser *Parser) unsafeStatement() (UnsafeStatement, error) {
+	keyword := parser.advance()
+	if _, err := parser.consume(lexer.Do, "'do' after 'unsafe'"); err != nil {
+		return UnsafeStatement{}, err
+	}
+	body, err := parser.block("unsafe", lexer.End)
+	if err != nil {
+		return UnsafeStatement{}, err
+	}
+	end, err := parser.consume(lexer.End, "'end' to close unsafe block")
+	if err != nil {
+		return UnsafeStatement{}, err
+	}
+	return UnsafeStatement{Keyword: keyword, Body: body, End: end}, nil
 }
 
 func (parser *Parser) whileStatement() (WhileStatement, error) {

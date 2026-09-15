@@ -38,7 +38,7 @@ type scope struct {
 	result       *compilerTypes.Type
 	resultUse    *compilerTypes.TypeUse
 	methods      *methodTable
-	self         *compilerTypes.Type // the impl target type; nil outside an impl body
+	self         *compilerTypes.Type // the method receiver struct; nil outside a method body
 	selfID       BindingID
 	function     bool
 	nextID       *BindingID
@@ -47,6 +47,11 @@ type scope struct {
 	defers       []DeferredAction
 	returnFlows  []returnFlow // states and active actions reaching a return
 	cleanupDepth int          // checking a defer or errdefer action
+	// unsafeDepth counts the lexical unsafe regions enclosing this frame. It
+	// is inherited by every nested block frame and deliberately not by a
+	// function-body frame: the permission is lexical and never travels
+	// through a call.
+	unsafeDepth int
 	// registry is the compilation's module graph: it resolves import aliases
 	// against the target modules' exported records.
 	// It is shared by reference with every child scope.
@@ -796,10 +801,10 @@ func (state *flowState) adopt(branch *flowState) {
 }
 
 // selfPlace resolves the implicit receiver. `self` is a keyword, so it can
-// never be declared or shadowed; it exists exactly when a scope carries an
-// impl target. The place is never writable: rule 3 makes the binding fixed,
-// while a write through it -- self.x on a Ptr<mut T> target -- gets its
-// writability from the pointee, not from this binding.
+// never be declared or shadowed; it exists exactly when a scope carries a
+// method receiver. The place is never writable: the receiver is a fixed copy
+// of the caller's struct, so neither assigning to self nor writing a member
+// through it can reach caller storage.
 func selfPlace(names *scope, token lexer.Token) checkedExpression {
 	if names.self == nil {
 		return checkedExpression{token: token, diagnostic: selfNotBoundDiagnostic(token)}
@@ -968,22 +973,23 @@ func (names *scope) closureRootScope(owner string) *scope {
 
 func (names *scope) child() *scope {
 	return &scope{
-		module:     names.module,
-		local:      make(map[string]binding),
-		parent:     names,
-		owner:      names.owner,
-		result:     names.result,
-		resultUse:  names.resultUse,
-		methods:    names.methods,
-		self:       names.self,
-		selfID:     names.selfID,
-		function:   names.function,
-		nextID:     names.nextID,
-		flow:       names.flow,
-		generics:   names.generics,
-		registry:   names.registry,
-		moduleID:   names.moduleID,
-		logicalKey: names.logicalKey,
+		module:      names.module,
+		local:       make(map[string]binding),
+		parent:      names,
+		owner:       names.owner,
+		result:      names.result,
+		resultUse:   names.resultUse,
+		methods:     names.methods,
+		self:        names.self,
+		selfID:      names.selfID,
+		function:    names.function,
+		nextID:      names.nextID,
+		flow:        names.flow,
+		generics:    names.generics,
+		registry:    names.registry,
+		moduleID:    names.moduleID,
+		logicalKey:  names.logicalKey,
+		unsafeDepth: names.unsafeDepth,
 	}
 }
 

@@ -408,6 +408,8 @@ func (parser *Parser) statement() (Statement, error) {
 		return parser.whileStatement()
 	case parser.check(lexer.For):
 		return parser.forStatement()
+	case parser.check(lexer.Unsafe):
+		return parser.unsafeStatement()
 	case parser.check(lexer.Break):
 		return BreakStatement{Keyword: parser.advance()}, nil
 	case parser.check(lexer.Continue):
@@ -674,6 +676,7 @@ func (parser *Parser) atStatementStart() bool {
 	if parser.check(lexer.Type) || parser.check(lexer.Fun) || parser.check(lexer.Method) ||
 		parser.check(lexer.Static) || parser.check(lexer.Import) || parser.check(lexer.Export) ||
 		parser.check(lexer.If) || parser.check(lexer.While) || parser.check(lexer.For) ||
+		parser.check(lexer.Unsafe) ||
 		parser.check(lexer.Break) || parser.check(lexer.Continue) || parser.check(lexer.Return) ||
 		parser.check(lexer.Self) {
 		return true

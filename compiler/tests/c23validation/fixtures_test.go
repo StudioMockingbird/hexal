@@ -615,4 +615,86 @@ var fixtureCatalog = []fixture{
 			"print(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
+	{
+		name:       "unsafe-slice-bridge-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun total(p: Ptr<mut Int32>, count: Size): Int32 do\n" +
+			"    mut sum: Int32 := 0\n" +
+			"    unsafe do\n" +
+			"        values: Slice<Int32> := Slice<Int32>.from_pointer(p, count)\n" +
+			"        for value in values do\n" +
+			"            sum = sum + value\n" +
+			"        end\n" +
+			"    end\n" +
+			"    return sum\n" +
+			"end\n" +
+			"fun demo(h: Heap): Int32 do\n" +
+			"    p: Ptr<mut Int32> := h.allocate<Int32>(41)\n" +
+			"    defer h.free(p)\n" +
+			"    return total(p, 1)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "41"},
+	},
+	{
+		name:       "fenced-pointer-arithmetic-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n" +
+			"    block: Ptr<mut Array<Int32, 4>> := h.allocate<Array<Int32, 4>>([10, 20, 30, 40])\n" +
+			"    defer h.free(block)\n" +
+			"    unsafe do\n" +
+			"        first: Ptr<mut Int32> := block.cast<Int32>()\n" +
+			"        mut total: Int32 := 0\n" +
+			"        mut index: Size := 0\n" +
+			"        while index < 4 do\n" +
+			"            total = total + first[index]\n" +
+			"            index = index + 1\n" +
+			"        end\n" +
+			"        third: Ptr<mut Int32> := first.offset(2)\n" +
+			"        first[0] = 1\n" +
+			"        return total + (^third) + first[0]\n" +
+			"    end\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "131"},
+	},
+	{
+		name:       "aligned-allocation-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap, dynamic: Size): Int32 do\n" +
+			"    over: Ptr<mut Int32> := h.allocate_aligned<Int32>(13, 64)\n" +
+			"    defer h.free(over)\n" +
+			"    natural: Ptr<mut Int32> := h.allocate_aligned<Int32>(29, align_of<Int32>())\n" +
+			"    defer h.free(natural)\n" +
+			"    under: Ptr<mut Int32> := h.allocate_aligned<Int32>(7, 1)\n" +
+			"    defer h.free(under)\n" +
+			"    moving: Ptr<mut Int32> := h.allocate_aligned<Int32>(3, dynamic)\n" +
+			"    defer h.free(moving)\n" +
+			"    return (^over) + (^natural) + (^under) + (^moving)\n" +
+			"end\n" +
+			"print(demo(Heap(), 128))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "52"},
+	},
+	{
+		name:       "aligned-allocation-zero-alignment-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap, alignment: Size): Int32 do\n" +
+			"    p: Ptr<mut Int32> := h.allocate_aligned<Int32>(13, alignment)\n" +
+			"    defer h.free(p)\n" +
+			"    return ^p\n" +
+			"end\n" +
+			"print(demo(Heap(), 0))\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid allocation alignment"},
+	},
+	{
+		name:       "aligned-allocation-non-power-of-two-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap, alignment: Size): Int32 do\n" +
+			"    p: Ptr<mut Int32> := h.allocate_aligned<Int32>(13, alignment)\n" +
+			"    defer h.free(p)\n" +
+			"    return ^p\n" +
+			"end\n" +
+			"print(demo(Heap(), 48))\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid allocation alignment"},
+	},
 }

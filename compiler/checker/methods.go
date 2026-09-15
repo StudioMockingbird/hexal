@@ -233,6 +233,9 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
 			"cannot declare methods for imported type "+receiverSpelling(declaration.SelfType, object.Name))}
 	}
+	if diagnostic := methodReceiverCopyDiagnostic(target, declaration.Keyword); diagnostic != nil {
+		return MethodDeclaration{}, compilerTypes.Diagnostics{*diagnostic}
+	}
 	checked.Object = object
 	checked.SelfType = target
 
@@ -262,6 +265,19 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 
 	ctx.names.methods.define(&checked)
 	return checked, nil
+}
+
+// methodReceiverCopyDiagnostic rejects a receiver the language cannot deliver
+// as the value snapshot the receiver contract promises. The receiver is a
+// hidden first value parameter, so it reuses that position's own copy
+// classification rather than a method-specific approximation; the compiler
+// never silently turns one receiver into a hidden alias because copying it
+// would be invalid.
+func methodReceiverCopyDiagnostic(target compilerTypes.Type, token lexer.Token) *compilerTypes.Diagnostic {
+	if compilerTypes.Eligible(target, compilerTypes.PositionFunctionParam) {
+		return nil
+	}
+	return diagnosticAt(typeErrorAt(token, "method receiver must be shallow-copyable; got "+target.Name))
 }
 
 // checkMethodBody checks a method's body against its already-collected
@@ -490,11 +506,19 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if receiver.typ.Element != nil && !compilerTypes.IsNullable(receiver.typ) && (name == "read_volatile" || name == "write_volatile") {
 		return checkVolatileCall(call, callee, receiver, ctx)
 	}
+	// Raw address traversal and representation reinterpretation are owned by
+	// the pointer itself, ahead of the pointee's own method namespace: the
+	// receiver here is the pointer, never the object it refers to.
+	if receiver.typ.Element != nil && !compilerTypes.IsNullable(receiver.typ) && isCompilerOwnedPointerOperation(name) {
+		return checkPointerArithmeticCall(call, callee, receiver, ctx)
+	}
 	// Heap operations dispatch on the built-in receiver type.
 	if compilerTypes.IsHeap(receiver.typ) {
 		switch name {
 		case "allocate":
 			return checkHeapAllocate(call, callee, receiver, ctx)
+		case "allocate_aligned":
+			return checkHeapAllocateAligned(call, callee, receiver, ctx)
 		case "free":
 			return checkHeapFree(call, callee, receiver, ctx)
 		}

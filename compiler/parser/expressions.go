@@ -532,8 +532,8 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 			return nil, err
 		}
 	case lexer.Self:
-		// self is an ordinary receiver name to the parser. Binding it to an
-		// impl body is the checker's job.
+		// self is an ordinary receiver name to the parser. Binding it to a
+		// method body is the checker's job.
 		expression = VariableExpression{Name: parser.advance()}
 	case lexer.Identifier:
 		expression = VariableExpression{Name: parser.advance()}

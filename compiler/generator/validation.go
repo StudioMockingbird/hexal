@@ -274,6 +274,13 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			if err != nil {
 				return err
 			}
+		case checker.UnsafeStatement:
+			state.pushScope()
+			err := validateStatements(statement.Body, state, typeState)
+			state.popScope()
+			if err != nil {
+				return err
+			}
 		case checker.ErrdeferStatement:
 			if statement.Action.IsCall {
 				if statement.Action.Call == nil {
@@ -904,6 +911,23 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 			return err
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
+	case checker.HeapAllocateAlignedExpression:
+		if node.Operand == nil || len(node.Arguments) != 2 || node.Element == (compilerTypes.Type{}) || !compilerTypes.IsCompleteValue(node.Element) || node.Element.Signature != nil || !supportedGeneratedTypeWithState(node.ResultType, state) || node.ResultType.Element == nil || !compilerTypes.Equal(*node.ResultType.Element, node.Element) {
+			return unknownExpressionDiagnostic("aligned heap allocation has invalid checked metadata")
+		}
+		if !compilerTypes.Equal(node.Arguments[1].Type, compilerTypes.SizeType) {
+			return unknownExpressionDiagnostic("aligned heap allocation alignment is not a Size")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("aligned heap allocation result does not match its expected type")
+		}
+		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
+			return err
+		}
+		if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
+			return err
+		}
+		return validateCheckedOperandWithState(node.Arguments[1], state)
 	case checker.HeapFreeExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
 			return unknownExpressionDiagnostic("heap free has invalid checked metadata")
@@ -1108,6 +1132,12 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 			return err
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
+	case checker.PointerOffsetExpression:
+		return validatePointerOffset(node, expected, state)
+	case checker.PointerIndexExpression:
+		return validatePointerIndex(node, expected, state)
+	case checker.PointerCastExpression:
+		return validatePointerCast(node, expected, state)
 	case checker.SliceBridgeExpression:
 		return validateSliceBridgeExpression(node, expected, state)
 	case checker.PrintExpression:
@@ -1637,6 +1667,11 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 			return generatedPlace{}, unknownExpressionDiagnostic("place dereference result type does not match its pointee")
 		}
 		return generatedPlace{typ: *receiverType.Element, addressable: true, writable: receiverType.PointeeWritable}, nil
+	case checker.PointerIndexExpression:
+		if err := validatePointerIndex(node, nil, state); err != nil {
+			return generatedPlace{}, err
+		}
+		return generatedPlace{typ: node.ResultType, addressable: true, writable: node.OperandType.PointeeWritable}, nil
 	case checker.IndexExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place index has invalid checked metadata")

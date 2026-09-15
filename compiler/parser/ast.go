@@ -175,9 +175,9 @@ type AnonymousFunctionLiteral struct {
 
 func (AnonymousFunctionLiteral) expressionNode() {}
 
-// MethodDeclaration is a method attached to a receiver type. SelfType keeps the
-// written receiver form (Point, Ptr<Point>, Ptr<mut Point>) unresolved; the
-// checker decides whether it names a nominal object type. Exported records an
+// MethodDeclaration is a method attached to a receiver type. SelfType keeps
+// the written receiver form unresolved; the checker decides whether it names a
+// local nominal struct, which is the only valid receiver. Exported records an
 // `export` prefix.
 type MethodDeclaration struct {
 	Keyword         lexer.Token
@@ -244,6 +244,18 @@ type WhileStatement struct {
 
 func (WhileStatement) topLevelItemNode() {}
 func (WhileStatement) statementNode()    {}
+
+// UnsafeStatement is one lexical region granting permission for operations
+// whose preconditions the compiler cannot prove. It is a plain block: parsing,
+// typing, and every ordinary check still apply to its contents.
+type UnsafeStatement struct {
+	Keyword lexer.Token
+	Body    []Statement
+	End     lexer.Token
+}
+
+func (UnsafeStatement) topLevelItemNode() {}
+func (UnsafeStatement) statementNode()    {}
 
 // TryStatement discards the success value of a `try` operand: the operand
 // propagates Error from the enclosing function exactly like a try expression,

@@ -237,6 +237,20 @@ type CallStatement struct {
 
 func (CallStatement) statementNode() {}
 
+// UnsafeStatement is one checked lexical region that granted permission for
+// operations whose preconditions the compiler cannot prove. It carries no
+// runtime meaning: the generator lowers Body in source order, and BodyDefers
+// holds the actions registered inside the region, which run at its exit
+// exactly like any other block scope.
+type UnsafeStatement struct {
+	Body         []Statement
+	BodyDefers   []DeferredAction
+	SourceLine   int
+	SourceColumn int
+}
+
+func (UnsafeStatement) statementNode() {}
+
 // TryStatement discards the success value of a try operand. The
 // checked Expression is a TryExpression carrying the propagation metadata;
 // the generator hoists its prologue and emits no value use.
@@ -656,6 +670,12 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			if len(statementDiagnostics) == 0 {
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
+		case parser.UnsafeStatement:
+			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, ctx, 0)
+			diagnostics = append(diagnostics, statementDiagnostics...)
+			if len(statementDiagnostics) == 0 {
+				checked.Statements = append(checked.Statements, checkedStatement)
+			}
 		case parser.BreakStatement:
 			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, ctx, 0)
 			diagnostics = append(diagnostics, statementDiagnostics...)
@@ -767,6 +787,8 @@ func topLevelItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 		return node.Keyword, true
 	case parser.ForStatement:
 		return node.Keyword, true
+	case parser.UnsafeStatement:
+		return node.Keyword, true
 	case parser.BreakStatement:
 		return node.Keyword, true
 	case parser.ContinueStatement:
@@ -814,6 +836,8 @@ func executableItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 	case parser.WhileStatement:
 		return statement.Keyword, true
 	case parser.ForStatement:
+		return statement.Keyword, true
+	case parser.UnsafeStatement:
 		return statement.Keyword, true
 	case parser.BreakStatement:
 		return statement.Keyword, true

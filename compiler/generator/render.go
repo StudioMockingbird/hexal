@@ -236,6 +236,17 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if err := renderForStatement(body, statement, state, frame.result, frame.inFunction, indent); err != nil {
 				return err
 			}
+		case checker.UnsafeStatement:
+			// The permission region has no runtime meaning, so it emits no
+			// braces, guard, or marker of its own: the enclosed statements
+			// render at this level, in source order. Their source scope
+			// survives through the generator's own unique-name scope.
+			state.pushScope()
+			err := writeStatementsAt(body, statement.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.BodyDefers}, indent)
+			state.popScope()
+			if err != nil {
+				return err
+			}
 		case checker.BreakStatement:
 			if state.loopDepth == 0 {
 				return unknownExpressionDiagnostic("checked break outside a while loop")
@@ -314,6 +325,7 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.VolatileReadExpression, checker.VolatileWriteExpression,
 		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
+		checker.HeapAllocateAlignedExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
 		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
@@ -1043,6 +1055,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", valueErr
 		}
 		return "*(volatile " + typeSpelling(node.Element) + " *)(" + receiver + ") = " + value, nil
+	case checker.PointerOffsetExpression:
+		return renderPointerOffset(node, state)
+	case checker.PointerIndexExpression:
+		return renderPointerIndex(node, state)
+	case checker.PointerCastExpression:
+		return renderPointerCast(node, state)
 	case checker.SliceBridgeExpression:
 		return renderSliceBridgeExpression(node, state)
 	case checker.MemberExpression:
@@ -1099,6 +1117,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderUnionEquality(node, state)
 	case checker.HeapAllocateExpression:
 		return renderHeapAllocate(node, state)
+	case checker.HeapAllocateAlignedExpression:
+		return renderHeapAllocateAligned(node, state)
 	case checker.HeapFreeExpression:
 		return renderHeapFree(node, state)
 	case checker.AdtConstructExpression:
@@ -1627,7 +1647,7 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 	case checker.ConstantExpression, checker.UnaryOperationExpression, checker.BinaryOperationExpression,
 		checker.FunctionReferenceExpression, checker.NullTestExpression, checker.UnionInjectionExpression,
 		checker.UnionWidenExpression, checker.UnionTestExpression, checker.UnionPayloadExpression,
-		checker.UnionEqualityExpression, checker.HeapAllocateExpression,
+		checker.UnionEqualityExpression, checker.HeapAllocateExpression, checker.HeapAllocateAlignedExpression,
 		checker.AdtConstructExpression, checker.AdtPayloadExpression, checker.MatchExpression,
 		checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression,
 		checker.CollectionSliceExpression, checker.StringLiteralExpression, checker.StringMethodCallExpression,

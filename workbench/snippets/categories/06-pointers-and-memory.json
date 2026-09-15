@@ -56,12 +56,58 @@
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
         "    p: Ptr<mut Int32>:= h.allocate<Int32>(7)",
-        "    view: Slice<Int32>:= Slice<Int32>.from_pointer(p, 1)",
-        "    return view[0]",
+        "    unsafe do",
+        "        view: Slice<Int32>:= Slice<Int32>.from_pointer(p, 1)",
+        "        return view[0]",
+        "    end",
         "end"
       ]},
-      "features": ["pointers", "slices", "slice-pointer-bridge", "heap-allocation"],
-      "reservedWords": ["fun", "return", "end", "do"]
+      "features": ["pointers", "slices", "slice-pointer-bridge", "heap-allocation", "unsafe"],
+      "reservedWords": ["fun", "return", "end", "do", "unsafe"]
+    },
+    {
+      "id": "memory-unsafe-block",
+      "name": "Unsafe block",
+      "description": "Grant permission for operations whose preconditions only the programmer can assert.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun total(p: Ptr<mut Int32>, count: Size): Int32 do",
+        "    mut sum: Int32:= 0",
+        "    unsafe do",
+        "        bytes: Slice<Int32>:= Slice<Int32>.from_pointer(p, count)",
+        "        for value in bytes do",
+        "            sum = sum + value",
+        "        end",
+        "    end",
+        "    return sum",
+        "end",
+        "fun demo(h: Heap): Int32 do",
+        "    p: Ptr<mut Int32>:= h.allocate<Int32>(41)",
+        "    defer h.free(p)",
+        "    return total(p, 1)",
+        "end"
+      ]},
+      "features": ["unsafe", "pointers", "slices", "slice-pointer-bridge", "heap-allocation"],
+      "reservedWords": ["fun", "return", "end", "do", "for", "in", "mut", "defer", "unsafe"]
+    },
+    {
+      "id": "memory-pointer-arithmetic",
+      "name": "Pointer arithmetic",
+      "description": "Traverse and reinterpret raw addresses inside an unsafe block.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Int32 do",
+        "    block: Ptr<mut Array<Int32, 4>>:= h.allocate<Array<Int32, 4>>([10, 20, 30, 40])",
+        "    defer h.free(block)",
+        "    unsafe do",
+        "        first: Ptr<mut Int32>:= block.cast<Int32>()",
+        "        third: Ptr<mut Int32>:= first.offset(2)",
+        "        return first[1] + (^third)",
+        "    end",
+        "end"
+      ]},
+      "features": ["pointer-arithmetic", "unsafe", "pointers", "heap-allocation", "arrays"],
+      "reservedWords": ["fun", "return", "end", "do", "defer", "unsafe"]
     },
     {
       "id": "memory-opaque-pointer",
@@ -93,6 +139,23 @@
         "end"
       ]},
       "features": ["heap-allocation", "pointers"],
+      "reservedWords": ["fun", "defer", "return", "end", "do"]
+    },
+    {
+      "id": "memory-heap-aligned",
+      "name": "Aligned heap allocation",
+      "description": "Allocate an over-aligned heap object and release it normally.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun demo(h: Heap): Int32 do",
+        "    p: Ptr<mut Int32>:= h.allocate_aligned<Int32>(13, 64)",
+        "    defer h.free(p)",
+        "    natural: Ptr<mut Int32>:= h.allocate_aligned<Int32>(29, align_of<Int32>())",
+        "    defer h.free(natural)",
+        "    return ^p + ^natural",
+        "end"
+      ]},
+      "features": ["aligned-allocation", "heap-allocation", "pointers", "layout"],
       "reservedWords": ["fun", "defer", "return", "end", "do"]
     },
     {

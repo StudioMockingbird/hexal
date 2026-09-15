@@ -151,7 +151,7 @@ func TestSliceReturnRules(t *testing.T) {
 	accepted := []string{
 		"fun empty_demo(): Slice<Int32> do\n    return Slice<Int32>.empty()\nend\n",
 		"type Packet is struct bytes: String end\nfun payload(packet: Ptr<Packet>): Slice<Byte> do\n    return packet.bytes.slice(0, 4)\nend\n",
-		"fun adopt(pointer: Ptr<Int32>, count: Size): Slice<Int32> do\n    return Slice<Int32>.from_pointer(pointer, count)\nend\n",
+		"fun adopt(pointer: Ptr<Int32>, count: Size): Slice<Int32> do\n    unsafe do\n        return Slice<Int32>.from_pointer(pointer, count)\n    end\nend\n",
 		"fun slice_of_param(xs: List<Int32>): Slice<Int32> do\n    return xs.slice(0, 1)\nend\n",
 		"fun head(): Slice<Int32> do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
 		"fun head(): Slice<Int32> do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    view: Slice<Int32> := fixed.slice(0, 2)\n    return view\nend\n",
@@ -177,7 +177,7 @@ func TestNestedSliceReturnsAreAccepted(t *testing.T) {
 		"type Window is struct visible: Slice<Int32> end\nfun ok(v: Slice<Int32>): Window do\n    return Window(visible = v)\nend\n",
 		"type Window is struct visible: Slice<Int32> end\nfun ok(v: Slice<Int32>): Window do\n    tmp := Window(visible = v)\n    return tmp\nend\n",
 		"type Window is struct visible: Slice<Int32> end\nfun ok(): Window do\n    return Window(visible = Slice<Int32>.empty())\nend\n",
-		"type Window is struct visible: Slice<Int32> end\nfun ok(p: Ptr<Int32>, n: Size): Window do\n    return Window(visible = Slice<Int32>.from_pointer(p, n))\nend\n",
+		"type Window is struct visible: Slice<Int32> end\nfun ok(p: Ptr<Int32>, n: Size): Window do\n    unsafe do\n        return Window(visible = Slice<Int32>.from_pointer(p, n))\n    end\nend\n",
 		"fun keep(h: Heap): List<Int32> do\n    values: List<Int32> := List<Int32>(h)\n    return values\nend\n",
 		"fun head(): Slice<Int32> do\n    fixed: Array<Int32, 4> := [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
 	}
@@ -296,10 +296,10 @@ func TestSliceFromPointerModes(t *testing.T) {
 		source string
 		accept bool
 	}{
-		{"read from read", "fun wrap(p: Ptr<Int32>, n: Size): Slice<Int32> do\n    return Slice<Int32>.from_pointer(p, n)\nend\n", true},
-		{"read from write", "fun wrap(p: Ptr<mut Int32>, n: Size): Slice<Int32> do\n    return Slice<Int32>.from_pointer(p, n)\nend\n", true},
-		{"write from write", "fun wrap(p: Ptr<mut Int32>, n: Size): Slice<mut Int32> do\n    return Slice<mut Int32>.from_pointer(p, n)\nend\n", true},
-		{"write from read", "fun wrap(p: Ptr<Int32>, n: Size): Slice<mut Int32> do\n    return Slice<mut Int32>.from_pointer(p, n)\nend\n", false},
+		{"read from read", "fun wrap(p: Ptr<Int32>, n: Size): Slice<Int32> do\n    unsafe do\n        return Slice<Int32>.from_pointer(p, n)\n    end\nend\n", true},
+		{"read from write", "fun wrap(p: Ptr<mut Int32>, n: Size): Slice<Int32> do\n    unsafe do\n        return Slice<Int32>.from_pointer(p, n)\n    end\nend\n", true},
+		{"write from write", "fun wrap(p: Ptr<mut Int32>, n: Size): Slice<mut Int32> do\n    unsafe do\n        return Slice<mut Int32>.from_pointer(p, n)\n    end\nend\n", true},
+		{"write from read", "fun wrap(p: Ptr<Int32>, n: Size): Slice<mut Int32> do\n    unsafe do\n        return Slice<mut Int32>.from_pointer(p, n)\n    end\nend\n", false},
 		{"empty mutable", "fun demo(): Slice<mut Int32> do\n    return Slice<mut Int32>.empty()\nend\n", true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

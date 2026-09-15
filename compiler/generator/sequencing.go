@@ -80,7 +80,7 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
-		checker.HeapAllocateExpression, checker.HeapFreeExpression, checker.VolatileWriteExpression,
+		checker.HeapAllocateExpression, checker.HeapAllocateAlignedExpression, checker.HeapFreeExpression, checker.VolatileWriteExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
 		checker.NetworkExpression,
 		checker.MatchExpression:
@@ -367,10 +367,12 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 	switch node.Kind {
 	case checker.CallExpression:
 		return hoistReceiverAndOperandsSequence(node.Operand, node.OperandType, node.Arguments, body, state, indent)
-	case checker.IndexExpression, checker.VolatileWriteExpression:
-		// Both render their receiver through the plain renderReceiver path
-		// (verified against arrays.go and render.go) and combine it with
-		// exactly one argument in one C expression.
+	case checker.IndexExpression, checker.VolatileWriteExpression,
+		checker.PointerOffsetExpression, checker.PointerIndexExpression:
+		// All four render their receiver through the plain renderReceiver
+		// path (verified against arrays.go, render.go, and
+		// pointer_arithmetic.go) and combine it with exactly one argument in
+		// one C expression, which C does not sequence on its own.
 		if node.Operand == nil || len(node.Arguments) == 0 {
 			return nil
 		}
@@ -389,6 +391,14 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 		if node.Operand == nil {
 			return hoistOperandSequence(node.Arguments, body, state, indent)
 		}
+		return hoistReceiverAndOperandsSequence(node.Operand, node.OperandType, node.Arguments, body, state, indent)
+	case checker.HeapAllocateAlignedExpression:
+		// The typed helper takes the Heap token, the initializer, and the
+		// requested alignment in one C call, which sequences none of them
+		// against each other; renderHeapAllocateAligned consults
+		// hoistedSequencing for all three. The ordering matters: the
+		// initializer must be fully evaluated before an invalid dynamic
+		// alignment traps inside the helper.
 		return hoistReceiverAndOperandsSequence(node.Operand, node.OperandType, node.Arguments, body, state, indent)
 	case checker.TimeExpression:
 		// Every time operand, receiver included, lands in one C expression.
@@ -574,7 +584,7 @@ func hoistEvaluationOrderInStatement(statement checker.Statement, body *strings.
 	case checker.WhileStatement:
 		return hoistSequencingInExpression(&statement.Condition.Node, body, state, indent)
 	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration,
-		checker.MethodDeclaration:
+		checker.MethodDeclaration, checker.UnsafeStatement:
 		return nil
 	default:
 		return unknownExpressionDiagnostic("unsupported checked statement")
