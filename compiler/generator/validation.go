@@ -274,6 +274,13 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			if err != nil {
 				return err
 			}
+		case checker.UnsafeStatement:
+			state.pushScope()
+			err := validateStatements(statement.Body, state, typeState)
+			state.popScope()
+			if err != nil {
+				return err
+			}
 		case checker.ErrdeferStatement:
 			if statement.Action.IsCall {
 				if statement.Action.Call == nil {

@@ -64,6 +64,12 @@ func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 		if !assignable(compilerTypes.SizeType, length.typ) {
 			return checkedExpression{token: length.token, diagnostic: diagnosticAt(typeErrorAt(length.token, "Slice length cannot be represented as Size"))}
 		}
+		// The region's length, lifetime, alignment, initialization, and
+		// provenance are the caller's assertion; every check above is the part
+		// the compiler can still prove and runs first.
+		if diagnostic := requireUnsafe(ctx, property, unsafeSliceFromPointer); diagnostic != nil {
+			return checkedExpression{token: property, diagnostic: diagnostic}
+		}
 		node := Expression{Kind: SliceBridgeExpression, Name: "from_pointer", Arguments: []Operand{pointer.source, length.source}, OperandType: slice, ResultType: slice, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: slice, Name: "from_pointer", Node: node}
 		return checkedExpression{source: source, typ: slice, token: property}

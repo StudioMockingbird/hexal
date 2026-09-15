@@ -245,6 +245,18 @@ type WhileStatement struct {
 func (WhileStatement) topLevelItemNode() {}
 func (WhileStatement) statementNode()    {}
 
+// UnsafeStatement is one lexical region granting permission for operations
+// whose preconditions the compiler cannot prove. It is a plain block: parsing,
+// typing, and every ordinary check still apply to its contents.
+type UnsafeStatement struct {
+	Keyword lexer.Token
+	Body    []Statement
+	End     lexer.Token
+}
+
+func (UnsafeStatement) topLevelItemNode() {}
+func (UnsafeStatement) statementNode()    {}
+
 // TryStatement discards the success value of a `try` operand: the operand
 // propagates Error from the enclosing function exactly like a try expression,
 // and the normalized success value is unused.

@@ -417,6 +417,24 @@ func (parser *Parser) ifStatement() (IfStatement, error) {
 	}, nil
 }
 
+// unsafeStatement parses `unsafe do ... end`. It reuses the shared block
+// production, so recovery and nesting behave exactly like every other block.
+func (parser *Parser) unsafeStatement() (UnsafeStatement, error) {
+	keyword := parser.advance()
+	if _, err := parser.consume(lexer.Do, "'do' after 'unsafe'"); err != nil {
+		return UnsafeStatement{}, err
+	}
+	body, err := parser.block("unsafe", lexer.End)
+	if err != nil {
+		return UnsafeStatement{}, err
+	}
+	end, err := parser.consume(lexer.End, "'end' to close unsafe block")
+	if err != nil {
+		return UnsafeStatement{}, err
+	}
+	return UnsafeStatement{Keyword: keyword, Body: body, End: end}, nil
+}
+
 func (parser *Parser) whileStatement() (WhileStatement, error) {
 	keyword := parser.advance()
 	condition, err := parser.condition("while")

@@ -89,6 +89,8 @@ func (scanner *starvationScanner) scanStatement(statement Statement) {
 	case ForStatement:
 		scanner.scanOperand(statement.Source)
 		scanner.scanStatements(statement.Body)
+	case UnsafeStatement:
+		scanner.scanStatements(statement.Body)
 	case ReturnStatement:
 		if statement.Value != nil {
 			scanner.scanOperand(*statement.Value)
@@ -179,6 +181,8 @@ func (scanner *starvationScanner) diagnoseStatements(statements []Statement) {
 			scanner.diagnoseStatements(statement.Else)
 		case ForStatement:
 			scanner.diagnoseStatements(statement.Body)
+		case UnsafeStatement:
+			scanner.diagnoseStatements(statement.Body)
 		case CallStatement:
 			if name := directCallName(statement.Call); name != "" {
 				if body, ok := scanner.byName[name]; ok {
@@ -235,6 +239,10 @@ func loopMayRepeatWithoutYield(body []Statement) bool {
 			}
 			// No else: the skip path arrives with the pre-if state, which
 			// branchMayRepeatWithoutYield already folded into bad above.
+		case UnsafeStatement:
+			// A lexical permission region is a plain linear sequence; its
+			// arrival state folds exactly like a single-branch body.
+			bad = branchMayRepeatWithoutYield(statement.Body, bad)
 		case WhileStatement:
 			if !loopFallsThrough(statement) {
 				bad = false // nested loop never returns; the path stops here
@@ -273,6 +281,8 @@ func branchMayRepeatWithoutYield(body []Statement, incoming bool) bool {
 			if len(statement.Else) > 0 {
 				bad = branchMayRepeatWithoutYield(statement.Else, bad)
 			}
+		case UnsafeStatement:
+			bad = branchMayRepeatWithoutYield(statement.Body, bad)
 		case WhileStatement:
 			if !loopFallsThrough(statement) {
 				bad = false
@@ -315,6 +325,10 @@ func loopContainsDirectBreak(body []Statement) bool {
 			return true
 		case WhileStatement:
 			// A nested loop's breaks target the nested loop, not this one.
+		case UnsafeStatement:
+			if loopContainsDirectBreak(statement.Body) {
+				return true
+			}
 		case IfStatement:
 			if loopContainsDirectBreak(statement.Then) {
 				return true

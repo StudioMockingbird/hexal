@@ -56,12 +56,39 @@
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
         "    p: Ptr<mut Int32>:= h.allocate<Int32>(7)",
-        "    view: Slice<Int32>:= Slice<Int32>.from_pointer(p, 1)",
-        "    return view[0]",
+        "    unsafe do",
+        "        view: Slice<Int32>:= Slice<Int32>.from_pointer(p, 1)",
+        "        return view[0]",
+        "    end",
         "end"
       ]},
-      "features": ["pointers", "slices", "slice-pointer-bridge", "heap-allocation"],
-      "reservedWords": ["fun", "return", "end", "do"]
+      "features": ["pointers", "slices", "slice-pointer-bridge", "heap-allocation", "unsafe"],
+      "reservedWords": ["fun", "return", "end", "do", "unsafe"]
+    },
+    {
+      "id": "memory-unsafe-block",
+      "name": "Unsafe block",
+      "description": "Grant permission for operations whose preconditions only the programmer can assert.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun total(p: Ptr<mut Int32>, count: Size): Int32 do",
+        "    mut sum: Int32:= 0",
+        "    unsafe do",
+        "        bytes: Slice<Int32>:= Slice<Int32>.from_pointer(p, count)",
+        "        for value in bytes do",
+        "            sum = sum + value",
+        "        end",
+        "    end",
+        "    return sum",
+        "end",
+        "fun demo(h: Heap): Int32 do",
+        "    p: Ptr<mut Int32>:= h.allocate<Int32>(41)",
+        "    defer h.free(p)",
+        "    return total(p, 1)",
+        "end"
+      ]},
+      "features": ["unsafe", "pointers", "slices", "slice-pointer-bridge", "heap-allocation"],
+      "reservedWords": ["fun", "return", "end", "do", "for", "in", "mut", "defer", "unsafe"]
     },
     {
       "id": "memory-opaque-pointer",

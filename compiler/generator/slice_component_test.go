@@ -10,7 +10,7 @@ import (
 // hexal.h include, and exactly one trailing newline; the owning module
 // header includes the component.
 func TestSliceComponentEmitsReachableSpecializationsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(data: Ptr<UInt8>) do\n    first: Slice<Int32> := Slice<Int32>.empty()\n    second: Slice<UInt8> := Slice<UInt8>.from_pointer(data, 0)\nend")
+	program := checkedGeneratorSource(t, "fun demo(data: Ptr<UInt8>) do\n    first: Slice<Int32> := Slice<Int32>.empty()\n    unsafe do\n        second: Slice<UInt8> := Slice<UInt8>.from_pointer(data, 0)\n    end\nend")
 	files := generateOne(t, program)
 	viewH := files["hexal/slice.h"]
 	if viewH == "" {

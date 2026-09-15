@@ -55,7 +55,7 @@ var RequiredReservedWords = []string{
 	"true", "false", "nil", "eos", "mut", "@", "type", "and", "or", "is",
 	"fun", "struct", "union", "method", "end", "return", "if", "elseif", "else", "while", "break",
 	"continue", "defer", "try", "errdefer", "spawn", "as", "match", "then",
-	"self", "for", "in", "do", "import", "export", "static",
+	"self", "for", "in", "do", "import", "export", "static", "unsafe",
 }
 
 // RequiredFeatures is the workbench's explicit feature-coverage contract.
@@ -69,6 +69,7 @@ var RequiredFeatures = []string{
 	"try-errdefer", "heap-allocation", "arrays", "slices", "slice-pointer-bridge",
 	"lists", "dicts", "text", "print", "tasks",
 	"channels", "mutex", "atomics", "layout", "volatile", "unknown-pointers", "modules", "exports", "streams", "files", "time",
+	"unsafe",
 }
 
 // Load returns the embedded category files in lexical filename order.

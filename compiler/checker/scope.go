@@ -47,6 +47,11 @@ type scope struct {
 	defers       []DeferredAction
 	returnFlows  []returnFlow // states and active actions reaching a return
 	cleanupDepth int          // checking a defer or errdefer action
+	// unsafeDepth counts the lexical unsafe regions enclosing this frame. It
+	// is inherited by every nested block frame and deliberately not by a
+	// function-body frame: the permission is lexical and never travels
+	// through a call.
+	unsafeDepth int
 	// registry is the compilation's module graph: it resolves import aliases
 	// against the target modules' exported records.
 	// It is shared by reference with every child scope.
@@ -968,22 +973,23 @@ func (names *scope) closureRootScope(owner string) *scope {
 
 func (names *scope) child() *scope {
 	return &scope{
-		module:     names.module,
-		local:      make(map[string]binding),
-		parent:     names,
-		owner:      names.owner,
-		result:     names.result,
-		resultUse:  names.resultUse,
-		methods:    names.methods,
-		self:       names.self,
-		selfID:     names.selfID,
-		function:   names.function,
-		nextID:     names.nextID,
-		flow:       names.flow,
-		generics:   names.generics,
-		registry:   names.registry,
-		moduleID:   names.moduleID,
-		logicalKey: names.logicalKey,
+		module:      names.module,
+		local:       make(map[string]binding),
+		parent:      names,
+		owner:       names.owner,
+		result:      names.result,
+		resultUse:   names.resultUse,
+		methods:     names.methods,
+		self:        names.self,
+		selfID:      names.selfID,
+		function:    names.function,
+		nextID:      names.nextID,
+		flow:        names.flow,
+		generics:    names.generics,
+		registry:    names.registry,
+		moduleID:    names.moduleID,
+		logicalKey:  names.logicalKey,
+		unsafeDepth: names.unsafeDepth,
 	}
 }
 

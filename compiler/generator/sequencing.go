@@ -574,7 +574,7 @@ func hoistEvaluationOrderInStatement(statement checker.Statement, body *strings.
 	case checker.WhileStatement:
 		return hoistSequencingInExpression(&statement.Condition.Node, body, state, indent)
 	case checker.BreakStatement, checker.ContinueStatement, checker.FunctionDeclaration,
-		checker.MethodDeclaration:
+		checker.MethodDeclaration, checker.UnsafeStatement:
 		return nil
 	default:
 		return unknownExpressionDiagnostic("unsupported checked statement")

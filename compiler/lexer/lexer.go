@@ -220,6 +220,7 @@ const (
 	Static
 	Import
 	Export
+	Unsafe
 	ModulePathLiteral
 	// ColonEqual is one token, not Colon followed by Equal, so `x : = 5`
 	// stays a syntax error.
@@ -265,6 +266,7 @@ var keywords = map[string]TokenKind{
 	"static":   Static,
 	"import":   Import,
 	"export":   Export,
+	"unsafe":   Unsafe,
 }
 
 // String returns the readable name used in parser diagnostics.
@@ -422,6 +424,8 @@ func (kind TokenKind) String() string {
 		return "import"
 	case Export:
 		return "export"
+	case Unsafe:
+		return "unsafe"
 	case ModulePathLiteral:
 		return "module path literal"
 	case EOF:

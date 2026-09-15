@@ -615,4 +615,25 @@ var fixtureCatalog = []fixture{
 			"print(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
+	{
+		name:       "unsafe-slice-bridge-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun total(p: Ptr<mut Int32>, count: Size): Int32 do\n" +
+			"    mut sum: Int32 := 0\n" +
+			"    unsafe do\n" +
+			"        values: Slice<Int32> := Slice<Int32>.from_pointer(p, count)\n" +
+			"        for value in values do\n" +
+			"            sum = sum + value\n" +
+			"        end\n" +
+			"    end\n" +
+			"    return sum\n" +
+			"end\n" +
+			"fun demo(h: Heap): Int32 do\n" +
+			"    p: Ptr<mut Int32> := h.allocate<Int32>(41)\n" +
+			"    defer h.free(p)\n" +
+			"    return total(p, 1)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "41"},
+	},
 }

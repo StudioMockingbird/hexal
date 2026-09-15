@@ -236,6 +236,17 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if err := renderForStatement(body, statement, state, frame.result, frame.inFunction, indent); err != nil {
 				return err
 			}
+		case checker.UnsafeStatement:
+			// The permission region has no runtime meaning, so it emits no
+			// braces, guard, or marker of its own: the enclosed statements
+			// render at this level, in source order. Their source scope
+			// survives through the generator's own unique-name scope.
+			state.pushScope()
+			err := writeStatementsAt(body, statement.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.BodyDefers}, indent)
+			state.popScope()
+			if err != nil {
+				return err
+			}
 		case checker.BreakStatement:
 			if state.loopDepth == 0 {
 				return unknownExpressionDiagnostic("checked break outside a while loop")
