@@ -14,6 +14,7 @@ gets deleted.
 | Work | Spec |
 | --- | --- |
 | Repair qualified generic types and defining-module specialization of exported generics | [0190](specs/0190-cross-module-generic-correctness.md) |
+| Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | [0039](specs/0039-c-interop-compiler-core.md) |
 
 ### Coordination umbrella; not independently executable
 
@@ -25,7 +26,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Expand tagged generated-C coverage to every reachable stable runtime-trap family | [0183](specs/0183-compiler-runtime-completion.md) |
 | Add executable UBSan coverage across the runnable generated-C fixture catalog | [0183](specs/0183-compiler-runtime-completion.md) |
 | Replace wholesale helper-family emission with deterministic demand-driven emission | [0183](specs/0183-compiler-runtime-completion.md) |
 | Compile, link, and run representative generated programs on every target before claiming that target as supported | [0183](specs/0183-compiler-runtime-completion.md) |
@@ -34,9 +34,8 @@ gets deleted.
 
 | Work | Blocked by | Spec |
 | --- | --- | --- |
-| Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | Open identity and handwritten-ABI decisions | [0039](specs/0039-c-interop-compiler-core.md) |
-| Compile and link command-line-supplied C sources, objects, archives, and system libraries | RFC 0039 plus open environment, argument-fence, and build-identity decisions | [0192](specs/0192-command-line-c-build-inputs.md) |
-| Automatically generate typed binding modules for reachable C-header imports | RFC 0039, RFC 0192, and open frontend/header-ownership/name/cost decisions | [0193](specs/0193-automatic-c-header-bindings.md) |
+| Compile and link command-line-supplied C sources, objects, archives, and system libraries | RFC 0039 | [0192](specs/0192-command-line-c-build-inputs.md) |
+| Automatically generate typed binding modules for reachable C-header imports | RFC 0039 and RFC 0192 | [0193](specs/0193-automatic-c-header-bindings.md) |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0039, RFC 0192, and RFC 0193 | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 | Establish the standard-library module boundary and migrate compiler-owned capability namespaces | RFC 0190 | [0186](specs/0186-standard-library-boundary.md) |
 | Program entry and exit: immutable process arguments, UInt8 root return status, cleanup ordering, and target entry ABI | RFC 0186 | [0182](specs/0182-program-entry-and-exit.md) |
@@ -94,31 +93,40 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   layering conflict for their own element collections and are not fixed here. Exercised end to end
   -- a real subscription racing a concurrent `close()` against a parked `next()` -- by the tagged
   C23 suite (`signals-subscribe-compiles`, `signals-close-wakes-waiter-runs`).
-- **Runtime traps are verified for a curated dozen, not the full derived
-  inventory.** `compiler/tests/c23validation` now runs a real, tagged
-  (`go test -tags c23`) suite: `TestC23Suite` compiles every fixture under
-  GCC, Clang, and `zig cc`, runs the ones with a zero-exit expectation and
-  asserts their exact stdout, and runs the ones with a non-zero expectation
-  and asserts their exact `[Runtime Error]` stderr text. It currently covers
-  division/remainder-by-zero, conversion overflow, empty-list pop, missing
-  Dict key, list/array index-out-of-bounds, array/list/string slice bounds,
-  malformed UTF-8, and RuneCursor exhaustion, plus exact-output coverage for
-  List/Dict/String round-trips, `print`'s output forms and evaluation order,
-  `try`/`errdefer`/`defer` unwind ordering, float-to-integer truncation,
-  signed-MIN overflow wrapping, text/Strand/RuneCursor conformance, and
-   `Atomic<T>`'s full operation set, plus exact-output coverage for root yield
-   (single and repeated), spawn/join, Channel send/receive/close, Mutex
-   contention, and root completion with no child, joined children, and a
-   detached CPU child. `TestC23SnippetCatalogCompiles` separately
-   Tier-1-compiles every workbench snippet under all three toolchains with no
-   hand-listed fixture per snippet. What remains unverified:
-  the rest of `reference.md`'s trap inventory (shift count, close failure,
-  Mutex misuse, task stack overflow, and others) has no fixture yet, and
-  `print`'s output forms are not exhaustive over every printable type. The
-  UBSan execution over every runnable host fixture does not exist yet and is
-  owned by RFC 0183. ASan remains separately deferred under RFC 0185 because
-  the installed Windows Zig backend cannot link its runtime and Task fibers
-  lack sanitizer switch annotations.
+- **Every `[Runtime Error]` literal the generator can emit now carries a
+  checked disposition; four are verified only by inspection, not
+  execution.** `compiler/tests/c23validation/trap_inventory_test.go` derives
+  every distinct `[Runtime Error] ...` literal directly from the production
+  tree (the embedded `compiler/generator/packages` templates plus the
+  non-test Go source under `compiler/generator`) and requires each one to
+  carry exactly one of three dispositions: `executable` (an exact fixture
+  exists and is cross-checked to exist by
+  `TestTrapInventoryExecutableFixturesExist`), `structural` (unreachable from
+  any checker-accepted program, verified by inspection rather than
+  execution), or `nondeterministic` (real but not reliably reachable inside
+  a bounded process timeout). `TestTrapInventoryIsFullyClassified` fails the
+  moment a new trap literal appears anywhere in the generator without a
+  disposition, so this stays in sync automatically. Every `executable`
+  literal now has a real tagged fixture, including the previously-unverified
+  Pool family (exhaustion, destroy-with-live-slots, double-free, foreign
+  pointer, non-positive capacity), Mutex misuse (recursive lock, unlock by a
+  non-owner, free while locked), Channel free-not-closed, Task
+  already-joined-or-detached, Duration/Instant overflow and underflow, sleep
+  duration too large, close of a borrowed stream, `Slice` index and slice
+  bounds, `List` modified during iteration, and Task stack overflow. Four
+  literals remain `structural`/`nondeterministic` rather than `executable`,
+  each with its reasoning recorded in `trapLedger`: `cannot join the current
+  task` (no `Task.current()`/self-reference API exists, so no
+  checker-accepted program can pass a task its own handle), `channel free
+  while tasks are blocked on it` (requires winning a race narrower than any
+  synchronization primitive can deterministically arrange), and `dictionary
+  capacity is not representable` / `list capacity is not representable`
+  (require holding close to 2^63 entries). `print`'s output forms are still
+  not exhaustive over every printable type. UBSan execution over every
+  runnable host fixture does not exist yet and is owned by RFC 0183. ASan
+  remains separately deferred under RFC 0185 because the installed Windows
+  Zig backend cannot link its runtime and Task fibers lack sanitizer switch
+  annotations.
 - **Compiling real generated C surfaced multiple generator defects across the
   snippet catalog.** Every failure reproduced so far is now fixed and
   re-verified compiling clean under all three toolchains, most recently (RFC

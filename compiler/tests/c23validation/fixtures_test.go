@@ -297,6 +297,158 @@ var fixtureCatalog = []fixture{
 		sources:     map[string]string{"app.hex": "fun cleanup(h: Heap, text: String) do\n    text.free(h)\nend\ncleanup(Heap(), \"hello\")\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] cannot free a String literal"},
 	},
+	{
+		name:        "slice-index-out-of-bounds-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo() do\n    fixed: Array<Int32, 2> := [1, 2]\n    view: Slice<Int32> := fixed.slice(0, 2)\n    out: Int32 := view[5]\n    print(out)\nend\ndemo()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] slice index out of bounds"},
+	},
+	{
+		name:        "slice-slice-bounds-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo() do\n    fixed: Array<Int32, 2> := [1, 2]\n    view: Slice<Int32> := fixed.slice(0, 2)\n    bad: Slice<Int32> := view.slice(0, 5)\n    print(bad.length())\nend\ndemo()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] slice slice bounds out of range"},
+	},
+	{
+		// Same-variable mutation inside its own for-in loop is a compile-time
+		// Type Error ("cannot mutate collection during iteration"), so the
+		// runtime version-check trap needs a mutation the checker cannot
+		// trace statically: the List lives behind a struct field, reached
+		// through a pointer passed to a second function.
+		name:       "collection-modified-during-iteration-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Holder is struct values: List<Int32> end\n" +
+			"fun push_one(h: Ptr<mut Holder>) do\n    h.values.push(3)\nend\n" +
+			"fun demo(heap: Heap) do\n    mut holder: Holder := Holder(values = List<Int32>(heap))\n    defer holder.values.free(heap)\n    holder.values.push(1)\n    holder.values.push(2)\n    for value in holder.values do\n        push_one(@holder)\n    end\nend\ndemo(Heap())\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] collection modified during iteration"},
+	},
+	{
+		name:        "duration-overflow-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo() do\n    d: Duration := Duration.seconds(18446744073709551615)\n    print(d.as_nanoseconds())\nend\ndemo()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] duration overflow"},
+	},
+	{
+		name:        "duration-underflow-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo() do\n    small: Duration := Duration.seconds(1)\n    large: Duration := Duration.seconds(2)\n    diff: Duration := small - large\n    print(diff.as_seconds())\nend\ndemo()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] duration underflow"},
+	},
+	{
+		// duration_since is receiver-minus-argument ("later since earlier");
+		// calling it with the chronologically earlier reading as the
+		// receiver reverses the two and forces the underflow check.
+		name:        "instant-subtraction-underflow-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo() do\n    first: Instant := Instant.now()\n    mut i: Int32 := 0\n    while i < 1000000 do\n        i = i + 1\n    end\n    second: Instant := Instant.now()\n    diff: Duration := first.duration_since(second)\n    print(diff.as_nanoseconds())\nend\ndemo()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid instant subtraction"},
+	},
+	{
+		name:        "sleep-duration-too-large-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo() do\n    Task.sleep(Duration.seconds(10000000000))\nend\ndemo()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] sleep duration too large"},
+	},
+	{
+		name:        "channel-free-not-closed-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Nil | Error do\n    ch: Channel<Int32> := try Channel<Int32>(h, 4)\n    ch.free(h)\n    return nil\nend\nout: Nil | Error := demo(Heap())\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] channel free requires a closed, empty channel"},
+	},
+	{
+		name:        "mutex-recursive-lock-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Nil | Error do\n    m: Mutex := try Mutex(h)\n    m.lock()\n    m.lock()\n    return nil\nend\nout: Nil | Error := demo(Heap())\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] recursive mutex lock"},
+	},
+	{
+		// A never-unlocked mutex leaves a second Task the non-owner when it
+		// calls unlock, forcing the ownership check rather than an
+		// unrelated already-unlocked state.
+		name:       "mutex-unlock-by-non-owner-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun locker(m: Mutex): Bool do\n    m.lock()\n    return true\nend\n" +
+			"fun unlocker(m: Mutex): Bool do\n    m.unlock()\n    return true\nend\n" +
+			"fun run(): Bool | Error do\n    h: Heap := Heap()\n    m: Mutex := try Mutex(h)\n    t1: Task<Bool> := try spawn locker(m)\n    t1.join()\n    t2: Task<Bool> := try spawn unlocker(m)\n    t2.join()\n    return true\nend\nout: Bool | Error := run()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] mutex unlock by a non-owner"},
+	},
+	{
+		name:        "mutex-free-while-locked-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Nil | Error do\n    m: Mutex := try Mutex(h)\n    m.lock()\n    m.free(h)\n    return nil\nend\nout: Nil | Error := demo(Heap())\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] mutex free while locked or awaited"},
+	},
+	{
+		// join's generated wrapper releases the target task immediately
+		// after a successful join, so joining the same handle twice is a
+		// use-after-free, not this trap. detach on a task that has not yet
+		// run (spawn returns before the cooperative scheduler ever switches
+		// to it) claims it without releasing, so a join right after
+		// deterministically finds the claim already taken.
+		name:        "join-already-joined-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun worker(): Bool do\n    return true\nend\nfun run(): Bool | Error do\n    t: Task<Bool> := try spawn worker()\n    t.detach()\n    t.join()\n    return true\nend\nout: Bool | Error := run()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] Task already joined or detached"},
+	},
+	{
+		name:        "close-borrowed-stream-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo(): Nil | Error do\n    stream: IO := try IO.stdout()\n    try stream.close()\n    return nil\nend\nout: Nil | Error := demo()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] close of a borrowed stream"},
+	},
+	{
+		name:        "pool-exhausted-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo() do\n    pool: Pool<Int32> := Pool<Int32>(2)\n    a: Ptr<mut Int32> := pool.allocate(1)\n    b: Ptr<mut Int32> := pool.allocate(2)\n    c: Ptr<mut Int32> := pool.allocate(3)\nend\ndemo()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] pool exhausted"},
+	},
+	{
+		// The checker statically rejects destroying a pool while a slot
+		// allocated IN THE SAME FUNCTION remains outstanding, so the
+		// allocation is pushed behind a second function the destroying
+		// function's own analysis cannot see into.
+		name:       "pool-destroy-with-live-slots-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun alloc_one(pool: Pool<Int32>): Ptr<mut Int32> do\n    return pool.allocate(1)\nend\n" +
+			"fun run() do\n    mut pool: Pool<Int32> := Pool<Int32>(2)\n    a: Ptr<mut Int32> := alloc_one(pool)\n    pool.destroy()\nend\nrun()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] pool destroy with live slots"},
+	},
+	{
+		name:       "pool-double-free-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun release_twice(pool: Pool<Int32>, p: Ptr<mut Int32>) do\n    pool.free(p)\nend\n" +
+			"fun run() do\n    pool: Pool<Int32> := Pool<Int32>(2)\n    a: Ptr<mut Int32> := pool.allocate(1)\n    release_twice(pool, a)\n    release_twice(pool, a)\nend\nrun()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] pool slot is not live"},
+	},
+	{
+		name:       "pool-foreign-pointer-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun free_from_other(other: Pool<Int32>, p: Ptr<mut Int32>) do\n    other.free(p)\nend\n" +
+			"fun run() do\n    first: Pool<Int32> := Pool<Int32>(2)\n    second: Pool<Int32> := Pool<Int32>(2)\n    a: Ptr<mut Int32> := first.allocate(1)\n    free_from_other(second, a)\nend\nrun()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] pointer does not name a slot in this pool"},
+	},
+	{
+		name:        "pool-non-positive-capacity-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun demo(capacity: Size) do\n    pool: Pool<Int32> := Pool<Int32>(capacity)\nend\ndemo(0)\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] pool capacity must be positive"},
+	},
+	{
+		// Runs on a spawned Task's bounded fiber stack so the guard page is
+		// reached (after far fewer than 2_000_000_000 frames) long before
+		// the loop condition would ever end it on its own; the conditional
+		// base case keeps GCC/Clang's infinite-recursion analysis from
+		// rejecting the function outright, and the trailing "+ 1" after the
+		// recursive call keeps every frame live, so no optimization level
+		// turns this into a tail call.
+		name:       "task-stack-overflow-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun recurse(n: Int32): Int32 do\n    if n < 2000000000 then\n        return recurse(n + 1) + 1\n    end\n    return n\nend\n" +
+			"fun worker(): Int32 do\n    return recurse(0)\nend\n" +
+			"fun run(): Int32 | Error do\n    t: Task<Int32> := try spawn worker()\n    return t.join()\nend\n" +
+			"fun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        -1\n    end\n    return value\nend\nprint(demo())\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] task stack overflow"},
+	},
 
 	// Concurrency runs on the M:N scheduler over native platform threads.
 	// The root-yield fixtures double as root completion with no spawned
