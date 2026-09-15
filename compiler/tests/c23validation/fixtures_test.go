@@ -67,6 +67,86 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:       "dict-removal-preserves-collision-chain-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n" +
+			"    defer scores.free(h)\n" +
+			"    scores.insert(12, 100)\n" +
+			"    scores.insert(17, 200)\n" +
+			"    scores.insert(35, 300)\n" +
+			"    removedMiddle: Int32 := scores.remove(17)\n" +
+			"    afterMiddle: Bool := scores.contains(12) and scores.contains(35) and !scores.contains(17) and (scores.get(12) == 100) and (scores.get(35) == 300)\n" +
+			"    removedHead: Int32 := scores.remove(12)\n" +
+			"    afterHead: Bool := scores.contains(35) and !scores.contains(12)\n" +
+			"    scores.insert(12, 999)\n" +
+			"    scores.insert(17, 888)\n" +
+			"    reinsert: Bool := (scores.get(12) == 999) and (scores.get(17) == 888) and (scores.get(35) == 300)\n" +
+			"    removedTail: Int32 := scores.remove(35)\n" +
+			"    afterTail: Bool := !scores.contains(35) and scores.contains(12) and scores.contains(17)\n" +
+			"    lenAfter: Size := scores.length()\n" +
+			"    wrap: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n" +
+			"    defer wrap.free(h)\n" +
+			"    wrap.insert(0, 1)\n" +
+			"    wrap.insert(7, 2)\n" +
+			"    wrap.insert(13, 3)\n" +
+			"    removedWrap: Int32 := wrap.remove(7)\n" +
+			"    afterWrap: Bool := wrap.contains(0) and wrap.contains(13) and !wrap.contains(7) and (wrap.get(0) == 1) and (wrap.get(13) == 3)\n" +
+			"    growing: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n" +
+			"    defer growing.free(h)\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < 20 do\n" +
+			"        growing.insert(i, i * 2)\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    removedGrown: Int32 := growing.remove(10)\n" +
+			"    mut allFound: Bool := true\n" +
+			"    mut j: Int32 := 0\n" +
+			"    while j < 20 do\n" +
+			"        if j != 10 then\n" +
+			"            if growing.get(j) != (j * 2) then\n" +
+			"                allFound = false\n" +
+			"            end\n" +
+			"        end\n" +
+			"        j = j + 1\n" +
+			"    end\n" +
+			"    afterGrowth: Bool := allFound and !growing.contains(10) and (growing.length() == 19)\n" +
+			"    labels: Dict<Strand, Int32> := Dict<Strand, Int32>(h)\n" +
+			"    defer labels.free(h)\n" +
+			"    labels.insert(\"k2\", 2)\n" +
+			"    labels.insert(\"k11\", 11)\n" +
+			"    labels.insert(\"k19\", 19)\n" +
+			"    removedStrand: Int32 := labels.remove(\"k11\")\n" +
+			"    afterStrand: Bool := labels.contains(\"k2\") and labels.contains(\"k19\") and !labels.contains(\"k11\") and (labels.get(\"k2\") == 2) and (labels.get(\"k19\") == 19)\n" +
+			"    mut result: Bool := (removedMiddle == 200) and afterMiddle\n" +
+			"    result = result and (removedHead == 100) and afterHead\n" +
+			"    result = result and reinsert\n" +
+			"    result = result and (removedTail == 300) and afterTail\n" +
+			"    result = result and (lenAfter == 2)\n" +
+			"    result = result and (removedWrap == 2) and afterWrap\n" +
+			"    result = result and (removedGrown == 20) and afterGrowth\n" +
+			"    result = result and (removedStrand == 11) and afterStrand\n" +
+			"    return result\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "dict-repeated-removal-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n" +
+			"    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n" +
+			"    defer scores.free(h)\n" +
+			"    scores.insert(12, 100)\n" +
+			"    scores.insert(17, 200)\n" +
+			"    first: Int32 := scores.remove(17)\n" +
+			"    second: Int32 := scores.remove(17)\n" +
+			"    return first + second\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] dictionary key not found"},
+	},
+	{
 		name:        "string-runs",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    text: String := \"ready\".to_string(h)\n    defer text.free(h)\n    loud: String := text.concat(h, \"!\")\n    defer loud.free(h)\n    ok: Bool := loud.length() == 6\n    part: Slice<UInt8> := text.slice(0, 2)\n    second: UInt8 := part[1]\n    return ok and (second == 101)\nend\nprint(demo(Heap()))\n"},

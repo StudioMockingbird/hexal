@@ -1,8 +1,32 @@
 # RFC 0187: Build Modes
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design and execution plan settled,
-  implementation not started
+- Status: Closed; implemented with one documented scope narrowing beyond
+  this RFC's own text. `hexal build -mode debug|release` is in place,
+  driven from one option table (`internal/driver` stays mode-unaware):
+  debug is `-O0` with target-native debug information and a
+  non-recoverable UBSan backstop, release is `-O2` with no debug
+  information and `-ffunction-sections`/`-fdata-sections` plus linker
+  `--gc-sections`; both disable floating-point contraction. Generated C
+  is unaffected by mode. Windows debug links under a build-identity SHA-256
+  versioned basename, publishes its PDB first, then atomically publishes
+  the executable as the commit point; a same-identity PDB must be
+  byte-equal or the build fails before publication, and old PDBs are
+  retained. `hexal play` always builds debug; `hexal doctor` verifies
+  both option sets. Deviation: the release lane added to the tagged C23
+  harness runs and compares stdout/stderr/exit status across modes only
+  for fixtures carrying a run expectation; a compile-only fixture and
+  every workbench snippet are compile-only compared under both modes
+  instead, because several of them (an OS-signal wait, a blocking stdin
+  read) never terminate under automated execution regardless of mode --
+  the same restriction the pre-existing tiered harness and
+  `TestC23SnippetCatalogCompiles` already apply to the identical catalog,
+  for the identical reason. Verified by `go test ./...`, `go vet ./...`,
+  and the tagged C23 suite (including the new release lane and a
+  representative-program size/link-time/runtime measurement recorded in
+  `docs/benchmarks.md`) running under GCC, Clang, and `zig cc`.
+  `docs/reference.md` is not yet updated: that edit awaits explicit user
+  approval per this RFC's own text
 - Created: 2026-09-14
 - Updated: 2026-09-15
 - Scope: add `debug` and `release` build modes to the driver, defining exactly

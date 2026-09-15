@@ -133,16 +133,31 @@ static inline bool hex_dict_contains_{{.Suffix}}(const {{.CName}} *dict, {{.KeyS
     size_t index = hex_dict_probe_{{.Suffix}}(dict, key);
     return dict->buckets[index].active;
 }
+// hex_dict_remove_{{.Suffix}} repairs the occupied cluster after clearing the
+// removed bucket: a linear probe stops at the first inactive bucket it sees,
+// so leaving a hole in the middle of a collision chain would strand every
+// active bucket past it. Backward-shift deletion (Knuth's Algorithm R) walks
+// forward from the freed slot while buckets stay active, relocating each one
+// to its own first valid slot exactly as insertion would place it, until the
+// scan reaches a bucket that is already inactive.
 static inline {{.ValueSpelling}} hex_dict_remove_{{.Suffix}}({{.CName}} *dict, {{.KeySpelling}} key) {
     if (dict->capacity == 0) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
-    size_t index = hex_dict_probe_{{.Suffix}}(dict, key);
-    if (!dict->buckets[index].active) {
+    size_t removed = hex_dict_probe_{{.Suffix}}(dict, key);
+    if (!dict->buckets[removed].active) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
-    {{.ValueSpelling}} value = dict->buckets[index].value;
-    dict->buckets[index].active = false;
+    {{.ValueSpelling}} value = dict->buckets[removed].value;
+    dict->buckets[removed].active = false;
+    size_t scan = (removed + 1) & (dict->capacity - 1);
+    while (dict->buckets[scan].active) {
+        {{.EntryName}} moving = dict->buckets[scan];
+        dict->buckets[scan].active = false;
+        size_t target = hex_dict_probe_{{.Suffix}}(dict, moving.key);
+        dict->buckets[target] = moving;
+        scan = (scan + 1) & (dict->capacity - 1);
+    }
     dict->length--;
     dict->version++;
     return value;

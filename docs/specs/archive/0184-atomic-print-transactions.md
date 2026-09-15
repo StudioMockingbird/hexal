@@ -1,8 +1,28 @@
 # RFC 0184: Atomic Print Transactions
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design and execution plan settled,
-  implementation not started
+- Status: Closed; implemented as written, with no documented deviation.
+  Every `hex_print_*` formatter now appends to a call-local
+  `hex_print_buffer` (256 bytes inline, geometric growth via
+  `malloc`/`realloc`/`free`, never Heap/mimalloc/libuv); one source print
+  call evaluates its arguments once, builds into one buffer, and commits
+  through exactly one write-all request, releasing the buffer afterward.
+  Closed RFC 0174's Windows console classification and UTF-8-to-UTF-16
+  conversion now run once per commit on the complete buffer rather than
+  once per fragment. A native stdout critical section
+  (`hex_stdout_lock`/`hex_stdout_unlock`, initialized by the existing
+  bootstrap) is shared by a print commit and any `IO.write` whose
+  resolved descriptor equals the current stdout descriptor at call time;
+  writes to unrelated descriptors never take it, and a scheduler worker
+  never blocks on it since it is held only inside the native worker job.
+  `IO.write` remains byte-exact throughout. Verified by `go test ./...`,
+  `go vet ./...`, and the tagged C23 suite running under GCC, Clang, and
+  `zig cc`, including two concurrent-Task fixtures (`print`-vs-`print` and
+  `print`-vs-`IO.write`) asserting no fragment interleaving and a buffer
+  growth-boundary fixture spanning the 256-byte inline threshold.
+  `docs/reference.md` is not yet updated: that edit awaits explicit user
+  approval per this RFC's own text, and must additionally remove the
+  unsupported claim that shutdown flushes a compiler-owned stdout buffer
 - Created: 2026-09-14
 - Updated: 2026-09-15
 - Scope: make each source `print(...)` call one buffered, serialized standard-

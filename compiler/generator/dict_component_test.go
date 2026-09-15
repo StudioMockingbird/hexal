@@ -179,16 +179,31 @@ static inline bool hex_dict_contains_Int32_Int32(const hex_dict_Int32_Int32 *dic
     size_t index = hex_dict_probe_Int32_Int32(dict, key);
     return dict->buckets[index].active;
 }
+// hex_dict_remove_Int32_Int32 repairs the occupied cluster after clearing the
+// removed bucket: a linear probe stops at the first inactive bucket it sees,
+// so leaving a hole in the middle of a collision chain would strand every
+// active bucket past it. Backward-shift deletion (Knuth's Algorithm R) walks
+// forward from the freed slot while buckets stay active, relocating each one
+// to its own first valid slot exactly as insertion would place it, until the
+// scan reaches a bucket that is already inactive.
 static inline int32_t hex_dict_remove_Int32_Int32(hex_dict_Int32_Int32 *dict, int32_t key) {
     if (dict->capacity == 0) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
-    size_t index = hex_dict_probe_Int32_Int32(dict, key);
-    if (!dict->buckets[index].active) {
+    size_t removed = hex_dict_probe_Int32_Int32(dict, key);
+    if (!dict->buckets[removed].active) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
-    int32_t value = dict->buckets[index].value;
-    dict->buckets[index].active = false;
+    int32_t value = dict->buckets[removed].value;
+    dict->buckets[removed].active = false;
+    size_t scan = (removed + 1) & (dict->capacity - 1);
+    while (dict->buckets[scan].active) {
+        hex_dict_entry_Int32_Int32 moving = dict->buckets[scan];
+        dict->buckets[scan].active = false;
+        size_t target = hex_dict_probe_Int32_Int32(dict, moving.key);
+        dict->buckets[target] = moving;
+        scan = (scan + 1) & (dict->capacity - 1);
+    }
     dict->length--;
     dict->version++;
     return value;
@@ -327,16 +342,31 @@ static inline bool hex_dict_contains_Strand_Int32(const hex_dict_Strand_Int32 *d
     size_t index = hex_dict_probe_Strand_Int32(dict, key);
     return dict->buckets[index].active;
 }
+// hex_dict_remove_Strand_Int32 repairs the occupied cluster after clearing the
+// removed bucket: a linear probe stops at the first inactive bucket it sees,
+// so leaving a hole in the middle of a collision chain would strand every
+// active bucket past it. Backward-shift deletion (Knuth's Algorithm R) walks
+// forward from the freed slot while buckets stay active, relocating each one
+// to its own first valid slot exactly as insertion would place it, until the
+// scan reaches a bucket that is already inactive.
 static inline int32_t hex_dict_remove_Strand_Int32(hex_dict_Strand_Int32 *dict, hex_strand key) {
     if (dict->capacity == 0) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
-    size_t index = hex_dict_probe_Strand_Int32(dict, key);
-    if (!dict->buckets[index].active) {
+    size_t removed = hex_dict_probe_Strand_Int32(dict, key);
+    if (!dict->buckets[removed].active) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
-    int32_t value = dict->buckets[index].value;
-    dict->buckets[index].active = false;
+    int32_t value = dict->buckets[removed].value;
+    dict->buckets[removed].active = false;
+    size_t scan = (removed + 1) & (dict->capacity - 1);
+    while (dict->buckets[scan].active) {
+        hex_dict_entry_Strand_Int32 moving = dict->buckets[scan];
+        dict->buckets[scan].active = false;
+        size_t target = hex_dict_probe_Strand_Int32(dict, moving.key);
+        dict->buckets[target] = moving;
+        scan = (scan + 1) & (dict->capacity - 1);
+    }
     dict->length--;
     dict->version++;
     return value;

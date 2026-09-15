@@ -25,7 +25,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Fix Dict deletion so removing a bucket never breaks lookup through the remaining collision chain | [0183](specs/0183-compiler-runtime-completion.md) |
 | Complete runtime execution tests for every Task park/commit/wake race and destruction owner | [0183](specs/0183-compiler-runtime-completion.md) |
 | Expand tagged generated-C coverage to every reachable stable runtime-trap family | [0183](specs/0183-compiler-runtime-completion.md) |
 | Add executable UBSan coverage across the runnable generated-C fixture catalog | [0183](specs/0183-compiler-runtime-completion.md) |
@@ -36,10 +35,10 @@ gets deleted.
 
 | Work | Blocked by | Spec |
 | --- | --- | --- |
-| Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | RFC 0155 | [0039](specs/0039-c-interop-compiler-core.md) |
-| Compile and link command-line-supplied C sources, objects, archives, and system libraries | RFC 0039 | [0192](specs/0192-command-line-c-build-inputs.md) |
-| Automatically generate typed binding modules for reachable C-header imports | RFC 0039 and RFC 0192 | [0193](specs/0193-automatic-c-header-bindings.md) |
-| Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0039, RFC 0192, and RFC 0193 | [0209](specs/0209-raylib-external-package-conformance-plan.md) |
+| Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | Open identity and handwritten-ABI decisions | [0039](specs/0039-c-interop-compiler-core.md) |
+| Compile and link command-line-supplied C sources, objects, archives, and system libraries | RFC 0039 plus open environment, argument-fence, and build-identity decisions | [0192](specs/0192-command-line-c-build-inputs.md) |
+| Automatically generate typed binding modules for reachable C-header imports | RFC 0039, RFC 0192, and open frontend/header-ownership/name/cost decisions | [0193](specs/0193-automatic-c-header-bindings.md) |
+| Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0039, RFC 0192, and RFC 0193 | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 | Establish the standard-library module boundary and migrate compiler-owned capability namespaces | RFC 0190 | [0186](specs/0186-standard-library-boundary.md) |
 | Program entry and exit: immutable process arguments, UInt8 root return status, cleanup ordering, and target entry ABI | RFC 0186 | [0182](specs/0182-program-entry-and-exit.md) |
 | Program path queries, Size-valued available parallelism, and secure entropy fill | RFC 0186 | [0178](specs/0178-libuv-os-services.md) |
@@ -58,7 +57,6 @@ A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec |
 | --- | --- |
-| Removing one Dict entry can make a later colliding entry unreachable because deletion clears a bucket inside the probe chain | [0183](specs/0183-compiler-runtime-completion.md) |
 | Exported generic functions are specialized in the importing module's environment, breaking defining-module generic type resolution and misattributing declaration diagnostics | [0190](specs/0190-cross-module-generic-correctness.md) |
 | `reference.md` names POSIX x86-64 as a supported Task target although RFC 0052 has qualified only Windows x64 | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md); reference correction requires explicit user approval |
 | `reference.md`'s Pointers and nullability section states "Arithmetic, indexing, ... are unavailable", contradicting closed RFC 0156's unsafe-gated `Ptr.offset`/indexing/`.cast<U>()` | [0156](specs/archive/0156-fenced-pointer-arithmetic.md); reference correction requires explicit user approval per that RFC's own text |

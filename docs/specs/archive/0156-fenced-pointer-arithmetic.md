@@ -1,13 +1,26 @@
 # RFC 0156: Fenced Pointer Arithmetic and Casts
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented as written, with no documented deviation.
+  `Ptr<T>.offset`/`Ptr<mut T>.offset`, pointer indexing as a place, and
+  `Ptr<T>.cast<U>()`/`Ptr<mut T>.cast<U>()` are in place as distinct
+  checked nodes, each requiring active lexical unsafe permission from
+  closed RFC 0155 after ordinary receiver, mode, nullability, and
+  complete-pointee checks. Indexing an `Array`/`Slice`/`List` pointee is
+  rejected with the exact ambiguity diagnostic directing callers to
+  `(^pointer)[index]` or `.offset(index)`; a cast preserves the outer
+  access mode and permits an erased or incomplete pointee, while offset,
+  indexing, and dereference remain rejected until the pointee is
+  complete. Generated C is direct `+`, `[]`, and cast expressions with no
+  helper or runtime component. Verified by `go test ./...`,
+  `go vet ./...`, and the tagged C23 suite running under GCC, Clang, and
+  `zig cc`, including a fixture combining offset, cast, and indexing over
+  one heap-allocated array. `docs/reference.md` is not yet updated: that
+  edit awaits explicit user approval per this RFC's own text
 - Created: 2026-09-10
 - Updated: 2026-09-15
-- Depends on: RFC 0155 (`unsafe do ... end`)
+- Depends on: closed RFC 0155 (`unsafe do ... end`)
 - Coordinates with: RFC 0039 (foreign declarations and ownership metadata)
-- Does not update `docs/reference.md`: synchronize only after implementation
-  stabilizes and the user explicitly approves the reference edit
 
 ## Summary
 

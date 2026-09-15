@@ -1,13 +1,24 @@
 # RFC 0155: Explicit `unsafe do ... end` Blocks
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented as written, with no documented deviation.
+  `unsafe do ... end` parses as one statement with ordinary nesting and
+  `end` recovery; the checker carries a lexical unsafe-depth counter,
+  inherited by nested block frames and reset per function body, that
+  gates one shared `requireUnsafe` predicate; `Slice<T>.from_pointer` and
+  `Slice<mut T>.from_pointer` are the first, and so far only, classified
+  consumers, checked after their ordinary pointer-mode, element,
+  nullability, and Size validation. The block lowers as its enclosed
+  statements in source order with no C artifact of its own. Verified by
+  `go test ./...`, `go vet ./...`, and the tagged C23 suite running under
+  GCC, Clang, and `zig cc`, including a fixture exercising the migrated
+  `Slice.from_pointer` bridge inside an explicit block. `docs/reference.md`
+  is not yet updated: that edit awaits explicit user approval per this
+  RFC's own text
 - Created: 2026-09-09
 - Updated: 2026-09-15
 - Coordinates with: RFC 0039 (future foreign operations), RFC 0156 (pointer
   arithmetic and casts), and implemented RFC 0161 (current Ptr/Slice model)
-- Does not update `docs/reference.md`: synchronize only after implementation
-  stabilizes and the user explicitly approves the reference edit
 
 ## Summary
 

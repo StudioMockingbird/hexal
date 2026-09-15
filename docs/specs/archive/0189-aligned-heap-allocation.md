@@ -1,13 +1,24 @@
 # RFC 0189: Aligned Heap Allocation
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed; implemented as written, with no documented deviation.
+  `Heap.allocate_aligned<T>(initial, alignment)` is in place: a
+  compile-time-constant zero or non-power-of-two alignment is a Type
+  Error, a dynamic one traps with `[Runtime Error] invalid allocation
+  alignment` before evaluating the allocator, and the effective alignment
+  is `max(requested, align_of<T>())`. The runtime primitive calls
+  `mi_malloc_aligned` directly with no over-allocation header or manual
+  rounding, and the existing allocation-failure trap and `Heap.free`
+  path are reused unchanged. Verified by `go test ./...`,
+  `go vet ./...`, and the tagged C23 suite running under GCC, Clang, and
+  `zig cc`, including a fixture asserting a returned address is divisible
+  by its requested alignment and a trap fixture for a dynamic
+  non-power-of-two alignment. `docs/reference.md` is not yet updated:
+  that edit awaits explicit user approval per this RFC's own text
 - Created: 2026-09-15
 - Updated: 2026-09-15
 - Depends on: the current `Heap.allocate<T>` and mimalloc backend contracts
 - Coordinates with: deferred RFC 0157 (uninitialized allocation)
-- Does not update `docs/reference.md`: synchronize only after implementation
-  stabilizes and the user explicitly approves the reference edit
 
 ## Summary
 

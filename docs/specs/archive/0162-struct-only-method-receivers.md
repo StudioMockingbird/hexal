@@ -1,20 +1,29 @@
 # RFC 0162: Struct-Only Method Receivers
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready completion pass; core behavior landed on
-  2026-09-10, while non-copyable receiver rejection, stale-comment cleanup,
-  tests, and the approved canonical-reference synchronization remain
+- Status: Closed; implemented as written. Core value-receiver behavior landed
+  2026-09-10; this pass closed the remaining gaps: a method receiver struct
+  that directly or transitively contains `Atomic<T>` (or another
+  non-copyable value) is now rejected with the exact shallow-copyable
+  diagnostic, including when reached only through `Ptr<T>`/`Ptr<mut T>`;
+  stale parser/generator comments describing pointer-constructor receivers
+  and calling the declaration an `impl` are removed; a real, independently
+  discovered bug was fixed in the same pass -- a generic method was
+  specialized on the pointer type a call arrived through rather than on the
+  pointee struct, so a pointer-receiver call fixed the emitted
+  prototype/definition for every other call site of the same
+  specialization, now corrected to adapt through the ordinary one-layer
+  copy. `docs/reference.md`'s "Functions and methods" section is updated
+  per this RFC's user-approved synchronization: receiver form, the
+  shallow-copyable requirement, and value-only `self`/autoderef semantics
+  replace the retired `Ptr<T>`/`Ptr<mut T>` receiver-adaptation text.
+  Verified by `go test ./...`, `go vet ./...`, and the tagged C23 suite
+  running under GCC, Clang, and `zig cc`
 - Created: 2026-09-10
 - Updated: 2026-09-15
 - Depends on: the current method declaration and call contracts in `docs/reference.md`
 - Coordinates with: implemented RFC 0161 (current pointer spelling and
   mutability model)
-- Reference synchronization approved by the user on 2026-09-15; apply it only
-  after the remaining behavior and tests stabilize
-- Supersedes on completion: the pointer-receiver method semantics still stated
-  in `docs/reference.md`
-- Updates `docs/reference.md` after the remaining implementation and tests
-  stabilize; the user approved that synchronization on 2026-09-15
 
 ## Summary
 
