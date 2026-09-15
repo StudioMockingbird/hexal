@@ -698,7 +698,7 @@ var fixtureCatalog = []fixture{
 			"end\n" +
 			"print(demo(Heap(), 48))\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid allocation alignment"},
-
+	},
 	// One print call is one standard-output transaction. Both concurrency
 	// fixtures below have every writer emit the identical byte sequence, so
 	// the expected output is independent of which writer wins a race: the
