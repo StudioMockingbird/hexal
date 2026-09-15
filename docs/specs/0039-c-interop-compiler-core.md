@@ -1,738 +1,716 @@
-# RFC 0039: C Interoperability — Compiler Core
+# RFC 0039: C Interoperability - Compiler Core
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; not scheduled. Design state: Draft; initial compiler-core design proposed
-- Features: foreign binding modules, qualified C declarations, ABI checking,
-  direct C calls, callbacks, explicit pointer/text boundaries, and C exports
+- Status: Implementation-ready; design and execution plan settled, implementation not started
 - Created: 2026-08-11
-- Updated: 2026-09-08
-- Depends on: RFC 0003 (scalars), RFC 0007 (pointer mutability), RFC 0008
-  (functions and function pointers), RFC 0010 (nullability), RFC 0018 (text),
-  RFC 0026 (allocation and cleanup), RFC 0033 (no
-  source pointer arithmetic), RFC 0034 (modules), RFC 0035 (copying and manual
-  lifetimes), RFC 0036 (`Size`), RFC 0038 (conversion), and RFC 0044
-  (String/Byte conformance)
-- Coordinates with: RFC 0052 (C compiler backend), RFC 0110
-  (affine ownership and Stashes), RFC 0149 (`Box<T>` and call-scoped
-  references), RFC 0153 (`Slice<T>`/`Slice<mut T>`), RFC 0152 (generic
-  `Strand<N>`), RFC 0151 (Open Discussion alternative for String-only text and
-  `[N]T` fixed arrays), and ADR 0055 (filesystem and build driver)
+- Updated: 2026-09-15
+- Scope: add direct C-header import syntax, the prepared-source protocol, and
+  the normalized typed foreign-declaration layer needed for Hexal code to call
+  ordinary C libraries while preserving the in-memory compiler boundary
+- Depends on: closed RFC 0155 (`unsafe do ... end`) and the current module,
+  pointer, Slice, String, target-profile, and generated-artifact contracts in
+  `docs/reference.md`
+- Coordinates with: RFC 0156 (raw pointer operations), RFC 0186 (`std` module
+  boundary), RFC 0192 (command-line C build inputs), RFC 0193 (automatic
+  C-header binding generation), closed RFC 0052 (installed Zig C23 backend),
+  and closed ADR 0055 (filesystem/build driver)
+- Does not add: filesystem access or a C parser/preprocessor to the core
+  compiler, automatic ownership, C project configuration, or the advanced
+  foreign surfaces collected in deferred RFC 0191
 
-## Author note for the detailed design pass
+## Author roadmap
 
-When this RFC is next detailed, remind the author to design and validate C
-interop incrementally:
+Exercise the completed boundary in this order:
 
-1. import one minimal C program;
-2. import a more complex C program;
-3. import a header-only library; and
-4. integrate a complete external project such as raylib.
+1. one C function and one header;
+2. a library using structs, constants, opaque pointers, and mutable buffers;
+3. a header-only library; and
+4. raylib as the first complete external project.
 
-Each stage may receive its own subordinate specification or ADR. The design
-must also decide how the driver and binding pipeline accept supported projects
-written for older C language versions rather than assuming all foreign source
-is C23.
+Each step may receive a driver-facing child specification. Foreign source may use an older C dialect: the driver chooses the dialect used to compile that source. Hexal-generated translation units remain C23. A header included by both must be accepted in the relevant compilation modes.
 
-## Scope
+## Problem
 
-This RFC defines only behavior implemented directly in the in-memory compiler.
+The backend can already compile Hexal-generated C23 and link a compatible object, but Hexal source cannot describe the object's functions or types. Importing raw headers in the core compiler would require a second C frontend, host filesystem access, preprocessing, target probing, and build-system policy. Those concerns do not belong in the forward-only string-in/string-out compiler.
 
-- Input remains `Compile(sources map[string]string, entrypoint string,
-  project Project)`.
-- Every compiler input is a complete source string under a logical key.
-- Every compiler output is generated text in `CompilationResult.Files`.
-- The compiler performs no filesystem access, process execution, header
-  discovery, preprocessing, C-project build, object inspection, or linking.
-- ADR 0055 owns files, external tools, C projects, objects, libraries, and final
-  artifact materialization.
+The ordinary source form imports a header directly. RFC 0193 owns asking the
+selected C frontend to describe the header and preparing an ordinary logical
+`.hex` binding-module string. The core compiler consumes that prepared binding
+without reading the header. A user may still write the same normalized binding
+module by hand when automatic import cannot express or should deliberately
+override the foreign contract.
 
 ## Goals
 
-- Represent supported C declarations as typed Hexal compiler input.
-- Keep foreign names qualified through the native module system.
-- Check C ABI eligibility before generation.
-- Lower compatible calls and values without allocation or marshalling.
-- Keep nullability, ownership, text conversion, and cleanup explicit.
-- Support callbacks with no hidden closure environment.
-- Export ABI-safe Hexal functions and declarations to C.
-- Make the C boundary an explicit unsafe/foreign boundary rather than implying
-  that imported C operations inherit safe Hexal guarantees.
-- Preserve a controlled escape hatch for raw layouts, pointer arithmetic,
-  pointer casts, foreign globals, and target-specific instructions.
-- Fail closed for every unsupported or unverified foreign operation.
-- Keep unsafe capabilities explicit and local; do not make the safe native
-  language model grow C's unrestricted object model.
+- Make `Alias from c <header>` the low-ceremony path for ordinary C APIs.
+- Reuse normal module qualification and identity for the prepared binding.
+- Preserve exact C type and symbol spellings at the ABI boundary.
+- Let the selected C compiler own C layout and calling-ABI details.
+- Type-check every fact represented by the binding before generation.
+- Mark every operation that executes or directly accesses foreign state as unsafe without turning `unsafe` into a type or function effect.
+- Lower calls and values directly, with no allocation or wrapper when their representations agree.
+- Keep ownership, cleanup, nullability, and String conversion explicit.
+- Fail before generation when the compiler cannot represent a declaration.
+- Keep the initial surface sufficient for ordinary libraries and basic raylib use while deferring specialized C machinery.
+- Keep handwritten foreign declarations as an explicit fallback, not required
+  duplication for representable headers.
 
-## Foreign trust boundary and unsafe capabilities
+## Compiler boundary
 
-C interoperability is the first explicit unsafe boundary in Hexal. A foreign
-declaration is not a proof that the foreign implementation is memory-safe,
-data-race-free, ABI-correct, or valid for every target. It is a typed contract
-that permits selected operations to cross into code whose implementation the
-Hexal checker cannot inspect.
+The core API remains:
 
-The boundary has three levels:
+```text
+Compile(sources map[string]string,
+        entrypoint string,
+        project Project) CompilationResult
+```
 
-1. **Checked foreign calls.** A binding supplies a complete signature, ABI,
-   nullability, layout, and ownership contract. Hexal performs every check it
-   can prove from that contract, but foreign behavior remains outside the
-   native safety guarantee.
-2. **Explicit unsafe representations.** Raw C unions, bit fields, flexible
-   array members, address integers, pointer arithmetic, pointer casts, foreign
-   globals, and target-specific layout may be represented only by an explicit
-   unsafe declaration or unsafe operation. They never become ordinary native
-   types by import alone.
-3. **Backend escape hatches.** Inline assembly and compiler-specific
-   extensions are target-qualified foreign operations. They require an
-   explicit target/profile contract and are never portable Hexal expressions.
+- `sources` contains complete Hexal source strings, including handwritten or
+  driver-generated binding modules at deterministic reserved logical keys.
+- `Project` supplies the already-selected target profile; it contains no host paths, object files, libraries, or C compiler process.
+- Every compilation containing a C import or handwritten foreign declaration
+  requires a nonempty qualified target profile. Host-default ABI inference is
+  rejected because `long`, plain `char`, layout, and calling ABI are
+  target-dependent.
+- `CompilationResult.Files` contains only generated text.
+- The compiler never reads a header, searches an include directory, invokes a preprocessor, inspects an object, or links a program.
+- The driver owns C files, headers, include roots, defines, source dialects, objects, archives, libraries, frameworks, build systems, and final linking.
+- `DiscoverCImports(sources, entrypoint)` is a pure compiler helper that reuses
+  normal parsing and module reachability to return reachable C-header requests
+  without touching the filesystem. The driver prepares those requests, adds
+  their binding strings to a copy of `sources`, then calls `Compile` normally.
+- A C import maps to the reserved legal logical key
+  `hexalc/h<sha256(target NUL header-form NUL header-payload)>.hex`. The leading
+  `h` makes the digest component a Hexal identifier. The key
+  is deterministic within every target build; the compiler verifies that the
+  prepared module names the requested header and reports Configuration Error
+  `prepared C binding missing for <header>` when the source-map entry is absent
+  or mismatched. A digest collision between different header identities is a
+  Configuration Error, never an alias.
+- `hexalc` is an internal prepared-binding namespace. User source discovery
+  rejects that top-level component, so prepared bindings cannot collide with a
+  project file while `Compile` retains its one `sources` map.
 
-The exact spelling of `unsafe` remains a grammar question, but the semantic
-boundary is settled by this RFC: a checked foreign binding may expose only the
-contracted operations; anything requiring facts not represented by that
-contract fails closed or requires an unsafe declaration. Unsafe code may call
-safe code, but safe code cannot silently acquire an unsafe pointer, layout, or
-ownership capability.
+No second normalized manifest is introduced. The binding module is the one compiler/driver interchange format.
 
-Foreign ownership annotations must compose with the affine ownership and stash
-rules introduced by RFC 0110. A foreign allocator may transfer ownership only
-through a declared deallocator contract; Hexal `Heap`, `Stash<T>`, and `Pool<T>`
-never reclaim foreign storage by accident, and foreign deallocators never
-receive Hexal-managed storage without an explicit compatibility contract.
+## Source syntax
 
-## Required compiler additions
-
-This RFC requires the following work directly in the core compiler. Later
-sections define each contract in detail.
-
-### 1. Foreign declarations
-
-The compiler must parse, represent, resolve, and check binding-module
-declarations for:
-
-- C functions;
-- opaque types;
-- complete structs;
-- enums and typed constants;
-- external variables;
-- function pointers;
-- calling conventions; and
-- nullability, ownership, retention, and deallocator annotations.
-
-Foreign declarations remain nominal members of their binding module and expose
-only explicitly exported names to native importers.
-
-### 2. Foreign type model
-
-The compiler type system must represent:
-
-- foreign opaque types;
-- foreign complete records;
-- distinct C integer identities where fixed Hexal scalar mapping is
-  insufficient;
-- foreign enums;
-- C-compatible function pointers;
-- ABI-qualified functions; and
-- external variables.
-
-Every foreign nominal type and declaration identity includes its defining
-binding-module identity. Native import aliases never create a new foreign type.
-
-### 3. ABI checking
-
-Before generation, the checker must verify:
-
-- every foreign-call parameter and result is C-compatible;
-- every C export has a fully settled C ABI signature;
-- nullable C pointers remain nullable until narrowed or covered by a trusted
-  non-null contract;
-- opaque values appear only in permitted pointer positions;
-- unsupported Hexal values never cross the C boundary;
-- String never converts implicitly to a C character pointer;
-- callbacks have compatible signatures and calling conventions;
-- callbacks carry no captured environment;
-- required target and layout evidence is present and consistent; and
-- C `void` produces no Hexal result and never becomes `Nil`.
-
-ABI checking must also classify each declaration by trust level. A checked
-foreign declaration may expose only representation and ownership facts that
-its contract states. A declaration using raw union layout, bit fields,
-flexible array members, address integers, pointer arithmetic, pointer casts,
-foreign globals, inline assembly, or compiler-specific extensions is unsafe
-and must carry the explicit unsafe marker required by the final grammar.
-
-### 4. C lowering
-
-The generator must:
-
-- emit required `#include` directives without resolving the headers;
-- call original C symbols directly;
-- preserve declared C symbol names and calling conventions;
-- emit compatible function-pointer calls and callback thunks only when
-  required;
-- emit exported Hexal wrappers and C declarations;
-- pass ABI-compatible values directly; and
-- perform no allocation or marshalling when representations already agree.
-
-### 5. C exports
-
-The compiler must support ABI-safe Hexal functions exposed to C once final
-syntax is settled. For each export it must:
-
-- validate the complete ABI signature;
-- assign or accept one stable C symbol;
-- emit the C-linkage definition or required wrapper;
-- emit a matching declaration; and
-- add the generated declaration header to `CompilationResult.Files`.
-
-Conceptual notation only:
+The ordinary form extends the leading import block:
 
 ```hexal
-extern c export fun add(left: Int32, right: Int32): Int32
-    return left + right
+import
+    Adder from c "adder.h",
+    CMath from c <math.h>
 end
 ```
 
-### 6. Diagnostics
-
-The compiler must own structured diagnostics for:
-
-- unknown foreign declarations;
-- unsupported ABI types or calling conventions;
-- nullable-pointer misuse;
-- invalid callback signatures or statically provable lifetime misuse;
-- invalid C exports;
-- opaque-type misuse;
-- String/C-pointer mismatches;
-- contradictory symbol or layout contracts; and
-- impossible checked foreign operations reaching lowering.
-
-Missing files, failed header processing, failed C builds, and linker errors are
-driver diagnostics under ADR 0055, never core compiler diagnostics.
-
-## Binding-module boundary
-
-The proposed compiler/driver boundary is a generated or handwritten Hexal
-binding module.
-
-- A future driver reads and preprocesses C headers using an external C
-  frontend.
-- The driver converts supported declarations into a deterministic Hexal binding
-  module string.
-- The binding string is added to `sources` under an ordinary logical `.hex`
-  key.
-- Application source imports it using RFC 0034's normal qualified module form.
-- The core compiler never parses raw `.h` or `.c` text.
-- Handwritten binding modules use the same syntax and semantics as generated
-  ones.
-
-Conceptual driver output; exact foreign-declaration grammar remains open:
-
-```hexal
-extern c header "widget.h"
-
-export extern c type Handle is opaque
-
-export extern c fun open(): MutPtr<Handle> | Nil
-    symbol "widget_open"
-end
-
-export extern c fun close(handle: MutPtr<Handle>)
-    symbol "widget_close"
-end
+```ebnf
+import-entry = identifier , "from"
+               , ( module-path-literal
+                 | "c" , c-header-literal ) ;
 ```
 
-Application source remains ordinary Hexal:
+- `c` is contextual immediately after `from`.
+- A C import is top-level and leading because it is an ordinary import entry.
+- The alias exposes supported declarations by their exact C identifier when it
+  is a usable Hexal name: `Adder.adder_add(...)` calls `adder_add`. Otherwise
+  the deterministic `hex_cvar_` local name still lowers to the exact C name.
+- The prepared binding automatically exports every supported declaration made
+  visible by preprocessing the requested header, including its transitive
+  include surface, and coalesces compatible redeclarations by canonical C
+  identity. Compiler-predefined declarations with no owning header are omitted.
+- Two equal header identities share one prepared binding and one module
+  identity regardless of local aliases. System and quoted forms are distinct.
+- Calls and foreign-global accesses retain the unsafe rules below.
+- Automatic import keeps an exact C identifier when it is a legal,
+  non-protected, non-colliding Hexal identifier. Otherwise it derives a local
+  name with the `hex_cvar_` prefix under the rules below. A native wrapper
+  supplies an ergonomic name; a handwritten binding may use `as` when exact
+  contract curation is required.
+- A handwritten binding is an ordinary `.hex` module imported through the
+  normal module form. It replaces one direct C import alias; automatic and
+  handwritten declarations are never implicitly merged.
+
+### Normalized and handwritten binding form
+
+Foreign blocks appear after the optional import block and before every ordinary top-level item. A module may contain multiple foreign blocks, then native wrappers, then its optional final export block.
 
 ```hexal
-module Widget = import "./bindings/widget"
+extern c from <raylib.h> do
+    type TraceLevel is Int32
 
-handle: MutPtr<Widget.Handle> | Nil := Widget.open()
-```
+    type Vector2 is struct
+        mut x: Float32,
+        mut y: Float32,
+    end
 
-The conceptual binding notation is not accepted syntax until this RFC settles
-its grammar.
+    type Window as "struct Window" is opaque
 
-### The open grammar question
+    fun init_window as "InitWindow"(
+        width: Int32 as "int",
+        height: Int32 as "int",
+        title: Ptr<Byte> | Nil as "const char *",
+    )
+    fun window_should_close as "WindowShouldClose"(): Bool
+    fun close_window as "CloseWindow"()
 
-**This is the first gate on the rest of the RFC and is deliberately unresolved.**
-Everything downstream — the declaration model, ABI checking, lowering, exports —
-assumes a notation exists; none of it depends on which one.
+    constant log_info as "LOG_INFO": TraceLevel
+end
 
-The sketch above puts three modifiers before `fun` (`export extern c fun`) and
-gives the symbol name a clause that looks like a body but is not. An alternative
-worth evaluating in the same pass, recorded so it is not lost: since a binding
-module is *wholly* foreign and normally machine-generated, foreign-ness can be
-structural rather than repeated per declaration.
+fun open_window(width: Int32, height: Int32, title: String) do
+    unsafe do
+        init_window(width, height, title.c_pointer())
+    end
+end
 
-```hexal
-foreign "widget.h" do
-    export type Handle is opaque
-    export fun open(): MutPtr<Handle> | Nil = "widget_open"
-    export fun close(handle: MutPtr<Handle>) = "widget_close"
+export
+    Vector2,
+    open_window
 end
 ```
 
-One new keyword instead of a modifier chain, and the C symbol becomes a value
-rather than a pseudo-body. Goal 3 keeps the language surface small, and
-`extern c` repeated on every declaration works against it.
+Both header forms are supported:
 
-Neither form is adopted here. Whichever pass settles this must also answer the
-question the author note raises — how binding generation accepts C projects
-written against older C standards rather than assuming C23 — because that
-constrains what the notation has to express.
+```hexal
+extern c from <stdio.h> do
+    fun c_puts as "puts"(
+        text: Ptr<Byte> | Nil as "const char *",
+    ): Int32 as "int"
+end
+
+extern c from "vendor/widget.h" do
+    type Widget as "struct widget" is opaque
+end
+```
+
+They emit `#include <stdio.h>` and `#include "vendor/widget.h"` respectively.
+
+Every imported header is included from generated C23. A header may describe an
+implementation compiled under C11 or C17, but the header itself must also be
+accepted in C23 mode. A legacy header that conflicts with C23 requires a small
+user-supplied compatibility wrapper header; Hexal does not rewrite third-party
+headers.
+
+### Grammar
+
+```ebnf
+program = lexical-separation , [ import-block ] , { extern-block }
+          , { top-level-item } , [ export-block ] ;
+
+extern-block = "extern" , "c" , "from" , c-header-literal , "do"
+               , { extern-declaration } , "end" ;
+c-header-literal = c-system-header | c-quoted-header ;
+c-system-header = ? nonempty `<...>` payload valid under the header rules ? ;
+c-quoted-header = ? nonempty quoted payload valid under the header rules ? ;
+
+extern-declaration = extern-type | extern-function
+                     | extern-constant | extern-global ;
+extern-type = "type" , identifier , "is" , alias-target
+              | "type" , identifier , [ "as" , c-record-name-literal ]
+                , "is" , ( "opaque" | extern-struct-definition ) ;
+extern-struct-definition = "struct" , [ extern-member
+                           , { "," , extern-member } , [ "," ] ] , "end" ;
+extern-member = [ "mut" ] , identifier , [ "as" , c-identifier-literal ]
+                , ":" , type-expression ;
+extern-function = "fun" , identifier , [ "as" , c-identifier-literal ]
+                  , extern-signature ;
+extern-signature = "(" , [ extern-parameter-list ] , ")"
+                   , [ ":" , type-expression , [ "as" , c-type-literal ] ] ;
+extern-parameter-list = extern-parameter , { "," , extern-parameter } ;
+extern-parameter = identifier , ":" , type-expression
+                   , [ "as" , c-type-literal ] ;
+extern-constant = "constant" , identifier , [ "as" , c-identifier-literal ]
+                  , ":" , type-expression ;
+extern-global = "global" , [ "mut" ] , identifier
+                , [ "as" , c-identifier-literal ]
+                , ":" , type-expression ;
+
+c-record-name-literal = ? quoted C typedef or tag spelling ? ;
+c-type-literal = ? quoted restricted scalar or pointer C type spelling ? ;
+c-identifier-literal = ? quoted C identifier ? ;
+```
+
+- `extern`, `c`, `constant`, `global`, and `opaque` are contextual inside this grammar; no new word is globally reserved except `extern` at statement start.
+- A foreign block is top-level only. It cannot follow a native declaration or executable statement, appear in a function, or appear after `export`.
+- Foreign declarations have no bodies, initializers, generic parameters, methods, or nested declarations.
+- A local foreign name defaults to the same C spelling. `as` supplies the exact C spelling when they differ.
+- An alias declaration inside the block is an ordinary transparent Hexal alias.
+  It carries no C spelling and adds no foreign type family. Generated enum and
+  platform aliases use this form.
+- A complete or opaque record's optional `as` contains one C typedef name or
+  one tag spelling (`struct X` or `union X`). It cannot contain pointers,
+  brackets, parentheses, attributes, preprocessor tokens, comments, newlines,
+  or arbitrary C expressions.
+- A foreign parameter or result may add `as "C type"` when the C type differs
+  from its Hexal checking type. The accepted subset is qualified fundamental,
+  typedef, tag, and object-pointer types; arrays, function declarators,
+  attributes, expressions, and abstract declarator nesting are rejected. The
+  checker accepts only compiler-known fundamental, exact-width, tag/record, and
+  recursively qualified pointer spellings whose ABI mapping follows directly
+  from the selected target. An arbitrary library typedef spelling is rejected
+  with `C spelling <spelling> cannot be proven in a handwritten binding; use an
+  automatic C import or expose a C wrapper`. This is not a general C declarator
+  parser.
+- Function, constant, global, and field C names are one ordinary C identifier. Assembly labels and decorated linker names are deferred.
+- A system-header payload excludes whitespace, quotes, `<`, `>`, backslash, and line breaks. A quoted-header payload excludes quotes, backslash, and line breaks. Empty, absolute, and parent-walking header names are rejected. Include search and existence remain driver concerns.
+- A binding uses the normal final `export` block. Foreign declarations are
+  private unless named there; `export` never changes C linkage. An automatic
+  binding with no supported exported declaration omits the export block
+  entirely; the language never emits an empty `export ... end` block.
 
 ## Foreign declaration model
 
-The compiler needs checked representations for:
+The checked tree adds explicit identities for a foreign header requirement,
+complete or incomplete foreign record, foreign function, foreign constant, and
+fixed or writable foreign global. Transparent aliases inside the block reuse
+the existing alias identity.
 
-- external functions and their exact C symbols;
-- external variables;
-- foreign scalar identities;
-- foreign enums and constants;
-- complete foreign records;
-- incomplete/opaque foreign records;
-- C function pointers and calling conventions; and
-- header/include requirements copied into generated C.
+Functions, constants, and globals retain their defining binding module.
+Foreign records instead have one program-wide identity keyed by the qualified
+target and canonical C record identity: tag namespace plus exact tag spelling,
+or the canonical typedef spelling for an anonymous typedef-owned record.
+Therefore the same `struct Common` reached through two headers is one Hexal
+type. An incomplete declaration and a compatible complete definition coalesce
+to the complete definition. Multiple incomplete declarations coalesce. Two
+complete definitions must agree on kind, fields, qualification, and mapped ABI
+facts or report a Type Error. A struct/union kind mismatch also reports a Type
+Error. Renaming an import alias changes no identity. Two declarations may name
+the same C symbol when their mapped Hexal contracts agree; every contributing
+header remains included and the C compiler remains authoritative for the
+original declarations.
 
-Rules:
+### Automatic local names
 
-- A foreign declaration belongs to its binding module.
-- Native import aliases never change foreign declaration identity.
-- Imported foreign names remain qualified like every other module export.
-- Hexal visibility and C linkage are separate properties.
-- Two foreign declarations with the same C symbol must have one compatible ABI
-  contract; conflicting declarations are ABI Errors.
-- Static/private header declarations are absent unless a binding generator
-  deliberately creates a supported wrapper declaration.
+- A legal non-protected C ordinary identifier keeps its exact name when that
+  name is unambiguous in the prepared Hexal module.
+- An otherwise unspellable, protected, or colliding ordinary identifier maps
+  to `hex_cvar_<C-name>`.
+- A C tag with no usable typedef maps to `hex_cvar_struct_<tag>` or
+  `hex_cvar_union_<tag>`. Thus C's `struct stat` and function `stat` can coexist
+  as `hex_cvar_struct_stat` and `stat`.
+- Leading underscores remain inside the prefixed tail, so `_internal` becomes
+  `hex_cvar__internal`.
+- All exact names are reserved before escaped names. If an escaped base still
+  collides, canonical C identity order keeps the first base and appends `_0`,
+  `_1`, and so on to later names.
+- The exact original C spelling remains in checked metadata and generated C;
+  `hex_cvar_` changes only the Hexal member name.
 
-## Scalar mapping
+The checked declaration retains two different facts:
 
-Settled direct mappings:
+1. the Hexal type used for source checking; and
+2. the exact C spelling used at the ABI boundary.
 
-| C ABI type | Hexal type |
-|---|---|
-| `_Bool` / C23 `bool` | `Bool` |
-| `int8_t`, `int16_t`, `int32_t`, `int64_t` | `Int8`, `Int16`, `Int32`, `Int64` |
-| `uint8_t`, `uint16_t`, `uint32_t`, `uint64_t` | `UInt8`, `UInt16`, `UInt32`, `UInt64` |
-| IEC binary32 `float` | `Float32` |
-| IEC binary64 `double` | `Float64` |
-| `size_t` | `Size` |
-| C `void` result | no Hexal result |
-| C `void` pointee | `Unknown` |
+The generator uses C spelling only for foreign parameter/result conversion and
+foreign record, symbol, constant, and global positions; ordinary Hexal storage
+keeps its normal spelling.
 
-- C `void` never maps to `Nil`.
-- C integer promotions do not become Hexal implicit conversions.
-- Hexal widening and explicit `to<T>()` rules remain authoritative before an
-  ABI call.
-- ABI-dependent scalar aliases resolve from trusted target evidence. The
-  binding retains the original C spelling even when Hexal exposes a native
-  scalar with the same representation.
+### Automatic-import normalization
 
-## Foreign type inventory and priority
+- The prepared module is ordinary RFC 0039 source. The checker and generator
+  have no separate automatic-binding representation or trusted fast path.
+- The driver emits declarations only from the supported initial ABI set in this
+  RFC. Unrelated unsupported declarations in a real header do not make the
+  entire import fail; they are absent from the prepared module. Attempting to
+  use one receives the automatic-C-import binding-guidance diagnostic. A
+  handwritten binding may expose it only when RFC 0039 can represent its ABI;
+  otherwise the user needs a compatible C wrapper or the later
+  advanced-interop surface.
+- A supported declaration whose own signature or layout depends on an
+  unsupported type is omitted as a unit; the driver never emits a partial or
+  guessed contract.
+- Functions, complete and opaque records, typedefs, enums/enumerators, and
+  supported globals visible through the requested header are normalized.
+  Required transitive record and typedef dependencies are included only to
+  close those exported interfaces.
+- Object-like C preprocessor macros are not present in the selected frontend's
+  declaration AST and are not automatically imported in this version. The
+  handwritten `constant` form remains their explicit bridge.
+- Internal-linkage objects and functions are omitted, except callable
+  header-defined `static inline` functions whose definition is supplied by the
+  included header. Variadic or otherwise unsupported functions are omitted.
+- Pointer nullability defaults, qualification, integer mapping, record
+  completeness, foreign safety, and exact C spelling are normalized by the
+  rules below. Automatic import never guesses ownership or non-nullness.
+- Declaration selection and normalized source emission are deterministic under
+  arbitrary frontend traversal order. Declarations are ordered by source
+  location, kind, and exact C name after dependency ordering.
 
-This inventory covers C type categories and standard/platform typedef
-families, not every library-defined typedef. Library types are classified into
-the same foreign scalar, enum, record, union, or opaque categories.
+## Initial ABI type set
 
-Priority is implementation order:
+### Direct and target-resolved scalars
 
-- **P0:** required for basic C and raylib interoperability;
-- **P1:** required for broad system-library interoperability;
-- **P2:** specialized numerical, atomic, or machine APIs;
-- **P3:** opaque/wrapper-only until demonstrated demand.
-
-Hexal does not gain a global builtin for every C spelling. The binding model
-uses three representations:
-
-1. **Native mapping:** an ABI-stable C type maps to an existing Hexal type.
-2. **Target-resolved alias:** trusted target facts select a native
-   representation while generated C retains the original C spelling.
-3. **Foreign-only type:** a module-qualified nominal/layout identity exists
-   only at the C boundary and does not enlarge ordinary Hexal semantics.
-
-### Fundamental and standard scalar types
-
-| C type or family | Hexal today | Recommendation / priority |
+| C family | Hexal checking type | Rule |
 | --- | --- | --- |
-| `void` result | no-result function | Existing native mapping; never Nil. **P0** |
-| `void` object/pointee | `Unknown` behind pointers | Preserve C `void` metadata. **P0** |
-| `bool`/`_Bool` | `Bool` | Existing native mapping. **P0** |
-| plain `char` | no exact identity | Target-resolved foreign scalar; do not assume signedness. **P0** |
-| `signed char`, `unsigned char` | `Int8`, `UInt8`/`Byte` | Map after 8-bit-byte target validation. **P0** |
-| signed/unsigned `short` | fixed integers only | Target-resolved alias, normally Int16/UInt16. **P0** |
-| signed/unsigned `int` | fixed integers only | Target-resolved alias, normally Int32/UInt32. **P0** |
-| signed/unsigned `long` | no portable equivalent | Target-resolved alias; LP64 and Windows LLP64 differ. **P0** |
-| signed/unsigned `long long` | `Int64`/`UInt64` | Target-resolved alias. **P0** |
-| `intN_t`/`uintN_t` | matching fixed integers | Existing exact-width mappings. **P0** |
-| `int_leastN_t`/`uint_leastN_t` | no distinct identity | Target-resolved aliases. **P1** |
-| `int_fastN_t`/`uint_fastN_t` | no distinct identity | Target-resolved aliases. **P1** |
-| `intmax_t`/`uintmax_t` | fixed integers only | Target-resolved aliases. **P1** |
-| `size_t` | `Size` | Existing native mapping after target validation. **P0** |
-| `intptr_t`, `ptrdiff_t`, `ssize_t` | no signed pointer-width type | Add native `ISize`; preserve each C spelling. **P1** |
-| `uintptr_t` | `Size` has intended width | Map to Size after target validation. **P1** |
-| `off_t` | no stable equivalent | Target-resolved alias; it may be wider than a pointer. **P1** |
-| `_BitInt(N)` and unsigned form | absent | Foreign arbitrary-width scalar; pass/store first, arithmetic later. **P2** |
-| `nullptr_t` | Nil is not ABI-stable alone | Foreign-only scalar metadata; ordinary APIs use nullable pointers. **P2** |
+| `void` result | no result | Never `Nil` |
+| C23 `bool` / `_Bool` | `Bool` | Direct |
+| exact-width signed/unsigned integers | matching Hexal integer | Direct |
+| `float`, `double` | `Float32`, `Float64` | Qualified targets guarantee binary32/binary64 |
+| `size_t` | `Size` | Direct |
+| `char *`, `const char *` buffers | mutable/read-only `Ptr<Byte> | Nil` | Signature records the C spelling and emits one boundary cast |
+| fundamental integer and `char` types | fixed Hexal integer selected by the binding generator | Target-resolved |
+| C enum type | generated transparent alias to its resolved integer type | Original declaration remains in the included header |
+| `void *`, `const void *` | mutable/read-only `Ptr<Unknown> | Nil` | Direct |
 
-`ISize` is the one recommended native addition. It is the signed counterpart
-to Size and prevents portable bindings from choosing Int32 or Int64 in source.
-It does not make arbitrary C typedefs interchangeable: target/layout evidence
-still records the original identity.
+- No `ISize`, C-integer family, C-enum family, or platform typedef becomes a protected native Hexal type.
+- A generated binding resolves `short`, `int`, `long`, `long long`, plain `char`, pointer-width integers, and library typedefs for the selected target. C `long` maps to `Int32` on Windows LLP64 and `Int64` on an LP64 target; an `as` clause retains `long` when exact boundary spelling is required.
+- C integer promotion does not enter Hexal expression typing. Arguments satisfy the declared Hexal checking type before the call.
+- A C enum remains open like its underlying C integer. It is not a Hexal ADT, adds no exhaustiveness guarantee, and accepts any value of the resolved integer type. Enumerator and object-like macro names are foreign constants.
+- Long double, decimal/binary extension floats, complex values, `_BitInt`, SIMD, atomics, and non-default calling conventions are rejected in this version.
 
-### Floating and character types
+### Pointers and nullability
 
-| C type or family | Hexal today | Recommendation / priority |
-| --- | --- | --- |
-| `float` | `Float32` | Map when target evidence confirms binary32. **P0** |
-| `double` | `Float64` | Map when target evidence confirms binary64. **P0** |
-| `long double` | absent | Foreign scalar with target size/alignment; pass/store first. **P1** |
-| `_Float16`, `__fp16`, bfloat forms | absent | Target-qualified foreign scalar. **P2** |
-| `_Float32`, `_Float64`, `_Float128` | partial representation matches | Target-qualified aliases/scalars. **P2** |
-| decimal floating types | absent | Reject by value initially; opaque/wrapper use only. **P3** |
-| float/double/long-double `_Complex` | absent | Foreign complex values; add arithmetic only on demand. **P2** |
-| `float_t`, `double_t` | absent | Header/target-resolved aliases. **P2** |
-| `char8_t` | `Byte` representation | Target-resolved alias to Byte. **P1** |
-| `wchar_t` | Rune is not ABI-compatible | Foreign scalar; width/signedness are target-specific. **P1** |
-| `char16_t` | no code-unit type | Foreign alias to UInt16; never Rune. **P1** |
-| `char32_t` | no unrestricted code-unit type | Foreign alias to UInt32; never silently Rune. **P1** |
-| `char*`, wide/UTF pointer strings | String is incompatible | Explicit foreign pointers plus conversion/ownership contract. **P0/P1** |
+- C pointer syntax does not prove non-null. Automatic bindings always use
+  `Ptr<T> | Nil` or `Ptr<mut T> | Nil`; this version does not consume
+  nullability annotations as trusted proof.
+- A handwritten binding may write a bare pointer and thereby assert non-null. The assertion is part of its unsafe foreign contract.
+- `const T *` maps to `Ptr<T>`; `T *` maps to `Ptr<mut T>`. Pointer layers map recursively and retain qualification at each layer.
+- Passing a bare pointer to a nullable parameter needs no representation change. A nullable result must be narrowed before dereference.
+- A pointer imports no ownership. Copying aliases the same storage. The user calls the foreign library's matching release function explicitly.
+- RFC 0156 owns pointer arithmetic, indexing, and casts. Foreign declarations do not implicitly grant those operations.
 
-### Derived, aggregate, and nominal types
+### Complete and opaque records
 
-| C type or construct | Hexal today | Recommendation / priority |
-| --- | --- | --- |
-| `const T*`, `T*`, `void*` | Ptr/MutPtr and Unknown | Existing recursive mapping, nullable unless contracted non-null. **P0** |
-| pointer top-level `const` | fixed binding | Declaration metadata, not a new type. **P0** |
-| `volatile` pointer/value | limited volatile scalar operations | Preserve qualifier; add checked foreign access. **P1** |
-| `restrict` pointer | absent | Foreign parameter metadata, not a value type. **P1** |
-| address-space pointer | absent | Target-qualified foreign pointer. **P2** |
-| function type/pointer | functions and `Fun<...>` | Preserve exact ABI and nullability. **P0** |
-| complete `struct` | native object is not an ABI proof | Foreign nominal record owned by its header. **P0** |
-| incomplete `struct`/opaque handle | only generic Unknown | Named foreign opaque type, usable only where complete layout is unnecessary. **P0** |
-| C `enum` | ADT is not a C enum | Foreign nominal enum plus qualified constants. **P0** |
-| raw C `union` | tagged Hexal unions are incompatible | Unsafe foreign nominal union. **P0** |
-| anonymous struct/union | absent | Stable private binding identity and promoted-field metadata. **P1** |
-| packed/aligned aggregate | absent | Preserve target layout/attribute evidence. **P1** |
-| integer/Bool bit-field | absent | Foreign field metadata and generated access; never addressable. **P1** |
-| unnamed/zero-width bit-field | absent | Layout metadata only. **P1** |
-| `T[N]` and nested arrays | `Array<T,N>`; RFC 0151 discusses `[N]T` as an unselected alternative | Preserve every fixed extent and inline shape. **P0** |
-| array function parameter | Array semantics differ | Apply C parameter adjustment, then map pointer/slice. **P0** |
-| incomplete array `T[]` | absent | Foreign metadata plus separately known extent. **P1** |
-| flexible array member | absent | Foreign tail metadata and checked slice accessor. **P1** |
-| variable-length array | absent | Do not add general VLA values; import parameter forms as pointer/slice. **P2** |
-| `T a[static N]` parameter | absent | Preserve minimum-length contract and check when provable. **P1** |
-| transparent `typedef` | transparent aliases | Qualified alias retaining C spelling. **P0** |
-| opaque-handle `typedef` | no foreign nominal identity | Qualified opaque identity. **P0** |
+- `type X ... is struct ... end` declares a nominal foreign record. The named C header, not generated Hexal C, defines its layout.
+- The binding lists every named field in order. Each ordinary non-const field
+  is `mut`; a const-qualified field is fixed. Volatile or atomic fields are
+  unsupported. Omitted, anonymous, bit-field, union, flexible-array, or other
+  unsupported fields make the record ineligible for complete import in this
+  version.
+- The selected C compiler owns size, alignment, padding, parameter passing, and result passing. Hexal never copies numeric offsets from the host or recreates the C definition.
+- Construction, copying, field access, `size_of`, and `align_of` lower using the original C type and field names. Normal Hexal initialization and mutability rules apply.
+- `type X ... is opaque` names an incomplete C type. It may occur only behind a pointer. It cannot be constructed, copied by value, sized, aligned, allocated as a value, dereferenced, or accessed by field.
+- Automatic import may expose a complete C record with unsupported fields as
+  opaque only to satisfy pointer-only interfaces. A declaration that passes or
+  returns that record by value is omitted whole. A handwritten complete record
+  with an unsupported or missing field is rejected. The compiler never guesses
+  a partial layout.
+- Foreign records have no Hexal equality, ordering, printing, or Dict-key
+  contract in this version. These operations are rejected even when every
+  visible field would otherwise support them; C record compatibility does not
+  imply those Hexal semantics.
 
-Imported aggregate definitions remain owned by their C headers. The compiler
-uses supplied field/layout facts for checking and emits the original C type;
-it never recreates a foreign definition from guessed offsets.
+### Constants and globals
 
-### Functions, platform types, and extensions
+- A foreign constant is a typed, non-addressable scalar expression whose C
+  spelling is an enumerator or object-like macro identifier. The included
+  header supplies its definition. The declaration asserts that the C frontend
+  classifies it as a side-effect-free constant expression representable by the
+  stated Hexal scalar or enum alias; other macros are not constants in this
+  version.
+- The compiler does not evaluate C preprocessor expressions. A constant may be used wherever an ordinary expression of its Hexal checking type is accepted, but it is not a Hexal compile-time literal.
+- A foreign global names C storage. `global name` permits reads only; `global mut name` permits reads and writes through Hexal.
+- The binding may expose a writable C object as fixed, but never expose a const C object as writable. The future binding generator validates that direction.
+- Reading or writing a foreign global requires `unsafe do ... end`; synchronization and lifetime are outside Hexal's local analysis.
+- Thread-local variables and volatile or atomic globals are deferred.
+- An automatically imported non-const global is `global mut`; a const global
+  is fixed. A handwritten binding may expose a writable C object as fixed, but
+  never a const C object as mutable.
 
-| C type or family | Hexal today | Recommendation / priority |
-| --- | --- | --- |
-| callback | noncapturing functions/Fun | Direct mapping with lifetime and thread-entry contract. **P0** |
-| nullable callback | Fun union Nil | Verify and preserve. **P0** |
-| variadic function `...` | unsupported | Typed foreign variadic arguments with C promotions. **P1** |
-| `va_list` | absent | Target-specific opaque/pass-through foreign type. **P2** |
-| calling-convention-qualified function | absent | ABI metadata in function and function-pointer identity. **P0** |
-| `noreturn`/`returns_twice` function | partial control-flow concepts | Preserve attributes; reject unsafe unsupported flow. **P1/P3** |
-| `FILE`, `fpos_t`, `mbstate_t` | IO hides native representation | Foreign opaque/pass-through types. **P1/P2** |
-| `time_t`, `clock_t`, `sig_atomic_t` | absent | Target-resolved aliases. **P1/P2** |
-| `max_align_t` | absent | Foreign complete type for layout/allocation APIs. **P1** |
-| POSIX `pid_t`, `uid_t`, `gid_t`, `mode_t` | absent | Qualified platform aliases. **P1** |
-| POSIX thread/sync typedefs | Task/Mutex are not ABI-compatible | Opaque foreign values; never merge with native concurrency. **P2** |
-| Windows integer aliases | representable but unnamed | Generated target aliases to exact Hexal scalars. **P1** |
-| Windows handles | no nominal handle identities | Qualified opaque foreign handle types. **P1** |
-| compiler fixed SIMD/vector | absent | Target-qualified foreign nominal value. **P2** |
-| scalable SVE/RVV vector | absent | Opaque or target-only pass-through. **P3** |
-| `jmp_buf`/`sigjmp_buf` | absent | Opaque only; non-local jumps do not enter safe Hexal flow. **P3** |
-| arbitrary library typedef | no foreign system | Classify as alias, enum, record, union, scalar, or opaque. **P0** |
+## Foreign calls and unsafe
 
-`const`, `volatile`, `restrict`, `_Atomic`, packing, alignment, symbol linkage,
-visibility, and calling convention are not all standalone value types, but
-they are ABI-significant type/declaration metadata and must survive binding
-normalization.
-
-### Atomics
-
-| C type | Hexal today | Recommendation / priority |
-| --- | --- | --- |
-| `_Atomic(T)` | limited native `Atomic<T>` | Foreign atomic metadata; never assume native ABI identity. **P2** |
-| `atomic_*` typedefs | partial conceptual match | Preserve exact header typedef and operations. **P2** |
-| qualified atomic combinations | absent | Preserve qualifier layers as foreign metadata. **P2** |
-
-Foreign atomics should normally remain behind wrapper functions. Their ABI,
-lock-freedom, and representation are target/library properties.
-
-### Required non-type ABI facts
-
-The type inventory is unusable without these declaration facts:
-
-| Fact | Compiler treatment | Priority |
-| --- | --- | --- |
-| size, alignment, field offsets, packing | trusted target evidence; never host inference | **P0** |
-| symbol spelling and linkage | part of foreign declaration identity | **P0** |
-| calling convention | part of function/Fun ABI identity | **P0** |
-| nullability | explicit binding contract | **P0** |
-| ownership, retention, deallocator | explicit binding contract | **P0** |
-| pointer/count relationship | explicit slice bridge contract | **P0** |
-| variadic promotions | checked at each foreign call | **P1** |
-| `errno`/last-error convention | wrapper/binding metadata | **P1** |
-| ABI-affecting attributes | preserved; unsupported ones fail closed | **P1** |
-| conditional target declarations | resolved by binding generator for Project target | **P0** |
-
-### Initial implementation cut
-
-The first usable C boundary includes every P0 row:
-
-1. target-resolved fundamental integers and exact-width scalars;
-2. Bool, Float32/64, Size, pointers, nullability, and `void`;
-3. foreign functions, function pointers, callbacks, and calling conventions;
-4. foreign enums, complete records, opaque records, and raw unions;
-5. fixed/nested arrays and C parameter adjustment;
-6. transparent typedefs, constants, and external variables;
-7. explicit String/C-string and pointer/count conversions; and
-8. ownership, retention, deallocator, target, and layout evidence.
-
-P1 follows for broad OS/library coverage. P2/P3 land only from a concrete
-library requirement. No specialized C type becomes a native Hexal feature
-solely because C can spell it.
-
-## Pointers and nullability
-
-Default mapping without a trusted non-null contract:
-
-| C ABI type | Hexal type |
-|---|---|
-| `const T *` | `Ptr<T> | Nil` |
-| `T *` | `MutPtr<T> | Nil` |
-| `const void *` | `Ptr<Unknown> | Nil` |
-| `void *` | `MutPtr<Unknown> | Nil` |
-| `T **` | recursively mapped pointer layers |
-
-- C pointer syntax alone never proves non-null.
-- A non-null Hexal pointer may pass to a nullable C parameter with no ABI
-  conversion.
-- A foreign null value never enters a bare Hexal pointer without an explicit
-  trusted contract.
-- Imported pointers retain RFC 0033 restrictions: no arithmetic, indexing,
-  subtraction, ordering, integer conversion, or bit-cast.
-- An unsafe foreign binding may expose pointer arithmetic, address conversion,
-  or raw casts only through an explicit unsafe operation. Such an operation
-  does not make the resulting value safe or infer ownership.
-- Pointer-plus-length buffers map through RFC 0153's explicit
-  `Slice<T>`/`Slice<mut T>` bridge or deliberate copying.
-- No pointer gains ownership from its type alone.
-
-## Records, opaque types, enums, and globals
-
-- A complete foreign record is a qualified nominal type with externally
-  supplied layout evidence.
-- Its order, padding, alignment, and ABI follow the verified C declaration.
-- Field mutability follows the checked foreign declaration and pointer
-  constness; it never changes layout.
-- An opaque type may appear behind Ptr/MutPtr but cannot be constructed, stored
-  by value, sized, copied by value, or dereferenced to fields.
-- C unions, bit fields, flexible array members, vector types, complex types,
-  and compiler-specific layout attributes are unsafe foreign representations.
-  They are not valid checked native values, but an explicit unsafe binding may
-  describe them when the selected target profile supplies the required layout
-  evidence.
-- Recommended C-enum representation is a qualified foreign nominal integer
-  type with qualified constants. Its underlying ABI comes from target evidence;
-  it is never inferred from a Hexal ADT.
-- External variables require explicit foreign declarations. Thread-local
-  variables, volatile globals, and C atomics require explicit target/profile
-  and unsafe-boundary rules. A foreign global is never a native mutable global
-  merely because it is imported.
-- Imported object-like constants must already be reduced by the binding
-  generator to an exact typed value; the core compiler does not evaluate C
-  preprocessor expressions.
-
-## Functions and callbacks
-
-- A supported foreign prototype becomes a qualified callable declaration.
-- Parameter order, ABI types, calling convention, and C symbol are preserved.
-- A C `void` result is a no-result Hexal call.
-- Compatible C function pointers map to `Fun<...>` with an explicit foreign ABI
-  contract.
-- Nullable callbacks map to `Fun<...> | Nil`.
-- Hexal callbacks have no hidden environment because Hexal has no closures.
-- Stateful callbacks use the C API's explicit context pointer.
-- The program must keep callback code and context storage alive for the entire
-  foreign retention period.
-- Calls from foreign threads require a settled runtime-entry contract.
-- C variadic functions are unsupported until every promoted argument has a
-  statically representable contract.
-- C inline assembly and compiler-specific builtins are target-qualified unsafe
-  foreign operations; the core compiler does not interpret their bodies.
-- `setjmp`/`longjmp`, foreign exceptions, signals, and asynchronous re-entry do
-  not map to Hexal Error.
-
-## Text and buffers
-
-- String never converts implicitly to a C character pointer.
-- A C-string borrow must be explicit, read-only, allocation-free, scoped to one
-  direct foreign call, and rejected when embedded NUL would change meaning.
-- Foreign code must not retain a borrowed String pointer.
-- Mutable C text never receives immutable String storage.
-- Binary buffers use pointer plus explicit Size and bridge explicitly to
-  `Slice<Byte>` or `Slice<mut Byte>`.
-- C output buffers are copied or wrapped deliberately after the call.
-- The exact source spelling for call-scoped C-string borrowing remains open.
-
-## Ownership, cleanup, and errors
-
-- A foreign call transfers ownership only when its binding contract says so.
-- The compiler performs no automatic free, retain, release, destructor, or
-  allocator translation.
-- Foreign allocations must be released through their matching foreign
-  deallocator.
-- Heap, Stash, Pool, and collection cleanup never release foreign allocations
-  unless a future explicit allocator-compatibility contract permits it.
-- Imported C deallocators never receive Hexal-managed storage by default.
-- Foreign pointers and records follow the affine ownership rules once RFC 0110
-  lands. Until then, this RFC's implementation must reject ownership claims it
-  cannot represent rather than silently applying shallow-copy semantics.
-- C status returns, nullable results, `errno`, and out-parameters retain their
-  declared shapes; the compiler does not synthesize Error values.
-- Native wrapper functions may translate a foreign convention into `T | Error`.
-- Foreign undefined behavior, termination, memory corruption, and long jumps
-  cannot be converted reliably into Hexal Error.
-
-## Exports to C
-
-- The compiler may expose a non-generic Hexal function under stable C linkage
-  when every parameter and result has a settled C ABI mapping.
-- C linkage and native-module `export` visibility remain independent.
-- The compiler emits the C definition, stable symbol, and declaration text.
-- Export declarations are returned as generated header content in
-  `CompilationResult.Files`.
-- Methods, generics, ADTs, structural unions, String, collections,
-  Error, Stream, Task, and runtime handles are not initially exportable.
-- Exact syntax, symbol naming, output-header ownership, visibility attributes,
-  and foreign-thread entry remain open.
-
-Conceptual notation only:
+Every direct foreign function call requires lexical permission from RFC 0155:
 
 ```hexal
-extern c export fun add(left: Int32, right: Int32): Int32
-    return left + right
+unsafe do
+    init_window(800, 450, title.c_pointer())
 end
 ```
 
-## Lowering contract
+- The checker first validates the callee, arguments, result, nullability, and ABI compatibility, then applies the unsafe gate. `unsafe` never suppresses an ordinary diagnostic.
+- The requirement belongs to the call expression, including calls written in a deferred action or through a native wrapper. It is not inherited by callers.
+- A normal Hexal wrapper may contain the unsafe block and expose an ordinary checked API. The wrapper author owns the foreign preconditions.
+- C termination, undefined behavior, memory corruption, long jumps, data races, and asynchronous re-entry cannot be translated into Hexal Error.
+- C status returns, null results, and out-parameters retain their declared shapes. The compiler never invents `Error`; a native wrapper may translate a foreign convention into `T | Error`.
 
-- Foreign header requirements become deterministic `#include` directives in
-  generated C; the compiler never resolves those headers.
-- Imported calls lower to their exact C symbols or a required tiny adapter.
-- ABI-compatible arguments pass directly with no wrapper allocation.
-- Nullable pointer unions use the C null-pointer niche and add no tag.
-- Complete foreign records use verified layout metadata; opaque records remain
-  incomplete declarations.
-- Callbacks lower to ordinary C function pointers with no hidden environment.
-- Compiler-generated C-export headers are returned as strings.
-- Unsupported foreign declarations fail before generation and are never
-  silently omitted.
-- Generated adapters retain `#line` mapping where Hexal expressions execute.
+## Text and buffer bridge
+
+The first version adds these unsafe-capable operations:
+
+```text
+String.c_pointer() -> Ptr<Byte>
+Slice<T>.pointer() -> Ptr<T> | Nil
+Slice<mut T>.pointer() -> Ptr<mut T> | Nil
+```
+
+- Each operation requires `unsafe do ... end` and exposes the address already present in the value; it allocates and copies nothing.
+- `String.c_pointer()` points at immutable UTF-8 bytes followed by the String allocation's existing terminal zero. An embedded zero ends a C string early. The operation does not scan, reject, or rewrite the String.
+- The returned String pointer remains valid only while the String allocation is live. Foreign code must not mutate or retain it beyond that lifetime.
+- A Slice pointer shares the Slice's lifetime and may be Nil exactly when the Slice has no backing address. Length is never implicit; pass `slice.length()` separately when the C API requires it.
+- A foreign `char *` parameter is checked as a Byte pointer and lowered with the exact C pointer spelling recorded on that parameter. This representation-preserving boundary cast does not make plain C `char` a Hexal Byte scalar.
+- Mutable C output never receives `String.c_pointer()`. It receives a pointer from `Slice<mut Byte>`, a writable Array/List region, or explicit foreign allocation.
+- These operations may return pointers that outlive the source value in syntax; correctness is the programmer's unsafe assertion. No lifetime or retention annotation is added.
+
+## Advanced interop handoff
+
+Deferred RFC 0191 owns callbacks into Hexal, function-pointer values, variadic
+calls, raw C unions, bit-fields, flexible-array members, C atomics, extended
+numeric types, native error-convention translation, non-default calling
+conventions, dynamic libraries, and C exports. None is an implied extension of
+this RFC's implementation. Each returns through its own focused child RFC after
+the foundation is implemented and a concrete library demonstrates demand.
+
+## Lowering and artifact ownership
+
+- A module that uses a foreign declaration records its defining header as a deterministic dependency. Its generated module header emits each required include once in first checked-use order, after `hexal.h` and compiler-owned component headers but before declarations that name the foreign type.
+- The module C file continues to include only its own generated header.
+- Foreign binding modules retain ordinary module C/header artifacts; no foreign function or type definition is emitted into them.
+- Imported calls use the exact C identifier. No forwarding wrapper is generated solely to rename a function.
+- Arguments and results with identical representation pass directly. The generator emits a direct cast only where a checked foreign signature records a different but representation-compatible C spelling, such as Byte storage passed as `const char *`.
+- Foreign records use the original C type and field spellings. Generated C never emits their `struct`, `enum`, or typedef definitions.
+- Foreign constants lower to their C identifier. Foreign globals lower to the original C object identifier.
+- Nullable pointers use C23 `nullptr`; no tagged wrapper is introduced.
+- Every generated expression retains `#line` mapping to the Hexal call or access. Header contents are not source-mapped or copied.
+- Unsupported foreign declarations fail during checking. The generator has no placeholder or best-effort path.
 
 ## Diagnostics
 
-The compiler owns structured diagnostics for:
+The earliest proving phase owns these exact forms:
 
-- invalid foreign declaration syntax;
-- unknown or private foreign names;
-- conflicting C symbol contracts;
-- unsupported ABI types or calling conventions;
-- absent or contradictory layout evidence;
-- nullable-pointer misuse;
-- opaque-type construction, sizing, copying, or field access;
-- String/C-pointer mismatches;
-- invalid callbacks or callback lifetimes provable statically;
-- invalid C exports; and
-- impossible checked foreign operations reaching generation.
+```text
+Syntax Error: extern blocks must precede ordinary top-level items
+Syntax Error: foreign declaration requires a C header
+Syntax Error: invalid C header name <name>
+Syntax Error: invalid C spelling <spelling>
+Configuration Error: C interoperability requires a qualified target
+Type Error: unsupported foreign declaration <declaration>
+Type Error: C spelling <spelling> cannot be proven in a handwritten binding; use an automatic C import or expose a C wrapper
+Type Error: foreign type <type> is incomplete in <position>
+Type Error: foreign call <name> requires an unsafe do ... end block
+Type Error: foreign global <name> requires an unsafe do ... end block
+Type Error: conflicting foreign declarations for C symbol <symbol>
+Type Error: <type> has no supported C ABI mapping for target <target>
+Name Error: C import <header> has no automatically imported declaration <name>; check the C name, use a handwritten binding, or expose a C wrapper
+```
 
-Filesystem, header-frontend, C-project, object, library, compiler, and linker
-failures belong to ADR 0055's driver. They are not compiler diagnostics.
-
-## Pure-Go conformance
-
-- Ordinary compiler tests use handwritten binding-module strings.
-- Tests cover parsing, checking, diagnostics, identity, lowering, generated
-  includes, direct C symbols, callbacks, and export headers without invoking an
-  external tool.
-- Generated C execution remains outside ordinary `go test ./...`.
-- Target ABI facts used by the checker require explicit trusted evidence; the
-  compiler never probes the host.
-
-## Compiler non-goals
-
-- Reading `.h` or `.c` files.
-- Implementing a C preprocessor or general C23 parser.
-- Running Clang, GCC, a build system, or a linker.
-- Building C projects.
-- Parsing or linking `.o`, `.obj`, `.a`, `.lib`, `.so`, `.dll`, or `.dylib`.
-- Resolving include roots, library paths, packages, or system frameworks.
-- C++, Objective-C, variadic calls, arbitrary macros, or unchecked foreign
-  operations in the initial implementation.
-- Adding unrestricted source pointer arithmetic, address integers, unchecked
-  casts, or implicit unsafe operations. Explicit unsafe foreign declarations
-  and operations are in scope; their exact syntax is a readiness question.
+Ordinary privacy, export-closure, argument, result, mutability, nullability,
+name-resolution, and duplicate-declaration diagnostics retain ownership. The
+last diagnostic replaces only a missing qualified member lookup through a
+direct automatic C-import alias; it does not claim that the physical header
+contains that name. Missing headers, include search, C compilation, C project,
+object, archive, library, framework, and linker failures are driver
+diagnostics.
 
 ## Driver handoff
 
-ADR 0055 will eventually:
+RFC 0193 owns automatic binding preparation. It may:
 
-- read and preprocess headers;
-- generate binding-module strings;
-- add those strings to the `sources` map;
-- read and compile C sources;
-- build configured C projects;
-- resolve objects and libraries;
-- materialize `CompilationResult.Files`; and
-- compile and link the final program.
+1. call the pure `DiscoverCImports` helper over the supplied source strings;
+2. read and preprocess each reachable requested header using the installed
+   Zig/Clang frontend with the selected target, include roots, and definitions;
+3. normalize supported declarations into the syntax above for that target;
+4. add each binding module string under its deterministic reserved key in a
+   copied `sources` map;
+5. return the augmented source map to the ordinary compiler call.
 
-Objects, libraries, and C projects require no direct compiler representation.
-The binding module supplies the types and symbols; the driver supplies the
-linked implementation.
+RFC 0192 separately owns compiling foreign C sources, providing include roots
+and definitions, accepting objects/archives/libraries, materializing generated
+artifacts, and linking the complete program.
 
-## Readiness questions
+Importing a C project, object, or library adds no object representation to the
+core compiler. The binding module supplies types and symbols; the driver
+supplies their implementation at link time. RFC 0192 initially receives every
+physical build input through `hexal build` options; a project manifest remains
+future work.
 
-Before implementation, settle:
+## Required sweep
 
-1. exact `extern c` declaration grammar and interaction with native `export`;
-2. binding-module header/include declaration syntax;
-3. C symbol spelling and alias syntax;
-4. approval of the recommended target-resolved scalar aliases, native `ISize`,
-   and nominal C-enum identity;
-5. trusted target/layout evidence supplied by generated bindings;
-6. complete foreign-record field, union, bit-field, flexible-array, and array
-   representation, including which cases remain unsafe-only;
-7. trusted non-null, ownership, retention, and deallocator annotations;
-8. call-scoped String-to-`const char *` borrowing syntax;
-9. callback calling conventions, retention, context recovery, and foreign
-   thread entry;
-10. external variables, TLS, volatile values, `errno`, C atomics, inline
-    assembly, and target-specific builtins;
-11. exact C-export syntax, stable symbol rules, supported types, and generated
-    header paths; and
-12. whether generated binding modules are the final compiler/driver boundary
-    or an additional normalized manifest format is necessary.
+Inventory and reconcile:
+
+- program grammar, keyword handling, top-level ordering, recovery, and export closure;
+- pure reachable C-import discovery, deterministic reserved binding keys, and
+  prepared-module validation;
+- parsed and checked declaration kinds and fail-closed traversal;
+- module identity, import aliases, visibility, duplicate names, and defining-module ownership;
+- foreign signature C-spelling preservation and representation checks;
+- target-profile scalar resolution and record eligibility;
+- pointer qualification, nullability, opaque-type placement, and foreign-state access;
+- RFC 0155's shared unsafe-capability predicate;
+- String/Slice raw-address extraction and every existing storage-lifetime rule;
+- generator dependency discovery, include ordering, declaration spelling, source mapping, and deterministic artifact output;
+- pure-Go binding tests, integration tests, tagged generated-C fixtures, snippets, and manifest entries; and
+- current excluded-feature and C23 contracts in `docs/reference.md` after explicit approval.
+- RFC 0186's import-form table and grammar so `from c` is the explicit third
+  import source beside user and `std` modules.
+
+Do not add a C parser, preprocessor, ownership checker, C package manager, or
+any surface owned by deferred RFC 0191 to the core compiler. RFC 0193 owns
+frontend invocation and normalization; RFC 0192 owns physical build inputs.
+
+## Detailed implementation plan
+
+### Phase 0: prerequisites and baselines
+
+1. Land RFC 0155 and verify its lexical unsafe context and shared gate.
+2. Record parser, module, pointer, String, Slice, generated-include, diagnostic, snippet-manifest, and tagged-C baselines.
+3. Add minimal checked-in C headers for external validation; do not introduce a filesystem read in the compiler.
+
+### Phase 1: syntax and parsed declarations
+
+1. Extend an import entry with contextual `from c <header>` and retain its
+   alias, header form, payload, and source location.
+2. Add pure reachable C-import discovery using the ordinary parser and module
+   graph; do not duplicate import scanning in the driver.
+3. Define and test the reserved `hexalc/h<digest>.hex` binding-key derivation,
+   user-key exclusion, equal-request deduplication,
+   collision rejection, and missing/mismatched prepared-binding diagnostics.
+4. Add contextual tokens and parse zero or more handwritten foreign blocks in
+   the one legal top-level region.
+5. Parse the four declaration forms and restricted header/C-name literals.
+6. Reuse native type expressions, signatures, members, and final export blocks.
+7. Add explicit AST nodes for every foreign declaration and reject bodies,
+   generics, methods, initializers, misplaced blocks, and unsupported spellings.
+8. Add parser recovery at the foreign block's `end` without accepting a partial
+   declaration.
+
+### Phase 2: types, modules, and ABI checking
+
+1. Add module-owned foreign function, constant, and global identities plus the
+   program-wide target-qualified foreign-record registry; retain header, Hexal
+   type, canonical C identity, and required C spelling.
+2. Preserve checked parameter/result C spelling through call resolution.
+3. Resolve target-dependent scalar representations from `Project.Target`; never inspect the host.
+4. Reuse native module privacy, export closure, and alias qualification; do not
+   reuse module-owned nominal identity for a foreign record.
+5. Check pointer layers, nullable defaults, complete/opaque placement, full record members, constant/global types, and duplicate C-symbol compatibility.
+6. Check foreign calls and global access normally, then require lexical unsafe.
+7. Add checked identities for the three raw-address bridge operations and route them through the same unsafe gate.
+
+### Phase 3: generation
+
+1. Discover foreign header demand from checked declarations used by each generated module.
+2. Emit deterministic system/quoted includes before their first type use.
+3. Render original C type, field, function, constant, and global spellings only at recorded ABI positions.
+4. Lower calls and accesses directly; add only representation-preserving boundary casts and no forwarding helper.
+5. Lower String/Slice address extraction from their existing representations with no allocation or runtime component.
+6. Keep every new generator dispatch fail-closed and retain source mapping.
+
+### Phase 4: conformance
+
+1. Implement every Validation item in focused parser/checker tests and exported-API integration tests.
+2. Add tagged C23 fixtures for a minimal C function, scalar aliases, a complete record passed and returned by value, an opaque pointer, constants, globals, String input, and mutable buffers.
+3. Add a header-only fixture and a raylib-shaped fixture; the first RFC does not require the external raylib dependency itself.
+4. Run ordinary and tagged gates, review generated text, and update only intentional snippet-manifest entries.
+5. Synchronize `docs/reference.md` only after behavior stabilizes and with explicit user approval; then update status and close.
+6. Rebuild and restart `hexal play` before handoff.
+
+## Validation
+
+This list is exhaustive.
+
+### Syntax and modules
+
+- Quoted and system `Alias from c <header>` imports resolve a prepared binding
+  under the deterministic reserved key and expose exact or deterministically
+  `hex_cvar_`-escaped names through the local alias.
+- Equal header identities imported under different aliases share one prepared
+  module identity; quoted and system forms remain distinct.
+- Prepared keys use `hexalc/h<digest>.hex`; a user module under `hexalc` is
+  rejected and a digest beginning with a decimal digit remains legal after the
+  mandatory `h`.
+- The selected target participates in prepared module identity because one C
+  header may normalize platform integers and conditional declarations
+  differently on different targets.
+- Missing, mismatched, or colliding prepared bindings fail with the exact
+  Configuration Error before checking ordinary declarations.
+- A C import or handwritten foreign block with an empty or unqualified target
+  fails with Configuration Error before foreign declaration checking.
+- `DiscoverCImports` returns only reachable requests in deterministic module
+  order and performs no filesystem or process operation.
+- Quoted and system header forms parse and emit their exact include form.
+- A legacy foreign source may use C11/C17 while its imported header is accepted
+  independently from a generated C23 translation unit; an incompatible header
+  requires a compatibility wrapper.
+- Empty, absolute, parent-walking, escaped, multiline, or delimiter-breaking headers fail with the exact syntax diagnostic.
+- Foreign blocks work only after imports and before every ordinary top-level item; nested, late, and post-export forms fail with the exact ordering diagnostic.
+- Multiple blocks in one module work; identical header demand is emitted once.
+- Every declaration is private by default and uses the normal final export block. Qualified import aliases preserve defining identity.
+- An automatic binding with no supported declarations contains no empty export
+  block and remains a valid module.
+- A missing member through an automatic C-import alias reports the exact
+  binding-guidance diagnostic; an ordinary Hexal module retains its ordinary
+  unknown-export diagnostic.
+- Replacing the direct import with an ordinary import of a handwritten binding
+  permits explicit renaming and curation but cannot bypass an unsupported ABI
+  diagnostic.
+- Unsupported automatic declarations and unprovable handwritten C spellings
+  diagnose the valid next action: add a representable handwritten binding, use
+  automatic import, or expose a C wrapper as appropriate.
+- Generics, methods, bodies, initializers, and unsupported declaration kinds are rejected rather than ignored.
+
+### Types and ABI
+
+- Every direct scalar row maps in argument, result, constant, global, and record field positions.
+- The same compatible foreign record reached through two headers has one
+  target-qualified identity and crosses either API without a conversion;
+  incompatible redeclarations fail before generation.
+- Exact usable C names remain unchanged. Keywords, protected names,
+  leading-underscore names, tag/ordinary namespace collisions, and collisions
+  with an existing escaped name receive deterministic `hex_cvar_` spellings
+  while generated C retains the exact original spelling.
+- Target-resolved `char`, `short`, `int`, `long`, `long long`, pointer-width integer, enum, and typedef inputs resolve to the correct Hexal integer on each qualified target; an explicit signature `as` spelling is checked and retained.
+- A handwritten arbitrary library typedef in a parameter/result `as` spelling
+  fails with the exact diagnostic directing the user to automatic import or a
+  C wrapper; compiler-known fundamental, record/tag, and pointer spellings pass.
+- C `void` produces no result and never `Nil`; `void *` maps through Unknown.
+- Pointer qualification is preserved recursively. Nullable pointers require ordinary narrowing; a trusted bare pointer remains bare.
+- A complete scalar/pointer record constructs, copies, accesses fields, passes by value, returns by value, and uses C-owned size/alignment without emitting a duplicate definition.
+- An opaque type succeeds behind pointers and fails in every forbidden value, layout, allocation, dereference, and member-access position with the exact incomplete-type diagnostic.
+- Unsupported arrays-in-records, unions, bit-fields, flexible members, atomics, extended scalars, calling conventions, and incomplete layouts fail closed.
+- Compatible duplicate C declarations are accepted once; incompatible ones report the exact ABI conflict.
+
+### Calls, constants, globals, and bridges
+
+- A valid direct foreign call succeeds inside unsafe, fails outside with the exact diagnostic, evaluates arguments once in source order, and lowers to the original symbol without a wrapper.
+- Invalid arguments, results, nullability, or names retain their earlier ordinary diagnostics inside unsafe.
+- Foreign constants are readable without unsafe, lower to their C identifiers, and are non-addressable and non-assignable.
+- Fixed globals permit reads only; writable globals permit reads and writes. Every global access requires unsafe and lowers to the original object.
+- `String.c_pointer` preserves the current UTF-8 bytes and terminal zero, makes no allocation, and requires unsafe. An embedded zero is preserved.
+- Both Slice pointer forms preserve access mode, return Nil exactly for a Slice without a backing address, allocate nothing, and require unsafe.
+- Mutable C output rejects a String pointer and a read-only Slice pointer.
+- Foreign records reject equality, ordering, printing, and Dict-key use.
+- A char-pointer signature receives the explicit Byte pointer through one direct boundary cast; no general implicit pointer conversion is introduced.
+
+### Artifacts and boundaries
+
+- A driver-generated normalized module uses the same parser, checker, and
+  generator path as a handwritten module. Under the same logical binding
+  identity, equivalent declarations produce identical includes, calls, and C
+  ABI spellings; a separately named handwritten module retains its own ordinary
+  nominal module identity.
+- Foreign headers appear once, deterministically, before every emitted C use and never when no checked declaration requires them.
+- Binding modules emit no duplicate C type/function definition.
+- `Compile` performs no filesystem or process operation and remains deterministic under randomized source and map insertion order.
+- Missing headers and unresolved symbols do not become compiler diagnostics; tagged driver/toolchain validation owns them.
+- Minimal C, record/opaque, header-only, and raylib-shaped fixtures compile, link, and run through the tagged external gate.
+- Existing snippet hashes do not move; new interop snippets add only their own artifact entries.
+- Ordinary and tagged C23 suites pass.
+
+## Settled decisions
+
+- **Boundary:** one ordinary binding-module string; the driver may generate it,
+  while the compiler has no raw-header parser and no second manifest.
+- **Ordinary syntax:** `Alias from c <header>` in the leading import block.
+- **Manual syntax:** grouped `extern c from <...> do ... end` declarations with
+  normal final exports remain the curation and automatic-import escape hatch.
+- **Selection:** one alias uses either a prepared automatic module or an
+  ordinary handwritten binding module; the compiler performs no implicit merge.
+- **Safety:** calls and foreign-global access require lexical unsafe; constants and local foreign-record operations do not.
+- **Ownership:** raw pointers are non-owning and cleanup is manual. No affine, retain/release, allocator, or destructor annotation is added.
+- **Nullability:** C pointers default nullable; a bare pointer is an explicit binding assertion.
+- **Layout:** the C compiler owns it. Hexal stores field/type facts but no copied host offsets.
+- **Enums:** transparent resolved integer aliases plus constants, not ADTs or a new native enum family.
+- **C integer names:** binding-local aliases; no native `ISize` or global C type catalog.
+- **Text:** explicit zero-copy raw addresses; no implicit String conversion, hidden scan, allocation, or `CString` type.
+- **Initial functions:** named, non-variadic, default-C-ABI calls only.
+- **Advanced interop:** deferred RFC 0191 owns every excluded advanced surface;
+  this implementation does not partially introduce one.
+- **Driver:** source dialects, headers, projects, objects, archives, libraries, frameworks, and linking remain outside the compiler.
+
+## Open questions
+
+None.
 
 ## Reference synchronization
 
-Implementation updates `docs/reference.md` after behavior stabilizes and before
-this RFC closes:
-
-- add final foreign-declaration grammar;
-- add binding-module identity, qualification, visibility, and trust-boundary
-  rules;
-- add foreign scalar, pointer, record, enum, callback, text, ownership, and
-  error contracts;
-- add C export and generated-header contracts;
-- add foreign diagnostics and C23 lowering rules; and
-- add the explicit unsafe-boundary contract and its interaction with affine
-  ownership, Stashes, foreign globals, raw layouts, and target-specific code;
-- remove only implemented C-interoperability items from Excluded features.
+Do not edit `docs/reference.md` from this draft. Approved implementation updates the grammar, modules, pointers/Slices/String, unsafe consumers, generated artifacts, C23 lowering, diagnostics, and excluded-feature list only after the implementation stabilizes and with explicit user approval.

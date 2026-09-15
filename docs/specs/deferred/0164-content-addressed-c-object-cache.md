@@ -51,6 +51,21 @@ The first version is deliberately local and bounded in responsibility:
 - A language-visible cache setting.
 - Caching objects produced by RFC 0052's installed `PATH` backend.
 
+## C-interoperability follow-up
+
+RFC 0192 deliberately gives every build containing foreign inputs a fresh
+staging identity. Extending this cache to foreign C requires the key to include
+the bytes of every foreign source, object, and archive; ordered include roots,
+definitions, dialect, mode, target, and material tool options; the effective
+child environment; and the complete transitive header dependency closure.
+Timestamps and explicit top-level files alone are insufficient.
+
+RFC 0193 initially regenerates automatic header bindings on each build. A
+future binding cache is a separate entry family keyed by requested-header and
+transitive-include bytes, ordered definitions and include configuration,
+target, frontend identity/version, and normalizer/schema version. It must never
+reuse a binding produced from a different preprocessor environment.
+
 ## Storage layout
 
 The cache lives under the project's existing driver-owned build area:

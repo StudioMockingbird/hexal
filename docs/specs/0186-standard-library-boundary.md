@@ -51,7 +51,12 @@ contract.
    artifact hashes; only that source mapping and intentional stdlib artifact
    ownership may move.
 6. Writing a stdlib module in Hexal and later reimplementing a core library in
-   Hexal over C interop are both possible without changing importers.
+   Hexal over C interop are both possible without changing importers, for every
+   API a Hexal module can declare. Methods that mutate their receiver through a
+   pointer (for example `Ptr<mut Bytes>.read`) cannot be user-declared under the
+   struct-only value-receiver rule; a Hexal reimplementation would expose them
+   as module functions (`Io.read(@stream, into, 16)`), which is an API change
+   accepted for that future rewrite, not a v1 migration.
 
 ## Layer model
 
@@ -339,6 +344,18 @@ spellings only: import aliases remain file-local user choices. The hints come
 from one static table of moved names and operations; names are never
 auto-imported.
 
+A hint is emitted only for a name that ordinary resolution leaves unresolved.
+Local, module, and imported declarations resolve first; a user declaration of a
+freed name is never reported:
+
+```hexal
+type File is struct
+    id: Int32,
+end
+
+value: File := File(id = 1)   -- valid; no std/fs hint
+```
+
 ## Module identity and generated artifacts
 
 - A stdlib module's canonical identity is `std/<path>` in the stdlib collection.
@@ -348,8 +365,12 @@ auto-imported.
   prefix `s` for stdlib modules (`hex_f_s2_io4_path_join`), so the two can never
   collide.
 - A source stdlib module emits `stdlib/<path>.c` and `stdlib/<path>.h` under the
-  same rules as `modules/<path>.c/.h`, including `#line` mapping to the logical
-  key `std/<path>.hex`.
+  same rules as `modules/<path>.c/.h`.
+- Its source key for `#line` directives, diagnostics, and `Error.file` is
+  `stdlib/std/<path>.hex`, the module's path in this repository. It is never
+  `std/<path>.hex`, which a user module may legitimately own. Canonical module
+  identity stays `std/<path>`; only source provenance uses the distinct key, so
+  a user `std/fs.hex` and the stdlib `std/fs` never share a `#line` file name.
 - Every reachable module, user or stdlib, emits all of its functions and methods,
   exactly as today. See "Unused functions" below.
 - A core library emits no module artifact. Its declarations keep their existing
@@ -388,7 +409,7 @@ This RFC keeps that rule for user and stdlib modules:
 | Content | Location |
 | --- | --- |
 | Source stdlib modules | `stdlib/std/<path>.hex` |
-| Embedding shim | `stdlib/stdlib.go`: package `stdlib`, one `//go:embed` of `std`, one exported `Sources() map[string]string` |
+| Embedding shim | `stdlib/stdlib.go`: package `stdlib`, one `//go:embed` of `std`, one exported `Sources() map[string]string` that returns a fresh copy on every call, so no caller can mutate a later compilation's stdlib |
 | Core library declarations | `compiler/corelib`, one file per module |
 | Core library C runtime templates | `compiler/corelib/runtime/` |
 | Language-core C runtime templates | `compiler/generator/packages/` |
@@ -400,13 +421,14 @@ Today each capability is spread across four places: `compiler/types/<name>.go`,
 `compiler/checker/<name>.go`, `compiler/generator/<name>.go` (plus
 `<name>_render.go`), and `compiler/generator/packages/<name>.c/.h`. Core
 libraries become one Go package, `corelib`, that owns everything about a module
-that does not depend on a particular compiler stage:
+that does not depend on a particular compiler stage and is not canonical type
+metadata:
 
 - **Module table** (`corelib/modules.go`): each module path (`std/fs`, ...) and
   its exported names.
-- **Declarations** (`corelib/fs.go`, `corelib/net.go`, ...): exported types,
-  static operations, methods, and signatures, built with `compiler/types`, plus
-  each operation's fixed Error messages.
+- **Declarations** (`corelib/fs.go`, `corelib/net.go`, ...): exported module
+  functions, instance-method signatures, the mapping from exported names to
+  canonical types, and each operation's fixed Error messages.
 - **Runtime templates** (`corelib/runtime/file.c`, `network.c`, `process.c`,
   `signal.c`, `terminal.c`, `time.c`, `handle.c`, and later `program.c` and
   `entropy.c`), embedded by `corelib` and handed to the generator by name.
@@ -421,8 +443,16 @@ compiler/types  <-  compiler/corelib  <-  compiler/checker
 `corelib` imports only `compiler/types`. It does not import the checker or
 generator.
 
-What stays in the stage packages:
+What stays where it is:
 
+- **Canonical type metadata stays in `compiler/types`.** The type arena,
+  canonicality checks, and union/equality/placement rules consult each core
+  type's descriptor and low-level identity predicate (`FileType`, `IsFile`,
+  `IsFileMode`, `IsTcpConnection`, `IsBuiltinAdt`, ...). Moving them would force
+  `compiler/types` to import `corelib` (a cycle) or add a descriptor
+  registration API (a plugin layer). They remain in `compiler/types`, unchanged
+  in identity. What changes is only how a source name reaches them: through a
+  `corelib` module export instead of the global protected-name table.
 - **Checking and lowering logic.** It reads and writes checker and generator
   state directly. Moving it into `corelib` would force `corelib` to import those
   packages (a cycle), or would need a registration interface that every stage
@@ -436,8 +466,8 @@ What stays in the stage packages:
   because `print` depends on it.
 
 A core-library feature is therefore one declaration file, one runtime template,
-and one checker file plus one generator file with matching names. Nothing about
-a core library lives in `compiler/types` beyond the shared type representation.
+one checker file, one generator file with matching names, and its canonical
+type descriptor in `compiler/types`.
 
 The stdlib is embedded in the compiler binary at Go build time, so:
 
@@ -522,11 +552,17 @@ module exports several creatable types names what it creates
 - alias-qualified ADT variant construction and patterns: remove
   `Alias.Variant(...)`, add `Alias.Adt.Variant(...)` to the parser (patterns)
   and checker (construction), and update the reference's dotted-pattern rule;
-- the unqualified `Seek` variant names (`Start`, `Current`, `End`), which become
-  `Io.Seek.Start(...)` and so on;
-- move capability declarations out of `compiler/types`, capability templates out
-  of `compiler/generator/packages`, and rename the remaining checker and
-  generator capability files to `corelib_<module>.go`;
+- every `Seek.Start(...)`, `Seek.Current(...)`, and `Seek.End(...)` construction
+  and pattern, which becomes `Io.Seek.Start(...)` and so on. (`Start`,
+  `Current`, and `End` are already unprotected user names; nothing about that
+  changes.)
+- the dotted match-pattern grammar, which gains the alias-qualified form
+  `dotted-match-pattern = identifier , "." , identifier , [ "." , identifier ]`
+  for `| Alias.Adt.Variant then`;
+- move capability module/API declarations into `compiler/corelib` (canonical
+  type descriptors and identity predicates stay in `compiler/types`), move
+  capability templates out of `compiler/generator/packages`, and rename the
+  remaining checker and generator capability files to `corelib_<module>.go`;
 - migration diagnostic table;
 - every snippet, integration test, and c23validation fixture that uses a moved
   name, static operation, or `Alias.Variant(...)`; and
@@ -620,6 +656,15 @@ This list is exhaustive:
   specializations;
 - `Io.Seek` works for `IO`, `Bytes`, and
   `File`; `Byte` remains a protected core name;
+- a user declaration of a freed name (`File`, `Signal`) resolves without a
+  migration hint; an unresolved moved name receives the hint; a program using a
+  user `File | Error` union and `Fs.File | Error` together generates distinct,
+  deterministic C union spellings;
+- a source stdlib module's `#line` directives, diagnostics, and `Error.file`
+  use `stdlib/std/<path>.hex`, distinct from a user `std/<path>.hex` in the same
+  program;
+- mutating the map returned by `stdlib.Sources()` does not change a later
+  compilation;
 - a stdlib source module constructing `ErrorKind.Other(header = ...)` behaves
   exactly as the same code in a user module;
 - migrated snippet manifest movement is limited to reviewed `#line`
@@ -680,4 +725,5 @@ None.
 Do not edit `docs/reference.md` from this draft. Approved implementation updates
 the grammar, module resolution, protected names, artifact split, and each moved
 capability's section only after behavior stabilizes and with explicit user
-approval.
+approval. The protected-name list update also adds `ErrorKind`, which the
+reference already declares protected but omits from that list.

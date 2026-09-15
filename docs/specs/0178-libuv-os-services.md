@@ -1,16 +1,16 @@
 # RFC 0178: Program Paths and Secure Entropy
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready after RFC 0186; design and execution plan
+- Status: Implementation-ready after RFC 0186 and RFC 0182's entry adapter; design and execution plan
   settled, implementation not started
 - Created: 2026-09-13
 - Updated: 2026-09-15
 - Scope: expose the minimum path facts and secure system random bytes needed by
   ordinary command-line and server programs
-- Depends on: RFC 0168, RFC 0186, and the implemented RFCs 0169, 0170, 0171,
+- Depends on: RFC 0168, RFC 0186, RFC 0182's entry adapter, and the implemented RFCs 0169, 0170, 0171,
   0180, and 0181
-- Coordinates with: RFC 0182 for the shared `std/program` module and any future
-  target whose libuv executable-path backend requires `uv_setup_args`
+- Coordinates with: RFC 0182 for the shared `std/program` module and the one
+  entry adapter that calls `uv_setup_args` before `uv_exepath`
 - Does not add: a general OS-reflection namespace, mutable process-global
   environment, process title, system metrics, deterministic pseudo-randomness,
   or a process-exit surface
@@ -24,10 +24,12 @@ Replace the former libuv API catalog with a focused v1:
 - available parallelism.
 
 RFC 0182 owns process arguments and exit status. Its entrypoint, unwind, and
-Task semantics are independent of these OS queries. The pinned Windows, Linux,
-and macOS `uv_exepath` backends do not require `uv_setup_args`, so this RFC is
-not blocked on RFC 0182. A future target whose pinned backend does require setup
-must coordinate with RFC 0182's one authoritative adapter.
+Task semantics are independent of these OS queries. Libuv documents that
+`uv_setup_args` must be called before `uv_exepath` on every platform; this RFC
+follows that public contract rather than the pinned source's current
+platform-specific independence. Executable-path demand therefore selects RFC
+0182's one entry adapter, and the two RFCs land together or in the order
+0182, then 0178.
 
 ## Scope decision
 
@@ -104,13 +106,21 @@ first; neither RFC creates a namespace type or duplicate runtime component.
 - Outside a Task, use the documented synchronous `uv_random` form.
 - On failure, destination contents are unspecified. Callers must not treat them
   as random data.
-- Libuv accepts at most `0x7fffffff` bytes per request. A larger Slice is filled
-  by sequential requests of at most that size. Success means every chunk
+- The pinned libuv implementation rejects a request larger than `0x7fffffff`
+  bytes with `UV_E2BIG` (`src/random.c`), although its public `size_t` signature
+  and documentation do not state that limit. The chunk size is therefore a Hexal
+  runtime rule owned by this RFC, not a source-visible limit: a larger Slice is
+  filled by sequential requests of at most `0x7fffffff` bytes, whatever a future
+  libuv revision accepts. Success means every chunk
   completed; after any chunk fails, the entire destination remains unspecified.
 - Failure uses the common libuv ErrorKind mapper with fixed message
   `secure random fill failed`; no native code or backend text is retained.
-- Entropy-module use selects libuv and the native bootstrap. Task-aware use additionally
-  selects the event bridge; synchronous-only use does not.
+- Entropy-module use selects libuv and the native bootstrap. When the program
+  selects the scheduler, every call uses the asynchronous event-bridge form,
+  because the root module itself runs as a Task; a program without the
+  scheduler uses only the synchronous form and selects no event bridge. The
+  choice is compile-time and program-wide, matching existing IO, not a per-call-
+  site classification.
 - There is no prior entropy backend to remove.
 
 ## Path-query contract
@@ -152,10 +162,12 @@ first; neither RFC creates a namespace type or duplicate runtime component.
   database and must not block a scheduler worker. The uniform bridge imposes a
   worker round trip on cheap queries; v1 accepts that cost to keep one Task
   execution rule.
-- No initial Windows, Linux, or macOS executable-path query widens the generated
-  C entrypoint or calls `uv_setup_args`. A future target profile whose pinned
-  libuv backend requires setup must use RFC 0182's adapter and returned
-  authoritative argv rather than adding another entry path.
+- Reachable `std/program.executable_path` selects RFC 0182's entry adapter,
+  which runs the native bootstrap and then `uv_setup_args` exactly once before
+  any module statement or scheduler startup. On Windows the adapter keeps
+  `int main(void)` and passes the MinGW CRT's `__argc`/`__argv`; on POSIX it
+  widens to `int main(int argc, char **argv)`. This RFC adds no second entry
+  path and no second `uv_setup_args` call.
 - Native/query failures use the common ErrorKind mapper with fixed messages
   `current directory unavailable`, `home directory unavailable`,
   `temporary directory unavailable`, and `executable path unavailable`.
@@ -193,9 +205,9 @@ entry ABI independently nor adds an exit operation.
 
 1. Add focused generator discovery for program paths, available parallelism,
    and entropy independently.
-2. Select libuv and native bootstrap for any operation here. When a checked
-   call occurs from Task code, additionally select the existing event bridge;
-   the presence of Task code already selects the scheduler.
+2. Select libuv and native bootstrap for any operation here. When the program
+   also selects the scheduler, select the existing event bridge and route every
+   path and entropy call through it; otherwise emit only the synchronous forms.
 3. Emit no program-query or entropy artifact when neither family is reachable.
 
 ### Phase 3: Program runtime
@@ -211,9 +223,10 @@ entry ABI independently nor adds an exit operation.
 3. Implement `std/program.available_parallelism()` as a checked conversion from
    libuv's guaranteed non-zero value to Size, with no scheduler-policy side
    effect.
-4. Assert that Windows, Linux, and macOS executable-path demand retains
-   `main(void)` in the absence of RFC 0182 argument demand. Document the
-   coordination requirement for any later backend that needs `uv_setup_args`.
+4. Mark executable-path demand as requiring RFC 0182's entry adapter; assert
+   one native bootstrap and one `uv_setup_args` call before the first
+   `uv_exepath`, Windows `main(void)` with `__argc`/`__argv`, and POSIX
+   `main(int argc, char **argv)`.
 
 ### Phase 4: Entropy runtime
 
@@ -257,11 +270,18 @@ This list is exhaustive:
   unprotected user-available name;
 - exact demand selection and absence of unrelated OS-query APIs;
 - no environment access or mutation, cwd mutation, process title, metrics, user/group,
-  interface, time-of-day, or deterministic PRNG surface; and
-- no entrypoint widening or `uv_setup_args` for executable-path demand on
-  Windows, Linux, or macOS; and
+  interface, time-of-day, or deterministic PRNG surface;
+- executable-path demand runs exactly one native bootstrap and one
+  `uv_setup_args` before the first query, keeps Windows `main(void)` through
+  `__argc`/`__argv`, and shares the adapter with `arguments()` when both are
+  reachable; a program reaching neither emits no adapter; and
 - ordinary and tagged C23 gates with manifest movement confined to the exact
   programs selecting these capabilities.
+
+POSIX items (invalid POSIX UTF-8 and POSIX entry behavior) are verified as
+generated-text assertions over host-neutral output until a POSIX target profile
+is qualified. No POSIX runtime branch is claimed as executed; a future POSIX
+profile runs them through its own external gate.
 
 ## Reference synchronization
 

@@ -10,7 +10,7 @@
 - Depends on: RFC 0186 and the current module, root-defer, Task-root, String,
   Slice, Error, target-profile, and native-bootstrap contracts
 - Coordinates with: RFC 0178 for the shared `std/program` module and conditional
-  `uv_setup_args`, RFC 0184 for completed-call print output, and ADR 0055 for
+  `uv_setup_args`, closed RFC 0184 for completed-call print output, and ADR 0055 for
   executable invocation
 - Does not add: a required user `main`, environment mutation, immediate process
   termination, root Error propagation, or implicit resource cleanup
@@ -31,20 +31,23 @@ At entry-module scope, `return` records one `UInt8` process status and enters
 the ordinary root cleanup path. Bare return and fallthrough mean zero.
 
 ```hexal
-result := Prog.arguments()
-
-match result
-    Slice<String> as args then
-        if args.length() < 2 then
-            return 2
-        end
-        print(args[1])
-        return 0
-    Error as problem then
-        print(problem)
-        return 1
+import
+    Prog from "std/program"
 end
+
+args := Prog.arguments()
+if args is Error then
+    print(args)
+    return 1
+end
+if args.length() < 2 then
+    return 2
+end
+print(args[1])
 ```
+
+After the first `if`, `args` is narrowed to `Slice<String>` because the only
+alternative path ends in a root `return`.
 
 ## Selected design
 
@@ -147,9 +150,18 @@ additional allocation.
 - `return` without an expression and entry-module fallthrough both record zero.
 - Status literals `0` through `255` are valid. An out-of-range literal uses the
   ordinary UInt8 range diagnostic.
-- A root return under `if`, `match`, `while`, or `for` exits the program body;
+- A root return under `if`, `while`, or `for` exits the program body;
   statements proven unreachable afterward follow the existing unreachable-
-  statement rule.
+  statement rule. Match arms are expressions, so a root `return` cannot appear
+  inside an arm.
+- A root `return` is a context-valid terminating statement for flow facts,
+  exactly like a function `return`: an `is`/nil fact established on the
+  continuing path survives an `if` whose alternative ends in a root `return`.
+- A root `return` inside nested scopes runs every active `defer` from the
+  innermost scope outward, then the root scope's defers, reusing function-return
+  defer unwinding. The status value is evaluated once before any defer runs;
+  no defer can change it, because `defer` accepts an expression and root
+  `return` is a statement.
 - A return inside a function or method retains that declaration's ordinary
   result contract; entry-module status rules do not leak into it.
 - `try` and `errdefer` remain invalid at root because the root has no Error
@@ -172,12 +184,16 @@ entry-module return requires UInt8; got <Type>
 
 ## Program lifecycle
 
-1. The generated target entry adapter receives the host invocation when
-   arguments or executable-path support require it.
-2. On a target whose selected libuv operation requires argument setup, native
-   bootstrap runs first and then `argv = uv_setup_args(argc, argv)` runs exactly
-   once. None of the initial Windows, Linux, or macOS executable-path backends
-   requires that setup by itself.
+1. The generated entry adapter is emitted when `std/program.arguments()` or
+   `std/program.executable_path(heap)` is reachable, and never otherwise.
+2. When executable-path demand exists, native bootstrap runs first and then
+   `uv_setup_args` runs exactly once, following libuv's documented requirement
+   that it precede `uv_exepath` on every platform. POSIX uses
+   `argv = uv_setup_args(argc, argv)` and the returned pointer is the
+   authoritative invocation. Windows calls `uv_setup_args(__argc, __argv)` with
+   the MinGW CRT globals and does not use the result, because Windows argument
+   text comes from `GetCommandLineW`. Argument demand alone selects no libuv,
+   bootstrap, or `uv_setup_args`.
 3. If `std/program.arguments()` is reachable, its immutable snapshot completes or
    records failure before any module statement and before scheduler startup.
 4. Imported modules contribute declarations and storage only; they have no
@@ -186,7 +202,7 @@ entry-module return requires UInt8; got <Type>
    directly otherwise.
 6. Fallthrough or root return records the status and enters one epilogue.
    Active root defers run in reverse registration order.
-7. Every completed print call has already committed through RFC 0184; there is
+7. Every completed print call has already committed through closed RFC 0184; there is
    no persistent compiler-owned stdout buffer and no shutdown flush. Ordinary
    File, Pipe, socket, Channel, Mutex, and user allocations are not implicitly
    closed, freed, joined, or waited upon.
@@ -200,12 +216,18 @@ No Error is implicitly printed or converted to a process status.
 
 ## C and target lowering
 
-- Windows always retains `int main(void)`. Windows argument text comes from
-  `GetCommandLineW`; the pinned Windows libuv paths do not consume CRT
-  `argc`/`argv`.
-- A POSIX program needing arguments or a selected backend that requires
-  `uv_setup_args` uses `int main(int argc, char **argv)`. Other POSIX programs
-  retain `int main(void)`. Host pointers remain private to the root C file.
+- Windows always retains `int main(void)`. Argument text comes from
+  `GetCommandLineW`; executable-path setup reads the CRT's `__argc`/`__argv`
+  globals, so the signature never widens.
+- A POSIX program reaching `arguments()` or `executable_path()` uses
+  `int main(int argc, char **argv)`. Other POSIX programs retain
+  `int main(void)`. Host pointers remain private to the root C file.
+- Host-neutral output (empty `Project.Target`) keeps both platform paths chosen
+  at C-compile time, like every runtime component. When either demand exists,
+  the root C file spells the entry under `#if defined(_WIN32)` as
+  `int main(void)` and otherwise as `int main(int argc, char **argv)`; without
+  demand it emits one unconditional `int main(void)`. An explicit target profile
+  emits only its selected signature.
 - `std/program.arguments()` selects demand-driven `hexal/program.h` and
   `hexal/program.c`. RFC 0178 extends the same component for other program
   operations; it does not create another Program runtime.
@@ -306,13 +328,22 @@ This list is exhaustive:
 - checked-reachability demand, including selection for reachable but unexecuted
   use, and absence of snapshot, program component, Windows dependencies, and
   widened entry signature when unreachable;
-- Windows `main(void)`, conditional POSIX `main(argc, argv)`, and exactly one
-  native bootstrap and `uv_setup_args` call only on a target/operation that
-  requires it;
+- Windows `main(void)` in every case; POSIX `main(argc, argv)` exactly when
+  arguments or executable path are reachable; exactly one native bootstrap and
+  one `uv_setup_args` call, before the first `uv_exepath`, only when executable
+  path is reachable (Windows through `__argc`/`__argv`); argument demand alone
+  selects no libuv or `uv_setup_args`;
 - root fallthrough, bare return, statuses 0 and 255, and rejected negative,
   out-of-range, wider, signed, floating, and union statuses;
-- root return under `if`, `match`, `while`, and `for`, including unreachable
+- root return under `if`, `while`, and `for`, including unreachable
   statements afterward;
+- a union narrowed after `if value is Error then ... return 1 end` is used as
+  its remaining member without further narrowing;
+- `defer cleanup()` followed by a root `return 7` inside a nested `if`, with a
+  later `return 3`, exits with 7, runs nested and root defers in reverse order,
+  and never exits with 3 or 0;
+- host-neutral output spells the entry under `#if defined(_WIN32)` only when
+  arguments or executable path are reachable;
 - reverse root-defer order, absence of shutdown output flushing, trap bypass,
   unspecified trap status, Task completion, and detached and unjoined-Task
   abandonment;
@@ -325,11 +356,17 @@ This list is exhaustive:
 - exact generated-C compilation, stdout/stderr, and process status under every
   qualified target gate.
 
+POSIX items (argument conversion, invalid POSIX UTF-8, and POSIX entry
+signatures) are verified as generated-text assertions over host-neutral output
+until a POSIX target profile is qualified. No POSIX runtime branch is claimed
+as executed.
+
 ## Reference synchronization
 
 Do not edit `docs/reference.md` from this specification. Approved
 implementation updates the grammar, `std/program` arguments, root return, String
 non-owning cleanup, lifecycle ordering, and C entry contract only after behavior
 stabilizes and with explicit user approval. It also removes the unsupported
-claim that shutdown flushes a compiler-owned stdout buffer; RFC 0184 owns
+claim that shutdown flushes a compiler-owned stdout buffer, unless closed RFC
+0184's reference synchronization already removed it; closed RFC 0184 owns
 whole-call output atomicity.
