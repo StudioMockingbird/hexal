@@ -24,9 +24,25 @@ func moduleValueCName(name, owner string) string {
 // direct fixed Atomic exception is handled the same way declaration handles
 // every other Atomic-typed binding, keeping its `_Atomic` spelling without
 // `const`.
+//
+// A module value is C static storage, so its initializer must be a C
+// constant expression. Every other checked source in the static-initializer
+// allowlist already renders as one, but Atomic<T>(initial) renders as a call
+// to hex_atomic_T_new, a function that exists only to give construction a
+// uniform call shape (its body is exactly `return value;`); a static
+// initializer calling it is invalid C ("initializer element is not a
+// compile-time constant"). The checker already restricts a fixed Atomic
+// module value to exactly one AtomicConstructorExpression source (see
+// checkModuleValueDeclaration), so its one checked argument is used as the
+// initializer directly instead, which is the same constant the wrapper call
+// would have passed through unchanged.
 func moduleValueDefinition(value checker.ModuleValueDeclaration, owner string, state *expressionValidation) (string, error) {
 	name := moduleValueCName(value.Name, owner)
-	initializer, err := renderOperandWithState(value.Source, state)
+	source := value.Source
+	if value.Atomic {
+		source = value.Source.Node.Arguments[0]
+	}
+	initializer, err := renderOperandWithState(source, state)
 	if err != nil {
 		return "", err
 	}

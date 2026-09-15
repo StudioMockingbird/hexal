@@ -338,6 +338,185 @@ var fixtureCatalog = []fixture{
 		sources:     map[string]string{"app.hex": "fun worker(m: Mutex, counter: Ptr<mut Int32>): Int32 do\n    mut index: Int32 := 0\n    while index < 100 do\n        m.lock()\n        ^counter = ^counter + 1\n        m.unlock()\n        Task.yield()\n        index = index + 1\n    end\n    return index\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    m: Mutex := try Mutex(h)\n    defer m.free(h)\n    mut count: Int32 := 0\n    first: Task<Int32> := try spawn worker(m, @count)\n    second: Task<Int32> := try spawn worker(m, @count)\n    first.join()\n    second.join()\n    return count\nend\nfun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        0\n    end\n    return value\nend\nprint(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "200"},
 	},
+	// Task park/commit/wake stress: each fixture repeats a cheap wait-source
+	// transition at least 1,000 times total across concurrently running
+	// Tasks. Neither a lost nor a duplicate wake can hide behind averaging:
+	// every fixture asserts one exact final total (an Atomic sum, or a
+	// Channel's summed received values), so a single dropped or doubled
+	// transition anywhere in the run changes the printed number. Real OS
+	// thread scheduling gives each run its own timing, so a single process
+	// run already exercises both a wake already notified when the dispatcher
+	// commits the park and a wake landing after the Task is observably
+	// parked, across its many repetitions; the tagged suite additionally
+	// runs every fixture under three independent toolchains.
+	{
+		name:       "concurrency-yield-join-stress-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "static counter: Atomic<Int32> := Atomic<Int32>(0)\n" +
+			"fun worker(): Bool do\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < 250 do\n" +
+			"        counter.fetch_add(1)\n" +
+			"        Task.yield()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    return true\n" +
+			"end\n" +
+			"fun run(): Int32 | Error do\n" +
+			"    t1: Task<Bool> := try spawn worker()\n" +
+			"    t2: Task<Bool> := try spawn worker()\n" +
+			"    t3: Task<Bool> := try spawn worker()\n" +
+			"    t4: Task<Bool> := try spawn worker()\n" +
+			"    t1.join()\n" +
+			"    t2.join()\n" +
+			"    t3.join()\n" +
+			"    t4.join()\n" +
+			"    return counter.load()\n" +
+			"end\n" +
+			"fun demo(): Int32 do\n" +
+			"    outcome: Int32 | Error := run()\n" +
+			"    value: Int32 := match outcome is\n" +
+			"    | Int32 then outcome\n" +
+			"    | Error then -1\n" +
+			"    end\n" +
+			"    return value\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "1000"},
+	},
+	{
+		name:       "concurrency-channel-stress-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun producer(ch: Channel<Int32>, count: Int32): Bool do\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < count do\n" +
+			"        ch.send(1)\n" +
+			"        Task.yield()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    ch.close()\n" +
+			"    return true\n" +
+			"end\n" +
+			"fun run(): Int32 | Error do\n" +
+			"    h: Heap := Heap()\n" +
+			"    ch: Channel<Int32> := try Channel<Int32>(h, 4)\n" +
+			"    defer ch.free(h)\n" +
+			"    producer_task: Task<Bool> := try spawn producer(ch, 1000)\n" +
+			"    mut total: Int32 := 0\n" +
+			"    while true do\n" +
+			"        step: Int32 | EoS := ch.receive()\n" +
+			"        if step is EoS then\n" +
+			"            break\n" +
+			"        end\n" +
+			"        total = total + step\n" +
+			"    end\n" +
+			"    producer_task.join()\n" +
+			"    return total\n" +
+			"end\n" +
+			"fun demo(): Int32 do\n" +
+			"    outcome: Int32 | Error := run()\n" +
+			"    value: Int32 := match outcome is\n" +
+			"    | Int32 then outcome\n" +
+			"    | Error then -1\n" +
+			"    end\n" +
+			"    return value\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "1000"},
+	},
+	{
+		name:       "concurrency-mutex-stress-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun worker(m: Mutex, counter: Ptr<mut Int32>): Bool do\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < 250 do\n" +
+			"        m.lock()\n" +
+			"        ^counter = ^counter + 1\n" +
+			"        m.unlock()\n" +
+			"        Task.yield()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    return true\n" +
+			"end\n" +
+			"fun run(): Int32 | Error do\n" +
+			"    h: Heap := Heap()\n" +
+			"    m: Mutex := try Mutex(h)\n" +
+			"    defer m.free(h)\n" +
+			"    mut count: Int32 := 0\n" +
+			"    t1: Task<Bool> := try spawn worker(m, @count)\n" +
+			"    t2: Task<Bool> := try spawn worker(m, @count)\n" +
+			"    t3: Task<Bool> := try spawn worker(m, @count)\n" +
+			"    t4: Task<Bool> := try spawn worker(m, @count)\n" +
+			"    t1.join()\n" +
+			"    t2.join()\n" +
+			"    t3.join()\n" +
+			"    t4.join()\n" +
+			"    return count\n" +
+			"end\n" +
+			"fun demo(): Int32 do\n" +
+			"    outcome: Int32 | Error := run()\n" +
+			"    value: Int32 := match outcome is\n" +
+			"    | Int32 then outcome\n" +
+			"    | Error then -1\n" +
+			"    end\n" +
+			"    return value\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "1000"},
+	},
+	// The two join orderings the wake protocol must handle identically: a
+	// join reached while the target is still certainly running (no yield
+	// happens before the join call, so the scheduler has not necessarily
+	// even started the child yet) and a join reached long after the target
+	// has almost certainly already completed (the parent yields repeatedly
+	// first, giving the child every opportunity to finish).
+	{
+		name:       "concurrency-join-before-completion-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun quick(): Bool do\n" +
+			"    return true\n" +
+			"end\n" +
+			"fun run(): Bool | Error do\n" +
+			"    t: Task<Bool> := try spawn quick()\n" +
+			"    return t.join()\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    outcome: Bool | Error := run()\n" +
+			"    value: Bool := match outcome is\n" +
+			"    | Bool then outcome\n" +
+			"    | Error then false\n" +
+			"    end\n" +
+			"    return value\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "concurrency-join-after-completion-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun quick(): Bool do\n" +
+			"    return true\n" +
+			"end\n" +
+			"fun run(): Bool | Error do\n" +
+			"    t: Task<Bool> := try spawn quick()\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < 20 do\n" +
+			"        Task.yield()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    return t.join()\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    outcome: Bool | Error := run()\n" +
+			"    value: Bool := match outcome is\n" +
+			"    | Bool then outcome\n" +
+			"    | Error then false\n" +
+			"    end\n" +
+			"    return value\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
 	// Atomic touches no scheduler state -- no spawn, no Task, no fiber --
 	// so it is not subject to the scheduler defect above and runs normally.
 	{
@@ -407,6 +586,68 @@ var fixtureCatalog = []fixture{
 			"end\n" +
 			"print(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	// Repeats a full connect/accept/read/write/close round trip: each
+	// iteration parks and wakes the accepting Task via a fresh native TCP
+	// event, exercising the wake protocol's native (not just in-memory)
+	// wait sources under real repeated host work.
+	{
+		name:       "network-tcp-loopback-stress-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun serve(listener: TcpListener, count: Int32): Nil | Error do\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < count do\n" +
+			"        connection := try listener.accept()\n" +
+			"        buffer: List<Byte> := List<Byte>(Heap())\n" +
+			"        defer buffer.free(Heap())\n" +
+			"        received := try connection.read(buffer, 64)\n" +
+			"        if received is Size then\n" +
+			"            view := buffer.slice(0, received)\n" +
+			"            try connection.write(view)\n" +
+			"        end\n" +
+			"        try connection.close()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    return nil\n" +
+			"end\n" +
+			"fun client(address: Address, count: Int32): Int32 | Error do\n" +
+			"    mut ok: Int32 := 0\n" +
+			"    mut i: Int32 := 0\n" +
+			"    while i < count do\n" +
+			"        connection := try Tcp.connect(address)\n" +
+			"        try connection.write(\"ping\".bytes())\n" +
+			"        buffer: List<Byte> := List<Byte>(Heap())\n" +
+			"        defer buffer.free(Heap())\n" +
+			"        received := try connection.read(buffer, 64)\n" +
+			"        if received is Size then\n" +
+			"            if received == 4 then\n" +
+			"                ok = ok + 1\n" +
+			"            end\n" +
+			"        end\n" +
+			"        try connection.close()\n" +
+			"        i = i + 1\n" +
+			"    end\n" +
+			"    return ok\n" +
+			"end\n" +
+			"fun run(): Int32 | Error do\n" +
+			"    address := try Address.parse(\"127.0.0.1\", 18744)\n" +
+			"    listener := try Tcp.listen(address, 4)\n" +
+			"    defer listener.close()\n" +
+			"    task := try spawn serve(listener, 20)\n" +
+			"    ok := try client(address, 20)\n" +
+			"    task.join()\n" +
+			"    return ok\n" +
+			"end\n" +
+			"fun demo(): Int32 do\n" +
+			"    outcome := run()\n" +
+			"    result: Int32 := match outcome is\n" +
+			"    | Int32 then outcome\n" +
+			"    | Error then -1\n" +
+			"    end\n" +
+			"    return result\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "20"},
 	},
 	{
 		name:       "process-options-and-pipe-compiles",

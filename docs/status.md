@@ -25,7 +25,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Complete runtime execution tests for every Task park/commit/wake race and destruction owner | [0183](specs/0183-compiler-runtime-completion.md) |
 | Expand tagged generated-C coverage to every reachable stable runtime-trap family | [0183](specs/0183-compiler-runtime-completion.md) |
 | Add executable UBSan coverage across the runnable generated-C fixture catalog | [0183](specs/0183-compiler-runtime-completion.md) |
 | Replace wholesale helper-family emission with deterministic demand-driven emission | [0183](specs/0183-compiler-runtime-completion.md) |
@@ -163,25 +162,41 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   Demand-driven helper emission would remove the dead code. The external C23
   suite's four `unused-*` warning suppressions are labelled Debt against this
   entry; narrowing them is this item's job, not the suite's.
-- **The redesigned Task park/commit/wake protocol is unverified at runtime**,
-  for the same reason as every other generated-C claim: no test executes
-  generated C. What is verified textually (exact generated-C structure,
-  asserted in `compiler/generator/concurrency_component_test.go`): `hex_task`
-  carries exactly one atomic park phase, one nullable pending link, and one
-  lifecycle mutex with no superseded `state`/`wake_error` field; the three
-  transition helpers (`hex_task_wake`, `hex_task_commit_park`,
-  `hex_task_resume_commit`) are defined exactly once each; every wait-family
-  registration writes its pending link before its release phase store; and a
-  Mutex waiter's generated code returns directly on a transferred
-  `wake_result` instead of re-entering acquisition. Unverified at runtime:
-  immediate yield, join completion, Channel wake, and Mutex wake never run
-  one fiber on two workers and never lose a wake; completion before and
-  after dispatcher park commit each publish exactly once; Channel close
-  wakes every registered waiter exactly once, including waiters whose fiber
-  switches are not yet committed; a resumed Channel operation can recheck
-  and re-park without stale-waker ABA; a contended Mutex transfers ownership
-  without trapping its selected waiter; a join cannot reclaim the target
-  fiber before its completion switch returns to the dispatcher; and join
-  during `completing`, join after `done`, detach completion, and root
-  shutdown each use their defined destruction owner.
+- **The Task park/commit/wake protocol's structural generated-C assertions
+  (`compiler/generator/concurrency_component_test.go`) are now joined by
+  runtime evidence (RFC 0183 Track 2), but not every named scenario is
+  independently isolated.** `hex_task` carries exactly one atomic park
+  phase, one nullable pending link, and one lifecycle mutex with no
+  superseded `state`/`wake_error` field; the three transition helpers
+  (`hex_task_wake`, `hex_task_commit_park`, `hex_task_resume_commit`) are
+  defined exactly once each; every wait-family registration writes its
+  pending link before its release phase store; and a Mutex waiter's
+  generated code returns directly on a transferred `wake_result` instead of
+  re-entering acquisition -- all still textual, not runtime, claims. At
+  runtime, the tagged C23 suite now exercises repeated real transitions with
+  an exact-total assertion that a single lost or duplicate wake anywhere in
+  the run would change: 1,000 `Task.yield()`/Atomic-increment pairs across
+  four concurrently joined Tasks (`concurrency-yield-join-stress-runs`),
+  1,000 Channel messages through a bounded buffer between one producer and
+  the root consumer (`concurrency-channel-stress-runs`), 1,000 contended
+  Mutex-protected increments across four Tasks
+  (`concurrency-mutex-stress-runs`), a join reached before the target has
+  had any scheduling opportunity and one reached only after twenty parent
+  yields (`concurrency-join-before-completion-runs`,
+  `concurrency-join-after-completion-runs`), and twenty full native
+  connect/accept/read/write/close round trips over one TCP loopback
+  listener (`network-tcp-loopback-stress-runs`), each run under three
+  toolchains and confirmed stable across five repeated `go test` invocations
+  during development. Not yet given an equivalent repeated stress fixture:
+  Process wait and Pipe read/write/close, Task-aware File work, and Signal
+  next/close -- each has single-shot runtime coverage from its own closed
+  RFC's fixtures, but not the specific 100-repetition bar Track 2 sets for
+  native scenarios. Also not independently isolated by any fixture: Channel
+  close waking *multiple simultaneously parked* waiters at once (every
+  stress fixture here has exactly one consumer), a resumed Channel operation
+  re-parking without stale-waker ABA, and the exact destruction-owner
+  distinctions between join-during-`completing`, join-after-`done`, detach
+  completion, and root shutdown -- these remain structural-assertion-only
+  claims pending either finer black-box fixtures or internal
+  instrumentation neither of which this pass added.
 - To verify; import block must always be at the top of the mocule. export block must always be at the end. import, export and unsafe can only be at root level.
