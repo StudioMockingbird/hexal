@@ -409,14 +409,16 @@ func TestForeignNoResultAndRecordOperationRejections(t *testing.T) {
 
 func TestForeignMutableBufferBridge(t *testing.T) {
 	// A `char *` parameter is checked as a writable Byte pointer and receives a
-	// Slice's address; the const form receives the String's address. One
-	// boundary cast per position, no general pointer conversion.
-	source := "extern c from <string.h> do\n" +
-		"    fun c_strncpy as \"strncpy\"(destination: Ptr<mut Byte> | Nil as \"char *\", source: Ptr<Byte> | Nil as \"const char *\", count: Size as \"size_t\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
+	// Slice's address; the char-pointer result converts back to the checked
+	// Byte pointer representation. One boundary cast per position, no general
+	// pointer conversion.
+	source := "extern c from <stdio.h> do\n" +
+		"    type File as \"FILE\" is opaque\n" +
+		"    fun c_fgets as \"fgets\"(buffer: Ptr<mut Byte> | Nil as \"char *\", count: Int32 as \"int\", stream: Ptr<mut File> | Nil as \"FILE *\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
 		"end\n" +
-		"fun demo(text: String, buffer: Slice<mut Byte>) do\n" +
+		"fun demo(buffer: Slice<mut Byte>, stream: Ptr<mut File>) do\n" +
 		"    unsafe do\n" +
-		"        copied: Ptr<mut Byte> | Nil := c_strncpy(buffer.pointer(), text.c_pointer(), text.length())\n" +
+		"        line: Ptr<mut Byte> | Nil := c_fgets(buffer.pointer(), 256, stream)\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -424,8 +426,11 @@ func TestForeignMutableBufferBridge(t *testing.T) {
 		t.Fatalf("a mutable Byte buffer must reach a char * parameter: %v", result.Stderr)
 	}
 	body := result.Files["modules/app.c"]
-	if !strings.Contains(body, "strncpy((char *)(") || !strings.Contains(body, "const char *)") {
-		t.Fatalf("the buffer bridge must lower directly with its boundary casts:\n%s", body)
+	if !strings.Contains(body, "fgets((char *)(") {
+		t.Fatalf("the buffer argument must lower with its boundary cast:\n%s", body)
+	}
+	if !strings.Contains(body, "(uint8_t *)(") {
+		t.Fatalf("the char-pointer result must convert back to the Byte representation:\n%s", body)
 	}
 }
 
@@ -467,12 +472,13 @@ func TestForeignOpaquePlacementRejections(t *testing.T) {
 
 func TestForeignMutableOutputRejectsReadOnlySource(t *testing.T) {
 	// A read-only String pointer can never satisfy a mutable Byte pointer.
-	source := "extern c from <string.h> do\n" +
-		"    fun c_strncpy as \"strncpy\"(destination: Ptr<mut Byte> | Nil as \"char *\", source: Ptr<Byte> | Nil as \"const char *\", count: Size as \"size_t\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
+	source := "extern c from <stdio.h> do\n" +
+		"    type File as \"FILE\" is opaque\n" +
+		"    fun c_fgets as \"fgets\"(buffer: Ptr<mut Byte> | Nil as \"char *\", count: Int32 as \"int\", stream: Ptr<File> | Nil as \"FILE *\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
 		"end\n" +
-		"fun demo(text: String) do\n" +
+		"fun demo(text: String, stream: Ptr<File>) do\n" +
 		"    unsafe do\n" +
-		"        copied: Ptr<mut Byte> | Nil := c_strncpy(text.c_pointer(), text.c_pointer(), text.length())\n" +
+		"        line: Ptr<mut Byte> | Nil := c_fgets(text.c_pointer(), 16, stream)\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)

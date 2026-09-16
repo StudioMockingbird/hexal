@@ -916,7 +916,10 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		call := callee + "(" + strings.Join(arguments, ", ") + ")"
 		if node.Operand.Kind == checker.ForeignFunctionReferenceExpression && node.Operand.ForeignResult != "" &&
 			node.ResultType != (compilerTypes.Type{}) && typeSpelling(node.ResultType) != node.Operand.ForeignResult {
-			call = "(" + node.Operand.ForeignResult + ")(" + call + ")"
+			// The recorded spelling is the header's result type; the value is
+			// converted back to the checked representation with one direct
+			// cast, so a char-pointer result assigns to a Byte pointer.
+			call = "(" + typeSpelling(node.ResultType) + ")(" + call + ")"
 		}
 		return call, nil
 	case checker.MethodCallExpression:

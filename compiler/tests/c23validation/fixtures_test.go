@@ -1394,16 +1394,24 @@ var fixtureCatalog = []fixture{
 		name:       "foreign-opaque-and-record-compiles",
 		entrypoint: "app.hex",
 		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
-		sources: map[string]string{"app.hex": "extern c from <time.h> do\n" +
-			"    type Tm as \"struct tm\" is struct\n" +
-			"        mut tm_sec: Int32 as \"tm_sec\",\n" +
-			"        mut tm_min: Int32 as \"tm_min\",\n" +
-			"        mut tm_hour: Int32 as \"tm_hour\",\n" +
-			"    end\n" +
+		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
 			"    type File as \"FILE\" is opaque\n" +
+			"end\n" +
+			"extern c from <time.h> do\n" +
+			"    type Tm as \"struct tm\" is struct\n" +
+			"        mut tm_sec: Int32,\n" +
+			"        mut tm_min: Int32,\n" +
+			"        mut tm_hour: Int32,\n" +
+			"        mut tm_mday: Int32,\n" +
+			"        mut tm_mon: Int32,\n" +
+			"        mut tm_year: Int32,\n" +
+			"        mut tm_wday: Int32,\n" +
+			"        mut tm_yday: Int32,\n" +
+			"        mut tm_isdst: Int32,\n" +
+			"    end\n" +
 			"    fun c_clock as \"clock\"(): Int64 as \"long long\"\n" +
 			"end\n" +
-			"fun demo(stream: Ptr<File> | Nil, when: Ptr<mut Tm> | Nil) do\n" +
+			"fun demo(stream: Ptr<File> | Nil, when: Ptr<mut Tm>) do\n" +
 			"    unsafe do\n" +
 			"        ticks: Int64 := c_clock()\n" +
 			"        seconds: Int32 := when.tm_sec\n" +
@@ -1416,13 +1424,13 @@ var fixtureCatalog = []fixture{
 		entrypoint: "app.hex",
 		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
 		sources: map[string]string{"app.hex": "extern c from <limits.h> do\n" +
-			"    constant int_max as \"INT_MAX\": Int32 as \"int\"\n" +
+			"    constant int_max as \"INT_MAX\": Int32\n" +
 			"end\n" +
 			"extern c from <stdlib.h> do\n" +
-			"    constant exit_success as \"EXIT_SUCCESS\": Int32 as \"int\"\n" +
+			"    constant exit_success as \"EXIT_SUCCESS\": Int32\n" +
 			"end\n" +
 			"extern c from <errno.h> do\n" +
-			"    global mut errno_value as \"errno\": Int32 as \"int\"\n" +
+			"    global mut errno_value as \"errno\": Int32\n" +
 			"end\n" +
 			"fun demo(): Int32 do\n" +
 			"    highest: Int32 := int_max\n" +
@@ -1437,16 +1445,17 @@ var fixtureCatalog = []fixture{
 		name:       "foreign-buffer-bridge-compiles",
 		entrypoint: "app.hex",
 		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
-		sources: map[string]string{"app.hex": "extern c from <string.h> do\n" +
-			"    fun c_strncpy as \"strncpy\"(destination: Ptr<mut Byte> | Nil as \"char *\", source: Ptr<Byte> | Nil as \"const char *\", count: Size as \"size_t\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
+		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
+			"    type File as \"FILE\" is opaque\n" +
+			"    fun c_fgets as \"fgets\"(buffer: Ptr<mut Byte> | Nil as \"char *\", count: Int32 as \"int\", stream: Ptr<mut File> | Nil as \"FILE *\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
 			"end\n" +
 			"extern c from <stdlib.h> do\n" +
 			"    fun c_malloc as \"malloc\"(size: Size as \"size_t\"): Ptr<mut Unknown> | Nil as \"void *\"\n" +
 			"    fun c_free as \"free\"(memory: Ptr<mut Unknown> | Nil as \"void *\")\n" +
 			"end\n" +
-			"fun demo(text: String, buffer: Slice<mut Byte>) do\n" +
+			"fun demo(buffer: Slice<mut Byte>, stream: Ptr<mut File>) do\n" +
 			"    unsafe do\n" +
-			"        copied: Ptr<mut Byte> | Nil := c_strncpy(buffer.pointer(), text.c_pointer(), text.length())\n" +
+			"        line: Ptr<mut Byte> | Nil := c_fgets(buffer.pointer(), 256, stream)\n" +
 			"        region: Ptr<mut Unknown> | Nil := c_malloc(16)\n" +
 			"        c_free(region)\n" +
 			"    end\n" +
