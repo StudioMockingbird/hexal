@@ -95,7 +95,7 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 	switch statement.(type) {
 	case checker.IfStatement, checker.ForStatement, checker.WhileStatement,
 		checker.Declaration, checker.Assignment, checker.CallStatement, checker.TryStatement,
-		checker.ReturnStatement, checker.BreakStatement, checker.ContinueStatement,
+		checker.ReturnStatement, checker.RootReturnStatement, checker.BreakStatement, checker.ContinueStatement,
 		checker.DeferStatement, checker.ErrdeferStatement, checker.FunctionDeclaration,
 		checker.MethodDeclaration, checker.UnsafeStatement:
 		// Block statements carry no expressions beyond their own operands,

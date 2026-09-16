@@ -9,9 +9,11 @@ package generator
 import (
 	"embed"
 	"fmt"
+	"slices"
 	"strings"
 	"text/template"
 
+	"hexal/compiler/corelib"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -37,12 +39,25 @@ type componentArtifact struct {
 }
 
 // parseComponentTemplates parses every embedded package template exactly once.
+// The core-library package's runtime templates join the same set: a core
+// library renders through the identical component machinery, just from its
+// own embedded directory.
 func parseComponentTemplates() map[string]*template.Template {
+	parsed := make(map[string]*template.Template)
+	parse := func(name, body string) {
+		if _, exists := parsed[name]; exists {
+			panic("generator: duplicate embedded template " + name)
+		}
+		instance, err := template.New(name).Option("missingkey=error").Parse(body)
+		if err != nil {
+			panic("generator: embedded template " + name + " does not parse: " + err.Error())
+		}
+		parsed[name] = instance
+	}
 	entries, err := packageTemplates.ReadDir("packages")
 	if err != nil {
 		panic("generator: cannot read embedded package templates: " + err.Error())
 	}
-	parsed := make(map[string]*template.Template, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -52,11 +67,14 @@ func parseComponentTemplates() map[string]*template.Template {
 		if err != nil {
 			panic("generator: cannot read embedded template " + name + ": " + err.Error())
 		}
-		instance, err := template.New(name).Option("missingkey=error").Parse(string(body))
-		if err != nil {
-			panic("generator: embedded template " + name + " does not parse: " + err.Error())
-		}
-		parsed[name] = instance
+		parse(name, string(body))
+	}
+	corelibTemplates, err := corelib.RuntimeTemplates()
+	if err != nil {
+		panic("generator: cannot read embedded core-library templates: " + err.Error())
+	}
+	for name, body := range corelibTemplates {
+		parse(name, body)
 	}
 	return parsed
 }
@@ -82,17 +100,14 @@ func renderComponent(component componentArtifact) (string, error) {
 	return result.String(), nil
 }
 
-// componentTemplateNames returns the repository template names of the
-// embedded package set in deterministic order, for tests.
+// componentTemplateNames returns every embedded template name in
+// deterministic order, for tests.
 func componentTemplateNames() []string {
-	entries, err := packageTemplates.ReadDir("packages")
-	if err != nil {
-		panic("generator: cannot read embedded package templates: " + err.Error())
+	names := make([]string, 0, len(componentTemplates))
+	for name := range componentTemplates {
+		names = append(names, name)
 	}
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		names = append(names, entry.Name())
-	}
+	slices.Sort(names)
 	return names
 }
 
@@ -142,6 +157,9 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 		signalComponents,
 		func(merged *programEmission) ([]componentArtifact, error) {
 			return terminalComponents(merged, config)
+		},
+		func(merged *programEmission) ([]componentArtifact, error) {
+			return corelibComponents(merged, config)
 		},
 	}
 	for _, family := range families {

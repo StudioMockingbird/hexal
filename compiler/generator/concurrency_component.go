@@ -60,6 +60,9 @@ func eventSelected(merged *programEmission) bool {
 	if merged.signalState != nil && merged.signalState.operations {
 		return true
 	}
+	if merged.corelibState != nil && merged.corelibState.blocking {
+		return true
+	}
 	return merged.ioState != nil && (merged.ioState.readIO || merged.ioState.writeIO || merged.ioState.seekIO || merged.ioState.closeIO)
 }
 

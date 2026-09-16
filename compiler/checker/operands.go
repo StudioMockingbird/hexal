@@ -321,6 +321,14 @@ const (
 	// receiver's handle type for an instance operation, AddressType for
 	// address_format, and the zero Type for a static call.
 	NetworkExpression
+	// CorelibCallExpression is one call to a core-library module function
+	// reached through an import alias bound to a "std/..." module (Prog.
+	// arguments(), Ent.fill(into), ...). Name is the emitted C runtime entry
+	// point (hex_program_arguments, ...), unique across every core-library
+	// function, so it alone selects both the render and the demand-discovery
+	// behavior. Arguments holds every operand in written order; ResultType is
+	// the plain result (Size) or the result union with Error.
+	CorelibCallExpression
 )
 
 // Operator is the resolved semantic operator carried by a checked operation.

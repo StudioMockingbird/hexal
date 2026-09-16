@@ -3,6 +3,7 @@ package checker
 import (
 	"fmt"
 
+	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	compilerTypes "hexal/compiler/types"
 )
@@ -886,6 +887,14 @@ func (names *scope) lookup(name string) (binding, lookupStatus) {
 // importAlias reports whether name is an import alias of the enclosing
 // module. The module frame is shared by reference through every child scope,
 // so one lookup reaches it at any depth; shadowing an alias is forbidden.
+// isEntryModule reports whether this scope's module is the compilation's own
+// entrypoint, the only module where a root return is valid. A nil registry
+// means a single-module compilation outside the module-graph pipeline, where
+// the one module being checked is trivially its own entrypoint.
+func (names *scope) isEntryModule() bool {
+	return names.registry == nil || names.moduleID == names.registry.entrypoint
+}
+
 func (names *scope) importAlias(name string) bool {
 	bound, exists := names.module[name]
 	return exists && bound.kind == aliasBinding
@@ -900,6 +909,12 @@ func (names *scope) importAliasTarget(name string) (string, bool) {
 	bound, exists := names.module[name]
 	if !exists || bound.kind != aliasBinding || bound.moduleID == "" {
 		return "", false
+	}
+	if corelib.IsModule(bound.moduleID) {
+		// A core-library module publishes no registry entry -- it has no
+		// Hexal source and no defining scope -- but its alias still resolves
+		// to the compiler-owned declaration table.
+		return bound.moduleID, true
 	}
 	if names.registry == nil {
 		return "", false

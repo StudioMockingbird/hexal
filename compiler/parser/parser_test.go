@@ -1288,10 +1288,25 @@ func TestParseFunctionDiagnostics(t *testing.T) {
 	}
 }
 
-func TestParseRejectsModuleLevelReturn(t *testing.T) {
-	message := parseError(t, "return 1")
-	if !strings.Contains(message, "return is only valid inside a function or method body") {
-		t.Fatalf("error = %q, want a module-level return diagnostic", message)
+// A module-scope return is a legal top-level item: only the checker can know
+// whether the module is the entrypoint, so the parser represents it and
+// defers the entry-versus-import decision.
+func TestParseModuleLevelReturn(t *testing.T) {
+	for _, source := range []string{"return", "return 1"} {
+		tokens, err := lexer.Lex(source)
+		if err != nil {
+			t.Fatalf("Lex(%q) returned an error: %v", source, err)
+		}
+		program, err := Parse(tokens)
+		if err != nil {
+			t.Fatalf("Parse(%q) returned an error: %v", source, err)
+		}
+		if len(program.Statements) != 1 {
+			t.Fatalf("Parse(%q) returned %d statements, want 1", source, len(program.Statements))
+		}
+		if _, ok := program.Statements[0].(ReturnStatement); !ok {
+			t.Fatalf("Parse(%q) statement = %#v, want ReturnStatement", source, program.Statements[0])
+		}
 	}
 }
 

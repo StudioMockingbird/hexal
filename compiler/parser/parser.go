@@ -547,12 +547,12 @@ func isPlaceExpression(expression Expression) bool {
 // token must sit on the return's own line; otherwise the return is bare. When
 // the next line begins with a token that can only start an expression, the
 // source cannot be read as bare-return-then-statement, so it is reported here
-// rather than as a confusing statement-form error.
+// rather than as a confusing statement-form error. A return parses at module
+// scope too: whether it is legal depends on whether the module is the
+// entrypoint, which only the checker knows, so the parser represents it and
+// leaves the entry-versus-import decision to checking.
 func (parser *Parser) returnStatement() (Statement, error) {
 	keyword := parser.advance()
-	if parser.bodyDepth == 0 {
-		return nil, parser.errorAt(keyword, "return is only valid inside a function or method body")
-	}
 	next := parser.peek()
 	// `fun` is not classified by startsExpression/valueOnlyToken below: unlike
 	// every other token there, whether it is a value depends on the token

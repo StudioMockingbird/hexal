@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/corelib"
 	"hexal/compiler/generator"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
@@ -233,7 +234,7 @@ func resolveImportPath(fromModule, rawPath string) (string, error) {
 		path = path[1 : len(path)-1]
 	}
 	if !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "../") {
-		return "", fmt.Errorf("import path %s is not relative", rawPath)
+		return resolveCollectionPath(rawPath, path)
 	}
 	dir := ""
 	if slash := strings.LastIndex(fromModule, "/"); slash >= 0 {
@@ -278,6 +279,36 @@ func resolveImportPath(fromModule, rawPath string) (string, error) {
 		rest = dir + "/" + rest
 	}
 	return canonicalFromLogicalKey(rest), nil
+}
+
+// resolveCollectionPath resolves a bare (non-relative) import path as a
+// collection path "<collection>/<component>{/<component>}". std is the only
+// collection in v1; its canonical identity is the path itself, unaffected by
+// the importing module's own location. rawPath keeps the lexer's quoted
+// spelling for diagnostics; path is its unquoted payload.
+func resolveCollectionPath(rawPath, path string) (string, error) {
+	collection, rest, found := strings.Cut(path, "/")
+	if !found || collection == "" {
+		return "", fmt.Errorf("import path %s is not relative", rawPath)
+	}
+	if collection != "std" {
+		return "", fmt.Errorf("unknown module collection %s; only std is available", collection)
+	}
+	if strings.HasSuffix(path, ".hex") {
+		return "", fmt.Errorf("collection path %s must not end in .hex", rawPath)
+	}
+	components := strings.Split(rest, "/")
+	for _, component := range components {
+		if component == "" || !lexer.IsIdentifierStart(component[0]) {
+			return "", fmt.Errorf("invalid component %s in import path %s", component, rawPath)
+		}
+		for i := 1; i < len(component); i++ {
+			if !lexer.IsIdentifierPart(component[i]) {
+				return "", fmt.Errorf("invalid component %s in import path %s", component, rawPath)
+			}
+		}
+	}
+	return path, nil
 }
 
 // reachableModules lexes and parses every module reachable from the entrypoint
@@ -405,6 +436,15 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 	// to name, and its diagnostic already fails the compilation.
 	node := s.nodes[fromModule]
 	node.Imports = append(node.Imports, checker.ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: target})
+	if strings.HasPrefix(target, "std/") {
+		// A core library has no Hexal source and never joins the module
+		// graph: it publishes no ModuleNode, is never lexed or parsed, and is
+		// resolved directly by the checker against the corelib table.
+		if !corelib.IsModule(target) {
+			s.record(fromModule, line, column, "unknown stdlib module "+rawPath)
+		}
+		return nil
+	}
 	if len(s.sourceKeyFor(target)) == 0 {
 		s.record(fromModule, line, column, "imported module "+rawPath+" was not found")
 		return nil

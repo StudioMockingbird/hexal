@@ -227,6 +227,20 @@ type ReturnStatement struct {
 
 func (ReturnStatement) statementNode() {}
 
+// RootReturnStatement exits the entry module after active root defers,
+// recording one UInt8 process status. It is a distinct checked statement
+// from ReturnStatement, never an overload of a function return with an
+// absent result: the entry module has no function result to leave absent.
+// Value is nil for a bare return or entry-module fallthrough, both of which
+// record status zero.
+type RootReturnStatement struct {
+	Value        *Operand
+	SourceLine   int
+	SourceColumn int
+}
+
+func (RootReturnStatement) statementNode() {}
+
 // CallStatement is a call in statement position. It is the only place a
 // no-return call may appear.
 type CallStatement struct {
@@ -650,8 +664,14 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				SourceColumn: statement.Keyword.Column,
 			})
 		case parser.ReturnStatement:
-			_, statementDiagnostics := checkReturnStatement(statement, ctx)
+			checkedStatement, statementDiagnostics := checkReturnStatement(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
+			if len(statementDiagnostics) == 0 {
+				checked.Statements = append(checked.Statements, checkedStatement)
+				if _, isRoot := checkedStatement.(RootReturnStatement); isRoot {
+					environment.recordReturnFlow()
+				}
+			}
 		case parser.IfStatement:
 			checkedStatement, _, _, statementDiagnostics := checkStatement(statement, ctx, 0)
 			diagnostics = append(diagnostics, statementDiagnostics...)
@@ -851,11 +871,12 @@ func executableItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 		return statement.Keyword, true
 	case parser.ErrdeferStatement:
 		return statement.Keyword, true
-	case parser.ReturnStatement:
-		return statement.Keyword, true
 	case parser.Assignment, parser.CallExpression:
 		return lexer.Token{Line: 1, Column: 1}, true
 	}
+	// parser.ReturnStatement is deliberately absent: checkReturnStatement
+	// itself rejects one outside the entry module, with the exact
+	// entry-module-or-function-body diagnostic instead of this generic one.
 	return lexer.Token{}, false
 }
 

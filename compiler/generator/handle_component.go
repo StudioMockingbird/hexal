@@ -9,7 +9,10 @@ func handleSelected(merged *programEmission) bool {
 	return (merged.fileState != nil && merged.fileState.used) ||
 		(merged.networkState != nil && (merged.networkState.dns || merged.networkState.tcp)) ||
 		(merged.processState != nil && merged.processState.used) ||
-		(merged.signalState != nil && merged.signalState.used)
+		(merged.signalState != nil && merged.signalState.used) ||
+		// The core-library path and entropy runtimes classify their libuv
+		// failures through the same mapper, so they select its component.
+		(merged.corelibState != nil && (merged.corelibState.paths || merged.corelibState.entropy))
 }
 
 // handleComponents returns hexal/handle.h and hexal/handle.c when a

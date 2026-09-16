@@ -22,7 +22,7 @@ func FallsThrough(statements []Statement) bool {
 
 func statementFallsThrough(statement Statement) bool {
 	switch statement := statement.(type) {
-	case ReturnStatement:
+	case ReturnStatement, RootReturnStatement:
 		return false
 	case IfStatement:
 		if statement.Else == nil || FallsThrough(statement.Then) {
@@ -87,7 +87,8 @@ func checkStatements(statements []parser.Statement, ctx checkContext, loopDepth 
 		}
 		checked = append(checked, checkedStatement)
 		if reachable {
-			if _, returns := checkedStatement.(ReturnStatement); returns {
+			switch checkedStatement.(type) {
+			case ReturnStatement, RootReturnStatement:
 				ctx.names.recordReturnFlow()
 			}
 		} else {
@@ -375,7 +376,7 @@ func sequenceTerminates(statements []Statement) bool {
 
 func statementTerminates(statement Statement) bool {
 	switch statement := statement.(type) {
-	case ReturnStatement, BreakStatement, ContinueStatement:
+	case ReturnStatement, RootReturnStatement, BreakStatement, ContinueStatement:
 		return true
 	case UnsafeStatement:
 		return sequenceTerminates(statement.Body)
@@ -710,11 +711,21 @@ func checkWhileStatement(statement parser.WhileStatement, ctx checkContext, loop
 	return checked, diagnostics
 }
 
-func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (ReturnStatement, compilerTypes.Diagnostics) {
-	checked := ReturnStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
+// checkReturnStatement checks a `return` wherever the parser accepts one: a
+// function body (its existing, unchanged behavior) or, now that the parser
+// no longer rejects it before the entrypoint is known, the entry module's
+// own root scope (nested inside root if/while/for or written directly at
+// root), which it delegates to checkRootReturnStatement. Anywhere else -- an
+// imported module's root, whether direct or nested -- it fails closed with
+// the exact diagnostic below.
+func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (Statement, compilerTypes.Diagnostics) {
 	if !ctx.names.inFunction() {
-		return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "return is only valid inside a function body")}
+		if !ctx.names.isEntryModule() {
+			return ReturnStatement{}, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "return is valid only in the entry module or a function body")}
+		}
+		return checkRootReturnStatement(statement, ctx)
 	}
+	checked := ReturnStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
 	if statement.Value == nil {
 		if ctx.names.result != nil {
 			return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword,
@@ -755,5 +766,26 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (R
 	checked.Value = &source
 	// A collection return value is an ordinary shallow copy; the caller
 	// accepts the cleanup responsibility the function documents.
+	return checked, nil
+}
+
+// checkRootReturnStatement checks a `return` at the entry module's own root:
+// a bare return and fallthrough both record status zero (represented here as
+// a nil Value, mirroring a no-result function return); a valued return
+// requires exact UInt8 with no implicit conversion.
+func checkRootReturnStatement(statement parser.ReturnStatement, ctx checkContext) (RootReturnStatement, compilerTypes.Diagnostics) {
+	checked := RootReturnStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
+	if statement.Value == nil {
+		return checked, nil
+	}
+	value := checkInitializer(statement.Value, compilerTypes.NewTypeUse(compilerTypes.UInt8), statement.Keyword, ctx)
+	if valueDiagnostics := initializerDiagnostics(value); len(valueDiagnostics) > 0 {
+		return checked, valueDiagnostics
+	}
+	if !compilerTypes.Equal(value.typ, compilerTypes.UInt8) {
+		return checked, compilerTypes.Diagnostics{typeErrorAt(value.token, fmt.Sprintf("entry-module return requires UInt8; got %s", value.typ.Name))}
+	}
+	source := value.source
+	checked.Value = &source
 	return checked, nil
 }

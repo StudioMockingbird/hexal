@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -379,6 +380,13 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// path.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable {
 		if target, ok := ctx.names.importAliasTarget(variable.Name.Lexeme); ok {
+			// A core-library module (std/program, std/entropy, ...) has no
+			// registry entry at all: it is compiler-owned, never checked
+			// through the ordinary module pipeline. Its function table is
+			// resolved directly, ahead of every registry-backed alias check.
+			if corelib.IsModule(target) {
+				return checkCorelibCall(target, call, callee.Property, ctx)
+			}
 			if _, functionOk := ctx.names.registry.exportedFunction(target, callee.Property.Lexeme); !functionOk {
 				if _, genericOk := ctx.names.registry.genericFunction(target, callee.Property.Lexeme); !genericOk {
 					if typeValue, ok := checkQualifiedTypeConstructorCall(call, callee.Property, target, expectedType, ctx); ok {

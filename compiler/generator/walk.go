@@ -196,6 +196,10 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 		if statement.Value != nil {
 			return walkStatementOperand(*statement.Value, visit)
 		}
+	case checker.RootReturnStatement:
+		if statement.Value != nil {
+			return walkStatementOperand(*statement.Value, visit)
+		}
 	case checker.DeferStatement:
 		return walkStatementOperand(statement.Expression, visit)
 	case checker.ErrdeferStatement:
@@ -582,6 +586,12 @@ func (state *walkState) walkStatements(statements []checker.Statement) error {
 				return err
 			}
 		case checker.ReturnStatement:
+			if statement.Value != nil {
+				if err := state.walkOperand(*statement.Value); err != nil {
+					return err
+				}
+			}
+		case checker.RootReturnStatement:
 			if statement.Value != nil {
 				if err := state.walkOperand(*statement.Value); err != nil {
 					return err

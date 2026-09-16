@@ -68,7 +68,7 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 	var root *moduleEmission
 	for _, emission := range modules {
 		isRoot := emission.canonicalID == entrypointCanonical
-		moduleC, moduleH, emissionErr := emitModulePair(emission, merged, isRoot)
+		moduleC, moduleH, emissionErr := emitModulePair(emission, merged, isRoot, config)
 		if emissionErr != nil {
 			return GenerationResult{}, compilerTypes.StampModule(emissionErr, emission.logicalKey)
 		}

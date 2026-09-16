@@ -78,11 +78,15 @@ type moduleEmission struct {
 	processState      *generatedProcessState
 	signalState       *generatedSignalState
 	terminalState     *generatedTerminalState
-	concurrencyState  *generatedConcurrencyState
-	wrapState         *generatedWrapState
-	stashState        *stashHelpers
-	poolState         *generatedPoolState
-	objects           []*compilerTypes.ObjectType
+	corelibState      *generatedCorelibState
+	// rootReturn is true when this module's root scope contains a checked
+	// root return, selecting the entry status slot and cleanup label.
+	rootReturn       bool
+	concurrencyState *generatedConcurrencyState
+	wrapState        *generatedWrapState
+	stashState       *stashHelpers
+	poolState        *generatedPoolState
+	objects          []*compilerTypes.ObjectType
 }
 
 // discoverModuleEmission validates one module and runs every built-in
@@ -168,6 +172,8 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.processState = discoverGeneratedProcess(program, logicalKey, literals)
 	emission.signalState = discoverGeneratedSignal(program, logicalKey, literals)
 	emission.terminalState = discoverGeneratedTerminal(program, logicalKey, literals)
+	emission.corelibState = discoverGeneratedCorelib(program, logicalKey, literals)
+	emission.rootReturn = discoverGeneratedRootReturn(program)
 	emission.wrapState = discoverGeneratedWraps(program)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
 	if concurrencyErr != nil {
@@ -199,6 +205,17 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		literals.used = true
 		literals.strand = true
 		emission.stringUsed = true
+	}
+	if emission.corelibState != nil && emission.corelibState.used {
+		// A core-library call's result union names Error and String, and the
+		// program/entropy component headers include the Heap and Slice
+		// definitions those result structs reference.
+		literals.used = true
+		literals.strand = true
+		emission.stringUsed = true
+		emission.errorUsed = true
+		heapState.required = true
+		sliceState.required = true
 	}
 	if len(dictState.order) > 0 {
 		// The dict component header declares its String dependency, so the
@@ -261,6 +278,25 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	return emission, nil
 }
 
+// discoverGeneratedRootReturn reports whether the module's root scope
+// contains a checked root return. The checker admits one only at entry-module
+// scope, so any occurrence selects the entry status slot and cleanup label.
+func discoverGeneratedRootReturn(program checker.Program) bool {
+	found := false
+	visitor := &programVisitor{
+		Statement: func(statement checker.Statement) error {
+			if _, ok := statement.(checker.RootReturnStatement); ok {
+				found = true
+			}
+			return nil
+		},
+	}
+	if err := walkProgram(program, visitor); err != nil {
+		return false
+	}
+	return found
+}
+
 // programEmission is the program-wide aggregate of every reachable module's
 // built-in machinery. hexal.h is generated from it, so the once-per-process
 // runtime cores and the shared type and literal definitions cover every
@@ -321,6 +357,10 @@ type programEmission struct {
 	// reachable use emits hexal/terminal.h and hexal/terminal.c once
 	// program-wide.
 	terminalState *generatedTerminalState
+	// corelibState merges every module's core-library module demand;
+	// reachable use emits hexal/program.h/.c and hexal/entropy.h/.c once
+	// program-wide.
+	corelibState *generatedCorelibState
 	// seekUsed is true when any module's stream state reaches Bytes.seek or
 	// IO.seek, selecting hexal/seek.h once program-wide. It is tracked
 	// separately from ioState's own four merged flags, which exist only for
@@ -379,6 +419,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		processState:  &generatedProcessState{},
 		signalState:   &generatedSignalState{},
 		terminalState: &generatedTerminalState{},
+		corelibState:  &generatedCorelibState{},
 		adapterSites:  make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -418,6 +459,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		mergeProcessInto(merged.processState, module.processState)
 		mergeSignalInto(merged.signalState, module.signalState)
 		mergeTerminalInto(merged.terminalState, module.terminalState)
+		mergeCorelibInto(merged.corelibState, module.corelibState)
 		merged.seekUsed = merged.seekUsed || module.fileState != nil && module.fileState.seek
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
@@ -672,6 +714,23 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			// invariant violation.
 			requirements.add("stddef.h")
 		}
+		if module.corelibState != nil && module.corelibState.used {
+			// The program/entropy runtimes spell uint8_t/size_t and report
+			// through the shared trap and the common libuv mapper; the
+			// libuv-backed path functions add checked size arithmetic,
+			// malloc/free, and memcpy/strlen.
+			requirements.add("stddef.h", "stdint.h")
+			requirements.trap = true
+			if module.corelibState.paths {
+				requirements.add("stdckdint.h", "stdlib.h", "string.h")
+			}
+			if module.corelibState.entropy {
+				requirements.add("stdlib.h", "string.h")
+			}
+			if module.corelibState.arguments {
+				requirements.add("stdlib.h", "string.h")
+			}
+		}
 		if module.timeState != nil && module.timeState.used {
 			// Time values spell uint64_t/int64_t/uint32_t, and checked Duration
 			// arithmetic and Instant subtraction trap.
@@ -909,7 +968,7 @@ func routeSpawnSites(merged *generatedConcurrencyState) map[string][]spawnSite {
 // the prototype emitted up front; every helper is static and carries no
 // owner encoding, since collectLocalHelpers's ordinal alone is unique
 // within the module.
-func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bool) (moduleC string, moduleH string, err error) {
+func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bool, config Config) (moduleC string, moduleH string, err error) {
 	canonicalID := emission.canonicalID
 	logicalKey := emission.logicalKey
 	program := emission.program
@@ -1054,14 +1113,40 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		// nothing is promoted to static storage duration. With concurrency
 		// the statements run as the root task between scheduler
 		// initialization and hex_task_complete; without it they run before
-		// main returns C's successful integer status directly. No non-root
-		// module ever declares or defines main() or process-wide runtime
-		// state.
-		moduleBody.WriteString("int main(void) {\n")
+		// main returns C's recorded status directly. No non-root module ever
+		// declares or defines main() or process-wide runtime state.
+		argumentsReachable := merged.corelibState != nil && merged.corelibState.arguments
+		executableReachable := merged.corelibState != nil && merged.corelibState.executable
+		entryAdapter := argumentsReachable || executableReachable
+		if executableReachable {
+			// uv_setup_args must run after the native bootstrap and before the
+			// first uv_exepath. Declaring it privately keeps <uv.h> and every
+			// libuv name out of the generated module headers.
+			moduleBody.WriteString("extern char **uv_setup_args(int argc, char **argv);\n\n")
+		}
+		writeRootEntrySignature(&moduleBody, config, entryAdapter)
 		if merged.requirements != nil && merged.requirements.native {
 			// The native bootstrap precedes every module statement and the
 			// scheduler, so no libuv call can run before its allocator.
 			moduleBody.WriteString("    hex_runtime_native_init();\n")
+		}
+		if executableReachable {
+			// The returned pointer is authoritative for POSIX argument
+			// conversion only when arguments are reachable; otherwise the
+			// call exists solely to satisfy uv_setup_args's required ordering.
+			posixSetup := "(void)uv_setup_args(argc, argv);"
+			if argumentsReachable {
+				posixSetup = "argv = uv_setup_args(argc, argv);"
+			}
+			writeRootArgumentSetup(&moduleBody, config, "(void)uv_setup_args(__argc, __argv);", posixSetup)
+		}
+		if argumentsReachable {
+			writeRootArgumentSetup(&moduleBody, config, "hex_program_arguments_init();", "hex_program_arguments_init(argc, argv);")
+		}
+		if emission.rootReturn {
+			// One status slot owns the process exit classification; a root
+			// return assigns it and jumps to the single cleanup label.
+			moduleBody.WriteString("    uint8_t hex_exit_status = 0;\n")
 		}
 		if handleSelected(merged) {
 			// The handle registry backs every copied-handle capability's
@@ -1074,13 +1159,22 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		if statementErr := writeStatements(&moduleBody, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
 			return "", "", statementErr
 		}
+		if emission.rootReturn {
+			// The cleanup label precedes the shared epilogue so an early root
+			// return still completes the root Task before C returns.
+			moduleBody.WriteString("hex_exit:\n")
+		}
 		if merged.concurrencyState != nil && merged.concurrencyState.used {
 			// Completing the root Task wakes the scheduler, stops the
 			// workers, and switches back to main so it returns normally.
 			// Tasks still active are abandoned to process termination.
 			moduleBody.WriteString("    hex_task_complete(hex_root_task);\n")
 		}
-		moduleBody.WriteString("    return 0;\n}\n")
+		if emission.rootReturn {
+			moduleBody.WriteString("    return (int)hex_exit_status;\n}\n")
+		} else {
+			moduleBody.WriteString("    return 0;\n}\n")
+		}
 	}
 
 	// The module's own header declares its exported declarations and every
@@ -1110,7 +1204,9 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		process:     emission.processState,
 		signal:      emission.signalState,
 		terminal:    emission.terminalState,
+		corelib:     emission.corelibState,
 		concurrency: emission.concurrencyState,
+		event:       eventSelected(merged),
 		stringState: stringState,
 		tags:        merged.tags,
 		slices:      emission.sliceState,
@@ -1129,6 +1225,37 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		return "", "", headerErr
 	}
 	return moduleBody.String(), moduleHeader, nil
+}
+
+// writeRootEntrySignature emits the root entry function's signature. A
+// program with no host-invocation demand keeps the unconditional
+// int main(void). The qualified Windows profile always keeps int main(void)
+// and reads the MinGW CRT globals; a POSIX profile widens to argc/argv.
+// Host-neutral output spells both under #if defined(_WIN32) and lets the C
+// compiler choose.
+func writeRootEntrySignature(body *strings.Builder, config Config, demand bool) {
+	switch {
+	case !demand, targetIsWindows(config):
+		body.WriteString("int main(void) {\n")
+	case config.Target != "":
+		body.WriteString("int main(int argc, char **argv) {\n")
+	default:
+		body.WriteString("#if defined(_WIN32)\nint main(void) {\n#else\nint main(int argc, char **argv) {\n#endif\n")
+	}
+}
+
+// writeRootArgumentSetup emits one host-invocation setup statement, keeping
+// the Windows and POSIX spellings under the same target selection as the
+// entry signature.
+func writeRootArgumentSetup(body *strings.Builder, config Config, windows, posix string) {
+	switch {
+	case targetIsWindows(config):
+		body.WriteString("    " + windows + "\n")
+	case config.Target != "":
+		body.WriteString("    " + posix + "\n")
+	default:
+		body.WriteString("#if defined(_WIN32)\n    " + windows + "\n#else\n    " + posix + "\n#endif\n")
+	}
 }
 
 // routedFrames returns the entry-adapter argument frames this module's header
@@ -1169,6 +1296,7 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, moduleSliceComponent(emission)...)
 	components = append(components, moduleStringComponent(emission)...)
 	components = append(components, moduleErrorComponent(emission)...)
+	components = append(components, moduleCorelibComponent(emission)...)
 	components = append(components, moduleSeekComponent(emission)...)
 	components = append(components, moduleConcurrencyComponent(emission)...)
 	components = append(components, moduleStashComponent(emission)...)
@@ -1216,7 +1344,11 @@ type moduleHeaderInput struct {
 	process     *generatedProcessState
 	signal      *generatedSignalState
 	terminal    *generatedTerminalState
+	corelib     *generatedCorelibState
 	concurrency *generatedConcurrencyState
+	// event selects the Task-parking form of a core-library adapter,
+	// program-wide and compile-time, matching every other bridged family.
+	event       bool
 	stringState *literalRegistry
 	tags        *tagRegistry
 	canonicalID string
@@ -1337,6 +1469,9 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 		return "", err
 	}
 	if err := writeTerminalInlineHelpers(&result, input.terminal, input.stringState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeCorelibInlineHelpers(&result, input.corelib, input.stringState, input.tags, input.event); err != nil {
 		return "", err
 	}
 	if input.prototypes != "" {

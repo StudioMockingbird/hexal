@@ -181,6 +181,19 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return returnErr
 			}
 			body.WriteString(text)
+		case checker.RootReturnStatement:
+			// Only the entry module's root scope produces one; a root return
+			// reached inside a function body is a checker-to-generator
+			// contract break, never a silent function return.
+			if frame.inFunction {
+				return unknownExpressionDiagnostic("root return inside a function body")
+			}
+			writeLineDirective(body, statement.SourceLine, state.filename)
+			text, returnErr := renderRootReturnStatement(statement, state, indent)
+			if returnErr != nil {
+				return returnErr
+			}
+			body.WriteString(text)
 		case checker.IfStatement:
 			condition, conditionErr := renderTruthiness(&statement.Condition, state)
 			if conditionErr != nil {
@@ -329,7 +342,7 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
 		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
-		checker.NetworkExpression:
+		checker.NetworkExpression, checker.CorelibCallExpression:
 		// Discarding a constructor or a pure computation's result is legal;
 		// at worst it leaks an allocation or wastes a computation, both the
 		// programmer's choice.
@@ -395,6 +408,28 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 		return builder.String(), nil
 	}
 	return indent + "return " + value + ";\n", nil
+}
+
+// renderRootReturnStatement lowers one entry-module return: the status value
+// is evaluated once into the entry status slot, every active defer runs from
+// the innermost scope outward, and control jumps to the entry cleanup label.
+// A bare return records zero.
+func renderRootReturnStatement(statement checker.RootReturnStatement, state *expressionValidation, indent string) (string, error) {
+	var builder strings.Builder
+	if statement.Value == nil {
+		fmt.Fprintf(&builder, "%shex_exit_status = 0;\n", indent)
+	} else {
+		value, err := renderOperandWithState(*statement.Value, state)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&builder, "%shex_exit_status = (uint8_t)(%s);\n", indent, value)
+	}
+	if err := unwindAllDefers(&builder, state, indent, "false"); err != nil {
+		return "", err
+	}
+	builder.WriteString(indent + "goto hex_exit;\n")
+	return builder.String(), nil
 }
 
 // hasPendingDefers reports whether any enclosing scope has registered a
@@ -1022,6 +1057,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderTimeExpression(node, state)
 	case checker.NetworkExpression:
 		return renderNetworkExpression(node, state)
+	case checker.CorelibCallExpression:
+		return renderCorelibCallExpression(node, state)
 	case checker.LayoutExpression:
 		// The C23 compiler is the final authority for the selected target
 		// layout; the checker already proved T complete.

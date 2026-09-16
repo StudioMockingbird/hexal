@@ -95,6 +95,10 @@ func (scanner *starvationScanner) scanStatement(statement Statement) {
 		if statement.Value != nil {
 			scanner.scanOperand(*statement.Value)
 		}
+	case RootReturnStatement:
+		if statement.Value != nil {
+			scanner.scanOperand(*statement.Value)
+		}
 	case DeferStatement:
 		scanner.scanOperand(statement.Expression)
 	case ErrdeferStatement:
@@ -255,8 +259,8 @@ func loopMayRepeatWithoutYield(body []Statement) bool {
 			if bad {
 				return true // repeats the checked loop without yielding
 			}
-		case ReturnStatement:
-			bad = false // leaves the function; does not repeat the loop
+		case ReturnStatement, RootReturnStatement:
+			bad = false // leaves the function or program; does not repeat the loop
 		}
 	}
 	return bad
@@ -299,7 +303,7 @@ func branchMayRepeatWithoutYield(body []Statement, incoming bool) bool {
 			if !bad {
 				return false
 			}
-		case ReturnStatement:
+		case ReturnStatement, RootReturnStatement:
 			return false
 		}
 	}

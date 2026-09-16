@@ -565,6 +565,11 @@ func hoistEvaluationOrderInStatement(statement checker.Statement, body *strings.
 			return hoistSequencingInExpression(&statement.Value.Node, body, state, indent)
 		}
 		return nil
+	case checker.RootReturnStatement:
+		if statement.Value != nil {
+			return hoistSequencingInExpression(&statement.Value.Node, body, state, indent)
+		}
+		return nil
 	case checker.DeferStatement:
 		return hoistSequencingInExpression(&statement.Expression.Node, body, state, indent)
 	case checker.ErrdeferStatement:

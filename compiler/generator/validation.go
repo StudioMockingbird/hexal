@@ -214,6 +214,14 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 					return err
 				}
 			}
+		case checker.RootReturnStatement:
+			// The entry status type is checked while rendering the root
+			// return; the preflight pass only validates the value shape.
+			if statement.Value != nil {
+				if err := validateCheckedOperandWithState(*statement.Value, state); err != nil {
+					return err
+				}
+			}
 		case checker.IfStatement:
 			if err := validateCondition(statement.Condition, state); err != nil {
 				return err
@@ -892,6 +900,8 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateTimeExpression(node, expected, state)
 	case checker.NetworkExpression:
 		return validateNetworkExpression(node, expected, state)
+	case checker.CorelibCallExpression:
+		return validateCorelibCallExpression(node, expected, state)
 	case checker.UnionWidenExpression:
 		return validateUnionWiden(node, expected, state)
 	case checker.UnionTestExpression:
