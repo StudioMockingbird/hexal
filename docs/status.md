@@ -274,11 +274,3 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   claims pending either finer black-box fixtures or internal
   instrumentation neither of which this pass added.
 - To verify; import block must always be at the top of the mocule. export block must always be at the end. import, export and unsafe can only be at root level.
-- **RFC 0186's "a user logical key `std/fs.hex` and stdlib `std/fs` coexist with distinct
-  identities" is not implemented because the specification contradicts itself.** It also mandates
-  that a source stdlib module's canonical identity stays `std/<path>` while the compiler derives a
-  user module's canonical identity from its key with the `.hex` suffix stripped, so a user key
-  `std/fs.hex` canonicalizes to the same `std/fs` the stdlib claims. Only the `#line`, diagnostic,
-  and `Error.file` provenance key is distinct (`stdlib/std/fs.hex`), and that part is implemented
-  and covered. Resolving the identity half needs a spec decision (reserve the `std/` key prefix, or
-  give the stdlib a distinct canonical), not a compiler change.

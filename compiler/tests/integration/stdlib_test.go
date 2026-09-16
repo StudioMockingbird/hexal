@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"hexal/compiler"
 	"hexal/stdlib"
 )
 
@@ -51,6 +52,23 @@ func TestAsciiNamedFunctionsMatchSurface(t *testing.T) {
 	assertCompiles(t, source)
 	// Unknown operations stay fail-closed.
 	assertRejects(t, "import\n    Ascii from \"std/ascii\"\nend\nx := Ascii.is_upper(65)\n", "is_upper")
+}
+
+// The std/ logical-key prefix is reserved, so a user module can never claim a
+// stdlib canonical identity.
+func TestStdKeyPrefixReserved(t *testing.T) {
+	const want = `the "std" path prefix is reserved for the standard library`
+	entry := compiler.Compile(map[string]string{"std/fs.hex": "value: Int32 := 1\n"}, "std/fs.hex", compiler.Project{})
+	if entry.ExitCode != compiler.ExitFailure || len(entry.Stderr) == 0 || !strings.Contains(entry.Stderr[0], want) {
+		t.Fatalf("std/fs.hex entrypoint = %#v, want the reserved-prefix diagnostic", entry.Stderr)
+	}
+	imported := compiler.Compile(map[string]string{
+		"app.hex":       "import\n    S from \"./std/thing\"\nend\nvalue: Int32 := 1\n",
+		"std/thing.hex": "value: Int32 := 1\nexport\n    value\nend\n",
+	}, "app.hex", compiler.Project{})
+	if imported.ExitCode != compiler.ExitFailure || len(imported.Stderr) == 0 || !strings.Contains(strings.Join(imported.Stderr, "\n"), want) {
+		t.Fatalf("relative std/ import = %#v, want the reserved-prefix diagnostic", imported.Stderr)
+	}
 }
 
 // stdlib.Sources returns a fresh copy; mutating one does not change a later

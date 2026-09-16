@@ -200,6 +200,12 @@ func validateLogicalKey(key string) error {
 		return fmt.Errorf("logical key %q is invalid: %s", key, rule)
 	}
 	stem := key[:len(key)-len(suffix)]
+	if first, _, _ := strings.Cut(stem, "/"); first == "std" {
+		// The std collection is compiler-owned; reserving the logical-key
+		// prefix keeps a user module from claiming a stdlib canonical
+		// identity (a core library's std/<path> or a source module's).
+		return fmt.Errorf("logical key %q is invalid: the %q path prefix is reserved for the standard library", key, "std")
+	}
 	for _, component := range strings.Split(stem, "/") {
 		if component == "" || !lexer.IsIdentifierStart(component[0]) {
 			return fmt.Errorf("logical key %q is invalid: %s", key, rule)
@@ -437,7 +443,12 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 	// to name, and its diagnostic already fails the compilation.
 	node := s.nodes[fromModule]
 	node.Imports = append(node.Imports, checker.ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: target})
-	if strings.HasPrefix(target, "std/") {
+	// A relative path that reaches a std-prefixed canonical is a user module
+	// whose key is reserved, not a std collection lookup; only a path that is
+	// itself a collection path consults the core library and source stdlib.
+	path := strings.Trim(rawPath, "\"")
+	collection := !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "../")
+	if collection && strings.HasPrefix(target, "std/") {
 		if corelib.IsModule(target) {
 			// A core library has no Hexal source and never joins the module
 			// graph: it publishes no ModuleNode, is never lexed or parsed,
@@ -508,6 +519,11 @@ func stdlibSourcesByCanonical() map[string]string {
 // otherwise the unique user source key that canonicalizes to it.
 func (s *reachState) sourceFor(canonical string) (string, string, bool) {
 	if text, ok := s.stdlibSources[canonical]; ok {
+		if userKeys := s.sourceKeyFor(canonical); len(userKeys) > 0 {
+			// A user key cannot shadow a stdlib canonical identity even
+			// though the std module wins resolution.
+			s.record(canonical, 1, 1, fmt.Sprintf("logical key %q is invalid: the %q path prefix is reserved for the standard library", userKeys[0], "std"))
+		}
 		return stdlib.SourceKey(canonical), text, true
 	}
 	keys := s.sourceKeyFor(canonical)

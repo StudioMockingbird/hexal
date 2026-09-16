@@ -353,10 +353,12 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   case-sensitive, and do not denote or inspect host filesystem paths. The entrypoint must exactly
   name one supplied source.
 - A legal logical key is relative, uses `/` as its only separator, ends in exactly one `.hex`
-  extension, and has one or more path components before it, each a Hexal identifier. Only the
-  entrypoint and each key a resolved import reaches are validated, immediately before that source is
-  lexed; an unreachable invalid key is ignored like any other unreachable entry. A violation is a
-  Module Error naming the offending key and the complete rule.
+  extension, and has one or more path components before it, each a Hexal identifier. Its first
+  component may not be `std`: that prefix is reserved for the compiler-owned standard library, so a
+  user key can never claim a stdlib canonical identity. Only the entrypoint and each key a resolved
+  import reaches are validated, immediately before that source is lexed; an unreachable invalid key
+  is ignored like any other unreachable entry. A violation is a Module Error naming the offending key
+  and the complete rule.
 - A module's canonical identity is its logical key without the trailing `.hex`. The logical key,
   not an absolute host path or import alias, determines nominal type, function, method, generic,
   specialization, generated-symbol, and artifact identity. Same-named declarations in distinct
