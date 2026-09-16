@@ -13,7 +13,7 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| RFC 0039 validation: the `hex_cvar_` automatic local-name escaping (owned by RFC 0193's normalizer) and tagged C23 canary activation plus header-only/raylib-shaped fixtures that need a checked-in include root (owned by RFC 0125 and the tagged harness). The compiler core — imports, prepared-binding identity, `extern c` blocks, the ABI set, records, the unsafe gate, the String/Slice bridges, lowering, includes, and diagnostics — is implemented | [0039](specs/0039-c-interop-compiler-core.md) |
+| RFC 0039 validation: the `hex_cvar_` automatic local-name escaping is the only remaining item and is owned by RFC 0193's normalizer. The compiler core — imports, prepared-binding identity, `extern c` blocks, the ABI set, records, the unsafe gate, the String/Slice bridges, lowering, includes, diagnostics, and the tagged C23 interop fixtures (direct scalars, a record by value, an opaque type, constants, a global, the address bridges, a header-only library, and a library-shaped surface) — is implemented and passes under gcc, clang, and zig | [0039](specs/0039-c-interop-compiler-core.md) |
 | Compile and link command-line-supplied C sources, objects, archives, and system libraries | [0192](specs/0192-command-line-c-build-inputs.md) |
 | Select an installed C compiler and consume target-qualified static libuv/mimalloc runtime packs | [0213](specs/0213-external-c-backend-and-runtime-packs.md) |
 

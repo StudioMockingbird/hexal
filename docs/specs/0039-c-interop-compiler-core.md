@@ -14,14 +14,14 @@
   deterministic per-module C include emission, exact-symbol lowering with
   representation-preserving boundary casts, and the exact diagnostics. It is
   covered by parser tests, pure-Go integration tests through the exported
-  `Compile` API, and target-qualified tagged C23 fixtures.
-  Two Validation items remain open and are not compiler-core gaps: the
+  `Compile` API, and target-qualified tagged C23 fixtures that compile, link,
+  and run under gcc, clang, and zig, including direct scalars, a complete
+  record passed and returned by value, an opaque type, constants, a global, the
+  String/Slice address bridges with a mutable buffer, a header-only library,
+  and a library-shaped binding surface.
+  One Validation item remains open and is not a compiler-core gap: the
   `hex_cvar_` automatic local-name escaping is the prepared-module normalizer's
-  responsibility and is owned by RFC 0193, and the tagged C23 canary fixtures
-  are not yet collected because RFC 0125 owns giving them runnable entry-point
-  names. A header-only and a raylib-shaped fixture additionally need the
-  tagged harness to accept a checked-in include root, which it does not yet
-  do.
+  responsibility and is owned by RFC 0193.
 - Created: 2026-08-11
 - Updated: 2026-09-15
 - Scope: add direct C-header import syntax, the prepared-source protocol, and

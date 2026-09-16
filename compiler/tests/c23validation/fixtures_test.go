@@ -1468,4 +1468,72 @@ var fixtureCatalog = []fixture{
 		sources:     map[string]string{"app.hex": "extern c from <stdlib.h> do\n    fun c_abs as \"abs\"(value: Int32 as \"int\"): Int32 as \"int\"\nend\nfun demo(): Int32 do\n    unsafe do\n        return c_abs(-7)\n    end\nend\nprint(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "7"},
 	},
+	// A header-only library: <stdckdint.h> supplies the checked arithmetic as
+	// a type-generic macro, with no separate translation unit or link input.
+	{
+		name:       "foreign-header-only-compiles",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		sources: map[string]string{"app.hex": "extern c from <stdckdint.h> do\n" +
+			"    fun c_check_add as \"ckd_add\"(result: Ptr<mut Int32>, left: Int32 as \"int\", right: Int32 as \"int\"): Bool\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    mut total: Int32 := 0\n" +
+			"    unsafe do\n" +
+			"        return c_check_add(@total, 1, 2)\n" +
+			"    end\n" +
+			"end\n"},
+	},
+	// A complete record passed and returned by value: `div_t` is returned by
+	// value and its fields are read directly.
+	{
+		name:       "foreign-record-by-value-runs",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		sources: map[string]string{"app.hex": "extern c from <stdlib.h> do\n" +
+			"    type DivT as \"div_t\" is struct\n" +
+			"        mut quot: Int32,\n" +
+			"        mut rem: Int32,\n" +
+			"    end\n" +
+			"    fun c_div as \"div\"(numer: Int32 as \"int\", denom: Int32 as \"int\"): DivT\n" +
+			"end\n" +
+			"fun demo(): Int32 do\n" +
+			"    unsafe do\n" +
+			"        result: DivT := c_div(7, 2)\n" +
+			"        return result.quot\n" +
+			"    end\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "3"},
+	},
+	// A library-shaped surface without the library: the same shape a real
+	// graphics binding has (opaque handle, open and close calls, a buffer
+	// call, a constant, and a readable foreign global) over standard headers.
+	{
+		name:       "foreign-library-shaped-compiles",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
+			"    type File as \"FILE\" is opaque\n" +
+			"    constant eof as \"EOF\": Int32\n" +
+			"    global std_out as \"stdout\": Ptr<mut File>\n" +
+			"    fun c_fclose as \"fclose\"(stream: Ptr<mut File> | Nil as \"FILE *\"): Int32 as \"int\"\n" +
+			"    fun c_fgets as \"fgets\"(buffer: Ptr<mut Byte> | Nil as \"char *\", count: Int32 as \"int\", stream: Ptr<mut File> | Nil as \"FILE *\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
+			"end\n" +
+			"extern c from <errno.h> do\n" +
+			"    global errno_value as \"errno\": Int32\n" +
+			"end\n" +
+			"fun demo(buffer: Slice<mut Byte>): Bool do\n" +
+			"    unsafe do\n" +
+			"        stream: Ptr<mut File> | Nil := std_out\n" +
+			"        if stream != nil then\n" +
+			"            line: Ptr<mut Byte> | Nil := c_fgets(buffer.pointer(), 16, stream)\n" +
+			"            stopped: Int32 := c_fclose(stream)\n" +
+			"            sentinel: Int32 := eof\n" +
+			"            failure: Int32 := errno_value\n" +
+			"        end\n" +
+			"        return true\n" +
+			"    end\n" +
+			"end\n"},
+	},
 }
