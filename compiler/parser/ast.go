@@ -8,11 +8,101 @@ import "hexal/compiler/lexer"
 // top-level constructs respectively), so they are dedicated optional fields
 // rather than ordinary TopLevelItems.
 type Program struct {
-	Import     *ImportBlock
+	Import *ImportBlock
+	// Externs are the optional leading foreign blocks, after the import block
+	// and before every ordinary top-level item. They are a dedicated field
+	// rather than ordinary TopLevelItems because their position is part of the
+	// grammar.
+	Externs    []ExternBlock
 	Items      []TopLevelItem
 	Statements []Statement
 	Export     *ExportBlock
 }
+
+// ExternBlock is one `extern c from <header> do ... end` foreign block: a
+// handwritten binding for the requested header. Declarations are private
+// unless the module's final export block names them.
+type ExternBlock struct {
+	Keyword      lexer.Token
+	C            lexer.Token
+	From         lexer.Token
+	Header       ImportReference
+	Do           lexer.Token
+	Declarations []ExternDeclaration
+	End          lexer.Token
+}
+
+// ExternDeclaration is one declaration inside a foreign block: a foreign type,
+// function, constant, or global.
+type ExternDeclaration interface{ externDeclarationNode() }
+
+// ExternMember is one field of a complete foreign struct.
+type ExternMember struct {
+	Mutable bool
+	Name    lexer.Token
+	CName   *lexer.Token // optional `as "field_name"`
+	Type    TypeExpression
+}
+
+// ExternType declares one foreign type: a transparent Hexal alias, an opaque
+// incomplete C type, or a complete foreign struct. CName optionally carries
+// the exact C typedef or tag spelling.
+type ExternType struct {
+	Keyword lexer.Token
+	Name    lexer.Token
+	CName   *lexer.Token
+	// Exactly one of Alias, Opaque, or Members is set.
+	Alias   TypeExpression
+	Opaque  bool
+	Members []ExternMember
+	End     lexer.Token
+}
+
+func (ExternType) externDeclarationNode() {}
+
+// ExternParameter is one foreign function parameter, with an optional exact C
+// type spelling.
+type ExternParameter struct {
+	Name  lexer.Token
+	Type  TypeExpression
+	CType *lexer.Token
+}
+
+// ExternFunction declares one foreign function. CName optionally carries the
+// exact C symbol, and ResultCType the result's exact C spelling.
+type ExternFunction struct {
+	Keyword     lexer.Token
+	Name        lexer.Token
+	CName       *lexer.Token
+	Parameters  []ExternParameter
+	Result      TypeExpression
+	ResultCType *lexer.Token
+}
+
+func (ExternFunction) externDeclarationNode() {}
+
+// ExternConstant declares one foreign constant: a typed, non-addressable
+// scalar expression whose C spelling is an enumerator or object-like macro.
+type ExternConstant struct {
+	Keyword lexer.Token
+	Name    lexer.Token
+	CName   *lexer.Token
+	Type    TypeExpression
+}
+
+func (ExternConstant) externDeclarationNode() {}
+
+// ExternGlobal declares one foreign global. Mutable renders reads and writes;
+// a fixed global permits reads only.
+type ExternGlobal struct {
+	Keyword lexer.Token
+	Mutable bool
+	Name    lexer.Token
+	CName   *lexer.Token
+	Type    TypeExpression
+}
+
+func (ExternGlobal) externDeclarationNode() {}
 
 // ImportBlock is the file's one leading import list, when present.
 type ImportBlock struct {

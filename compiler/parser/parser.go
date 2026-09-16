@@ -121,10 +121,30 @@ func Parse(tokens []lexer.Token) (Program, error) {
 		}
 	}
 
+	// Foreign blocks are leading: they follow the optional import block and
+	// precede every ordinary top-level item.
+	externs := make([]ExternBlock, 0)
+	for parser.atExternBlock() && !parser.check(lexer.EOF) {
+		block, err := parser.externBlock()
+		if err != nil {
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(err)...)
+			parser.synchronize(parser.current)
+			continue
+		}
+		externs = append(externs, block)
+	}
+	program.Externs = externs
+
 	items := make([]TopLevelItem, 0)
 	statements := make([]Statement, 0)
 	exportClosed := false
 	for !parser.check(lexer.EOF) {
+		if parser.atExternBlock() {
+			token := parser.peek()
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(token, "extern blocks must precede ordinary top-level items"))...)
+			parser.synchronize(parser.current)
+			continue
+		}
 		if exportClosed {
 			next := parser.peek()
 			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(next, "export block must be the final top-level construct"))...)
@@ -356,32 +376,10 @@ func (parser *Parser) importReference(from lexer.Token) (ImportReference, error)
 }
 
 // cHeaderReference parses `c <header>` / `c "header"` after a contextual
-// `from`. The payload excludes its delimiters; an empty, absolute, or
-// parent-walking name is rejected as a Syntax Error naming the header.
+// `from`. The literal parsing, payload extraction, and name validation live in
+// cHeaderLiteral, shared with the foreign-block header.
 func (parser *Parser) cHeaderReference(keyword lexer.Token) (ImportReference, error) {
-	literal := parser.peek()
-	if literal.Kind != lexer.CHeaderLiteral {
-		return ImportReference{}, parser.errorAtCurrent("a C header after 'c'")
-	}
-	parser.advance()
-	system := strings.HasPrefix(literal.Lexeme, "<")
-	payload := literal.Lexeme
-	if len(payload) >= 2 {
-		if (strings.HasPrefix(payload, "<") && strings.HasSuffix(payload, ">")) ||
-			(strings.HasPrefix(payload, "\"") && strings.HasSuffix(payload, "\"")) {
-			payload = payload[1 : len(payload)-1]
-		}
-	}
-	if !validCHeaderName(payload) {
-		return ImportReference{}, parser.errorAt(literal, "invalid C header name "+payload)
-	}
-	return ImportReference{
-		Kind:            CHeaderImportReference,
-		Token:           keyword,
-		DisplaySpelling: literal.Lexeme,
-		CHeader:         payload,
-		System:          system,
-	}, nil
+	return parser.cHeaderLiteral(keyword)
 }
 
 // validCHeaderName reports whether payload is a nonempty relative header name

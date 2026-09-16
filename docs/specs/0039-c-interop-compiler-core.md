@@ -5,11 +5,15 @@
   reference in both forms, the pure `DiscoverCImports` helper, the
   deterministic `hexalc/h<sha256>` prepared-binding key, the reserved `hexalc`
   user-key rejection, and the exact Configuration Errors for an unqualified
-  target and a missing prepared binding, each covered by focused tests. Not
-  done: the `extern c from <header> do ... end` declaration blocks and their
-  parsed forms, the foreign declaration model and ABI checking, the unsafe
-  gate, the `String.c_pointer`/`Slice.pointer` bridge operations, foreign
-  include discovery and lowering in the generator, prepared-module
+  target and a missing prepared binding, each covered by focused tests; and the
+  `extern c from <header> do ... end` block syntax in both header forms with
+  the type, function, constant, and global declaration forms, their optional
+  exact C spellings, the leading-position rule, and the exact Syntax Errors,
+  covered by parser tests. A parsed foreign block fails closed with the
+  `unsupported foreign declaration` Type Error because its semantics are not
+  implemented yet. Not done: the foreign declaration model and ABI checking,
+  the unsafe gate, the `String.c_pointer`/`Slice.pointer` bridge operations,
+  foreign include discovery and lowering in the generator, prepared-module
   header-identity validation, and the tagged C23 fixtures.
 - Created: 2026-08-11
 - Updated: 2026-09-15

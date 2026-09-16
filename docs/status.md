@@ -13,7 +13,7 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| RFC 0039 remaining: `extern c from ... do ... end` declaration blocks, the foreign declaration model and target ABI checking, the unsafe gate, the `String.c_pointer`/`Slice.pointer` bridges, foreign include discovery and lowering, prepared-module header-identity validation, and tagged fixtures. The `from c` import reference, `DiscoverCImports`, the reserved binding key, the reserved `hexalc` user-key rejection, and the two Configuration Errors are implemented | [0039](specs/0039-c-interop-compiler-core.md) |
+| RFC 0039 remaining: the foreign declaration model and target ABI checking, the unsafe gate, the `String.c_pointer`/`Slice.pointer` bridges, foreign include discovery and lowering, prepared-module header-identity validation, and tagged fixtures. The `from c` import reference, `DiscoverCImports`, the reserved binding key, the reserved `hexalc` user-key rejection, the two Configuration Errors, and the `extern c from ... do ... end` block and declaration syntax are implemented; a parsed foreign block fails closed as `unsupported foreign declaration` until its semantics land | [0039](specs/0039-c-interop-compiler-core.md) |
 | Select an installed C compiler and consume target-qualified static libuv/mimalloc runtime packs | [0213](specs/0213-external-c-backend-and-runtime-packs.md) |
 
 ### Design settled; implementation blocked

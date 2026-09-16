@@ -460,13 +460,14 @@ func Lex(source string) ([]Token, error) {
 	tokens := make([]Token, 0)
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	line, column := 1, 1
-	var previous, beforePrevious Token
+	var previous, beforePrevious, thirdPrevious Token
 
 	for index := 0; index < len(source); {
-		scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, line, column, 0, previous, beforePrevious)
+		scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, line, column, 0, previous, beforePrevious, thirdPrevious)
 		tokens = append(tokens, scanned...)
 		diagnostics = append(diagnostics, scannedDiagnostics...)
 		if len(scanned) > 0 {
+			thirdPrevious = beforePrevious
 			beforePrevious = previous
 			previous = scanned[len(scanned)-1]
 		}
@@ -481,24 +482,32 @@ func Lex(source string) ([]Token, error) {
 }
 
 // isCHeaderPosition reports whether a quoted or angle-bracketed literal at the
-// current position opens a C header: the previous token is the contextual `c`
-// and the token before it is `from`, all on one line. No other valid Hexal
-// construct places `c` directly after `from`, so the heuristic never misfires.
-func isCHeaderPosition(previous, beforePrevious Token, line int) bool {
-	return previous.Kind == Identifier && previous.Lexeme == "c" &&
-		beforePrevious.Kind == Identifier && beforePrevious.Lexeme == "from" &&
+// current position opens a C header. The import form is `Alias from c <...>`
+// (previous `c`, before it `from`); the foreign-block form is
+// `extern c from <...>` (previous `from`, before it `c`, before that
+// `extern`). The three-token check keeps an ordinary import alias named `c`
+// from being mistaken for a foreign header.
+func isCHeaderPosition(previous, beforePrevious, thirdPrevious Token, line int) bool {
+	if previous.Kind != Identifier || beforePrevious.Kind != Identifier {
+		return false
+	}
+	if previous.Lexeme == "c" && beforePrevious.Lexeme == "from" && beforePrevious.Line == line {
+		return true
+	}
+	return previous.Lexeme == "from" && beforePrevious.Lexeme == "c" &&
+		thirdPrevious.Kind == Identifier && thirdPrevious.Lexeme == "extern" &&
 		beforePrevious.Line == line
 }
 
 // scanToken scans exactly one lexical unit at index: zero tokens for
 // whitespace and comments, one for an ordinary lexeme, or several for an
 // interpreted string literal that turns out to contain interpolation.
-// previous and beforePrevious are the two most recently emitted tokens in the
-// enclosing scan, used only to recognize a module path after `from` and a C
-// header literal after `from c`; depth is the enclosing interpolation nesting
-// level, threaded through so a nested interpreted string inside an embedded
-// expression stays bounded.
-func scanToken(source string, index, line, column, depth int, previous, beforePrevious Token) ([]Token, []compilerTypes.Diagnostic, int, int, int) {
+// previous, beforePrevious, and thirdPrevious are the three most recently
+// emitted tokens in the enclosing scan, used only to recognize a module path
+// after `from` and a C header literal; depth is the enclosing interpolation
+// nesting level, threaded through so a nested interpreted string inside an
+// embedded expression stays bounded.
+func scanToken(source string, index, line, column, depth int, previous, beforePrevious, thirdPrevious Token) ([]Token, []compilerTypes.Diagnostic, int, int, int) {
 	var tokens []Token
 	var diagnostics []compilerTypes.Diagnostic
 	ch := source[index]
@@ -652,7 +661,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		index += len(lexeme)
 		column += len(lexeme)
 	case ch == '<':
-		if isCHeaderPosition(previous, beforePrevious, line) {
+		if isCHeaderPosition(previous, beforePrevious, thirdPrevious, line) {
 			startColumn := column
 			start := index
 			index++
@@ -759,7 +768,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		// a bare identifier directly against a string literal, so this
 		// lexical heuristic never misfires on an ordinary `from` identifier
 		// used elsewhere.
-		if isCHeaderPosition(previous, beforePrevious, line) {
+		if isCHeaderPosition(previous, beforePrevious, thirdPrevious, line) {
 			start := index
 			index++
 			column++
@@ -1027,7 +1036,7 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 				closed = true
 				break
 			}
-			scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, curLine, curColumn, depth+1, previous, Token{})
+			scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, curLine, curColumn, depth+1, previous, Token{}, Token{})
 			tokens = append(tokens, scanned...)
 			diagnostics = append(diagnostics, scannedDiagnostics...)
 			for _, token := range scanned {

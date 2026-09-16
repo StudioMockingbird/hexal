@@ -501,6 +501,16 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 		}
 	}
 
+	// A foreign block is parsed, but its declaration model, ABI checking, and
+	// lowering are not yet implemented. Fail closed rather than silently
+	// omitting the foreign declarations it names.
+	for _, block := range program.Externs {
+		diagnostics = append(diagnostics, typeErrorAt(block.Keyword, "unsupported foreign declaration"))
+	}
+	if len(program.Externs) > 0 {
+		return checked, diagnostics
+	}
+
 	// Pass 1: type declarations, in source order. Type declarations retain
 	// their own existing source-order resolution rules; only function and
 	// method visibility becomes order-independent below.
