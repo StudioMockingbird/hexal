@@ -1,7 +1,19 @@
 # RFC 0192: Command-Line C Build Inputs
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready after RFC 0039; design and execution plan settled, implementation not started
+- Status: Closed. `hexal build` accepts every initial foreign implementation
+  input through the repeatable options `-c-source`, `-c-include`, `-c-define`,
+  `-c-env`, `-c-standard`, `-object`, `-archive`, and `-system-library`. The
+  driver validates the environment map with host-semantics duplicate detection
+  and value-safe records, validates macros, dialect, and system-library names at
+  configuration, resolves and kind-checks foreign paths against `-root`,
+  compiles each C source separately under the selected dialect and mode, and
+  links the five ordered groups. One normalized effective environment reaches
+  every C compilation and the link; compiler-owned runtime and dependency
+  compilations never receive user include or define options. A build with
+  foreign inputs gets a fresh private staging tree. Covered by pure-Go
+  configuration, validation, ordering, and secret-safety tests plus tagged C23
+  builds through the driver and the public CLI.
 - Created: 2026-09-15
 - Scope: let `hexal build` compile and link explicitly supplied C sources,
   objects, static archives, and system libraries with an explicit build

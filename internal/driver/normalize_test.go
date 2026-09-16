@@ -169,6 +169,29 @@ func TestNormalizeEscapedNames(t *testing.T) {
 	}
 }
 
+func TestNormalizeEnumAndGlobal(t *testing.T) {
+	ast := `{"kind":"TranslationUnitDecl","inner":[` +
+		`{"kind":"EnumDecl","loc":{"line":2},"name":"Color","inner":[` +
+		`{"kind":"EnumConstantDecl","loc":{"line":3},"name":"COLOR_RED"},` +
+		`{"kind":"EnumConstantDecl","loc":{"line":4},"name":"COLOR_GREEN"}]},` +
+		`{"kind":"VarDecl","loc":{"line":5},"name":"global_counter","storageClass":"extern","type":{"qualType":"int"}},` +
+		`{"kind":"VarDecl","loc":{"line":6},"name":"global_limit","storageClass":"extern","type":{"qualType":"const int"}}` +
+		`]}`
+	source := normalizeTest(t, ast, compiler.CImportRequest{Header: "x.h"})
+	if !strings.Contains(source, "type Color is Int32") {
+		t.Fatalf("an enum must normalize to a transparent integer alias:\n%s", source)
+	}
+	if !strings.Contains(source, `constant COLOR_RED as "COLOR_RED": Color`) {
+		t.Fatalf("an enumerator must normalize to a foreign constant:\n%s", source)
+	}
+	if !strings.Contains(source, "global mut global_counter: Int32") {
+		t.Fatalf("a mutable global must normalize to global mut:\n%s", source)
+	}
+	if !strings.Contains(source, "global global_limit: Int32") {
+		t.Fatalf("a const global must normalize to a fixed global:\n%s", source)
+	}
+}
+
 func TestNormalizeMalformedJSONFailsClosed(t *testing.T) {
 	if _, failure := normalizeHeader("{not json", testIndex(), compiler.CImportRequest{Header: "x.h"}, headerOptions{}); failure == nil {
 		t.Fatal("malformed JSON must fail closed")

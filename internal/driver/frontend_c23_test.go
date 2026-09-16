@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -63,7 +64,39 @@ func TestAutomaticHeaderImportBuildRuns(t *testing.T) {
 	if !sawClang {
 		t.Fatal("no standalone Clang inspection command was recorded")
 	}
+	// No binding file is written into the project.
+	filepath.WalkDir(dir, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr == nil && strings.Contains(filepath.ToSlash(path), "hexalc") {
+			t.Errorf("a binding artifact was written: %s", path)
+		}
+		return nil
+	})
 	assertStagingRemoved(t, dir)
+}
+
+// TestAutomaticC23IncompatibleHeaderGuidesWrapper proves a header C23 rejects
+// fails at the C-compilation stage and names the compatibility wrapper.
+func TestAutomaticC23IncompatibleHeaderGuidesWrapper(t *testing.T) {
+	requireBackend(t)
+	dir := t.TempDir()
+	native := filepath.Join(dir, "native")
+	if err := os.MkdirAll(native, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// `nullptr` is a C23 keyword, so a header that declares it as an
+	// identifier is accepted in an older dialect but rejected from a C23
+	// translation unit.
+	writeSource(t, dir, "native/legacy.h", "#ifndef LEGACY_H\n#define LEGACY_H\nint nullptr(void);\n#endif\n")
+	writeSource(t, dir, "main.hex", "import\n    Legacy from c \"legacy.h\"\nend\nvalue: Int32 := 1\n")
+
+	_, err := Build(BuildOptions{Root: dir, CIncludeDirs: []string{native}})
+	if err == nil {
+		t.Fatal("a C23-incompatible header must fail")
+	}
+	buildErr, ok := err.(*BuildError)
+	if !ok || buildErr.Stage != StageCompile || !strings.Contains(buildErr.Message, "compatibility wrapper") {
+		t.Fatalf("error = %#v, want a C-compilation failure naming the compatibility wrapper", err)
+	}
 }
 
 // TestAutomaticHeaderOnlyStaticInline builds with no foreign source: the

@@ -13,16 +13,8 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| RFC 0039 validation: the `hex_cvar_` automatic local-name escaping is the only remaining item and is owned by RFC 0193's normalizer. The compiler core — imports, prepared-binding identity, `extern c` blocks, the ABI set, records, the unsafe gate, the String/Slice bridges, lowering, includes, diagnostics, and the tagged C23 interop fixtures (direct scalars, a record by value, an opaque type, constants, a global, the address bridges, a header-only library, and a library-shaped surface) — is implemented and passes under gcc, clang, and zig | [0039](specs/0039-c-interop-compiler-core.md) |
-| Compile and link command-line-supplied C sources, objects, archives, and system libraries | [0192](specs/0192-command-line-c-build-inputs.md) |
 | Select an installed C compiler and consume target-qualified static libuv/mimalloc runtime packs | [0213](specs/0213-external-c-backend-and-runtime-packs.md) |
-
-### Design settled; implementation blocked
-
-| Work | Blocked by | Spec |
-| --- | --- | --- |
-| Automatically generate typed binding modules for reachable C-header imports | RFC 0192 | [0193](specs/0193-automatic-c-header-bindings.md) |
-| Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0192 and RFC 0193 | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
+| Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 
 ## Deferred ideas
 

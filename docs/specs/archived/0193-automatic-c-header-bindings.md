@@ -1,7 +1,22 @@
 # RFC 0193: Automatic C Header Binding Generation
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready after RFC 0039 and RFC 0192; design and execution plan settled, implementation not started
+- Status: Closed. `hexal build` turns every reachable `Alias from c <header>`
+  import into a deterministic in-memory RFC 0039 binding module. The driver
+  preprocesses each requested header through the pinned Zig backend with the
+  target, ordered include roots, definitions, and effective environment,
+  decodes the standalone Clang 18-or-newer JSON AST, and normalizes the
+  supported declarations into one ordinary binding string under the reserved
+  prepared key; the unchanged compiler parses, checks, and lowers it.
+  Unsupported declarations are omitted whole; opaque and nullable-pointer
+  typedefs resolve inline; records and typedefs are ordered so dependencies
+  precede their users; declarations are ordered by source location and exact C
+  name. A 64 MiB per-command and 30-second total budget fails closed, as do a
+  missing or old Clang and malformed JSON. A missing member of an automatic C
+  import reports the binding-guidance diagnostic; an escaped name reports the
+  mapped-name diagnostic. Covered by pure-Go discovery, line-index, selection,
+  normalization, ordering, escaping, and fail-closed tests plus tagged
+  end-to-end builds.
 - Created: 2026-09-15
 - Scope: let `hexal build` turn reachable `Alias from c <header>` imports into
   deterministic in-memory RFC 0039 binding modules

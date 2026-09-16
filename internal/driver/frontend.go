@@ -113,7 +113,7 @@ func inspectRequest(selected *backend.Backend, clang clangFrontend, staging stri
 		return preparedBinding{}, failure
 	}
 	if preprocess.ExitCode != 0 {
-		return preparedBinding{}, &BuildError{Stage: StageCompile, Message: "C header preprocessing failed", Command: lastCommand(result)}
+		return preparedBinding{}, &BuildError{Stage: StageCompile, Message: "C header preprocessing failed; a header C23 rejects needs a compatibility wrapper header", Command: lastCommand(result)}
 	}
 
 	// Clang parses the preprocessed text: no include roots or definitions, and
@@ -124,7 +124,7 @@ func inspectRequest(selected *backend.Backend, clang clangFrontend, staging stri
 		return preparedBinding{}, failure
 	}
 	if ast.ExitCode != 0 {
-		return preparedBinding{}, &BuildError{Stage: StageCompile, Message: "C header frontend inspection failed", Command: lastCommand(result)}
+		return preparedBinding{}, &BuildError{Stage: StageCompile, Message: "C header frontend inspection failed; a header C23 rejects needs a compatibility wrapper header", Command: lastCommand(result)}
 	}
 	preprocessedText, err := os.ReadFile(preprocessed)
 	if err != nil {
@@ -250,12 +250,25 @@ func runExternalBounded(exe, directory string, environment, overrides []string, 
 		Stdout: stdout.String(),
 		Stderr: stderr.String(),
 	}
+	if ctx.Err() != nil {
+		// The shared inspection deadline elapsed; partial output is discarded
+		// and the exact budget diagnostic is reported, with the command
+		// recorded for attribution.
+		result.Commands = append(result.Commands, CommandResult{
+			Stage:                stage,
+			Tool:                 exe,
+			Arguments:            invocation.Args,
+			WorkingDirectory:     directory,
+			Stdout:               invocation.Stdout,
+			Stderr:               invocation.Stderr,
+			ExitCode:             invocation.ExitCode,
+			EnvironmentOverrides: append([]string(nil), overrides...),
+		})
+		return invocation, &BuildError{Stage: stage, Message: inspectionBudgetMessage, Command: lastCommand(result)}
+	}
 	if exit, ok := runErr.(*exec.ExitError); ok {
 		invocation.ExitCode = exit.ExitCode()
 	} else if runErr != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return invocation, &BuildError{Stage: stage, Message: inspectionBudgetMessage}
-		}
 		return invocation, &BuildError{Stage: stage, Message: fmt.Sprintf("cannot run %s: %v", filepath.Base(exe), runErr)}
 	}
 	result.Commands = append(result.Commands, CommandResult{
@@ -268,7 +281,7 @@ func runExternalBounded(exe, directory string, environment, overrides []string, 
 		ExitCode:             invocation.ExitCode,
 		EnvironmentOverrides: append([]string(nil), overrides...),
 	})
-	if ctx.Err() == context.DeadlineExceeded || stdout.overflow || stderr.overflow {
+	if stdout.overflow || stderr.overflow {
 		return invocation, &BuildError{Stage: stage, Message: inspectionBudgetMessage, Command: lastCommand(result)}
 	}
 	return invocation, nil

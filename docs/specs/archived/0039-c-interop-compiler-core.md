@@ -1,7 +1,7 @@
 # RFC 0039: C Interoperability - Compiler Core
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implemented. The compiler core implements the `Alias from c <header>`
+- Status: Closed. The compiler core implements the `Alias from c <header>`
   import reference in both forms, the pure `DiscoverCImports` helper, the
   deterministic `hexalc/h<sha256>` prepared-binding key, prepared-module
   header-identity validation, the reserved `hexalc` user-key rejection, and the
@@ -12,16 +12,15 @@
   target-qualified foreign-record identity and coalescing, the unsafe gate on
   calls and global access, the `String.c_pointer` and `Slice.pointer` bridges,
   deterministic per-module C include emission, exact-symbol lowering with
-  representation-preserving boundary casts, and the exact diagnostics. It is
-  covered by parser tests, pure-Go integration tests through the exported
-  `Compile` API, and target-qualified tagged C23 fixtures that compile, link,
-  and run under gcc, clang, and zig, including direct scalars, a complete
-  record passed and returned by value, an opaque type, constants, a global, the
-  String/Slice address bridges with a mutable buffer, a header-only library,
-  and a library-shaped binding surface.
-  One Validation item remains open and is not a compiler-core gap: the
-  `hex_cvar_` automatic local-name escaping is the prepared-module normalizer's
-  responsibility and is owned by RFC 0193.
+  representation-preserving boundary casts, and the exact diagnostics. The
+  automatic local names of RFC 0193's prepared modules use the exact C
+  identifier or the deterministic `hex_cvar_` escape, and the checker reports
+  the mapped-name diagnostic. Covered by parser tests, pure-Go integration
+  tests through the exported `Compile` API, and target-qualified tagged C23
+  fixtures that compile, link, and run under gcc, clang, and zig, including
+  direct scalars, a complete record passed and returned by value, an opaque
+  type, constants, a global, the String/Slice address bridges with a mutable
+  buffer, a header-only library, and a library-shaped binding surface.
 - Created: 2026-08-11
 - Updated: 2026-09-15
 - Scope: add direct C-header import syntax, the prepared-source protocol, and
