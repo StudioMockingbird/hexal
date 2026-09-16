@@ -1,10 +1,10 @@
 {{- define "slicebody" -}}
 {{range .Slices}}
 typedef struct {{.CName}} {
-    {{if .Writable}}{{else}}const {{end}}{{.ElementSpelling}} *data;
+    {{if .Writable}}{{.ElementSpelling}}{{else}}{{.ReadOnlyElementSpelling}}{{end}} *data;
     size_t length;
 } {{.CName}};
-static inline {{if .Writable}}{{else}}const {{end}}{{.ElementSpelling}} *{{.HelperPrefix}}at_{{.Suffix}}({{.CName}} slice, size_t index) {
+static inline {{if .Writable}}{{.ElementSpelling}}{{else}}{{.ReadOnlyElementSpelling}}{{end}} *{{.HelperPrefix}}at_{{.Suffix}}({{.CName}} slice, size_t index) {
     if (index >= slice.length) {
         hex_runtime_trap("[Runtime Error] slice index out of bounds\n");
     }

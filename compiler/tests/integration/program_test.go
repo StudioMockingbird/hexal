@@ -57,6 +57,9 @@ func TestProgramPathQueriesSelectOneComponent(t *testing.T) {
 			t.Errorf("hexal/program.h lacks %q", want)
 		}
 	}
+	if !strings.Contains(programH, "#include \"hexal/handle.h\"") {
+		t.Errorf("path program header must expose the shared handle bootstrap declaration:\n%s", programH)
+	}
 	if strings.Contains(programH, "uv_") {
 		t.Errorf("hexal/program.h exposes a libuv name:\n%s", programH)
 	}
@@ -118,6 +121,24 @@ func TestProgramArgumentsSnapshot(t *testing.T) {
 	if !strings.Contains(programH, "hex_program_arguments_init") || !strings.Contains(programH, "hex_program_arguments_result") {
 		t.Errorf("hexal/program.h lacks the snapshot surface:\n%s", programH)
 	}
+	if !strings.Contains(programH, "const hex_string *const *items;") {
+		t.Errorf("hexal/program.h does not expose a read-only String-handle slice:\n%s", programH)
+	}
+	if !strings.Contains(rootH(t, result), ".data = query.items") {
+		t.Errorf("argument adapter does not pass the runtime String-handle array directly:\n%s", rootH(t, result))
+	}
+}
+
+func TestProgramArgumentsUseRuntimeNonOwningStrings(t *testing.T) {
+	result := assertCompiles(t, programImport+"args := Prog.arguments()\n")
+	programC := moduleFile(t, result, "hexal/program.c")
+	if !strings.Contains(programC, "HEX_STRING_NONOWNING") {
+		t.Errorf("argument snapshot must mark copied strings non-owning:\n%s", programC)
+	}
+	stringC := moduleFile(t, result, "hexal/string.c")
+	if !strings.Contains(stringC, "cannot free a non-owning String") {
+		t.Errorf("string runtime lacks the non-owning String trap:\n%s", stringC)
+	}
 }
 
 // executable_path demand runs the native bootstrap, then exactly one
@@ -176,10 +197,13 @@ func TestEntropyFillDirectAndTask(t *testing.T) {
 
 	direct := assertCompiles(t, fill)
 	entropyC := moduleFile(t, direct, "hexal/entropy.c")
-	for _, want := range []string{"#define HEX_ENTROPY_MAX_CHUNK ((size_t)0x7fffffff)", "uv_random(", "hex_handle_error_kind", "if (length == 0)"} {
+	for _, want := range []string{"#define HEX_ENTROPY_MAX_CHUNK ((size_t)0x7fffffff)", "uv_random(", "hex_handle_error_kind", "secure random fill failed", "if (length == 0)"} {
 		if !strings.Contains(entropyC, want) {
 			t.Errorf("hexal/entropy.c lacks %q", want)
 		}
+	}
+	if !strings.Contains(moduleFile(t, direct, "hexal/entropy.h"), "#include \"hexal/handle.h\"") {
+		t.Errorf("entropy header must expose the shared handle bootstrap declaration")
 	}
 	if _, exists := direct.Files["hexal/event.c"]; exists {
 		t.Errorf("entropy without the scheduler selected the event bridge")

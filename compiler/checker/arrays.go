@@ -152,13 +152,17 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 			return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 		}
 	}
+	receiverNode := receiver.source.Node
+	if receiver.storageType.Union != nil && !compilerTypes.IsUnion(receiver.typ) {
+		receiverNode = valueFromPlace(receiver).source.Node
+	}
 	checked := checkedExpression{
 		source: Operand{
 			Kind: VariableOperand,
 			Type: element,
 			Node: Expression{
 				Kind:        IndexExpression,
-				Operand:     &receiver.source.Node,
+				Operand:     &receiverNode,
 				Arguments:   []Operand{index},
 				OperandType: receiver.typ,
 				ResultType:  element,

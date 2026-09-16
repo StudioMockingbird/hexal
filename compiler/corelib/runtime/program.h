@@ -11,6 +11,7 @@
 // hex_t_ErrorKind, so this header always carries the Error/String/Heap/Slice
 // dependency; the component source gates the libuv body instead.
 {{if .Paths}}
+#include "hexal/handle.h"
 // hex_program_string_result is the raw result of one path query: a caller-
 // Heap-owned String on success, or a stable ErrorKind and fixed message on
 // failure. Every path query shares this shape.
@@ -36,12 +37,11 @@ hex_program_string_result hex_program_executable_path_task(hex_heap heap);
 {{end}}
 {{if .Arguments}}
 // hex_program_arguments_result mirrors hex_program_string_result for the
-// argument snapshot: items is a contiguous array of count non-owning
-// hex_string values, directly compatible with any Slice<String>'s
-// {data, length} representation.
+// argument snapshot: items is a contiguous array of count non-owning String
+// handles, directly compatible with a read-only Slice<String>.
 typedef struct hex_program_arguments_result {
     bool ok;
-    const hex_string *items;
+    const hex_string *const *items;
     size_t count;
     hex_t_ErrorKind kind;
     const hex_string *message;

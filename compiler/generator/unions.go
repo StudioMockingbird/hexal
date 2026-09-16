@@ -495,7 +495,11 @@ func renderUnionPayload(node checker.Expression, state *expressionValidation) (s
 		representation, index = node.OperandType, node.MemberIndex
 	}
 	payloadRepresentationMember, _ := compilerTypes.UnionMembers(representation).At(index)
-	return child + ".payload." + state.tags.unionPayloadField(payloadRepresentationMember), nil
+	field := "hex_m_unvalidated"
+	if state != nil && state.tags != nil {
+		field = state.tags.unionPayloadField(payloadRepresentationMember)
+	}
+	return child + ".payload." + field, nil
 }
 
 // remapUnionMember maps a member index in the operand's (possibly narrowed)

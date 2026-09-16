@@ -10,6 +10,14 @@
 // many bytes each.
 #define HEX_ENTROPY_MAX_CHUNK ((size_t)0x7fffffff)
 
+static const uint8_t hex_entropy_msg_bytes[] = "secure random fill failed";
+static const hex_string hex_entropy_msg = {
+    .data = hex_entropy_msg_bytes,
+    .byte_length = sizeof(hex_entropy_msg_bytes) - 1,
+    .rune_length = sizeof(hex_entropy_msg_bytes) - 1,
+    .storage_kind = HEX_STRING_STATIC,
+};
+
 // hex_entropy_fill runs the synchronous uv_random form directly. It never
 // retains data after returning and performs no allocation of its own.
 hex_entropy_fill_result hex_entropy_fill(uint8_t *data, size_t length) {
@@ -27,7 +35,7 @@ hex_entropy_fill_result hex_entropy_fill(uint8_t *data, size_t length) {
             if (!hex_handle_error_kind(status, &kind)) {
                 kind = (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Other};
             }
-            return (hex_entropy_fill_result){.ok = false, .kind = kind};
+            return (hex_entropy_fill_result){.ok = false, .kind = kind, .message = &hex_entropy_msg};
         }
         offset += chunk;
     }
@@ -52,7 +60,7 @@ static void hex_entropy_fill_entry(void *raw) {
 
 static void hex_entropy_fill_failure(void *raw) {
     hex_entropy_fill_job *job = (hex_entropy_fill_job *)raw;
-    job->result = (hex_entropy_fill_result){.ok = false, .kind = (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Other}};
+    job->result = (hex_entropy_fill_result){.ok = false, .kind = (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Other}, .message = &hex_entropy_msg};
 }
 
 // hex_entropy_fill_task parks the current Task while the fill (already

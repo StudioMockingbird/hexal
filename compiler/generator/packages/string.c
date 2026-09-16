@@ -192,8 +192,11 @@ void hex_string_free(hex_heap h, const hex_string *text) {
     // Only owned storage names a heap allocation base. A static literal
     // header shares the handle representation but no allocation; freeing it
     // is a programmer error that traps instead of reaching the deallocator.
-    if (text->storage_kind != HEX_STRING_OWNED) {
+    if (text->storage_kind == HEX_STRING_STATIC) {
         hex_runtime_trap("[Runtime Error] cannot free a String literal\n");
+    }
+    if (text->storage_kind != HEX_STRING_OWNED) {
+        hex_runtime_trap("[Runtime Error] cannot free a non-owning String\n");
     }
     // hex_string is the first member of hex_string_storage, so the member
     // pointer and the allocation base share an address. The uintptr_t round

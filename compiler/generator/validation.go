@@ -1682,6 +1682,26 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 			return generatedPlace{}, err
 		}
 		return generatedPlace{typ: node.ResultType, addressable: true, writable: node.OperandType.PointeeWritable}, nil
+	case checker.UnionPayloadExpression:
+		if node.Operand == nil || !compilerTypes.IsUnion(node.OperandType) || node.ResultType == (compilerTypes.Type{}) {
+			return generatedPlace{}, unknownExpressionDiagnostic("union payload place has invalid checked metadata")
+		}
+		members := compilerTypes.UnionMembers(node.OperandType)
+		if node.MemberIndex < 0 || node.MemberIndex >= members.Len() {
+			return generatedPlace{}, unknownExpressionDiagnostic("union payload place has an invalid member")
+		}
+		member, _ := members.At(node.MemberIndex)
+		if !compilerTypes.Equal(member, node.ResultType) {
+			return generatedPlace{}, unknownExpressionDiagnostic("union payload place member does not match its result")
+		}
+		parent, err := checkedPlaceMetadata(*node.Operand, state)
+		if err != nil {
+			return generatedPlace{}, err
+		}
+		if !compilerTypes.Equal(parent.typ, node.OperandType) {
+			return generatedPlace{}, unknownExpressionDiagnostic("union payload place receiver does not match its checked union")
+		}
+		return generatedPlace{typ: node.ResultType, addressable: parent.addressable, writable: parent.writable}, nil
 	case checker.IndexExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place index has invalid checked metadata")
@@ -1691,7 +1711,14 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 			return generatedPlace{}, err
 		}
 		if !compilerTypes.Equal(node.OperandType, receiver.typ) {
-			return generatedPlace{}, unknownExpressionDiagnostic("place index receiver type does not match its checked receiver")
+			// A null-test may narrow the indexed binding from a union to its
+			// Slice, Array, or List member. The place metadata recovers the
+			// declared binding type, so accept only an exact union member and
+			// use the checked effective type for element and write capability.
+			if !compilerTypes.Assignable(receiver.typ, node.OperandType) {
+				return generatedPlace{}, unknownExpressionDiagnostic("place index receiver type does not match its checked receiver")
+			}
+			receiver.typ = node.OperandType
 		}
 		var element compilerTypes.Type
 		if node.OperandType.Array != nil {

@@ -444,7 +444,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 
 | Signature | Contract |
 | --- | --- |
-| `arguments() -> Slice<String> \| Error` | The host invocation in order, including element zero when supplied. Over one immutable process-lifetime snapshot shared by every call; the Slice and String bytes are read-only. Zero arguments produce an empty Slice. |
+| `arguments() -> Slice<String> \| Error` | The host invocation in order, including element zero when supplied. Over one immutable process-lifetime snapshot shared by every call; the Slice and String bytes are read-only. The returned String handles are non-owning and `free` traps. Zero arguments produce an empty Slice. |
 | `current_directory(heap) -> String \| Error` | Caller-Heap-owned current working directory. |
 | `home_directory(heap) -> String \| Error` | Caller-Heap-owned home directory observation; not proof the path exists or is writable. |
 | `temporary_directory(heap) -> String \| Error` | Caller-Heap-owned temporary directory observation. |

@@ -11,17 +11,18 @@
 #include <uv.h>
 
 #if defined(_WIN32)
-#include <shellapi.h>
 #include <windows.h>
+#include <shellapi.h>
 #endif
 {{end}}
 {{if .Arguments}}
+#include <stdckdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #if defined(_WIN32)
-#include <shellapi.h>
 #include <windows.h>
+#include <shellapi.h>
 #endif
 {{end}}
 
@@ -300,10 +301,44 @@ hex_program_string_result hex_program_executable_path_task(hex_heap heap) {
 // abandoned detached Task may still hold a view of it at process exit.
 static bool hex_program_argv_ready = false;
 static bool hex_program_argv_ok = false;
-static hex_string *hex_program_argv_items = nullptr;
+static const hex_string **hex_program_argv_items = nullptr;
 static size_t hex_program_argv_count = 0;
 static hex_t_ErrorKind hex_program_argv_kind;
 static const hex_string *hex_program_argv_message = nullptr;
+
+static void hex_program_release_partial_arguments(const hex_string **items, size_t count) {
+    for (size_t index = 0; index < count; index++) {
+        free((void *)items[index]);
+    }
+    free(items);
+}
+
+// Argument text is copied into process-lifetime storage because argv and the
+// Windows command-line buffer are host-owned. The returned handle is marked
+// non-owning so a user String.free cannot release this snapshot.
+static const hex_string *hex_program_argument_string_or_null(const uint8_t *data, size_t length, bool *invalid) {
+    size_t runes;
+    if (!hex_program_validate_utf8(data, length, &runes)) {
+        *invalid = true;
+        return nullptr;
+    }
+    size_t total;
+    if (ckd_add(&total, sizeof(hex_string_storage), length) || ckd_add(&total, total, 1)) {
+        *invalid = false;
+        return nullptr;
+    }
+    hex_string_storage *storage = malloc(total);
+    if (storage == nullptr) {
+        *invalid = false;
+        return nullptr;
+    }
+    storage->header = (hex_string){.data = storage->bytes, .byte_length = length, .rune_length = runes, .storage_kind = HEX_STRING_NONOWNING};
+    if (length != 0) {
+        memcpy(storage->bytes, data, length);
+    }
+    storage->bytes[length] = 0;
+    return &storage->header;
+}
 
 static void hex_program_argv_fail(hex_t_ErrorKind kind, const hex_string *message) {
     hex_program_argv_ok = false;
@@ -326,7 +361,13 @@ void hex_program_arguments_init(void) {
         return;
     }
     size_t count = (size_t)argc;
-    hex_string *items = count == 0 ? nullptr : malloc(sizeof(hex_string) * count);
+    size_t itemsBytes;
+    if (ckd_mul(&itemsBytes, sizeof(const hex_string *), count)) {
+        LocalFree(wide);
+        hex_program_argv_fail((hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted}, &hex_program_msg_args);
+        return;
+    }
+    const hex_string **items = count == 0 ? nullptr : malloc(itemsBytes);
     if (count != 0 && items == nullptr) {
         LocalFree(wide);
         hex_program_argv_fail((hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted}, &hex_program_msg_args);
@@ -335,7 +376,7 @@ void hex_program_arguments_init(void) {
     for (size_t index = 0; index < count; index++) {
         int needed = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide[index], -1, nullptr, 0, nullptr, nullptr);
         if (needed <= 0) {
-            free(items);
+            hex_program_release_partial_arguments(items, index);
             LocalFree(wide);
             hex_t_ErrorKind kind = (GetLastError() == ERROR_NO_UNICODE_TRANSLATION) ? (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput} : (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted};
             const hex_string *message = (kind.tag == hex_tag_ErrorKind_InvalidInput) ? &hex_program_msg_args_unicode : &hex_program_msg_args;
@@ -347,15 +388,23 @@ void hex_program_arguments_init(void) {
         size_t byteLength = (size_t)needed - 1;
         uint8_t *bytes = malloc((size_t)needed);
         if (bytes == nullptr) {
-            free(items);
+            hex_program_release_partial_arguments(items, index);
             LocalFree(wide);
             hex_program_argv_fail((hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted}, &hex_program_msg_args);
             return;
         }
         WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide[index], -1, (char *)bytes, needed, nullptr, nullptr);
-        size_t runes;
-        hex_program_validate_utf8(bytes, byteLength, &runes);
-        items[index] = (hex_string){.data = bytes, .byte_length = byteLength, .rune_length = runes, .storage_kind = HEX_STRING_STATIC};
+        bool invalid = false;
+        items[index] = hex_program_argument_string_or_null(bytes, byteLength, &invalid);
+        free(bytes);
+        if (items[index] == nullptr) {
+            hex_program_release_partial_arguments(items, index);
+            LocalFree(wide);
+            hex_t_ErrorKind kind = invalid ? (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput} : (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted};
+            const hex_string *message = invalid ? &hex_program_msg_args_unicode : &hex_program_msg_args;
+            hex_program_argv_fail(kind, message);
+            return;
+        }
     }
     LocalFree(wide);
     hex_program_argv_items = items;
@@ -375,7 +424,12 @@ void hex_program_arguments_init(int argc, char **argv) {
         return;
     }
     size_t count = (size_t)argc;
-    hex_string *items = count == 0 ? nullptr : malloc(sizeof(hex_string) * count);
+    size_t itemsBytes;
+    if (ckd_mul(&itemsBytes, sizeof(const hex_string *), count)) {
+        hex_program_argv_fail((hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted}, &hex_program_msg_args);
+        return;
+    }
+    const hex_string **items = count == 0 ? nullptr : malloc(itemsBytes);
     if (count != 0 && items == nullptr) {
         hex_program_argv_fail((hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted}, &hex_program_msg_args);
         return;
@@ -384,19 +438,18 @@ void hex_program_arguments_init(int argc, char **argv) {
         size_t byteLength = strlen(argv[index]);
         size_t runes;
         if (!hex_program_validate_utf8((const uint8_t *)argv[index], byteLength, &runes)) {
-            free(items);
+            hex_program_release_partial_arguments(items, index);
             hex_program_argv_fail((hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput}, &hex_program_msg_args_utf8);
             return;
         }
-        uint8_t *bytes = malloc(byteLength + 1);
-        if (bytes == nullptr) {
-            free(items);
-            hex_program_argv_fail((hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted}, &hex_program_msg_args);
+        bool invalid = false;
+        items[index] = hex_program_argument_string_or_null((const uint8_t *)argv[index], byteLength, &invalid);
+        if (items[index] == nullptr) {
+            hex_program_release_partial_arguments(items, index);
+            hex_t_ErrorKind kind = invalid ? (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput} : (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted};
+            hex_program_argv_fail(kind, &hex_program_msg_args);
             return;
         }
-        memcpy(bytes, argv[index], byteLength);
-        bytes[byteLength] = 0;
-        items[index] = (hex_string){.data = bytes, .byte_length = byteLength, .rune_length = runes, .storage_kind = HEX_STRING_STATIC};
     }
     hex_program_argv_items = items;
     hex_program_argv_count = count;
@@ -412,6 +465,6 @@ hex_program_arguments_result hex_program_arguments(void) {
     if (!hex_program_argv_ok) {
         return (hex_program_arguments_result){.ok = false, .kind = hex_program_argv_kind, .message = hex_program_argv_message};
     }
-    return (hex_program_arguments_result){.ok = true, .items = hex_program_argv_items, .count = hex_program_argv_count};
+    return (hex_program_arguments_result){.ok = true, .items = (const hex_string *const *)hex_program_argv_items, .count = hex_program_argv_count};
 }
 {{end}}

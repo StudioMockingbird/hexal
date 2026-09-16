@@ -36,6 +36,23 @@ func TestSliceComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	}
 }
 
+func TestSliceComponentQualifiesPointerElementsOnce(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun demo() do\n    values: Slice<String> := Slice<String>.empty()\n    count: Size := values.length()\nend")
+	files := generateOne(t, program)
+	viewH := files["hexal/slice.h"]
+	if strings.Contains(viewH, "const const") {
+		t.Fatalf("hexal/slice.h duplicates const for String elements: %q", viewH)
+	}
+	for _, want := range []string{
+		"const hex_string * const *data;",
+		"static inline const hex_string * const *hex_slice_at_String",
+	} {
+		if !strings.Contains(viewH, want) {
+			t.Fatalf("hexal/slice.h = %q, want %q", viewH, want)
+		}
+	}
+}
+
 // hexal.h owns none of the slice family: a slice-only program leaves hexal.h
 // free of hex_slice_ text, and the rendered slice.h matches the previous
 // Go-written definitions byte for byte (struct, guards, and trap messages).

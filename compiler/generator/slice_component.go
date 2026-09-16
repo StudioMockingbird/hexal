@@ -26,11 +26,12 @@ type sliceComponentModel struct {
 // guards, and slice helper from these fields; canonical naming, ordering, and
 // C spelling stay Go decisions.
 type sliceComponentRecord struct {
-	CName           string
-	HelperPrefix    string
-	Suffix          string
-	ElementSpelling string
-	Writable        bool
+	CName                   string
+	HelperPrefix            string
+	Suffix                  string
+	ElementSpelling         string
+	ReadOnlyElementSpelling string
+	Writable                bool
 	// NeedsHeapString is true when this specialization's element is String.
 	NeedsHeapString bool
 }
@@ -47,13 +48,24 @@ func sliceComponentRecordFor(slice compilerTypes.Type) sliceComponentRecord {
 		prefix = "hex_mut_slice_"
 	}
 	return sliceComponentRecord{
-		CName:           slice.CName,
-		HelperPrefix:    prefix,
-		Suffix:          strings.TrimPrefix(slice.CName, prefix),
-		ElementSpelling: typeSpelling(slice.Slice.Element),
-		Writable:        slice.Slice.Writable,
-		NeedsHeapString: compilerTypes.IsString(slice.Slice.Element),
+		CName:                   slice.CName,
+		HelperPrefix:            prefix,
+		Suffix:                  strings.TrimPrefix(slice.CName, prefix),
+		ElementSpelling:         typeSpelling(slice.Slice.Element),
+		ReadOnlyElementSpelling: readOnlyElementSpelling(typeSpelling(slice.Slice.Element)),
+		Writable:                slice.Slice.Writable,
+		NeedsHeapString:         compilerTypes.IsString(slice.Slice.Element),
 	}
+}
+
+// readOnlyElementSpelling qualifies the element itself, preserving pointer
+// element types such as String's const hex_string handle before the slice's
+// data pointer is appended by the template.
+func readOnlyElementSpelling(spelling string) string {
+	if strings.HasSuffix(spelling, " *") {
+		return spelling + " const"
+	}
+	return "const " + spelling
 }
 
 // sliceRecordsNeedHeapString reports whether any slice record's element is

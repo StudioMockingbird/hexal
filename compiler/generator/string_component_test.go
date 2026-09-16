@@ -97,7 +97,7 @@ func TestStringStorageKindDiscriminator(t *testing.T) {
 	if !exists {
 		t.Fatalf("String program emitted no hexal/string.c: %v", files)
 	}
-	for _, fragment := range []string{"HEX_STRING_STATIC = 0", "HEX_STRING_OWNED = 1", "hex_string_storage_kind storage_kind;"} {
+	for _, fragment := range []string{"HEX_STRING_STATIC = 0", "HEX_STRING_NONOWNING = 1", "HEX_STRING_OWNED = 2", "hex_string_storage_kind storage_kind;"} {
 		if !strings.Contains(header, fragment) {
 			t.Fatalf("hexal/string.h lacks storage-kind fragment %q", fragment)
 		}

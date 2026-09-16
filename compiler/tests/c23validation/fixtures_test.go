@@ -61,6 +61,19 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:       "ascii-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n    Ascii from \"std/ascii\"\nend\n" +
+			"digit: Bool := Ascii.is_digit(48)\n" +
+			"non_digit: Bool := !Ascii.is_digit(65)\n" +
+			"alpha: Bool := Ascii.is_alpha(65)\n" +
+			"space: Bool := Ascii.is_space(9)\n" +
+			"lower: Byte := Ascii.to_lower(65)\n" +
+			"upper: Byte := Ascii.to_upper(97)\n" +
+			"print(digit and non_digit and alpha and space and (lower == 97) and (upper == 65))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
 		name:        "dict-runs",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    present: Bool := scores.contains(1)\n    first: Int32 := scores.get(1)\n    removed: Int32 := scores.remove(2)\n    scores.insert(3, 30)\n    scores.insert(4, 40)\n    scores.insert(5, 50)\n    grown: Int32 := scores.get(5)\n    labels: Dict<Strand, Int32> := Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    score: Int32 := labels.get(\"alice\")\n    return present and (first == 10) and (removed == 20) and (grown == 50) and (score == 1)\nend\nprint(demo(Heap()))\n"},
@@ -86,6 +99,58 @@ var fixtureCatalog = []fixture{
 				"print(box.get().x)\n",
 		},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "7"},
+	},
+	{
+		name:       "program-arguments-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n    Prog from \"std/program\"\nend\n" +
+			"args := Prog.arguments()\n" +
+			"if args is Error then\n    return 1\nend\n" +
+			"print(args.length())\n" +
+			"return 0\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "1"},
+	},
+	{
+		name:       "program-arguments-nonowning-free-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n    Prog from \"std/program\"\nend\n" +
+			"h: Heap := Heap()\n" +
+			"args := Prog.arguments()\n" +
+			"if args is Error then\n    return 1\nend\n" +
+			"args[0].free(h)\n"},
+		expectation: &processExpectation{zeroExit: false, requiredStderrSubstring: "cannot free a non-owning String"},
+	},
+	{
+		name:       "program-path-query-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n    Prog from \"std/program\"\nend\n" +
+			"fun demo(): Bool | Error do\n" +
+			"    h: Heap := Heap()\n" +
+			"    path: String := try Prog.current_directory(h)\n" +
+			"    return path.length() > 0\n" +
+			"end\n" +
+			"outcome: Bool | Error := demo()\n" +
+			"if outcome is Error then\n    return 1\nend\n" +
+			"print(outcome)\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "entropy-fill-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n    Ent from \"std/entropy\"\nend\n" +
+			"fun demo(): Bool | Error do\n" +
+			"    h: Heap := Heap()\n" +
+			"    p: Ptr<mut Byte> := h.allocate<Byte>(8)\n" +
+			"    unsafe do\n" +
+			"        view: Slice<mut Byte> := Slice<mut Byte>.from_pointer(p, 8)\n" +
+			"        try Ent.fill(view)\n" +
+			"    end\n" +
+			"    return true\n" +
+			"end\n" +
+			"outcome: Bool | Error := demo()\n" +
+			"if outcome is Error then\n    return 1\nend\n" +
+			"print(outcome)\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
 		name:       "dict-removal-preserves-collision-chain-runs",

@@ -195,3 +195,56 @@ Do not improvise past any of these.
 
 
 Sharing the reviews done by other agents. Consider their points on its merits. be unbiased and try to stick to our language goals. update the spec where you have clarity and confidence. Ask me otherwise, with simple language, code examples, options and recommendations.
+
+
+========================
+
+Implement Spec [NUMBER] completely and conservatively.
+
+Treat the spec’s `Validation` section as the exhaustive definition of done. Follow every implementation-plan phase and map each validation item to concrete code or tests. Do not mark the spec implemented, closed, or archived while any validation item, cleanup sweep, documentation update, generated-C check, or required measurement remains incomplete.
+
+Before editing:
+
+1. Read the entire spec, `docs/reference.md`, `docs/status.md`, and relevant existing implementations.
+2. Identify dependencies, affected generated-C components, runtime ABI, and existing tests.
+3. List any genuinely unresolved semantic choices. Ask me before proceeding only if a choice would change language behavior. Do not silently invent semantics.
+
+During implementation:
+
+- Mirror the closest existing implementation and preserve the in-memory compiler boundary.
+- Update compiler, checker, generator, runtime, tests, `docs/reference.md`, and `docs/status.md` wherever the spec requires.
+- Verify the complete ABI across runtime structs, component headers, module headers, adapters, generated C, and linkage.
+- Add focused pure-Go tests for compiler behavior and generated-text assertions for every generated-C contract.
+- Add tagged C23 compile/link/run fixtures for every runtime or generated-C validation item.
+- Test success, failure, boundary, cleanup, repeated-use, cross-module, ownership, and demand-selection cases explicitly named by the spec.
+- Check for duplicate definitions, missing declarations, wrong include order, invalid C qualifiers, incorrect linkage, stale fields, dead helpers, and incomplete cleanup.
+- Preserve unrelated uncommitted changes.
+- Put probes and temporary files only under `.tmp/`, then remove them.
+
+Before claiming completion, run:
+
+- `gofmt -l` on changed Go files.
+- `go test ./...`
+- `go vet ./...`
+- Relevant tagged C23 tests, including compile, link, execution, and UBSan where supported.
+- The workbench snippet manifest test if generated output changes.
+- The required compiler rebuild and `hexal play` workbench validation.
+
+For every validation item, report:
+
+- The test or probe used.
+- The exact result.
+- Any environment limitation.
+- Whether the item is complete, incomplete, or blocked.
+
+If any issue remains, fix it before completion. If it cannot be fixed without a semantic decision, stop and ask me in simple language with concrete code examples and recommended options. Do not hide failures behind weakened tests, regenerated hashes, skipped cases, or a premature “implemented” status.
+
+At the end, provide:
+
+- Files changed.
+- Validation-to-test mapping.
+- Commands run and results.
+- Known limitations.
+- Remaining work, if any.
+
+Only after all required work passes should you update the spec status and archive it.

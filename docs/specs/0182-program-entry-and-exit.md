@@ -97,8 +97,8 @@ arguments() -> Slice<String> | Error
   still hold the view until process termination. The operating system reclaims
   it; sanitizer coverage records this one runtime-lifetime allocation narrowly.
 - Each argument is represented by an ordinary `hex_string` header over copied
-  UTF-8 bytes and marked non-owning through the existing static storage kind.
-  The Slice contains those String handles in host order.
+  UTF-8 bytes and marked with the non-owning storage kind. The Slice contains
+  those String handles in host order.
 - The bytes contain one trailing NUL for C interoperability, but Hexal length
   excludes it. Host argument ABIs cannot carry an embedded NUL.
 - Rune length is computed while validating or converting each argument.

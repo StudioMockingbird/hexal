@@ -3,6 +3,7 @@
 
 #include "hexal.h"
 #include "hexal/error.h"
+#include "hexal/handle.h"
 
 // hex_entropy_fill_result carries no value: success fills the destination in
 // place. Failure leaves destination contents unspecified. The raw entry
@@ -12,6 +13,7 @@
 typedef struct hex_entropy_fill_result {
     bool ok;
     hex_t_ErrorKind kind;
+    const hex_string *message;
 } hex_entropy_fill_result;
 
 hex_entropy_fill_result hex_entropy_fill(uint8_t *data, size_t length);

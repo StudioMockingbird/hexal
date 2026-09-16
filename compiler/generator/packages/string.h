@@ -7,7 +7,8 @@
 
 typedef enum hex_string_storage_kind {
     HEX_STRING_STATIC = 0,
-    HEX_STRING_OWNED = 1
+    HEX_STRING_NONOWNING = 1,
+    HEX_STRING_OWNED = 2
 } hex_string_storage_kind;
 
 typedef struct hex_string {

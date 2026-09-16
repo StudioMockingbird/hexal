@@ -45,6 +45,15 @@ A bug is real whether or not its owning spec is scheduled.
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
+- **Program paths and secure entropy ([0178](specs/0178-libuv-os-services.md))** have
+  executable argument-independent fixtures that compile, run, and pass UBSan
+  under Zig. POSIX runtime branches remain text-only, and the specified
+  generated-size, link-time, allocation, and latency measurements are still
+  outstanding.
+- **Program entry and exit ([0182](specs/0182-program-entry-and-exit.md))**
+  has executable argument, non-owning-free, and status fixtures that compile,
+  run, and pass UBSan under Zig. POSIX runtime branches remain text-only, and
+  the specified runtime allocation/status measurements are still outstanding.
 - **Networking (closed RFC 0172) serializes contending TCP callers by
   rejection, not by a FIFO wait queue.** A second concurrent read, write, or
   accept on one connection or listener while the first is still in flight
