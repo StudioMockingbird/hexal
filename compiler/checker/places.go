@@ -179,6 +179,9 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		// auto-dereferenced layer. A member actually named value resolves
 		// like any other member; whole-pointee access is prefix `^`.
 		if receiver.typ.Element != nil && receiver.typ.Element.Object != nil {
+			if compilerTypes.ForeignRecordIncomplete(*receiver.typ.Element) {
+				return checkedExpression{token: expression.Property, diagnostic: foreignIncompletePlacementDiagnostic(*receiver.typ.Element, expression.Property, "a member-access position")}
+			}
 			receiver = dereferencePlace(receiver, expression.Property, ctx.names.flow)
 			if receiver.diagnostic != nil {
 				return receiver
@@ -459,6 +462,9 @@ func checkDereferencePlace(expression parser.DereferenceExpression, ctx checkCon
 	if compilerTypes.IsNullable(operand.typ) {
 		diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("%s may be Nil; narrow it before dereferencing", operand.typ.Name))
 		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
+	}
+	if operand.typ.Element.Object != nil && compilerTypes.ForeignRecordIncomplete(*operand.typ.Element) {
+		return checkedExpression{token: expression.Operator, diagnostic: foreignIncompletePlacementDiagnostic(*operand.typ.Element, expression.Operator, "a dereference position")}
 	}
 	return dereferencePlace(operand, expression.Operator, ctx.names.flow)
 }

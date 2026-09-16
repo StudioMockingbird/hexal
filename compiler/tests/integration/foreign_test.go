@@ -452,6 +452,19 @@ func TestForeignVoidPointerFromForeignResult(t *testing.T) {
 	}
 }
 
+func TestForeignOpaquePlacementRejections(t *testing.T) {
+	record := "extern c from <window.h> do\n" +
+		"    type Window as \"struct Window\" is opaque\n" +
+		"end\n"
+	for _, testCase := range []struct{ name, source, want string }{
+		{"member access", "fun demo(w: Ptr<Window>) do\n    width: Int32 := w.width\nend\n", "foreign type Window is incomplete in a member-access position"},
+		{"dereference", "fun demo(w: Ptr<Window>) do\n    copy: Window := ^w\nend\n", "foreign type Window is incomplete in a dereference position"},
+		{"construction", "fun demo() do\n    value: Window := Window()\nend\n", "foreign type Window is incomplete in a construction position"},
+	} {
+		assertStderrContains(t, compileForeign(t, record+testCase.source), testCase.want)
+	}
+}
+
 func TestForeignMutableOutputRejectsReadOnlySource(t *testing.T) {
 	// A read-only String pointer can never satisfy a mutable Byte pointer.
 	source := "extern c from <string.h> do\n" +

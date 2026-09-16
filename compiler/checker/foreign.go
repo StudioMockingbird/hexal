@@ -511,6 +511,14 @@ func checkForeignABIPosition(typ compilerTypes.Type, spelling *lexer.Token, toke
 	return nil
 }
 
+// foreignIncompletePlacementDiagnostic reports an opaque foreign record used
+// where a complete value is required. The position names the forbidden
+// operation so the diagnostic matches the exact contract form.
+func foreignIncompletePlacementDiagnostic(record compilerTypes.Type, token lexer.Token, position string) *compilerTypes.Diagnostic {
+	diagnostic := typeErrorAt(token, "foreign type "+record.Name+" is incomplete in "+position)
+	return &diagnostic
+}
+
 // checkForeignValueType rejects a foreign value position whose type cannot
 // cross the C ABI: an opaque record by value or a non-ABI composite.
 func checkForeignValueType(typ compilerTypes.Type, token lexer.Token, target compilerTypes.TargetProfileID) *compilerTypes.Diagnostic {

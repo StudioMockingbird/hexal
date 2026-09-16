@@ -126,6 +126,9 @@ func checkObjectConstructorFields(call parser.CallExpression, typeName lexer.Tok
 	if literalType.Object == nil {
 		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, typeName.Lexeme+" is not a constructible type"))}
 	}
+	if compilerTypes.ForeignRecordIncomplete(literalType) {
+		return initializerValue{typ: literalType, token: typeName, diagnostic: foreignIncompletePlacementDiagnostic(literalType, typeName, "a construction position")}
+	}
 	if expectedType.Name != "" && !compilerTypes.Assignable(expectedType, literalType) {
 		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, fmt.Sprintf("expected %s; got %s", expectedType.Name, literalType.Name)))}
 	}
