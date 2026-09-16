@@ -1,12 +1,13 @@
 # RFC 0182: Program Entry and Exit
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implemented. Module-scope `return`, its `UInt8` status, the shared
+- Status: Closed. Module-scope `return`, its `UInt8` status, the shared
   cleanup label, defer unwinding, the demand-driven entry adapter
   (`uv_setup_args` and the argument snapshot), and the host-neutral entry
-  widening are complete and covered by public integration tests. Open
-  validation items (tagged C23 fixtures and the runtime argument/status
-  fixtures) are recorded in `docs/status.md`.
+  widening are complete and covered by public integration tests and tagged C23
+  fixtures. The runtime allocation and status behavior of the argument snapshot
+  is measured alongside RFC 0178's program component by
+  `TestProgramAndEntropyMeasurements` in `compiler/tests/c23validation`.
 - Created: 2026-09-14
 - Updated: 2026-09-15
 - Scope: expose immutable process arguments and let the entry module select the
