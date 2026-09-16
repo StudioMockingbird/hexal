@@ -120,6 +120,37 @@ func (registry *ModuleRegistry) cImportHeader(moduleID string) (string, bool) {
 	return display, ok
 }
 
+// mappedCName reports whether a name that failed to resolve through a C-import
+// alias is the exact C name of a declaration the automatic importer escaped to
+// a `hex_cvar_` spelling. It checks only the escaped form; the caller still
+// reports the ordinary guidance otherwise.
+func (registry *ModuleRegistry) mappedCName(moduleID, name string) (string, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return "", false
+	}
+	escaped := "hex_cvar_" + name
+	if _, ok := entry.types[escaped]; ok {
+		return escaped, true
+	}
+	if _, ok := entry.functions[escaped]; ok {
+		return escaped, true
+	}
+	if _, ok := entry.foreignFunctions[escaped]; ok {
+		return escaped, true
+	}
+	if _, ok := entry.foreignConstants[escaped]; ok {
+		return escaped, true
+	}
+	if _, ok := entry.foreignGlobals[escaped]; ok {
+		return escaped, true
+	}
+	if _, ok := entry.moduleValues[escaped]; ok {
+		return escaped, true
+	}
+	return "", false
+}
+
 // resolveExportEntries validates one module's trailing export block against
 // its checked interface and returns the resolved export set (types and
 // functions by bare name, methods by "Type.method", module values by bare

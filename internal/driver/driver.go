@@ -206,7 +206,52 @@ func Build(options BuildOptions) (BuildResult, error) {
 		return result, &BuildError{Stage: StageConfiguration, Message: fmt.Sprintf("entrypoint %q not found under %s", entrypoint, root)}
 	}
 
-	compileResult := compiler.Compile(sources, entrypoint, compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	outDir := options.OutDir
+	if outDir == "" {
+		outDir = filepath.Join(root, "build")
+	}
+
+	// RFC 0193: prepare one binding source for every reachable C-header
+	// import, then compile the copied source map. The original map is never
+	// mutated and no binding file is written.
+	compiledSources := sources
+	requests, discoverErr := compiler.DiscoverCImports(sources, entrypoint)
+	if discoverErr != nil {
+		return result, &BuildError{Stage: StageHexal, Message: "C import discovery failed"}
+	}
+	if len(requests) > 0 {
+		clang, clangFailure := resolveClang()
+		if clangFailure != nil {
+			return result, clangFailure
+		}
+		inspection, inspectionErr := freshInspectionDir(outDir)
+		if inspectionErr != nil {
+			return result, filesystemFailure(inspectionErr.Error())
+		}
+		defer os.RemoveAll(inspection)
+		compiledSources = make(map[string]string, len(sources)+len(requests))
+		for key, content := range sources {
+			compiledSources[key] = content
+		}
+		options := headerOptions{compileOptions: foreign.moduleCompileOptions()}
+		prepared := make(map[string]bool, len(requests))
+		for _, request := range requests {
+			key := compiler.CBindingKey(qualifiedTriple, request)
+			if prepared[key] {
+				// Equal target/header-form/header-payload requests prepare one
+				// binding.
+				continue
+			}
+			binding, bindingFailure := inspectRequest(backend, clang, inspection, request, options, &result)
+			if bindingFailure != nil {
+				return result, bindingFailure
+			}
+			prepared[binding.Key] = true
+			compiledSources[binding.Key] = binding.Source
+		}
+	}
+
+	compileResult := compiler.Compile(compiledSources, entrypoint, compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	if len(compileResult.Stderr) > 0 {
 		// Diagnostics are the compiler's output, not the driver's. Print them
 		// verbatim and fail without adding a wrapping line.
@@ -216,10 +261,6 @@ func Build(options BuildOptions) (BuildResult, error) {
 		return result, &BuildError{Stage: StageHexal, Message: hexalFailureMessage(compileResult.Stderr)}
 	}
 
-	outDir := options.OutDir
-	if outDir == "" {
-		outDir = filepath.Join(root, "build")
-	}
 	// The mode selects backend options here and nowhere else; the dependency
 	// options added further below are mode-independent by design.
 	selected := Options(mode)

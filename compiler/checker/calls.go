@@ -180,6 +180,9 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 		}
 		if display, isCImport := ctx.names.registry.cImportHeader(target); isCImport {
 			diagnostic := nameErrorAt(property, "C import "+display+" has no automatically imported declaration "+property.Lexeme+"; check the C name, use a handwritten binding, or expose a C wrapper")
+			if mapped, mappedOK := ctx.names.registry.mappedCName(target, property.Lexeme); mappedOK {
+				diagnostic = nameErrorAt(property, "C declaration "+property.Lexeme+" is imported as "+mapped)
+			}
 			return checkedExpression{token: property, diagnostic: &diagnostic}
 		}
 		diagnostic := privateToModuleDiagnostic(property, property.Lexeme, target)

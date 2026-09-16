@@ -33,7 +33,7 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 			return unknownExpressionDiagnostic("invalid checked type declaration name")
 		}
 		if !validateGeneratedType(typeDeclaration.Type, typeState, false) {
-			return unknownExpressionDiagnostic("unsupported checked type declaration")
+			return unknownExpressionDiagnostic("unsupported checked type declaration " + typeDeclaration.Name)
 		}
 	}
 	if err := validateStatements(program.Statements, state, typeState); err != nil {
