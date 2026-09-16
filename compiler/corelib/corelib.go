@@ -27,13 +27,13 @@ const (
 )
 
 // Function is one exported module function: its parameter shapes, its
-// success shape, the emitted C runtime entry point, and (for a Result that
-// can fail) the fixed message its native failures report.
+// success shape, and the emitted C runtime entry point. A failing Result's
+// stable ErrorKind and fixed message are populated by the runtime template
+// itself, so they never cross this boundary.
 type Function struct {
-	Params         []Param
-	Result         Result
-	Runtime        string
-	FailureMessage string
+	Params  []Param
+	Result  Result
+	Runtime string
 }
 
 // Modules is the core-library module table: canonical module path (the
@@ -42,15 +42,15 @@ type Function struct {
 // points selected on demand, never compiler-generated per module.
 var Modules = map[string]map[string]Function{
 	"std/program": {
-		"arguments":             {Result: ResultStringSlice, Runtime: "hex_program_arguments", FailureMessage: "program arguments unavailable"},
-		"current_directory":     {Params: []Param{ParamHeap}, Result: ResultString, Runtime: "hex_program_current_directory", FailureMessage: "current directory unavailable"},
-		"home_directory":        {Params: []Param{ParamHeap}, Result: ResultString, Runtime: "hex_program_home_directory", FailureMessage: "home directory unavailable"},
-		"temporary_directory":   {Params: []Param{ParamHeap}, Result: ResultString, Runtime: "hex_program_temporary_directory", FailureMessage: "temporary directory unavailable"},
-		"executable_path":       {Params: []Param{ParamHeap}, Result: ResultString, Runtime: "hex_program_executable_path", FailureMessage: "executable path unavailable"},
+		"arguments":             {Result: ResultStringSlice, Runtime: "hex_program_arguments"},
+		"current_directory":     {Params: []Param{ParamHeap}, Result: ResultString, Runtime: "hex_program_current_directory"},
+		"home_directory":        {Params: []Param{ParamHeap}, Result: ResultString, Runtime: "hex_program_home_directory"},
+		"temporary_directory":   {Params: []Param{ParamHeap}, Result: ResultString, Runtime: "hex_program_temporary_directory"},
+		"executable_path":       {Params: []Param{ParamHeap}, Result: ResultString, Runtime: "hex_program_executable_path"},
 		"available_parallelism": {Result: ResultSize, Runtime: "hex_program_available_parallelism"},
 	},
 	"std/entropy": {
-		"fill": {Params: []Param{ParamMutByteSlice}, Result: ResultNil, Runtime: "hex_entropy_fill", FailureMessage: "secure random fill failed"},
+		"fill": {Params: []Param{ParamMutByteSlice}, Result: ResultNil, Runtime: "hex_entropy_fill"},
 	},
 }
 

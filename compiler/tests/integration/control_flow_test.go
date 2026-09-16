@@ -185,12 +185,28 @@ func TestControlFlowDiagnostics(t *testing.T) {
 		{"if true then else elseif true end", "'elseif' cannot appear after 'else'"},
 		{"if", "expected a condition after 'if'"},
 		{"if true then", "expected end to close if"},
-		{"return", "return is only valid inside a function or method body"},
-		{"return 1", "return is only valid inside a function or method body"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), testCase.want) {
 			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
+		}
+	}
+}
+
+// A module-scope return is valid only in the entry module. An imported
+// module rejects it with the exact source-mapped diagnostic. A root return
+// nested in imported-module control flow is unreachable: top-level control
+// flow is itself an executable statement that an imported module rejects.
+func TestImportedModuleRejectsRootReturn(t *testing.T) {
+	for _, body := range []string{"return\n", "return 1\n"} {
+		sources := map[string]string{
+			"app.hex": "import\n    Lib from \"./lib\"\nend\nvalue: Int32 := 1\n",
+			"lib.hex": "value: Int32 := 1\n" + body + "export\n    value\nend\n",
+		}
+		result := compiler.Compile(sources, "app.hex", compiler.Project{})
+		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 ||
+			!strings.Contains(strings.Join(result.Stderr, "\n"), "return is valid only in the entry module or a function body") {
+			t.Fatalf("Compile(%q) = %#v, want the imported-module root-return diagnostic", body, result)
 		}
 	}
 }
