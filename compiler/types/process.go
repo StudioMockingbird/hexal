@@ -216,7 +216,9 @@ func IsProcessStream(typ Type) bool { return typ.Adt != nil && typ.Adt == Proces
 func IsExitStatus(typ Type) bool { return typ.Adt != nil && typ.Adt == ExitStatusType.Adt }
 
 // IsProcessOptions reports whether typ is the canonical ProcessOptions object.
-func IsProcessOptions(typ Type) bool { return typ.Object != nil && typ.Object == ProcessOptionsType.Object }
+func IsProcessOptions(typ Type) bool {
+	return typ.Object != nil && typ.Object == ProcessOptionsType.Object
+}
 
 // IsEnvironmentVariable reports whether typ is the canonical
 // EnvironmentVariable object.

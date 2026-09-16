@@ -333,11 +333,18 @@ func EncodeModuleOwner(canonicalID string) string {
 	if canonicalID == "" {
 		return ""
 	}
+	// A source stdlib module drops the reserved std collection and takes the
+	// s prefix, so its symbols can never collide with a user module's.
+	prefix := "m"
+	if IsStdlibModule(canonicalID) {
+		prefix = "s"
+		canonicalID = strings.TrimPrefix(canonicalID, "std/")
+	}
 	parts := strings.Split(canonicalID, "/")
 	for index, part := range parts {
 		parts[index] = strconv.Itoa(len(part)) + "_" + part
 	}
-	return "m" + strings.Join(parts, "")
+	return prefix + strings.Join(parts, "")
 }
 
 // ModuleHeaderGuard returns the include guard for a module header:
@@ -345,6 +352,22 @@ func EncodeModuleOwner(canonicalID string) string {
 // own fixed guard.
 func ModuleHeaderGuard(canonicalID string) string {
 	return "HEX_MODULE_" + EncodeModuleOwner(canonicalID) + "_H"
+}
+
+// IsStdlibModule reports whether canonicalID names a source stdlib module.
+// User module ids are relative, so the reserved std collection is unambiguous.
+func IsStdlibModule(canonicalID string) bool {
+	return strings.HasPrefix(canonicalID, "std/")
+}
+
+// ModuleArtifactStem returns a module's generated artifact path without its
+// extension: user modules emit under modules/, source stdlib modules under
+// the reserved stdlib/ path.
+func ModuleArtifactStem(canonicalID string) string {
+	if IsStdlibModule(canonicalID) {
+		return "stdlib/" + strings.TrimPrefix(canonicalID, "std/")
+	}
+	return "modules/" + canonicalID
 }
 
 // NewEnvironment returns an empty environment seeded with the builtin types

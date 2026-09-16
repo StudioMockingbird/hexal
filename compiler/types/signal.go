@@ -18,7 +18,7 @@ var (
 
 func signalType() Type {
 	adt := &AdtType{
-		Name: "Signal",
+		Name:  "Signal",
 		CName: "hex_t_Signal",
 		Variants: []AdtVariant{
 			{Name: "Interrupt"},

@@ -1,0 +1,66 @@
+package integration
+
+// The embedded source standard library: std/ascii compiles from the compiler
+// binary with its own stdlib artifact path, source provenance, and symbol
+// owner encoding.
+
+import (
+	"strings"
+	"testing"
+
+	"hexal/stdlib"
+)
+
+func TestAsciiSourceModuleCompiles(t *testing.T) {
+	source := "import\n    Ascii from \"std/ascii\"\nend\n" +
+		"digit: Bool := Ascii.is_digit(48)\n" +
+		"lower: Byte := Ascii.to_lower(65)\n"
+	result := assertCompiles(t, source)
+	header := moduleFile(t, result, "stdlib/ascii.h")
+	for _, want := range []string{
+		"#ifndef HEX_MODULE_s5_ascii_H",
+		"bool hex_f_s5_ascii_is_digit(uint8_t);",
+		"bool hex_f_s5_ascii_is_alpha(uint8_t);",
+		"bool hex_f_s5_ascii_is_space(uint8_t);",
+		"uint8_t hex_f_s5_ascii_to_lower(uint8_t);",
+		"uint8_t hex_f_s5_ascii_to_upper(uint8_t);",
+	} {
+		if !strings.Contains(header, want) {
+			t.Errorf("stdlib/ascii.h lacks %q:\n%s", want, header)
+		}
+	}
+	body := moduleFile(t, result, "stdlib/ascii.c")
+	if !strings.Contains(body, "#include \"stdlib/ascii.h\"") {
+		t.Errorf("stdlib/ascii.c must include its own header:\n%s", body)
+	}
+	if !strings.Contains(body, "#line 4 \"stdlib/std/ascii.hex\"") {
+		t.Errorf("stdlib/ascii.c must map #line to its stdlib source key:\n%s", body)
+	}
+	if !strings.Contains(rootH(t, result), "bool hex_f_s5_ascii_is_digit(uint8_t);") {
+		t.Errorf("the importing module header lacks the foreign prototype:\n%s", rootH(t, result))
+	}
+}
+
+func TestAsciiNamedFunctionsMatchSurface(t *testing.T) {
+	source := "import\n    Ascii from \"std/ascii\"\nend\n" +
+		"d: Bool := Ascii.is_digit(48)\n" +
+		"a: Bool := Ascii.is_alpha(65)\n" +
+		"s: Bool := Ascii.is_space(32)\n" +
+		"l: Byte := Ascii.to_lower(65)\n" +
+		"u: Byte := Ascii.to_upper(97)\n"
+	assertCompiles(t, source)
+	// Unknown operations stay fail-closed.
+	assertRejects(t, "import\n    Ascii from \"std/ascii\"\nend\nx := Ascii.is_upper(65)\n", "is_upper")
+}
+
+// stdlib.Sources returns a fresh copy; mutating one does not change a later
+// compilation's stdlib.
+func TestStdlibSourcesAreFresh(t *testing.T) {
+	first := stdlib.Sources()
+	first["stdlib/std/ascii.hex"] = "corrupted"
+	second := stdlib.Sources()
+	if second["stdlib/std/ascii.hex"] == "corrupted" {
+		t.Fatal("mutating a Sources() copy changed a later call's stdlib")
+	}
+	assertCompiles(t, "import\n    Ascii from \"std/ascii\"\nend\nd: Bool := Ascii.is_digit(48)\n")
+}

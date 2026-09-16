@@ -72,8 +72,9 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 		if emissionErr != nil {
 			return GenerationResult{}, compilerTypes.StampModule(emissionErr, emission.logicalKey)
 		}
-		files["modules/"+emission.canonicalID+".c"] = moduleC
-		files["modules/"+emission.canonicalID+".h"] = moduleH
+		stem := compilerTypes.ModuleArtifactStem(emission.canonicalID)
+		files[stem+".c"] = moduleC
+		files[stem+".h"] = moduleH
 		if isRoot {
 			root = emission
 		}

@@ -17,6 +17,7 @@ import (
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
+	"hexal/stdlib"
 )
 
 const (
@@ -148,7 +149,7 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 	// parse pass result, with no second lex.
 	for _, moduleID := range graph.Order {
 		node := graph.Modules[moduleID]
-		stats.SourceLines += sourceLineCount(sources[node.LogicalKey])
+		stats.SourceLines += node.SourceLines
 		stats.TokenCount += node.TokenCount
 	}
 
@@ -322,10 +323,11 @@ func resolveCollectionPath(rawPath, path string) (string, error) {
 func reachableModules(sources map[string]string, entrypoint string) (*checker.ModuleGraph, error) {
 	root := canonicalFromLogicalKey(entrypoint)
 	state := &reachState{
-		sources:  sources,
-		nodes:    make(map[string]*checker.ModuleNode),
-		visited:  make(map[string]bool),
-		byModule: make(map[string]compilerTypes.Diagnostics),
+		sources:       sources,
+		stdlibSources: stdlibSourcesByCanonical(),
+		nodes:         make(map[string]*checker.ModuleNode),
+		visited:       make(map[string]bool),
+		byModule:      make(map[string]compilerTypes.Diagnostics),
 	}
 	if err := state.visit(root); err != nil {
 		return nil, err
@@ -358,12 +360,15 @@ func reachableModules(sources map[string]string, entrypoint string) (*checker.Mo
 // node records the token count observed while lexing it, so the caller never
 // re-lexes for stats.
 type reachState struct {
-	sources  map[string]string
-	nodes    map[string]*checker.ModuleNode // canonical id -> node under construction
-	visited  map[string]bool                // canonical ids with a visit begun
-	stack    []string                       // canonical ids on the current DFS path
-	order    []string                       // post-order: dependencies first
-	byModule map[string]compilerTypes.Diagnostics
+	sources map[string]string
+	// stdlibSources holds the embedded source stdlib modules, keyed by
+	// canonical id; it is read-only for the whole walk.
+	stdlibSources map[string]string
+	nodes         map[string]*checker.ModuleNode // canonical id -> node under construction
+	visited       map[string]bool                // canonical ids with a visit begun
+	stack         []string                       // canonical ids on the current DFS path
+	order         []string                       // post-order: dependencies first
+	byModule      map[string]compilerTypes.Diagnostics
 }
 
 // visit parses canonical and its transitive imports, then appends canonical
@@ -374,22 +379,17 @@ func (s *reachState) visit(canonical string) error {
 		return nil
 	}
 	s.visited[canonical] = true
-	keys := s.sourceKeyFor(canonical)
-	if len(keys) == 0 {
+	key, text, ok := s.sourceFor(canonical)
+	if !ok {
 		// Unreachable: Compile validates the entrypoint and every import
 		// checks existence before recursing.
 		return nil
 	}
-	if len(keys) > 1 {
-		s.record(canonical, 1, 1,
-			fmt.Sprintf("sources contain both %s and %s for module %s", keys[0], keys[1], canonical))
-	}
-	key := keys[0]
 	if err := validateLogicalKey(key); err != nil {
 		diagnostic := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1, err.Error()).InModule(key)
 		return diagnostic
 	}
-	tokens, lexErr := lexer.Lex(s.sources[key])
+	tokens, lexErr := lexer.Lex(text)
 	if lexErr != nil {
 		return stampModule(mergeDiagnostics(lexErr, nil), key)
 	}
@@ -398,10 +398,11 @@ func (s *reachState) visit(canonical string) error {
 		return stampModule(mergeDiagnostics(nil, parseErr), key)
 	}
 	s.nodes[canonical] = &checker.ModuleNode{
-		Canonical:  canonical,
-		LogicalKey: key,
-		Program:    program,
-		TokenCount: len(tokens),
+		Canonical:   canonical,
+		LogicalKey:  key,
+		Program:     program,
+		TokenCount:  len(tokens),
+		SourceLines: sourceLineCount(text),
 	}
 
 	s.stack = append(s.stack, canonical)
@@ -437,12 +438,27 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 	node := s.nodes[fromModule]
 	node.Imports = append(node.Imports, checker.ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: target})
 	if strings.HasPrefix(target, "std/") {
-		// A core library has no Hexal source and never joins the module
-		// graph: it publishes no ModuleNode, is never lexed or parsed, and is
-		// resolved directly by the checker against the corelib table.
-		if !corelib.IsModule(target) {
-			s.record(fromModule, line, column, "unknown stdlib module "+rawPath)
+		if corelib.IsModule(target) {
+			// A core library has no Hexal source and never joins the module
+			// graph: it publishes no ModuleNode, is never lexed or parsed,
+			// and is resolved directly by the checker against the corelib
+			// table.
+			return nil
 		}
+		if stdlib.IsSourceModule(target) {
+			if imported[target] {
+				s.record(fromModule, line, column, "duplicate import of canonical module "+target)
+				return nil
+			}
+			imported[target] = true
+			if at := slices.Index(s.stack, target); at >= 0 {
+				cycle := append(append([]string{}, s.stack[at:]...), target)
+				s.record(fromModule, line, column, "import cycle: "+strings.Join(cycle, " -> "))
+				return nil
+			}
+			return s.visit(target)
+		}
+		s.record(fromModule, line, column, "unknown stdlib module "+rawPath)
 		return nil
 	}
 	if len(s.sourceKeyFor(target)) == 0 {
@@ -473,6 +489,36 @@ func (s *reachState) sourceKeyFor(id string) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// stdlibSourcesByCanonical rekeys the embedded source stdlib modules by
+// canonical id ("std/ascii") for graph resolution. Each compilation gets a
+// fresh copy, so no walk can mutate a later compilation's stdlib.
+func stdlibSourcesByCanonical() map[string]string {
+	sources := stdlib.Sources()
+	byCanonical := make(map[string]string, len(sources))
+	for key, text := range sources {
+		byCanonical[strings.TrimSuffix(strings.TrimPrefix(key, "stdlib/"), ".hex")] = text
+	}
+	return byCanonical
+}
+
+// sourceFor returns the source key and text of one canonical module: an
+// embedded source stdlib module when canonical reserves the std collection,
+// otherwise the unique user source key that canonicalizes to it.
+func (s *reachState) sourceFor(canonical string) (string, string, bool) {
+	if text, ok := s.stdlibSources[canonical]; ok {
+		return stdlib.SourceKey(canonical), text, true
+	}
+	keys := s.sourceKeyFor(canonical)
+	if len(keys) == 0 {
+		return "", "", false
+	}
+	if len(keys) > 1 {
+		s.record(canonical, 1, 1,
+			fmt.Sprintf("sources contain both %s and %s for module %s", keys[0], keys[1], canonical))
+	}
+	return keys[0], s.sources[keys[0]], true
 }
 
 // record appends one resolution diagnostic to its module's bucket, with the

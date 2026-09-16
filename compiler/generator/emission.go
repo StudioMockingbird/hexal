@@ -982,7 +982,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	// includes hexal.h, so the translation unit sees the shared
 	// program-support contract exactly once.
 	var moduleBody strings.Builder
-	moduleBody.WriteString("#include \"modules/" + canonicalID + ".h\"\n\n")
+	moduleBody.WriteString("#include \"" + compilerTypes.ModuleArtifactStem(canonicalID) + ".h\"\n\n")
 
 	// Module value definitions precede every function/method definition and
 	// prototype in this file: their static initializers reference no other

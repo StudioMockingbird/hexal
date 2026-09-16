@@ -1,0 +1,36 @@
+-- ASCII byte classification. These functions classify bytes only; they do not
+-- decode UTF-8 and apply no locale-sensitive or Unicode rule.
+
+fun is_digit(value: Byte): Bool do
+    return (value >= 48) and (value <= 57)
+end
+
+fun is_alpha(value: Byte): Bool do
+    return ((value >= 65) and (value <= 90)) or ((value >= 97) and (value <= 122))
+end
+
+fun is_space(value: Byte): Bool do
+    return (value == 32) or (value == 9) or (value == 10) or (value == 11) or (value == 12) or (value == 13)
+end
+
+fun to_lower(value: Byte): Byte do
+    if (value >= 65) and (value <= 90) then
+        return value + 32
+    end
+    return value
+end
+
+fun to_upper(value: Byte): Byte do
+    if (value >= 97) and (value <= 122) then
+        return value - 32
+    end
+    return value
+end
+
+export
+    is_digit,
+    is_alpha,
+    is_space,
+    to_lower,
+    to_upper
+end

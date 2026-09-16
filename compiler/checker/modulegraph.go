@@ -26,6 +26,10 @@ type ModuleNode struct {
 	Program    parser.Program
 	Imports    []ModuleEdge // source order, already resolved and validated
 	TokenCount int          // tokens observed while lexing this module
+	// SourceLines is the module's source line count, observed while lexing
+	// it, so stats never re-read the source text (an embedded stdlib module
+	// is not in the caller's source map).
+	SourceLines int
 }
 
 // ModuleEdge is one resolved import: the alias the importing module binds and
