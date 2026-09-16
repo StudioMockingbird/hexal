@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 
+	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -206,6 +207,15 @@ func checkObjectConstructorFields(call parser.CallExpression, typeName lexer.Tok
 // visibility diagnostic.
 func checkQualifiedTypeConstructorCall(call parser.CallExpression, property lexer.Token, target string, expectedType compilerTypes.Type, ctx checkContext) (initializerValue, bool) {
 	name := property.Lexeme
+	if corelib.IsModule(target) {
+		// A core library has no registry interface; its exported object types
+		// are canonical compiler/types records, so construction checks them
+		// directly.
+		if typ, ok := corelib.LookupType(target, name); ok && typ.Object != nil {
+			return checkObjectConstructorFields(call, property, typ, expectedType, ctx), true
+		}
+		return initializerValue{}, false
+	}
 	if use, ok := ctx.names.registry.exportedType(target, name); ok {
 		return checkObjectConstructorFields(call, property, use.Type, expectedType, ctx), true
 	}

@@ -3,6 +3,7 @@ package checker
 import (
 	"fmt"
 
+	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -41,6 +42,13 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		// alias error.
 		if generics != nil && generics.registry != nil {
 			if target, ok := generics.registry.importTarget(generics.moduleID, expression.Module.Lexeme); ok {
+				if corelib.IsModule(target) {
+					if typ, found := corelib.LookupType(target, expression.Names[0].Lexeme); found {
+						return compilerTypes.NewTypeUse(typ), nil
+					}
+					diagnostic := privateToModuleDiagnostic(expression.Names[0], expression.Names[0].Lexeme, target)
+					return compilerTypes.TypeUse{}, &diagnostic
+				}
 				use, found := generics.registry.exportedType(target, expression.Names[0].Lexeme)
 				if !found {
 					diagnostic := privateToModuleDiagnostic(expression.Names[0], expression.Names[0].Lexeme, target)

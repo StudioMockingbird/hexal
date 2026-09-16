@@ -385,7 +385,14 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 			// through the ordinary module pipeline. Its function table is
 			// resolved directly, ahead of every registry-backed alias check.
 			if corelib.IsModule(target) {
-				return checkCorelibCall(target, call, callee.Property, ctx)
+				if function, ok := corelib.Lookup(target, callee.Property.Lexeme); ok {
+					return checkCorelibCall(target, function, call, variable, callee.Property, ctx)
+				}
+				if typeValue, ok := checkQualifiedTypeConstructorCall(call, callee.Property, target, expectedType, ctx); ok {
+					return typeValue
+				}
+				diagnostic := privateToModuleDiagnostic(callee.Property, callee.Property.Lexeme, target)
+				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 			}
 			if _, functionOk := ctx.names.registry.exportedFunction(target, callee.Property.Lexeme); !functionOk {
 				if _, genericOk := ctx.names.registry.genericFunction(target, callee.Property.Lexeme); !genericOk {
@@ -398,6 +405,18 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 				}
 			}
 			return checkQualifiedFunctionCall(call, callee.Property, target, ctx)
+		}
+	}
+	// Alias.Adt.Variant(...) constructs a variant of an ADT exported by an
+	// imported module (user or core library). It precedes every other
+	// dispatch so the ADT owner resolves before ordinary method lookup.
+	if inner, isNested := callee.Receiver.(parser.PropertyExpression); isNested {
+		if aliasVariable, isVariable := inner.Receiver.(parser.VariableExpression); isVariable {
+			if target, ok := ctx.names.importAliasTarget(aliasVariable.Name.Lexeme); ok {
+				if value, ok := checkQualifiedNestedVariantCall(call, target, inner.Property.Lexeme, callee.Property, ctx); ok {
+					return value
+				}
+			}
 		}
 	}
 	// Address.parse(text, port), Dns.resolve(heap, host, service), and

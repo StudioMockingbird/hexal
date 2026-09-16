@@ -3,6 +3,7 @@ package checker
 import (
 	"fmt"
 
+	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -185,6 +186,34 @@ func checkModuleVariantConstructorCall(call parser.CallExpression, ownerName str
 		return initializerValue{}, false
 	}
 	return checkVariantConstructorCall(call, ownerName, adtType, variant, property, ctx), true
+}
+
+// checkQualifiedNestedVariantCall resolves Alias.Adt.Variant(...) where Adt is
+// a type exported by the target module (user or core library). The second
+// result is false when the target exports no such ADT, so the caller falls
+// through to ordinary property dispatch and its own diagnostics.
+func checkQualifiedNestedVariantCall(call parser.CallExpression, target, ownerName string, variantToken lexer.Token, ctx checkContext) (initializerValue, bool) {
+	var adtType compilerTypes.Type
+	if corelib.IsModule(target) {
+		typ, ok := corelib.LookupType(target, ownerName)
+		if !ok || typ.Adt == nil {
+			return initializerValue{}, false
+		}
+		adtType = typ
+	} else {
+		use, ok := ctx.names.registry.exportedType(target, ownerName)
+		if !ok || use.Type.Adt == nil {
+			return initializerValue{}, false
+		}
+		adtType = use.Type
+	}
+	index := adtVariantIndex(adtType, variantToken.Lexeme)
+	if index < 0 {
+		diagnostic := typeErrorAt(variantToken, fmt.Sprintf("unknown variant %s.%s", ownerName, variantToken.Lexeme))
+		return initializerValue{token: variantToken, diagnostic: &diagnostic}, true
+	}
+	variant := &adtType.Adt.Variants[index]
+	return checkVariantConstructorCall(call, ownerName, adtType, variant, variantToken, ctx), true
 }
 
 // checkVariantConstructorCall checks one resolved ADT-variant constructor
