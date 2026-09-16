@@ -64,3 +64,62 @@ func TestRunRejectsInvalidVersion(t *testing.T) {
 		t.Fatalf("run(nil) = %v, want expected a command", err)
 	}
 }
+
+// A malformed foreign option fails at configuration before the backend is
+// resolved, so these run without a toolchain.
+func TestBuildRejectsInvalidForeignConfiguration(t *testing.T) {
+	for _, testCase := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-c-env", "NOEQUALS"}, "-c-env requires NAME=VALUE"},
+		{[]string{"-c-env", "=value"}, "invalid C environment variable name"},
+		{[]string{"-c-env", "A=1", "-c-env", "A=2"}, "is repeated"},
+		{[]string{"-c-define", "1BAD"}, "invalid C define"},
+		{[]string{"-c-define", "A=1", "-c-define", "A=2"}, "is repeated"},
+		{[]string{"-c-standard", "c++"}, "unknown C standard"},
+		{[]string{"-system-library", "path/lib"}, "invalid system library name"},
+		{[]string{"-c-define=1BAD"}, "invalid C define"},
+		{[]string{"-c-env=NOEQUALS"}, "-c-env requires NAME=VALUE"},
+	} {
+		err := build(testCase.args)
+		if err == nil || !strings.Contains(err.Error(), testCase.want) {
+			t.Errorf("build(%v) = %v, want containing %q", testCase.args, err, testCase.want)
+		}
+	}
+}
+
+// An empty operand is rejected by every repeatable option.
+func TestStringListRejectsEmptyOperand(t *testing.T) {
+	var list stringList
+	if err := list.Set(""); err == nil {
+		t.Fatal("Set(\"\") accepted an empty operand")
+	}
+	if err := list.Set("one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := list.Set("two"); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || list[0] != "one" || list[1] != "two" {
+		t.Fatalf("list = %v, want occurrence order preserved", list)
+	}
+}
+
+// The raw-argument escape hatches do not exist.
+func TestBuildRejectsRawToolArguments(t *testing.T) {
+	for _, option := range []string{"-c-arg", "-link-arg"} {
+		if err := build([]string{option, "whatever"}); err == nil {
+			t.Errorf("build(%s ...) accepted a raw tool argument", option)
+		}
+	}
+}
+
+func TestHelpListsForeignOptions(t *testing.T) {
+	help := usageText()
+	for _, option := range []string{"-c-source", "-c-include", "-c-define", "-c-env", "-c-standard", "-object", "-archive", "-system-library"} {
+		if !strings.Contains(help, option) {
+			t.Errorf("help does not list %s", option)
+		}
+	}
+}

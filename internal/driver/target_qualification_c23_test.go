@@ -48,7 +48,7 @@ func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
 	if err := compileNativeDependencies(selected, dir, native, &result); err != nil {
 		t.Fatalf("compiling native dependencies failed: %v", err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, dir, cFiles, compileOptions, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, dir, cFiles, compileOptions, nil, &result); err != nil {
 		t.Fatalf("compiling Hexal-generated C failed: %v", err)
 	}
 	objects := append(cFilesToObjects(dir, cFiles), native.linkObjects...)

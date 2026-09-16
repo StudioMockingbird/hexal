@@ -154,13 +154,14 @@ func compileNativeDependencies(selected *backend.Backend, staging string, depend
 			return &BuildError{Stage: StageCompile, Message: fmt.Sprintf("cannot run backend for native dependency %s: %v", filepath.Base(source), err)}
 		}
 		result.Commands = append(result.Commands, CommandResult{
-			Stage:            StageCompile,
-			Tool:             selected.Exe,
-			Arguments:        invocation.Args,
-			WorkingDirectory: staging,
-			Stdout:           invocation.Stdout,
-			Stderr:           invocation.Stderr,
-			ExitCode:         invocation.ExitCode,
+			Stage:                StageCompile,
+			Tool:                 selected.Exe,
+			Arguments:            invocation.Args,
+			WorkingDirectory:     staging,
+			Stdout:               invocation.Stdout,
+			Stderr:               invocation.Stderr,
+			ExitCode:             invocation.ExitCode,
+			EnvironmentOverrides: append([]string(nil), selected.EnvironmentOverrides...),
 		})
 		if invocation.ExitCode != 0 {
 			return &BuildError{
@@ -176,13 +177,14 @@ func compileNativeDependencies(selected *backend.Backend, staging string, depend
 			return &BuildError{Stage: StageCompile, Message: fmt.Sprintf("cannot run archiver for libuv: %v", err)}
 		}
 		result.Commands = append(result.Commands, CommandResult{
-			Stage:            StageCompile,
-			Tool:             selected.Exe,
-			Arguments:        invocation.Args,
-			WorkingDirectory: staging,
-			Stdout:           invocation.Stdout,
-			Stderr:           invocation.Stderr,
-			ExitCode:         invocation.ExitCode,
+			Stage:                StageCompile,
+			Tool:                 selected.Exe,
+			Arguments:            invocation.Args,
+			WorkingDirectory:     staging,
+			Stdout:               invocation.Stdout,
+			Stderr:               invocation.Stderr,
+			ExitCode:             invocation.ExitCode,
+			EnvironmentOverrides: append([]string(nil), selected.EnvironmentOverrides...),
 		})
 		if invocation.ExitCode != 0 {
 			return &BuildError{

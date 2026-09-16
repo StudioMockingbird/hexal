@@ -80,10 +80,10 @@ int main(void) {
 			}
 			eventSource := filepath.Join(staging, "hexal", "event.c")
 			eventOptions := append([]string{testCase.rename}, native.compileOptions...)
-			if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource}, eventOptions, &result); err != nil {
+			if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource}, eventOptions, nil, &result); err != nil {
 				failWithLastCommand(t, &result, err)
 			}
-			if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, &result); err != nil {
+			if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, nil, &result); err != nil {
 				failWithLastCommand(t, &result, err)
 			}
 			objects := []string{strings.TrimSuffix(eventSource, ".c") + ".o", strings.TrimSuffix(fixture, ".c") + ".o"}

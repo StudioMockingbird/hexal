@@ -175,7 +175,7 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err := os.WriteFile(probeSource, []byte(driverC), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, staging, cFiles, native.compileOptions, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, cFiles, native.compileOptions, nil, &result); err != nil {
 		t.Fatalf("c compilation failed: %v", err)
 	}
 	probeObject := filepath.Join(staging, "driver_probe.o")

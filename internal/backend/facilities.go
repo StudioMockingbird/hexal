@@ -104,6 +104,14 @@ func (backend *Backend) LinkObjects(triple string, objects []string, executable 
 	return backend.Run(args...)
 }
 
+// SystemLibraryArgument translates one already-validated logical
+// system-library name to its native linker argument. The driver owns
+// validation; the backend owns the spelling, so the CLI never synthesizes a
+// platform filename.
+func SystemLibraryArgument(name string) string {
+	return "-l" + name
+}
+
 // CheckError formats a failed backend invocation for a stage diagnostic,
 // preserving the complete argument vector and separated streams.
 func CheckError(stage, tool string, result Result) error {

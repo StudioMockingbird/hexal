@@ -37,7 +37,8 @@ const (
 // CommandResult records one completed external invocation with separated
 // streams and the exact argument vector, so a failing build is reproducible
 // from its record. The complete process environment is deliberately not
-// captured.
+// captured: EnvironmentOverrides names the explicit `-c-env` overrides the
+// invocation ran under, never their values.
 type CommandResult struct {
 	Stage            BuildStage
 	Tool             string
@@ -46,6 +47,10 @@ type CommandResult struct {
 	Stdout           string
 	Stderr           string
 	ExitCode         int
+	// EnvironmentOverrides lists the names of the explicit environment
+	// overrides applied to this invocation, in command-line occurrence order.
+	// Values are never recorded.
+	EnvironmentOverrides []string
 }
 
 // BuildError is one failed build: the earliest failing stage, a message,
@@ -68,6 +73,17 @@ func (err *BuildError) Error() string {
 	return fmt.Sprintf("%s: %s", err.Stage, err.Message)
 }
 
+// configurationFailure reports an invalid, duplicate, or unsafe command-line
+// or environment configuration.
+func configurationFailure(message string) *BuildError {
+	return &BuildError{Stage: StageConfiguration, Message: message}
+}
+
+// filesystemFailure reports a missing, unreadable, or wrong-kind input path.
+func filesystemFailure(message string) *BuildError {
+	return &BuildError{Stage: StageFilesystem, Message: message}
+}
+
 // BuildResult is one completed build: the published executable, the Hexal
 // version recorded once at project level, and the command record for every
 // external invocation. A failed build returns its populated result with
@@ -80,13 +96,37 @@ type BuildResult struct {
 }
 
 // BuildOptions carries what ADR 0055's Configuration section resolves from
-// flags and conventions. There is no project manifest in v1.
+// flags and conventions. There is no project manifest in v1. The `C*`,
+// `Objects`, and `SystemLibraries` fields are RFC 0192's explicit foreign
+// build inputs; they are driver configuration and never enter
+// compiler.Project or compiler.Compile.
 type BuildOptions struct {
 	Root       string    // source root; defaults to the working directory
 	Entrypoint string    // logical key; defaults to main.hex
 	OutDir     string    // intermediate root; defaults to <root>/build
 	Output     string    // executable path; defaults to <outdir>/<entrypoint>.exe
 	Mode       BuildMode // backend option set; defaults to debug
+	// CSources are foreign C translation units compiled separately and linked.
+	CSources []string
+	// CIncludeDirs are header search directories added to generated module and
+	// foreign C compilations.
+	CIncludeDirs []string
+	// CDefines are `name[=value]` preprocessor definitions applied to
+	// generated module and foreign C compilations.
+	CDefines []string
+	// CEnvironment are `NAME=VALUE` environment overrides applied to every
+	// external frontend, compiler, and linker invocation.
+	CEnvironment []string
+	// CStandard selects the dialect for every foreign C source; empty selects
+	// c17.
+	CStandard string
+	// Objects are precompiled object files to link in occurrence order.
+	Objects []string
+	// Archives are static archives to link in occurrence order.
+	Archives []string
+	// SystemLibraries are target system libraries linked by logical name in
+	// occurrence order.
+	SystemLibraries []string
 }
 
 // hexalFailureMessage renders the Hexal-stage failure. Ordinary diagnostics
@@ -132,16 +172,31 @@ func Build(options BuildOptions) (BuildResult, error) {
 	}
 	mode, err := resolveMode(options.Mode)
 	if err != nil {
-		return result, &BuildError{Stage: StageConfiguration, Message: err.Error()}
+		return result, configurationFailure(err.Error())
+	}
+
+	// Foreign build configuration is validated before any external command:
+	// its environment, dialect, definitions, and library names first, then its
+	// rooted paths.
+	foreign, foreignFailure := configureForeign(options)
+	if foreignFailure != nil {
+		return result, foreignFailure
+	}
+	if foreignFailure := foreign.resolveForeignRootedPaths(root, options); foreignFailure != nil {
+		return result, foreignFailure
 	}
 
 	if err := checkHost(); err != nil {
-		return result, &BuildError{Stage: StageConfiguration, Message: err.Error()}
+		return result, configurationFailure(err.Error())
 	}
 	backend, err := resolveBackend()
 	if err != nil {
-		return result, &BuildError{Stage: StageConfiguration, Message: err.Error()}
+		return result, configurationFailure(err.Error())
 	}
+	// Every generated-C, foreign-C, and link invocation runs under the one
+	// normalized effective environment; identity discovery above already ran
+	// under the inherited environment.
+	backend.Environment = foreign.environment
 
 	sources, err := discover(root, stagingPath(root, options.OutDir))
 	if err != nil {
@@ -172,11 +227,26 @@ func Build(options BuildOptions) (BuildResult, error) {
 	// The identity is derived before anything touches the filesystem, because
 	// it names the staging tree: every object path and the linked executable
 	// path end up inside the debug information, so they must be functions of
-	// the build's inputs rather than of a random directory name.
-	identity := buildIdentity(mode, backendIdentity(backend), compileResult.Files, compileResult.Dependencies, selected.Compile, selected.Link)
-	staging, err := identityStagingDir(outDir, identity)
-	if err != nil {
-		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
+	// the build's inputs rather than of a random directory name. A build with
+	// foreign inputs is the exception: the content-derived identity omits
+	// foreign file bytes, options, headers, and the effective environment, so
+	// it must never be reused as a cache key. Such a build receives a fresh
+	// private staging tree whose random token also names its published debug
+	// information, so two foreign builds can never claim one identity.
+	var identity string
+	var staging string
+	if foreign.active {
+		staging, err = freshStagingDir(outDir)
+		if err != nil {
+			return result, filesystemFailure(err.Error())
+		}
+		identity = strings.TrimPrefix(filepath.Base(staging), "build-")
+	} else {
+		identity = buildIdentity(mode, backendIdentity(backend), compileResult.Files, compileResult.Dependencies, selected.Compile, selected.Link)
+		staging, err = identityStagingDir(outDir, identity)
+		if err != nil {
+			return result, filesystemFailure(err.Error())
+		}
 	}
 	// The staging tree is disposable: every build removes its own tree once
 	// publication completes or fails, so repeated builds cannot accumulate
@@ -212,16 +282,30 @@ func Build(options BuildOptions) (BuildResult, error) {
 		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
 	}
 
+	backend.EnvironmentOverrides = foreign.overrideNames
+
 	compileOptions := append(selected.Compile, native.compileOptions...)
 	linkOptions := append(selected.Link, native.linkOptions...)
 
 	if err := compileNativeDependencies(backend, staging, native, &result); err != nil {
 		return result, err
 	}
-	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, compileOptions, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, compileOptions, foreign.moduleCompileOptions(), &result); err != nil {
 		return result, err
 	}
+	foreignObjects, foreignFailure := compileForeignSources(backend, staging, foreign, mode, &result)
+	if foreignFailure != nil {
+		return result, foreignFailure
+	}
+	// The five link groups in order: generated Hexal objects with their
+	// runtime dependencies in their existing deterministic order, compiled
+	// foreign-source objects, precompiled objects, static archives, then named
+	// system libraries as linker options.
 	objects := append(cFilesToObjects(staging, cFiles), native.linkObjects...)
+	objects = append(objects, foreignObjects...)
+	objects = append(objects, foreign.Objects...)
+	objects = append(objects, foreign.Archives...)
+	linkOptions = append(linkOptions, foreign.systemLibraryOptions()...)
 
 	// The executable is linked in staging under a basename carrying the build
 	// identity, so the backend names its debug information after that exact
@@ -422,23 +506,32 @@ func cFilesToObjects(staging string, cFiles []string) []string {
 // compileTranslationUnitsWithOptions compiles every generated .c in
 // deterministic logical-key order: one backend invocation per translation
 // unit, each its own C-compilation stage record with separated streams. The
-// caller supplies the complete option list, mode options included.
-func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string, cFiles, options []string, result *BuildResult) error {
+// caller supplies the complete option list, mode options included. moduleOptions
+// carries the RFC 0192 user include and define arguments and reaches only
+// generated module translation units (`modules/*.c`): compiler-owned runtime
+// components and bundled dependencies never see user options, and the
+// compiler-owned staging include root precedes them so user input cannot
+// shadow hexal.h or a bundled component header.
+func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string, cFiles, options, moduleOptions []string, result *BuildResult) error {
 	for _, source := range cFiles {
 		object := strings.TrimSuffix(source, ".c") + ".o"
 		compileOptions := append([]string{"-I", staging}, options...)
+		if isModuleTranslationUnit(staging, source) {
+			compileOptions = append(compileOptions, moduleOptions...)
+		}
 		invocation, err := backend.CompileOne(qualifiedTriple, compileOptions, source, object)
 		if err != nil {
 			return &BuildError{Stage: StageCompile, Message: fmt.Sprintf("cannot run backend: %v", err)}
 		}
 		result.Commands = append(result.Commands, CommandResult{
-			Stage:            StageCompile,
-			Tool:             backend.Exe,
-			Arguments:        invocation.Args,
-			WorkingDirectory: staging,
-			Stdout:           invocation.Stdout,
-			Stderr:           invocation.Stderr,
-			ExitCode:         invocation.ExitCode,
+			Stage:                StageCompile,
+			Tool:                 backend.Exe,
+			Arguments:            invocation.Args,
+			WorkingDirectory:     staging,
+			Stdout:               invocation.Stdout,
+			Stderr:               invocation.Stderr,
+			ExitCode:             invocation.ExitCode,
+			EnvironmentOverrides: append([]string(nil), backend.EnvironmentOverrides...),
 		})
 		if invocation.ExitCode != 0 {
 			return &BuildError{
@@ -451,6 +544,17 @@ func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string
 	return nil
 }
 
+// isModuleTranslationUnit reports whether source is one of a module's own
+// generated translation units. Component and dependency C are compiler-owned;
+// only module C carries user code that may include a foreign header.
+func isModuleTranslationUnit(staging, source string) bool {
+	relative, err := filepath.Rel(staging, source)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(filepath.ToSlash(relative), "modules/")
+}
+
 // linkObjectsWithOptions links every object through the backend in
 // deterministic order into executable, which the caller places in staging so
 // a failed link can never disturb a published executable. The backend owns
@@ -461,13 +565,14 @@ func linkObjectsWithOptions(backend *backend.Backend, staging string, objects, o
 		return &BuildError{Stage: StageLink, Message: fmt.Sprintf("cannot run backend: %v", err)}
 	}
 	result.Commands = append(result.Commands, CommandResult{
-		Stage:            StageLink,
-		Tool:             backend.Exe,
-		Arguments:        invocation.Args,
-		WorkingDirectory: staging,
-		Stdout:           invocation.Stdout,
-		Stderr:           invocation.Stderr,
-		ExitCode:         invocation.ExitCode,
+		Stage:                StageLink,
+		Tool:                 backend.Exe,
+		Arguments:            invocation.Args,
+		WorkingDirectory:     staging,
+		Stdout:               invocation.Stdout,
+		Stderr:               invocation.Stderr,
+		ExitCode:             invocation.ExitCode,
+		EnvironmentOverrides: append([]string(nil), backend.EnvironmentOverrides...),
 	})
 	if invocation.ExitCode != 0 {
 		return &BuildError{

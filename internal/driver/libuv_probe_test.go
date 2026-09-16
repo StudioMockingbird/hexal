@@ -192,7 +192,7 @@ int main(void) {
 	if err := os.WriteFile(fixture, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, nil, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
@@ -334,7 +334,7 @@ int main(void) {
 	if err := os.WriteFile(fixture, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, nil, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
@@ -464,7 +464,7 @@ int main(void) {
 	if err := os.WriteFile(fixture, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, nil, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
@@ -684,7 +684,7 @@ int main(void) {
 		t.Fatal(err)
 	}
 	eventSource := filepath.Join(staging, "hexal", "event.c")
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource, fixture}, native.compileOptions, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource, fixture}, native.compileOptions, nil, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(eventSource, ".c") + ".o", strings.TrimSuffix(fixture, ".c") + ".o"}

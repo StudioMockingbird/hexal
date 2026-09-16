@@ -24,6 +24,16 @@ type Backend struct {
 	// needs reproducible debug information must pin it to a path derived from
 	// the build's inputs rather than from wherever the user happened to stand.
 	Directory string
+	// Environment is the complete child environment for every build
+	// invocation the driver makes: the launching process environment with the
+	// explicit overrides already merged, deterministically ordered. Nil means
+	// inherit the parent environment unchanged, which is what identity
+	// discovery uses before any override is known.
+	Environment []string
+	// EnvironmentOverrides names the explicit `-c-env` overrides in
+	// occurrence order, for secret-safe command records. It never carries a
+	// value.
+	EnvironmentOverrides []string
 }
 
 var libDirPattern = regexp.MustCompile(`\.lib_dir\s*=\s*"((?:[^"\\]|\\.)*)"`)
@@ -32,20 +42,22 @@ var clangVersionPattern = regexp.MustCompile(`(?m)^(?:zig\s*:\s*)?clang version 
 // NewBackend opens the Zig distribution rooted at exe and reads its
 // identity: exact version, lib_dir from `zig env`, and the bundled Clang
 // version from `zig cc -v`. Callers supply the path; nothing here searches
-// for it.
+// for it. Discovery inherits the launching process environment: overrides
+// apply to a build's compilation and linking, not to selecting or
+// version-qualifying the backend executable.
 func NewBackend(exe string) (*Backend, error) {
-	version, err := output(exe, "", "version")
+	version, err := output(exe, "", nil, "version")
 	if err != nil {
 		return nil, fmt.Errorf("zig version failed for %q: %w", exe, err)
 	}
 	backend := &Backend{Exe: exe, Version: strings.TrimSpace(version.Stdout)}
-	env, err := output(exe, "", "env")
+	env, err := output(exe, "", nil, "env")
 	if err == nil {
 		if match := libDirPattern.FindStringSubmatch(env.Stdout); match != nil {
 			backend.LibDir = strings.ReplaceAll(match[1], `\\`, `\`)
 		}
 	}
-	ccVersion, err := output(exe, "", "cc", "-v")
+	ccVersion, err := output(exe, "", nil, "cc", "-v")
 	if err == nil {
 		combined := ccVersion.Stdout + ccVersion.Stderr
 		if match := clangVersionPattern.FindStringSubmatch(combined); match != nil {
@@ -110,9 +122,10 @@ type Result struct {
 	ExitCode int
 }
 
-func output(exe, directory string, args ...string) (Result, error) {
+func output(exe, directory string, environment []string, args ...string) (Result, error) {
 	command := exec.Command(exe, args...)
 	command.Dir = directory
+	command.Env = environment
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -134,10 +147,11 @@ func output(exe, directory string, args ...string) (Result, error) {
 
 // Run invokes the backend executable with args, capturing separated streams
 // and the exit status. A non-zero exit is data in the result, not a Go
-// error: callers decide what a status means for their stage.
+// error: callers decide what a status means for their stage. Every
+// invocation runs under the backend's effective environment.
 func (backend *Backend) Run(args ...string) (Result, error) {
 	if backend == nil || backend.Exe == "" {
 		return Result{}, fmt.Errorf("no backend selected")
 	}
-	return output(backend.Exe, backend.Directory, args...)
+	return output(backend.Exe, backend.Directory, backend.Environment, args...)
 }

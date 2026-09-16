@@ -105,6 +105,21 @@ func Options(mode BuildMode) ModeOptions {
 	}
 }
 
+// ForeignCompileOptions returns the mode's optimization and debug-information
+// choices for a foreign C translation unit. It deliberately drops the mode's
+// undefined-behavior backstop flags: that instrumentation is a check on
+// Hexal-generated C and is never imposed on unmodified third-party source.
+func ForeignCompileOptions(mode BuildMode) []string {
+	options := make([]string, 0, len(modeOptionTable[mode].Compile))
+	for _, option := range modeOptionTable[mode].Compile {
+		if strings.Contains(option, "sanitize") {
+			continue
+		}
+		options = append(options, option)
+	}
+	return options
+}
+
 // resolveMode applies the default and rejects an unrecognized value before
 // any compilation runs.
 func resolveMode(mode BuildMode) (BuildMode, error) {

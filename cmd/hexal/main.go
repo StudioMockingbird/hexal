@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"hexal/internal/driver"
 	"hexal/internal/version"
@@ -77,10 +78,22 @@ usage:
   hexal help              print this message
 
 build options:
-  -mode <name>      debug or release (default: debug)
-  -root <dir>       source root (default: current directory)
-  -entry <key>      entrypoint logical key (default: main.hex)
-  -out <path>       executable path (default: <root>/build/<entry>)
+  -mode <name>          debug or release (default: debug)
+  -root <dir>           source root (default: current directory)
+  -entry <key>          entrypoint logical key (default: main.hex)
+  -out <path>           executable path (default: <root>/build/<entry>)
+  -c-source <path>      compile and link one foreign C source (repeatable)
+  -c-include <dir>      add one C header search directory (repeatable)
+  -c-define <name[=v]>  define one C preprocessor macro (repeatable)
+  -c-env <name=value>   override one environment variable for every C tool (repeatable)
+  -c-standard <dialect> C dialect for foreign sources: c89, c99, c11, c17, c23
+                        or their gnu forms (default: c17)
+  -object <path>        link one precompiled object (repeatable)
+  -archive <path>       link one static archive (repeatable)
+  -system-library <name> link one system library by logical name (repeatable)
+
+Every relative foreign-input path resolves against -root. Generated Hexal
+translation units remain C23; foreign sources use -c-standard.
 
 Modes never change program behavior: generated C, output, and runtime trap
 messages are identical. debug is unoptimized with debug information and an
@@ -93,10 +106,19 @@ func build(args []string) error {
 	flags.SetOutput(os.Stderr)
 	var options driver.BuildOptions
 	var mode string
+	var cSources, cIncludeDirs, cDefines, cEnvironment, objects, archives, systemLibraries stringList
 	flags.StringVar(&mode, "mode", "", "build mode: debug or release")
 	flags.StringVar(&options.Root, "root", "", "source root")
 	flags.StringVar(&options.Entrypoint, "entry", "", "entrypoint logical key")
 	flags.StringVar(&options.Output, "out", "", "executable path")
+	flags.Var(&cSources, "c-source", "compile and link one foreign C source (repeatable)")
+	flags.Var(&cIncludeDirs, "c-include", "add one C header search directory (repeatable)")
+	flags.Var(&cDefines, "c-define", "define one C preprocessor macro NAME[=VALUE] (repeatable)")
+	flags.Var(&cEnvironment, "c-env", "override one environment variable NAME=VALUE for every C tool (repeatable)")
+	flags.StringVar(&options.CStandard, "c-standard", "", "C dialect for foreign sources (default: c17)")
+	flags.Var(&objects, "object", "link one precompiled object (repeatable)")
+	flags.Var(&archives, "archive", "link one static archive (repeatable)")
+	flags.Var(&systemLibraries, "system-library", "link one system library by logical name (repeatable)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -107,12 +129,37 @@ func build(args []string) error {
 		return err
 	}
 	options.Mode = parsed
+	options.CSources = cSources
+	options.CIncludeDirs = cIncludeDirs
+	options.CDefines = cDefines
+	options.CEnvironment = cEnvironment
+	options.Objects = objects
+	options.Archives = archives
+	options.SystemLibraries = systemLibraries
 
 	result, err := driver.Build(options)
 	if err != nil {
 		return err
 	}
 	fmt.Println(result.Executable)
+	return nil
+}
+
+// stringList is one repeatable string flag value: it preserves command-line
+// occurrence order and rejects an empty operand, which no option accepts.
+// Comma splitting is never performed: a value containing a comma is one
+// option.
+type stringList []string
+
+func (list *stringList) String() string {
+	return strings.Join(*list, ",")
+}
+
+func (list *stringList) Set(value string) error {
+	if value == "" {
+		return fmt.Errorf("empty operand")
+	}
+	*list = append(*list, value)
 	return nil
 }
 
