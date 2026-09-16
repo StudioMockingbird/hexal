@@ -14,7 +14,6 @@ gets deleted.
 | Work | Spec |
 | --- | --- |
 | Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | [0039](specs/0039-c-interop-compiler-core.md) |
-| Check every reachable open generic body at declaration, rejecting only errors that hold for every substitution | [0211](specs/0211-generic-declaration-checking.md) |
 
 ### Design settled; implementation blocked
 

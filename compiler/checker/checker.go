@@ -579,6 +579,16 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 		}
 	}
 
+	// Pass 2.5: structurally check every open generic body with its
+	// parameters bound to placeholders, now that every module-level
+	// signature exists. A failure means the template is invalid for every
+	// substitution, so the module cannot continue: its declarations are not
+	// published and no specialization of it is emitted.
+	if genericDiagnostics := checkOpenGenericDeclarations(items, ctx); len(genericDiagnostics) > 0 {
+		diagnostics = append(diagnostics, genericDiagnostics...)
+		return checked, diagnostics
+	}
+
 	// Pass 3: check every function and method body against the complete
 	// signature set pass 2 collected, and every root executable statement
 	// in source order, exactly as before order-independent visibility.
@@ -883,6 +893,15 @@ func executableItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 // assignable reports whether source may initialize or assign to target. The
 // single exception to identical types is outermost-layer weakening: Ptr<mut T>
 // is acceptable where Ptr<T> is expected, with every layer below identical.
+//
+// A check whose target or source contains an open type parameter is
+// substitution-dependent: some concrete argument can make the pair identical
+// or widenable, so it is deferred to specialization rather than rejected at
+// declaration. The concrete specialization carries no type parameter, so its
+// own check is unaffected.
 func assignable(target, source compilerTypes.Type) bool {
+	if compilerTypes.ContainsTypeParameter(target) || compilerTypes.ContainsTypeParameter(source) {
+		return true
+	}
 	return compilerTypes.Assignable(target, source)
 }

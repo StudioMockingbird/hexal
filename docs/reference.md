@@ -781,8 +781,22 @@ HeapAllocation
   operators.
 - A generic function value needs an exact expected Fun type. Generic methods inherit receiver
   arguments and infer or explicitly receive their own.
-- Bodies are checked structurally at declaration and rechecked after substitution. Same-argument
-  recursive specialization is allowed; argument-changing recursive cycles are rejected.
+- An open generic body is checked once at declaration, after the defining module's complete
+  signature collection, with each type parameter bound to its existing placeholder, and is fully
+  rechecked after substitution. Each diagnostic condition is classified independently: a condition
+  runs at declaration when substitution cannot change whether it applies, and is deferred to
+  specialization only when some substitution could make it succeed. Name resolution, independent
+  typing, known-callee arity, control flow, mutability of places, generic-parameter use, and local
+  cleanup facts are checked at declaration; operators, member and method access on a dependent
+  receiver, assignment between a dependent and a different type, equality/ordering/printing/hashing
+  and placement of a dependent type, conversions involving a dependent type, nested specialization
+  with dependent arguments, and the callability and arity of a dependent callee are deferred. A
+  dependent type defers only the conditions it participates in: a deferred operation still checks
+  its independent subexpressions, such as an unknown argument name. A template that fails
+  declaration checking is unavailable for specialization, so its diagnostic is not repeated per
+  specialization. Checking is diagnostic-only: an unused generic changes no generated artifact and
+  consumes no binding or helper ordinal. Same-argument recursive specialization is allowed;
+  argument-changing recursive cycles are rejected.
 - A qualified generic type is `Alias.Name<Arguments>`, valid in an annotation, as a struct
   construction (`Alias.Name<Arguments>(...)`, or `Alias.Name(...)` when the arguments are inferred),
   and as the receiver of an exported generic method. It resolves exported types only, with the same

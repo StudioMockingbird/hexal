@@ -897,6 +897,11 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 		if len(arguments) != open.Generic.Arity {
 			return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "explicit generic argument count does not match declaration"))}
 		}
+		// A nested specialization whose own arguments are open type
+		// parameters is substitution-dependent; defer it.
+		if genericOpen(ctx) && dependentArgument(arguments) {
+			return deferGenericCall(open, call, ctx, token)
+		}
 	} else {
 		argumentTypes := make([]compilerTypes.Type, 0, len(call.Arguments))
 		for _, argument := range call.Arguments {
@@ -908,6 +913,11 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 				return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, fmt.Sprintf("cannot infer generic parameter for %s", name)))}
 			}
 			argumentTypes = append(argumentTypes, checked.typ)
+		}
+		// Inferring a specialization from a dependent argument would bind a
+		// type parameter to an open placeholder; defer instead.
+		if genericOpen(ctx) && dependentArgument(argumentTypes) {
+			return deferGenericCall(open, call, ctx, token)
 		}
 		inferred, diagnostic := inferTypeArguments(open, argumentTypes, ctx)
 		if diagnostic != nil {

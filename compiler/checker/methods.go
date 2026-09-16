@@ -504,6 +504,13 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if (name == "to_le_bytes" || name == "to_be_bytes") && (compilerTypes.IsInteger(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
 		return checkEndianToBytesCall(call, callee, receiver, ctx)
 	}
+	// Member or method lookup on a receiver whose type is an open type
+	// parameter is substitution-dependent: the concrete argument decides
+	// whether the member exists at all. Defer it, but still check every
+	// argument so an independent error such as an unknown name is reported.
+	if genericOpen(ctx) && compilerTypes.ContainsTypeParameter(receiver.typ) {
+		return deferDependentMemberCall(call, callee, receiver, ctx)
+	}
 	// Volatile integer accesses dispatch on pointer receivers. A nullable
 	// receiver is excluded so the nullable-narrowing diagnostic below owns
 	// it.

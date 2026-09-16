@@ -1,7 +1,11 @@
 # RFC 0211: Generic Declaration-Time Checking
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Implemented. A post-signature-collection pass structurally checks
+  every open generic function, method, alias, object, and ADT with its
+  parameters bound to placeholders, using condition-specific deferral and a
+  diagnostic-only state transaction. Every Validation item is mapped to a
+  focused test, and the snippet SHA-256 manifest is byte-identical.
 - Created: 2026-09-15
 - Updated: 2026-09-16
 - Scope: check every open generic body once at its declaration, rejecting every

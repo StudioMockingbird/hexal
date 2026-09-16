@@ -59,10 +59,15 @@ func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.T
 	// Initializers are the boundary where exact constants can be retained. A
 	// later mutable read still becomes an expression through valueFromPlace.
 	checked := checkExpression(initializer, expressionContext{expected: expectedUse, foldConstants: true}, ctx)
-	if len(initializerDiagnostics(checked)) == 0 && expectedUse.Type.Name != "" && compilerTypes.IsUnion(expectedUse.Type) && !compilerTypes.Equal(expectedUse.Type, checked.typ) {
+	// A value whose type is an open type parameter may become a member of the
+	// expected union under some substitution, so union injection and physical
+	// reconciliation are deferred rather than rejected. The concrete
+	// specialization re-decides both.
+	dependentValue := compilerTypes.ContainsTypeParameter(checked.typ)
+	if len(initializerDiagnostics(checked)) == 0 && !dependentValue && expectedUse.Type.Name != "" && compilerTypes.IsUnion(expectedUse.Type) && !compilerTypes.Equal(expectedUse.Type, checked.typ) {
 		checked = injectIntoUnion(checked, expectedUse.Type)
 	}
-	if len(initializerDiagnostics(checked)) == 0 && expectedUse.Type.Name != "" {
+	if len(initializerDiagnostics(checked)) == 0 && !dependentValue && expectedUse.Type.Name != "" {
 		checked = reconcilePhysicalRepresentation(checked, expectedUse.Type)
 	}
 	if checked.token.Line == 0 {

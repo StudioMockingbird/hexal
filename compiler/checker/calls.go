@@ -90,6 +90,15 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 			calleeType = narrowed
 		}
 	}
+	// A binding whose type is an open type parameter has no known signature:
+	// callability and arity are substitution-dependent, so defer them while
+	// still checking each argument for an independent error.
+	if genericOpen(ctx) && compilerTypes.ContainsTypeParameter(calleeType) {
+		if diagnostics := checkDeferredArguments(call.Arguments, ctx); len(diagnostics) > 0 {
+			return checkedExpression{token: callee.Name, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+		}
+		return checkedExpression{typ: calleeType, token: callee.Name}
+	}
 	signature := calleeType.Signature
 	if signature == nil {
 		diagnostic := typeErrorAt(callee.Name, name+" is not callable")
@@ -303,6 +312,15 @@ func checkIndirectCall(call parser.CallExpression, ctx checkContext) checkedExpr
 		return checkedExpression{token: callee.token, diagnostics: diagnostics}
 	}
 	funType := callee.typ
+	// A callee whose type is an open type parameter has no known signature;
+	// callability and arity are substitution-dependent, so defer them while
+	// still checking each argument for an independent error.
+	if genericOpen(ctx) && compilerTypes.ContainsTypeParameter(funType) {
+		if diagnostics := checkDeferredArguments(call.Arguments, ctx); len(diagnostics) > 0 {
+			return checkedExpression{token: call.OpenParen, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+		}
+		return checkedExpression{typ: funType, token: call.OpenParen}
+	}
 	if isNullableFun(funType) {
 		diagnostic := typeErrorAt(call.OpenParen, funType.Name+" may be Nil; narrow it before calling it")
 		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
