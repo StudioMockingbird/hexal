@@ -79,12 +79,6 @@ func addressType() Type {
 	}
 }
 
-func init() {
-	builtinTypes["Address"] = AddressType
-	builtinTypes["TcpConnection"] = TcpConnectionType
-	builtinTypes["TcpListener"] = TcpListenerType
-}
-
 // IsAddress reports whether typ is the canonical Address ADT.
 func IsAddress(typ Type) bool { return typ.Adt != nil && typ.Adt == AddressType.Adt }
 

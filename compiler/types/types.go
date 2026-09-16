@@ -1025,7 +1025,34 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		// object pointer types Ptr<Unknown> and Ptr<mut Unknown>.
 		return throughPointer
 	}
+	if canonicalOpaqueTypes[typ.identity] {
+		// The moved capability handles and value types are compiler-owned
+		// canonical identities with no members to validate, but they are not
+		// scalars and are no longer in the protected-name registry.
+		return true
+	}
 	return isCanonicalScalar(environment, typ)
+}
+
+// canonicalOpaqueTypes is the identity set of compiler-owned capability types
+// that carry no members and no scalar shape, so canonicality is identity
+// alone. It is populated after every package-level type initializer runs.
+var canonicalOpaqueTypes map[*typeIdentity]bool
+
+func init() {
+	canonicalOpaqueTypes = map[*typeIdentity]bool{
+		IOType.identity:            true,
+		BytesType.identity:         true,
+		FileType.identity:          true,
+		TcpConnectionType.identity: true,
+		TcpListenerType.identity:   true,
+		ProcessType.identity:       true,
+		PipeType.identity:          true,
+		SignalsType.identity:       true,
+		DurationType.identity:      true,
+		InstantType.identity:       true,
+		WallTimeType.identity:      true,
+	}
 }
 
 func isCanonicalObject(environment *Environment, typ Type, state *canonicalTypeState) bool {
@@ -1230,7 +1257,7 @@ func IsProtectedTypeName(name string) bool {
 		return true
 	}
 	switch name {
-	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Slice", "Task", "Channel", "Atomic", "Stash", "Pool", "Dns", "Tcp", "Terminal":
+	case "Ptr", "MutPtr", "Fun", "Array", "List", "Dict", "View", "Slice", "Task", "Channel", "Atomic", "Stash", "Pool":
 		return true
 	}
 	return false

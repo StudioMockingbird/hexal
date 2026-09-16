@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 
+	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -21,6 +22,12 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		binding, status := ctx.names.lookup(expression.Name.Lexeme)
 		switch status {
 		case nameMissing:
+			if hint, moved := corelib.TypeHint(expression.Name.Lexeme); moved && !ctx.typeEnvironment.Contains(expression.Name.Lexeme) {
+				// An unresolved former capability name keeps the exact
+				// migration hint rather than a bare unknown-variable error.
+				diagnostic := nameErrorAt(expression.Name, hint)
+				return checkedExpression{token: expression.Name, diagnostic: &diagnostic}
+			}
 			return checkedExpression{
 				token:      expression.Name,
 				diagnostic: diagnosticAt(typeErrorAt(expression.Name, "unknown variable "+expression.Name.Lexeme)),

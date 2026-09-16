@@ -3,14 +3,32 @@
   "name": "Byte Streams",
   "snippets": [
     {
-      "id": "streams-standard-handles",
-      "name": "Standard handle write and close",
       "description": "Write bytes to stdout through IO, clean up with errdefer, and close explicitly.",
       "entrypoint": "app.hex",
+      "features": [
+        "streams",
+        "errors",
+        "try-errdefer",
+        "text"
+      ],
+      "id": "streams-standard-handles",
+      "name": "Standard handle write and close",
+      "reservedWords": [
+        "fun",
+        "do",
+        "end",
+        "try",
+        "errdefer",
+        "return",
+        "nil"
+      ],
       "sources": {
         "app.hex": [
+          "import",
+          "    Io from \"std/io\"",
+          "end",
           "fun announce(text: String): Nil | Error do",
-          "    out: IO := try IO.stdout()",
+          "    out: Io.IO := try Io.stdout()",
           "    errdefer out.close()",
           "    wrote: Size | Error := out.write(text.bytes())",
           "    newline: Size | Error := out.write(\"\\n\".bytes())",
@@ -19,45 +37,77 @@
           "end",
           "started: Nil | Error := announce(\"streams online\")"
         ]
-      },
-      "features": ["streams", "errors", "try-errdefer", "text"],
-      "reservedWords": ["fun", "do", "end", "try", "errdefer", "return", "nil"]
+      }
     },
     {
-      "id": "streams-bytes-memory",
-      "name": "Memory stream cursors",
       "description": "Mutate a memory stream through its mutable binding and show that copied streams advance independent cursors.",
       "entrypoint": "app.hex",
+      "features": [
+        "streams",
+        "lists",
+        "generics"
+      ],
+      "id": "streams-bytes-memory",
+      "name": "Memory stream cursors",
+      "reservedWords": [
+        "fun",
+        "do",
+        "end",
+        "mut",
+        "defer",
+        "return"
+      ],
       "sources": {
         "app.hex": [
+          "import",
+          "    Io from \"std/io\"",
+          "end",
           "fun roundtrip(h: Heap): Nil | Error do",
-          "    data: List<Byte> := List<Byte>(h)",
+          "    data: List\u003cByte\u003e := List\u003cByte\u003e(h)",
           "    defer data.free(h)",
-          "    dst: List<Byte> := List<Byte>(h)",
+          "    dst: List\u003cByte\u003e := List\u003cByte\u003e(h)",
           "    defer dst.free(h)",
-          "    mut stream: Bytes := Bytes.over(data)",
+          "    mut stream: Io.Bytes := Io.bytes_over(data)",
           "    wrote: Size | Error := stream.write(\"abc\".bytes())",
-          "    mut copy: Bytes := stream",
-          "    rewind: Size | Error := stream.seek(Seek.Start(position = 0))",
+          "    mut copy: Io.Bytes := stream",
+          "    rewind: Size | Error := stream.seek(Io.Seek.Start(position = 0))",
           "    first: Size | EoS | Error := stream.read(dst, 1)",
           "    alsoFirst: Size | EoS | Error := copy.read(dst, 1)",
           "    return nil",
           "end",
           "done: Nil | Error := roundtrip(Heap())"
         ]
-      },
-      "features": ["streams", "lists", "generics"],
-      "reservedWords": ["fun", "do", "end", "mut", "defer", "return"]
+      }
     },
     {
+      "description": "A single generic drain runs unchanged over an OS-backed IO stream and a Ptr\u003cmut Bytes\u003e memory stream.",
+      "entrypoint": "app.hex",
+      "features": [
+        "streams",
+        "generics",
+        "lists"
+      ],
       "id": "streams-generic-drain",
       "name": "One algorithm, two backends",
-      "description": "A single generic drain runs unchanged over an OS-backed IO stream and a Ptr<mut Bytes> memory stream.",
-      "entrypoint": "app.hex",
+      "reservedWords": [
+        "fun",
+        "do",
+        "end",
+        "if",
+        "then",
+        "is",
+        "mut",
+        "@",
+        "defer",
+        "return"
+      ],
       "sources": {
         "app.hex": [
-          "fun drain<S>(source: S, h: Heap): Size | Error do",
-          "    buf: List<Byte> := List<Byte>(h)",
+          "import",
+          "    Io from \"std/io\"",
+          "end",
+          "fun drain\u003cS\u003e(source: S, h: Heap): Size | Error do",
+          "    buf: List\u003cByte\u003e := List\u003cByte\u003e(h)",
           "    defer buf.free(h)",
           "    n: Size | EoS | Error := source.read(buf, 64)",
           "    if n is EoS then",
@@ -66,37 +116,57 @@
           "    return n",
           "end",
           "fun run(h: Heap): Nil | Error do",
-          "    data: List<Byte> := List<Byte>(h)",
+          "    data: List\u003cByte\u003e := List\u003cByte\u003e(h)",
           "    defer data.free(h)",
-          "    mut live: Bytes := Bytes.over(data)",
-          "    out: IO := try IO.stdout()",
-          "    fromOS: Size | Error := drain<IO>(out, h)",
-          "    fromMemory: Size | Error := drain<Ptr<mut Bytes>>(@live, h)",
+          "    mut live: Io.Bytes := Io.bytes_over(data)",
+          "    out: Io.IO := try Io.stdout()",
+          "    fromOS: Size | Error := drain\u003cIo.IO\u003e(out, h)",
+          "    fromMemory: Size | Error := drain\u003cPtr\u003cmut Io.Bytes\u003e\u003e(@live, h)",
           "    return nil",
           "end",
           "done: Nil | Error := run(Heap())"
         ]
-      },
-      "features": ["streams", "generics", "lists"],
-      "reservedWords": ["fun", "do", "end", "if", "then", "is", "mut", "@", "defer", "return"]
+      }
     },
     {
-      "id": "streams-seek-and-eos",
-      "name": "Seek positions and end of input",
       "description": "Move a memory stream with Start, Current, and End seeks, then observe eos when the source drains.",
       "entrypoint": "app.hex",
+      "features": [
+        "streams",
+        "adts",
+        "unions",
+        "errors"
+      ],
+      "id": "streams-seek-and-eos",
+      "name": "Seek positions and end of input",
+      "reservedWords": [
+        "fun",
+        "do",
+        "end",
+        "if",
+        "then",
+        "is",
+        "mut",
+        "defer",
+        "try",
+        "return",
+        "nil"
+      ],
       "sources": {
         "app.hex": [
+          "import",
+          "    Io from \"std/io\"",
+          "end",
           "fun sample(h: Heap): Nil | Error do",
-          "    data: List<Byte> := List<Byte>(h)",
+          "    data: List\u003cByte\u003e := List\u003cByte\u003e(h)",
           "    defer data.free(h)",
-          "    dst: List<Byte> := List<Byte>(h)",
+          "    dst: List\u003cByte\u003e := List\u003cByte\u003e(h)",
           "    defer dst.free(h)",
-          "    mut stream: Bytes := Bytes.over(data)",
+          "    mut stream: Io.Bytes := Io.bytes_over(data)",
           "    wrote: Size | Error := stream.write(\"abcd\".bytes())",
-          "    home: Size | Error := stream.seek(Seek.Start(position = 0))",
-          "    ahead: Size | Error := stream.seek(Seek.Current(offset = 2))",
-          "    back: Size | Error := stream.seek(Seek.End(offset = -4))",
+          "    home: Size | Error := stream.seek(Io.Seek.Start(position = 0))",
+          "    ahead: Size | Error := stream.seek(Io.Seek.Current(offset = 2))",
+          "    back: Size | Error := stream.seek(Io.Seek.End(offset = -4))",
           "    drained: Size | EoS | Error := stream.read(dst, 99)",
           "    if drained is EoS then",
           "        return nil",
@@ -106,28 +176,47 @@
           "end",
           "sampled: Nil | Error := sample(Heap())"
         ]
-      },
-      "features": ["streams", "adts", "unions", "errors"],
-      "reservedWords": ["fun", "do", "end", "if", "then", "is", "mut", "defer", "try", "return", "nil"]
+      }
     },
     {
-      "id": "streams-file-round-trip",
-      "name": "File round trip",
       "description": "Write, flush, reopen, and read a regular file, and branch on a portable Error kind.",
       "entrypoint": "app.hex",
+      "features": [
+        "files",
+        "streams",
+        "errors",
+        "defer"
+      ],
+      "id": "streams-file-round-trip",
+      "name": "File round trip",
+      "reservedWords": [
+        "fun",
+        "do",
+        "end",
+        "try",
+        "defer",
+        "if",
+        "is",
+        "then",
+        "return",
+        "nil"
+      ],
       "sources": {
         "app.hex": [
+          "import",
+          "    Fs from \"std/fs\"",
+          "end",
           "fun round_trip(h: Heap): Nil | Error do",
-          "    out := try File.open(\"notes.txt\", FileMode.Write())",
+          "    out := try Fs.open(\"notes.txt\", Fs.FileMode.Write())",
           "    defer out.close()",
           "    wrote := try out.write(\"hello file\\n\".bytes())",
           "    try out.flush()",
-          "    input := try File.open(\"notes.txt\", FileMode.Read())",
+          "    input := try Fs.open(\"notes.txt\", Fs.FileMode.Read())",
           "    defer input.close()",
-          "    buffer: List<Byte> := List<Byte>(h)",
+          "    buffer: List\u003cByte\u003e := List\u003cByte\u003e(h)",
           "    defer buffer.free(h)",
           "    got: Size | EoS | Error := input.read(buffer, 4096)",
-          "    missing := File.open(\"settings.toml\", FileMode.Read())",
+          "    missing := Fs.open(\"settings.toml\", Fs.FileMode.Read())",
           "    if missing is Error then",
           "        if missing.kind == ErrorKind.NotFound() then",
           "            print(\"using defaults\\n\")",
@@ -137,9 +226,7 @@
           "end",
           "done: Nil | Error := round_trip(Heap())"
         ]
-      },
-      "features": ["files", "streams", "errors", "defer"],
-      "reservedWords": ["fun", "do", "end", "try", "defer", "if", "is", "then", "return", "nil"]
+      }
     }
   ]
 }

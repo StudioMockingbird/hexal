@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 
+	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -124,10 +125,13 @@ func checkSpawnExpression(expression parser.SpawnExpression, ctx checkContext) c
 func checkTaskTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme == "sleep" {
-		return checkTaskSleepCall(call, property, ctx)
+		if hint, moved := corelib.OperationHint("Task", "sleep"); moved {
+			diagnostic := nameErrorAt(callee, hint)
+			return checkedExpression{token: callee, diagnostic: &diagnostic}
+		}
 	}
 	if property.Lexeme != "yield" || len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Task has no such operation; use Task.yield() or Task.sleep(duration)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Task has no such operation; use Task.yield()"))}
 	}
 	if !ctx.names.inFunction() {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Task.yield() is valid only inside a function"))}

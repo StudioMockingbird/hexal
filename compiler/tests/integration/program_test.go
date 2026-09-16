@@ -201,6 +201,23 @@ func TestEntropyFillDirectAndTask(t *testing.T) {
 	}
 }
 
+// An unresolved moved name reports the exact migration hint; a user
+// declaration of the same name resolves without one.
+func TestCorelibMigrationDiagnostics(t *testing.T) {
+	for _, testCase := range []struct{ source, want string }{
+		{"fun f(x: File) do\nend\n", "File is declared in std/fs; add `Fs from \"std/fs\"` to the import block"},
+		{"x := File.open(\"a\", 1)\n", "File.open is now open in std/fs; add `Fs from \"std/fs\"` and call `Fs.open`"},
+		{"x: Dns := 1\n", "Dns is removed; resolve is a function in std/net"},
+		{"x := Signals(0)\n", "Signals is now subscribe in std/signal; add `Sig from \"std/signal\"` and call `Sig.subscribe`"},
+		{"fun f() do\n    Task.sleep(5)\nend\n", "Task.sleep is now sleep in std/time; add `Time from \"std/time\"` and call `Time.sleep`"},
+	} {
+		assertRejects(t, testCase.source, testCase.want)
+	}
+	// A user declaration of a freed name never receives a hint.
+	assertCompiles(t, "type File is struct id: Int32 end\nfun f(x: File) do\nend\n")
+	assertCompiles(t, "type Dns is struct id: Int32 end\n")
+}
+
 // Importing a core library without calling it emits no component.
 func TestCorelibImportAloneEmitsNothing(t *testing.T) {
 	result := assertCompiles(t, "import\n    Prog from \"std/program\",\n    Ent from \"std/entropy\"\nend\nvalue: Int32 := 1\n")

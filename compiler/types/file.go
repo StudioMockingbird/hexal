@@ -39,11 +39,6 @@ func fileModeType() Type {
 	}
 }
 
-func init() {
-	builtinTypes["File"] = FileType
-	builtinTypes["FileMode"] = FileModeType
-}
-
 // IsFile reports whether typ is the canonical File handle type.
 func IsFile(typ Type) bool { return typ.identity != nil && typ.identity == FileType.identity }
 

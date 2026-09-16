@@ -870,6 +870,14 @@ func (parser *Parser) matchPattern(typeMode bool) (MatchPattern, error) {
 		owner := parser.advance()
 		parser.advance()
 		name := parser.advance()
+		// A third identifier after another "." is the Alias.Adt.Variant form;
+		// the two-part form stays neutral so an import alias owner can later
+		// resolve as a qualified type.
+		if parser.check(lexer.Dot) && parser.peekAt(1).Kind == lexer.Identifier {
+			parser.advance()
+			member := parser.advance()
+			return DottedPattern{Owner: owner, Name: name, Member: member}, nil
+		}
 		return DottedPattern{Owner: owner, Name: name}, nil
 	}
 	typeExpression, err := parser.primaryTypeExpression()

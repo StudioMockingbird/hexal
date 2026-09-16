@@ -574,12 +574,15 @@ type VariantPattern struct {
 
 func (VariantPattern) matchPatternNode() {}
 
-// DottedPattern is a syntactically neutral `Owner.Name` match arm. The
-// checker classifies it as an ADT variant or a qualified type from the
-// scrutinee domain and module context; the parser assigns no meaning.
+// DottedPattern is a syntactically neutral `Owner.Name` or
+// `Owner.Adt.Name` match arm. The checker classifies it as an ADT variant or a
+// qualified type from the scrutinee domain and module context; the parser
+// assigns no meaning. Member is the zero token for the two-part form and the
+// variant name for the three-part `Alias.Adt.Variant` form.
 type DottedPattern struct {
-	Owner lexer.Token
-	Name  lexer.Token
+	Owner  lexer.Token
+	Name   lexer.Token
+	Member lexer.Token
 }
 
 func (DottedPattern) matchPatternNode() {}

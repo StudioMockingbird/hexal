@@ -391,6 +391,13 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 				if typeValue, ok := checkQualifiedTypeConstructorCall(call, callee.Property, target, expectedType, ctx); ok {
 					return typeValue
 				}
+				if typ, ok := corelib.LookupType(target, callee.Property.Lexeme); ok {
+					// The name is an exported type that is not constructible
+					// (a handle or scalar-shaped value), never a visibility
+					// failure.
+					diagnostic := typeErrorAt(callee.Property, typ.Name+" is not a constructible type")
+					return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+				}
 				diagnostic := privateToModuleDiagnostic(callee.Property, callee.Property.Lexeme, target)
 				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 			}
@@ -398,9 +405,6 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 				if _, genericOk := ctx.names.registry.genericFunction(target, callee.Property.Lexeme); !genericOk {
 					if typeValue, ok := checkQualifiedTypeConstructorCall(call, callee.Property, target, expectedType, ctx); ok {
 						return typeValue
-					}
-					if adtValue, ok := checkModuleVariantConstructorCall(call, variable.Name.Lexeme, callee.Property, target, ctx); ok {
-						return adtValue
 					}
 				}
 			}
@@ -419,34 +423,11 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 			}
 		}
 	}
-	// Address.parse(text, port), Dns.resolve(heap, host, service), and
-	// Tcp.connect/listen(...) name their built-in namespaces by their own
-	// operation name, ahead of ADT-variant construction below so
-	// Address.IPv4/IPv6 still resolve as ordinary variant constructors.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Address" && name == "parse" {
-		return checkAddressTypeCall(call, variable, ctx)
-	}
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Dns" && name == "resolve" {
-		return checkDnsTypeCall(call, variable, ctx)
-	}
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Tcp" && (name == "connect" || name == "listen") {
-		return checkTcpTypeCall(call, variable, ctx)
-	}
-	// Terminal.is_attached(stream) and Terminal.size(stream) name the
-	// built-in namespace by its own operation name, exactly like Dns and Tcp
-	// above.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Terminal" && (name == "is_attached" || name == "size") {
-		return checkTerminalTypeCall(call, variable, ctx)
-	}
-	// Process.start(options) names the built-in Process type by its own
-	// operation name.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Process" && name == "start" {
-		return checkProcessTypeCall(call, variable, ctx)
-	}
-	// Owner.Variant(...) where Owner names an ADT (or a generic ADT
-	// template): the current construction syntax for ADT variants. This
-	// precedes every other dispatch below because it needs call arguments to
-	// carry labels, which every other dispatch in this function rejects.
+	// Owner.Variant(...) where Owner names a locally visible ADT (or a
+	// generic ADT template): the current construction syntax for ADT
+	// variants. This precedes every other dispatch below because it needs
+	// call arguments to carry labels, which every other dispatch in this
+	// function rejects.
 	if adtValue, ok := checkQualifiedVariantCall(call, callee, expectedType, ctx); ok {
 		return adtValue
 	}
@@ -467,23 +448,6 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Task" {
 		return checkTaskTypeCall(call, variable.Name, ctx)
 	}
-	// IO.stdin()/stdout()/stderr() name the built-in IO type.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "IO" {
-		return checkIOTypeCall(call, variable, ctx)
-	}
-	// Duration.<unit>(value), Instant.now(), and WallTime.now() name the
-	// built-in time types.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && (variable.Name.Lexeme == "Duration" || variable.Name.Lexeme == "Instant" || variable.Name.Lexeme == "WallTime") {
-		return checkTimeTypeCall(call, variable, ctx)
-	}
-	// File.open(path, mode) names the built-in File type.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "File" {
-		return checkFileTypeCall(call, variable, ctx)
-	}
-	// Bytes.over(buffer) names the built-in Bytes type.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Bytes" {
-		return checkBytesTypeCall(call, variable, ctx)
-	}
 	// Int32.from_le_bytes(...) names a fixed-width integer type, not an
 	// integer value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable &&
@@ -497,6 +461,16 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && callee.Property.Lexeme == "new" && compilerTypes.IsProtectedTypeName(variable.Name.Lexeme) {
 		diagnostic := typeErrorAt(callee.Property, "constructors use '"+variable.Name.Lexeme+"(...)', not '.new(...)'")
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	// A former static operation on a moved capability namespace keeps its
+	// exact migration hint instead of a bare unknown-variable error.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && !ctx.typeEnvironment.Contains(variable.Name.Lexeme) {
+		if _, status := ctx.names.lookup(variable.Name.Lexeme); status == nameMissing {
+			if hint, moved := corelib.OperationHint(variable.Name.Lexeme, name); moved {
+				diagnostic := nameErrorAt(variable.Name, hint)
+				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+			}
+		}
 	}
 	receiver := checkedExpression{}
 	switch callee.Receiver.(type) {

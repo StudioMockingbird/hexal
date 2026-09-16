@@ -16,9 +16,5 @@ func terminalSizeType() Type {
 	})
 }
 
-func init() {
-	builtinTypes["TerminalSize"] = TerminalSizeType
-}
-
 // IsTerminalSize reports whether typ is the canonical TerminalSize object.
 func IsTerminalSize(typ Type) bool { return typ.Object != nil && typ.Object == TerminalSizeType.Object }

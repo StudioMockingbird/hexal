@@ -3,6 +3,7 @@ package checker
 import (
 	"fmt"
 
+	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -64,6 +65,12 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 	bound, status := ctx.names.lookup(name)
 	switch status {
 	case nameMissing:
+		if hint, moved := corelib.ConstructorHint(name); moved {
+			// An unresolved former fallible constructor keeps its exact
+			// migration hint.
+			diagnostic := nameErrorAt(callee.Name, hint)
+			return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
+		}
 		diagnostic := typeErrorAt(callee.Name, "unknown function "+name+"; functions must be declared before use")
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	case nameModuleData:
@@ -372,7 +379,7 @@ func checkArguments(callee string, expected []compilerTypes.TypeUse, written []p
 // only positional arguments, exactly like an ordinary call.
 func checkBareConstructorCall(call parser.CallExpression, callee parser.VariableExpression, expectedType compilerTypes.Type, ctx checkContext) (checkedExpression, bool) {
 	switch callee.Name.Lexeme {
-	case "Heap", "Stash", "Pool", "List", "Dict", "Channel", "Mutex", "Atomic", "Error", "Signals":
+	case "Heap", "Stash", "Pool", "List", "Dict", "Channel", "Mutex", "Atomic", "Error":
 		if diagnostic := rejectNamedArguments(call); diagnostic != nil {
 			return checkedExpression{token: callee.Name, diagnostic: diagnostic}, true
 		}
@@ -393,8 +400,6 @@ func checkBareConstructorCall(call parser.CallExpression, callee parser.Variable
 			return checkMutexTypeCall(call, callee.Name, ctx), true
 		case "Atomic":
 			return checkAtomicTypeCall(call, callee.Name, ctx), true
-		case "Signals":
-			return checkSignalsTypeCall(call, callee.Name, ctx), true
 		default: // "Error"
 			return checkErrorNewCall(call, callee.Name, ctx), true
 		}

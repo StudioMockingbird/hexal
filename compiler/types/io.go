@@ -60,12 +60,6 @@ func seekType() Type {
 // construction resolves through the ordinary qualified-variant path.
 var SeekType = seekType()
 
-func init() {
-	builtinTypes["IO"] = IOType
-	builtinTypes["Bytes"] = BytesType
-	builtinTypes["Seek"] = SeekType
-}
-
 // IsIO reports whether typ is the canonical IO stream type.
 func IsIO(typ Type) bool { return typ.identity != nil && typ.identity == IOType.identity }
 
@@ -100,10 +94,4 @@ func CapabilityFromConstructor(name string) (StreamCapability, bool) {
 		return StreamWritable, true
 	}
 	return StreamUnknown, false
-}
-
-func init() {
-	builtinTypes["IO"] = IOType
-	builtinTypes["Bytes"] = BytesType
-	builtinTypes["Seek"] = SeekType
 }

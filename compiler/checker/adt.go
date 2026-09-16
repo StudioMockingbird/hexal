@@ -175,19 +175,6 @@ func checkQualifiedVariantCall(call parser.CallExpression, callee parser.Propert
 	return checkVariantConstructorCall(call, owner.Name.Lexeme, adtType, variant, callee.Property, ctx), true
 }
 
-// checkModuleVariantConstructorCall resolves Owner.Variant(...) where Owner is
-// an import alias: the variant must belong to an exported ADT of the target
-// module. The second result is false when the target module exports no such
-// variant, so the caller falls through to the ordinary private-to-module
-// diagnostic used for an unresolved qualified call.
-func checkModuleVariantConstructorCall(call parser.CallExpression, ownerName string, property lexer.Token, target string, ctx checkContext) (initializerValue, bool) {
-	adtType, variant, ok := ctx.names.registry.findExportedADTVariant(target, property.Lexeme)
-	if !ok {
-		return initializerValue{}, false
-	}
-	return checkVariantConstructorCall(call, ownerName, adtType, variant, property, ctx), true
-}
-
 // checkQualifiedNestedVariantCall resolves Alias.Adt.Variant(...) where Adt is
 // a type exported by the target module (user or core library). The second
 // result is false when the target exports no such ADT, so the caller falls
@@ -525,6 +512,35 @@ func resolveDottedVariantArm(pattern parser.DottedPattern, scrutineeType compile
 	return nil, compilerTypes.Type{}, false
 }
 
+// resolveDottedQualifiedVariantArm resolves the three-part
+// `Alias.Adt.Variant` match arm: Owner names an import alias, Name an exported
+// ADT of that module (user or core library), and Member one of its variants.
+func resolveDottedQualifiedVariantArm(pattern parser.DottedPattern, ctx checkContext) (*compilerTypes.AdtVariant, compilerTypes.Type, bool) {
+	target, ok := ctx.names.importAliasTarget(pattern.Owner.Lexeme)
+	if !ok {
+		return nil, compilerTypes.Type{}, false
+	}
+	var adtType compilerTypes.Type
+	if corelib.IsModule(target) {
+		typ, found := corelib.LookupType(target, pattern.Name.Lexeme)
+		if !found || typ.Adt == nil {
+			return nil, compilerTypes.Type{}, false
+		}
+		adtType = typ
+	} else {
+		use, found := ctx.names.registry.exportedType(target, pattern.Name.Lexeme)
+		if !found || use.Type.Adt == nil {
+			return nil, compilerTypes.Type{}, false
+		}
+		adtType = use.Type
+	}
+	index := adtVariantIndex(adtType, pattern.Member.Lexeme)
+	if index < 0 {
+		return nil, compilerTypes.Type{}, false
+	}
+	return &adtType.Adt.Variants[index], adtType, true
+}
+
 // matchQualifiedNominal renders one nominal case for the exhaustiveness
 // diagnostic: an imported nominal through the current module's
 // lexicographically first alias, and a local, builtin, or otherwise
@@ -658,6 +674,24 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 		case parser.DottedPattern:
 			if !expression.TypeMode {
 				return checkedExpression{token: pattern.Name, diagnostic: diagnosticAt(typeErrorAt(pattern.Name, "type and variant patterns are not valid in value mode"))}
+			}
+			if pattern.Member.Lexeme != "" {
+				// Alias.Adt.Variant: the only qualified variant pattern.
+				adtVariant, ownerType, ok := resolveDottedQualifiedVariantArm(pattern, ctx)
+				if !ok {
+					return checkedExpression{token: pattern.Member, diagnostic: diagnosticAt(typeErrorAt(pattern.Member, fmt.Sprintf("unknown qualified variant %s.%s.%s", pattern.Owner.Lexeme, pattern.Name.Lexeme, pattern.Member.Lexeme)))}
+				}
+				if !isADT || !compilerTypes.Equal(scrutineeType, ownerType) {
+					return checkedExpression{token: pattern.Member, diagnostic: diagnosticAt(typeErrorAt(pattern.Member, "match pattern does not belong to the scrutinee type"))}
+				}
+				index := coverage.find(adtVariant.Name)
+				if index < 0 || !coverage.cover(index) {
+					return checkedExpression{token: pattern.Member, diagnostic: diagnosticAt(typeErrorAt(pattern.Member, "duplicate or unreachable match pattern"))}
+				}
+				if failed := finishArm(arm, coverage.cases[index].tag, adtVariant, nil); failed != nil {
+					return *failed
+				}
+				break
 			}
 			if _, isAlias := ctx.names.importAliasTarget(pattern.Owner.Lexeme); isAlias && !isADT {
 				// A union or exact scrutinee reads Owner.Name as the

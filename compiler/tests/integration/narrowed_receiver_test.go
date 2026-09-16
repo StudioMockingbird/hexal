@@ -9,7 +9,7 @@ import (
 // wherever it is a receiver: built-in handle methods, compiler conversions,
 // and object member selection.
 func TestNarrowedUnionReceiversReadPayload(t *testing.T) {
-	result := assertCompiles(t, "fun sq(v: Int32): Int32 do\n    return v * v\nend\n"+
+	result := assertCompiles(t, "import\n    Io from \"std/io\"\nend\nfun sq(v: Int32): Int32 do\n    return v * v\nend\n"+
 		"fun run(): Int64 do\n"+
 		"    t: Task<Int32> | Error := spawn sq(3)\n"+
 		"    if t is Task<Int32> then\n"+
@@ -19,7 +19,7 @@ func TestNarrowedUnionReceiversReadPayload(t *testing.T) {
 		"    if x is Int32 then\n"+
 		"        return x.to<Int64>()\n"+
 		"    end\n"+
-		"    e: IO | Error := IO.stdin()\n"+
+		"    e: Io.IO | Error := Io.stdin()\n"+
 		"    if e is Error then\n"+
 		"        print(e.header())\n"+
 		"    end\n"+
@@ -41,10 +41,10 @@ func TestNarrowedUnionReceiversReadPayload(t *testing.T) {
 // A try whose success union keeps a tag-only member (EoS or Nil) rebuilds
 // that member without a payload copy.
 func TestTrySuccessUnionWithTagOnlyMember(t *testing.T) {
-	result := assertCompiles(t, "fun run(h: Heap): Nil | Error do\n"+
+	result := assertCompiles(t, "import\n    Io from \"std/io\"\nend\nfun run(h: Heap): Nil | Error do\n"+
 		"    buffer: List<Byte> := List<Byte>(h)\n"+
 		"    defer buffer.free(h)\n"+
-		"    mut stream: Bytes := Bytes.over(buffer)\n"+
+		"    mut stream: Io.Bytes := Io.bytes_over(buffer)\n"+
 		"    got := try stream.read(buffer, 4)\n"+
 		"    return nil\n"+
 		"end\n"+

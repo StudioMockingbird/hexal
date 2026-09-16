@@ -609,7 +609,7 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 	}{
 		{
 			"io only",
-			"fun run(): Nil | Error do\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
+			"import\n    Io from \"std/io\"\nend\nfun run(): Nil | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
 			false,
 		},
 		{
@@ -624,17 +624,17 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 		},
 		{
 			"atomic plus io",
-			"fun run(): Nil | Error do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    counter.store(1)\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
+			"import\n    Io from \"std/io\"\nend\nfun run(): Nil | Error do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    counter.store(1)\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
 			false,
 		},
 		{
 			"bytes plus task",
-			spawnJoin + "fun run(): Int32 | Error do\n    h: Heap := Heap()\n    data: List<Byte> := List<Byte>(h)\n    defer data.free(h)\n    dst: List<Byte> := List<Byte>(h)\n    defer dst.free(h)\n    mut live: Bytes := Bytes.over(data)\n    r: Size | EoS | Error := live.read(dst, 4)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			"import\n    Io from \"std/io\"\nend\n" + spawnJoin + "fun run(): Int32 | Error do\n    h: Heap := Heap()\n    data: List<Byte> := List<Byte>(h)\n    defer data.free(h)\n    dst: List<Byte> := List<Byte>(h)\n    defer dst.free(h)\n    mut live: Io.Bytes := Io.bytes_over(data)\n    r: Size | EoS | Error := live.read(dst, 4)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
 			false,
 		},
 		{
 			"task plus io",
-			spawnJoin + "fun run(): Int32 | Error do\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			"import\n    Io from \"std/io\"\nend\n" + spawnJoin + "fun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
 			true,
 		},
 		{
@@ -696,7 +696,7 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 // their first use. Generated C is checked as text because ordinary tests do
 // not invoke an external C compiler.
 func TestEventIODeclarationsPrecedeFrontendUses(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    stream: IO := try IO.stdin()\n    buffer: List<Byte> := List<Byte>(h)\n    defer buffer.free(h)\n    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "import\n    Io from \"std/io\"\nend\nfun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    stream: Io.IO := try Io.stdin()\n    buffer: List<Byte> := List<Byte>(h)\n    defer buffer.free(h)\n    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
 	ioSource := generateOne(t, program)["hexal/io.c"]
 	// A standard-output write-all is no longer its own submission: the print
 	// commit that needs it is already one job, and it runs inside that job.

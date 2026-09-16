@@ -32,12 +32,6 @@ var (
 	}
 )
 
-func init() {
-	builtinTypes["Duration"] = DurationType
-	builtinTypes["Instant"] = InstantType
-	builtinTypes["WallTime"] = WallTimeType
-}
-
 // IsDuration reports whether typ is the canonical Duration type.
 func IsDuration(typ Type) bool {
 	return typ.identity != nil && typ.identity == DurationType.identity

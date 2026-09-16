@@ -3,29 +3,45 @@
   "name": "Terminal",
   "snippets": [
     {
-      "id": "terminal-describe-stdout",
-      "name": "Detect a terminal and read its size",
       "description": "Check whether stdout is an attached terminal, then read its visible dimensions when it is.",
       "entrypoint": "app.hex",
+      "features": [
+        "terminal",
+        "errors",
+        "try-errdefer"
+      ],
+      "id": "terminal-describe-stdout",
+      "name": "Detect a terminal and read its size",
+      "reservedWords": [
+        "fun",
+        "do",
+        "end",
+        "try",
+        "if",
+        "then",
+        "return"
+      ],
       "sources": {
         "app.hex": [
-          "fun describe(stream: IO): TerminalSize | Error do",
-          "    attached: Bool := try Terminal.is_attached(stream)",
+          "import",
+          "    Io from \"std/io\",",
+          "    Term from \"std/terminal\"",
+          "end",
+          "fun describe(stream: Io.IO): Term.TerminalSize | Error do",
+          "    attached: Bool := try Term.is_attached(stream)",
           "    if attached then",
-          "        size: TerminalSize := try Terminal.size(stream)",
+          "        size: Term.TerminalSize := try Term.size(stream)",
           "        return size",
           "    end",
           "    return Error(ErrorKind.InvalidInput(), \"not attached\")",
           "end",
-          "fun run(): TerminalSize | Error do",
-          "    stream: IO := try IO.stdout()",
+          "fun run(): Term.TerminalSize | Error do",
+          "    stream: Io.IO := try Io.stdout()",
           "    return describe(stream)",
           "end",
-          "out: TerminalSize | Error := run()"
+          "out: Term.TerminalSize | Error := run()"
         ]
-      },
-      "features": ["terminal", "errors", "try-errdefer"],
-      "reservedWords": ["fun", "do", "end", "try", "if", "then", "return"]
+      }
     }
   ]
 }

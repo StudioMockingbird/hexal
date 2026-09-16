@@ -11,16 +11,16 @@ import (
 // memory streams over a borrowed list, transfer results, seek variants, and
 // cleanup through defer.
 func streamFacetSource() string {
-	return "fun run(h: Heap): Nil | Error do\n" +
+	return "import\n    Io from \"std/io\"\nend\nfun run(h: Heap): Nil | Error do\n" +
 		"    data: List<Byte> := List<Byte>(h)\n" +
 		"    dst: List<Byte> := List<Byte>(h)\n" +
 		"    defer dst.free(h)\n" +
 		"    defer data.free(h)\n" +
-		"    mut live: Bytes := Bytes.over(data)\n" +
-		"    out: IO := try IO.stdout()\n" +
+		"    mut live: Io.Bytes := Io.bytes_over(data)\n" +
+		"    out: Io.IO := try Io.stdout()\n" +
 		"    w: Size | Error := out.write(\"hexal\\n\".bytes())\n" +
 		"    r: Size | EoS | Error := live.read(dst, 4)\n" +
-		"    s: Size | Error := live.seek(Seek.Start(position = 0))\n" +
+		"    s: Size | Error := live.seek(Io.Seek.Start(position = 0))\n" +
 		"    closed: Nil | Error := out.close()\n" +
 		"    return nil\n" +
 		"end\n" +
@@ -125,16 +125,16 @@ func TestPrintSharesTheStreamBackend(t *testing.T) {
 // Capability checking keeps both tiers end to end.
 func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 	assertRejects(t,
-		"fun demo(): Nil | Error do\n"+
-			"    input: IO := try IO.stdin()\n"+
+		"import\n    Io from \"std/io\"\nend\nfun demo(): Nil | Error do\n"+
+			"    input: Io.IO := try Io.stdin()\n"+
 			"    input.write(\"x\".bytes())\n"+
 			"    return nil\nend\n",
 		"stream is not writable")
-	source := "fun opened(): IO | Error do\n" +
-		"    return IO.stdout()\n" +
+	source := "import\n    Io from \"std/io\"\nend\nfun opened(): Io.IO | Error do\n" +
+		"    return Io.stdout()\n" +
 		"end\n" +
 		"fun demo(): Nil | Error do\n" +
-		"    handle: IO := try opened()\n" +
+		"    handle: Io.IO := try opened()\n" +
 		"    w: Size | Error := handle.write(\"x\".bytes())\n" +
 		"    return nil\n" +
 		"end\n" +
@@ -148,7 +148,7 @@ func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 // One generic algorithm monomorphizes over IO and Ptr<mut Bytes> with direct
 // calls to each backend family and no shared dispatch.
 func TestGenericStreamsMonoMorphizePerBackend(t *testing.T) {
-	source := "fun drain<S>(source: S, h: Heap): Size | Error do\n" +
+	source := "import\n    Io from \"std/io\"\nend\nfun drain<S>(source: S, h: Heap): Size | Error do\n" +
 		"    buf: List<Byte> := List<Byte>(h)\n" +
 		"    defer buf.free(h)\n" +
 		"    n: Size | EoS | Error := source.read(buf, 64)\n" +
@@ -160,10 +160,10 @@ func TestGenericStreamsMonoMorphizePerBackend(t *testing.T) {
 		"fun run(h: Heap): Nil | Error do\n" +
 		"    data: List<Byte> := List<Byte>(h)\n" +
 		"    defer data.free(h)\n" +
-		"    mut live: Bytes := Bytes.over(data)\n" +
-		"    out: IO := try IO.stdout()\n" +
-		"    a: Size | Error := drain<IO>(out, h)\n" +
-		"    b: Size | Error := drain<Ptr<mut Bytes>>(@live, h)\n" +
+		"    mut live: Io.Bytes := Io.bytes_over(data)\n" +
+		"    out: Io.IO := try Io.stdout()\n" +
+		"    a: Size | Error := drain<Io.IO>(out, h)\n" +
+		"    b: Size | Error := drain<Ptr<mut Io.Bytes>>(@live, h)\n" +
 		"    return nil\n" +
 		"end\n" +
 		"done: Nil | Error := run(Heap())\n"
@@ -198,14 +198,14 @@ func TestMemoryBackendAliasContractsInGeneratedC(t *testing.T) {
 
 // Seek lowers through the Seek ADT decomposition in the module adapter.
 func TestSeekLowersThroughTheADT(t *testing.T) {
-	source := "fun demo(): Nil | Error do\n" +
+	source := "import\n    Io from \"std/io\"\nend\nfun demo(): Nil | Error do\n" +
 		"    h: Heap := Heap()\n" +
 		"    data: List<Byte> := List<Byte>(h)\n" +
 		"    defer data.free(h)\n" +
-		"    mut live: Bytes := Bytes.over(data)\n" +
-		"    s: Size | Error := live.seek(Seek.Start(position = 0))\n" +
-		"    c: Size | Error := live.seek(Seek.Current(offset = 1))\n" +
-		"    e: Size | Error := live.seek(Seek.End(offset = -1))\n" +
+		"    mut live: Io.Bytes := Io.bytes_over(data)\n" +
+		"    s: Size | Error := live.seek(Io.Seek.Start(position = 0))\n" +
+		"    c: Size | Error := live.seek(Io.Seek.Current(offset = 1))\n" +
+		"    e: Size | Error := live.seek(Io.Seek.End(offset = -1))\n" +
 		"    return nil\n" +
 		"end\n" +
 		"done: Nil | Error := demo()\n"
@@ -222,12 +222,12 @@ func TestSeekLowersThroughTheADT(t *testing.T) {
 	}
 }
 
-// The three stream type names are reserved globally; Start, Current, and End
-// stay available as unqualified names.
-func TestStreamNamesReservedEndToEnd(t *testing.T) {
-	assertRejects(t, "type IO is struct x: Int32 end", "built-in type IO cannot be redeclared")
-	assertRejects(t, "type Bytes is struct x: Int32 end", "built-in type Bytes cannot be redeclared")
-	assertRejects(t, "type Seek is North | South end", "built-in type Seek cannot be redeclared")
+// The three former stream type names are free user names now; Start,
+// Current, and End were never reserved and stay available unqualified.
+func TestStreamNamesFreeEndToEnd(t *testing.T) {
+	assertCompiles(t, "type IO is struct x: Int32 end")
+	assertCompiles(t, "type Bytes is struct x: Int32 end")
+	assertCompiles(t, "type Seek is North | South end")
 	result := assertCompiles(t, "Start: Int32 := 0 Current: Int32 := 1 End: Int32 := 2 total: Int32 := Start + Current + End")
 	if !strings.Contains(rootC(t, result), "hex_v_total") {
 		t.Fatalf("unqualified variant names must remain usable")

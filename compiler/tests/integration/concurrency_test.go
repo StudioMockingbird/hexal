@@ -416,11 +416,11 @@ func TestSchedulerTrapsUseRuntimeTrap(t *testing.T) {
 // libuv event bridge end to end. A Task-only program compiled the same way
 // selects no event bridge.
 func TestEventBridgeEndToEnd(t *testing.T) {
-	source := "fun helper(): Int32 do\n" +
+	source := "import\n    Io from \"std/io\"\nend\nfun helper(): Int32 do\n" +
 		"    return 1\n" +
 		"end\n" +
 		"fun worker(h: Heap): Int32 | Error do\n" +
-		"    stream: IO := try IO.stdin()\n" +
+		"    stream: Io.IO := try Io.stdin()\n" +
 		"    buffer: List<Byte> := List<Byte>(h)\n" +
 		"    defer buffer.free(h)\n" +
 		"    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n" +

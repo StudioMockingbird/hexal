@@ -16,7 +16,7 @@ import (
 
 func handleComponentSource(t *testing.T) string {
 	t.Helper()
-	program := checkedGeneratorSource(t, "fun f(): Nil | Error do\n    x := try File.open(\"a\", FileMode.Read())\n    try x.close()\n    return nil\nend\nr: Nil | Error := f()\n")
+	program := checkedGeneratorSource(t, "import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    return nil\nend\nr: Nil | Error := f()\n")
 	files := generateOne(t, program)
 	source, ok := files["hexal/handle.c"]
 	if !ok {

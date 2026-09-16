@@ -189,17 +189,6 @@ func startedProcessType() Type {
 	})
 }
 
-func init() {
-	builtinTypes["EnvironmentVariable"] = EnvironmentVariableType
-	builtinTypes["Environment"] = EnvironmentType
-	builtinTypes["ProcessStream"] = ProcessStreamType
-	builtinTypes["ProcessOptions"] = ProcessOptionsType
-	builtinTypes["ExitStatus"] = ExitStatusType
-	builtinTypes["StartedProcess"] = StartedProcessType
-	builtinTypes["Process"] = ProcessType
-	builtinTypes["Pipe"] = PipeType
-}
-
 // IsProcess reports whether typ is the canonical Process handle.
 func IsProcess(typ Type) bool { return typ.identity != nil && typ.identity == ProcessType.identity }
 

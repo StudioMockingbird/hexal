@@ -1,6 +1,11 @@
 package checker
 
-import "hexal/compiler/parser"
+import (
+	"strings"
+
+	"hexal/compiler/corelib"
+	"hexal/compiler/parser"
+)
 
 // ModuleGraph is the resolved module structure of one compilation: every
 // reachable module's identity, its exact logical source key, its parsed
@@ -41,16 +46,25 @@ type ModuleEdge struct {
 
 // SingleModuleGraph returns the graph of a single-module compilation, the
 // shape the direct Check entry point and the generator's unit tests compile.
+// A core-library import is resolved here from its collection path, since a
+// single-module graph has no source map to resolve a relative path against.
 func SingleModuleGraph(program parser.Program) *ModuleGraph {
+	node := ModuleNode{
+		Canonical:  canonicalEntrypoint,
+		LogicalKey: entrypointLogicalKey,
+		Program:    program,
+	}
+	if program.Import != nil {
+		for _, entry := range program.Import.Entries {
+			path := strings.Trim(entry.Path.Lexeme, "\"")
+			if corelib.IsModule(path) {
+				node.Imports = append(node.Imports, ModuleEdge{Alias: entry.Alias.Lexeme, Target: path})
+			}
+		}
+	}
 	return &ModuleGraph{
-		Order: []string{canonicalEntrypoint},
-		Modules: map[string]ModuleNode{
-			canonicalEntrypoint: {
-				Canonical:  canonicalEntrypoint,
-				LogicalKey: entrypointLogicalKey,
-				Program:    program,
-			},
-		},
-		Root: canonicalEntrypoint,
+		Order:   []string{canonicalEntrypoint},
+		Modules: map[string]ModuleNode{canonicalEntrypoint: node},
+		Root:    canonicalEntrypoint,
 	}
 }

@@ -30,6 +30,11 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		}
 		resolved, ok := typeEnvironment.LookupUse(expression.Name.Lexeme)
 		if !ok {
+			if hint, moved := corelib.TypeHint(expression.Name.Lexeme); moved {
+				// An unresolved former capability type name keeps the exact
+				// migration hint.
+				return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Name, hint))
+			}
 			message := "unknown type " + expression.Name.Lexeme
 			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, message))
 		}

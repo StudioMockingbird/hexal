@@ -3,36 +3,73 @@
   "name": "Networking",
   "snippets": [
     {
-      "id": "networking-address-parse-format",
-      "name": "Parse and format an address",
       "description": "Parse a numeric IPv4 and IPv6 literal and format each back to its host text.",
       "entrypoint": "app.hex",
+      "features": [
+        "networking",
+        "errors",
+        "text"
+      ],
+      "id": "networking-address-parse-format",
+      "name": "Parse and format an address",
+      "reservedWords": [
+        "fun",
+        "do",
+        "end",
+        "try",
+        "return",
+        "nil"
+      ],
       "sources": {
         "app.hex": [
+          "import",
+          "    Net from \"std/net\"",
+          "end",
           "fun describe(h: Heap): Nil | Error do",
-          "    v4: Address := try Address.parse(\"127.0.0.1\", 8080)",
-          "    v6: Address := try Address.parse(\"::1\", 8080)",
+          "    v4: Net.Address := try Net.parse_address(\"127.0.0.1\", 8080)",
+          "    v6: Net.Address := try Net.parse_address(\"::1\", 8080)",
           "    host4: String := v4.format(h)",
           "    host6: String := v6.format(h)",
           "    return nil",
           "end",
           "described: Nil | Error := describe(Heap())"
         ]
-      },
-      "features": ["networking", "errors", "text"],
-      "reservedWords": ["fun", "do", "end", "try", "return", "nil"]
+      }
     },
     {
-      "id": "networking-tcp-echo",
-      "name": "TCP loopback echo",
       "description": "Listen on a loopback address, accept one connection on a spawned Task, and echo one write back to the connecting client.",
       "entrypoint": "app.hex",
+      "features": [
+        "networking",
+        "errors",
+        "try-errdefer",
+        "tasks-and-concurrency",
+        "collections"
+      ],
+      "id": "networking-tcp-echo",
+      "name": "TCP loopback echo",
+      "reservedWords": [
+        "fun",
+        "do",
+        "end",
+        "try",
+        "defer",
+        "return",
+        "nil",
+        "if",
+        "is",
+        "then",
+        "match"
+      ],
       "sources": {
         "app.hex": [
-          "fun serve(listener: TcpListener): Nil | Error do",
-          "    connection: TcpConnection := try listener.accept()",
+          "import",
+          "    Net from \"std/net\"",
+          "end",
+          "fun serve(listener: Net.TcpListener): Nil | Error do",
+          "    connection: Net.TcpConnection := try listener.accept()",
           "    defer connection.close()",
-          "    buffer: List<Byte> := List<Byte>(Heap())",
+          "    buffer: List\u003cByte\u003e := List\u003cByte\u003e(Heap())",
           "    defer buffer.free(Heap())",
           "    received: Size | EoS := try connection.read(buffer, 64)",
           "    if received is Size then",
@@ -40,25 +77,23 @@
           "    end",
           "    return nil",
           "end",
-          "fun run(address: Address): Nil | Error do",
-          "    listener: TcpListener := try Tcp.listen(address, 4)",
+          "fun run(address: Net.Address): Nil | Error do",
+          "    listener: Net.TcpListener := try Net.listen(address, 4)",
           "    defer listener.close()",
-          "    task: Task<Nil | Error> := try spawn serve(listener)",
-          "    connection: TcpConnection := try Tcp.connect(address)",
+          "    task: Task\u003cNil | Error\u003e := try spawn serve(listener)",
+          "    connection: Net.TcpConnection := try Net.connect(address)",
           "    defer connection.close()",
           "    try connection.write(\"ping\".bytes())",
           "    task.join()",
           "    return nil",
           "end",
-          "address: Address | Error := Address.parse(\"127.0.0.1\", 18735)",
+          "address: Net.Address | Error := Net.parse_address(\"127.0.0.1\", 18735)",
           "started: Nil | Error := match address is",
-          "| Address then run(address)",
+          "| Net.Address then run(address)",
           "| Error then nil",
           "end"
         ]
-      },
-      "features": ["networking", "errors", "try-errdefer", "tasks-and-concurrency", "collections"],
-      "reservedWords": ["fun", "do", "end", "try", "defer", "return", "nil", "if", "is", "then", "match"]
+      }
     }
   ]
 }

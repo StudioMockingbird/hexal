@@ -145,7 +145,7 @@ func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 // module's exported ADT; the result carries the target's ADT identity.
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	checked, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Circle(x = 1)\nu: Math.Shape := Math.Square()\n",
+		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Shape.Circle(x = 1)\nu: Math.Shape := Math.Shape.Square()\n",
 		"type Shape is union | Circle as x: Int32 end | Square end\nexport\n    Shape\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified variants: %v", err)
@@ -164,12 +164,21 @@ func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	}
 }
 
-// A variant the target module's exported ADTs do not carry is the
-// visibility failure at the variant.
-func TestQualifiedVariantRejectsUnknownExport(t *testing.T) {
+// A variant the target module's exported ADT does not carry is rejected at
+// the variant name.
+func TestQualifiedVariantRejectsUnknownVariant(t *testing.T) {
+	_, err := checkModules(t,
+		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Shape.Circle(x = 1)\n",
+		"type Shape is union | Other as x: Int32 end | Empty end\nexport\n    Shape\nend\n")
+	requireMessage(t, err, "unknown variant Shape.Circle")
+}
+
+// The removed short importer form fails closed instead of resolving to the
+// wrong ADT.
+func TestQualifiedVariantShortFormRejected(t *testing.T) {
 	_, err := checkModules(t,
 		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Circle(x = 1)\n",
-		"type Shape is union | Other as x: Int32 end | Empty end\nexport\n    Shape\nend\n")
+		"type Shape is union | Circle as x: Int32 end | Square end\nexport\n    Shape\nend\n")
 	requireMessage(t, err, "declaration Circle is private to module math")
 }
 

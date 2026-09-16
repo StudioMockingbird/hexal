@@ -30,11 +30,6 @@ func signalType() Type {
 	return Type{Name: "Signal", CName: adt.CName, CanonicalKey: canonicalNominalKey("Signal", ""), Adt: adt, identity: adt.identity}
 }
 
-func init() {
-	builtinTypes["Signal"] = SignalType
-	builtinTypes["Signals"] = SignalsType
-}
-
 // IsSignal reports whether typ is the canonical Signal ADT.
 func IsSignal(typ Type) bool { return typ.Adt != nil && typ.Adt == SignalType.Adt }
 
