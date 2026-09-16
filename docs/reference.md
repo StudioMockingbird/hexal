@@ -8,7 +8,7 @@ Compiler behavior that disagrees with this file is a conformance bug.
 The grammar defines source shape only. Semantic rules in the remainder of this file may reject a
 grammatically valid form.
 
-Five lexical/parser rules are not expressible in EBNF:
+Six lexical/parser rules are not expressible in EBNF:
 
 - Tokens use maximal munch. Inside nested type-argument lists only, one `>>` token may close two
   levels; in expression position it is always one shift token.
@@ -31,6 +31,11 @@ Five lexical/parser rules are not expressible in EBNF:
   semantic rules in the Text section reject. `{{`/`}}` nest through further interpreted strings
   written inside the embedded expression, tracked by the lexer, not by expression-level bracket
   matching.
+- A quoted literal is a C header literal only after the contextual `c` that itself follows `from`
+  (`Alias from c "x.h"`), or after `from` in a leading `extern c from "x.h"` block. An
+  angle-bracketed literal is a C header literal only in those two positions. Everywhere else a
+  quoted literal is an ordinary string, and a quoted literal directly after `from` is the module
+  path.
 
 ```ebnf
 program = lexical-separation , [ import-block ] , { extern-block }
