@@ -1,7 +1,16 @@
 # RFC 0039: C Interoperability - Compiler Core
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design and execution plan settled, implementation not started
+- Status: Partially implemented. Done: the `Alias from c <header>` import
+  reference in both forms, the pure `DiscoverCImports` helper, the
+  deterministic `hexalc/h<sha256>` prepared-binding key, the reserved `hexalc`
+  user-key rejection, and the exact Configuration Errors for an unqualified
+  target and a missing prepared binding, each covered by focused tests. Not
+  done: the `extern c from <header> do ... end` declaration blocks and their
+  parsed forms, the foreign declaration model and ABI checking, the unsafe
+  gate, the `String.c_pointer`/`Slice.pointer` bridge operations, foreign
+  include discovery and lowering in the generator, prepared-module
+  header-identity validation, and the tagged C23 fixtures.
 - Created: 2026-08-11
 - Updated: 2026-09-15
 - Scope: add direct C-header import syntax, the prepared-source protocol, and

@@ -222,6 +222,11 @@ const (
 	Export
 	Unsafe
 	ModulePathLiteral
+	// CHeaderLiteral is a `<system>` or quoted C header after the contextual
+	// `c` in `from c ...`. Its payload is raw: no escape decoding, and a
+	// backslash is rejected. The spelling keeps its delimiters so the parser
+	// can distinguish the system and quoted forms.
+	CHeaderLiteral
 	// ColonEqual is one token, not Colon followed by Equal, so `x : = 5`
 	// stays a syntax error.
 	ColonEqual
@@ -455,13 +460,14 @@ func Lex(source string) ([]Token, error) {
 	tokens := make([]Token, 0)
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	line, column := 1, 1
-	var previous Token
+	var previous, beforePrevious Token
 
 	for index := 0; index < len(source); {
-		scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, line, column, 0, previous)
+		scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, line, column, 0, previous, beforePrevious)
 		tokens = append(tokens, scanned...)
 		diagnostics = append(diagnostics, scannedDiagnostics...)
 		if len(scanned) > 0 {
+			beforePrevious = previous
 			previous = scanned[len(scanned)-1]
 		}
 		index, line, column = newIndex, newLine, newColumn
@@ -474,14 +480,25 @@ func Lex(source string) ([]Token, error) {
 	return tokens, nil
 }
 
+// isCHeaderPosition reports whether a quoted or angle-bracketed literal at the
+// current position opens a C header: the previous token is the contextual `c`
+// and the token before it is `from`, all on one line. No other valid Hexal
+// construct places `c` directly after `from`, so the heuristic never misfires.
+func isCHeaderPosition(previous, beforePrevious Token, line int) bool {
+	return previous.Kind == Identifier && previous.Lexeme == "c" &&
+		beforePrevious.Kind == Identifier && beforePrevious.Lexeme == "from" &&
+		beforePrevious.Line == line
+}
+
 // scanToken scans exactly one lexical unit at index: zero tokens for
 // whitespace and comments, one for an ordinary lexeme, or several for an
 // interpreted string literal that turns out to contain interpolation.
-// previous is the most recently emitted token in the enclosing scan (used
-// only to recognize a module path immediately after `import`); depth is the
-// enclosing interpolation nesting level, threaded through so a nested
-// interpreted string inside an embedded expression stays bounded.
-func scanToken(source string, index, line, column, depth int, previous Token) ([]Token, []compilerTypes.Diagnostic, int, int, int) {
+// previous and beforePrevious are the two most recently emitted tokens in the
+// enclosing scan, used only to recognize a module path after `from` and a C
+// header literal after `from c`; depth is the enclosing interpolation nesting
+// level, threaded through so a nested interpreted string inside an embedded
+// expression stays bounded.
+func scanToken(source string, index, line, column, depth int, previous, beforePrevious Token) ([]Token, []compilerTypes.Diagnostic, int, int, int) {
 	var tokens []Token
 	var diagnostics []compilerTypes.Diagnostic
 	ch := source[index]
@@ -635,6 +652,42 @@ func scanToken(source string, index, line, column, depth int, previous Token) ([
 		index += len(lexeme)
 		column += len(lexeme)
 	case ch == '<':
+		if isCHeaderPosition(previous, beforePrevious, line) {
+			startColumn := column
+			start := index
+			index++
+			column++
+			terminated := false
+			invalid := false
+			for index < len(source) {
+				character := source[index]
+				if character == '>' {
+					index++
+					column++
+					terminated = true
+					break
+				}
+				if character == '\n' || character == '\r' {
+					break
+				}
+				switch character {
+				case '<', '"', '\\', ' ', '\t':
+					invalid = true
+				}
+				index++
+				column++
+			}
+			if !terminated {
+				diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated C header literal"))
+			}
+			if invalid {
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid C header literal"))
+			}
+			// Keep a recovery token even when the header is malformed so the
+			// parser can synchronize on a real token sequence.
+			tokens = append(tokens, Token{Kind: CHeaderLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
+			return tokens, diagnostics, index, line, column
+		}
 		kind, lexeme := Less, "<"
 		if index+1 < len(source) && source[index+1] == '=' {
 			kind, lexeme = LessEqual, "<="
@@ -706,6 +759,37 @@ func scanToken(source string, index, line, column, depth int, previous Token) ([
 		// a bare identifier directly against a string literal, so this
 		// lexical heuristic never misfires on an ordinary `from` identifier
 		// used elsewhere.
+		if isCHeaderPosition(previous, beforePrevious, line) {
+			start := index
+			index++
+			column++
+			payloadStart := index
+			terminated := false
+			for index < len(source) {
+				character := source[index]
+				index++
+				column++
+				if character == '"' {
+					terminated = true
+					break
+				}
+				if character == '\n' || character == '\r' {
+					break
+				}
+			}
+			if !terminated {
+				diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated C header literal"))
+			}
+			payloadEnd := index - 1
+			if payloadEnd < payloadStart {
+				payloadEnd = payloadStart
+			}
+			if strings.ContainsRune(source[payloadStart:payloadEnd], '\\') {
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid C header literal"))
+			}
+			tokens = append(tokens, Token{Kind: CHeaderLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
+			return tokens, diagnostics, index, line, column
+		}
 		isModulePath := previous.Kind == Identifier && previous.Lexeme == "from" && previous.Line == line
 		if isModulePath {
 			start := index
@@ -943,7 +1027,7 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 				closed = true
 				break
 			}
-			scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, curLine, curColumn, depth+1, previous)
+			scanned, scannedDiagnostics, newIndex, newLine, newColumn := scanToken(source, index, curLine, curColumn, depth+1, previous, Token{})
 			tokens = append(tokens, scanned...)
 			diagnostics = append(diagnostics, scannedDiagnostics...)
 			for _, token := range scanned {

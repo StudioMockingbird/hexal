@@ -31,6 +31,9 @@ const (
 	RelativeImportReference ImportReferenceKind = iota
 	// StandardLibraryImportReference is a dotted std.<component> reference.
 	StandardLibraryImportReference
+	// CHeaderImportReference is a `c <header>` or `c "header"` reference to an
+	// automatically prepared C binding module.
+	CHeaderImportReference
 )
 
 // ImportReference is one tagged module reference after `from`. Token is the
@@ -45,6 +48,11 @@ type ImportReference struct {
 	DisplaySpelling string
 	Components      []lexer.Token
 	RelativePath    lexer.Token
+	// CHeader is the requested header's payload without delimiters; System is
+	// true for the `<...>` form and false for the quoted form. Both name the
+	// same prepared-binding identity only when the form and payload agree.
+	CHeader string
+	System  bool
 }
 
 // ImportEntry binds one local alias to one module reference:

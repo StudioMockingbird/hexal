@@ -139,7 +139,7 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 	// Reachability lexes and parses every reachable module and returns the
 	// token counts it observed; the lex, parse, and resolution phases fold
 	// into one duration and one lex pass.
-	graph, resolveErr := reachableModules(sources, entrypoint)
+	graph, resolveErr := reachableModulesTarget(sources, entrypoint, string(project.Target))
 	stats.LexDuration = time.Since(started)
 	if resolveErr != nil {
 		return failureResult(resolveErr, stats, compileStarted)
@@ -205,6 +205,11 @@ func validateLogicalKey(key string) error {
 		// prefix keeps a user module from claiming a stdlib canonical
 		// identity (a core library's std/<path> or a source module's).
 		return fmt.Errorf("logical key %q is invalid: the %q path prefix is reserved for the standard library", key, "std")
+	} else if first == "hexalc" {
+		// hexalc holds only compiler-derived prepared C bindings, which the
+		// resolver marks before visiting; a user key there would let project
+		// source impersonate a prepared binding.
+		return fmt.Errorf("logical key %q is invalid: the %q path prefix is reserved for prepared C bindings", key, "hexalc")
 	}
 	for _, component := range strings.Split(stem, "/") {
 		if component == "" || !lexer.IsIdentifierStart(component[0]) {
@@ -311,6 +316,14 @@ func resolveStdlibPath(components []lexer.Token) string {
 // error is collected and returned sorted by module post-order position, then
 // line, then column.
 func reachableModules(sources map[string]string, entrypoint string) (*checker.ModuleGraph, error) {
+	return reachableModulesTarget(sources, entrypoint, "")
+}
+
+// reachableModulesTarget is reachableModules with the selected qualified
+// target profile. A reachable C import requires it and resolves to the
+// prepared binding module the driver inserted under its deterministic
+// reserved key.
+func reachableModulesTarget(sources map[string]string, entrypoint, target string) (*checker.ModuleGraph, error) {
 	root := canonicalFromLogicalKey(entrypoint)
 	state := &reachState{
 		sources:       sources,
@@ -318,6 +331,8 @@ func reachableModules(sources map[string]string, entrypoint string) (*checker.Mo
 		nodes:         make(map[string]*checker.ModuleNode),
 		visited:       make(map[string]bool),
 		byModule:      make(map[string]compilerTypes.Diagnostics),
+		target:        target,
+		prepared:      make(map[string]bool),
 	}
 	if err := state.visit(root); err != nil {
 		return nil, err
@@ -344,6 +359,26 @@ func reachableModules(sources map[string]string, entrypoint string) (*checker.Mo
 	return graph, nil
 }
 
+// DiscoverCImports returns every reachable C header request in deterministic
+// module order, using the ordinary parser and module traversal. It performs no
+// filesystem or process operation and never validates a prepared binding: the
+// driver prepares the requests it returns and compiles the augmented map.
+func DiscoverCImports(sources map[string]string, entrypoint string) ([]CImportRequest, error) {
+	state := &reachState{
+		sources:       sources,
+		stdlibSources: stdlibSourcesByCanonical(),
+		nodes:         make(map[string]*checker.ModuleNode),
+		visited:       make(map[string]bool),
+		byModule:      make(map[string]compilerTypes.Diagnostics),
+		discover:      true,
+		prepared:      make(map[string]bool),
+	}
+	if err := state.visit(canonicalFromLogicalKey(entrypoint)); err != nil {
+		return nil, err
+	}
+	return state.requests, nil
+}
+
 // reachState carries one import-resolution DFS: the node under construction
 // per canonical id, the post-order canonical id list, the DFS stack for cycle
 // detection, and every resolution diagnostic bucketed by its module. Each
@@ -359,6 +394,18 @@ type reachState struct {
 	stack         []string                       // canonical ids on the current DFS path
 	order         []string                       // post-order: dependencies first
 	byModule      map[string]compilerTypes.Diagnostics
+	// target is the selected qualified profile; a reachable C import requires
+	// it because `long`, plain `char`, layout, and calling ABI are
+	// target-dependent.
+	target string
+	// discover collects C header requests without validating prepared
+	// bindings; the driver calls it before preparing them.
+	discover bool
+	// prepared marks the canonical ids the compiler derived for prepared C
+	// bindings, which may use the otherwise-reserved hexalc prefix.
+	prepared map[string]bool
+	// requests collects reachable C header requests in visit order.
+	requests []CImportRequest
 }
 
 // visit parses canonical and its transitive imports, then appends canonical
@@ -375,9 +422,13 @@ func (s *reachState) visit(canonical string) error {
 		// checks existence before recursing.
 		return nil
 	}
-	if err := validateLogicalKey(key); err != nil {
-		diagnostic := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1, err.Error()).InModule(key)
-		return diagnostic
+	if !s.prepared[canonical] {
+		// A prepared C binding legitimately uses the reserved hexalc
+		// namespace; every other module keeps the ordinary key rules.
+		if err := validateLogicalKey(key); err != nil {
+			diagnostic := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1, err.Error()).InModule(key)
+			return diagnostic
+		}
 	}
 	tokens, lexErr := lexer.Lex(text)
 	if lexErr != nil {
@@ -434,6 +485,23 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 		target = resolved
 	case parser.StandardLibraryImportReference:
 		target = resolveStdlibPath(importDecl.Reference.Components)
+	case parser.CHeaderImportReference:
+		request := CImportRequest{Header: importDecl.Reference.CHeader, System: importDecl.Reference.System}
+		if s.discover {
+			s.requests = append(s.requests, request)
+			return nil
+		}
+		if s.target == "" {
+			s.recordCategory(fromModule, line, column, compilerTypes.ConfigurationError, "C interoperability requires a qualified target")
+			return nil
+		}
+		key := CBindingKey(s.target, request)
+		if _, present := s.sources[key]; !present {
+			s.recordCategory(fromModule, line, column, compilerTypes.ConfigurationError, "prepared C binding missing for "+importDecl.Reference.DisplaySpelling)
+			return nil
+		}
+		target = strings.TrimSuffix(key, ".hex")
+		s.prepared[target] = true
 	default:
 		// The parser is the only reference producer; an unknown kind is an
 		// internal contract break, never a silently resolved import.
@@ -562,6 +630,31 @@ func (s *reachState) record(moduleID string, line, column int, message string) {
 	}
 	s.byModule[moduleID] = append(s.byModule[moduleID], compilerTypes.Diagnostic{
 		Category: compilerTypes.ModuleError,
+		Stage:    "compile",
+		Module:   logicalKey,
+		Line:     line,
+		Column:   column,
+		Message:  message,
+	})
+}
+
+// recordCategory appends one resolution diagnostic with an explicit category,
+// for the Configuration Errors a C import raises before ordinary checking.
+func (s *reachState) recordCategory(moduleID string, line, column int, category compilerTypes.ErrorCategory, message string) {
+	if line < 1 {
+		line = 1
+	}
+	if column < 1 {
+		column = 1
+	}
+	logicalKey := ""
+	if node, ok := s.nodes[moduleID]; ok {
+		logicalKey = node.LogicalKey
+	} else if keys := s.sourceKeyFor(moduleID); len(keys) > 0 {
+		logicalKey = keys[0]
+	}
+	s.byModule[moduleID] = append(s.byModule[moduleID], compilerTypes.Diagnostic{
+		Category: category,
 		Stage:    "compile",
 		Module:   logicalKey,
 		Line:     line,

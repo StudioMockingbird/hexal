@@ -312,6 +312,9 @@ func (parser *Parser) importReference(from lexer.Token) (ImportReference, error)
 		}
 		return ImportReference{}, parser.errorAt(path, "quoted import paths must begin with ./ or ../")
 	}
+	if parser.check(lexer.Identifier) && parser.peek().Lexeme == "c" {
+		return parser.cHeaderReference(parser.advance())
+	}
 	std := parser.peek()
 	if std.Kind != lexer.Identifier || std.Lexeme != "std" {
 		return ImportReference{}, parser.errorAtCurrent("a module path literal after 'from'")
@@ -350,6 +353,52 @@ func (parser *Parser) importReference(from lexer.Token) (ImportReference, error)
 		DisplaySpelling: spelled,
 		Components:      components,
 	}, nil
+}
+
+// cHeaderReference parses `c <header>` / `c "header"` after a contextual
+// `from`. The payload excludes its delimiters; an empty, absolute, or
+// parent-walking name is rejected as a Syntax Error naming the header.
+func (parser *Parser) cHeaderReference(keyword lexer.Token) (ImportReference, error) {
+	literal := parser.peek()
+	if literal.Kind != lexer.CHeaderLiteral {
+		return ImportReference{}, parser.errorAtCurrent("a C header after 'c'")
+	}
+	parser.advance()
+	system := strings.HasPrefix(literal.Lexeme, "<")
+	payload := literal.Lexeme
+	if len(payload) >= 2 {
+		if (strings.HasPrefix(payload, "<") && strings.HasSuffix(payload, ">")) ||
+			(strings.HasPrefix(payload, "\"") && strings.HasSuffix(payload, "\"")) {
+			payload = payload[1 : len(payload)-1]
+		}
+	}
+	if !validCHeaderName(payload) {
+		return ImportReference{}, parser.errorAt(literal, "invalid C header name "+payload)
+	}
+	return ImportReference{
+		Kind:            CHeaderImportReference,
+		Token:           keyword,
+		DisplaySpelling: literal.Lexeme,
+		CHeader:         payload,
+		System:          system,
+	}, nil
+}
+
+// validCHeaderName reports whether payload is a nonempty relative header name
+// that does not walk to a parent directory or name an absolute path.
+func validCHeaderName(payload string) bool {
+	if payload == "" || strings.HasPrefix(payload, "/") || strings.HasPrefix(payload, "\\") {
+		return false
+	}
+	if len(payload) >= 2 && payload[1] == ':' {
+		return false
+	}
+	for _, component := range strings.FieldsFunc(payload, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if component == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // exportBlock parses the file's one trailing export list:
