@@ -1,20 +1,27 @@
 # RFC 0039: C Interoperability - Compiler Core
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Partially implemented. Done: the `Alias from c <header>` import
-  reference in both forms, the pure `DiscoverCImports` helper, the
-  deterministic `hexalc/h<sha256>` prepared-binding key, the reserved `hexalc`
-  user-key rejection, and the exact Configuration Errors for an unqualified
-  target and a missing prepared binding, each covered by focused tests; and the
-  `extern c from <header> do ... end` block syntax in both header forms with
-  the type, function, constant, and global declaration forms, their optional
-  exact C spellings, the leading-position rule, and the exact Syntax Errors,
-  covered by parser tests. A parsed foreign block fails closed with the
-  `unsupported foreign declaration` Type Error because its semantics are not
-  implemented yet. Not done: the foreign declaration model and ABI checking,
-  the unsafe gate, the `String.c_pointer`/`Slice.pointer` bridge operations,
-  foreign include discovery and lowering in the generator, prepared-module
-  header-identity validation, and the tagged C23 fixtures.
+- Status: Implemented. The compiler core implements the `Alias from c <header>`
+  import reference in both forms, the pure `DiscoverCImports` helper, the
+  deterministic `hexalc/h<sha256>` prepared-binding key, prepared-module
+  header-identity validation, the reserved `hexalc` user-key rejection, and the
+  exact Configuration Errors. It implements the `extern c from <header> do ...
+  end` block and all four declaration forms, the initial ABI set (direct and
+  target-resolved scalars, pointers and nullability, complete and opaque
+  records, transparent aliases, constants, and globals), the program-wide
+  target-qualified foreign-record identity and coalescing, the unsafe gate on
+  calls and global access, the `String.c_pointer` and `Slice.pointer` bridges,
+  deterministic per-module C include emission, exact-symbol lowering with
+  representation-preserving boundary casts, and the exact diagnostics. It is
+  covered by parser tests, pure-Go integration tests through the exported
+  `Compile` API, and target-qualified tagged C23 fixtures.
+  Two Validation items remain open and are not compiler-core gaps: the
+  `hex_cvar_` automatic local-name escaping is the prepared-module normalizer's
+  responsibility and is owned by RFC 0193, and the tagged C23 canary fixtures
+  are not yet collected because RFC 0125 owns giving them runnable entry-point
+  names. A header-only and a raylib-shaped fixture additionally need the
+  tagged harness to accept a checked-in include root, which it does not yet
+  do.
 - Created: 2026-08-11
 - Updated: 2026-09-15
 - Scope: add direct C-header import syntax, the prepared-source protocol, and

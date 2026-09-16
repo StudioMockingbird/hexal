@@ -13,16 +13,16 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| RFC 0039 remaining: the foreign declaration model and target ABI checking, the unsafe gate, the `String.c_pointer`/`Slice.pointer` bridges, foreign include discovery and lowering, prepared-module header-identity validation, and tagged fixtures. The `from c` import reference, `DiscoverCImports`, the reserved binding key, the reserved `hexalc` user-key rejection, the two Configuration Errors, and the `extern c from ... do ... end` block and declaration syntax are implemented; a parsed foreign block fails closed as `unsupported foreign declaration` until its semantics land | [0039](specs/0039-c-interop-compiler-core.md) |
+| RFC 0039 validation: the `hex_cvar_` automatic local-name escaping (owned by RFC 0193's normalizer) and tagged C23 canary activation plus header-only/raylib-shaped fixtures that need a checked-in include root (owned by RFC 0125 and the tagged harness). The compiler core — imports, prepared-binding identity, `extern c` blocks, the ABI set, records, the unsafe gate, the String/Slice bridges, lowering, includes, and diagnostics — is implemented | [0039](specs/0039-c-interop-compiler-core.md) |
+| Compile and link command-line-supplied C sources, objects, archives, and system libraries | [0192](specs/0192-command-line-c-build-inputs.md) |
 | Select an installed C compiler and consume target-qualified static libuv/mimalloc runtime packs | [0213](specs/0213-external-c-backend-and-runtime-packs.md) |
 
 ### Design settled; implementation blocked
 
 | Work | Blocked by | Spec |
 | --- | --- | --- |
-| Compile and link command-line-supplied C sources, objects, archives, and system libraries | RFC 0039 | [0192](specs/0192-command-line-c-build-inputs.md) |
-| Automatically generate typed binding modules for reachable C-header imports | RFC 0039 and RFC 0192 | [0193](specs/0193-automatic-c-header-bindings.md) |
-| Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0039, RFC 0192, and RFC 0193 | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
+| Automatically generate typed binding modules for reachable C-header imports | RFC 0192 | [0193](specs/0193-automatic-c-header-bindings.md) |
+| Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0192 and RFC 0193 | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 
 ## Deferred ideas
 
@@ -38,8 +38,8 @@ A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec |
 | --- | --- |
-| Open generic bodies are never checked at declaration, so an unused generic with an unknown name or an independent type error compiles | [0211](specs/0211-generic-declaration-checking.md) |
 | `reference.md`'s Pointers and nullability section states "Arithmetic, indexing, ... are unavailable", contradicting closed RFC 0156's unsafe-gated `Ptr.offset`/indexing/`.cast<U>()` | [0156](specs/archive/0156-fenced-pointer-arithmetic.md); reference correction requires explicit user approval per that RFC's own text |
+| Widening a nullable pointer to a nullable `Ptr<Unknown>` (`q: Ptr<Unknown> | Nil := p` where `p: Ptr<Byte> | Nil`) is accepted by the checker but fails in generation with `generated discriminant is missing from the program-wide registry: type:Ptr:UInt8`. Assignability admits the one-layer Unknown conversion; the generator's nullable-widen path has no representation for it | [0156](specs/archive/0156-fenced-pointer-arithmetic.md) |
 
 ## Known coverage gaps
 

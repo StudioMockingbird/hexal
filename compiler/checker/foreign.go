@@ -166,13 +166,16 @@ func checkForeignTypeDeclaration(declaration parser.ExternType, header ForeignHe
 		return
 	}
 	identity := foreignRecordIdentity(cName, target)
-	record, existed := ctx.arena().ForeignRecord(identity, name, cName, declaration.Opaque, declaration.Name.Line, declaration.Name.Column)
+	// Publish the record identity before resolving members so a member may
+	// reach the record behind at least one pointer layer.
+	record, existed := ctx.arena().ForeignRecord(identity, name, cName, true, declaration.Name.Line, declaration.Name.Column)
+	ctx.typeEnvironment.DeclareAlias(name, record)
 
 	var members []compilerTypes.ObjectMember
 	if len(declaration.Members) > 0 {
 		resolved, memberDiagnostics := checkForeignMembers(declaration, ctx, target)
-		*diagnostics = append(*diagnostics, memberDiagnostics...)
 		if len(memberDiagnostics) > 0 {
+			*diagnostics = append(*diagnostics, memberDiagnostics...)
 			return
 		}
 		members = resolved

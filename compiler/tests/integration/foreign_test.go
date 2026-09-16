@@ -467,3 +467,64 @@ func TestForeignMutableOutputRejectsReadOnlySource(t *testing.T) {
 		t.Fatalf("a read-only String pointer must not satisfy a mutable output parameter")
 	}
 }
+
+func TestForeignRecordThroughImportedBinding(t *testing.T) {
+	// A record declared in a binding module is usable as a qualified type by
+	// an importer and crosses either API without a conversion.
+	binding := "extern c from <window.h> do\n" +
+		"    type Window as \"struct Window\" is opaque\n" +
+		"    type Origin as \"origin\" is struct\n" +
+		"        mut x: Int32,\n" +
+		"        mut y: Int32,\n" +
+		"    end\n" +
+		"    fun window_origin as \"WindowOrigin\"(window: Ptr<Window>): Origin\n" +
+		"end\n" +
+		"export\n" +
+		"    Window,\n" +
+		"    Origin,\n" +
+		"    window_origin\n" +
+		"end\n"
+	app := "import\n    Binding from \"./binding\"\nend\n" +
+		"fun demo(window: Ptr<Binding.Window>): Binding.Origin do\n" +
+		"    unsafe do\n" +
+		"        return Binding.window_origin(window)\n" +
+		"    end\n" +
+		"end\n"
+	result := compiler.Compile(map[string]string{"app.hex": app, "binding.hex": binding}, "app.hex", compiler.Project{Target: windowsTarget})
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("an imported binding's record must qualify across modules: %v", result.Stderr)
+	}
+	header := result.Files["modules/app.h"]
+	if !strings.Contains(header, "#include <window.h>") {
+		t.Fatalf("the importer must include the defining header:\n%s", header)
+	}
+	if strings.Contains(header, "struct origin") || strings.Contains(header, "struct Window {") {
+		t.Fatalf("generated C must not define a foreign record:\n%s", header)
+	}
+	if body := result.Files["modules/app.c"]; !strings.Contains(body, "WindowOrigin(") {
+		t.Fatalf("the imported foreign call must lower to the exact symbol:\n%s", body)
+	}
+}
+
+func TestForeignRecordWithPointerMembers(t *testing.T) {
+	source := "extern c from <node.h> do\n" +
+		"    type Node as \"node\" is struct\n" +
+		"        mut value: Int32,\n" +
+		"        mut next: Ptr<Node> | Nil,\n" +
+		"    end\n" +
+		"end\n" +
+		"fun demo(node: Node) do\n" +
+		"    following: Ptr<Node> | Nil := node.next\n" +
+		"end\n"
+	result := compileForeign(t, source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("a record with a pointer member must cross the ABI: %v", result.Stderr)
+	}
+	body := result.Files["modules/app.c"]
+	if !strings.Contains(body, ".next") {
+		t.Fatalf("the pointer member must keep its C field spelling:\n%s", body)
+	}
+	if strings.Contains(result.Files["modules/app.h"], "struct node") {
+		t.Fatalf("generated C must not define a foreign record:\n%s", result.Files["modules/app.h"])
+	}
+}

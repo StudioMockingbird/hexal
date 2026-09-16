@@ -1525,6 +1525,11 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 			if object == nil || typ.Incomplete {
 				return nil
 			}
+			// A foreign record is defined by its C header: generated C emits
+			// neither a forward typedef nor a body for it.
+			if compilerTypes.IsForeignRecord(typ) {
+				return nil
+			}
 			if previous, exists := seenCNames[object.CName]; exists && previous != object {
 				conflict = unknownExpressionDiagnostic("conflicting generated object C name")
 				return conflict
@@ -1546,7 +1551,7 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 	}
 	for _, declaration := range program.TypeDeclarations {
 		object := declaration.Type.Object
-		if object == nil {
+		if object == nil || compilerTypes.IsForeignRecord(declaration.Type) {
 			continue
 		}
 		seenCNames[object.CName] = object

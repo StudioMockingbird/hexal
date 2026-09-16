@@ -33,8 +33,8 @@ Five lexical/parser rules are not expressible in EBNF:
   matching.
 
 ```ebnf
-program = lexical-separation , [ import-block ] , { top-level-item }
-          , [ export-block ] ;
+program = lexical-separation , [ import-block ] , { extern-block }
+          , { top-level-item } , [ export-block ] ;
 lexical-separation = ? whitespace and comments are discarded between tokens,
                        except where same-line is required ? ;
 same-line = ? no line break occurs before the next token ? ;
@@ -43,7 +43,16 @@ top-level-item = declaration-item | static-module-value | statement ;
 import-block = "import" , import-entry , { "," , import-entry } , "end" ;
 import-entry = identifier , "from" , import-module-reference ;
 import-module-reference = relative-module-path-literal
-                        | stdlib-module-reference ;
+                        | stdlib-module-reference
+                        | c-header-import ;
+c-header-import = "c" , c-header-literal ;
+c-header-literal = c-system-header | c-quoted-header ;
+c-system-header = ? nonempty `<...>` payload closed on the same line; the
+                        payload excludes whitespace, quotes, `<`, `>`,
+                        backslash, and line breaks ? ;
+c-quoted-header = ? nonempty double-quoted payload closed on the same line;
+                        the payload excludes quotes, backslash, and line
+                        breaks ? ;
 relative-module-path-literal = ? a quoted literal scanned only when the previous
                         token is the contextual identifier "from"; the payload
                         between quotes is taken verbatim (no escape decoding);
@@ -51,6 +60,34 @@ relative-module-path-literal = ? a quoted literal scanned only when the previous
                         start with "./" or one or more "../" ? ;
 stdlib-module-reference = "std" , "." , identifier
                         , { "." , identifier } ;
+
+extern-block = "extern" , "c" , "from" , c-header-literal , "do"
+               , { extern-declaration } , "end" ;
+extern-declaration = extern-type | extern-function
+                     | extern-constant | extern-global ;
+extern-type = "type" , identifier , "is" , alias-target
+              | "type" , identifier , [ "as" , c-record-name-literal ]
+                , "is" , ( "opaque" | extern-struct-definition ) ;
+extern-struct-definition = "struct" , [ extern-member
+                           , { "," , extern-member } , [ "," ] ] , "end" ;
+extern-member = [ "mut" ] , identifier , [ "as" , c-identifier-literal ]
+                , ":" , type-expression ;
+extern-function = "fun" , identifier , [ "as" , c-identifier-literal ]
+                  , extern-signature ;
+extern-signature = "(" , [ extern-parameter-list ] , ")"
+                   , [ ":" , type-expression , [ "as" , c-type-literal ] ] ;
+extern-parameter-list = extern-parameter , { "," , extern-parameter } ;
+extern-parameter = identifier , ":" , type-expression
+                   , [ "as" , c-type-literal ] ;
+extern-constant = "constant" , identifier , [ "as" , c-identifier-literal ]
+                  , ":" , type-expression ;
+extern-global = "global" , [ "mut" ] , identifier
+                , [ "as" , c-identifier-literal ]
+                , ":" , type-expression ;
+c-record-name-literal = ? quoted C typedef name or `struct Name`/`union Name`
+                        tag spelling ? ;
+c-type-literal = ? quoted restricted scalar or pointer C type spelling ? ;
+c-identifier-literal = ? quoted ordinary C identifier ? ;
 
 export-block = "export" , export-entry , { "," , export-entry } , "end" ;
 export-entry = identifier , [ "." , identifier ] ;
@@ -501,6 +538,91 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   former `Alias.Variant(...)` short form is removed, so a same-named variant of another exported ADT
   can never resolve silently. Variants of a local type keep the unqualified `Adt.Variant(...)` form.
   Seeking a file therefore imports both modules: `Fs.open(...)` with `Io.Seek.Start(position = 16)`.
+
+## C interoperability
+
+- A compilation containing a C import or a handwritten foreign declaration requires a nonempty
+  qualified target profile; host-default ABI inference is rejected.
+- `Alias from c <header>` imports a prepared binding module resolved from the reserved logical key
+  `hexalc/h<sha256(target NUL header-form NUL header-payload)>.hex`. The leading `h` keeps the digest
+  a legal identifier. System and quoted forms are distinct identities, as are different targets.
+- The compiler verifies that the prepared module declares the requested header; an absent or
+  mismatched entry reports `prepared C binding missing for <header>`. The `hexalc` prefix is reserved
+  and rejected for user source.
+- `DiscoverCImports(sources, entrypoint)` returns reachable header requests in deterministic module
+  order and performs no filesystem or process operation.
+- A foreign block is `extern c from <header> do ... end`, top-level only, after the import block and
+  before every ordinary top-level item. Multiple blocks are permitted. `extern` is contextual but
+  reserved at statement start.
+- Declarations are private unless the module's final export block names them. `export` never changes
+  C linkage.
+
+Foreign declaration model:
+
+| Form | Meaning |
+| --- | --- |
+| `type X is <alias-target>` | Transparent alias; carries no C spelling and adds no foreign type family. |
+| `type X [as "C name"] is opaque` | Incomplete C type. May appear only behind a pointer. |
+| `type X [as "C name"] is struct ... end` | Complete foreign record. Each field is `mut` unless C-qualifies it const. |
+| `fun name [as "C symbol"](params) [: Type [as "C type"]]` | Foreign function; no body, generics, or methods. |
+| `constant name [as "C symbol"]: Type` | Typed, non-addressable scalar whose C spelling is an enumerator or object-like macro. |
+| `global [mut] name [as "C symbol"]: Type` | Foreign object; `mut` permits writes. |
+
+ABI type set on a qualified target:
+
+| C family | Checked type |
+| --- | --- |
+| `void` result | no result, never `Nil` |
+| `bool` / `_Bool` | `Bool` |
+| exact-width signed/unsigned integers | matching Hexal integer |
+| `float`, `double` | `Float32`, `Float64` |
+| `size_t` | `Size` |
+| `char *`, `const char *` | mutable/read-only `Ptr<Byte> | Nil` |
+| `void *`, `const void *` | `Ptr<mut Unknown> | Nil`, `Ptr<Unknown> | Nil` |
+| `char`, `short`, `int`, `long`, `long long`, pointer-width integers | target-resolved fixed Hexal integer |
+| C enum | transparent alias to its resolved integer type |
+| complete record | nominal foreign record; the named header owns its layout |
+
+- `long` is `Int32` on the LLP64 Windows profile and `Int64` on an LP64 target. An `as` clause
+  retains the exact boundary spelling.
+- A parameter or result `as "C type"` accepts only compiler-known fundamental, exact-width,
+  tag/record, and recursively qualified pointer spellings. An arbitrary library typedef is rejected
+  with `C spelling <spelling> cannot be proven in a handwritten binding; use an automatic C import or
+  expose a C wrapper`. This is not a general C declarator parser.
+- C pointer syntax never proves non-null. A written bare pointer asserts non-null as part of its
+  unsafe foreign contract; a nullable result must be narrowed before dereference.
+- A foreign record has one program-wide identity keyed by target and canonical C identity (tag
+  namespace plus tag spelling, or the canonical typedef spelling). An opaque declaration and a
+  compatible complete definition coalesce; conflicting complete definitions report
+  `conflicting foreign declarations for C symbol <symbol>`.
+- A complete foreign record constructs, copies, accesses fields, passes and returns by value, and
+  uses C-owned `sizeof`/`alignof`. Generated C never emits its `struct`, `enum`, or typedef
+  definition. Foreign records reject equality, ordering, printing, and Dict-key use.
+- An opaque type behind a pointer is valid; by value it reports `foreign type <type> is incomplete in
+  <position>`.
+- A foreign constant is readable without `unsafe`. Every direct foreign function call and every
+  foreign global read or write requires `unsafe do ... end`; `unsafe` never suppresses an ordinary
+  diagnostic.
+- `String.c_pointer() -> Ptr<Byte>` and `Slice<T>.pointer() -> Ptr<T> | Nil` /
+  `Slice<mut T>.pointer() -> Ptr<mut T> | Nil` each require `unsafe`, expose the address already
+  present, and allocate and copy nothing. A mutable C output parameter never receives a String
+  pointer.
+- Calls and accesses lower to the exact recorded C identifier; a boundary cast is emitted only where
+  the recorded C spelling differs from the checked representation. No forwarding wrapper is
+  generated.
+- A module that uses a foreign declaration emits each required C include once, deterministically,
+  after `hexal.h` and the component headers and before declarations that name a foreign type.
+- Diagnostics: `Syntax Error: extern blocks must precede ordinary top-level items`; `Syntax Error:
+  foreign declaration requires a C header`; `Syntax Error: invalid C header name <name>`; `Syntax
+  Error: invalid C spelling <spelling>`; `Configuration Error: C interoperability requires a
+  qualified target`; `Type Error: unsupported foreign declaration <declaration>`; `Type Error: C
+  spelling <spelling> cannot be proven in a handwritten binding; use an automatic C import or expose
+  a C wrapper`; `Type Error: foreign type <type> is incomplete in <position>`; `Type Error: foreign
+  call <name> requires an unsafe do ... end block`; `Type Error: foreign global <name> requires an
+  unsafe do ... end block`; `Type Error: conflicting foreign declarations for C symbol <symbol>`;
+  `Type Error: <type> has no supported C ABI mapping for target <target>`; `Name Error: C import
+  <header> has no automatically imported declaration <name>; check the C name, use a handwritten
+  binding, or expose a C wrapper`.
 
 ## Values, copying, and evaluation
 
@@ -2168,6 +2290,11 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   `hexal/` that the reachable program selects; it returns `ExitSuccess` and has empty `Stderr`. A
   failed compilation produces no artifacts: `Files` is empty, `ExitCode` is `ExitFailure`, and
   `Stderr` carries the structured diagnostics. No failure C program is emitted.
+- A module header emits each required foreign C include once, after `hexal.h` and the component
+  headers and before any declaration that names a foreign type, in deterministic first-use order.
+  The system and quoted forms are emitted exactly as written. The module C file still includes only
+  its own generated header. A prepared or handwritten binding module emits no foreign function or
+  type definition.
 - `hexal.h` is the mandatory small program-support header, generated from the program-wide
   aggregate of all reachable modules. It opens with the demand-driven umbrella of portable standard
   headers (deterministic lexical order, only for families the reachable generated program selects;
@@ -2289,8 +2416,11 @@ Ptr<mut T>.write_volatile(value: T) -> no value
 
 ## Excluded features
 
-- FFI: C imports/exports and foreign ABI remain draft and are not part of this language; native
-  modules are implemented.
+- FFI: automatic C-header binding generation, C exports, callbacks into Hexal, function-pointer
+  values, variadic calls, raw C unions, bit-fields, flexible-array members, C atomics, extended
+  numeric types, non-default calling conventions, dynamic libraries, and C project manifests are
+  deferred. The handwritten and prepared-binding surface in the C interoperability section is
+  implemented.
 - Memory: source pointer arithmetic/casts, `unsafe`.
 - Control/iteration: ranges, counted loops, user iterators, mutable iteration binders, exceptions.
 - Functions/concurrency: closures, async/await, coroutines, user threads, task groups, `select`,
