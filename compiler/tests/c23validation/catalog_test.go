@@ -45,6 +45,10 @@ type fixture struct {
 	entrypoint  string
 	expectation *processExpectation
 	hosts       []string
+	// project carries build-time settings the fixture requires. The zero
+	// value is the default program; a foreign fixture sets a qualified target
+	// because every foreign ABI fact is target-dependent.
+	project compiler.Project
 }
 
 // appliesToHost reports whether f should be collected on the running host.
@@ -78,14 +82,23 @@ func (f fixture) resolve(t *testing.T) compiler.CompilationResult {
 		}
 		t.Fatalf("fixture %q names unknown snippet ID %q", f.name, f.snippetID)
 	}
-	return assertCompilesSources(t, f.sources, f.entrypoint)
+	return assertCompilesProject(t, f.sources, f.entrypoint, f.project)
 }
 
 // assertCompilesSources is assertCompiles generalized to a full source map,
-// for fixtures and snippets that span more than one module.
+// for fixtures and snippets that span more than one module. It uses the
+// default project settings.
 func assertCompilesSources(t *testing.T, sources map[string]string, entrypoint string) compiler.CompilationResult {
 	t.Helper()
-	result := compiler.Compile(sources, entrypoint, compiler.Project{})
+	return assertCompilesProject(t, sources, entrypoint, compiler.Project{})
+}
+
+// assertCompilesProject compiles sources with explicit project settings. A
+// snippet lookup uses the defaults; a foreign fixture supplies a qualified
+// target.
+func assertCompilesProject(t *testing.T, sources map[string]string, entrypoint string, project compiler.Project) compiler.CompilationResult {
+	t.Helper()
+	result := compiler.Compile(sources, entrypoint, project)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("expected success; got %d diagnostic(s):\n%v", len(result.Stderr), result.Stderr)
 	}

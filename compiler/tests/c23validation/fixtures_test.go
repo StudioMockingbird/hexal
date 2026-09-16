@@ -5,7 +5,12 @@ package c23validation
 // The fixture data itself. Concurrency fixtures run under the same
 // ten-second process bound as every other fixture; see c23_harness_test.go.
 
-import "strings"
+import (
+	"strings"
+
+	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
+)
 
 var fixtureCatalog = []fixture{
 	// Compile-only: representative programs across the constructs whose
@@ -1361,5 +1366,97 @@ var fixtureCatalog = []fixture{
 			"print(\"" + strings.Repeat("f", 5000) + "\")\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: strings.Repeat("a", 255) + strings.Repeat("b", 256) +
 			strings.Repeat("c", 257) + strings.Repeat("d", 200) + strings.Repeat("e", 100) + strings.Repeat("f", 5000)},
+	},
+
+	// Handwritten C interoperability. Every foreign ABI fact is
+	// target-dependent, so each fixture selects the qualified Windows
+	// profile. They use standard headers only: the harness owns no include
+	// path or extra C source, and the C library supplies the implementation.
+	{
+		name:       "foreign-scalars-compiles",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		sources: map[string]string{"app.hex": "extern c from <stdlib.h> do\n" +
+			"    fun c_abs as \"abs\"(value: Int32 as \"int\"): Int32 as \"int\"\n" +
+			"end\n" +
+			"extern c from <string.h> do\n" +
+			"    fun c_strlen as \"strlen\"(text: Ptr<Byte> | Nil as \"const char *\"): Size as \"size_t\"\n" +
+			"end\n" +
+			"fun demo(text: String): Int32 do\n" +
+			"    unsafe do\n" +
+			"        magnitude: Int32 := c_abs(-7)\n" +
+			"        length: Size := c_strlen(text.c_pointer())\n" +
+			"        return magnitude + length.to<Int32>()\n" +
+			"    end\n" +
+			"end\n"},
+	},
+	{
+		name:       "foreign-opaque-and-record-compiles",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		sources: map[string]string{"app.hex": "extern c from <time.h> do\n" +
+			"    type Tm as \"struct tm\" is struct\n" +
+			"        mut tm_sec: Int32 as \"tm_sec\",\n" +
+			"        mut tm_min: Int32 as \"tm_min\",\n" +
+			"        mut tm_hour: Int32 as \"tm_hour\",\n" +
+			"    end\n" +
+			"    type File as \"FILE\" is opaque\n" +
+			"    fun c_clock as \"clock\"(): Int64 as \"long long\"\n" +
+			"end\n" +
+			"fun demo(stream: Ptr<File> | Nil, when: Ptr<mut Tm> | Nil) do\n" +
+			"    unsafe do\n" +
+			"        ticks: Int64 := c_clock()\n" +
+			"        seconds: Int32 := when.tm_sec\n" +
+			"        opened: Bool := stream != nil\n" +
+			"    end\n" +
+			"end\n"},
+	},
+	{
+		name:       "foreign-constants-globals-compiles",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		sources: map[string]string{"app.hex": "extern c from <limits.h> do\n" +
+			"    constant int_max as \"INT_MAX\": Int32 as \"int\"\n" +
+			"end\n" +
+			"extern c from <stdlib.h> do\n" +
+			"    constant exit_success as \"EXIT_SUCCESS\": Int32 as \"int\"\n" +
+			"end\n" +
+			"extern c from <errno.h> do\n" +
+			"    global mut errno_value as \"errno\": Int32 as \"int\"\n" +
+			"end\n" +
+			"fun demo(): Int32 do\n" +
+			"    highest: Int32 := int_max\n" +
+			"    unsafe do\n" +
+			"        errno_value = exit_success\n" +
+			"        current: Int32 := errno_value\n" +
+			"    end\n" +
+			"    return highest\n" +
+			"end\n"},
+	},
+	{
+		name:       "foreign-buffer-bridge-compiles",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		sources: map[string]string{"app.hex": "extern c from <string.h> do\n" +
+			"    fun c_strncpy as \"strncpy\"(destination: Ptr<mut Byte> | Nil as \"char *\", source: Ptr<Byte> | Nil as \"const char *\", count: Size as \"size_t\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
+			"end\n" +
+			"extern c from <stdlib.h> do\n" +
+			"    fun c_malloc as \"malloc\"(size: Size as \"size_t\"): Ptr<mut Unknown> | Nil as \"void *\"\n" +
+			"    fun c_free as \"free\"(memory: Ptr<mut Unknown> | Nil as \"void *\")\n" +
+			"end\n" +
+			"fun demo(text: String, buffer: Slice<mut Byte>) do\n" +
+			"    unsafe do\n" +
+			"        copied: Ptr<mut Byte> | Nil := c_strncpy(buffer.pointer(), text.c_pointer(), text.length())\n" +
+			"        region: Ptr<mut Unknown> | Nil := c_malloc(16)\n" +
+			"        c_free(region)\n" +
+			"    end\n" +
+			"end\n"},
+	},
+	{
+		name:        "foreign-call-runs",
+		entrypoint:  "app.hex",
+		project:     compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		sources:     map[string]string{"app.hex": "extern c from <stdlib.h> do\n    fun c_abs as \"abs\"(value: Int32 as \"int\"): Int32 as \"int\"\nend\nfun demo(): Int32 do\n    unsafe do\n        return c_abs(-7)\n    end\nend\nprint(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "7"},
 	},
 }

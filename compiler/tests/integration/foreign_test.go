@@ -406,3 +406,64 @@ func TestForeignNoResultAndRecordOperationRejections(t *testing.T) {
 		"end\n"
 	assertStderrContains(t, compileForeign(t, printing), "print does not support foreign record Vector2")
 }
+
+func TestForeignMutableBufferBridge(t *testing.T) {
+	// A `char *` parameter is checked as a writable Byte pointer and receives a
+	// Slice's address; the const form receives the String's address. One
+	// boundary cast per position, no general pointer conversion.
+	source := "extern c from <string.h> do\n" +
+		"    fun c_strncpy as \"strncpy\"(destination: Ptr<mut Byte> | Nil as \"char *\", source: Ptr<Byte> | Nil as \"const char *\", count: Size as \"size_t\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
+		"end\n" +
+		"fun demo(text: String, buffer: Slice<mut Byte>) do\n" +
+		"    unsafe do\n" +
+		"        copied: Ptr<mut Byte> | Nil := c_strncpy(buffer.pointer(), text.c_pointer(), text.length())\n" +
+		"    end\n" +
+		"end\n"
+	result := compileForeign(t, source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("a mutable Byte buffer must reach a char * parameter: %v", result.Stderr)
+	}
+	body := result.Files["modules/app.c"]
+	if !strings.Contains(body, "strncpy((char *)(") || !strings.Contains(body, "const char *)") {
+		t.Fatalf("the buffer bridge must lower directly with its boundary casts:\n%s", body)
+	}
+}
+
+func TestForeignVoidPointerFromForeignResult(t *testing.T) {
+	source := "extern c from <stdlib.h> do\n" +
+		"    fun c_malloc as \"malloc\"(size: Size as \"size_t\"): Ptr<mut Unknown> | Nil as \"void *\"\n" +
+		"    fun c_free as \"free\"(memory: Ptr<mut Unknown> | Nil as \"void *\")\n" +
+		"end\n" +
+		"fun demo() do\n" +
+		"    unsafe do\n" +
+		"        region: Ptr<mut Unknown> | Nil := c_malloc(16)\n" +
+		"        if region != nil then\n" +
+		"            c_free(region)\n" +
+		"        end\n" +
+		"    end\n" +
+		"end\n"
+	result := compileForeign(t, source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("void * must round-trip through Unknown: %v", result.Stderr)
+	}
+	body := result.Files["modules/app.c"]
+	if !strings.Contains(body, "malloc(16)") || !strings.Contains(body, "free(hex_v_region)") {
+		t.Fatalf("void * calls must lower to the exact symbols:\n%s", body)
+	}
+}
+
+func TestForeignMutableOutputRejectsReadOnlySource(t *testing.T) {
+	// A read-only String pointer can never satisfy a mutable Byte pointer.
+	source := "extern c from <string.h> do\n" +
+		"    fun c_strncpy as \"strncpy\"(destination: Ptr<mut Byte> | Nil as \"char *\", source: Ptr<Byte> | Nil as \"const char *\", count: Size as \"size_t\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
+		"end\n" +
+		"fun demo(text: String) do\n" +
+		"    unsafe do\n" +
+		"        copied: Ptr<mut Byte> | Nil := c_strncpy(text.c_pointer(), text.c_pointer(), text.length())\n" +
+		"    end\n" +
+		"end\n"
+	result := compileForeign(t, source)
+	if result.ExitCode == compiler.ExitSuccess {
+		t.Fatalf("a read-only String pointer must not satisfy a mutable output parameter")
+	}
+}
