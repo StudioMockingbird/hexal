@@ -13,7 +13,6 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Replace quoted standard-library collection paths with dotted `std.<module>` imports | [0212](specs/0212-dotted-stdlib-imports.md) |
 | Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | [0039](specs/0039-c-interop-compiler-core.md) |
 
 ### Design requires revision

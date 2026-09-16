@@ -1,7 +1,11 @@
 # RFC 0212: Dotted Standard-Library Imports
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Implemented. The tagged and dotted import references, the resolver's
+  kind-directed lookup, the exact syntax and Module diagnostics, the reserved
+  `std/` canonical prefix, and the dotted migration hints are in place and
+  covered by parser, resolver, and integration tests. The snippet SHA-256
+  manifest is byte-identical, so no generated artifact moved.
 - Created: 2026-09-16
 - Updated: 2026-09-16
 - Scope: make compiler-owned and embedded standard-library imports visibly
