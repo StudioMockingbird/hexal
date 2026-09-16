@@ -1,8 +1,12 @@
 # RFC 0178: Program Paths and Secure Entropy
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready after RFC 0186 and RFC 0182's entry adapter; design and execution plan
-  settled, implementation not started
+- Status: Implemented. The `std/program` path/parallelism and `std/entropy`
+  surfaces, their runtime components, per-module result adapters, demand
+  selection, and the Task-parking bridge are complete and covered by public
+  integration tests. Open validation items (tagged C23 fixtures and the
+  generated-size/link-time/allocation/latency measurements) are recorded in
+  `docs/status.md`.
 - Created: 2026-09-13
 - Updated: 2026-09-15
 - Scope: expose the minimum path facts and secure system random bytes needed by

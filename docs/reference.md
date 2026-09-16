@@ -45,7 +45,9 @@ import-entry = identifier , "from" , module-path-literal ;
 module-path-literal = ? a quoted literal scanned only when the previous
                         token is the contextual identifier "from"; the
                         payload between quotes is taken verbatim (no escape
-                        decoding); a backslash in the payload is invalid ? ;
+                        decoding); a backslash in the payload is invalid; the
+                        payload is either a relative path ("./" or "../") or
+                        a collection path ("std/<component>{/<component>}") ? ;
 export-block = "export" , export-entry , { "," , export-entry } , "end" ;
 export-entry = identifier , [ "." , identifier ] ;
 static-module-value = "static" , [ "mut" ] , identifier
@@ -367,6 +369,16 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   module's directory, strips the optional `.hex`, and cannot walk above the logical source-map
   root. Resolution consults only the supplied source map and requires exactly one case-sensitive
   logical key with the resulting canonical identity.
+- A path that does not start with `./` or `../` is a collection path
+  `"<collection>/<component>{/<component>}"`. `std` is the only collection; any other collection
+  name is a Module Error. Collection paths take no `.hex` suffix and every component is a Hexal
+  identifier. A std module is either a core library (compiler-owned declarations and C runtime
+  templates, no Hexal source) or a source module embedded in the compiler; the distinction is an
+  implementation detail, and importers use one alias form and one access syntax for both. A
+  relative path cannot leave the collection it starts in, so user modules cannot reach `std` and
+  stdlib modules cannot import user modules. Note that core-library module names are not added to
+  the protected-name table: an import alias is the only way to reach them, and a user
+  declaration of the same name remains legal.
 - Only the entrypoint and its transitive dependencies are compiled. Unreachable source-map entries
   produce no diagnostics, artifacts, or statistics. Each reachable canonical module is processed
   once. Duplicate imports of one canonical module and every dependency cycle are Module Errors.
@@ -408,6 +420,49 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   transparent aliases of imported types may call exported methods but cannot receive new methods.
 - Generated module artifacts, symbol linkage, header ownership, and source mapping are specified
   exclusively under Generated artifact split.
+
+### Standard library modules
+
+- Collection paths resolve only to compiler-embedded modules; the compiler reads no host files. A
+  core-library module emits no module artifact: its declarations keep compiler-owned C spellings and
+  existing `hexal/` components, selected by the existing operation-driven demand rules. A source
+  stdlib module emits `stdlib/<path>.c` and `stdlib/<path>.h`, maps `#line`, diagnostics, and
+  `Error.file` to `stdlib/std/<path>.hex`, and prefixes its generated symbols with `s` (for example
+  `hex_f_s5_ascii_is_digit`); user modules keep the `m` prefix and `modules/` artifacts, so the two
+  can never collide.
+- An imported module is used by writing the defining module's own names through the alias:
+  `Alias.function(...)`, `Alias.Type(...)`, `Alias.Adt.Variant(...)`, `Alias.Type` in an annotation,
+  and the ordinary unqualified method, member, and equality syntax on values.
+- `std/program` exports these functions; `Prog` below is an ordinary file-local alias, not a
+  protected name:
+
+| Signature | Contract |
+| --- | --- |
+| `arguments() -> Slice<String> \| Error` | The host invocation in order, including element zero when supplied. Over one immutable process-lifetime snapshot shared by every call; the Slice and String bytes are read-only. Zero arguments produce an empty Slice. |
+| `current_directory(heap) -> String \| Error` | Caller-Heap-owned current working directory. |
+| `home_directory(heap) -> String \| Error` | Caller-Heap-owned home directory observation; not proof the path exists or is writable. |
+| `temporary_directory(heap) -> String \| Error` | Caller-Heap-owned temporary directory observation. |
+| `executable_path(heap) -> String \| Error` | Caller-Heap-owned executable path. |
+| `available_parallelism() -> Size` | A non-zero estimate, matching libuv's contract; it does not expose scheduler worker count or mutate scheduler policy. |
+
+  Path results are UTF-8-validated on every target; invalid bytes return `Error`, never a lossy
+  replacement. No path query performs normalization, canonicalization, symlink resolution,
+  separator rewriting, or case folding.
+- `std/entropy` exports `fill(into: Slice<mut Byte>) -> Nil | Error`. It fills the entire
+  destination or returns Error; short success is impossible. An empty Slice succeeds immediately,
+  touches no memory, and submits no request. On failure the destination contents are unspecified.
+- `std/ascii` exports exactly five functions:
+
+| Signature | Contract |
+| --- | --- |
+| `is_digit(value: Byte) -> Bool` | ASCII `0` through `9`. |
+| `is_alpha(value: Byte) -> Bool` | ASCII `A`–`Z` and `a`–`z`. |
+| `is_space(value: Byte) -> Bool` | Space, horizontal tab, line feed, vertical tab, form feed, carriage return. |
+| `to_lower(value: Byte) -> Byte` | ASCII uppercase to lowercase; every other byte unchanged. |
+| `to_upper(value: Byte) -> Byte` | ASCII lowercase to uppercase; every other byte unchanged. |
+
+  These functions classify bytes only: they do not decode UTF-8 and apply no locale-sensitive or
+  Unicode rules.
 
 ## Values, copying, and evaluation
 
@@ -690,6 +745,17 @@ HeapAllocation
   arguments and infer or explicitly receive their own.
 - Bodies are checked structurally at declaration and rechecked after substitution. Same-argument
   recursive specialization is allowed; argument-changing recursive cycles are rejected.
+- A qualified generic type is `Alias.Name<Arguments>`, valid in an annotation, as a struct
+  construction (`Alias.Name<Arguments>(...)`, or `Alias.Name(...)` when the arguments are inferred),
+  and as the receiver of an exported generic method. It resolves exported types only, with the same
+  arity and visibility diagnostics a non-generic qualified type already has. A generic exported
+  template specializes in its defining module's retained context, so its signature, body, and
+  provenance are resolved there regardless of which module requests the specialization; a private
+  defining-module name inside the body therefore resolves normally. Its concrete specializations are
+  owned by the defining module: generated linkage is external (never `static`) whenever an importer
+  can reach the specialization, and the defining module's artifact carries the requested
+  specializations, so that artifact is deterministic for a given source map and specialization-demand
+  set rather than for its source alone.
 
 ### Structural unions
 
@@ -839,6 +905,19 @@ destinations only. `none` means no fixed-width destination.
   Structural unions.
 - Every continuing path in a result-producing function must return. A loop is always treated as able
   to fall through, including `while true`; break/continue never satisfy a return requirement.
+- `return` at entry-module scope exits the complete entry module after active root defers and
+  records one `UInt8` process status. It is invalid at top level in an imported module. `return
+  expression` requires exact `UInt8` with no implicit conversion; `return` without an expression and
+  entry-module fallthrough both record zero. The status is evaluated once before any defer runs.
+- A root `return` under `if`, `while`, or `for` exits the program body and is a context-valid
+  terminating statement for `is`/nil flow facts, exactly like a function `return`. A `return` inside
+  a function or method retains that declaration's ordinary result contract. `try` and `errdefer`
+  remain invalid at entry-module root because the root has no Error result.
+- The generated entry adapter is emitted when `std/program.arguments()` or
+  `std/program.executable_path(heap)` is reachable. Executable-path demand runs the native
+  bootstrap and then `uv_setup_args` exactly once before the first query; argument demand alone
+  selects no libuv. Windows keeps `int main(void)`; POSIX widens to `int main(int argc, char **argv)`,
+  and host-neutral output spells both under `#if defined(_WIN32)`.
 - `defer expression` registers cleanup in the current scope. Actions run in reverse registration
   order on fallthrough, return, break, or continue. A direct call captures callee, receiver, and
   arguments at registration; other expressions evaluate on exit.

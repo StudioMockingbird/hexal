@@ -15,6 +15,7 @@ gets deleted.
 | --- | --- |
 | Check every open generic body at declaration, rejecting errors that hold for all type arguments | [0211](specs/0211-generic-declaration-checking.md) |
 | Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | [0039](specs/0039-c-interop-compiler-core.md) |
+| RFC 0186: remove the moved capability names from the protected-name table, add the migration diagnostics, remove `Alias.Variant(...)` in favour of parser and checker `Alias.Adt.Variant(...)` patterns, delete the namespace-only types (`Dns`, `Tcp`, `Terminal`), and migrate every in-repo source, snippet, and fixture to the new spellings. The core-library mechanism, the moved types/operations, the source stdlib (`std/ascii`), `std/program`, and `std/entropy` are implemented; the migration itself is not | [0186](specs/0186-standard-library-boundary.md) |
 
 ### Coordination umbrella; not independently executable
 
@@ -29,9 +30,6 @@ gets deleted.
 | Compile and link command-line-supplied C sources, objects, archives, and system libraries | RFC 0039 | [0192](specs/0192-command-line-c-build-inputs.md) |
 | Automatically generate typed binding modules for reachable C-header imports | RFC 0039 and RFC 0192 | [0193](specs/0193-automatic-c-header-bindings.md) |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | RFC 0039, RFC 0192, and RFC 0193 | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
-| Establish the standard-library module boundary and migrate compiler-owned capability namespaces | RFC 0190 | [0186](specs/0186-standard-library-boundary.md) |
-| Program entry and exit: immutable process arguments, UInt8 root return status, cleanup ordering, and target entry ABI | RFC 0186 | [0182](specs/0182-program-entry-and-exit.md) |
-| Program path queries, Size-valued available parallelism, and secure entropy fill | RFC 0186 and RFC 0182's entry adapter | [0178](specs/0178-libuv-os-services.md) |
 
 ## Deferred ideas
 

@@ -1,8 +1,10 @@
 # RFC 0190: Cross-Module Generic Correctness
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implemented; cannot close until `docs/reference.md` is synchronized
-  with explicit user approval (see Reference impact below). The two real
+- Status: Closed. `docs/reference.md` is synchronized with explicit user
+  approval: the Generics section records qualified generic types, defining-
+  module specialization context, and exported-specialization linkage and
+  artifact ownership. The two real
   bugs the Problem section names are both fixed and verified end to end
   (checked, generated, compiled, linked, and run under the pinned backend):
   a cross-module generic function/method specialization previously kept C

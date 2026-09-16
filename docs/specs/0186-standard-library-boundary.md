@@ -1,8 +1,19 @@
 # RFC 0186: Standard Library Boundary
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready after RFC 0190; design and execution plan
-  settled, implementation not started
+- Status: Partially implemented. Done: collection-path imports; the
+  `compiler/corelib` package (module table, declarations, embedded runtime
+  templates); `Alias.Type` resolution, `Alias.op(...)` module functions, and
+  `Alias.Adt.Variant(...)` construction; the source stdlib layer
+  (`stdlib/stdlib.go`, `std/ascii`, `stdlib/<path>` artifacts, `s` owner
+  encoding, `stdlib/std/<path>.hex` provenance); and `std/program` +
+  `std/entropy`. Not done: removing the moved capability names from the
+  protected-name table, the migration diagnostics, removing
+  `Alias.Variant(...)` in favour of `Alias.Adt.Variant(...)` in patterns,
+  deleting the namespace-only types, and migrating every in-repo source,
+  snippet, and fixture. The old protected spellings still resolve during the
+  migration, so this specification cannot close until that removal lands
+  (tracked in `docs/status.md`).
 - Created: 2026-09-14
 - Updated: 2026-09-15
 - Scope: define what belongs to the language core versus the standard library,

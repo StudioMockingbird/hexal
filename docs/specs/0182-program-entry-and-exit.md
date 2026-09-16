@@ -1,8 +1,12 @@
 # RFC 0182: Program Entry and Exit
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready after RFC 0186; design and execution plan
-  settled, implementation not started
+- Status: Implemented. Module-scope `return`, its `UInt8` status, the shared
+  cleanup label, defer unwinding, the demand-driven entry adapter
+  (`uv_setup_args` and the argument snapshot), and the host-neutral entry
+  widening are complete and covered by public integration tests. Open
+  validation items (tagged C23 fixtures and the runtime argument/status
+  fixtures) are recorded in `docs/status.md`.
 - Created: 2026-09-14
 - Updated: 2026-09-15
 - Scope: expose immutable process arguments and let the entry module select the

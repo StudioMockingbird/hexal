@@ -2,8 +2,10 @@
 
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Active coordination umbrella; not independently executable. The
-  runtime substrate is implemented; child language surfaces remain
-  independently gated
+  runtime substrate is implemented. Child RFC 0178 (paths and entropy) and RFC
+  0182 (entry and exit) are implemented; RFC 0186 (standard-library boundary)
+  is partially implemented, with its protected-name migration still open. The
+  umbrella stays active until the remaining children close.
 - Created: 2026-09-13
 - Updated: 2026-09-14
 - Scope: assign libuv-backed operating-system capabilities to focused RFCs
