@@ -479,6 +479,12 @@ func (parser *Parser) consume(kind lexer.TokenKind, expected string) (lexer.Toke
 
 func (parser *Parser) statement() (Statement, error) {
 	switch {
+	case parser.atExternBlock():
+		// A foreign block is top-level only, and `extern` is reserved at
+		// statement start. Reuse the ordering diagnostic so a nested block
+		// reports the same error as a late one instead of parsing as an
+		// expression.
+		return nil, parser.errorAt(parser.peek(), "extern blocks must precede ordinary top-level items")
 	case parser.check(lexer.Fun):
 		// At statement position, `fun` followed by an identifier used to
 		// begin a local named function declaration; named function

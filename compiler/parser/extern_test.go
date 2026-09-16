@@ -86,6 +86,8 @@ func TestParseExternBlockRejections(t *testing.T) {
 		{"extern c from <x.h> do\n    fun f(x: Int32 as \"int[4]\")\nend\n", "invalid C spelling int[4]"},
 		{"extern c from x.h do\nend\n", "foreign declaration requires a C header"},
 		{"extern c from <x.h>\nend\n", "expected 'do' after the foreign header"},
+		{"fun f() do\n    extern c from <x.h> do\n    end\nend\nvalue: Int32 := 1\n", "extern blocks must precede ordinary top-level items"},
+		{"value: Int32 := 1\nexport\n    value\nend\nextern c from <x.h> do\nend\n", "extern blocks must precede ordinary top-level items"},
 	} {
 		_, parseErr := Parse(mustLex(t, testCase.source))
 		if parseErr == nil || !strings.Contains(parseErr.Error(), testCase.want) {
