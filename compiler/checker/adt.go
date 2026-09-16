@@ -147,7 +147,8 @@ func resolveVariantOwner(owner string, ownerArguments []parser.TypeExpression, e
 // a generic ADT template): the current construction syntax for ADT variants.
 // The second result is false when the callee does not name any ADT variant at
 // all, so the caller can fall through to ordinary method/property dispatch.
-// An import-alias owner is left to checkModuleVariantConstructorCall.
+// An import-alias owner is left to checkQualifiedNestedVariantCall, the
+// Alias.Adt.Variant form.
 func checkQualifiedVariantCall(call parser.CallExpression, callee parser.PropertyExpression, expectedType compilerTypes.Type, ctx checkContext) (initializerValue, bool) {
 	owner, isVariable := callee.Receiver.(parser.VariableExpression)
 	if !isVariable {

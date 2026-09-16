@@ -15,13 +15,6 @@ gets deleted.
 | --- | --- |
 | Check every open generic body at declaration, rejecting errors that hold for all type arguments | [0211](specs/0211-generic-declaration-checking.md) |
 | Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | [0039](specs/0039-c-interop-compiler-core.md) |
-| RFC 0186: remove the moved capability names from the protected-name table, add the migration diagnostics, remove `Alias.Variant(...)` in favour of parser and checker `Alias.Adt.Variant(...)` patterns, delete the namespace-only types (`Dns`, `Tcp`, `Terminal`), and migrate every in-repo source, snippet, and fixture to the new spellings. The core-library mechanism, the moved types/operations, the source stdlib (`std/ascii`), `std/program`, and `std/entropy` are implemented; the migration itself is not | [0186](specs/0186-standard-library-boundary.md) |
-
-### Coordination umbrella; not independently executable
-
-| Work | Disposition | Spec |
-| --- | --- | --- |
-| libuv capability ownership and child-RFC coordination | Umbrella only; child surfaces remain independently gated | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md) |
 
 ### Design settled; implementation blocked
 
@@ -46,7 +39,6 @@ A bug is real whether or not its owning spec is scheduled.
 | Bug | Owning spec |
 | --- | --- |
 | Open generic bodies are never checked at declaration, so an unused generic with an unknown name or an independent type error compiles | [0211](specs/0211-generic-declaration-checking.md) |
-| `reference.md` names POSIX x86-64 as a supported Task target although RFC 0052 has qualified only Windows x64 | [0168](specs/0168-libuv-backed-runtime-and-io-semantics.md); reference correction requires explicit user approval |
 | `reference.md`'s Pointers and nullability section states "Arithmetic, indexing, ... are unavailable", contradicting closed RFC 0156's unsafe-gated `Ptr.offset`/indexing/`.cast<U>()` | [0156](specs/archive/0156-fenced-pointer-arithmetic.md); reference correction requires explicit user approval per that RFC's own text |
 
 ## Known coverage gaps
@@ -282,3 +274,11 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   claims pending either finer black-box fixtures or internal
   instrumentation neither of which this pass added.
 - To verify; import block must always be at the top of the mocule. export block must always be at the end. import, export and unsafe can only be at root level.
+- **RFC 0186's "a user logical key `std/fs.hex` and stdlib `std/fs` coexist with distinct
+  identities" is not implemented because the specification contradicts itself.** It also mandates
+  that a source stdlib module's canonical identity stays `std/<path>` while the compiler derives a
+  user module's canonical identity from its key with the `.hex` suffix stripped, so a user key
+  `std/fs.hex` canonicalizes to the same `std/fs` the stdlib claims. Only the `#line`, diagnostic,
+  and `Error.file` provenance key is distinct (`stdlib/std/fs.hex`), and that part is implemented
+  and covered. Resolving the identity half needs a spec decision (reserve the `std/` key prefix, or
+  give the stdlib a distinct canonical), not a compiler change.

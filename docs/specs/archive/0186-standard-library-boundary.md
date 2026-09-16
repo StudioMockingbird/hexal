@@ -1,19 +1,21 @@
 # RFC 0186: Standard Library Boundary
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Partially implemented. Done: collection-path imports; the
+- Status: Closed. Implemented: collection-path imports; the
   `compiler/corelib` package (module table, declarations, embedded runtime
-  templates); `Alias.Type` resolution, `Alias.op(...)` module functions, and
-  `Alias.Adt.Variant(...)` construction; the source stdlib layer
-  (`stdlib/stdlib.go`, `std/ascii`, `stdlib/<path>` artifacts, `s` owner
-  encoding, `stdlib/std/<path>.hex` provenance); and `std/program` +
-  `std/entropy`. Not done: removing the moved capability names from the
-  protected-name table, the migration diagnostics, removing
-  `Alias.Variant(...)` in favour of `Alias.Adt.Variant(...)` in patterns,
-  deleting the namespace-only types, and migrating every in-repo source,
-  snippet, and fixture. The old protected spellings still resolve during the
-  migration, so this specification cannot close until that removal lands
-  (tracked in `docs/status.md`).
+  templates) importing no compiler package other than `compiler/types`;
+  `Alias.Type` resolution, `Alias.op(...)` module functions, and
+  `Alias.Adt.Variant(...)` construction and `| Alias.Adt.Variant then`
+  patterns; the source stdlib layer (`stdlib/stdlib.go`, `std/ascii`,
+  `stdlib/<path>` artifacts, `s` owner encoding, `stdlib/std/<path>.hex`
+  provenance); the removal of every moved capability name from the protected
+  registry and the namespace-only `Dns`/`Tcp`/`Terminal`; the exact migration
+  diagnostics; and the migration of every in-repo test, fixture, and snippet
+  source with a regenerated artifact baseline. One Validation item, a user
+  `std/<path>.hex` key coexisting with the stdlib `std/<path>` under distinct
+  identities, is not implemented because the specification simultaneously
+  fixes the stdlib canonical identity at `std/<path>`; the contradiction and
+  the implemented provenance distinction are recorded in `docs/status.md`.
 - Created: 2026-09-14
 - Updated: 2026-09-15
 - Scope: define what belongs to the language core versus the standard library,

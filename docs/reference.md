@@ -319,15 +319,19 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   restriction as a type declaration: it cannot name a type not yet declared.
 - Type and value names share one namespace. Protected names cannot be redeclared or shadowed.
   Protected types are every scalar plus `Size`, `Byte`, `Rune`, `String`, `Strand`, `Nil`, `EoS`,
-   `Unknown`, `Heap`, `Error`, `RuneCursor`, `Mutex`, `IO`, `Bytes`, `Seek`, `File`, `FileMode`,
-   `Duration`, `Instant`, `WallTime`, `Address`, `Dns`, `Tcp`, `TcpConnection`, `TcpListener`,
-   `Process`, `Pipe`, `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`,
-   `ProcessStream`, `ExitStatus`, `Signal`, `Signals`, `Terminal`, `TerminalSize`,
+   `Unknown`, `Heap`, `Error`, `ErrorKind`, `RuneCursor`, `Mutex`,
    and constructors `Ptr`,
    `Slice`, `Fun`, `Array`, `List`, `Dict`, `Task`, `Channel`, `Atomic`, `Stash`, `Pool`.
    The retired `MutPtr` and `View` names stay reserved but name no type; the never-implemented
    `Ref`, `MutRef`, `Box`, and `MutSlice` names are free for user declaration.
   Protected operations are `print`, `size_of`, and `align_of`.
+- Every operating-system capability type (`IO`, `Bytes`, `Seek`, `File`, `FileMode`, `Duration`,
+  `Instant`, `WallTime`, `Address`, `TcpConnection`, `TcpListener`, `Process`, `Pipe`,
+  `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`, `ProcessStream`,
+  `ExitStatus`, `Signal`, `Signals`, `TerminalSize`) and the former namespace types `Dns`, `Tcp`,
+  `Terminal`, `Program`, and `Entropy` reserve no name. They are reachable only through a std
+  module alias, and a user declaration of any of those names resolves as an ordinary declaration.
+  An unresolved use of one reports the exact migration hint (see Standard library modules).
 - Every value-binding declaration uses `:=` and states its type exactly once, on one side or the
   other. `name: T := initializer` states it on the left; `name := initializer` says the
   initializer states it, and is rejected when the initializer is contextual — an integer, float,
@@ -463,6 +467,27 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 
   These functions classify bytes only: they do not decode UTF-8 and apply no locale-sensitive or
   Unicode rules.
+
+- The capability core libraries export their former protected types and static operations. An
+  exported type keeps its name; a static operation becomes a module function with the parameters,
+  result, errors, and runtime behavior unchanged. Instance methods (`file.read`, `duration.as_seconds`,
+  `signals.next`, ...) are unchanged and call for no alias.
+
+| Module | Exported types | Module functions |
+| --- | --- | --- |
+| `std/io` | `IO`, `Bytes`, `Seek` | `stdin()`, `stdout()`, `stderr()`, `bytes_over(buffer)` |
+| `std/fs` | `File`, `FileMode` | `open(path, mode)` |
+| `std/time` | `Duration`, `Instant`, `WallTime` | `nanoseconds`, `microseconds`, `milliseconds`, `seconds`, `now()`, `wall_time()`, `sleep(duration)` |
+| `std/net` | `Address`, `TcpConnection`, `TcpListener` | `parse_address(text, port)`, `resolve(heap, host, service)`, `connect(address)`, `listen(address, backlog)` |
+| `std/process` | `Process`, `Pipe`, `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`, `ProcessStream`, `ExitStatus` | `start(options)` |
+| `std/signal` | `Signal`, `Signals` | `subscribe(subscriptions)` |
+| `std/terminal` | `TerminalSize` | `is_attached(stream)`, `size(stream)` |
+
+- An ADT variant of a type declared in another module (user or std) is written
+  `Alias.Adt.Variant(...)` in construction and `| Alias.Adt.Variant then` in a match pattern. The
+  former `Alias.Variant(...)` short form is removed, so a same-named variant of another exported ADT
+  can never resolve silently. Variants of a local type keep the unqualified `Adt.Variant(...)` form.
+  Seeking a file therefore imports both modules: `Fs.open(...)` with `Io.Seek.Start(position = 16)`.
 
 ## Values, copying, and evaluation
 
@@ -790,14 +815,17 @@ HeapAllocation
   field, which is fixed (never `mut`).
 - Every variant, unit or record, constructs as a call: `Owner.Variant()` for a unit variant,
   `Owner.Variant(field = value, ...)` for a record variant, naming every payload field exactly once
-  in any order. Omitting `()` on a unit variant is rejected because a type name is not a value.
+  in any order. Omitting `()` on a unit variant is rejected because a type name is not a value. An
+  imported ADT's variant is `Alias.Adt.Variant(...)`; the short `Alias.Variant(...)` form is not a
+  spelling.
 - Direct by-value recursion is invalid; pointer-indirect recursion and generic
   specialization are valid.
 - `match` is an expression and evaluates its scrutinee once. Value mode matches `true`/`false`.
   Type mode (`match value is`) matches exact complete types, individual union members, Nil, or ADT
   variants; a union type itself is not one pattern. A dotted pattern is neutral syntax resolved by
-  scrutinee domain: against an ADT scrutinee it denotes that ADT's variant named through a local
-  owner or import alias, and against any other scrutinee it denotes the import-qualified type.
+  scrutinee domain: against an ADT scrutinee it denotes that ADT's variant, named through a local
+  owner (`Adt.Variant`), an import alias (`Alias.Adt.Variant` for an imported ADT), or the same
+  alias for a locally visible ADT; against any other scrutinee it denotes the import-qualified type.
   Coverage is canonical type identity, never a short name: each canonical union member, each ADT
   variant, or the one exact non-union type.
 - Arms are `| pattern then expression`; optional final `else` is catch-all. Match is exhaustive;
@@ -1349,8 +1377,9 @@ spawn function(args) -> Task<R> | Error
 Task<R>.join() -> R
 Task<R>.detach() -> no value
 Task.yield() -> no value
-Task.sleep(duration: Duration) -> no value
 ```
+
+Sleep is not a Task method; it is the `std/time` module function `sleep(duration: Duration)`.
 
 - Spawn evaluates arguments once left-to-right and shallow-copies them; failure starts no task. R
   must be valid in FunctionResult and TaskResult, complete, finite, and copyable. Spawn Error is
@@ -1362,14 +1391,17 @@ Task.sleep(duration: Duration) -> no value
   point in one cooperative M:N scheduler over libuv worker threads. A native operation that parks its
   caller on the runtime event bridge (see IO) does not satisfy this explicit-yield rule; a `while true` loop
   containing only such an operation still requires its own `Task.yield()`.
-- Targets are Windows x64 and POSIX x86-64, using the qualified libuv thread,
-  mutex, condition, detach, and available-parallelism facilities. Root is
+- The qualified target is Windows x64, using the qualified libuv thread,
+  mutex, condition, detach, and available-parallelism facilities. POSIX x86-64
+  source branches exist but are unqualified until their target profiles pass
+  the external generated-C and runtime gates; an existing source branch is not
+  a support claim. Root is
   pinned to worker zero; root return does not join tasks. Stacks
   reserve 1 MiB by default with an 8 KiB initial commit, both `Project` build-time settings; the
   initial commit is a Windows-only knob, and the usable region is the reserve less one guard page.
   Exceeding the reserve traps with `[Runtime Error] task stack overflow` rather than corrupting
   memory.
-- `Task.sleep(d)` parks only the current Task on the runtime event bridge; no scheduler worker
+- `std/time.sleep(d)` parks only the current Task on the runtime event bridge; no scheduler worker
   blocks. Using it selects the scheduler, so root may sleep. Zero returns immediately and is not a
   scheduling point; like every parking operation it never satisfies the explicit-yield rule. A
   duration above `Int64` maximum nanoseconds traps with `[Runtime Error] sleep duration too large`
@@ -1447,23 +1479,26 @@ Atomic<T>.compare_exchange(expected: T, desired: T) -> Bool
 ## Time
 
 ```text
-Duration.nanoseconds(value: UInt64)  -> Duration
-Duration.microseconds(value: UInt64) -> Duration
-Duration.milliseconds(value: UInt64) -> Duration
-Duration.seconds(value: UInt64)      -> Duration
+-- std/time module functions
+nanoseconds(value: UInt64)  -> Duration
+microseconds(value: UInt64) -> Duration
+milliseconds(value: UInt64) -> Duration
+seconds(value: UInt64)      -> Duration
+now()                       -> Instant
+wall_time()                 -> WallTime | Error
+sleep(duration: Duration)   -> no value
+-- instance methods
 Duration.as_nanoseconds()            -> UInt64
 Duration.as_microseconds()           -> UInt64
 Duration.as_milliseconds()           -> UInt64
 Duration.as_seconds()                -> UInt64
-Instant.now()                        -> Instant
 Instant.elapsed()                    -> Duration
 Instant.duration_since(earlier: Instant) -> Duration
-WallTime.now()                       -> WallTime | Error
 WallTime.seconds()                   -> Int64
 WallTime.nanosecond()                -> UInt32
 ```
 
-- `Duration`, `Instant`, and `WallTime` are protected value types with no scalar kind: numeric
+- `Duration`, `Instant`, and `WallTime` are value types exported by `std/time` with no scalar kind: numeric
   operators, `to<T>()`, `print`, integer mixing, and construction other than the listed operations
   are rejected. Arguments are exact `UInt64`/`Instant` values with no implicit conversion.
 - Duration is an unsigned nanosecond magnitude lowering to `uint64_t`. Unit constructors scale with
@@ -1474,25 +1509,26 @@ WallTime.nanosecond()                -> UInt32
 - Instant is a monotonic timestamp from libuv's `uv_hrtime()` whose origin and representation are
   not observable. `Instant - Instant` and `later.duration_since(earlier)` yield Duration and trap
   with `[Runtime Error] invalid instant subtraction` when the left operand precedes the right;
-  `elapsed()` is `Instant.now()` minus the receiver. No other arithmetic accepts Instant.
+  `elapsed()` is `std/time.now()` minus the receiver. No other arithmetic accepts Instant.
 - WallTime is a UTC observation from C23 `timespec_get(TIME_UTC)`: signed Unix seconds and a
   normalized `0..999_999_999` nanosecond fraction. It has no arithmetic and never converts to or
   from Instant. Acquisition failure returns an Error with kind `ErrorKind.Unsupported()` and message
   `wall clock acquisition failed`, allocating nothing.
 - All three types support `==`, `!=`, `<`, `<=`, `>`, and `>=` against the same type; WallTime
   orders by seconds, then fraction. Operands of different time types are rejected.
-- Selection: any time type or operation emits `hexal/time.h`/`hexal/time.c`. `Instant.now` and
+- Selection: any time type or operation emits `hexal/time.h`/`hexal/time.c`. `std/time.now` and
   `elapsed` additionally select libuv and its native bootstrap but not the scheduler; `WallTime`
-  selects no libuv; `Task.sleep` selects the scheduler and the event bridge.
+  selects no libuv; `std/time.sleep` selects the scheduler and the event bridge.
 
 ## Byte streams
 
 ```text
-IO.stdin()  -> IO | Error
-IO.stdout() -> IO | Error
-IO.stderr() -> IO | Error
-Bytes.over(buffer: List<Byte>) -> Bytes
-
+-- std/io module functions
+stdin()  -> IO | Error
+stdout() -> IO | Error
+stderr() -> IO | Error
+bytes_over(buffer: List<Byte>) -> Bytes
+-- instance methods
 IO.read(into: List<Byte>, max: Size)            -> Size | EoS | Error
 IO.write(from: Slice<Byte>)                      -> Size | Error
 IO.seek(to: Seek)                                -> Size | Error
@@ -1504,9 +1540,11 @@ Ptr<mut Bytes>.seek(to: Seek)                     -> Size | Error
 type Seek is union | Start as position: Size end | Current as offset: Int64 end | End as offset: Int64 end end
 ```
 
-- `IO`, `Bytes`, and `Seek` are reserved protected type names; redeclaration is a Type Error.
-  `Start`, `Current`, and `End` remain available as unqualified names. Seek variants construct as
-  `Seek.Start(position = ...)`, `Seek.Current(offset = ...)`, and `Seek.End(offset = ...)`.
+- `IO`, `Bytes`, and `Seek` are exported type names of `std/io`. They reserve no name, so a user may
+  declare them; each is reached through the module alias (`Io.IO`, `Io.Bytes`, `Io.Seek`). `Start`,
+  `Current`, and `End` remain available as unqualified names. Seek variants construct as
+  `Seek.Start(position = ...)`, `Seek.Current(offset = ...)`, and `Seek.End(offset = ...)`, reached
+  through the alias (`Io.Seek.Start`).
 - IO lowers to `{ intptr_t desc, uint8_t access, bool owned }`; Bytes lowers to a borrowed
   `List<Byte>` header pointer plus an inline cursor. Copies of IO alias one external resource;
   copying Bytes copies the cursor, so copies advance independently.
@@ -1562,7 +1600,9 @@ type Seek is union | Start as position: Size end | Current as offset: Int64 end 
 ### `File`
 
 ```text
-File.open(path: String, mode: FileMode) -> File | Error
+-- std/fs module function
+open(path: String, mode: FileMode) -> File | Error
+-- instance methods
 File.read(into: List<Byte>, max: Size)   -> Size | EoS | Error
 File.write(from: Slice<Byte>)            -> Size | Error
 File.seek(to: Seek)                      -> Size | Error
@@ -1572,8 +1612,9 @@ File.close()                             -> Nil | Error
 type FileMode is Read | Write | Append | ReadWrite | CreateNew end
 ```
 
-- `File` and `FileMode` are protected. FileMode variants construct call-shaped, for example
-  `FileMode.Read()`. File lowers to a generation-checked handle plus an access mask, over one
+- `File` and `FileMode` are exported type names of `std/fs` and reserve no name; each is reached
+  through the module alias (`Fs.File`, `Fs.FileMode`). FileMode variants construct call-shaped, for
+  example `FileMode.Read()`, reached through the alias (`Fs.FileMode.Read()`). File lowers to a generation-checked handle plus an access mask, over one
   owned native descriptor in a heap-allocated (mimalloc-backed, not source-level `Heap`) control
   block; it is distinct from IO and exposes no descriptor, libuv, generation, or platform name.
 - A File value is an ordinary copyable handle: every copy names the same descriptor and observes
@@ -1670,13 +1711,14 @@ type Address is union
     | IPv6 as bytes: Array<Byte, 16>, port: UInt16, scope: UInt32 end
 end
 
-Address.parse(text: String, port: UInt16) -> Address | Error
-Address.format(heap: Heap)                -> String
-Dns.resolve(heap: Heap, host: String, service: String)
+-- std/net module functions
+parse_address(text: String, port: UInt16) -> Address | Error
+resolve(heap: Heap, host: String, service: String)
                                              -> List<Address> | Error
-
-Tcp.connect(address: Address)                 -> TcpConnection | Error
-Tcp.listen(address: Address, backlog: Size)   -> TcpListener | Error
+connect(address: Address)                 -> TcpConnection | Error
+listen(address: Address, backlog: Size)   -> TcpListener | Error
+-- instance methods
+Address.format(heap: Heap)                -> String
 
 TcpListener.accept()                          -> TcpConnection | Error
 TcpListener.close()                           -> Nil | Error
@@ -1689,24 +1731,25 @@ TcpConnection.no_delay(enabled: Bool)         -> Nil | Error
 TcpConnection.close()                         -> Nil | Error
 ```
 
-- `Address`, `Dns`, `Tcp`, `TcpConnection`, and `TcpListener` are protected and cannot be
-  redeclared or shadowed. `Address` is an ordinary inline ADT: `IPv4` and `IPv6` construct and
+- `Address`, `TcpConnection`, and `TcpListener` are exported type names of `std/net` and reserve no
+  name; the former `Dns` and `Tcp` namespaces are removed. Each is reached through the module alias
+  (`Net.Address`, `Net.parse_address`, ...). `Address` is an ordinary inline ADT: `IPv4` and `IPv6` construct and
   match through the general ADT rules. IPv4 stores four network-order bytes and a host-order
   port; IPv6 stores sixteen network-order bytes, a host-order port, and a numeric scope. No
   Address value allocates, and Address has no equality, ordering, hash, or print contract.
-- `Address.parse` accepts a numeric IPv4 or IPv6 literal only and performs no DNS lookup; an
+- `std/net.parse_address` accepts a numeric IPv4 or IPv6 literal only and performs no DNS lookup; an
   embedded NUL or malformed literal returns `InvalidInput`. A scoped IPv6 literal accepts only a
   decimal numeric scope after `%`; interface-name scopes are not supported. `Address.format`
   emits the numeric host address without a port, allocated from `heap`, appending
   `%<unsigned-decimal-scope>` itself for a nonzero IPv6 scope; every valid Address has a bounded
   representation, so formatting is infallible.
-- `Dns.resolve` accepts a host plus a numeric or named service, rejects an embedded NUL before
+- `std/net.resolve` accepts a host plus a numeric or named service, rejects an embedded NUL before
   submission, and allocates its returned `List<Address>` from `heap`, preserving libuv's result
   order. DNS has no close or cancellation surface.
 - `TcpConnection` and `TcpListener` use the shared generation-checked handle representation and
   occupy every ordinary complete-value position, exactly like File; `close` invalidates every
   copy and is the only operation valid in `defer`/`errdefer`.
-- `backlog` must be positive and fit libuv's `int`; otherwise `Tcp.listen` returns `InvalidInput`
+- `backlog` must be positive and fit libuv's `int`; otherwise `std/net.listen` returns `InvalidInput`
   before native submission. Binding an IPv6 listener always passes the IPv6-only option; v1 never
   changes IPv4 acceptance according to a host's dual-stack default.
 - `shutdown` closes only the write half; reads remain valid until EoS or close. `write` is
@@ -1776,7 +1819,9 @@ type StartedProcess is struct
     error: Pipe | Nil,
 end
 
-Process.start(options: ProcessOptions) -> StartedProcess | Error
+-- std/process module function
+start(options: ProcessOptions)         -> StartedProcess | Error
+-- instance methods
 Process.wait()                         -> ExitStatus | Error
 Process.terminate()                    -> Nil | Error
 Process.close()                        -> Nil | Error
@@ -1788,7 +1833,8 @@ Pipe.close()                           -> Nil | Error
 ```
 
 - `Process`, `Pipe`, `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`,
-  `ProcessStream`, and `ExitStatus` are protected and cannot be redeclared or shadowed. `Process`
+  `ProcessStream`, and `ExitStatus` are exported type names of `std/process` and reserve no name;
+  each is reached through the module alias (`Proc.Process`, `Proc.ExitStatus`, ...). `Process`
   and `Pipe` use RFC 0180's generation-checked copied-handle representation, exactly like File and
   TcpConnection, and occupy every ordinary complete-value position.
   `Environment`, `ProcessStream`, and `ExitStatus` are ordinary inline ADTs: their variants
@@ -1852,12 +1898,15 @@ Pipe.close()                           -> Nil | Error
 ```text
 type Signal is Interrupt | Hangup | Terminate end
 
-Signals(subscriptions: Slice<Signal>) -> Signals | Error
+-- std/signal module function
+subscribe(subscriptions: Slice<Signal>) -> Signals | Error
+-- instance methods
 Signals.next()                        -> Signal | EoS | Error
 Signals.close()                       -> Nil | Error
 ```
 
-- `Signal` and `Signals` are protected and cannot be redeclared or shadowed. `Signal` is an
+- `Signal` and `Signals` are exported type names of `std/signal` and reserve no name; each is
+  reached through the module alias (`Sig.Signal`, `Sig.subscribe`). `Signal` is an
   ordinary inline ADT: `Signal.Interrupt()`, `Signal.Hangup()`, and `Signal.Terminate()` construct
   and match through the general ADT rules. `Signals` uses the shared generation-checked handle
   representation and occupies every ordinary complete-value position, exactly like File and
@@ -1897,7 +1946,7 @@ Signals.close()                       -> Nil | Error
   Hexal call site's source location.
 - Selection: constructing or matching a `Signal` variant alone emits only `hexal/signal.h`'s type
   definitions (which embed the shared `hex_handle` representation, a disclosed simplification with
-  no scheduler or libuv cost of its own). A reachable `Signals` construction, `next`, or `close`
+  no scheduler or libuv cost of its own). A reachable `std/signal.subscribe` call, `next`, or `close`
   additionally emits `hexal/signal.c` and selects the handle component, the event bridge, the
   scheduler bootstrap, libuv, and the native bootstrap. A collection specialized over `Signal`
   (`List<Signal>`, `Array<Signal, N>`, `Slice<Signal>`, `Dict<K, Signal>`, `Pool<Signal>`) is
@@ -1911,8 +1960,9 @@ Signals.close()                       -> Nil | Error
 ### Terminal
 
 ```text
-Terminal.is_attached(stream: IO) -> Bool | Error
-Terminal.size(stream: IO)        -> TerminalSize | Error
+-- std/terminal module functions
+is_attached(stream: IO) -> Bool | Error
+size(stream: IO)        -> TerminalSize | Error
 
 type TerminalSize is struct
     columns: Size,
@@ -1920,9 +1970,11 @@ type TerminalSize is struct
 end
 ```
 
-- `Terminal` is a protected compiler-owned namespace type with no values. `TerminalSize` is a
-  protected, ordinary immutable struct: it constructs, compares, and prints through the general
-  struct rules, for example `TerminalSize(columns = 80, rows = 24)`.
+- The former `Terminal` namespace type is removed. `TerminalSize` is an exported type name of
+  `std/terminal` that reserves no name; each is reached through the module alias
+  (`Term.is_attached`, `Term.TerminalSize`). `TerminalSize` is an ordinary immutable struct: it
+  constructs, compares, and prints through the general struct rules, for example
+  `TerminalSize(columns = 80, rows = 24)`.
 - `is_attached` returns `false` for a valid non-terminal stream (redirected output, a file, a
   pipe); this is success, not Error. It performs no allocation and changes no terminal state or
   stream ownership.
@@ -1953,7 +2005,7 @@ end
   `terminal size query failed`. Messages name no native error number, and every Error carries the
   Hexal call site's source location.
 - Selection: constructing or matching a `TerminalSize` value alone emits only
-  `hexal/terminal.h`'s type definition. A reachable `Terminal.is_attached` or `Terminal.size` call
+  `hexal/terminal.h`'s type definition. A reachable `std/terminal.is_attached` or `size` call
   additionally emits `hexal/terminal.c`; neither operation selects the event bridge, the
   scheduler, the shared handle registry, or (on the qualified Windows target) libuv. A collection
   specialized over `TerminalSize` is rendered in each consuming module's own header rather than

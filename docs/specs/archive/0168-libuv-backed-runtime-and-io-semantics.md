@@ -1,11 +1,13 @@
 # RFC 0168: libuv Capability Arc
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Active coordination umbrella; not independently executable. The
-  runtime substrate is implemented. Child RFC 0178 (paths and entropy) and RFC
-  0182 (entry and exit) are implemented; RFC 0186 (standard-library boundary)
-  is partially implemented, with its protected-name migration still open. The
-  umbrella stays active until the remaining children close.
+- Status: Closed. The runtime substrate is implemented and every
+  non-deferred child surface it indexes is implemented and closed. The
+  remaining children, RFC 0175 (filesystem watchers) and RFC 0177 (dynamic
+  libraries), are deferred and retain their own records, which do not keep
+  this coordination index active. The `docs/reference.md` POSIX-target
+  mismatch this specification flagged is corrected with explicit user
+  approval.
 - Created: 2026-09-13
 - Updated: 2026-09-14
 - Scope: assign libuv-backed operating-system capabilities to focused RFCs
