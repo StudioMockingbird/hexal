@@ -199,6 +199,8 @@ func checkCollectionMethodCall(call parser.CallExpression, callee parser.Propert
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
 		return checkSliceMethod(call, callee, receiver, ctx, true)
+	case "pointer":
+		return checkSlicePointer(call, callee, receiver, ctx)
 	default:
 		diagnostic := typeErrorAt(callee.Property, collectionType.Name+" has no method "+name)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

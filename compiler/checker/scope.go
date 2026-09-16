@@ -24,6 +24,13 @@ const (
 	// position, unlike an ordinary dataBinding root value (main-local,
 	// unreachable from a function body).
 	moduleValueBinding
+	// foreignFunctionBinding, foreignConstantBinding, and foreignGlobalBinding
+	// name handwritten foreign declarations. They are module-owned like a
+	// function or module value, but lower to the exact C symbol the binding
+	// records instead of a source-derived spelling.
+	foreignFunctionBinding
+	foreignConstantBinding
+	foreignGlobalBinding
 )
 
 // scope is one lexical name frame. Module bindings remain in module and are
@@ -876,7 +883,9 @@ func (names *scope) lookup(name string) (binding, lookupStatus) {
 		}
 	}
 	if bound, ok := names.module[name]; ok && bound.kind != aliasBinding {
-		if names.inFunction() && bound.kind != functionBinding && bound.kind != genericFunctionBinding && bound.kind != moduleValueBinding {
+		if names.inFunction() && bound.kind != functionBinding && bound.kind != genericFunctionBinding &&
+			bound.kind != moduleValueBinding && bound.kind != foreignFunctionBinding &&
+			bound.kind != foreignConstantBinding && bound.kind != foreignGlobalBinding {
 			return bound, nameModuleData
 		}
 		return bound, nameFound

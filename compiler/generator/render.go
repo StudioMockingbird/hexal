@@ -872,6 +872,14 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "", unknownExpressionDiagnostic("module value without a source name")
 		}
 		return moduleValueCName(node.Name, moduleOwner(node.Module, state.owner)), nil
+	case checker.ForeignFunctionReferenceExpression, checker.ForeignConstantExpression, checker.ForeignGlobalExpression:
+		// A foreign reference lowers to the exact recorded C symbol. No
+		// forwarding wrapper is generated to rename it, so the name is
+		// emitted verbatim.
+		if node.ForeignCName == "" {
+			return "", unknownExpressionDiagnostic("foreign reference without a C spelling")
+		}
+		return node.ForeignCName, nil
 	case checker.FunctionLiteralExpression:
 		if node.LocalHelperOrdinal == 0 {
 			return "", unknownExpressionDiagnostic("function literal without an assigned helper ordinal")
@@ -894,9 +902,23 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			if argumentErr != nil {
 				return "", argumentErr
 			}
+			// A foreign signature records the exact C spelling of each
+			// position; when it differs from the checked representation the
+			// call adds one direct boundary cast. No general pointer
+			// conversion is introduced.
+			if node.Operand.Kind == checker.ForeignFunctionReferenceExpression &&
+				index < len(node.Operand.ForeignParameters) && node.Operand.ForeignParameters[index] != "" &&
+				typeSpelling(argument.Type) != node.Operand.ForeignParameters[index] {
+				rendered = "(" + node.Operand.ForeignParameters[index] + ")(" + rendered + ")"
+			}
 			arguments[index] = rendered
 		}
-		return callee + "(" + strings.Join(arguments, ", ") + ")", nil
+		call := callee + "(" + strings.Join(arguments, ", ") + ")"
+		if node.Operand.Kind == checker.ForeignFunctionReferenceExpression && node.Operand.ForeignResult != "" &&
+			node.ResultType != (compilerTypes.Type{}) && typeSpelling(node.ResultType) != node.Operand.ForeignResult {
+			call = "(" + node.Operand.ForeignResult + ")(" + call + ")"
+		}
+		return call, nil
 	case checker.MethodCallExpression:
 		if node.Owner == nil || node.Operand == nil {
 			return "", unknownExpressionDiagnostic("method call without a checked receiver")
@@ -1114,6 +1136,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		receiver, err := renderReceiver(node.Operand, receiverType, state)
 		if err != nil {
 			return "", err
+		}
+		// A foreign record member keeps its original C field spelling; every
+		// other member renders through the ordinary owner-qualified name.
+		if node.Member.CName != "" {
+			return receiver + "." + node.Member.CName, nil
 		}
 		return receiver + "." + privateCName(memberName, node.Member.Name, ""), nil
 	case checker.NullTestExpression:
@@ -1648,6 +1675,7 @@ func renderExpressionNodeWithExpectedState(node checker.Expression, expected *co
 	}
 	return value, node.Kind == checker.VariableExpression || node.Kind == checker.ObjectExpression ||
 		node.Kind == checker.MemberExpression || node.Kind == checker.FunctionReferenceExpression ||
+		node.Kind == checker.ForeignFunctionReferenceExpression || node.Kind == checker.ForeignConstantExpression || node.Kind == checker.ForeignGlobalExpression ||
 		node.Kind == checker.CallExpression || node.Kind == checker.MethodCallExpression || node.Kind == checker.NilExpression ||
 		node.Kind == checker.IndexExpression || node.Kind == checker.CollectionMethodCallExpression || node.Kind == checker.CollectionSliceExpression ||
 		node.Kind == checker.StringLiteralExpression || node.Kind == checker.StringMethodCallExpression || node.Kind == checker.StringFromBytesExpression || node.Kind == checker.ListNewExpression || node.Kind == checker.DictNewExpression ||

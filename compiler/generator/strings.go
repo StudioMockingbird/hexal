@@ -125,6 +125,10 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 		strand := compilerTypes.IsStrand(node.OperandType)
 		switch node.Name {
+		case "c_pointer":
+			if strand || len(node.Arguments) != 0 || node.ResultType.Element == nil || !compilerTypes.Equal(*node.ResultType.Element, compilerTypes.UInt8) {
+				return unknownExpressionDiagnostic("string c_pointer call has invalid checked metadata")
+			}
 		case "length":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
 				return unknownExpressionDiagnostic("text length call has invalid checked metadata")
@@ -336,6 +340,11 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 			return "", receiverErr
 		}
 		switch node.Name {
+		case "c_pointer":
+			// The String header's data pointer is the immutable byte address,
+			// already terminated by the allocation's existing zero. No scan,
+			// copy, or cast is introduced.
+			return "(" + receiver + ")->data", nil
 		case "length":
 			if compilerTypes.IsStrand(node.OperandType) {
 				return "hex_strand_rune_length(" + receiver + ")", nil

@@ -1,6 +1,9 @@
 package types
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // Arena interns every constructed type of one compilation. The checker creates
 // one arena and shares it across module environments, so List<Int32> written
@@ -29,6 +32,11 @@ type Arena struct {
 	// with a definition reserve through it; union reservations suffix instead
 	// of displacing.
 	definitionNames map[string]Type
+	// foreignObjects interns foreign C records once per compilation keyed by
+	// their target-qualified canonical C identity. A foreign record has no
+	// Hexal defining module, so the ordinary per-environment nominal tables
+	// cannot give the same C record one identity across modules.
+	foreignObjects map[string]Type
 	// collectionCNames is the per-family C-name index for O(1) collision checks;
 	// it mirrors the CName values of every collection family to avoid O(n^2) scans.
 	collectionCNames map[string]bool
@@ -54,6 +62,7 @@ func NewArena() *Arena {
 		unionTypes:       make(map[string]Type),
 		definitionNames:  make(map[string]Type),
 		collectionCNames: make(map[string]bool),
+		foreignObjects:   make(map[string]Type),
 	}
 	for _, builtin := range builtinTypes {
 		arena.ReserveDefinitionName(builtin.CName, builtin)
@@ -118,6 +127,80 @@ func (arena *Arena) uniqueCollectionCName(base string, element Type) string {
 	}
 	arena.collectionCNames[candidate] = true
 	return candidate
+}
+
+// ForeignRecord returns the one program-wide nominal identity for a foreign C
+// record on a target. key is the target-qualified canonical C identity
+// (tag namespace plus tag spelling, or the canonical typedef spelling); name
+// is the usable Hexal name; cName is the exact C spelling. The boolean reports
+// whether the identity already existed in this compilation, which lets the
+// caller reconcile a repeat declaration against the first.
+//
+// The returned Type and every later copy share one *ObjectType, so completing
+// or reconciling the record is visible through every mention; read
+// Object.Incomplete rather than the Type copy's Incomplete field.
+func (arena *Arena) ForeignRecord(key, name, cName string, incomplete bool, sourceLine, sourceColumn int) (Type, bool) {
+	if arena == nil {
+		return Type{}, false
+	}
+	if existing, ok := arena.foreignObjects[key]; ok {
+		return existing, true
+	}
+	identity := newTypeIdentity()
+	identity.signature = "foreign:" + key
+	object := &ObjectType{
+		Name:         name,
+		CName:        cName,
+		SourceLine:   sourceLine,
+		SourceColumn: sourceColumn,
+		Incomplete:   incomplete,
+		identity:     identity,
+	}
+	identity.object = object
+	typ := Type{
+		Name:         name,
+		CName:        cName,
+		CanonicalKey: "foreign:" + key,
+		Object:       object,
+		Incomplete:   incomplete,
+		identity:     identity,
+	}
+	arena.foreignObjects[key] = typ
+	return typ, false
+}
+
+// CompleteForeignRecord installs a complete foreign record's members and
+// returns the record Type that reflects them. The record's shared ObjectType
+// is updated in place, so a declaration that first appeared opaque becomes
+// complete for every holder. Members must already be ordered as the C
+// declaration orders them.
+func (arena *Arena) CompleteForeignRecord(typ Type, members []ObjectMember) Type {
+	if arena == nil || typ.Object == nil {
+		return typ
+	}
+	typ.Object.Members = append([]ObjectMember(nil), members...)
+	typ.Object.Incomplete = false
+	typ.Incomplete = false
+	return typ
+}
+
+// ForeignRecordMembers returns a foreign record's installed members.
+func ForeignRecordMembers(typ Type) []ObjectMember {
+	if typ.Object == nil {
+		return nil
+	}
+	return typ.Object.Members
+}
+
+// ForeignRecordIncomplete reports whether a foreign record identity is still
+// an opaque (incomplete) C type. It reads the shared record, not a Type copy.
+func ForeignRecordIncomplete(typ Type) bool {
+	return typ.Object != nil && typ.Object.Incomplete
+}
+
+// IsForeignRecord reports whether typ names a program-wide foreign C record.
+func IsForeignRecord(typ Type) bool {
+	return typ.Object != nil && strings.HasPrefix(typ.CanonicalKey, "foreign:")
 }
 
 // nominalModuleOf returns the canonical id of the first nominal (object or

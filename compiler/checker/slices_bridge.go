@@ -84,6 +84,40 @@ func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 	return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, constructor+" has no such operation; use from_pointer or empty"))}
 }
 
+// checkSlicePointer resolves the raw-address bridge `slice.pointer()`. It
+// exposes the address already present in the Slice, preserving access mode,
+// and returns Nil exactly when the Slice has no backing address. It allocates
+// and copies nothing and requires unsafe, because the returned address may
+// outlive the Slice.
+func checkSlicePointer(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
+	if receiver.typ.Slice == nil {
+		diagnostic := typeErrorAt(callee.Property, receiver.typ.Name+" has no method pointer")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	if len(call.Arguments) != 0 {
+		diagnostic := typeErrorAt(callee.Property, "pointer expects no arguments")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	element := receiver.typ.Slice.Element
+	var pointer compilerTypes.Type
+	if receiver.typ.Slice.Writable {
+		pointer = ctx.typeEnvironment.MutPtrType(element)
+	} else {
+		pointer = ctx.typeEnvironment.PtrType(element)
+	}
+	if pointer == (compilerTypes.Type{}) {
+		diagnostic := typeErrorAt(callee.Property, element.Name+" is not a valid pointer element type")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	nullable := ctx.typeEnvironment.NullableType(pointer)
+	if diagnostic := requireUnsafe(ctx, callee.Property, unsafeSlicePointer); diagnostic != nil {
+		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	}
+	node := Expression{Kind: CollectionMethodCallExpression, Name: "pointer", Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: nullable, Element: element}
+	source := Operand{Kind: ExpressionOperand, Type: nullable, Name: "pointer", Node: node}
+	return checkedExpression{source: source, typ: nullable, token: callee.Property}
+}
+
 // requiredFromPointerMode spells the accepted pointer mode for one
 // from_pointer constructor: read-only construction accepts either pointer
 // mode, writable construction accepts only the writable mode.
@@ -94,8 +128,7 @@ func requiredFromPointerMode(element compilerTypes.Type, writable bool) string {
 	return "Ptr<" + element.Name + "> or Ptr<mut " + element.Name + ">"
 }
 
-// nodeTracesToRef reports whether a checked node traces to address-taking of
-// local storage: directly through an address node, or through a binding
+// nodeTracesToRef reports whether a checked node traces to address-taking of// local storage: directly through an address node, or through a binding
 // whose value originated from one. Heap.free uses it to reject stack
 // storage; from_pointer performs no such analysis.
 func nodeTracesToRef(node *Expression, names *scope) bool {

@@ -601,6 +601,28 @@ func checkStringInterpolate(call parser.CallExpression, callee lexer.Token, ctx 
 func checkStringMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	switch name {
+	case "c_pointer":
+		if compilerTypes.IsStrand(receiver.typ) {
+			diagnostic := typeErrorAt(callee.Property, "Strand has no method c_pointer; copy it to a String first")
+			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		}
+		if len(call.Arguments) != 0 {
+			diagnostic := typeErrorAt(callee.Property, "c_pointer expects no arguments")
+			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		}
+		pointer := ctx.typeEnvironment.PtrType(compilerTypes.UInt8)
+		if pointer == (compilerTypes.Type{}) {
+			diagnostic := typeErrorAt(callee.Property, "String.c_pointer has no pointer result")
+			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		}
+		// The address may outlive the String allocation, so the operation
+		// carries the unsafe contract.
+		if diagnostic := requireUnsafe(ctx, callee.Property, unsafeStringCPointer); diagnostic != nil {
+			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		}
+		node := Expression{Kind: StringMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: pointer, Element: compilerTypes.UInt8}
+		source := Operand{Kind: ExpressionOperand, Type: pointer, Name: name, Node: node}
+		return checkedExpression{source: source, typ: pointer, token: callee.Property}
 	case "length":
 		if len(call.Arguments) != 0 {
 			diagnostic := typeErrorAt(callee.Property, "length expects no arguments")

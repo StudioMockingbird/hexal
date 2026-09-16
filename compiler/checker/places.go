@@ -76,6 +76,43 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			// infer its arguments from.
 			return checkedExpression{token: expression.Name, diagnostic: diagnosticAt(typeErrorAt(expression.Name, "cannot infer generic parameter for "+expression.Name.Lexeme))}
 		}
+		if binding.kind == foreignConstantBinding {
+			// A foreign constant is a typed, non-addressable scalar expression.
+			// It lowers to its C identifier and needs no unsafe region.
+			return checkedExpression{
+				source: Operand{
+					Kind: VariableOperand,
+					Type: binding.typ,
+					Name: expression.Name.Lexeme,
+					Node: Expression{Kind: ForeignConstantExpression, Name: expression.Name.Lexeme, ForeignCName: binding.foreignCName, ResultType: binding.typ},
+				},
+				typ:   binding.typ,
+				use:   binding.use,
+				token: expression.Name,
+				known: binding.known,
+			}
+		}
+		if binding.kind == foreignGlobalBinding {
+			// Reading or writing foreign storage needs lexical permission. The
+			// gate runs after ordinary resolution, so an invalid name keeps its
+			// earlier diagnostic.
+			if diagnostic := requireUnsafe(ctx, expression.Name, unsafeOperation("foreign global "+expression.Name.Lexeme)); diagnostic != nil {
+				return checkedExpression{token: expression.Name, diagnostic: diagnostic}
+			}
+			return checkedExpression{
+				source: Operand{
+					Kind:        VariableOperand,
+					Type:        binding.typ,
+					Name:        expression.Name.Lexeme,
+					Addressable: true,
+					Writable:    binding.mutable,
+					Node:        Expression{Kind: ForeignGlobalExpression, Name: expression.Name.Lexeme, ForeignCName: binding.foreignCName, ResultType: binding.typ, Mutable: binding.mutable},
+				},
+				typ:   binding.typ,
+				use:   binding.use,
+				token: expression.Name,
+			}
+		}
 		// Ordinary reads use the branch-local narrowed type when a null test
 		// proved it; assignment and @ re-derive the declared storage type.
 		placeType := binding.typ
@@ -113,7 +150,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		// exported unit variant first, then an exported function reference.
 		if variable, isVariable := expression.Receiver.(parser.VariableExpression); isVariable {
 			if target, ok := ctx.names.importAliasTarget(variable.Name.Lexeme); ok {
-				return checkModuleQualifiedReference(expression, target, ctx.names)
+				return checkModuleQualifiedReference(expression, target, ctx)
 			}
 		}
 		var receiver checkedExpression
@@ -234,7 +271,50 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 // Alias is an import alias. The property resolves to the target module's
 // exported unit variant when one exists, then to its exported function; any
 // other name is the visibility failure.
-func checkModuleQualifiedReference(expression parser.PropertyExpression, target string, names *scope) checkedExpression {
+func checkModuleQualifiedReference(expression parser.PropertyExpression, target string, ctx checkContext) checkedExpression {
+	names := ctx.names
+	if function, ok := names.registry.exportedForeignFunction(target, expression.Property.Lexeme); ok {
+		return checkedExpression{
+			source: Operand{
+				Kind: VariableOperand,
+				Type: function.Type,
+				Name: function.Name,
+				Node: Expression{Kind: ForeignFunctionReferenceExpression, Name: function.Name, ForeignCName: function.CName, ResultType: function.Type, Module: target},
+			},
+			typ:      function.Type,
+			token:    expression.Property,
+			function: true,
+		}
+	}
+	if constant, ok := names.registry.exportedForeignConstant(target, expression.Property.Lexeme); ok {
+		return checkedExpression{
+			source: Operand{
+				Kind: VariableOperand,
+				Type: constant.Type,
+				Name: constant.Name,
+				Node: Expression{Kind: ForeignConstantExpression, Name: constant.Name, ForeignCName: constant.CName, ResultType: constant.Type, Module: target},
+			},
+			typ:   constant.Type,
+			token: expression.Property,
+		}
+	}
+	if global, ok := names.registry.exportedForeignGlobal(target, expression.Property.Lexeme); ok {
+		if diagnostic := requireUnsafe(ctx, expression.Property, unsafeOperation("foreign global "+global.Name)); diagnostic != nil {
+			return checkedExpression{token: expression.Property, diagnostic: diagnostic}
+		}
+		return checkedExpression{
+			source: Operand{
+				Kind:        VariableOperand,
+				Type:        global.Type,
+				Name:        global.Name,
+				Addressable: true,
+				Writable:    global.Mutable,
+				Node:        Expression{Kind: ForeignGlobalExpression, Name: global.Name, ForeignCName: global.CName, ResultType: global.Type, Module: target, Mutable: global.Mutable},
+			},
+			typ:   global.Type,
+			token: expression.Property,
+		}
+	}
 	if adtType, variant, ok := names.registry.findExportedADTVariant(target, expression.Property.Lexeme); ok {
 		if len(variant.Payload) > 0 {
 			diagnostic := typeErrorAt(expression.Property, fmt.Sprintf("%s.%s requires a payload", target, expression.Property.Lexeme))

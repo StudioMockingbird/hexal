@@ -128,9 +128,20 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 		return checkedExpression{token: callee.Name, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 
+	// A direct foreign call requires lexical permission from unsafe do ... end.
+	// The gate runs after ordinary resolution so an invalid argument, result,
+	// or name keeps its earlier diagnostic.
+	if bound.kind == foreignFunctionBinding {
+		if diagnostic := requireUnsafe(ctx, callee.Name, unsafeOperation("foreign call "+name)); diagnostic != nil {
+			return checkedExpression{token: callee.Name, diagnostic: diagnostic}
+		}
+	}
+
 	calleeNode := variableNodeWithBinding(name, bound.id)
 	if bound.kind == functionBinding {
 		calleeNode = Expression{Kind: FunctionReferenceExpression, Name: name, LocalHelperOrdinal: bound.localHelperOrdinal, ResultType: bound.typ}
+	} else if bound.kind == foreignFunctionBinding {
+		calleeNode = Expression{Kind: ForeignFunctionReferenceExpression, Name: name, ForeignCName: bound.foreignCName, ForeignParameters: bound.foreignParameters, ForeignResult: bound.foreignResult, ResultType: bound.typ}
 	}
 	var resultType compilerTypes.Type
 	if signature.Result != nil {
@@ -159,6 +170,9 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 // the call specializes against the defining module's collection; only then is
 // it the visibility failure.
 func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token, target string, ctx checkContext) checkedExpression {
+	if foreign, ok := ctx.names.registry.exportedForeignFunction(target, property.Lexeme); ok {
+		return checkQualifiedForeignCall(call, foreign, property, target, ctx)
+	}
 	function, ok := ctx.names.registry.exportedFunction(target, property.Lexeme)
 	if !ok {
 		if open, generic := ctx.names.registry.genericFunction(target, property.Lexeme); generic {
@@ -197,6 +211,47 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 		OperandType: function.Type,
 		ResultType:  resultType,
 	}
+	return checkedExpression{
+		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: function.Name, Node: node},
+		typ:    resultType,
+		token:  property,
+	}
+}
+
+// checkQualifiedForeignCall checks Alias.name(args) where the target module
+// exports a handwritten foreign function. The call lowers to the recorded C
+// symbol in the importer's own translation unit, which therefore also records
+// the defining header as a dependency.
+func checkQualifiedForeignCall(call parser.CallExpression, function ForeignFunctionDeclaration, property lexer.Token, target string, ctx checkContext) checkedExpression {
+	signature := function.Type.Signature
+	if signature == nil {
+		diagnostic := unknownAt(property, "exported foreign function record without a signature")
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	if diagnostic := rejectNamedArguments(call); diagnostic != nil {
+		return checkedExpression{token: property, diagnostic: diagnostic}
+	}
+	if len(call.Arguments) != len(signature.Parameters) {
+		diagnostic := typeErrorAt(property, fmt.Sprintf("%s expects %d arguments; got %d", function.Name, len(signature.Parameters), len(call.Arguments)))
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	parameterUses := make([]compilerTypes.TypeUse, 0, len(function.Parameters))
+	for _, parameter := range function.Parameters {
+		parameterUses = append(parameterUses, parameter.TypeUse)
+	}
+	arguments, diagnostics := checkArguments(function.Name, parameterUses, call.Arguments, property, ctx)
+	if len(diagnostics) > 0 {
+		return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+	}
+	if diagnostic := requireUnsafe(ctx, property, unsafeOperation("foreign call "+function.Name)); diagnostic != nil {
+		return checkedExpression{token: property, diagnostic: diagnostic}
+	}
+	var resultType compilerTypes.Type
+	if signature.Result != nil {
+		resultType = *signature.Result
+	}
+	calleeNode := Expression{Kind: ForeignFunctionReferenceExpression, Name: function.Name, ForeignCName: function.CName, ForeignParameters: foreignParameterSpellings(function.Parameters), ForeignResult: function.ResultCName, ResultType: function.Type, Module: target}
+	node := Expression{Kind: CallExpression, Operand: &calleeNode, Arguments: arguments, OperandType: function.Type, ResultType: resultType}
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: function.Name, Node: node},
 		typ:    resultType,

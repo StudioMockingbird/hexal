@@ -39,6 +39,8 @@ const (
 	unsafePointerOffset    unsafeOperation = "Ptr.offset"
 	unsafePointerCast      unsafeOperation = "Ptr.cast"
 	unsafePointerIndex     unsafeOperation = "pointer indexing"
+	unsafeSlicePointer     unsafeOperation = "Slice.pointer"
+	unsafeStringCPointer   unsafeOperation = "String.c_pointer"
 )
 
 // requireUnsafe reports the permission diagnostic when operation is written

@@ -51,6 +51,18 @@ const (
 	// FunctionReferenceExpression is a declared function's name used as a
 	// Fun<...> value. It is not a variable read: no storage exists for it.
 	FunctionReferenceExpression
+	// ForeignFunctionReferenceExpression is a handwritten foreign function's
+	// name used as a Fun<...> value. ForeignCName carries the exact C symbol;
+	// the generator emits it directly and adds no forwarding wrapper.
+	ForeignFunctionReferenceExpression
+	// ForeignConstantExpression reads a foreign constant. It is
+	// non-addressable and lowers to ForeignCName. No unsafe region is
+	// required.
+	ForeignConstantExpression
+	// ForeignGlobalExpression reads or writes a foreign global. It is
+	// addressable, lowers to ForeignCName, and only the checker's unsafe gate
+	// admits it.
+	ForeignGlobalExpression
 	// CallExpression applies Operand to Arguments. ResultType is the zero Type
 	// when the callee returns no value, which only a call statement accepts.
 	CallExpression
@@ -479,6 +491,16 @@ type Expression struct {
 	// resolved through an import alias; empty for every
 	// local reference.
 	Module string
+	// ForeignCName is the exact C symbol, constant, or object spelling of a
+	// foreign reference or access. The generator emits it verbatim at the
+	// recorded ABI position and never renames it.
+	ForeignCName string
+	// ForeignParameters and ForeignResult carry the exact C spellings a
+	// handwritten foreign signature records for its parameters and result.
+	// Each non-empty entry selects one representation-preserving boundary cast
+	// at the corresponding ABI position. Empty entries pass directly.
+	ForeignParameters []string
+	ForeignResult     string
 	// MethodParameters carries the parameter types of an imported
 	// MethodCallExpression: the call node lacks a Fun
 	// signature, so the generator needs these to declare the foreign

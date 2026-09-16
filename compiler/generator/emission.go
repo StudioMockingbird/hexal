@@ -387,6 +387,10 @@ type programEmission struct {
 	// the function definition it calls (the adapter never leaves its
 	// function's translation unit).
 	adapterSites map[string][]spawnSite
+	// foreignIndex resolves the defining header of every foreign declaration
+	// in the program. It is nil when no module declares a foreign block, so
+	// foreign include discovery stays a no-op for every ordinary program.
+	foreignIndex *foreignIndex
 }
 
 // mergeProgramEmission folds the per-module discovery results into one
@@ -1190,36 +1194,41 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	var extraFrames strings.Builder
 	writeSpawnArgFrames(&extraFrames, routedFrames(emission, merged.adapterSites[canonicalID]))
 
+	foreignIncludes, foreignErr := moduleForeignIncludes(emission.program, merged.foreignIndex)
+	if foreignErr != nil {
+		return "", "", foreignErr
+	}
 	moduleHeader, headerErr := moduleHeader(moduleHeaderInput{
-		unions:      emission.unionState,
-		adts:        emission.adtState,
-		equality:    emission.equalityState,
-		objects:     emission.objects,
-		heaps:       emission.heapState,
-		printState:  emission.printState,
-		streams:     emission.ioState,
-		time:        emission.timeState,
-		files:       emission.fileState,
-		network:     emission.networkState,
-		process:     emission.processState,
-		signal:      emission.signalState,
-		terminal:    emission.terminalState,
-		corelib:     emission.corelibState,
-		concurrency: emission.concurrencyState,
-		event:       eventSelected(merged),
-		stringState: stringState,
-		tags:        merged.tags,
-		slices:      emission.sliceState,
-		arrays:      emission.arrayState,
-		lists:       emission.listState,
-		dicts:       emission.dictState,
-		pools:       emission.poolState,
-		stash:       emission.stashState,
-		canonicalID: canonicalID,
-		prototypes:  headerPrototypes.String(),
-		extraFrames: extraFrames.String(),
-		filename:    logicalKey,
-		components:  moduleComponentHeaders(emission),
+		unions:         emission.unionState,
+		adts:           emission.adtState,
+		equality:       emission.equalityState,
+		objects:        emission.objects,
+		heaps:          emission.heapState,
+		printState:     emission.printState,
+		streams:        emission.ioState,
+		time:           emission.timeState,
+		files:          emission.fileState,
+		network:        emission.networkState,
+		process:        emission.processState,
+		signal:         emission.signalState,
+		terminal:       emission.terminalState,
+		corelib:        emission.corelibState,
+		concurrency:    emission.concurrencyState,
+		event:          eventSelected(merged),
+		stringState:    stringState,
+		tags:           merged.tags,
+		slices:         emission.sliceState,
+		arrays:         emission.arrayState,
+		lists:          emission.listState,
+		dicts:          emission.dictState,
+		pools:          emission.poolState,
+		stash:          emission.stashState,
+		canonicalID:    canonicalID,
+		prototypes:     headerPrototypes.String(),
+		extraFrames:    extraFrames.String(),
+		filename:       logicalKey,
+		components:     moduleComponentHeaders(emission),
+		foreignHeaders: foreignIncludes,
 	})
 	if headerErr != nil {
 		return "", "", headerErr
@@ -1367,6 +1376,10 @@ type moduleHeaderInput struct {
 	// components are the path-qualified component headers this module needs,
 	// in dependency order.
 	components []string
+	// foreignHeaders are the exact C include directives this module requires,
+	// in first-use order. They follow the component includes and precede the
+	// declarations that name a foreign type.
+	foreignHeaders []string
 }
 
 // hexalHeaderModel is the render model for the hexal.h template:
@@ -1418,6 +1431,14 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	// module.
 	for _, component := range input.components {
 		fmt.Fprintf(&result, "#include \"%s\"\n", component)
+	}
+	// Foreign headers follow the components and precede any declaration that
+	// names a foreign type. Each appears exactly once, in first-use order.
+	if len(input.foreignHeaders) > 0 {
+		result.WriteString("\n")
+		for _, include := range input.foreignHeaders {
+			result.WriteString(include + "\n")
+		}
 	}
 	// Forward typedefs for every object, ADT, and union come first,
 	// regardless of any cross-reference between them: a pointer-typed member

@@ -44,6 +44,15 @@ type moduleEntry struct {
 	types        map[string]compilerTypes.TypeUse    // exported type names -> resolved use
 	methods      map[string][]MethodDeclaration      // receiver type name -> exported methods
 	moduleValues map[string]exportedModuleValueEntry // exported static module values by name
+	// foreignFunctions, foreignConstants, and foreignGlobals are the module's
+	// exported handwritten foreign declarations. An importer resolves a
+	// qualified reference through these and lowers to the recorded C symbol.
+	foreignFunctions map[string]ForeignFunctionDeclaration
+	foreignConstants map[string]ForeignConstantDeclaration
+	foreignGlobals   map[string]ForeignGlobalDeclaration
+	// foreignRecords are the module's declared foreign records by local name;
+	// the record's Type carries the program-wide identity.
+	foreignRecords map[string]ForeignRecordDeclaration
 
 	// genericFunctions, genericTypes, and genericMethods hold the module's
 	// exported generic templates. Importers resolve qualified generic uses
@@ -151,6 +160,21 @@ func resolveExportEntries(program parser.Program, checked Program) (map[string]b
 	for _, value := range checked.ModuleValues {
 		moduleValueNames[value.Name] = true
 	}
+	// Foreign declarations export through the same final export block as
+	// ordinary ones; a foreign record is a type, a foreign constant or global
+	// is a value.
+	for _, record := range checked.ForeignRecords {
+		typeNames[record.Name] = true
+	}
+	for _, function := range checked.ForeignFunctions {
+		functionNames[function.Name] = true
+	}
+	for _, constant := range checked.ForeignConstants {
+		moduleValueNames[constant.Name] = true
+	}
+	for _, global := range checked.ForeignGlobals {
+		moduleValueNames[global.Name] = true
+	}
 	importAliases := make(map[string]bool)
 	if program.Import != nil {
 		for _, entry := range program.Import.Entries {
@@ -217,6 +241,30 @@ func applyExportFlags(checked *Program, exports map[string]bool) {
 			checked.ModuleValues[index] = value
 		}
 	}
+	for index, function := range checked.ForeignFunctions {
+		if exports[function.Name] {
+			function.Exported = true
+			checked.ForeignFunctions[index] = function
+		}
+	}
+	for index, constant := range checked.ForeignConstants {
+		if exports[constant.Name] {
+			constant.Exported = true
+			checked.ForeignConstants[index] = constant
+		}
+	}
+	for index, global := range checked.ForeignGlobals {
+		if exports[global.Name] {
+			global.Exported = true
+			checked.ForeignGlobals[index] = global
+		}
+	}
+	for index, record := range checked.ForeignRecords {
+		if exports[record.Name] {
+			record.Exported = true
+			checked.ForeignRecords[index] = record
+		}
+	}
 }
 
 // registerExports publishes one module's resolved exported interface into
@@ -235,6 +283,10 @@ func (registry *ModuleRegistry) registerExports(moduleID string, exports map[str
 	entry.types = make(map[string]compilerTypes.TypeUse)
 	entry.methods = make(map[string][]MethodDeclaration)
 	entry.moduleValues = make(map[string]exportedModuleValueEntry)
+	entry.foreignFunctions = make(map[string]ForeignFunctionDeclaration)
+	entry.foreignConstants = make(map[string]ForeignConstantDeclaration)
+	entry.foreignGlobals = make(map[string]ForeignGlobalDeclaration)
+	entry.foreignRecords = make(map[string]ForeignRecordDeclaration)
 	for _, declaration := range checked.TypeDeclarations {
 		// An open generic template carries no canonical type of its own and
 		// is not recorded here; its specializations still close over the
@@ -258,6 +310,27 @@ func (registry *ModuleRegistry) registerExports(moduleID string, exports map[str
 	for _, value := range checked.ModuleValues {
 		if entry.exports[value.Name] {
 			entry.moduleValues[value.Name] = exportedModuleValueEntry{Type: value.Type, Mutable: value.Mutable, Atomic: value.Atomic}
+		}
+	}
+	for _, function := range checked.ForeignFunctions {
+		if entry.exports[function.Name] {
+			entry.foreignFunctions[function.Name] = function
+		}
+	}
+	for _, constant := range checked.ForeignConstants {
+		if entry.exports[constant.Name] {
+			entry.foreignConstants[constant.Name] = constant
+		}
+	}
+	for _, global := range checked.ForeignGlobals {
+		if entry.exports[global.Name] {
+			entry.foreignGlobals[global.Name] = global
+		}
+	}
+	for _, record := range checked.ForeignRecords {
+		if entry.exports[record.Name] {
+			entry.foreignRecords[record.Name] = record
+			entry.types[record.Name] = record.TypeUse
 		}
 	}
 }
@@ -303,6 +376,37 @@ func (registry *ModuleRegistry) exportedType(moduleID, name string) (compilerTyp
 	}
 	use, ok := entry.types[name]
 	return use, ok
+}
+
+// exportedForeignFunction resolves one exported handwritten foreign function
+// of the target module by name.
+func (registry *ModuleRegistry) exportedForeignFunction(moduleID, name string) (ForeignFunctionDeclaration, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return ForeignFunctionDeclaration{}, false
+	}
+	function, ok := entry.foreignFunctions[name]
+	return function, ok
+}
+
+// exportedForeignConstant resolves one exported foreign constant.
+func (registry *ModuleRegistry) exportedForeignConstant(moduleID, name string) (ForeignConstantDeclaration, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return ForeignConstantDeclaration{}, false
+	}
+	constant, ok := entry.foreignConstants[name]
+	return constant, ok
+}
+
+// exportedForeignGlobal resolves one exported foreign global.
+func (registry *ModuleRegistry) exportedForeignGlobal(moduleID, name string) (ForeignGlobalDeclaration, bool) {
+	entry, ok := registry.modules[moduleID]
+	if !ok {
+		return ForeignGlobalDeclaration{}, false
+	}
+	global, ok := entry.foreignGlobals[name]
+	return global, ok
 }
 
 // registerGenerics publishes one module's open generic function templates and

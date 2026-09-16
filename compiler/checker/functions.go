@@ -38,6 +38,11 @@ type FunctionParameter struct {
 	TypeUse      compilerTypes.TypeUse
 	SourceLine   int
 	SourceColumn int
+	// CName is the exact C spelling a foreign signature records for this
+	// parameter, used for the one representation-preserving boundary cast.
+	// Empty for an ordinary parameter and for a foreign parameter whose C
+	// spelling is the type's own.
+	CName string
 }
 
 // collectFunctionSignature validates a function declaration's name and

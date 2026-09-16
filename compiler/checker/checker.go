@@ -26,6 +26,18 @@ type Program struct {
 	GenericTypeNames     []string
 	GenericFunctionNames []string
 	GenericMethodNames   map[string][]string // owner type name -> method names
+	// ForeignHeaders are the C headers this module's foreign declarations
+	// require, in first checked-use order, deduplicated by identity.
+	ForeignHeaders []ForeignHeader
+	// ForeignFunctions, ForeignConstants, and ForeignGlobals are the
+	// module-owned handwritten foreign declarations. ForeignRecords are the
+	// declarations of program-wide foreign C records; ForeignAliases are
+	// transparent aliases declared inside a foreign block and reuse the
+	// ordinary alias identity in TypeDeclarations.
+	ForeignFunctions []ForeignFunctionDeclaration
+	ForeignConstants []ForeignConstantDeclaration
+	ForeignGlobals   []ForeignGlobalDeclaration
+	ForeignRecords   []ForeignRecordDeclaration
 }
 
 // ModuleValueDeclaration is a checked top-level `static` module value:
@@ -306,13 +318,30 @@ type binding struct {
 	// ordinal instead of the source name, so two same-named local functions
 	// in disjoint scopes generate distinct symbols.
 	localHelperOrdinal BindingID
+	// foreignCName is the exact C symbol, constant, or object spelling of a
+	// foreign binding. Empty for every non-foreign binding.
+	foreignCName string
+	// foreignHeader is the defining header a foreign binding requires.
+	foreignHeader ForeignHeader
+	// foreignParameters and foreignResult are the exact C spellings a foreign
+	// function's signature records, indexed by parameter position and for the
+	// result. Empty entries pass without a boundary cast.
+	foreignParameters []string
+	foreignResult     string
 }
 
 // Check resolves declared types, checks initializers, binding modes, pointer
 // capabilities, and assignment places. A failed statement never enters the
 // environment, so later diagnostics cannot observe invalid declarations.
 func Check(program parser.Program) (Program, error) {
-	checked, err := CheckModules(SingleModuleGraph(program))
+	return CheckForTarget(program, "")
+}
+
+// CheckForTarget is Check with an explicit target profile. Foreign ABI facts
+// are target-dependent, so a compilation containing a foreign declaration
+// requires a qualified target and never falls back to host inference.
+func CheckForTarget(program parser.Program, target compilerTypes.TargetProfileID) (Program, error) {
+	checked, err := CheckModulesForTarget(SingleModuleGraph(program), target)
 	// The partially checked program is returned alongside diagnostics: clean
 	// statements survive failed ones, and later diagnostics cannot observe
 	// invalid declarations.
@@ -332,6 +361,13 @@ const (
 // consumer's lookup is total. Diagnostics are merged sorted by module order,
 // then line, then column.
 func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
+	return CheckModulesForTarget(graph, "")
+}
+
+// CheckModulesForTarget is CheckModules with an explicit target profile. The
+// target is read by every foreign declaration's ABI mapping; the checker never
+// inspects the host.
+func CheckModulesForTarget(graph *ModuleGraph, target compilerTypes.TargetProfileID) (map[string]Program, error) {
 	checked := make(map[string]Program, len(graph.Order))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	registry := buildModuleRegistry(graph)
@@ -343,7 +379,7 @@ func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
 	for _, moduleID := range graph.Order {
 		node := graph.Modules[moduleID]
 		key := node.LogicalKey
-		moduleChecked, moduleDiagnostics := checkModule(node.Program, moduleID, key, entrypointCanonical, registry, arena)
+		moduleChecked, moduleDiagnostics := checkModule(node.Program, moduleID, key, entrypointCanonical, registry, arena, target)
 		// One stamping point for the whole stage: module diagnostics are
 		// stamped here, where the module identity is known. checkModule
 		// receives the logical key only for Error.file provenance, never
@@ -426,7 +462,7 @@ func reserveNominalDefinitionNames(graph *ModuleGraph, arena *compilerTypes.Aren
 // canonical identity; logicalKey is its source-map filename; entrypointCanonical
 // is the root module's canonical identity, the only module allowed to execute
 // statements. registry carries the import aliases every module scope sees.
-func checkModule(program parser.Program, moduleID string, logicalKey string, entrypointCanonical string, registry *ModuleRegistry, arena *compilerTypes.Arena) (Program, compilerTypes.Diagnostics) {
+func checkModule(program parser.Program, moduleID string, logicalKey string, entrypointCanonical string, registry *ModuleRegistry, arena *compilerTypes.Arena, target compilerTypes.TargetProfileID) (Program, compilerTypes.Diagnostics) {
 	checked := Program{
 		TypeDeclarations: make([]TypeDeclaration, 0),
 		Statements:       make([]Statement, 0, len(program.Statements)),
@@ -501,13 +537,12 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 		}
 	}
 
-	// A foreign block is parsed, but its declaration model, ABI checking, and
-	// lowering are not yet implemented. Fail closed rather than silently
-	// omitting the foreign declarations it names.
-	for _, block := range program.Externs {
-		diagnostics = append(diagnostics, typeErrorAt(block.Keyword, "unsupported foreign declaration"))
-	}
-	if len(program.Externs) > 0 {
+	// Foreign blocks are leading and are checked before ordinary declarations
+	// so a name they publish collides with an ordinary declaration through the
+	// ordinary duplicate-name diagnostic. A block whose declarations fail
+	// checking publishes nothing.
+	if foreignDiagnostics := checkForeignDeclarations(program.Externs, ctx, &checked, target, moduleID); len(foreignDiagnostics) > 0 {
+		diagnostics = append(diagnostics, foreignDiagnostics...)
 		return checked, diagnostics
 	}
 

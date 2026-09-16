@@ -377,6 +377,13 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 		if compilerTypes.IsUnknown(typ) {
 			return throughPointer
 		}
+		// A foreign record behind a pointer is canonical when complete and
+		// also when opaque: generated C references the C type but never
+		// defines it, so an incomplete layout is exactly what an opaque
+		// pointer holds.
+		if compilerTypes.IsForeignRecord(typ) && throughPointer {
+			return true
+		}
 		return false
 	}
 	if typ.Signature != nil {
@@ -426,9 +433,18 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 		return true
 	}
 	object := typ.Object
-	// The built-in Error object is compiler-owned: its C name is the plain
-	// hex_t_Error, never owner-encoded, even though its ModuleID is empty.
-	if object == compilerTypes.ErrorType.Object {
+	// A foreign record is defined by its C header, not by generated C: it
+	// keeps the exact C type spelling and is never in the module's declared
+	// object set, so only its Hexal name is validated here. Behind a pointer
+	// an opaque record is canonical; by value it must be complete.
+	foreign := compilerTypes.IsForeignRecord(typ)
+	if foreign {
+		if !validSourceName(compilerTypes.SanitizeIdentifier(object.Name)) {
+			return false
+		}
+	} else if object == compilerTypes.ErrorType.Object {
+		// The built-in Error object is compiler-owned: its C name is the plain
+		// hex_t_Error, never owner-encoded, even though its ModuleID is empty.
 		if state.declaredObjects != nil && !state.declaredObjects[object] {
 			return false
 		}
@@ -451,8 +467,10 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 	if object.Incomplete {
 		// A provisional object that never reached CompleteObject is a
 		// checker defect reaching the generator; a deliberately empty
-		// struct is complete with a zero-length member slice and passes.
-		return false
+		// struct is complete with a zero-length member slice and passes. An
+		// opaque foreign record is the one deliberate incomplete object, and
+		// only a pointer to it is valid.
+		return foreign && throughPointer
 	}
 	state.activeObjects[object] = true
 	seenNames := make(map[string]bool, len(object.Members))
@@ -765,6 +783,30 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateExpressionMetadata(node, expected, state)
 	case checker.FunctionReferenceExpression:
 		return validateFunctionReference(node, expected, state)
+	case checker.ForeignFunctionReferenceExpression:
+		if node.ForeignCName == "" || node.ResultType == (compilerTypes.Type{}) || node.ResultType.Signature == nil {
+			return unknownExpressionDiagnostic("foreign function reference without a checked signature")
+		}
+		if expected != nil && !compilerTypes.Equal(node.ResultType, *expected) && !compilerTypes.Assignable(node.ResultType, *expected) {
+			return unknownExpressionDiagnostic("foreign function reference type does not match its expected type")
+		}
+		return nil
+	case checker.ForeignConstantExpression:
+		if node.ForeignCName == "" {
+			return unknownExpressionDiagnostic("foreign constant without a C spelling")
+		}
+		if expected != nil && !compilerTypes.Equal(node.ResultType, *expected) && !compilerTypes.Assignable(node.ResultType, *expected) {
+			return unknownExpressionDiagnostic("foreign constant type does not match its expected type")
+		}
+		return nil
+	case checker.ForeignGlobalExpression:
+		if node.ForeignCName == "" {
+			return unknownExpressionDiagnostic("foreign global without a C spelling")
+		}
+		if expected != nil && !compilerTypes.Equal(node.ResultType, *expected) && !compilerTypes.Assignable(node.ResultType, *expected) {
+			return unknownExpressionDiagnostic("foreign global type does not match its expected type")
+		}
+		return nil
 	case checker.FunctionLiteralExpression:
 		return validateFunctionLiteralExpression(node, expected, state)
 	case checker.CallExpression:

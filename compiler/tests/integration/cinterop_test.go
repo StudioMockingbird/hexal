@@ -33,13 +33,12 @@ func TestCImportPreparedBindingResolves(t *testing.T) {
 	}
 }
 
-// A foreign block parses but its declaration model and ABI checking are not
-// implemented, so it must fail closed rather than silently omit the foreign
-// declarations it names.
+// A foreign declaration whose type has no supported C ABI mapping fails closed
+// rather than emitting a guessed contract.
 func TestExternBlockFailsClosed(t *testing.T) {
-	source := "extern c from <adder.h> do\n    fun add(left: Int32, right: Int32): Int32\nend\nvalue: Int32 := 1\n"
-	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{})
-	assertStderrContains(t, result, "unsupported foreign declaration")
+	source := "extern c from <adder.h> do\n    fun add(left: Array<Int32, 4>): Int32\nend\nvalue: Int32 := 1\n"
+	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	assertStderrContains(t, result, "has no supported C ABI mapping for target x86_64-windows-gnu")
 }
 
 func TestDiscoverCImports(t *testing.T) {

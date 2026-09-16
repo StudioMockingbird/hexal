@@ -154,7 +154,7 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 	}
 
 	started = time.Now()
-	checked, checkErr := checker.CheckModules(graph)
+	checked, checkErr := checker.CheckModulesForTarget(graph, project.Target)
 	stats.CheckDuration = time.Since(started)
 	if checkErr != nil {
 		return failureResult(checkErr, stats, compileStarted)

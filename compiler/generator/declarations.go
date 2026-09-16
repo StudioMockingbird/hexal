@@ -362,7 +362,7 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 			switch node.Kind {
 			case checker.CallExpression:
 				callee := node.Operand
-				if callee == nil || callee.Module == "" || callee.ResultType.Signature == nil {
+				if callee == nil || callee.Kind == checker.ForeignFunctionReferenceExpression || callee.Module == "" || callee.ResultType.Signature == nil {
 					return nil
 				}
 				symbol := privateCName(functionNameKind, callee.Name, moduleOwner(callee.Module, state.owner))

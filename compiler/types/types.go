@@ -116,6 +116,12 @@ type ObjectMember struct {
 	Mutable      bool
 	SourceLine   int
 	SourceColumn int
+	// CName is the exact C field spelling when it differs from Name. A foreign
+	// record keeps the original C field name here while Name carries the
+	// usable Hexal spelling, so generated C never renames a foreign field.
+	// Empty means the field has no distinct C spelling and generation uses
+	// Name.
+	CName string
 }
 
 // ObjectType is the compilation-owned nominal record behind an object Type.
@@ -396,6 +402,16 @@ func NewCompilationEnvironment(arena *Arena, moduleID string) *Environment {
 		owner:               EncodeModuleOwner(moduleID),
 	}
 	return environment
+}
+
+// Arena exposes the compilation-wide constructed-type arena this environment
+// interns through. The checker's foreign record registry reads it so one C
+// record has one identity across every module.
+func (environment *Environment) Arena() *Arena {
+	if environment == nil {
+		return nil
+	}
+	return environment.arena
 }
 
 // Lookup resolves a declared object or ADT type name, falling back to the
@@ -798,7 +814,9 @@ func IsFloat(typ Type) bool { return typ.ScalarKind == ScalarFloat }
 // Unknown and provisional objects are not complete values.
 func IsCompleteValue(typ Type) bool {
 	if typ.Object != nil {
-		return !typ.Incomplete
+		// Read the shared record: a Type copy captured before the record was
+		// completed must not keep reporting an incomplete layout.
+		return !typ.Object.Incomplete
 	}
 	if typ.Array != nil {
 		return IsCompleteValue(typ.Array.Element)
@@ -958,7 +976,7 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		return state.allowTypeParameters
 	}
 	if typ.Object != nil {
-		return isCanonicalObject(environment, typ, state)
+		return isCanonicalObject(environment, typ, state, throughPointer)
 	}
 	if typ.Adt != nil {
 		return isCanonicalADT(environment, typ, state)
@@ -1055,11 +1073,13 @@ func init() {
 	}
 }
 
-func isCanonicalObject(environment *Environment, typ Type, state *canonicalTypeState) bool {
+func isCanonicalObject(environment *Environment, typ Type, state *canonicalTypeState, throughPointer bool) bool {
 	object := typ.Object
 	// Completeness lives on the shared record, not the possibly stale copy
-	// captured by an interner during provisional member resolution.
-	if object.Incomplete && !state.allowProvisionalObjects {
+	// captured by an interner during provisional member resolution. An opaque
+	// foreign record is canonical behind a pointer: generated C references the
+	// C type and never defines, sizes, or copies it.
+	if object.Incomplete && !state.allowProvisionalObjects && !(throughPointer && IsForeignRecord(typ)) {
 		return false
 	}
 	if object.identity == nil || object.identity != typ.identity || typ.identity.object != typ.Object {

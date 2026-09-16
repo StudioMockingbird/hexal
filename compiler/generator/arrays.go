@@ -256,6 +256,16 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 			element = node.OperandType.Dict.Value
 		}
 		switch node.Name {
+		case "pointer":
+			// Slice only: the result is the receiver's element pointer, made
+			// nullable, with the receiver's access mode preserved.
+			if node.OperandType.Slice == nil || len(node.Arguments) != 0 {
+				return unknownExpressionDiagnostic("slice pointer call has invalid checked metadata")
+			}
+			nullable := node.ResultType
+			if !compilerTypes.IsNullable(nullable) || nullable.Element == nil || !compilerTypes.Equal(*nullable.Element, element) {
+				return unknownExpressionDiagnostic("slice pointer call has invalid result type")
+			}
 		case "length":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) && !compilerTypes.Equal(node.ResultType, compilerTypes.UInt64) {
 				return unknownExpressionDiagnostic("collection length call has invalid checked metadata")
@@ -442,6 +452,18 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		return "(" + node.ResultType.CName + "){{" + strings.Join(elements, ", ") + "}}", nil
 	case checker.CollectionMethodCallExpression:
 		switch node.Name {
+		case "pointer":
+			if node.Operand == nil || node.OperandType.Slice == nil {
+				return "", unknownExpressionDiagnostic("slice pointer without a checked slice receiver")
+			}
+			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
+			if receiverErr != nil {
+				return "", receiverErr
+			}
+			// A Slice is a value whose data pointer is already the address;
+			// no allocation or copy occurs, and an empty Slice's null data
+			// pointer is exactly the Nil result.
+			return "(" + receiver + ").data", nil
 		case "length":
 			if node.OperandType.Array != nil {
 				return fmt.Sprintf("(size_t)(%d)", node.OperandType.Array.Length), nil

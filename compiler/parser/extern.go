@@ -264,8 +264,9 @@ func (parser *Parser) externGlobal() (ExternDeclaration, error) {
 }
 
 // consumeCSpellingAttribute consumes an optional `as "C spelling"` and returns
-// its token, validating the restricted spelling the position allows. A missing
-// attribute yields a nil token.
+// its token with Lexeme replaced by the decoded payload, validating the
+// restricted spelling the position allows. A missing attribute yields a nil
+// token. The token keeps the literal's source position for diagnostics.
 func (parser *Parser) consumeCSpellingAttribute() (*lexer.Token, error) {
 	if !parser.check(lexer.As) {
 		return nil, nil
@@ -279,6 +280,7 @@ func (parser *Parser) consumeCSpellingAttribute() (*lexer.Token, error) {
 	if !validCSpelling(spelling) {
 		return nil, parser.errorAt(literal, "invalid C spelling "+spelling)
 	}
+	literal.Lexeme = spelling
 	return &literal, nil
 }
 
