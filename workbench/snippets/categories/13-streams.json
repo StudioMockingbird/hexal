@@ -25,7 +25,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Io from \"std/io\"",
+          "   Io from std.io",
           "end",
           "fun announce(text: String): Nil | Error do",
           "    out: Io.IO := try Io.stdout()",
@@ -60,7 +60,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Io from \"std/io\"",
+          "   Io from std.io",
           "end",
           "fun roundtrip(h: Heap): Nil | Error do",
           "    data: List\u003cByte\u003e := List\u003cByte\u003e(h)",
@@ -104,7 +104,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Io from \"std/io\"",
+          "   Io from std.io",
           "end",
           "fun drain\u003cS\u003e(source: S, h: Heap): Size | Error do",
           "    buf: List\u003cByte\u003e := List\u003cByte\u003e(h)",
@@ -155,7 +155,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Io from \"std/io\"",
+          "   Io from std.io",
           "end",
           "fun sample(h: Heap): Nil | Error do",
           "    data: List\u003cByte\u003e := List\u003cByte\u003e(h)",
@@ -204,7 +204,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Fs from \"std/fs\"",
+          "   Fs from std.fs",
           "end",
           "fun round_trip(h: Heap): Nil | Error do",
           "    out := try Fs.open(\"notes.txt\", Fs.FileMode.Write())",

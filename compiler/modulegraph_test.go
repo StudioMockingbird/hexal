@@ -1,6 +1,10 @@
 package compiler
 
-import "testing"
+import (
+	"testing"
+
+	"hexal/compiler/lexer"
+)
 
 // The graph is the single authority for module resolution. These
 // tests assert its structural invariants and that its edges carry exactly the
@@ -84,6 +88,27 @@ func TestModuleGraphEdgesCarryResolvedPaths(t *testing.T) {
 			t.Fatal("reachableModules accepted a non-relative import path")
 		}
 	})
+}
+
+// A dotted standard-library reference canonicalizes exactly to the
+// slash-separated identity the module graph, generated names, and artifact
+// keys already use.
+func TestDottedStdlibReferenceCanonicalizes(t *testing.T) {
+	if got := resolveStdlibPath([]lexer.Token{{Lexeme: "io"}}); got != "std/io" {
+		t.Fatalf("resolveStdlibPath(io) = %q, want std/io", got)
+	}
+	if got := resolveStdlibPath([]lexer.Token{{Lexeme: "crypto"}, {Lexeme: "hash"}}); got != "std/crypto/hash" {
+		t.Fatalf("resolveStdlibPath(crypto, hash) = %q, want std/crypto/hash", got)
+	}
+	// The graph edge recorded for a reachable core-library import carries that
+	// same canonical target.
+	target, err := resolvedEdgeTarget(t, map[string]string{"app.hex": "import\n    Io from std.io\nend\n"}, "app.hex", "app")
+	if err != nil {
+		t.Fatalf("reachableModules error = %v", err)
+	}
+	if target != "std/io" {
+		t.Fatalf("std.io edge target = %q, want std/io", target)
+	}
 }
 
 // Order and Modules are one structure with one membership, every edge names a

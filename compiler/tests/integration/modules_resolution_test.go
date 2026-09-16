@@ -58,7 +58,7 @@ func TestImportAboveRootFails(t *testing.T) {
 
 func TestImportPathMustBeRelative(t *testing.T) {
 	result := compiler.Compile(map[string]string{"app.hex": "import\n    M from \"math\"\nend\n"}, "app.hex", compiler.Project{})
-	assertStderrContains(t, result, "import path \"math\" is not relative")
+	assertStderrContains(t, result, "quoted import paths must begin with ./ or ../")
 }
 
 func TestHexSuffixSpellingResolvesSameModule(t *testing.T) {
@@ -74,11 +74,11 @@ func TestHexSuffixSpellingResolvesSameModule(t *testing.T) {
 
 func TestImportNotFound(t *testing.T) {
 	result := compiler.Compile(map[string]string{"app.hex": "import\n    Nope from \"./nope\"\nend\n"}, "app.hex", compiler.Project{})
-	assertStderrContains(t, result, "imported module \"./nope\" was not found")
+	assertStderrContains(t, result, "imported module ./nope was not found")
 
 	// A non-.hex extension is a different module name, not a suffix rule.
 	result = compiler.Compile(map[string]string{"app.hex": "import\n    Txt from \"./math.txt\"\nend\n"}, "app.hex", compiler.Project{})
-	assertStderrContains(t, result, "imported module \"./math.txt\" was not found")
+	assertStderrContains(t, result, "imported module ./math.txt was not found")
 }
 
 func TestImportCycleReportsCanonicalChain(t *testing.T) {

@@ -41,13 +41,17 @@ same-line = ? no line break occurs before the next token ? ;
 
 top-level-item = declaration-item | static-module-value | statement ;
 import-block = "import" , import-entry , { "," , import-entry } , "end" ;
-import-entry = identifier , "from" , module-path-literal ;
-module-path-literal = ? a quoted literal scanned only when the previous
-                        token is the contextual identifier "from"; the
-                        payload between quotes is taken verbatim (no escape
-                        decoding); a backslash in the payload is invalid; the
-                        payload is either a relative path ("./" or "../") or
-                        a collection path ("std/<component>{/<component>}") ? ;
+import-entry = identifier , "from" , import-module-reference ;
+import-module-reference = relative-module-path-literal
+                        | stdlib-module-reference ;
+relative-module-path-literal = ? a quoted literal scanned only when the previous
+                        token is the contextual identifier "from"; the payload
+                        between quotes is taken verbatim (no escape decoding);
+                        a backslash in the payload is invalid; the payload must
+                        start with "./" or one or more "../" ? ;
+stdlib-module-reference = "std" , "." , identifier
+                        , { "." , identifier } ;
+
 export-block = "export" , export-entry , { "," , export-entry } , "end" ;
 export-entry = identifier , [ "." , identifier ] ;
 static-module-value = "static" , [ "mut" ] , identifier
@@ -366,25 +370,32 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - A file has at most one import block and at most one export block. The import block, when
   present, is the file's first top-level construct; the export block, when present, is its last.
   Either or both may be absent.
-- `import` `Alias` `from` `"<path>"` , { `,` `Alias` `from` `"<path>"` } , `end` binds each `Alias`
-  only in the importing module. `from` is a contextual keyword, recognized only immediately after
-  an import alias; it is never reserved elsewhere. Import aliases occupy their own namespace and
-  cannot shadow or be shadowed.
-- An import path starts with `./` or one or more `../`, uses `/`, and contains identifier path
-  components with an optional terminal `.hex`. Resolution is lexical relative to the importing
-  module's directory, strips the optional `.hex`, and cannot walk above the logical source-map
-  root. Resolution consults only the supplied source map and requires exactly one case-sensitive
-  logical key with the resulting canonical identity.
-- A path that does not start with `./` or `../` is a collection path
-  `"<collection>/<component>{/<component>}"`. `std` is the only collection; any other collection
-  name is a Module Error. Collection paths take no `.hex` suffix and every component is a Hexal
-  identifier. A std module is either a core library (compiler-owned declarations and C runtime
-  templates, no Hexal source) or a source module embedded in the compiler; the distinction is an
-  implementation detail, and importers use one alias form and one access syntax for both. A
-  relative path cannot leave the collection it starts in, so user modules cannot reach `std` and
-  stdlib modules cannot import user modules. Note that core-library module names are not added to
-  the protected-name table: an import alias is the only way to reach them, and a user
-  declaration of the same name remains legal.
+- An import entry is `Alias` `from` `Reference`. `from` is a contextual keyword, recognized only
+  immediately after an import alias; it is never reserved elsewhere. `Alias` binds only in the
+  importing module; import aliases occupy their own namespace and cannot shadow or be shadowed.
+- A module reference is either a quoted relative source path or an unquoted dotted
+  standard-library reference. The two forms are lexically distinct; the resolver, never string
+  inspection, decides which tables to consult.
+- A relative source path is quoted, starts with `./` or one or more `../`, uses `/`, and contains
+  identifier path components with an optional terminal `.hex`. Resolution is lexical relative to
+  the importing module's directory, strips the optional `.hex`, and cannot walk above the logical
+  source-map root. Resolution consults only the supplied source map and requires exactly one
+  case-sensitive logical key with the resulting canonical identity. A quoted payload that does not
+  start with `./` or `../` is a Syntax Error.
+- A standard-library reference is `std` `.` `identifier` { `.` `identifier` }; `std` is contextual
+  and recognized only in that position. It must begin on the same line as `from`, and every
+  component is an ordinary Identifier token (never a reserved word). It canonicalizes by joining
+  the components after `std` with `/`: `std.program` and `std/crypto/hash` are the canonical
+  identities `std/program` and `std/crypto/hash`. A std module is either a core library
+  (compiler-owned declarations and C runtime templates, no Hexal source) or a source module
+  embedded in the compiler; the distinction is an implementation detail, and importers use one
+  alias form and one access syntax for both. An unknown module is a Module Error naming the dotted
+  spelling. `std` remains legal as an ordinary declaration name, member name, and import alias
+  outside reference position.
+- A relative path may not reach the reserved `std/` canonical prefix: a supplied logical key whose
+  first component is `std` is rejected, so a user source module never shares a stdlib canonical
+  identity. Core-library module names are also not added to the protected-name table: an import
+  alias is the only way to reach them, and a user declaration of the same name remains legal.
 - Only the entrypoint and its transitive dependencies are compiled. Unreachable source-map entries
   produce no diagnostics, artifacts, or statistics. Each reachable canonical module is processed
   once. Duplicate imports of one canonical module and every dependency cycle are Module Errors.
@@ -429,7 +440,7 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 
 ### Standard library modules
 
-- Collection paths resolve only to compiler-embedded modules; the compiler reads no host files. A
+- The dotted standard-library reference resolves only to compiler-embedded modules; the compiler reads no host files. A
   core-library module emits no module artifact: its declarations keep compiler-owned C spellings and
   existing `hexal/` components, selected by the existing operation-driven demand rules. A source
   stdlib module emits `stdlib/<path>.c` and `stdlib/<path>.h`, maps `#line`, diagnostics, and

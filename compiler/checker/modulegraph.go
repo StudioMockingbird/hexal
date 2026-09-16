@@ -1,8 +1,6 @@
 package checker
 
 import (
-	"strings"
-
 	"hexal/compiler/corelib"
 	"hexal/compiler/parser"
 )
@@ -46,8 +44,9 @@ type ModuleEdge struct {
 
 // SingleModuleGraph returns the graph of a single-module compilation, the
 // shape the direct Check entry point and the generator's unit tests compile.
-// A core-library import is resolved here from its collection path, since a
-// single-module graph has no source map to resolve a relative path against.
+// A core-library import is resolved here from its dotted standard-library
+// reference, since a single-module graph has no source map to resolve a
+// relative path against.
 func SingleModuleGraph(program parser.Program) *ModuleGraph {
 	node := ModuleNode{
 		Canonical:  canonicalEntrypoint,
@@ -56,9 +55,15 @@ func SingleModuleGraph(program parser.Program) *ModuleGraph {
 	}
 	if program.Import != nil {
 		for _, entry := range program.Import.Entries {
-			path := strings.Trim(entry.Path.Lexeme, "\"")
-			if corelib.IsModule(path) {
-				node.Imports = append(node.Imports, ModuleEdge{Alias: entry.Alias.Lexeme, Target: path})
+			if entry.Reference.Kind != parser.StandardLibraryImportReference {
+				continue
+			}
+			target := "std"
+			for _, component := range entry.Reference.Components {
+				target += "/" + component.Lexeme
+			}
+			if corelib.IsModule(target) {
+				node.Imports = append(node.Imports, ModuleEdge{Alias: entry.Alias.Lexeme, Target: target})
 			}
 		}
 	}

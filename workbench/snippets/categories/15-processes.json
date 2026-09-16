@@ -27,7 +27,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Proc from \"std/process\"",
+          "   Proc from std.process",
           "end",
           "fun run_worker(h: Heap): Int64 | Error do",
           "    arguments: List\u003cString\u003e := List\u003cString\u003e(h)",
@@ -80,7 +80,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Proc from \"std/process\"",
+          "   Proc from std.process",
           "end",
           "fun run_worker(h: Heap): Nil | Error do",
           "    options: Proc.ProcessOptions := Proc.ProcessOptions(",

@@ -10,7 +10,7 @@ import (
 // through try narrowing into the binding's flow facts.
 func TestCheckStreamConstructorsSeedCapability(t *testing.T) {
 	checked := requireAccepted(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n"+
 			"    out: Io.IO := try Io.stdout()\n"+
 			"    err: Io.IO | Error := Io.stderr()\n"+
 			"    return nil\nend\n")
@@ -34,20 +34,20 @@ func TestCheckStreamConstructorsSeedCapability(t *testing.T) {
 // capability defers to the runtime access-mask check and checks clean.
 func TestCheckStreamCapabilityTiers(t *testing.T) {
 	requireDiagnostic(t,
-		"import\n    Io from \"std/io\"\nend\nfun relay(text: String): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun relay(text: String): Nil | Error do\n"+
 			"    input: Io.IO := try Io.stdin()\n"+
 			"    input.write(text.bytes())\n"+
 			"    return nil\nend\n",
 		"stream is not writable")
 	requireDiagnostic(t,
-		"import\n    Io from \"std/io\"\nend\nfun echo(h: Heap): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun echo(h: Heap): Nil | Error do\n"+
 			"    buf: List<Byte> := List<Byte>(h)\n"+
 			"    out: Io.IO := try Io.stdout()\n"+
 			"    out.read(buf, 8)\n"+
 			"    return nil\nend\n",
 		"stream is not readable")
 	requireAccepted(t,
-		"import\n    Io from \"std/io\"\nend\nfun relay(handle: Io.IO, text: String): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun relay(handle: Io.IO, text: String): Nil | Error do\n"+
 			"    handle.write(text.bytes())\n"+
 			"    return nil\nend\n")
 }
@@ -57,14 +57,14 @@ func TestCheckStreamCapabilityTiers(t *testing.T) {
 // rejected.
 func TestCheckBytesReceiverForms(t *testing.T) {
 	requireDiagnostic(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(h: Heap): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(h: Heap): Nil | Error do\n"+
 			"    data: List<Byte> := List<Byte>(h)\n"+
 			"    dest: List<Byte> := List<Byte>(h)\n"+
 			"    fixed: Io.Bytes := Io.bytes_over(data)\n"+
 			"    return fixed.read(dest, 4)\nend\n",
 		"read needs Ptr<mut Bytes>; @fixed is Ptr<Bytes>")
 	requireAccepted(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(h: Heap, text: String): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(h: Heap, text: String): Nil | Error do\n"+
 			"    data: List<Byte> := List<Byte>(h)\n"+
 			"    dest: List<Byte> := List<Byte>(h)\n"+
 			"    mut live: Io.Bytes := Io.bytes_over(data)\n"+
@@ -79,14 +79,14 @@ func TestCheckBytesReceiverForms(t *testing.T) {
 // after the merge.
 func TestCheckIOCloseFacts(t *testing.T) {
 	requireDiagnostic(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n"+
 			"    out: Io.IO := try Io.stdout()\n"+
 			"    first: Nil | Error := out.close()\n"+
 			"    second: Nil | Error := out.close()\n"+
 			"    return nil\nend\n",
 		"this stream was closed on every path to this point")
 	requireAccepted(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(flag: Bool): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(flag: Bool): Nil | Error do\n"+
 			"    mut out: Io.IO := try Io.stdout()\n"+
 			"    if flag then\n"+
 			"        closed: Nil | Error := out.close()\n"+
@@ -100,7 +100,7 @@ func TestCheckIOCloseFacts(t *testing.T) {
 // freed where the local facts still hold.
 func TestCheckBytesProvenance(t *testing.T) {
 	requireDiagnostic(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(h: Heap): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(h: Heap): Nil | Error do\n"+
 			"    src: List<Byte> := List<Byte>(h)\n"+
 			"    dst: List<Byte> := List<Byte>(h)\n"+
 			"    mut stream: Io.Bytes := Io.bytes_over(src)\n"+
@@ -109,14 +109,14 @@ func TestCheckBytesProvenance(t *testing.T) {
 			"    return nil\nend\n",
 		"memory stream outlives its source list, freed on every path to this point")
 	requireDiagnostic(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(h: Heap): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(h: Heap): Nil | Error do\n"+
 			"    src: List<Byte> := List<Byte>(h)\n"+
 			"    src.free(h)\n"+
 			"    late: Io.Bytes := Io.bytes_over(src)\n"+
 			"    return nil\nend\n",
 		"memory stream outlives its source list, freed on every path to this point")
 	requireAccepted(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(h: Heap): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(h: Heap): Nil | Error do\n"+
 			"    src: List<Byte> := List<Byte>(h)\n"+
 			"    dst: List<Byte> := List<Byte>(h)\n"+
 			"    mut stream: Io.Bytes := Io.bytes_over(src)\n"+
@@ -138,22 +138,22 @@ func TestCheckStreamPlacementMatrix(t *testing.T) {
 			t.Fatalf("%s placement was accepted", testCase.name)
 		}
 	}
-	listElement := "import\n    Io from \"std/io\"\nend\nfun demo(h: Heap): Nil | Error do\n    streams: List<Io.IO> := List<Io.IO>(h)\n    return nil\nend"
+	listElement := "import\n  Io from std.io\nend\nfun demo(h: Heap): Nil | Error do\n    streams: List<Io.IO> := List<Io.IO>(h)\n    return nil\nend"
 	if _, err := checkSource(t, listElement); err == nil {
 		t.Fatal("list element placement was accepted")
 	}
-	channelElement := "import\n    Io from \"std/io\"\nend\nfun demo(h: Heap): Nil | Error do\n    pipe: Channel<Io.IO> := Channel<Io.IO>(h, 1)\n    return nil\nend"
+	channelElement := "import\n  Io from std.io\nend\nfun demo(h: Heap): Nil | Error do\n    pipe: Channel<Io.IO> := Channel<Io.IO>(h, 1)\n    return nil\nend"
 	if _, err := checkSource(t, channelElement); err == nil {
 		t.Fatal("channel element placement was accepted")
 	}
 	requireAccepted(t,
-		"import\n    Io from \"std/io\"\nend\nfun worker(stream: Io.IO): Nil | Error do\n    return nil\nend\n"+
+		"import\n  Io from std.io\nend\nfun worker(stream: Io.IO): Nil | Error do\n    return nil\nend\n"+
 			"fun demo(): Nil | Error do\n"+
 			"    task: Task<Nil | Error> := try spawn worker(try Io.stdout())\n"+
 			"    outcome: Nil | Error := task.join()\n"+
 			"    return outcome\nend\n")
 	requireDiagnostic(t,
-		"import\n    Io from \"std/io\"\nend\nfun take(stream: Io.Bytes): Size do\n    return 0\nend\n"+
+		"import\n  Io from std.io\nend\nfun take(stream: Io.Bytes): Size do\n    return 0\nend\n"+
 			"fun demo(h: Heap): Nil | Error do\n"+
 			"    data: List<Byte> := List<Byte>(h)\n"+
 			"    task: Task<Size> := spawn take(Io.bytes_over(data))\n"+
@@ -166,7 +166,7 @@ func TestCheckStreamPlacementMatrix(t *testing.T) {
 // payloads, and the unqualified variant names stay free.
 func TestCheckSeekConstruction(t *testing.T) {
 	requireAccepted(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n"+
 			"    start: Io.Seek := Io.Seek.Start(position = 4096)\n"+
 			"    offset: Io.Seek := Io.Seek.Current(offset = -1)\n"+
 			"    back: Io.Seek := Io.Seek.End(offset = -8)\n"+
@@ -182,14 +182,14 @@ func TestCheckStreamNamesAreFreeForUserDeclaration(t *testing.T) {
 	requireAccepted(t, "type Bytes is struct x: Int32, end")
 	requireAccepted(t, "type Seek is union | North | South end")
 	requireAccepted(t, "Start: Int32 := 0 Current: Int32 := 0 End: Int32 := 0")
-	requireDiagnostic(t, "import\n    Io from \"std/io\"\nend\nfun f(x: Io.IO<Byte>): Nil | Error do\n    return nil\nend\n", "declaration IO is private to module std/io")
+	requireDiagnostic(t, "import\n  Io from std.io\nend\nfun f(x: Io.IO<Byte>): Nil | Error do\n    return nil\nend\n", "declaration IO is private to module std/io")
 }
 
 // Every stream operation shares one canonical structural result union per
 // shape, carrying exactly the members its contract names.
 func TestCheckStreamResultUnionsAreCanonical(t *testing.T) {
 	checked := requireAccepted(t,
-		"import\n    Io from \"std/io\"\nend\nh: Heap := Heap()\n"+
+		"import\n  Io from std.io\nend\nh: Heap := Heap()\n"+
 			"src: List<Byte> := List<Byte>(h)\n"+
 			"mut stream: Io.Bytes := Io.bytes_over(src)\n"+
 			"r: Size | EoS | Error := stream.read(src, 4)\n")

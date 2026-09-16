@@ -10,7 +10,7 @@ import (
 // read, write, seek, flush, and close operations over libuv.
 
 func fileFacetSource() string {
-	return "import\n    Fs from \"std/fs\",\n    Io from \"std/io\"\nend\nfun run(h: Heap): Nil | Error do\n" +
+	return "import\n  Fs from std.fs,\n  Io from std.io\nend\nfun run(h: Heap): Nil | Error do\n" +
 		"    out := try Fs.open(\"notes.txt\", Fs.FileMode.Write())\n" +
 		"    defer out.close()\n" +
 		"    wrote := try out.write(\"hexal\\n\".bytes())\n" +
@@ -35,10 +35,10 @@ func fileFacetSource() string {
 func TestFileSurfaceAcceptsSettledOperations(t *testing.T) {
 	assertCompiles(t, fileFacetSource())
 	for _, mode := range []string{"Read", "Write", "Append", "ReadWrite", "CreateNew"} {
-		assertCompiles(t, "import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode."+mode+"())\n    try x.close()\n    return nil\nend\n")
+		assertCompiles(t, "import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode."+mode+"())\n    try x.close()\n    return nil\nend\n")
 	}
 	// A File crosses a Task boundary like IO.
-	assertCompiles(t, "import\n    Fs from \"std/fs\"\nend\nfun g(f: Fs.File): Int32 do\n    return 1\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    t := try spawn g(x)\n    return nil\nend\n")
+	assertCompiles(t, "import\n  Fs from std.fs\nend\nfun g(f: Fs.File): Int32 do\n    return 1\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    t := try spawn g(x)\n    return nil\nend\n")
 }
 
 // A File's generation-checked handle makes closing safe from any copy, so it
@@ -47,14 +47,14 @@ func TestFileSurfaceAcceptsSettledOperations(t *testing.T) {
 func TestFileOccupiesEveryCommonHandleStoragePosition(t *testing.T) {
 	for _, source := range []string{
 		// Struct member (ObjectMember).
-		"import\n    Fs from \"std/fs\"\nend\ntype Holder is struct f: Fs.File end\nfun make(h: Heap): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    holder := Holder(f = x)\n    try holder.f.close()\n    return nil\nend",
+		"import\n  Fs from std.fs\nend\ntype Holder is struct f: Fs.File end\nfun make(h: Heap): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    holder := Holder(f = x)\n    try holder.f.close()\n    return nil\nend",
 		// ADT payload.
-		"import\n    Fs from \"std/fs\"\nend\ntype Wrapped is union | Present as f: Fs.File end | Absent end\nfun make(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    w := Wrapped.Present(f = x)\n    return nil\nend",
+		"import\n  Fs from std.fs\nend\ntype Wrapped is union | Present as f: Fs.File end | Absent end\nfun make(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    w := Wrapped.Present(f = x)\n    return nil\nend",
 		// Array element.
-		"import\n    Fs from \"std/fs\"\nend\nfun make(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    files: Array<Fs.File, 1> := [x]\n    try files[0].close()\n    return nil\nend",
+		"import\n  Fs from std.fs\nend\nfun make(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    files: Array<Fs.File, 1> := [x]\n    try files[0].close()\n    return nil\nend",
 		// List element and Dict value.
-		"import\n    Fs from \"std/fs\"\nend\nfun make(h: Heap): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    files: List<Fs.File> := List<Fs.File>(h)\n    defer files.free(h)\n    files.push(x)\n    try files[0].close()\n    return nil\nend",
-		"import\n    Fs from \"std/fs\"\nend\nfun make(h: Heap): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    files: Dict<Int32, Fs.File> := Dict<Int32, Fs.File>(h)\n    defer files.free(h)\n    files.insert(1, x)\n    try files.get(1).close()\n    return nil\nend",
+		"import\n  Fs from std.fs\nend\nfun make(h: Heap): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    files: List<Fs.File> := List<Fs.File>(h)\n    defer files.free(h)\n    files.push(x)\n    try files[0].close()\n    return nil\nend",
+		"import\n  Fs from std.fs\nend\nfun make(h: Heap): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    files: Dict<Int32, Fs.File> := Dict<Int32, Fs.File>(h)\n    defer files.free(h)\n    files.insert(1, x)\n    try files.get(1).close()\n    return nil\nend",
 	} {
 		assertCompiles(t, source)
 	}
@@ -66,25 +66,25 @@ func TestFileSurfaceRejectsUnlistedOperations(t *testing.T) {
 	assertCompiles(t, "type File is UInt64")
 	assertCompiles(t, "type FileMode is UInt64")
 	for _, testCase := range []struct{ source, want string }{
-		{"import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(5, Fs.FileMode.Write())\n    return nil\nend", "expected String"},
-		{"import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.create(\"a\")\n    return nil\nend", "declaration create is private to module std/fs"},
-		{"import\n    Fs from \"std/fs\"\nend\nfun f(h: Heap): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    b: List<Byte> := List<Byte>(h)\n    r := x.read(b, 1)\n    return nil\nend", "stream is not readable"},
-		{"import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    r := x.write(\"x\".bytes())\n    return nil\nend", "stream is not writable"},
-		{"import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    r := x.flush()\n    return nil\nend", "stream is not writable"},
-		{"import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    try x.close()\n    return nil\nend", "this stream was closed on every path"},
-		{"import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    defer x.flush()\n    return nil\nend", "only File.close() may be deferred"},
+		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(5, Fs.FileMode.Write())\n    return nil\nend", "expected String"},
+		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.create(\"a\")\n    return nil\nend", "declaration create is private to module std/fs"},
+		{"import\n  Fs from std.fs\nend\nfun f(h: Heap): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    b: List<Byte> := List<Byte>(h)\n    r := x.read(b, 1)\n    return nil\nend", "stream is not readable"},
+		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    r := x.write(\"x\".bytes())\n    return nil\nend", "stream is not writable"},
+		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    r := x.flush()\n    return nil\nend", "stream is not writable"},
+		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    try x.close()\n    return nil\nend", "this stream was closed on every path"},
+		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    defer x.flush()\n    return nil\nend", "only File.close() may be deferred"},
 	} {
 		assertRejects(t, testCase.source, testCase.want)
 	}
 	for _, operation := range []string{"stat", "rename", "remove", "sendfile", "metadata"} {
-		assertRejects(t, "import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    r := x."+operation+"()\n    return nil\nend", "File has no method "+operation)
+		assertRejects(t, "import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Write())\n    r := x."+operation+"()\n    return nil\nend", "File has no method "+operation)
 	}
 }
 
 // File alone selects libuv, mimalloc, and the native bootstrap but neither
 // scheduler nor event bridge; File with Task selects the event bridge too.
 func TestFileComponentDemand(t *testing.T) {
-	alone := assertCompiles(t, "import\n    Fs from \"std/fs\"\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    return nil\nend\nr: Nil | Error := f()\n")
+	alone := assertCompiles(t, "import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    return nil\nend\nr: Nil | Error := f()\n")
 	if !hasFile(alone, "hexal/file.h") || !hasFile(alone, "hexal/file.c") {
 		t.Fatalf("File program must emit the file pair: %v", sortedKeys(alone.Files))
 	}
@@ -102,7 +102,7 @@ func TestFileComponentDemand(t *testing.T) {
 		t.Fatalf("File root must bootstrap libuv first and start no scheduler:\n%s", main)
 	}
 
-	tasked := assertCompiles(t, "import\n    Fs from \"std/fs\"\nend\nfun g(): Int32 | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    return 1\nend\nfun f(): Int32 | Error do\n    t := try spawn g()\n    return t.join()\nend\nr: Int32 | Error := f()\n")
+	tasked := assertCompiles(t, "import\n  Fs from std.fs\nend\nfun g(): Int32 | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    return 1\nend\nfun f(): Int32 | Error do\n    t := try spawn g()\n    return t.join()\nend\nr: Int32 | Error := f()\n")
 	event := tasked.Files["hexal/event.c"]
 	if !strings.Contains(event, "void hex_event_submit(hex_task *task, hex_event_command *command) {") || !strings.Contains(tasked.Files["hexal/event.h"], "void *hex_event_loop_handle(void);") {
 		t.Fatalf("File with Task must expose the component command API:\n%s", event)
@@ -203,7 +203,7 @@ func TestFileGeneratedCContract(t *testing.T) {
 // A component .c that includes hexal/list.h directly (file.c, io.c) must see
 // the Task typedef a List<Task<...>> element spells.
 func TestListOfTasksHeaderIncludesConcurrency(t *testing.T) {
-	result := assertCompiles(t, "import\n    Fs from \"std/fs\"\nend\nfun work(): Int32 do\n    return 1\nend\n"+
+	result := assertCompiles(t, "import\n  Fs from std.fs\nend\nfun work(): Int32 do\n    return 1\nend\n"+
 		"fun run(h: Heap): Int32 | Error do\n"+
 		"    tasks: List<Task<Int32>> := List<Task<Int32>>(h)\n"+
 		"    defer tasks.free(h)\n"+

@@ -13,7 +13,7 @@ import (
 )
 
 func TestAsciiSourceModuleCompiles(t *testing.T) {
-	source := "import\n    Ascii from \"std/ascii\"\nend\n" +
+	source := "import\n  Ascii from std.ascii\nend\n" +
 		"digit: Bool := Ascii.is_digit(48)\n" +
 		"lower: Byte := Ascii.to_lower(65)\n"
 	result := assertCompiles(t, source)
@@ -43,7 +43,7 @@ func TestAsciiSourceModuleCompiles(t *testing.T) {
 }
 
 func TestAsciiNamedFunctionsMatchSurface(t *testing.T) {
-	source := "import\n    Ascii from \"std/ascii\"\nend\n" +
+	source := "import\n  Ascii from std.ascii\nend\n" +
 		"d: Bool := Ascii.is_digit(48)\n" +
 		"a: Bool := Ascii.is_alpha(65)\n" +
 		"s: Bool := Ascii.is_space(32)\n" +
@@ -51,7 +51,7 @@ func TestAsciiNamedFunctionsMatchSurface(t *testing.T) {
 		"u: Byte := Ascii.to_upper(97)\n"
 	assertCompiles(t, source)
 	// Unknown operations stay fail-closed.
-	assertRejects(t, "import\n    Ascii from \"std/ascii\"\nend\nx := Ascii.is_upper(65)\n", "is_upper")
+	assertRejects(t, "import\n  Ascii from std.ascii\nend\nx := Ascii.is_upper(65)\n", "is_upper")
 }
 
 // The std/ logical-key prefix is reserved, so a user module can never claim a
@@ -80,5 +80,5 @@ func TestStdlibSourcesAreFresh(t *testing.T) {
 	if second["stdlib/std/ascii.hex"] == "corrupted" {
 		t.Fatal("mutating a Sources() copy changed a later call's stdlib")
 	}
-	assertCompiles(t, "import\n    Ascii from \"std/ascii\"\nend\nd: Bool := Ascii.is_digit(48)\n")
+	assertCompiles(t, "import\n  Ascii from std.ascii\nend\nd: Bool := Ascii.is_digit(48)\n")
 }

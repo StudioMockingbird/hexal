@@ -219,12 +219,13 @@ func validateLogicalKey(key string) error {
 	return nil
 }
 
-// resolveImportPath resolves a raw module-path literal relative to fromModule
-// (a canonical id) and returns the target's canonical id. The literal keeps
-// the lexer's spelling, surrounding quotes included; rules apply to the quoted
-// payload's content. Rules, in order:
+// resolveImportPath resolves a relative quoted module-path literal relative to
+// fromModule (a canonical id) and returns the target's canonical id. The
+// literal keeps the lexer's spelling, surrounding quotes included; rules apply
+// to the quoted payload's content. Rules, in order:
 //   - the payload must start with "./" (exactly one) or one or more "../";
-//     anything else fails with "import path <rawPath> is not relative".
+//     anything else fails closed, because the parser already rejects a quoted
+//     non-relative payload with its own migration diagnostic.
 //   - components: drop the "./" prefix; each "../" pops the last directory
 //     component of fromModule's dir (dir = everything before the last "/");
 //     popping an empty dir fails with "import resolves above the logical
@@ -234,14 +235,14 @@ func validateLogicalKey(key string) error {
 //   - join remaining components with "/", then canonicalFromLogicalKey: a trailing
 //     ".hex" on the path is stripped and the result is the canonical id.
 //
-// The caller attaches the offending Path token's line/column to the error.
+// The caller attaches the offending reference token's line/column to the error.
 func resolveImportPath(fromModule, rawPath string) (string, error) {
 	path := rawPath
 	if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
 		path = path[1 : len(path)-1]
 	}
 	if !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "../") {
-		return resolveCollectionPath(rawPath, path)
+		return "", fmt.Errorf("import path %s is not relative", rawPath)
 	}
 	dir := ""
 	if slash := strings.LastIndex(fromModule, "/"); slash >= 0 {
@@ -288,34 +289,17 @@ func resolveImportPath(fromModule, rawPath string) (string, error) {
 	return canonicalFromLogicalKey(rest), nil
 }
 
-// resolveCollectionPath resolves a bare (non-relative) import path as a
-// collection path "<collection>/<component>{/<component>}". std is the only
-// collection in v1; its canonical identity is the path itself, unaffected by
-// the importing module's own location. rawPath keeps the lexer's quoted
-// spelling for diagnostics; path is its unquoted payload.
-func resolveCollectionPath(rawPath, path string) (string, error) {
-	collection, rest, found := strings.Cut(path, "/")
-	if !found || collection == "" {
-		return "", fmt.Errorf("import path %s is not relative", rawPath)
-	}
-	if collection != "std" {
-		return "", fmt.Errorf("unknown module collection %s; only std is available", collection)
-	}
-	if strings.HasSuffix(path, ".hex") {
-		return "", fmt.Errorf("collection path %s must not end in .hex", rawPath)
-	}
-	components := strings.Split(rest, "/")
+// resolveStdlibPath joins one dotted standard-library reference's components
+// into the slash-separated canonical identity the module graph, generated
+// names, and artifact keys already use. `std.program` -> `std/program`,
+// `std.crypto.hash` -> `std/crypto/hash`.
+func resolveStdlibPath(components []lexer.Token) string {
+	paths := make([]string, 0, len(components)+1)
+	paths = append(paths, "std")
 	for _, component := range components {
-		if component == "" || !lexer.IsIdentifierStart(component[0]) {
-			return "", fmt.Errorf("invalid component %s in import path %s", component, rawPath)
-		}
-		for i := 1; i < len(component); i++ {
-			if !lexer.IsIdentifierPart(component[i]) {
-				return "", fmt.Errorf("invalid component %s in import path %s", component, rawPath)
-			}
-		}
+		paths = append(paths, component.Lexeme)
 	}
-	return path, nil
+	return strings.Join(paths, "/")
 }
 
 // reachableModules lexes and parses every module reachable from the entrypoint
@@ -430,12 +414,30 @@ func (s *reachState) visit(canonical string) error {
 // holds the canonical ids fromModule has already bound in this file. A
 // lex/parse failure inside the target aborts the whole scan: the target's
 // imports are unknown, so the reachable set is incomplete.
+//
+// The reference's kind, never a string prefix, decides which tables the
+// resolver consults: a dotted `std.<component>` reference names the
+// standard-library identity `std/<component>...`, while a relative quoted path
+// keeps its lexical source-map arithmetic even when that identity begins with
+// the reserved `std` prefix.
 func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEntry, imported map[string]bool) error {
-	line, column := importDecl.Path.Line, importDecl.Path.Column
-	rawPath := importDecl.Path.Lexeme
-	target, err := resolveImportPath(fromModule, rawPath)
-	if err != nil {
-		s.record(fromModule, line, column, err.Error())
+	line, column := importDecl.Reference.Token.Line, importDecl.Reference.Token.Column
+	var target string
+	switch importDecl.Reference.Kind {
+	case parser.RelativeImportReference:
+		rawPath := importDecl.Reference.RelativePath.Lexeme
+		resolved, err := resolveImportPath(fromModule, rawPath)
+		if err != nil {
+			s.record(fromModule, line, column, err.Error())
+			return nil
+		}
+		target = resolved
+	case parser.StandardLibraryImportReference:
+		target = resolveStdlibPath(importDecl.Reference.Components)
+	default:
+		// The parser is the only reference producer; an unknown kind is an
+		// internal contract break, never a silently resolved import.
+		s.record(fromModule, line, column, "unknown import reference kind")
 		return nil
 	}
 	// The edge is the resolution result, recorded in source order for every
@@ -443,17 +445,19 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 	// to name, and its diagnostic already fails the compilation.
 	node := s.nodes[fromModule]
 	node.Imports = append(node.Imports, checker.ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: target})
-	// A relative path that reaches a std-prefixed canonical is a user module
-	// whose key is reserved, not a std collection lookup; only a path that is
-	// itself a collection path consults the core library and source stdlib.
-	path := strings.Trim(rawPath, "\"")
-	collection := !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "../")
-	if collection && strings.HasPrefix(target, "std/") {
+	switch {
+	case importDecl.Reference.Kind == parser.StandardLibraryImportReference:
 		if corelib.IsModule(target) {
 			// A core library has no Hexal source and never joins the module
 			// graph: it publishes no ModuleNode, is never lexed or parsed,
 			// and is resolved directly by the checker against the corelib
-			// table.
+			// table. It still shares the one canonical import identity, so a
+			// second alias naming it is the ordinary duplicate diagnostic.
+			if imported[target] {
+				s.record(fromModule, line, column, "duplicate import of canonical module "+target)
+				return nil
+			}
+			imported[target] = true
 			return nil
 		}
 		if stdlib.IsSourceModule(target) {
@@ -469,11 +473,12 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 			}
 			return s.visit(target)
 		}
-		s.record(fromModule, line, column, "unknown stdlib module "+rawPath)
+		s.record(fromModule, line, column, "unknown stdlib module "+importDecl.Reference.DisplaySpelling)
 		return nil
+	default:
 	}
 	if len(s.sourceKeyFor(target)) == 0 {
-		s.record(fromModule, line, column, "imported module "+rawPath+" was not found")
+		s.record(fromModule, line, column, "imported module "+importDecl.Reference.DisplaySpelling+" was not found")
 		return nil
 	}
 	if imported[target] {

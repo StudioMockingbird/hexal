@@ -585,7 +585,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Time from \"std/time\"",
+          "   Time from std.time",
           "end",
           "fun nap(ms: UInt64): Bool do",
           "    start := Time.now()",

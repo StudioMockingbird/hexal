@@ -21,12 +21,39 @@ type ImportBlock struct {
 	End     lexer.Token
 }
 
-// ImportEntry binds one local alias to one module path: `alias from "path"`.
-// From is the contextual `from` token itself, retained for diagnostics.
+// ImportReferenceKind separates a supplied source-map path from a
+// compiler-owned standard-library reference. The resolver, not a string
+// prefix, decides which tables to consult.
+type ImportReferenceKind uint8
+
+const (
+	// RelativeImportReference is a quoted "./" or "../" source-map path.
+	RelativeImportReference ImportReferenceKind = iota
+	// StandardLibraryImportReference is a dotted std.<component> reference.
+	StandardLibraryImportReference
+)
+
+// ImportReference is one tagged module reference after `from`. Token is the
+// opening quote for a relative reference and the `std` token for a dotted one;
+// both anchor diagnostics. DisplaySpelling is the normalized source form the
+// user wrote (the quoted payload, or the dotted spelling). Components carries
+// the dotted components after `std.` and is empty for a relative reference.
+// RelativePath is the raw quoted token and is the zero token for a dotted one.
+type ImportReference struct {
+	Kind            ImportReferenceKind
+	Token           lexer.Token
+	DisplaySpelling string
+	Components      []lexer.Token
+	RelativePath    lexer.Token
+}
+
+// ImportEntry binds one local alias to one module reference:
+// `alias from "./path"` or `alias from std.<component>...`. From is the
+// contextual `from` token itself, retained for diagnostics.
 type ImportEntry struct {
-	Alias lexer.Token
-	From  lexer.Token
-	Path  lexer.Token // the module-path literal, raw quoted spelling
+	Alias     lexer.Token
+	From      lexer.Token
+	Reference ImportReference
 }
 
 // ExportBlock is the file's one trailing export list, when present.

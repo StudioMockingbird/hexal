@@ -453,6 +453,64 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 	}
 }
 
+// A module reference is either a quoted relative source-map path or a dotted
+// std.<component> standard-library reference. Every retired or malformed form
+// reports its exact Syntax Error at the specified anchor.
+func TestParseModuleReferenceForms(t *testing.T) {
+	accepted := []string{
+		"import\n    a from \"./a\"\n,\n    b from \"../b\"\n,\n    c from std.io\nend\n",
+		"import\n    h from std.crypto.hash\nend\n",
+		"import\n    p from std.program\nend\n",
+	}
+	for _, source := range accepted {
+		if _, err := Parse(mustLex(t, source)); err != nil {
+			t.Errorf("Parse(%q) rejected an accepted module reference: %v", source, err)
+		}
+	}
+	for _, testCase := range []struct {
+		source  string
+		message string
+		line    int
+		column  int
+	}{
+		{"import\n    Io from \"std/io\"\nend\n", "standard-library imports use dotted paths; write std.io", 2, 13},
+		{"import\n    X from \"vendor/x\"\nend\n", "quoted import paths must begin with ./ or ../", 2, 12},
+		{"import\n    X from std\nend\n", "standard-library import requires a component after std.", 2, 12},
+		{"import\n    X from std/io\nend\n", "standard-library imports use dots between components", 2, 15},
+		{"import\n    X from std..io\nend\n", "expected a standard-library module component after '.'", 2, 16},
+		{"import\n    X from std.for\nend\n", "expected a standard-library module component after '.'", 2, 16},
+		{"import\n    X from\n        std.io\nend\n", "module reference must begin on the same line as 'from'", 3, 9},
+	} {
+		tokens, err := lexer.Lex(testCase.source)
+		if err != nil {
+			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
+		}
+		_, parseErr := Parse(tokens)
+		if parseErr == nil {
+			t.Errorf("Parse(%q) accepted an invalid module reference", testCase.source)
+			continue
+		}
+		diagnostics, ok := parseErr.(compilerTypes.Diagnostics)
+		if !ok {
+			t.Fatalf("Parse error = %T, want Diagnostics", parseErr)
+		}
+		var found *compilerTypes.Diagnostic
+		for index := range diagnostics {
+			if diagnostics[index].Message == testCase.message {
+				found = &diagnostics[index]
+				break
+			}
+		}
+		if found == nil {
+			t.Errorf("Parse(%q) diagnostics = %v, want message %q", testCase.source, diagnostics, testCase.message)
+			continue
+		}
+		if found.Category != compilerTypes.SyntaxError || found.Line != testCase.line || found.Column != testCase.column {
+			t.Errorf("Parse(%q) diagnostic = %#v, want Syntax Error at %d:%d", testCase.source, found, testCase.line, testCase.column)
+		}
+	}
+}
+
 func TestParseRecoversAfterConsumedMalformedStatement(t *testing.T) {
 	for _, testCase := range []struct {
 		name       string

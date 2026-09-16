@@ -13,8 +13,14 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Check every open generic body at declaration, rejecting errors that hold for all type arguments | [0211](specs/0211-generic-declaration-checking.md) |
+| Replace quoted standard-library collection paths with dotted `std.<module>` imports | [0212](specs/0212-dotted-stdlib-imports.md) |
 | Add typed C binding modules for functions, records, opaque types, constants, globals, pointers, and explicit text/buffer bridges | [0039](specs/0039-c-interop-compiler-core.md) |
+
+### Design requires revision
+
+| Work | Unresolved design work | Spec |
+| --- | --- | --- |
+| Check every reachable open generic body at declaration | Run body checks after complete module signature collection; define substitution-dependent diagnostics rather than deferring whole checks by operand type; isolate declaration checking from binding ids, helper ordinals, specialization demand, and emitted state; carry dependency through compound expressions; define placeholder layouts and receivers for generic aliases, structs, ADTs, methods, and legal pointer recursion; invalidate rather than later specialize a failed template; pin defining-module diagnostic provenance; expand exhaustive validation across these cases | [0211](specs/0211-generic-declaration-checking.md) |
 
 ### Design settled; implementation blocked
 

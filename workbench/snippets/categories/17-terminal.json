@@ -24,8 +24,8 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Io from \"std/io\",",
-          "    Term from \"std/terminal\"",
+          "   Io from std.io,",
+          "   Term from std.terminal",
           "end",
           "fun describe(stream: Io.IO): Term.TerminalSize | Error do",
           "    attached: Bool := try Term.is_attached(stream)",

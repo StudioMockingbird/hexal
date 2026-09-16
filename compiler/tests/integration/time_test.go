@@ -19,7 +19,7 @@ func dependencyNames(result compiler.CompilationResult) []string {
 }
 
 func TestTimeSurfaceAcceptsSettledOperations(t *testing.T) {
-	assertCompiles(t, "import\n    Time from \"std/time\"\nend\nfun run(): Nil | Error do\n"+
+	assertCompiles(t, "import\n  Time from std.time\nend\nfun run(): Nil | Error do\n"+
 		"    d: Time.Duration := Time.seconds(2) + Time.milliseconds(500)\n"+
 		"    e: Time.Duration := d - Time.microseconds(1)\n"+
 		"    n: UInt64 := d.as_nanoseconds() + d.as_microseconds() + d.as_milliseconds() + d.as_seconds()\n"+
@@ -40,23 +40,23 @@ func TestTimeSurfaceAcceptsSettledOperations(t *testing.T) {
 
 func TestTimeSurfaceRejectsUnlistedOperations(t *testing.T) {
 	for _, testCase := range []struct{ source, want string }{
-		{"import\n    Time from \"std/time\"\nend\nd: Time.Duration := Time.seconds(1)\nx: Time.Duration := d * d", "operator * is not defined for Duration"},
-		{"import\n    Time from \"std/time\"\nend\nd: Time.Duration := Time.seconds(1)\nx: Time.Duration := d / d", "operator / is not defined for Duration"},
-		{"import\n    Time from \"std/time\"\nend\nd: Time.Duration := Time.seconds(1)\nx: Bool := d < 5", "requires identical operand types"},
-		{"import\n    Time from \"std/time\"\nend\nn: Int32 := 5\nd: Time.Duration := Time.seconds(n)", "expected UInt64"},
-		{"import\n    Time from \"std/time\"\nend\nd: Time.Duration := Time.hours(1)", "declaration hours is private to module std/time"},
-		{"import\n    Time from \"std/time\"\nend\nd: Time.Duration := Time.seconds(1)\nx: UInt64 := d.as_hours()", "Duration has no method as_hours"},
-		{"import\n    Time from \"std/time\"\nend\nd: Time.Duration := Time.seconds(1)\nx: UInt64 := d.to<UInt64>()", "Duration has no generic method to"},
-		{"import\n    Time from \"std/time\"\nend\nx: Time.Duration := -Time.seconds(1)", "negation requires a signed type"},
-		{"import\n    Time from \"std/time\"\nend\ni: Time.Instant := Time.Instant(5)", "Instant is not a constructible type"},
-		{"import\n    Time from \"std/time\"\nend\ni: Time.Instant := Time.now()\nx: Time.Instant := i + Time.seconds(1)", "requires identical operand types"},
-		{"import\n    Time from \"std/time\"\nend\na: Time.Instant := Time.now()\nx: Time.Instant := a + a", "operator + is not defined for Instant"},
-		{"import\n    Time from \"std/time\"\nend\ni: Time.Instant := Time.now()\nx: UInt64 := i.as_nanoseconds()", "Instant has no method as_nanoseconds"},
-		{"import\n    Time from \"std/time\"\nend\nfun f(): Nil | Error do\n    w: Time.WallTime := try Time.wall_time()\n    x: Time.Duration := w - w\n    return nil\nend", "operator - is not defined for WallTime"},
-		{"import\n    Time from \"std/time\"\nend\nfun f(): Nil | Error do\n    w: Time.WallTime := try Time.wall_time()\n    x: Time.Instant := w.to_instant()\n    return nil\nend", "WallTime has no method to_instant"},
-		{"import\n    Time from \"std/time\"\nend\nd: Time.Duration := Time.seconds(1)\nprint(d)", "print does not support Duration"},
-		{"import\n    Time from \"std/time\"\nend\nTime.sleep(5)", "expected Duration"},
-		{"import\n    Time from \"std/time\"\nend\nfun spin(): Int32 do\n    while true do\n        Time.sleep(Time.milliseconds(1))\n    end\n    return 0\nend\nt: Task<Int32> | Error := spawn spin()", "while true loop must execute Task.yield()"},
+		{"import\n  Time from std.time\nend\nd: Time.Duration := Time.seconds(1)\nx: Time.Duration := d * d", "operator * is not defined for Duration"},
+		{"import\n  Time from std.time\nend\nd: Time.Duration := Time.seconds(1)\nx: Time.Duration := d / d", "operator / is not defined for Duration"},
+		{"import\n  Time from std.time\nend\nd: Time.Duration := Time.seconds(1)\nx: Bool := d < 5", "requires identical operand types"},
+		{"import\n  Time from std.time\nend\nn: Int32 := 5\nd: Time.Duration := Time.seconds(n)", "expected UInt64"},
+		{"import\n  Time from std.time\nend\nd: Time.Duration := Time.hours(1)", "declaration hours is private to module std/time"},
+		{"import\n  Time from std.time\nend\nd: Time.Duration := Time.seconds(1)\nx: UInt64 := d.as_hours()", "Duration has no method as_hours"},
+		{"import\n  Time from std.time\nend\nd: Time.Duration := Time.seconds(1)\nx: UInt64 := d.to<UInt64>()", "Duration has no generic method to"},
+		{"import\n  Time from std.time\nend\nx: Time.Duration := -Time.seconds(1)", "negation requires a signed type"},
+		{"import\n  Time from std.time\nend\ni: Time.Instant := Time.Instant(5)", "Instant is not a constructible type"},
+		{"import\n  Time from std.time\nend\ni: Time.Instant := Time.now()\nx: Time.Instant := i + Time.seconds(1)", "requires identical operand types"},
+		{"import\n  Time from std.time\nend\na: Time.Instant := Time.now()\nx: Time.Instant := a + a", "operator + is not defined for Instant"},
+		{"import\n  Time from std.time\nend\ni: Time.Instant := Time.now()\nx: UInt64 := i.as_nanoseconds()", "Instant has no method as_nanoseconds"},
+		{"import\n  Time from std.time\nend\nfun f(): Nil | Error do\n    w: Time.WallTime := try Time.wall_time()\n    x: Time.Duration := w - w\n    return nil\nend", "operator - is not defined for WallTime"},
+		{"import\n  Time from std.time\nend\nfun f(): Nil | Error do\n    w: Time.WallTime := try Time.wall_time()\n    x: Time.Instant := w.to_instant()\n    return nil\nend", "WallTime has no method to_instant"},
+		{"import\n  Time from std.time\nend\nd: Time.Duration := Time.seconds(1)\nprint(d)", "print does not support Duration"},
+		{"import\n  Time from std.time\nend\nTime.sleep(5)", "expected Duration"},
+		{"import\n  Time from std.time\nend\nfun spin(): Int32 do\n    while true do\n        Time.sleep(Time.milliseconds(1))\n    end\n    return 0\nend\nt: Task<Int32> | Error := spawn spin()", "while true loop must execute Task.yield()"},
 	} {
 		assertRejects(t, testCase.source, testCase.want)
 	}
@@ -69,7 +69,7 @@ func TestTimeSurfaceRejectsUnlistedOperations(t *testing.T) {
 // WallTime alone selects no libuv; Instant selects the native bootstrap but
 // no scheduler; Time.sleep selects the scheduler and the event bridge.
 func TestTimeComponentDemand(t *testing.T) {
-	wall := assertCompiles(t, "import\n    Time from \"std/time\"\nend\nfun f(): Nil | Error do\n    w: Time.WallTime := try Time.wall_time()\n    return nil\nend\nr: Nil | Error := f()\n")
+	wall := assertCompiles(t, "import\n  Time from std.time\nend\nfun f(): Nil | Error do\n    w: Time.WallTime := try Time.wall_time()\n    return nil\nend\nr: Nil | Error := f()\n")
 	if !hasFile(wall, "hexal/time.h") || !hasFile(wall, "hexal/time.c") {
 		t.Fatalf("WallTime program must emit the time pair: %v", sortedKeys(wall.Files))
 	}
@@ -78,7 +78,7 @@ func TestTimeComponentDemand(t *testing.T) {
 		t.Fatalf("WallTime alone must select no libuv, bootstrap, or scheduler: %v %v", dependencyNames(wall), sortedKeys(wall.Files))
 	}
 
-	instant := assertCompiles(t, "import\n    Time from \"std/time\"\nend\na: Time.Instant := Time.now()\nd: Time.Duration := a.elapsed()\n")
+	instant := assertCompiles(t, "import\n  Time from std.time\nend\na: Time.Instant := Time.now()\nd: Time.Duration := a.elapsed()\n")
 	if !slices.Equal(dependencyNames(instant), []string{"libuv", "mimalloc"}) {
 		t.Fatalf("Instant.now must select libuv and mimalloc; got %v", dependencyNames(instant))
 	}
@@ -94,7 +94,7 @@ func TestTimeComponentDemand(t *testing.T) {
 		t.Fatalf("root must bootstrap libuv before Instant.now and start no scheduler:\n%s", main)
 	}
 
-	sleep := assertCompiles(t, "import\n    Time from \"std/time\"\nend\nTime.sleep(Time.milliseconds(1))\n")
+	sleep := assertCompiles(t, "import\n  Time from std.time\nend\nTime.sleep(Time.milliseconds(1))\n")
 	if !hasFile(sleep, "hexal/concurrency.c") || !strings.Contains(sleep.Files["hexal/event.c"], "void hex_task_sleep(hex_duration duration) {") {
 		t.Fatalf("Task.sleep must select the scheduler and the event timer: %v", sortedKeys(sleep.Files))
 	}
@@ -115,7 +115,7 @@ func TestTimeComponentDemand(t *testing.T) {
 }
 
 func TestTimeGeneratedCContract(t *testing.T) {
-	result := assertCompiles(t, "import\n    Time from \"std/time\"\nend\nfun f(): Nil | Error do\n"+
+	result := assertCompiles(t, "import\n  Time from std.time\nend\nfun f(): Nil | Error do\n"+
 		"    w: Time.WallTime := try Time.wall_time()\n"+
 		"    a: Time.Instant := Time.now()\n"+
 		"    Time.sleep(Time.nanoseconds(1) + a.elapsed())\n"+

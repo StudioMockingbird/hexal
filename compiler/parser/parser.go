@@ -2,6 +2,7 @@ package parser
 
 import (
 	"errors"
+	"strings"
 
 	"hexal/compiler/lexer"
 	compilerTypes "hexal/compiler/types"
@@ -245,8 +246,8 @@ func (parser *Parser) staticModuleValue(keyword lexer.Token) (ModuleValueDeclara
 }
 
 // importBlock parses the file's one leading import list:
-// `import alias from "path", alias from "path", end`. from is contextual: it
-// is recognized only here, by lexeme, never reserved.
+// `import alias from "path", alias from std.module, end`. from is contextual:
+// it is recognized only here, by lexeme, never reserved.
 func (parser *Parser) importBlock() (ImportBlock, error) {
 	keyword := parser.advance()
 	if parser.check(lexer.End) {
@@ -264,11 +265,11 @@ func (parser *Parser) importBlock() (ImportBlock, error) {
 			return ImportBlock{}, parser.errorAtCurrent("expected 'from' after an import alias")
 		}
 		parser.advance()
-		path, err := parser.consume(lexer.ModulePathLiteral, "a module path literal after 'from'")
+		reference, err := parser.importReference(from)
 		if err != nil {
 			return ImportBlock{}, err
 		}
-		entries = append(entries, ImportEntry{Alias: alias, From: from, Path: path})
+		entries = append(entries, ImportEntry{Alias: alias, From: from, Reference: reference})
 		if parser.check(lexer.Comma) {
 			parser.advance()
 			if parser.check(lexer.End) {
@@ -283,6 +284,72 @@ func (parser *Parser) importBlock() (ImportBlock, error) {
 		return ImportBlock{}, err
 	}
 	return ImportBlock{Keyword: keyword, Entries: entries, End: end}, nil
+}
+
+// importReference parses one module reference after a contextual `from`: a
+// quoted relative source-map path, or a dotted `std.<component>...`
+// standard-library reference. A quoted non-relative payload is a syntax error
+// that names the dotted spelling it must have used.
+func (parser *Parser) importReference(from lexer.Token) (ImportReference, error) {
+	switch {
+	case parser.check(lexer.ModulePathLiteral):
+		path := parser.advance()
+		payload := strings.TrimSuffix(strings.TrimPrefix(path.Lexeme, "\""), "\"")
+		if strings.HasPrefix(payload, "./") || strings.HasPrefix(payload, "../") {
+			return ImportReference{
+				Kind:            RelativeImportReference,
+				Token:           path,
+				DisplaySpelling: payload,
+				RelativePath:    path,
+			}, nil
+		}
+		if strings.HasPrefix(payload, "std/") || payload == "std" {
+			// A quoted standard-library path is a retired spelling: the
+			// dotted form is the one obvious way to name a stdlib module.
+			dotted := strings.ReplaceAll(payload, "/", ".")
+			return ImportReference{}, parser.errorAt(path,
+				"standard-library imports use dotted paths; write "+dotted)
+		}
+		return ImportReference{}, parser.errorAt(path, "quoted import paths must begin with ./ or ../")
+	}
+	std := parser.peek()
+	if std.Kind != lexer.Identifier || std.Lexeme != "std" {
+		return ImportReference{}, parser.errorAtCurrent("a module path literal after 'from'")
+	}
+	if std.Line != from.Line {
+		return ImportReference{}, parser.errorAt(std, "module reference must begin on the same line as 'from'")
+	}
+	parser.advance()
+	if parser.check(lexer.Slash) {
+		// `std/io` mixes the retired collection-path separator into the
+		// dotted reference; name the exact replacement.
+		return ImportReference{}, parser.errorAt(parser.peek(), "standard-library imports use dots between components")
+	}
+	if !parser.check(lexer.Dot) {
+		return ImportReference{}, parser.errorAt(std, "standard-library import requires a component after std.")
+	}
+	parser.advance()
+	var components []lexer.Token
+	spelled := "std"
+	for {
+		if !parser.check(lexer.Identifier) {
+			return ImportReference{}, parser.errorAtCurrent("expected a standard-library module component after '.'")
+		}
+		component := parser.advance()
+		components = append(components, component)
+		spelled += "." + component.Lexeme
+		if parser.check(lexer.Dot) {
+			parser.advance()
+			continue
+		}
+		break
+	}
+	return ImportReference{
+		Kind:            StandardLibraryImportReference,
+		Token:           std,
+		DisplaySpelling: spelled,
+		Components:      components,
+	}, nil
 }
 
 // exportBlock parses the file's one trailing export list:

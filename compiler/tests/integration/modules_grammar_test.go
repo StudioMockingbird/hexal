@@ -19,7 +19,7 @@ func TestModuleImportResolvesToNotFound(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want failure until ./math exists; got %#v", result)
 	}
-	if len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "imported module \"./math\" was not found") {
+	if len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "imported module ./math was not found") {
 		t.Fatalf("first diagnostic = %#v, want the resolution error", result.Stderr)
 	}
 }
@@ -28,8 +28,8 @@ func TestModulePathWithHexSuffixParses(t *testing.T) {
 	// The .hex suffix is a path spelling, not grammar; both spellings
 	// resolve (a bare "./math" canonicalizes the same) and both fail only
 	// at resolution, proving both parsed.
-	assertRejects(t, "import\n    M from \"./math.hex\"\nend\n", "imported module \"./math.hex\" was not found")
-	assertRejects(t, "import\n    M from \"./math\"\nend\n", "imported module \"./math\" was not found")
+	assertRejects(t, "import\n    M from \"./math.hex\"\nend\n", "imported module ./math.hex was not found")
+	assertRejects(t, "import\n    M from \"./math\"\nend\n", "imported module ./math was not found")
 }
 
 func TestModuleImportMissingPieces(t *testing.T) {

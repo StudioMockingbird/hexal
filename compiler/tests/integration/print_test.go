@@ -63,7 +63,7 @@ func TestPrintNestedStringQuoting(t *testing.T) {
 }
 
 func TestPrintError(t *testing.T) {
-	result := compileSource("import\n    Fs from \"std/fs\"\nend\nfun demo() do\n    err: Error := Error(ErrorKind.Other(header = \"Fs.File Error\"), \"file not found\")\n    print(err)\nend")
+	result := compileSource("import\n  Fs from std.fs\nend\nfun demo() do\n    err: Error := Error(ErrorKind.Other(header = \"Fs.File Error\"), \"file not found\")\n    print(err)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

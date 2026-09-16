@@ -23,7 +23,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Net from \"std/net\"",
+          "   Net from std.net",
           "end",
           "fun describe(h: Heap): Nil | Error do",
           "    v4: Net.Address := try Net.parse_address(\"127.0.0.1\", 8080)",
@@ -64,7 +64,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Net from \"std/net\"",
+          "   Net from std.net",
           "end",
           "fun serve(listener: Net.TcpListener): Nil | Error do",
           "    connection: Net.TcpConnection := try listener.accept()",

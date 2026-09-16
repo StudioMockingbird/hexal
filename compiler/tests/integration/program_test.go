@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	programImport = "import\n    Prog from \"std/program\"\nend\n"
-	entropyImport = "import\n    Ent from \"std/entropy\"\nend\n"
+	programImport = "import\n  Prog from std.program\nend\n"
+	entropyImport = "import\n  Ent from std.entropy\nend\n"
 )
 
 func TestCorelibImportResolutionDiagnostics(t *testing.T) {
@@ -23,9 +23,9 @@ func TestCorelibImportResolutionDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"import\n    X from \"other/thing\"\nend\nvalue: Int32 := 1\n", "unknown module collection other; only std is available"},
-		{"import\n    X from \"std/nope\"\nend\nvalue: Int32 := 1\n", "unknown stdlib module \"std/nope\""},
-		{"import\n    X from \"std/program.hex\"\nend\nvalue: Int32 := 1\n", "must not end in .hex"},
+		{"import\n    X from \"other/thing\"\nend\nvalue: Int32 := 1\n", "quoted import paths must begin with ./ or ../"},
+		{"import\n  X from std.nope\nend\nvalue: Int32 := 1\n", "unknown stdlib module std.nope"},
+		{"import\n    X from \"std/program.hex\"\nend\nvalue: Int32 := 1\n", "standard-library imports use dotted paths; write std.program.hex"},
 		{programImport + "x := Prog.nope()\n", "nope"},
 		{programImport + "x := Prog.current_directory()\n", "current_directory expects 1 argument(s); got 0"},
 		{programImport + "x := Prog.available_parallelism(1)\n", "available_parallelism expects 0 argument(s); got 1"},
@@ -229,11 +229,11 @@ func TestEntropyFillDirectAndTask(t *testing.T) {
 // declaration of the same name resolves without one.
 func TestCorelibMigrationDiagnostics(t *testing.T) {
 	for _, testCase := range []struct{ source, want string }{
-		{"fun f(x: File) do\nend\n", "File is declared in std/fs; add `Fs from \"std/fs\"` to the import block"},
-		{"x := File.open(\"a\", 1)\n", "File.open is now open in std/fs; add `Fs from \"std/fs\"` and call `Fs.open`"},
+		{"fun f(x: File) do\nend\n", "File is declared in std/fs; add `Fs from std.fs` to the import block"},
+		{"x := File.open(\"a\", 1)\n", "File.open is now open in std/fs; add `Fs from std.fs` and call `Fs.open`"},
 		{"x: Dns := 1\n", "Dns is removed; resolve is a function in std/net"},
-		{"x := Signals(0)\n", "Signals is now subscribe in std/signal; add `Sig from \"std/signal\"` and call `Sig.subscribe`"},
-		{"fun f() do\n    Task.sleep(5)\nend\n", "Task.sleep is now sleep in std/time; add `Time from \"std/time\"` and call `Time.sleep`"},
+		{"x := Signals(0)\n", "Signals is now subscribe in std/signal; add `Sig from std.signal` and call `Sig.subscribe`"},
+		{"fun f() do\n    Task.sleep(5)\nend\n", "Task.sleep is now sleep in std/time; add `Time from std.time` and call `Time.sleep`"},
 	} {
 		assertRejects(t, testCase.source, testCase.want)
 	}
@@ -244,7 +244,7 @@ func TestCorelibMigrationDiagnostics(t *testing.T) {
 
 // Importing a core library without calling it emits no component.
 func TestCorelibImportAloneEmitsNothing(t *testing.T) {
-	result := assertCompiles(t, "import\n    Prog from \"std/program\",\n    Ent from \"std/entropy\"\nend\nvalue: Int32 := 1\n")
+	result := assertCompiles(t, "import\n  Prog from std.program,\n  Ent from std.entropy\nend\nvalue: Int32 := 1\n")
 	for _, key := range []string{"hexal/program.c", "hexal/entropy.c", "hexal/event.c"} {
 		if _, exists := result.Files[key]; exists {
 			t.Errorf("unused core-library import emitted %s", key)

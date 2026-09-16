@@ -24,7 +24,7 @@
       "sources": {
         "app.hex": [
           "import",
-          "    Sig from \"std/signal\"",
+          "   Sig from std.signal",
           "end",
           "fun wait_for_shutdown(): Sig.Signal | EoS | Error do",
           "    wanted: Array\u003cSig.Signal, 2\u003e := [Sig.Signal.Interrupt(), Sig.Signal.Hangup()]",

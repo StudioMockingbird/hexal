@@ -11,7 +11,7 @@ import (
 // memory streams over a borrowed list, transfer results, seek variants, and
 // cleanup through defer.
 func streamFacetSource() string {
-	return "import\n    Io from \"std/io\"\nend\nfun run(h: Heap): Nil | Error do\n" +
+	return "import\n  Io from std.io\nend\nfun run(h: Heap): Nil | Error do\n" +
 		"    data: List<Byte> := List<Byte>(h)\n" +
 		"    dst: List<Byte> := List<Byte>(h)\n" +
 		"    defer dst.free(h)\n" +
@@ -125,12 +125,12 @@ func TestPrintSharesTheStreamBackend(t *testing.T) {
 // Capability checking keeps both tiers end to end.
 func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 	assertRejects(t,
-		"import\n    Io from \"std/io\"\nend\nfun demo(): Nil | Error do\n"+
+		"import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n"+
 			"    input: Io.IO := try Io.stdin()\n"+
 			"    input.write(\"x\".bytes())\n"+
 			"    return nil\nend\n",
 		"stream is not writable")
-	source := "import\n    Io from \"std/io\"\nend\nfun opened(): Io.IO | Error do\n" +
+	source := "import\n  Io from std.io\nend\nfun opened(): Io.IO | Error do\n" +
 		"    return Io.stdout()\n" +
 		"end\n" +
 		"fun demo(): Nil | Error do\n" +
@@ -148,7 +148,7 @@ func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 // One generic algorithm monomorphizes over IO and Ptr<mut Bytes> with direct
 // calls to each backend family and no shared dispatch.
 func TestGenericStreamsMonoMorphizePerBackend(t *testing.T) {
-	source := "import\n    Io from \"std/io\"\nend\nfun drain<S>(source: S, h: Heap): Size | Error do\n" +
+	source := "import\n  Io from std.io\nend\nfun drain<S>(source: S, h: Heap): Size | Error do\n" +
 		"    buf: List<Byte> := List<Byte>(h)\n" +
 		"    defer buf.free(h)\n" +
 		"    n: Size | EoS | Error := source.read(buf, 64)\n" +
@@ -198,7 +198,7 @@ func TestMemoryBackendAliasContractsInGeneratedC(t *testing.T) {
 
 // Seek lowers through the Seek ADT decomposition in the module adapter.
 func TestSeekLowersThroughTheADT(t *testing.T) {
-	source := "import\n    Io from \"std/io\"\nend\nfun demo(): Nil | Error do\n" +
+	source := "import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n" +
 		"    h: Heap := Heap()\n" +
 		"    data: List<Byte> := List<Byte>(h)\n" +
 		"    defer data.free(h)\n" +

@@ -1,6 +1,9 @@
 package corelib
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // MovedType is one former protected type name's new standard-library home.
 type MovedType struct {
@@ -80,11 +83,17 @@ var movedConstructors = map[string]MovedOperation{
 	"Signals": {"std/signal", "Sig", "subscribe"},
 }
 
+// Dotted spells one canonical stdlib module path as the dotted import
+// reference a user writes: `std/fs` -> `std.fs`.
+func Dotted(path string) string {
+	return strings.ReplaceAll(path, "/", ".")
+}
+
 // TypeHint returns the migration diagnostic for an unresolved former
 // protected type name, or a removed namespace-only name.
 func TypeHint(name string) (string, bool) {
 	if moved, ok := movedTypes[name]; ok {
-		return fmt.Sprintf("%s is declared in %s; add `%s from \"%s\"` to the import block", name, moved.Module, moved.Alias, moved.Module), true
+		return fmt.Sprintf("%s is declared in %s; add `%s from %s` to the import block", name, moved.Module, moved.Alias, Dotted(moved.Module)), true
 	}
 	if removed, ok := removedNamespaces[name]; ok {
 		return fmt.Sprintf("%s is removed; %s is a function in %s", name, removed.Function, removed.Module), true
@@ -99,8 +108,8 @@ func OperationHint(owner, operation string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return fmt.Sprintf("%s.%s is now %s in %s; add `%s from \"%s\"` and call `%s.%s`",
-		owner, operation, moved.Function, moved.Module, moved.Alias, moved.Module, moved.Alias, moved.Function), true
+	return fmt.Sprintf("%s.%s is now %s in %s; add `%s from %s` and call `%s.%s`",
+		owner, operation, moved.Function, moved.Module, moved.Alias, Dotted(moved.Module), moved.Alias, moved.Function), true
 }
 
 // ConstructorHint returns the migration diagnostic for an unresolved former
@@ -110,6 +119,6 @@ func ConstructorHint(name string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return fmt.Sprintf("%s is now %s in %s; add `%s from \"%s\"` and call `%s.%s`",
-		name, moved.Function, moved.Module, moved.Alias, moved.Module, moved.Alias, moved.Function), true
+	return fmt.Sprintf("%s is now %s in %s; add `%s from %s` and call `%s.%s`",
+		name, moved.Function, moved.Module, moved.Alias, Dotted(moved.Module), moved.Alias, moved.Function), true
 }

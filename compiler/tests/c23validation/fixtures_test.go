@@ -63,7 +63,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "ascii-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Ascii from \"std/ascii\"\nend\n" +
+		sources: map[string]string{"app.hex": "import\n  Ascii from std.ascii\nend\n" +
 			"digit: Bool := Ascii.is_digit(48)\n" +
 			"non_digit: Bool := !Ascii.is_digit(65)\n" +
 			"alpha: Bool := Ascii.is_alpha(65)\n" +
@@ -103,7 +103,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "program-arguments-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Prog from \"std/program\"\nend\n" +
+		sources: map[string]string{"app.hex": "import\n  Prog from std.program\nend\n" +
 			"args := Prog.arguments()\n" +
 			"if args is Error then\n    return 1\nend\n" +
 			"print(args.length())\n" +
@@ -113,7 +113,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "program-arguments-nonowning-free-traps",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Prog from \"std/program\"\nend\n" +
+		sources: map[string]string{"app.hex": "import\n  Prog from std.program\nend\n" +
 			"h: Heap := Heap()\n" +
 			"args := Prog.arguments()\n" +
 			"if args is Error then\n    return 1\nend\n" +
@@ -123,7 +123,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "program-path-query-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Prog from \"std/program\"\nend\n" +
+		sources: map[string]string{"app.hex": "import\n  Prog from std.program\nend\n" +
 			"fun demo(): Bool | Error do\n" +
 			"    h: Heap := Heap()\n" +
 			"    path: String := try Prog.current_directory(h)\n" +
@@ -137,7 +137,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "entropy-fill-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Ent from \"std/entropy\"\nend\n" +
+		sources: map[string]string{"app.hex": "import\n  Ent from std.entropy\nend\n" +
 			"fun demo(): Bool | Error do\n" +
 			"    h: Heap := Heap()\n" +
 			"    p: Ptr<mut Byte> := h.allocate<Byte>(8)\n" +
@@ -411,13 +411,13 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "duration-overflow-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "import\n    Time from \"std/time\"\nend\nfun demo() do\n    d: Time.Duration := Time.seconds(18446744073709551615)\n    print(d.as_nanoseconds())\nend\ndemo()\n"},
+		sources:     map[string]string{"app.hex": "import\n  Time from std.time\nend\nfun demo() do\n    d: Time.Duration := Time.seconds(18446744073709551615)\n    print(d.as_nanoseconds())\nend\ndemo()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] duration overflow"},
 	},
 	{
 		name:        "duration-underflow-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "import\n    Time from \"std/time\"\nend\nfun demo() do\n    small: Time.Duration := Time.seconds(1)\n    large: Time.Duration := Time.seconds(2)\n    diff: Time.Duration := small - large\n    print(diff.as_seconds())\nend\ndemo()\n"},
+		sources:     map[string]string{"app.hex": "import\n  Time from std.time\nend\nfun demo() do\n    small: Time.Duration := Time.seconds(1)\n    large: Time.Duration := Time.seconds(2)\n    diff: Time.Duration := small - large\n    print(diff.as_seconds())\nend\ndemo()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] duration underflow"},
 	},
 	{
@@ -426,13 +426,13 @@ var fixtureCatalog = []fixture{
 		// receiver reverses the two and forces the underflow check.
 		name:        "instant-subtraction-underflow-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "import\n    Time from \"std/time\"\nend\nfun demo() do\n    first: Time.Instant := Time.now()\n    mut i: Int32 := 0\n    while i < 1000000 do\n        i = i + 1\n    end\n    second: Time.Instant := Time.now()\n    diff: Time.Duration := first.duration_since(second)\n    print(diff.as_nanoseconds())\nend\ndemo()\n"},
+		sources:     map[string]string{"app.hex": "import\n  Time from std.time\nend\nfun demo() do\n    first: Time.Instant := Time.now()\n    mut i: Int32 := 0\n    while i < 1000000 do\n        i = i + 1\n    end\n    second: Time.Instant := Time.now()\n    diff: Time.Duration := first.duration_since(second)\n    print(diff.as_nanoseconds())\nend\ndemo()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid instant subtraction"},
 	},
 	{
 		name:        "sleep-duration-too-large-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "import\n    Time from \"std/time\"\nend\nfun demo() do\n    Time.sleep(Time.seconds(10000000000))\nend\ndemo()\n"},
+		sources:     map[string]string{"app.hex": "import\n  Time from std.time\nend\nfun demo() do\n    Time.sleep(Time.seconds(10000000000))\nend\ndemo()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] sleep duration too large"},
 	},
 	{
@@ -479,7 +479,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "close-borrowed-stream-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "import\n    Io from \"std/io\"\nend\nfun demo(): Nil | Error do\n    stream: Io.IO := try Io.stdout()\n    try stream.close()\n    return nil\nend\nout: Nil | Error := demo()\n"},
+		sources:     map[string]string{"app.hex": "import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n    stream: Io.IO := try Io.stdout()\n    try stream.close()\n    return nil\nend\nout: Nil | Error := demo()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] close of a borrowed stream"},
 	},
 	{
@@ -768,7 +768,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "network-address-and-dns-compiles",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Net from \"std/net\"\nend\nfun demo(h: Heap): Nil | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Net from std.net\nend\nfun demo(h: Heap): Nil | Error do\n" +
 			"    v4 := try Net.parse_address(\"127.0.0.1\", 80)\n" +
 			"    v6 := try Net.parse_address(\"::1\", 80)\n" +
 			"    text4 := v4.format(h)\n" +
@@ -781,7 +781,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "network-tcp-loopback-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Net from \"std/net\"\nend\nfun serve(listener: Net.TcpListener): Nil | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Net from std.net\nend\nfun serve(listener: Net.TcpListener): Nil | Error do\n" +
 			"    connection := try listener.accept()\n" +
 			"    defer connection.close()\n" +
 			"    buffer: List<Byte> := List<Byte>(Heap())\n" +
@@ -832,7 +832,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "network-tcp-loopback-stress-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Net from \"std/net\"\nend\nfun serve(listener: Net.TcpListener, count: Int32): Nil | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Net from std.net\nend\nfun serve(listener: Net.TcpListener, count: Int32): Nil | Error do\n" +
 			"    mut i: Int32 := 0\n" +
 			"    while i < count do\n" +
 			"        connection := try listener.accept()\n" +
@@ -890,7 +890,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "process-options-and-pipe-compiles",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Proc from \"std/process\"\nend\nfun demo(h: Heap): Nil | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Proc from std.process\nend\nfun demo(h: Heap): Nil | Error do\n" +
 			"    arguments := List<String>(h)\n" +
 			"    arguments.push(\"--flag\")\n" +
 			"    variables := List<Proc.EnvironmentVariable>(h)\n" +
@@ -937,7 +937,7 @@ var fixtureCatalog = []fixture{
 		name:       "process-spawn-wait-runs",
 		entrypoint: "app.hex",
 		hosts:      []string{"windows"},
-		sources: map[string]string{"app.hex": "import\n    Proc from \"std/process\"\nend\nfun run(): Bool | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Proc from std.process\nend\nfun run(): Bool | Error do\n" +
 			"    arguments := List<String>(Heap())\n" +
 			"    arguments.push(\"/c\")\n" +
 			"    arguments.push(\"exit\")\n" +
@@ -974,7 +974,7 @@ var fixtureCatalog = []fixture{
 		name:       "process-pipe-echo-runs",
 		entrypoint: "app.hex",
 		hosts:      []string{"windows"},
-		sources: map[string]string{"app.hex": "import\n    Proc from \"std/process\"\nend\nfun run(): Bool | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Proc from std.process\nend\nfun run(): Bool | Error do\n" +
 			"    arguments := List<String>(Heap())\n" +
 			"    arguments.push(\"/c\")\n" +
 			"    arguments.push(\"echo\")\n" +
@@ -1028,7 +1028,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "file-in-collection-positions-compiles",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Fs from \"std/fs\"\nend\nfun make(h: Heap): Nil | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Fs from std.fs\nend\nfun make(h: Heap): Nil | Error do\n" +
 			"    x := try Fs.open(\"a\", Fs.FileMode.Write())\n" +
 			"    files: List<Fs.File> := List<Fs.File>(h)\n" +
 			"    defer files.free(h)\n" +
@@ -1049,7 +1049,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "process-in-collection-positions-compiles",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Proc from \"std/process\"\nend\nfun make(h: Heap): Nil | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Proc from std.process\nend\nfun make(h: Heap): Nil | Error do\n" +
 			"    arguments := List<String>(h)\n" +
 			"    options := Proc.ProcessOptions(\n" +
 			"        program = \"does-not-exist-xyz\",\n" +
@@ -1075,7 +1075,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "signals-subscribe-compiles",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Sig from \"std/signal\"\nend\nfun wait_for_shutdown(): Sig.Signal | EoS | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Sig from std.signal\nend\nfun wait_for_shutdown(): Sig.Signal | EoS | Error do\n" +
 			"    wanted: Array<Sig.Signal, 2> := [Sig.Signal.Interrupt(), Sig.Signal.Hangup()]\n" +
 			"    signals := try Sig.subscribe(wanted.slice(0, wanted.length()))\n" +
 			"    defer signals.close()\n" +
@@ -1087,7 +1087,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "signals-close-wakes-waiter-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Sig from \"std/signal\"\nend\nfun waiter(s: Sig.Signals): Sig.Signal | EoS | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Sig from std.signal\nend\nfun waiter(s: Sig.Signals): Sig.Signal | EoS | Error do\n" +
 			"    return s.next()\n" +
 			"end\n" +
 			"fun run(): Bool | Error do\n" +
@@ -1117,7 +1117,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "terminal-is-attached-and-size-compiles",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Io from \"std/io\",\n    Term from \"std/terminal\"\nend\nfun describe(stream: Io.IO): Term.TerminalSize | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Io from std.io,\n  Term from std.terminal\nend\nfun describe(stream: Io.IO): Term.TerminalSize | Error do\n" +
 			"    attached: Bool := try Term.is_attached(stream)\n" +
 			"    if attached then\n" +
 			"        size: Term.TerminalSize := try Term.size(stream)\n" +
@@ -1134,7 +1134,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "terminal-redirected-stdout-not-attached-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Io from \"std/io\",\n    Term from \"std/terminal\"\nend\nfun check(): Bool | Error do\n" +
+		sources: map[string]string{"app.hex": "import\n  Io from std.io,\n  Term from std.terminal\nend\nfun check(): Bool | Error do\n" +
 			"    stream: Io.IO := try Io.stdout()\n" +
 			"    attached: Bool := try Term.is_attached(stream)\n" +
 			"    return attached\n" +
@@ -1153,7 +1153,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "terminal-redirected-size-is-invalid-input-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Io from \"std/io\",\n    Term from \"std/terminal\"\nend\nfun kind_is_invalid_input(kind: ErrorKind): Bool do\n" +
+		sources: map[string]string{"app.hex": "import\n  Io from std.io,\n  Term from std.terminal\nend\nfun kind_is_invalid_input(kind: ErrorKind): Bool do\n" +
 			"    result: Bool := match kind is\n" +
 			"    | ErrorKind.InvalidInput then true\n" +
 			"    | else then false\n" +
@@ -1290,7 +1290,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "print-and-io-write-never-interleave-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "import\n    Io from \"std/io\"\nend\ntype Point is struct\n    x: Int32,\n    y: Int32,\nend\n" +
+		sources: map[string]string{"app.hex": "import\n  Io from std.io\nend\ntype Point is struct\n    x: Int32,\n    y: Int32,\nend\n" +
 			"fun writer(out: Io.IO): Bool do\n" +
 			"    mut i: Int32 := 0\n" +
 			"    while i < 4 do\n" +

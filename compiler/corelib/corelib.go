@@ -1,8 +1,9 @@
 // Package corelib is the compiler-owned declaration table for core-library
-// modules: modules reached only through an `import ... from "std/..."` alias
-// that emit no module artifact of their own. It imports only compiler/types,
-// never the checker or generator, so the dependency graph stays one-way:
-// compiler/types <- compiler/corelib <- compiler/checker, compiler/generator.
+// modules: modules reached only through an `import ... from std.<module>`
+// alias that emit no module artifact of their own. It imports only
+// compiler/types, never the checker or generator, so the dependency graph
+// stays one-way: compiler/types <- compiler/corelib <- compiler/checker,
+// compiler/generator.
 package corelib
 
 import compilerTypes "hexal/compiler/types"
