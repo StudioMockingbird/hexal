@@ -350,6 +350,9 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 		}
 	}
 	diagnostic := privateToModuleDiagnostic(expression.Property, expression.Property.Lexeme, target)
+	if display, isCImport := names.registry.cImportHeader(target); isCImport {
+		diagnostic = nameErrorAt(expression.Property, "C import "+display+" has no automatically imported declaration "+expression.Property.Lexeme+"; check the C name, use a handwritten binding, or expose a C wrapper")
+	}
 	return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
 }
 

@@ -326,17 +326,19 @@ func reachableModules(sources map[string]string, entrypoint string) (*checker.Mo
 func reachableModulesTarget(sources map[string]string, entrypoint, target string) (*checker.ModuleGraph, error) {
 	root := canonicalFromLogicalKey(entrypoint)
 	state := &reachState{
-		sources:       sources,
-		stdlibSources: stdlibSourcesByCanonical(),
-		nodes:         make(map[string]*checker.ModuleNode),
-		visited:       make(map[string]bool),
-		byModule:      make(map[string]compilerTypes.Diagnostics),
-		target:        target,
-		prepared:      make(map[string]bool),
+		sources:              sources,
+		stdlibSources:        stdlibSourcesByCanonical(),
+		nodes:                make(map[string]*checker.ModuleNode),
+		visited:              make(map[string]bool),
+		byModule:             make(map[string]compilerTypes.Diagnostics),
+		target:               target,
+		prepared:             make(map[string]bool),
+		preparedExpectations: make(map[string]preparedExpectation),
 	}
 	if err := state.visit(root); err != nil {
 		return nil, err
 	}
+	state.validatePreparedBindings()
 	graph := &checker.ModuleGraph{
 		Order:   state.order,
 		Modules: make(map[string]checker.ModuleNode, len(state.order)),
@@ -406,6 +408,56 @@ type reachState struct {
 	prepared map[string]bool
 	// requests collects reachable C header requests in visit order.
 	requests []CImportRequest
+	// preparedExpectations records the header each prepared binding key must
+	// declare, keyed by the binding's canonical id. It is validated after the
+	// whole walk, once every prepared module has been parsed.
+	preparedExpectations map[string]preparedExpectation
+}
+
+// preparedExpectation is one C import's demand on a prepared binding: the
+// header it requested and the import site that must be blamed when the
+// prepared module does not declare that header.
+type preparedExpectation struct {
+	request    CImportRequest
+	fromModule string
+	line       int
+	column     int
+	display    string
+}
+
+// validatePreparedBindings verifies that every prepared binding declares the
+// header its key was derived from. A binding module that names a different
+// header is a mismatch, reported with the same Configuration Error as an absent
+// binding.
+func (s *reachState) validatePreparedBindings() {
+	for canonical, expectation := range s.preparedExpectations {
+		node := s.nodes[canonical]
+		if node == nil {
+			// The prepared module failed to lex or parse; that failure already
+			// aborts the scan.
+			continue
+		}
+		if preparedModuleNamesHeader(node.Program, expectation.request) {
+			continue
+		}
+		s.recordCategory(expectation.fromModule, expectation.line, expectation.column, compilerTypes.ConfigurationError, "prepared C binding missing for "+expectation.display)
+	}
+}
+
+// preparedModuleNamesHeader reports whether a prepared binding module declares
+// an `extern c from` block for the requested header identity. The system and
+// quoted forms are distinct identities and never coalesce here.
+func preparedModuleNamesHeader(program parser.Program, request CImportRequest) bool {
+	for _, block := range program.Externs {
+		reference := block.Header
+		if reference.Kind != parser.CHeaderImportReference {
+			continue
+		}
+		if reference.CHeader == request.Header && reference.System == request.System {
+			return true
+		}
+	}
+	return false
 }
 
 // visit parses canonical and its transitive imports, then appends canonical
@@ -502,6 +554,13 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 		}
 		target = strings.TrimSuffix(key, ".hex")
 		s.prepared[target] = true
+		s.preparedExpectations[target] = preparedExpectation{
+			request:    request,
+			fromModule: fromModule,
+			line:       line,
+			column:     column,
+			display:    importDecl.Reference.DisplaySpelling,
+		}
 	default:
 		// The parser is the only reference producer; an unknown kind is an
 		// internal contract break, never a silently resolved import.
@@ -512,7 +571,12 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 	// import whose path resolves. A path that does not resolve has no target
 	// to name, and its diagnostic already fails the compilation.
 	node := s.nodes[fromModule]
-	node.Imports = append(node.Imports, checker.ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: target})
+	edge := checker.ModuleEdge{Alias: importDecl.Alias.Lexeme, Target: target}
+	if importDecl.Reference.Kind == parser.CHeaderImportReference {
+		edge.CImport = true
+		edge.CDisplay = importDecl.Reference.DisplaySpelling
+	}
+	node.Imports = append(node.Imports, edge)
 	switch {
 	case importDecl.Reference.Kind == parser.StandardLibraryImportReference:
 		if corelib.IsModule(target) {

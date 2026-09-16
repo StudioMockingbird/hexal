@@ -16,6 +16,11 @@ import (
 func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 	switch {
 	case typ.Object != nil:
+		if compilerTypes.IsForeignRecord(typ) {
+			// A foreign record's layout belongs to the C compiler; recursive
+			// equality over it would need a Hexal-owned definition.
+			return false, "foreign record " + typ.Name
+		}
 		for _, member := range typ.Object.Members {
 			if ok, _ := EqualityAvailable(member.Type); !ok {
 				return false, "member " + member.Name
@@ -176,6 +181,12 @@ func checkDeepComparison(operator Operator, left, right checkedExpression, token
 		node := operationBinaryNode(operator, leftNode, rightNode, typ, compilerTypes.Bool)
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Node: node}
 		return &checkedExpression{source: source, typ: compilerTypes.Bool, token: token}
+	}
+	if typ.Object != nil && compilerTypes.IsForeignRecord(typ) {
+		// A foreign record has no Hexal equality contract: C record
+		// compatibility does not imply one.
+		diagnostic := typeErrorAt(token, "equality is unavailable for foreign record "+typ.Name)
+		return &checkedExpression{token: token, diagnostic: &diagnostic}
 	}
 	if ok, reason := EqualityAvailable(typ); !ok {
 		return &checkedExpression{token: token, diagnostic: equalityUnavailableDiagnostic(typ, reason, token)}

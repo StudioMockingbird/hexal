@@ -26,6 +26,9 @@ type ModuleRegistry struct {
 	modules    map[string]*moduleEntry // canonical id -> entry
 	order      []string                // canonical ids, dependencies first
 	entrypoint string                  // canonical id of the root module
+	// cImportHeaders maps a prepared binding's canonical id to the display
+	// spelling of the C header it was imported for.
+	cImportHeaders map[string]string
 }
 
 // moduleEntry is one module's import table and, once the module checks clean,
@@ -87,9 +90,10 @@ type moduleEntry struct {
 // checked interface (the method's resolved owner name), not just its syntax.
 func buildModuleRegistry(graph *ModuleGraph) *ModuleRegistry {
 	registry := &ModuleRegistry{
-		modules:    make(map[string]*moduleEntry, len(graph.Order)),
-		order:      append([]string(nil), graph.Order...),
-		entrypoint: graph.Root,
+		modules:        make(map[string]*moduleEntry, len(graph.Order)),
+		order:          append([]string(nil), graph.Order...),
+		entrypoint:     graph.Root,
+		cImportHeaders: make(map[string]string),
 	}
 	for _, moduleID := range graph.Order {
 		node := graph.Modules[moduleID]
@@ -99,10 +103,21 @@ func buildModuleRegistry(graph *ModuleGraph) *ModuleRegistry {
 		}
 		for _, edge := range node.Imports {
 			entry.imports[edge.Alias] = edge.Target
+			if edge.CImport && edge.Target != "" {
+				registry.cImportHeaders[edge.Target] = edge.CDisplay
+			}
 		}
 		registry.modules[moduleID] = entry
 	}
 	return registry
+}
+
+// cImportHeader returns the display spelling of the C header a prepared binding
+// module was imported for, when that module is reachable through a direct C
+// import alias.
+func (registry *ModuleRegistry) cImportHeader(moduleID string) (string, bool) {
+	display, ok := registry.cImportHeaders[moduleID]
+	return display, ok
 }
 
 // resolveExportEntries validates one module's trailing export block against

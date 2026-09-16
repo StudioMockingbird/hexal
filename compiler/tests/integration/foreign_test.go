@@ -142,6 +142,27 @@ func TestForeignCompleteRecordByValue(t *testing.T) {
 	if !strings.Contains(body, "vector2_length(") {
 		t.Fatalf("a foreign record must pass by value to the exact symbol:\n%s", body)
 	}
+	if !strings.Contains(body, "sizeof(vector2)") || !strings.Contains(body, "alignof(vector2)") {
+		// size_of and align_of are the C compiler's facts, never copied.
+		sizeSource := "extern c from <vector.h> do\n" +
+			"    type Vector2 as \"vector2\" is struct\n" +
+			"        mut x: Float32,\n" +
+			"        mut y: Float32,\n" +
+			"    end\n" +
+			"end\n" +
+			"fun main() do\n" +
+			"    size: Size := size_of<Vector2>()\n" +
+			"    align: Size := align_of<Vector2>()\n" +
+			"end\n"
+		sizeResult := compileForeign(t, sizeSource)
+		if sizeResult.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("size_of and align_of must use C-owned layout: %v", sizeResult.Stderr)
+		}
+		sizeBody := sizeResult.Files["modules/app.c"]
+		if !strings.Contains(sizeBody, "sizeof(vector2)") || !strings.Contains(sizeBody, "alignof(vector2)") {
+			t.Fatalf("layout queries must lower to the C type:\n%s", sizeBody)
+		}
+	}
 }
 
 func TestForeignOpaqueRecordOnlyBehindPointer(t *testing.T) {
@@ -293,4 +314,95 @@ func TestSlicePointerBridge(t *testing.T) {
 		"    raw: Ptr<Int32> | Nil := values.pointer()\n" +
 		"end\n"
 	assertStderrContains(t, compileForeign(t, withoutUnsafe), "Slice.pointer requires an unsafe do ... end block")
+}
+
+func TestForeignTransparentAlias(t *testing.T) {
+	source := "extern c from <trace.h> do\n" +
+		"    type TraceLevel is Int32\n" +
+		"    fun set_level as \"trace_set_level\"(level: TraceLevel): TraceLevel\n" +
+		"end\n" +
+		"fun main() do\n" +
+		"    unsafe do\n" +
+		"        level: TraceLevel := set_level(3)\n" +
+		"    end\n" +
+		"end\n"
+	result := compileForeign(t, source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("a transparent foreign alias must cross the ABI: %v", result.Stderr)
+	}
+	if body := result.Files["modules/app.c"]; !strings.Contains(body, "trace_set_level(") {
+		t.Fatalf("an alias-typed argument must lower to the exact symbol:\n%s", body)
+	}
+}
+
+func TestForeignRecordSharedAcrossHeaders(t *testing.T) {
+	// An opaque declaration and a compatible complete definition of the same C
+	// record coalesce to the complete definition.
+	source := "extern c from <common.h> do\n" +
+		"    type Common as \"struct Common\" is opaque\n" +
+		"end\n" +
+		"extern c from <common_fields.h> do\n" +
+		"    type CommonFull as \"struct Common\" is struct\n" +
+		"        mut id: Int32,\n" +
+		"    end\n" +
+		"end\n" +
+		"fun main() do\n" +
+		"    mut value: CommonFull := CommonFull(id = 7)\n" +
+		"    value.id = 8\n" +
+		"end\n"
+	result := compileForeign(t, source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("an opaque and complete declaration must coalesce: %v", result.Stderr)
+	}
+	if body := result.Files["modules/app.c"]; !strings.Contains(body, "struct Common") {
+		t.Fatalf("the shared record must keep the exact C tag:\n%s", body)
+	}
+}
+
+func TestForeignRecordConflictRejected(t *testing.T) {
+	source := "extern c from <a.h> do\n" +
+		"    type PointA as \"point\" is struct\n" +
+		"        mut x: Int32,\n" +
+		"    end\n" +
+		"end\n" +
+		"extern c from <b.h> do\n" +
+		"    type PointB as \"point\" is struct\n" +
+		"        mut y: Int32,\n" +
+		"    end\n" +
+		"end\n" +
+		"value: Int32 := 1\n"
+	assertStderrContains(t, compileForeign(t, source), "conflicting foreign declarations for C symbol point")
+}
+
+func TestForeignNoResultAndRecordOperationRejections(t *testing.T) {
+	noResult := "extern c from <x.h> do\n" +
+		"    fun reset as \"x_reset\"()\n" +
+		"end\n" +
+		"fun main() do\n" +
+		"    unsafe do\n" +
+		"        reset()\n" +
+		"    end\n" +
+		"end\n"
+	if result := compileForeign(t, noResult); result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("a void C function is a no-result foreign call: %v", result.Stderr)
+	}
+
+	record := "extern c from <vector.h> do\n" +
+		"    type Vector2 as \"vector2\" is struct\n" +
+		"        mut x: Float32,\n" +
+		"        mut y: Float32,\n" +
+		"    end\n" +
+		"end\n"
+	equality := record + "fun main() do\n" +
+		"    a: Vector2 := Vector2(x = 1.0, y = 2.0)\n" +
+		"    b: Vector2 := Vector2(x = 1.0, y = 2.0)\n" +
+		"    same: Bool := a == b\n" +
+		"end\n"
+	assertStderrContains(t, compileForeign(t, equality), "equality is unavailable for foreign record Vector2")
+
+	printing := record + "fun main() do\n" +
+		"    value: Vector2 := Vector2(x = 1.0, y = 2.0)\n" +
+		"    print(value)\n" +
+		"end\n"
+	assertStderrContains(t, compileForeign(t, printing), "print does not support foreign record Vector2")
 }

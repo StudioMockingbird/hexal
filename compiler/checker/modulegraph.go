@@ -40,6 +40,12 @@ type ModuleNode struct {
 type ModuleEdge struct {
 	Alias  string
 	Target string
+	// CImport marks a direct `from c <header>` edge. CDisplay is the exact
+	// source spelling of the requested header, carried so a missing qualified
+	// member through the alias can report the automatic-import binding
+	// guidance rather than the ordinary unknown-export diagnostic.
+	CImport  bool
+	CDisplay string
 }
 
 // SingleModuleGraph returns the graph of a single-module compilation, the

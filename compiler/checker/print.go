@@ -23,6 +23,9 @@ func printable(typ compilerTypes.Type) bool {
 		compilerTypes.IsNil(typ), compilerTypes.IsError(typ):
 		return true
 	case typ.Object != nil:
+		if compilerTypes.IsForeignRecord(typ) {
+			return false
+		}
 		for _, member := range typ.Object.Members {
 			if !printable(member.Type) {
 				return false
@@ -103,6 +106,11 @@ func checkPrintCall(call parser.CallExpression, callee lexer.Token, ctx checkCon
 		}
 		if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(argument), diagnostics: diagnostics}
+		}
+		if checked.typ.Object != nil && compilerTypes.IsForeignRecord(checked.typ) {
+			// A foreign record's layout is the C compiler's; printing it would
+			// require a Hexal-owned rendering the language does not define.
+			return checkedExpression{token: checked.token, diagnostic: diagnosticAt(typeErrorAt(checked.token, "print does not support foreign record "+checked.typ.Name))}
 		}
 		if !printable(checked.typ) {
 			message := "print does not support " + checked.typ.Name

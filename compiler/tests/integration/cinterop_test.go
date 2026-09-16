@@ -26,11 +26,31 @@ func TestCImportPreparedBindingMissing(t *testing.T) {
 func TestCImportPreparedBindingResolves(t *testing.T) {
 	source := "import\n    Adder from c \"adder.h\"\nend\nvalue: Int32 := 1\n"
 	key := compiler.CBindingKey(string(compilerTypes.TargetX86_64WindowsGNU), compiler.CImportRequest{Header: "adder.h"})
-	binding := "fun placeholder(): Int32 do\n    return 1\nend\n"
+	// A prepared binding always names the header its key was derived from,
+	// even when it exposes no declaration.
+	binding := "extern c from \"adder.h\" do\nend\n"
 	result := compiler.Compile(map[string]string{"app.hex": source, key: binding}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("a present prepared binding must resolve: %v", result.Stderr)
 	}
+}
+
+func TestCImportMissingDeclarationGuidance(t *testing.T) {
+	source := "import\n    Adder from c \"adder.h\"\nend\nfun main() do\n    value: Int32 := Adder.missing_call()\nend\n"
+	key := compiler.CBindingKey(string(compilerTypes.TargetX86_64WindowsGNU), compiler.CImportRequest{Header: "adder.h"})
+	binding := "extern c from \"adder.h\" do\n    fun add(left: Int32, right: Int32): Int32\nend\n"
+	result := compiler.Compile(map[string]string{"app.hex": source, key: binding}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	assertStderrContains(t, result, `C import "adder.h" has no automatically imported declaration missing_call; check the C name, use a handwritten binding, or expose a C wrapper`)
+}
+
+func TestCImportPreparedBindingHeaderMismatch(t *testing.T) {
+	source := "import\n    Adder from c \"adder.h\"\nend\nvalue: Int32 := 1\n"
+	key := compiler.CBindingKey(string(compilerTypes.TargetX86_64WindowsGNU), compiler.CImportRequest{Header: "adder.h"})
+	// A prepared binding whose key claims `adder.h` but which declares a
+	// different header is a mismatch, not a silent alias.
+	binding := "extern c from <other.h> do\nend\n"
+	result := compiler.Compile(map[string]string{"app.hex": source, key: binding}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	assertStderrContains(t, result, `prepared C binding missing for "adder.h"`)
 }
 
 // A foreign declaration whose type has no supported C ABI mapping fails closed
