@@ -110,7 +110,7 @@ method-declaration = "method" , type-expression , "." , identifier
                      , "do" , block , "end" ;
 signature = "(" , [ parameter-list ] , ")" , [ ":" , type-expression ] ;
 parameter-list = parameter , { "," , parameter } ;
-parameter = identifier , ":" , type-expression ;
+parameter = identifier , ":" , type-expression , [ "..." ] ;
 generic-parameter-list = "<" , identifier , { "," , identifier } , ">" ;
 
 statement = non-control-statement | return-statement
@@ -182,9 +182,12 @@ positive-decimal-literal = nonzero-decimal-digit
 pointer-type = "Ptr" , "<" , [ "mut" ] , type-expression , ">" ;
 pointer-constructor = "Ptr" ;
 slice-type = "Slice" , "<" , [ "mut" ] , type-expression , ">" ;
-function-type-expression = "Fun" , "<" , "(" , [ type-list ] , ")"
+function-type-expression = "Fun" , "<" , "(" , [ function-type-parameter-list ] , ")"
                            , [ ":" , type-expression ] , ">" ;
 type-list = type-expression , { "," , type-expression } ;
+function-type-parameter-list = function-type-parameter ,
+                               { "," , function-type-parameter } ;
+function-type-parameter = type-expression , [ "..." ] ;
 
 expression = unary-expression , { binary-tail } ;
 binary-tail = binary-operator , unary-expression | "is" , type-expression ;
@@ -808,6 +811,27 @@ HeapAllocation
 
 - `fun` declares a function, not mutable storage. `Fun<(P1, P2) : R>` is a function-pointer type;
   omit `: R` for no result.
+- A signature has at most one rest parameter, written `name: T...`, and it must be final. Inside the
+  body the name is a fixed read-only `Slice<T>`; a call supplies at least the fixed parameters and
+  checks every trailing argument in `T` context. Zero trailing arguments pass the canonical empty
+  Slice. `T` must be a complete, shallow-copyable type valid in both Slice-element and
+  function-parameter positions; a type containing `Atomic` is invalid. The invocation owns one
+  compiler-created backing region, reclaimed automatically with no allocator and no element cleanup;
+  elements are shallow copies and element ownership is not transferred.
+- The rest-backed Slice is a non-owning descriptor over that region. It may be read (`length`,
+  indexing, slicing, iteration), bound to a fixed local alias, or have an element copied out;
+  returning or storing the descriptor or a derived Slice, binding it to a mutable alias, assigning
+  it, placing it in an object/ADT/union/Array/List/Dict/Channel/Task/module storage position,
+  passing it to a function, method, function value, or foreign declaration, taking an address inside
+  the region, or capturing it in `defer`, `errdefer`, or `spawn` is rejected with `rest-backed Slice
+  cannot escape its function invocation` (a mutable alias reports `rest-backed Slice requires a
+  fixed local alias`).
+- Rest mode is part of `Fun` identity: `Fun<(T...)>` and `Fun<(Slice<T>)>` are distinct and not
+  assignable. `Fun<(T...)>` is called with zero or more explicit `T` values; the C ABI passes the
+  same final pointer-and-length Slice for both. A declaration or `Fun` type with a parameter after
+  `T...` reports `rest parameter must be final`; `...` after a call argument reports `spread
+  arguments are not supported; pass explicit values`. Rest is not permitted on foreign declarations,
+  constructors, compiler-owned operations, or `print`.
 - Fun is valid as a binding, function parameter, parameter inside another Fun, function result,
   object member, ADT payload, Array/Slice/List element, Dict value, Task argument or result,
   Channel element, or union member. It is invalid as a `Ptr` pointee, a `@` target, a
@@ -816,7 +840,8 @@ HeapAllocation
   ordinary C function pointer; no position adds an environment, ownership operation, or
   allocation. An object may store a Fun value as an explicit dispatch table; the field holds one
   ordinary C function pointer and is called as `table.operation(args)` with no hidden receiver or environment.
-- Calls require exact arity and assignable arguments. No-result calls are statements only. Results
+- Calls require assignable arguments and either exact arity or, for a rest signature, at least the
+  fixed parameter count. No-result calls are statements only. Results
   must match their declarations; result-producing bodies cannot fall through.
 - Infallible commands with no payload return no value. Fallible commands with no success payload
   return `Nil | Error`.

@@ -513,11 +513,15 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		generics.frame = previousFrame
 		return FunctionDeclaration{}, &resultDiagnostics[0]
 	}
+	rest := len(parameters) > 0 && parameters[len(parameters)-1].Rest
 	parameterTypes := make([]compilerTypes.Type, 0, len(parameters))
 	for _, parameter := range parameters {
 		parameterTypes = append(parameterTypes, parameter.Type)
 	}
-	functionType := ctx.typeEnvironment.FunType(parameterTypes, result)
+	if rest {
+		parameterTypes[len(parameterTypes)-1] = parameters[len(parameters)-1].RestElement
+	}
+	functionType := ctx.typeEnvironment.FunTypeRest(parameterTypes, result, rest)
 	if functionType.Signature == nil {
 		generics.frame = previousFrame
 		diagnostic := unknownAt(open.Declaration.Name, "could not construct the function type for "+open.Name)
@@ -702,18 +706,29 @@ func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, 
 		expected = append(expected, use.Type)
 	}
 	generics.frame = previousFrame
-	if len(expected) != len(actual) {
+	rest := len(open.Declaration.Parameters) > 0 && open.Declaration.Parameters[len(open.Declaration.Parameters)-1].Rest
+	fixed := len(expected)
+	if rest {
+		fixed--
+		if len(actual) < fixed {
+			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("%s expects at least %d arguments; got %d", open.Name, fixed, len(actual))))
+		}
+	} else if len(expected) != len(actual) {
 		return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("%s expects %d arguments; got %d", open.Name, len(expected), len(actual))))
 	}
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)
-	for index := range expected {
-		if !unifyTypes(expected[index], actual[index], bindings, open.Generic) {
+	for index := range actual {
+		expectedIndex := index
+		if rest && index >= fixed {
+			expectedIndex = fixed
+		}
+		if !unifyTypes(expected[expectedIndex], actual[index], bindings, open.Generic) {
 			conflictingLexeme := open.Parameters[0].Lexeme
-			if expected[index].Generic != nil && expected[index].Generic == open.Generic && expected[index].GenericIndex >= 0 && expected[index].GenericIndex < len(open.Parameters) {
-				conflictingLexeme = open.Parameters[expected[index].GenericIndex].Lexeme
+			if expected[expectedIndex].Generic != nil && expected[expectedIndex].Generic == open.Generic && expected[expectedIndex].GenericIndex >= 0 && expected[expectedIndex].GenericIndex < len(open.Parameters) {
+				conflictingLexeme = open.Parameters[expected[expectedIndex].GenericIndex].Lexeme
 			} else {
 				for paramIndex, placeholder := range placeholders {
-					if typeContainsPlaceholder(expected[index], placeholder) {
+					if typeContainsPlaceholder(expected[expectedIndex], placeholder) {
 						conflictingLexeme = open.Parameters[paramIndex].Lexeme
 						break
 					}
@@ -1045,7 +1060,14 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 		expected = append(expected, use.Type)
 	}
 	generics.frame = previousFrame
-	if len(expected) != len(written) {
+	rest := len(open.Declaration.Parameters) > 0 && open.Declaration.Parameters[len(open.Declaration.Parameters)-1].Rest
+	fixed := len(expected)
+	if rest {
+		fixed--
+		if len(written) < fixed {
+			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("%s expects at least %d arguments; got %d", open.Name, fixed, len(written))))
+		}
+	} else if len(expected) != len(written) {
 		return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("%s expects %d arguments; got %d", open.Name, len(expected), len(written))))
 	}
 	actual := make([]compilerTypes.Type, 0, len(written))
@@ -1057,9 +1079,13 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 		actual = append(actual, checked.typ)
 	}
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)
-	for index := range expected {
-		if !unifyTypes(expected[index], actual[index], bindings, open.Generic) {
-			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[index].Lexeme)))
+	for index := range actual {
+		expectedIndex := index
+		if rest && index >= fixed {
+			expectedIndex = fixed
+		}
+		if !unifyTypes(expected[expectedIndex], actual[index], bindings, open.Generic) {
+			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[expectedIndex].Lexeme)))
 		}
 	}
 	for index, binding := range bindings {
