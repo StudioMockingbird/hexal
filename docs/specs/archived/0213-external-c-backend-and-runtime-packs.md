@@ -1,28 +1,20 @@
 # RFC 0213: External Zig Backend and Checked-In Runtime Pack
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Partially implemented. Done: `compiler.RuntimeABIVersion = 1`; the
-  target identity renamed to `x86_64-windows-gnu-ucrt` with the old spelling
-  rejected and `docs/reference.md` updated; the driver profile record with the
-  Zig target spelling and pack directory; `-cc`, `-target`, and `-runtime-dir`
-  on `build` and `doctor` with the exact Zig 0.16.0 check, no PATH search, and
-  no raw tool arguments; the checked-in `lib/x86_64-windows-gnu-ucrt` pack with
-  its manifest and upstream licenses, its archives verified byte-for-byte
-  against `lib/BUILD.md`; normal builds consuming the demanded include roots,
-  archives, and system libraries in the specified link order with a
-  dependency-free fast path; strict manifest decoding, runtime ABI/target
-  checks, path containment, and demanded-file checks; doctor's full payload
-  hashing and two-archive consumption probe; the extended build identity; and
-  focused pure-Go and tagged C23 tests. Not done: the vendored-source
-  materialization and compilation path (`materializeDependencies`,
-  `compileNativeDependencies`, `PlanDependencies`, and the `modules` import) is
-  retained for the external libuv/bridge probes and the
-  `compiler/tests/c23validation` harness, which must consume the pack instead;
-  doctor does not yet run the foreign-target-object probe as part of its own
-  exhaustive set; a non-Zig executable that reports no `lib_dir` fails as
-  unusable before the exact version-mismatch diagnostic; and the `-cc`
-  relative-path resolution against the invocation working directory is
-  implemented but not separately tested.
+- Status: Closed. The target identity rename to `x86_64-windows-gnu-ucrt`,
+  `compiler.RuntimeABIVersion = 1`, the driver-only profile record, the required
+  `-cc`/`-target`/`-runtime-dir` selection with the exact Zig 0.16.0 check and no
+  PATH search or raw tool arguments, the checked-in `lib/x86_64-windows-gnu-ucrt`
+  pack (manifest, upstream licenses, byte-verified archives), pack consumption in
+  the specified link order with a dependency-free fast path, strict manifest
+  validation, doctor's payload hashing and two-archive consumption probe, and the
+  extended build identity are implemented and covered by pure-Go and tagged C23
+  tests. Four follow-up verification items remain and are tracked in
+  `docs/status.md`: removing the retained vendored-source materialization path
+  and migrating the external probes and the C23 harness to the pack; running the
+  foreign-target-object probe from `hexal doctor`; the exact version-mismatch
+  diagnostic for a non-Zig executable that reports no `lib_dir`; and an explicit
+  test for `-cc` relative-path resolution.
 - Created: 2026-09-16
 - Updated: 2026-09-17
 - Scope: select an installed Zig 0.16.0 C backend and link the checked-in,
