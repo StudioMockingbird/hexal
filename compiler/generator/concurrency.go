@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -69,6 +70,36 @@ type spawnSite struct {
 	module   string
 	params   []compilerTypes.Type
 	result   compilerTypes.Type // zero Type means Nil
+	// rest marks a spawn of a rest signature. fixed is the fixed-parameter
+	// count, element and slice are the rest element T and Slice<T>, and
+	// restCount is the statically known number of rest elements at this site.
+	// The frame stores every fixed value and every rest element inline; the
+	// adapter builds one Slice over them.
+	rest      bool
+	fixed     int
+	element   compilerTypes.Type
+	slice     compilerTypes.Type
+	restCount int
+}
+
+// key names this site's argument frame and entry adapter. A rest site's rest
+// count is part of the identity because the frame layout depends on it: two
+// sites targeting one function with different rest counts are distinct.
+func (site spawnSite) key() string {
+	if site.rest {
+		return fmt.Sprintf("%s_r%d", site.function, site.restCount)
+	}
+	return site.function
+}
+
+// hasFrame reports whether the site needs a task argument frame. A rest site
+// with no fixed parameters and no elements passes the empty Slice directly and
+// needs no frame, which also avoids an empty C struct.
+func (site spawnSite) hasFrame() bool {
+	if site.rest {
+		return site.fixed > 0 || site.restCount > 0
+	}
+	return len(site.params) > 0
 }
 
 // errorMessagePayloads are the recoverable-failure messages of the Task,
@@ -250,6 +281,14 @@ func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Ty
 		module:   module,
 		function: privateCName(functionNameKind, node.Operand.Name, moduleOwner(node.Operand.Module, localOwner)),
 		params:   append([]compilerTypes.Type(nil), signature.Signature.Parameters...),
+		fixed:    len(signature.Signature.Parameters),
+	}
+	if node.Rest {
+		site.rest = true
+		site.fixed = node.RestStart
+		site.element = node.RestElement
+		site.slice = node.RestSlice
+		site.restCount = len(node.Arguments) - node.RestStart
 	}
 	if signature.Signature.Result != nil {
 		site.result = *signature.Signature.Result
@@ -357,9 +396,9 @@ func writeSpawnAdapters(result *strings.Builder, sites []spawnSite) {
 		return
 	}
 	for _, site := range sites {
-		fmt.Fprintf(result, "\nvoid hex_task_entry_%s(hex_task *task) {\n", site.function)
-		if len(site.params) > 0 {
-			fmt.Fprintf(result, "    hex_task_args_%s *args = (hex_task_args_%s *)task->args;\n", site.function, site.function)
+		fmt.Fprintf(result, "\nvoid hex_task_entry_%s(hex_task *task) {\n", site.key())
+		if site.hasFrame() {
+			fmt.Fprintf(result, "    hex_task_args_%s *args = (hex_task_args_%s *)task->args;\n", site.key(), site.key())
 		}
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			fmt.Fprintf(result, "    %s result = %s(", typeSpelling(site.result), site.function)
@@ -375,12 +414,39 @@ func writeSpawnAdapters(result *strings.Builder, sites []spawnSite) {
 }
 
 func writeSpawnArguments(result *strings.Builder, site spawnSite) {
-	for index := range site.params {
+	if !site.hasFrame() {
+		if site.rest {
+			result.WriteString(restFrameSlice(site))
+		}
+		return
+	}
+	for index := 0; index < site.fixed; index++ {
 		if index > 0 {
 			result.WriteString(", ")
 		}
 		fmt.Fprintf(result, "args->a%d", index+1)
 	}
+	if site.rest {
+		if site.fixed > 0 {
+			result.WriteString(", ")
+		}
+		result.WriteString(restFrameSlice(site))
+	}
+}
+
+// restFrameSlice renders the adapter's Slice over the frame's inline rest
+// element fields: the canonical empty Slice for zero elements, a
+// compound-literal array otherwise.
+func restFrameSlice(site spawnSite) string {
+	data := "nullptr"
+	if site.restCount > 0 {
+		fields := make([]string, site.restCount)
+		for index := 0; index < site.restCount; index++ {
+			fields[index] = fmt.Sprintf("args->a%d", site.fixed+index+1)
+		}
+		data = "(" + typeSpelling(site.element) + "[]){" + strings.Join(fields, ", ") + "}"
+	}
+	return "(" + typeSpelling(site.slice) + "){.data = " + data + ", .length = " + strconv.Itoa(site.restCount) + "}"
 }
 
 // writeSpawnArgFrames emits one argument-frame struct per spawned function
@@ -390,14 +456,21 @@ func writeSpawnArgFrames(result *strings.Builder, sites []spawnSite) {
 		return
 	}
 	for _, site := range sites {
-		if len(site.params) == 0 {
+		if !site.hasFrame() {
 			continue
 		}
-		fmt.Fprintf(result, "\ntypedef struct hex_task_args_%s {\n", site.function)
+		fmt.Fprintf(result, "\ntypedef struct hex_task_args_%s {\n", site.key())
 		for index, parameter := range site.params {
+			if site.rest && index == len(site.params)-1 {
+				// The rest parameter stores each element inline, one field each.
+				for offset := 0; offset < site.restCount; offset++ {
+					fmt.Fprintf(result, "    %s;\n", declaration(site.element, fmt.Sprintf("a%d", index+1+offset), true))
+				}
+				continue
+			}
 			fmt.Fprintf(result, "    %s;\n", declaration(parameter, fmt.Sprintf("a%d", index+1), true))
 		}
-		fmt.Fprintf(result, "} hex_task_args_%s;\n", site.function)
+		fmt.Fprintf(result, "} hex_task_args_%s;\n", site.key())
 	}
 }
 
@@ -574,8 +647,8 @@ func hoistSpawn(node checker.Expression, body *strings.Builder, state *expressio
 	if state.hoistedSpawns == nil {
 		state.hoistedSpawns = make(map[*checker.Expression]string)
 	}
-	if len(site.params) > 0 {
-		argsType := "hex_task_args_" + site.function
+	if site.hasFrame() {
+		argsType := "hex_task_args_" + site.key()
 		fmt.Fprintf(body, "%s%s %s;\n", indent, argsType, temp)
 		for index, argument := range call.Arguments {
 			rendered, renderErr := renderOperandWithState(argument, state)
@@ -589,13 +662,13 @@ func hoistSpawn(node checker.Expression, body *strings.Builder, state *expressio
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			resultArgs = fmt.Sprintf("sizeof(%s), _Alignof(%s)", typeSpelling(site.result), typeSpelling(site.result))
 		}
-		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, %s, %s);\n", indent, taskTemp, site.function, spawnArgs, resultArgs)
+		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, %s, %s);\n", indent, taskTemp, site.key(), spawnArgs, resultArgs)
 	} else {
 		resultArgs := "0, 0"
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			resultArgs = fmt.Sprintf("sizeof(%s), _Alignof(%s)", typeSpelling(site.result), typeSpelling(site.result))
 		}
-		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, 0, 0, nullptr, %s);\n", indent, taskTemp, site.function, resultArgs)
+		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, 0, 0, nullptr, %s);\n", indent, taskTemp, site.key(), resultArgs)
 	}
 	state.hoistedSpawns[node.Operand] = taskTemp
 	return nil

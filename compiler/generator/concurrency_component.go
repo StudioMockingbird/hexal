@@ -154,7 +154,7 @@ func concurrencyHeaderModelFrom(state *generatedConcurrencyState, event bool, wi
 	}
 	entryNames := make([]string, 0, len(state.spawns))
 	for _, site := range state.spawns {
-		entryNames = append(entryNames, site.function)
+		entryNames = append(entryNames, site.key())
 	}
 	slices.Sort(entryNames)
 	model.SpawnEntries = entryNames

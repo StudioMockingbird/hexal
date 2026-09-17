@@ -915,8 +915,8 @@ func mergeConcurrencyInto(merged, state *generatedConcurrencyState, spawnedSites
 		merged.mutexNewUnion = state.mutexNewUnion
 	}
 	for _, site := range state.spawns {
-		if !spawnedSites[site.function] {
-			spawnedSites[site.function] = true
+		if !spawnedSites[site.key()] {
+			spawnedSites[site.key()] = true
 			merged.spawns = append(merged.spawns, site)
 		}
 	}
