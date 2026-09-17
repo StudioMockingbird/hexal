@@ -13,27 +13,41 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+// DoctorOptions selects the configuration doctor verifies. It carries the
+// same required compiler and target as a build plus the optional runtime-root
+// override.
+type DoctorOptions struct {
+	CompilerPath string
+	Target       compilerTypes.TargetProfileID
+	RuntimeDir   string
+}
+
 // Doctor verifies the local setup without building the user's project and
 // without discovering it: there is no project lookup here at all. It
 // returns a version report alongside the problems. The Hexal version line
-// is always present, even when backend discovery fails; the Zig and target
+// is always present, even when backend selection fails; the Zig and target
 // lines appear only once a backend resolves. Problems accumulate every
 // independently checkable failure rather than stopping at the first. Only
 // a missing backend short-circuits the checks, because every check below
 // needs one; even then the failure is reported once as a list, not an
 // error.
-func Doctor() (report []string, problems []string) {
+func Doctor(options DoctorOptions) (report []string, problems []string) {
 	report = []string{"Hexal: " + version.String()}
 
+	profile, profileErr := resolveZigProfile(options.Target)
+	if profileErr != nil {
+		problems = append(problems, profileErr.Error())
+		return report, problems
+	}
 	if err := checkHost(); err != nil {
 		problems = append(problems, err.Error())
 	}
-	backend, err := resolveBackend()
+	backend, err := resolveBackend(options.CompilerPath, profile)
 	if err != nil {
 		problems = append(problems, err.Error())
 		return report, problems
 	}
-	report = append(report, "Zig: "+backend.Version, "Target: "+string(compilerTypes.TargetX86_64WindowsGNU))
+	report = append(report, "Zig: "+backend.Version, "Target: "+string(profile.profile))
 
 	pinned := backendPkgPinnedVersion()
 	if backend.Version != pinned {
@@ -67,8 +81,96 @@ func Doctor() (report []string, problems []string) {
 			problems = append(problems, probeErr.Error())
 		}
 	}
+	if packErr := doctorRuntimePack(backend, options); packErr != nil {
+		problems = append(problems, packErr.Error())
+	}
 
 	return report, problems
+}
+
+// doctorRuntimePack fully verifies the selected profile's checked-in pack and
+// proves both archives and every declared system library compile, link, and
+// run through the selected compiler. A normal build never does this.
+func doctorRuntimePack(selected *backend.Backend, options DoctorOptions) error {
+	profile, err := resolveZigProfile(options.Target)
+	if err != nil {
+		return err
+	}
+	root, err := resolveRuntimeRoot(options.RuntimeDir)
+	if err != nil {
+		return err
+	}
+	directory := packDirectory(root, profile)
+	raw, readErr := os.ReadFile(filepath.Join(directory, "manifest.json"))
+	if readErr != nil {
+		return fmt.Errorf("runtime pack for %s is missing; install the checked-in pack or pass -runtime-dir <path>", options.Target)
+	}
+	manifest, err := decodeRuntimeManifest(raw)
+	if err != nil {
+		return err
+	}
+	if err := validateRuntimeManifest(manifest, options.Target); err != nil {
+		return err
+	}
+	if err := verifyRuntimePack(directory, manifest); err != nil {
+		return err
+	}
+	return runPackConsumptionProbe(selected, directory, manifest)
+}
+
+// runPackConsumptionProbe compiles and links a program that includes the
+// packaged libuv and mimalloc headers, calls a representative symbol from each
+// archive, and uses every declared system library in manifest order.
+func runPackConsumptionProbe(selected *backend.Backend, directory string, manifest runtimeManifest) error {
+	dir, err := os.MkdirTemp("", "hexal-doctor-pack-")
+	if err != nil {
+		return fmt.Errorf("could not create a temporary directory for the pack probe: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	const probe = "#include <uv.h>\n#include <mimalloc.h>\n\nint main(void) {\n    void *memory = mi_malloc(16);\n    mi_free(memory);\n    return uv_version() == 0 ? 1 : 0;\n}\n"
+	source := filepath.Join(dir, "pack.c")
+	if err := os.WriteFile(source, []byte(probe), 0o644); err != nil {
+		return fmt.Errorf("could not write the pack probe source: %v", err)
+	}
+	includeOptions := make([]string, 0, len(manifest.Dependencies))
+	archives := make([]string, 0, len(manifest.Dependencies))
+	libraryOptions := make([]string, 0)
+	for _, dependency := range manifest.Dependencies {
+		include, pathErr := safeManifestPath(directory, dependency.IncludeRoot)
+		if pathErr != nil {
+			return pathErr
+		}
+		archive, pathErr := safeManifestPath(directory, dependency.Archive)
+		if pathErr != nil {
+			return pathErr
+		}
+		includeOptions = append(includeOptions, "-I"+include)
+		archives = append(archives, archive)
+		for _, library := range dependency.SystemLibraries {
+			libraryOptions = append(libraryOptions, backend.SystemLibraryArgument(library))
+		}
+	}
+	binary := filepath.Join(dir, "pack"+exeSuffix())
+	compile, err := selected.CompileOne(qualifiedTriple, includeOptions, source, binary+".o")
+	if err != nil {
+		return fmt.Errorf("pack probe failed to run: %v", err)
+	}
+	if compile.ExitCode != 0 {
+		return fmt.Errorf("pack probe failed to compile: %s", firstLine(compile.Stderr))
+	}
+	objects := append([]string{binary + ".o"}, archives...)
+	link, err := selected.LinkObjects(qualifiedTriple, objects, binary, libraryOptions)
+	if err != nil {
+		return fmt.Errorf("pack probe failed to run: %v", err)
+	}
+	if link.ExitCode != 0 {
+		return fmt.Errorf("pack probe failed to link: %s", firstLine(link.Stderr))
+	}
+	if err := exec.Command(binary).Run(); err != nil {
+		return fmt.Errorf("pack probe built but did not run cleanly: %v", err)
+	}
+	return nil
 }
 
 // modeOptionProbe compiles and links a minimal program with one mode's exact

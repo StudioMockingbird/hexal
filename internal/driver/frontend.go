@@ -136,7 +136,7 @@ func inspectRequest(selected *backend.Backend, clang clangFrontend, staging stri
 		return preparedBinding{}, failure
 	}
 	return preparedBinding{
-		Key:    compiler.CBindingKey(qualifiedTriple, request),
+		Key:    compiler.CBindingKey(options.target, request),
 		Header: request.Header,
 		System: request.System,
 		Source: source,
@@ -145,9 +145,11 @@ func inspectRequest(selected *backend.Backend, clang clangFrontend, staging stri
 
 // headerOptions carries the interface configuration every interface consumer
 // shares: the ordered include roots and definitions rendered as backend
-// arguments.
+// arguments, and the Hexal target profile identity the prepared binding key is
+// derived from.
 type headerOptions struct {
 	compileOptions []string
+	target         string
 }
 
 // freshInspectionDir creates one private directory for transient header

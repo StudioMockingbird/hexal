@@ -44,11 +44,11 @@ func TestForeignSourceBuildRuns(t *testing.T) {
 	dir := t.TempDir()
 	native := adderFixture(t, dir)
 
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		CSources:     []string{"native/adder.c"},
 		CIncludeDirs: []string{native},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestForeignHeaderOnlyBuild(t *testing.T) {
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
 
-	result, err := Build(BuildOptions{Root: dir, CIncludeDirs: []string{native}})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir, CIncludeDirs: []string{native}}))
 	if err != nil {
 		t.Fatalf("header-only build failed: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestForeignObjectAndArchiveLink(t *testing.T) {
 				}
 				options.Archives = []string{archive}
 			}
-			result, err := Build(options)
+			result, err := Build(withTestBackend(t, options))
 			if err != nil {
 				t.Fatalf("%s build failed: %v", form, err)
 			}
@@ -163,7 +163,7 @@ func TestForeignSystemLibraryTranslation(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
-	result, err := Build(BuildOptions{Root: dir, SystemLibraries: []string{"user32", "ws2_32"}})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir, SystemLibraries: []string{"user32", "ws2_32"}}))
 	if err != nil {
 		t.Fatalf("build with system libraries failed: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestForeignEnvironmentOverrideIsRecordedAndSecretSafe(t *testing.T) {
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
 	const secret = "hexal-secret-value-do-not-leak"
-	result, err := Build(BuildOptions{Root: dir, CEnvironment: []string{"HEXAL_PROBE=" + secret}})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir, CEnvironment: []string{"HEXAL_PROBE=" + secret}}))
 	if err != nil {
 		t.Fatalf("build with an environment override failed: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestForeignCompileFailureStopsTheBuild(t *testing.T) {
 	native := adderFixture(t, dir)
 	writeSource(t, dir, "native/adder.c", "this is not valid C\n")
 
-	failed, err := Build(BuildOptions{Root: dir, CSources: []string{"native/adder.c"}, CIncludeDirs: []string{native}})
+	failed, err := Build(withTestBackend(t, BuildOptions{Root: dir, CSources: []string{"native/adder.c"}, CIncludeDirs: []string{native}}))
 	if err == nil {
 		t.Fatal("a failing foreign compile must fail the build")
 	}
@@ -242,12 +242,12 @@ func TestForeignDialectSelection(t *testing.T) {
 	dir := t.TempDir()
 	native := adderFixture(t, dir)
 	// C11 permits this source; the point is the selected spelling.
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		CSources:     []string{"native/adder.c"},
 		CIncludeDirs: []string{native},
 		CStandard:    "c11",
-	})
+	}))
 	if err != nil {
 		t.Fatalf("C11 build failed: %v", err)
 	}
@@ -280,12 +280,12 @@ func TestForeignIncludeAndDefineReachModulesOnly(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
 	native := adderFixture(t, dir)
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		CSources:     []string{"native/adder.c"},
 		CIncludeDirs: []string{native},
 		CDefines:     []string{"HEXAL_PROBE_DEFINE=1"},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -341,11 +341,11 @@ func TestForeignMultipleEqualBasenames(t *testing.T) {
 		"unsafe do\n    total = Native.first_value() + Native.second_value()\nend\n"+
 		"print(total)\n")
 
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		CSources:     []string{"native/a/adder.c", "native/b/adder.c"},
 		CIncludeDirs: []string{"native"},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -415,12 +415,12 @@ func TestForeignMacroControlledLayout(t *testing.T) {
 		"unsafe do\n    result: Native.Pair := Native.pair_make(40, 2)\n    total = result.left + result.right\nend\n"+
 		"print(total)\n")
 
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		CSources:     []string{"native/layout.c"},
 		CIncludeDirs: []string{"native"},
 		CDefines:     []string{"USE_WIDE=1"},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -453,14 +453,14 @@ func TestForeignLinkGroupOrder(t *testing.T) {
 		t.Fatalf("stub archive failed: %v\n%s", err, out)
 	}
 
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:            dir,
 		CSources:        []string{"native/adder.c"},
 		CIncludeDirs:    []string{native},
 		Objects:         []string{object},
 		Archives:        []string{archive},
 		SystemLibraries: []string{"user32", "user32"},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -515,12 +515,12 @@ func TestForeignLinkFailurePreservesExecutable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := Build(BuildOptions{
+	_, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		Output:       output,
 		CIncludeDirs: []string{native},
 		Objects:      []string{object},
-	})
+	}))
 	if err == nil {
 		t.Fatal("a link with a missing symbol must fail")
 	}
@@ -545,11 +545,11 @@ func TestForeignBuildsUseDistinctStaging(t *testing.T) {
 	native := adderFixture(t, dir)
 	options := BuildOptions{Root: dir, CSources: []string{"native/adder.c"}, CIncludeDirs: []string{native}}
 
-	first, err := Build(options)
+	first, err := Build(withTestBackend(t, options))
 	if err != nil {
 		t.Fatalf("first build failed: %v", err)
 	}
-	second, err := Build(options)
+	second, err := Build(withTestBackend(t, options))
 	if err != nil {
 		t.Fatalf("second build failed: %v", err)
 	}

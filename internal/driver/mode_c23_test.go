@@ -24,7 +24,7 @@ import (
 // buildInMode builds one program under mode and returns the completed result.
 func buildInMode(t *testing.T, dir string, mode BuildMode) BuildResult {
 	t.Helper()
-	result, err := Build(BuildOptions{Root: dir, Mode: mode})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir, Mode: mode}))
 	if err != nil {
 		t.Fatalf("%s build failed: %v", mode, err)
 	}
@@ -75,20 +75,20 @@ func isGeneratedCompile(command CommandResult) bool {
 // TestModeOptionsReachTheBackendExactly pins the whole contract between the
 // driver and a mode-unaware backend: every generated translation unit is
 // compiled with that mode's exact option run, the executable link carries its
-// exact link options, and vendored dependencies are compiled identically in
-// both modes.
+// exact link options, the demanded runtime pack contributes include roots, and
+// no vendored dependency source is compiled.
 func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 	requireBackend(t)
 	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
 		t.Run(string(mode), func(t *testing.T) {
 			dir := t.TempDir()
-			// A heap program pulls in a vendored dependency, so the
-			// dependency half of the assertion has something to observe.
+			// A heap program selects the mimalloc runtime dependency, so the
+			// pack include root must reach generated compiles.
 			writeSource(t, dir, "main.hex", "fun demo(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n")
 			result := buildInMode(t, dir, mode)
 			options := Options(mode)
 
-			generated, dependencies, links := 0, 0, 0
+			generated, dependencies, links, packIncludes := 0, 0, 0, 0
 			for _, command := range result.Commands {
 				switch {
 				case isGeneratedCompile(command):
@@ -96,24 +96,13 @@ func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 					if !containsSequence(command.Arguments, options.Compile) {
 						t.Fatalf("generated compile lacks the %s option run %v:\n%v", mode, options.Compile, command.Arguments)
 					}
+					for _, argument := range command.Arguments {
+						if strings.Contains(argument, "mimalloc_v3.5.1") {
+							packIncludes++
+						}
+					}
 				case isDependencyCompile(command):
 					dependencies++
-					// Debugging a vendored dependency is not a Hexal user
-					// workflow, and identical dependency objects keep a future
-					// object cache simple.
-					if !containsSequence(command.Arguments, []string{"-O2"}) {
-						t.Fatalf("dependency compile is not optimized:\n%v", command.Arguments)
-					}
-					for _, unwanted := range options.Compile {
-						if unwanted == "-O2" {
-							continue
-						}
-						for _, argument := range command.Arguments {
-							if argument == unwanted {
-								t.Fatalf("dependency compile absorbed the %s mode option %q:\n%v", mode, unwanted, command.Arguments)
-							}
-						}
-					}
 				case command.Stage == StageLink:
 					links++
 					if !containsSequence(command.Arguments, options.Link) {
@@ -130,8 +119,14 @@ func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 					}
 				}
 			}
-			if generated == 0 || dependencies == 0 || links != 1 {
-				t.Fatalf("recorded %d generated compiles, %d dependency compiles, %d links", generated, dependencies, links)
+			if generated == 0 || links != 1 {
+				t.Fatalf("recorded %d generated compiles, %d links", generated, links)
+			}
+			if dependencies != 0 {
+				t.Fatalf("normal build compiled %d vendored dependency sources; the pack supplies them", dependencies)
+			}
+			if packIncludes == 0 {
+				t.Fatal("no generated compile received the demanded pack include root")
 			}
 		})
 	}
@@ -156,8 +151,8 @@ func TestGeneratedCIsByteIdenticalAcrossModes(t *testing.T) {
 	}
 	// The identity encoder is what a mode change is allowed to move, and it
 	// must move for the same artifacts.
-	debug := buildIdentity(ModeDebug, "zig", first.Files, first.Dependencies, nil, nil)
-	release := buildIdentity(ModeRelease, "zig", first.Files, first.Dependencies, nil, nil)
+	debug := buildIdentity(ModeDebug, "zig", first.Files, first.Dependencies, nil, nil, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
+	release := buildIdentity(ModeRelease, "zig", first.Files, first.Dependencies, nil, nil, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
 	if debug == release {
 		t.Fatal("the build identity does not distinguish the modes")
 	}
@@ -331,7 +326,7 @@ func TestDebugPublishesOneImmutableVersionedPDB(t *testing.T) {
 	}
 
 	// Release publishes no new debug file and deletes no retained one.
-	releaseResult, err := Build(BuildOptions{Root: dir, Mode: ModeRelease})
+	releaseResult, err := Build(withTestBackend(t, BuildOptions{Root: dir, Mode: ModeRelease}))
 	if err != nil {
 		t.Fatalf("release build failed: %v", err)
 	}
@@ -384,7 +379,7 @@ func TestDisagreeingPDBFailsBeforePublishingTheExecutable(t *testing.T) {
 	if err := os.WriteFile(published[0], []byte("not this build's debug information"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Build(BuildOptions{Root: dir, Mode: ModeDebug})
+	_, err = Build(withTestBackend(t, BuildOptions{Root: dir, Mode: ModeDebug}))
 	if err == nil {
 		t.Fatal("a build whose debug information disagrees with the published file succeeded")
 	}

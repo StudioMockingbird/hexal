@@ -54,6 +54,9 @@ type foreignConfig struct {
 	// overrideNames are the explicit override names in occurrence order, for
 	// secret-safe command records.
 	overrideNames []string
+	// overrides are the parsed overrides, kept for secret-safe identity
+	// hashes. Their plaintext never enters a record.
+	overrides []environmentOverride
 	// active reports whether any effectful foreign option was supplied.
 	active bool
 }
@@ -70,6 +73,7 @@ func configureForeign(options BuildOptions) (foreignConfig, *BuildError) {
 	}
 	config.environment = effectiveEnvironment(os.Environ(), overrides)
 	config.overrideNames = overrideNames(overrides)
+	config.overrides = overrides
 
 	standard := options.CStandard
 	if standard == "" {
@@ -159,6 +163,18 @@ func (config foreignConfig) systemLibraryOptions() []string {
 		options = append(options, backend.SystemLibraryArgument(library))
 	}
 	return options
+}
+
+// environmentOverrideHashes renders one secret-safe SHA-256 per explicit
+// override, covering its name and value. The plaintext never leaves this
+// function.
+func environmentOverrideHashes(config foreignConfig) []string {
+	hashes := make([]string, 0, len(config.overrides))
+	for _, override := range config.overrides {
+		sum := sha256.Sum256([]byte(override.Name + "=" + override.Value))
+		hashes = append(hashes, hex.EncodeToString(sum[:]))
+	}
+	return hashes
 }
 
 // parseEnvironmentOverrides parses `NAME=VALUE` entries. The split occurs at
@@ -400,7 +416,7 @@ func foreignObjectName(staging, source string, ordinal int) string {
 // compileForeignSources compiles every supplied C source separately, in
 // occurrence order, using the selected dialect, target, and mode. The first
 // failure records its exact command and stops the build.
-func compileForeignSources(selected *backend.Backend, staging string, config foreignConfig, mode BuildMode, result *BuildResult) ([]string, *BuildError) {
+func compileForeignSources(selected *backend.Backend, staging string, config foreignConfig, mode BuildMode, extraOptions []string, result *BuildResult) ([]string, *BuildError) {
 	objects := make([]string, 0, len(config.Sources))
 	if len(config.Sources) == 0 {
 		return objects, nil
@@ -408,7 +424,8 @@ func compileForeignSources(selected *backend.Backend, staging string, config for
 	if err := os.MkdirAll(filepath.Join(staging, "foreign"), 0o755); err != nil {
 		return nil, filesystemFailure(fmt.Sprintf("cannot create foreign object directory: %v", err))
 	}
-	options := append(ForeignCompileOptions(mode), config.moduleCompileOptions()...)
+	options := append(append([]string(nil), extraOptions...), ForeignCompileOptions(mode)...)
+	options = append(options, config.moduleCompileOptions()...)
 	for ordinal, source := range config.Sources {
 		object := foreignObjectName(staging, source, ordinal)
 		invocation, err := selected.CompileOneDialect(qualifiedTriple, config.Standard, options, source, object)

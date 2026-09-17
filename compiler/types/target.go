@@ -7,6 +7,8 @@ package types
 // the compiler rejects every other non-empty identity before checking.
 type TargetProfileID string
 
-// TargetX86_64WindowsGNU is the one qualified profile: x86-64
-// Windows, MinGW-w64 ABI over UCRT, dynamic linkage.
-const TargetX86_64WindowsGNU TargetProfileID = "x86_64-windows-gnu"
+// TargetX86_64WindowsGNU is the one qualified profile: x86-64 Windows,
+// MinGW-w64 ABI over UCRT, dynamic linkage. The identity names the CRT so it
+// can never be confused with an MSVC/MSVCRT target; the older ambiguous
+// spelling is rejected, not retained as an alias.
+const TargetX86_64WindowsGNU TargetProfileID = "x86_64-windows-gnu-ucrt"

@@ -26,7 +26,7 @@ func runRuntimeFixture(t *testing.T, fixture runtimeFixture) {
 	t.Helper()
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", fixture.source)
-	result, err := Build(BuildOptions{Root: dir})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}

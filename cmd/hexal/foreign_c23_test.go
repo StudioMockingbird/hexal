@@ -48,6 +48,8 @@ func TestCLIForeignSourceBuild(t *testing.T) {
 	output := filepath.Join(root, "adder.exe")
 	err := run([]string{
 		"build",
+		"-cc", cliBackendPath(t),
+		"-target", "x86_64-windows-gnu-ucrt",
 		"-root", root,
 		"-entry", "main.hex",
 		"-out", output,
@@ -88,6 +90,8 @@ func TestCLIForeignArchiveBuild(t *testing.T) {
 	output := filepath.Join(root, "adder.exe")
 	err := run([]string{
 		"build",
+		"-cc", cliBackendPath(t),
+		"-target", "x86_64-windows-gnu-ucrt",
 		"-root", root,
 		"-entry", "main.hex",
 		"-out", output,

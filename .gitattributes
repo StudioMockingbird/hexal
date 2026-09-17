@@ -21,3 +21,10 @@ modules/LIBUV.md text eol=lf
 # fights itself here with no real content change, showing every entry as
 # perpetually modified.
 compiler/tests/fuzz/testdata/fuzz/** -text
+
+# Checked-in runtime packs are release inputs. Archives are opaque binaries;
+# hashed headers and metadata keep stable LF bytes on every checkout.
+lib/**/*.a binary
+lib/**/include/** text eol=lf
+lib/**/manifest.json text eol=lf
+lib/**/LICENSE* text eol=lf

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -117,9 +118,45 @@ func TestBuildRejectsRawToolArguments(t *testing.T) {
 
 func TestHelpListsForeignOptions(t *testing.T) {
 	help := usageText()
-	for _, option := range []string{"-c-source", "-c-include", "-c-define", "-c-env", "-c-standard", "-object", "-archive", "-system-library"} {
+	for _, option := range []string{"-cc", "-target", "-runtime-dir", "-c-source", "-c-include", "-c-define", "-c-env", "-c-standard", "-object", "-archive", "-system-library"} {
 		if !strings.Contains(help, option) {
 			t.Errorf("help does not list %s", option)
+		}
+	}
+}
+
+// A missing or unqualified target and a missing compiler both fail at
+// configuration before any external command runs.
+func TestBuildRequiresCompilerAndTarget(t *testing.T) {
+	for _, testCase := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{}, "target profile  is not qualified"},
+		{[]string{"-cc", "whatever"}, "target profile  is not qualified"},
+		{[]string{"-target", "x86_64-windows-gnu-ucrt"}, "C backend is required; pass -cc <path>"},
+		{[]string{"-target", "x86_64-windows-gnu"}, "target profile x86_64-windows-gnu is not qualified"},
+	} {
+		err := build(testCase.args)
+		if err == nil || !strings.Contains(err.Error(), testCase.want) {
+			t.Errorf("build(%v) = %v, want containing %q", testCase.args, err, testCase.want)
+		}
+	}
+}
+
+func TestDoctorRequiresCompilerAndTarget(t *testing.T) {
+	err := doctor(nil)
+	if err == nil {
+		t.Fatal("doctor with no target or compiler must report problems")
+	}
+}
+
+func TestBuildRejectsNonExecutableCompilerPath(t *testing.T) {
+	directory := t.TempDir()
+	for _, path := range []string{filepath.Join(directory, "missing.exe"), directory} {
+		err := build([]string{"-cc", path, "-target", "x86_64-windows-gnu-ucrt"})
+		if err == nil || !strings.Contains(err.Error(), "is not an executable file") {
+			t.Errorf("build(-cc %q) = %v, want a non-executable diagnostic", path, err)
 		}
 	}
 }

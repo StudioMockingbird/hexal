@@ -1,0 +1,70 @@
+{
+  "format_version": 1,
+  "runtime_abi_version": 1,
+  "target_profile": "x86_64-windows-gnu-ucrt",
+  "dependencies": [
+    {
+      "archive": "libuv_v1.52.1/libuv.a",
+      "include_root": "libuv_v1.52.1/include",
+      "license_file": "libuv_v1.52.1/LICENSE",
+      "name": "libuv",
+      "system_libraries": [
+        "psapi",
+        "user32",
+        "advapi32",
+        "iphlpapi",
+        "userenv",
+        "ws2_32",
+        "dbghelp",
+        "ole32",
+        "shell32"
+      ]
+    },
+    {
+      "archive": "mimalloc_v3.5.1/mimalloc.a",
+      "include_root": "mimalloc_v3.5.1/include",
+      "license_file": "mimalloc_v3.5.1/LICENSE",
+      "name": "mimalloc",
+      "system_libraries": [
+        "psapi",
+        "shell32",
+        "user32",
+        "advapi32",
+        "bcrypt"
+      ]
+    }
+  ],
+  "files": {
+    "libuv_v1.52.1/LICENSE": "16de0c32b265cb7d46a6d3bd614f259dd4d693a5e26b3407b04aae8d73041f0c",
+    "libuv_v1.52.1/LICENSE-docs": "cce5d01fa4a83b794271bd2c28cffdf99afd43c803e6ddefddae39b591ea7448",
+    "libuv_v1.52.1/LICENSE-extra": "262c44bd2cdba037e6d2a82fba15f5800d292bc993a6f5d6b6ea487744d02836",
+    "libuv_v1.52.1/include/uv.h": "bb9ed99b80cd22c58361bffdfbb2aa7029ce0391cde616745c0072a6f3c03219",
+    "libuv_v1.52.1/include/uv/aix.h": "bed77e4cf6c06f1224e681cbe607eff04713ca0c1e1f4a102e6a6565ee3f02aa",
+    "libuv_v1.52.1/include/uv/bsd.h": "963533ff4b16f72a204a8c760896a857c54d0ac50570f1793e3bef1f2ae8b35f",
+    "libuv_v1.52.1/include/uv/darwin.h": "222b6dd3ce67cfbb735b14b1662f065fc23570d6969acf463b39d946b7590d8c",
+    "libuv_v1.52.1/include/uv/errno.h": "4242edf790e4569ef349026ab4c6e31093334ee5fc02b16ed7a0d9fbacdffd16",
+    "libuv_v1.52.1/include/uv/linux.h": "adce0ed0821c8466a87a0a4c9e0df9ea7e4a4b24d099c7d7ed196f72a13f669d",
+    "libuv_v1.52.1/include/uv/os390.h": "98388ae32ce2c4390b82c3529539d2a476c44f590e960ed30a79f72b807ecd02",
+    "libuv_v1.52.1/include/uv/posix.h": "e9d7218b34e6e89b7b412891b7e2aa8b3a561c5ce9714c1f4def6c8a8593a6a6",
+    "libuv_v1.52.1/include/uv/sunos.h": "29d4b4ef48dc3c3ab32d75e0a85bcb80e084d42b32aae40d67fc1d882b93298a",
+    "libuv_v1.52.1/include/uv/threadpool.h": "09ae41099af710289155be012df45c2fce04da6a02e813278b4558935e645938",
+    "libuv_v1.52.1/include/uv/tree.h": "34393c74082c71ddd5bd9ec4afe30ef03df7fa7bb64be5a50ae070cdfebb5c43",
+    "libuv_v1.52.1/include/uv/unix.h": "06ccd9e0f3f312b610a7e7a8ff16596988e02796e7a0c81a62e29d5f6abe4613",
+    "libuv_v1.52.1/include/uv/version.h": "a859f2c21f7887d45b0372109ebc91759a6f8c408c7cbf2a12f9bbe579be403b",
+    "libuv_v1.52.1/include/uv/win.h": "9ad5dd7d5d4d51981f40edfc65a53ab94e91f6a2e73f2bf897e0e697fd9e8233",
+    "libuv_v1.52.1/libuv.a": "06b935291a98551dab37264ef770b642dafc2f927bbecd464cece5ebdb5d9a03",
+    "mimalloc_v3.5.1/LICENSE": "82ade5d7d9b029044b5fbbc326207fc47c2d44ee4dd71e8a559c36d728217de9",
+    "mimalloc_v3.5.1/include/mimalloc-new-delete.h": "1bc31e20fb0340d9d071c69eaac2f07d0dfe4cdf95849ed8d91fb2bd7538d55b",
+    "mimalloc_v3.5.1/include/mimalloc-override.h": "21fcf61c4443341ac6bf6ea528af31dc7267e8e3456fc64bfd07704503032175",
+    "mimalloc_v3.5.1/include/mimalloc-stats.h": "7bc3c522d9a5203b27464179177845f3c09eea4453b82545d20ce61a711a9a1e",
+    "mimalloc_v3.5.1/include/mimalloc.h": "5f472400941c886aed2483c832a5a698311ef8c4da83f700732bd247517de4d1",
+    "mimalloc_v3.5.1/include/mimalloc/atomic.h": "7be611200328a99b052eda81abb8ad78b7e03446a0f6d302c1eb31cc9f096398",
+    "mimalloc_v3.5.1/include/mimalloc/bits.h": "c308d398617d7bfc120aeb27347974b53f9ef10768e81b7b9275b0796fff2e39",
+    "mimalloc_v3.5.1/include/mimalloc/internal.h": "268bb8fbf665f798a6961985a3b5e3ee4f9d51fa0de6e4d5d74089b9fd74e494",
+    "mimalloc_v3.5.1/include/mimalloc/prim-tls.h": "5dca93d2914c1af0f758fe895f69503085c877340cf70b573eba7745cf8b83c5",
+    "mimalloc_v3.5.1/include/mimalloc/prim.h": "1987e8e2eedc07bb181bf2a11a27bec80a5309c32cfa66a56900fb4cbb64b172",
+    "mimalloc_v3.5.1/include/mimalloc/track.h": "e7d94cae6b36f92b934b76aa3d24854845710e798654bdd29cef90e13e0f161e",
+    "mimalloc_v3.5.1/include/mimalloc/types.h": "9d6832d33cb9cf6971bd4c3218cb60af696abe775b64a7d8003d7ff56dd4d763",
+    "mimalloc_v3.5.1/mimalloc.a": "10af4abf7966f1ba45b7526b3342ac1d8298d4005c12fcba074d5b75ecc35661"
+  }
+}

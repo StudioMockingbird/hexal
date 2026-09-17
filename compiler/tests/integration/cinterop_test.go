@@ -58,7 +58,7 @@ func TestCImportPreparedBindingHeaderMismatch(t *testing.T) {
 func TestExternBlockFailsClosed(t *testing.T) {
 	source := "extern c from <adder.h> do\n    fun add(left: Array<Int32, 4>): Int32\nend\nvalue: Int32 := 1\n"
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
-	assertStderrContains(t, result, "has no supported C ABI mapping for target x86_64-windows-gnu")
+	assertStderrContains(t, result, "has no supported C ABI mapping for target x86_64-windows-gnu-ucrt")
 }
 
 func TestDiscoverCImports(t *testing.T) {

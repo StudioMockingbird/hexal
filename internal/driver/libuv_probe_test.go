@@ -482,7 +482,7 @@ func TestLibuvEventRuntimeProbe(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n")
-	result, err := Build(BuildOptions{Root: dir})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
 		if len(result.Commands) > 0 {
 			last := result.Commands[len(result.Commands)-1]
@@ -527,7 +527,7 @@ end
 value: Int32 | Error := run()
 `
 	writeSource(t, dir, "main.hex", source)
-	result, err := Build(BuildOptions{Root: dir})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
 		if len(result.Commands) > 0 {
 			last := result.Commands[len(result.Commands)-1]

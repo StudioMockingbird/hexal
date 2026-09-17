@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
 	"hexal/internal/backend"
 	"hexal/internal/version"
 )
@@ -141,21 +142,20 @@ func backendIdentity(selected *backend.Backend) string {
 
 // buildIdentity is the lowercase full SHA-256 of a length-delimited stream
 // naming everything one build's output depends on: the Hexal version, the
-// backend identity, the target profile, the mode, every generated artifact
-// name and its bytes in sorted order, the runtime dependencies, and the exact
-// mode compile and link options. Each field is preceded by its byte length
-// and each variable-length group by its element count, so no two distinct
-// field sequences can encode to the same stream.
+// backend identity, the target profile and runtime ABI, the mode, every
+// generated artifact name and its bytes in sorted order, the runtime
+// dependencies, the exact mode compile and link options, the runtime pack's
+// manifest digest and selected payload hashes, and secret-safe environment
+// override hashes. Each field is preceded by its byte length and each
+// variable-length group by its element count, so no two distinct field
+// sequences can encode to the same stream.
 //
-// No staging or host-absolute path participates, and that rule is what
-// decides which options are hashed. The mode options are the only ones that
-// vary independently of the fields above; the include and library options a
-// dependency contributes are a pure function of the dependency list already
-// hashed here and of the staging path deliberately excluded, so hashing them
-// would add a host path without adding information. Excluding them is also
-// what lets the identity be computed before the staging directory exists, so
-// that directory can be named after it.
-func buildIdentity(mode BuildMode, backendIdentity string, files map[string]string, dependencies []compiler.RuntimeDependency, compileOptions, linkOptions []string) string {
+// No staging or host-absolute path participates. The mode options are the only
+// options that vary independently of the fields above; dependency and pack
+// include options are a pure function of the dependency list and manifest
+// digest already hashed here, so hashing them would add host paths without
+// adding information.
+func buildIdentity(mode BuildMode, backendIdentity string, files map[string]string, dependencies []compiler.RuntimeDependency, compileOptions, linkOptions []string, target compilerTypes.TargetProfileID, pack packInputs, environmentHashes []string) string {
 	hasher := sha256.New()
 	var length [8]byte
 	write := func(field string) {
@@ -168,6 +168,8 @@ func buildIdentity(mode BuildMode, backendIdentity string, files map[string]stri
 	write(version.String())
 	write(backendIdentity)
 	write(qualifiedTriple)
+	write(string(target))
+	write(strconv.FormatUint(uint64(compiler.RuntimeABIVersion), 10))
 	write(string(mode))
 
 	names := make([]string, 0, len(files))
@@ -193,6 +195,16 @@ func buildIdentity(mode BuildMode, backendIdentity string, files map[string]stri
 	count(len(linkOptions))
 	for _, option := range linkOptions {
 		write(option)
+	}
+
+	write(pack.ManifestDigest)
+	count(len(pack.PayloadHashes))
+	for _, digest := range pack.PayloadHashes {
+		write(digest)
+	}
+	count(len(environmentHashes))
+	for _, digest := range environmentHashes {
+		write(digest)
 	}
 	return hex.EncodeToString(hasher.Sum(nil))
 }

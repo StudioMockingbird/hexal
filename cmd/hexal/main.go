@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 
+	compilerTypes "hexal/compiler/types"
 	"hexal/internal/driver"
 	"hexal/internal/version"
 	"hexal/workbench"
@@ -47,7 +48,7 @@ func dispatch(args []string) error {
 	case "build":
 		return build(args[1:])
 	case "doctor":
-		return doctor()
+		return doctor(args[1:])
 	case "version":
 		fmt.Println(versionLine())
 		return nil
@@ -78,6 +79,9 @@ usage:
   hexal help              print this message
 
 build options:
+  -cc <path>            exact Zig executable path (required)
+  -target <profile>     exact Hexal target profile (required)
+  -runtime-dir <dir>    runtime-pack root override
   -mode <name>          debug or release (default: debug)
   -root <dir>           source root (default: current directory)
   -entry <key>          entrypoint logical key (default: main.hex)
@@ -92,6 +96,11 @@ build options:
   -archive <path>       link one static archive (repeatable)
   -system-library <name> link one system library by logical name (repeatable)
 
+doctor options:
+  -cc <path>            exact Zig executable path (required)
+  -target <profile>     exact Hexal target profile (required)
+  -runtime-dir <dir>    runtime-pack root override
+
 Every relative foreign-input path resolves against -root. Generated Hexal
 translation units remain C23; foreign sources use -c-standard.
 
@@ -105,8 +114,11 @@ func build(args []string) error {
 	flags := flag.NewFlagSet("build", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var options driver.BuildOptions
-	var mode string
+	var mode, target string
 	var cSources, cIncludeDirs, cDefines, cEnvironment, objects, archives, systemLibraries stringList
+	flags.StringVar(&options.CompilerPath, "cc", "", "exact Zig executable path (required)")
+	flags.StringVar(&target, "target", "", "exact Hexal target profile (required)")
+	flags.StringVar(&options.RuntimeDir, "runtime-dir", "", "runtime-pack root override")
 	flags.StringVar(&mode, "mode", "", "build mode: debug or release")
 	flags.StringVar(&options.Root, "root", "", "source root")
 	flags.StringVar(&options.Entrypoint, "entry", "", "entrypoint logical key")
@@ -129,6 +141,7 @@ func build(args []string) error {
 		return err
 	}
 	options.Mode = parsed
+	options.Target = compilerTypes.TargetProfileID(target)
 	options.CSources = cSources
 	options.CIncludeDirs = cIncludeDirs
 	options.CDefines = cDefines
@@ -164,9 +177,20 @@ func (list *stringList) Set(value string) error {
 }
 
 // doctor prints the version report before any backend finding: the Hexal
-// version stays available even when backend discovery fails.
-func doctor() error {
-	report, problems := driver.Doctor()
+// version stays available even when backend selection fails.
+func doctor(args []string) error {
+	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	var options driver.DoctorOptions
+	var target string
+	flags.StringVar(&options.CompilerPath, "cc", "", "exact Zig executable path (required)")
+	flags.StringVar(&target, "target", "", "exact Hexal target profile (required)")
+	flags.StringVar(&options.RuntimeDir, "runtime-dir", "", "runtime-pack root override")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	options.Target = compilerTypes.TargetProfileID(target)
+	report, problems := driver.Doctor(options)
 	for _, line := range report {
 		fmt.Println(line)
 	}

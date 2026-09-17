@@ -8,7 +8,6 @@ package driver
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -106,6 +105,14 @@ type BuildOptions struct {
 	OutDir     string    // intermediate root; defaults to <root>/build
 	Output     string    // executable path; defaults to <outdir>/<entrypoint>.exe
 	Mode       BuildMode // backend option set; defaults to debug
+	// CompilerPath is the exact installed Zig executable. It is required: the
+	// driver never searches PATH for a compiler.
+	CompilerPath string
+	// Target is the exact Hexal target-profile identity. It is required.
+	Target compilerTypes.TargetProfileID
+	// RuntimeDir overrides the checked-in runtime-pack root. Empty selects the
+	// pack directory beside the running executable.
+	RuntimeDir string
 	// CSources are foreign C translation units compiled separately and linked.
 	CSources []string
 	// CIncludeDirs are header search directories added to generated module and
@@ -142,9 +149,11 @@ func hexalFailureMessage(diagnostics []string) string {
 	return "compilation failed"
 }
 
-// qualifiedTriple is the one target RFC 0052 qualifies, named explicitly
-// rather than relying on the backend default.
-const qualifiedTriple = string(compilerTypes.TargetX86_64WindowsGNU)
+// qualifiedTriple is Zig's toolchain target spelling for the qualified
+// profile, named explicitly rather than relying on the backend default. It is
+// the driver profile record's spelling; the Hexal identity carries the CRT
+// suffix while Zig's does not.
+const qualifiedTriple = zigTargetSpelling
 
 // stagingBaseName is the intermediate directory under the output root. Only
 // this exact directory is skipped during source discovery; a different
@@ -177,7 +186,7 @@ func Build(options BuildOptions) (BuildResult, error) {
 
 	// Foreign build configuration is validated before any external command:
 	// its environment, dialect, definitions, and library names first, then its
-	// rooted paths.
+	// rooted paths. It needs no compiler, so it fails before one is resolved.
 	foreign, foreignFailure := configureForeign(options)
 	if foreignFailure != nil {
 		return result, foreignFailure
@@ -186,11 +195,19 @@ func Build(options BuildOptions) (BuildResult, error) {
 		return result, foreignFailure
 	}
 
-	if err := checkHost(); err != nil {
-		return result, configurationFailure(err.Error())
+	// The target profile and the exact installed compiler are selected before
+	// source discovery. An unqualified profile or an unacceptable compiler
+	// fails here, not after compilation.
+	profile, profileErr := resolveZigProfile(options.Target)
+	if profileErr != nil {
+		return result, configurationFailure(profileErr.Error())
 	}
-	backend, err := resolveBackend()
-	if err != nil {
+	backend, backendErr := resolveBackend(options.CompilerPath, profile)
+	if backendErr != nil {
+		return result, configurationFailure(backendErr.Error())
+	}
+
+	if err := checkHost(); err != nil {
 		return result, configurationFailure(err.Error())
 	}
 	// Every generated-C, foreign-C, and link invocation runs under the one
@@ -233,16 +250,15 @@ func Build(options BuildOptions) (BuildResult, error) {
 		for key, content := range sources {
 			compiledSources[key] = content
 		}
-		options := headerOptions{compileOptions: foreign.moduleCompileOptions()}
+		headerOpts := headerOptions{compileOptions: foreign.moduleCompileOptions(), target: string(options.Target)}
 		prepared := make(map[string]bool, len(requests))
 		for _, request := range requests {
-			key := compiler.CBindingKey(qualifiedTriple, request)
-			if prepared[key] {
+			if prepared[compiler.CBindingKey(headerOpts.target, request)] {
 				// Equal target/header-form/header-payload requests prepare one
 				// binding.
 				continue
 			}
-			binding, bindingFailure := inspectRequest(backend, clang, inspection, request, options, &result)
+			binding, bindingFailure := inspectRequest(backend, clang, inspection, request, headerOpts, &result)
 			if bindingFailure != nil {
 				return result, bindingFailure
 			}
@@ -251,7 +267,7 @@ func Build(options BuildOptions) (BuildResult, error) {
 		}
 	}
 
-	compileResult := compiler.Compile(compiledSources, entrypoint, compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	compileResult := compiler.Compile(compiledSources, entrypoint, compiler.Project{Target: options.Target})
 	if len(compileResult.Stderr) > 0 {
 		// Diagnostics are the compiler's output, not the driver's. Print them
 		// verbatim and fail without adding a wrapping line.
@@ -262,8 +278,27 @@ func Build(options BuildOptions) (BuildResult, error) {
 	}
 
 	// The mode selects backend options here and nowhere else; the dependency
-	// options added further below are mode-independent by design.
+	// include options are mode-independent by design.
 	selected := Options(mode)
+
+	// Resolve the demanded runtime pack only when the program selects a
+	// runtime dependency. A dependency-free build never reads lib/.
+	var pack packInputs
+	if len(compileResult.Dependencies) > 0 {
+		runtimeRoot, rootErr := resolveRuntimeRoot(options.RuntimeDir)
+		if rootErr != nil {
+			return result, filesystemFailure(rootErr.Error())
+		}
+		_, loaded, packErr := loadRuntimeManifest(runtimeRoot, options.Target, compileResult.Dependencies)
+		if packErr != nil {
+			return result, configurationFailure(packErr.Error())
+		}
+		pack = loaded
+	}
+	packIncludes := make([]string, 0, len(pack.IncludeDirs))
+	for _, directory := range pack.IncludeDirs {
+		packIncludes = append(packIncludes, "-I"+directory)
+	}
 
 	// The identity is derived before anything touches the filesystem, because
 	// it names the staging tree: every object path and the linked executable
@@ -283,7 +318,7 @@ func Build(options BuildOptions) (BuildResult, error) {
 		}
 		identity = strings.TrimPrefix(filepath.Base(staging), "build-")
 	} else {
-		identity = buildIdentity(mode, backendIdentity(backend), compileResult.Files, compileResult.Dependencies, selected.Compile, selected.Link)
+		identity = buildIdentity(mode, backendIdentity(backend), compileResult.Files, compileResult.Dependencies, selected.Compile, selected.Link, options.Target, pack, environmentOverrideHashes(foreign))
 		staging, err = identityStagingDir(outDir, identity)
 		if err != nil {
 			return result, filesystemFailure(err.Error())
@@ -299,10 +334,6 @@ func Build(options BuildOptions) (BuildResult, error) {
 	backend.Directory = staging
 
 	cFiles, err := materialize(staging, compileResult.Files)
-	if err != nil {
-		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
-	}
-	native, err := materializeDependencies(staging, compileResult.Dependencies)
 	if err != nil {
 		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
 	}
@@ -325,27 +356,25 @@ func Build(options BuildOptions) (BuildResult, error) {
 
 	backend.EnvironmentOverrides = foreign.overrideNames
 
-	compileOptions := append(selected.Compile, native.compileOptions...)
-	linkOptions := append(selected.Link, native.linkOptions...)
+	compileOptions := append(append([]string(nil), selected.Compile...), packIncludes...)
+	linkOptions := append([]string(nil), selected.Link...)
 
-	if err := compileNativeDependencies(backend, staging, native, &result); err != nil {
-		return result, err
-	}
 	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, compileOptions, foreign.moduleCompileOptions(), &result); err != nil {
 		return result, err
 	}
-	foreignObjects, foreignFailure := compileForeignSources(backend, staging, foreign, mode, &result)
+	foreignObjects, foreignFailure := compileForeignSources(backend, staging, foreign, mode, packIncludes, &result)
 	if foreignFailure != nil {
 		return result, foreignFailure
 	}
-	// The five link groups in order: generated Hexal objects with their
-	// runtime dependencies in their existing deterministic order, compiled
-	// foreign-source objects, precompiled objects, static archives, then named
-	// system libraries as linker options.
-	objects := append(cFilesToObjects(staging, cFiles), native.linkObjects...)
+	// The link groups in order: generated Hexal objects, compiled foreign-C
+	// objects, explicit user objects, user archives, demanded runtime
+	// archives, demanded runtime system libraries, then user system libraries.
+	objects := cFilesToObjects(staging, cFiles)
 	objects = append(objects, foreignObjects...)
 	objects = append(objects, foreign.Objects...)
 	objects = append(objects, foreign.Archives...)
+	objects = append(objects, pack.Archives...)
+	linkOptions = append(linkOptions, packSystemLibraryOptions(pack)...)
 	linkOptions = append(linkOptions, foreign.systemLibraryOptions()...)
 
 	// The executable is linked in staging under a basename carrying the build
@@ -384,26 +413,65 @@ func checkHost() error {
 	return nil
 }
 
-// resolveBackend locates the installed backend through PATH: the first
-// zig on the search path. It never downloads during a build. The pin is
-// enforced by exact version match; a newer version does not satisfy it.
-func resolveBackend() (*backend.Backend, error) {
-	exe, err := exec.LookPath("zig")
-	if err != nil {
-		return nil, fmt.Errorf("zig not found on PATH; install Zig %s (see the backend lock record) and retry", backend.PinnedZigWindows().Version)
+// resolveBackend validates the explicitly selected compiler before source
+// discovery. There is no PATH search: an absent, missing, non-executable, or
+// wrong-version compiler fails with a stable diagnostic. The exact version is
+// the one the backend lock record pins; a newer version does not satisfy it.
+func resolveBackend(compilerPath string, profile zigProfile) (*backend.Backend, error) {
+	if compilerPath == "" {
+		return nil, fmt.Errorf("C backend is required; pass -cc <path>")
 	}
-	selected, err := backend.NewBackend(exe)
+	resolved, err := filepath.Abs(compilerPath)
 	if err != nil {
-		return nil, fmt.Errorf("backend %q is unusable: %v", exe, err)
+		return nil, fmt.Errorf("C backend path %s is not an executable file", compilerPath)
+	}
+	resolved = filepath.Clean(resolved)
+	if !executableFile(resolved) {
+		return nil, fmt.Errorf("C backend path %s is not an executable file", resolved)
+	}
+	selected, err := backend.NewBackend(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("C backend %s is unusable: %v", resolved, err)
 	}
 	if err := selected.Validate(); err != nil {
-		return nil, fmt.Errorf("backend invalid: %v", err)
+		return nil, fmt.Errorf("C backend %s is unusable: %v", resolved, err)
 	}
 	pinned := backend.PinnedZigWindows().Version
-	if err := selected.CheckPinned(pinned); err != nil {
+	if selected.Version != pinned {
+		return nil, fmt.Errorf("C backend %s reports Zig %s; target %s requires Zig %s", resolved, selected.Version, profile.profile, pinned)
+	}
+	if err := verifyZigTarget(selected, profile); err != nil {
 		return nil, err
 	}
 	return selected, nil
+}
+
+// executableFile reports whether path is a regular file this host can execute.
+// The qualified host is Windows, where an executable is a regular file whose
+// extension is .exe; another host never reaches a qualified build.
+func executableFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Ext(path), ".exe")
+	}
+	return info.Mode()&0o111 != 0
+}
+
+// verifyZigTarget proves the selected compiler accepts the profile's Zig
+// target spelling. Preprocessing an empty translation unit is the cheapest
+// proof that the spelling is known to this Zig.
+func verifyZigTarget(selected *backend.Backend, profile zigProfile) error {
+	invocation, err := selected.Run("cc", "-target", profile.zigTarget, "-E", "-x", "c", "-")
+	if err != nil {
+		return fmt.Errorf("C backend %s failed to run: %v", selected.Exe, err)
+	}
+	if invocation.ExitCode != 0 {
+		return fmt.Errorf("C backend %s does not accept target %s", selected.Exe, profile.zigTarget)
+	}
+	return nil
 }
 
 // stagingPath resolves the intermediate directory discovery skips: exactly

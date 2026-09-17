@@ -38,11 +38,11 @@ func TestAutomaticHeaderImportBuildRuns(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
 	native := autoAdderFixture(t, dir)
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		CSources:     []string{"native/adder.c"},
 		CIncludeDirs: []string{native},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("automatic-import build failed: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestAutomaticC23IncompatibleHeaderGuidesWrapper(t *testing.T) {
 	writeSource(t, dir, "native/legacy.h", "#ifndef LEGACY_H\n#define LEGACY_H\nint nullptr(void);\n#endif\n")
 	writeSource(t, dir, "main.hex", "import\n    Legacy from c \"legacy.h\"\nend\nvalue: Int32 := 1\n")
 
-	_, err := Build(BuildOptions{Root: dir, CIncludeDirs: []string{native}})
+	_, err := Build(withTestBackend(t, BuildOptions{Root: dir, CIncludeDirs: []string{native}}))
 	if err == nil {
 		t.Fatal("a C23-incompatible header must fail")
 	}
@@ -113,7 +113,7 @@ func TestAutomaticHeaderOnlyStaticInline(t *testing.T) {
 		"mut total: Int32 := 0\n"+
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
-	result, err := Build(BuildOptions{Root: dir, CIncludeDirs: []string{native}})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir, CIncludeDirs: []string{native}}))
 	if err != nil {
 		t.Fatalf("header-only automatic build failed: %v", err)
 	}
@@ -144,11 +144,11 @@ func TestAutomaticOmittedUnsupportedBesideSupported(t *testing.T) {
 		"mut total: Int32 := 0\n"+
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		CSources:     []string{"native/adder.c"},
 		CIncludeDirs: []string{native},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("build with an unrelated unsupported declaration failed: %v", err)
 	}
@@ -176,11 +176,11 @@ func TestAutomaticEqualRequestsPrepareOnce(t *testing.T) {
 		"mut total: Int32 := 0\n"+
 		"unsafe do\n    total = Helper.helper_add(20, 22) + Adder.adder_add(0, 0)\nend\n"+
 		"print(total)\n")
-	result, err := Build(BuildOptions{
+	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		CSources:     []string{"native/adder.c"},
 		CIncludeDirs: []string{native},
-	})
+	}))
 	if err != nil {
 		t.Fatalf("two modules naming one header failed: %v", err)
 	}

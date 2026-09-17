@@ -88,6 +88,15 @@ func TestProjectUnknownTargetRejected(t *testing.T) {
 	}
 }
 
+// The CRT ambiguity fix is a rename, not an alias: the old spelling must be
+// rejected exactly like any other unknown identity.
+func TestProjectOldTargetSpellingRejected(t *testing.T) {
+	err := validateProject(Project{Target: "x86_64-windows-gnu"})
+	if err == nil || !strings.Contains(err.Error(), "unknown target profile x86_64-windows-gnu") {
+		t.Fatalf("old target spelling %q accepted", "x86_64-windows-gnu")
+	}
+}
+
 func TestCompileRejectsUnknownTargetBeforeLexing(t *testing.T) {
 	result := Compile(map[string]string{"app.hex": "$$$\n"}, "app.hex", Project{Target: "aarch64-macos-none"})
 	if result.ExitCode != ExitFailure {

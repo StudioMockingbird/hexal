@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
 )
 
 // Pure-Go mode tests. Anything that spawns the real backend lives in
@@ -118,12 +119,12 @@ var fullSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func TestBuildIdentityIsAStableFullDigest(t *testing.T) {
 	files, dependencies, compileOptions, linkOptions := identityInputs()
-	first := buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions)
+	first := buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
 	if !fullSHA256.MatchString(first) {
 		t.Fatalf("identity %q is not a lowercase full SHA-256", first)
 	}
 	for range 5 {
-		if again := buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions); again != first {
+		if again := buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil); again != first {
 			t.Fatalf("identity is not deterministic: %q then %q", first, again)
 		}
 	}
@@ -133,7 +134,7 @@ func TestBuildIdentityIsAStableFullDigest(t *testing.T) {
 // different outputs could claim one debug-information name.
 func TestBuildIdentityRespondsToEveryField(t *testing.T) {
 	files, dependencies, compileOptions, linkOptions := identityInputs()
-	base := buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions)
+	base := buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
 
 	otherFiles := map[string]string{}
 	for name, content := range files {
@@ -152,13 +153,18 @@ func TestBuildIdentityRespondsToEveryField(t *testing.T) {
 		name     string
 		identity string
 	}{
-		{"mode", buildIdentity(ModeRelease, "zig=0.16.0", files, dependencies, compileOptions, linkOptions)},
-		{"backend", buildIdentity(ModeDebug, "zig=0.15.1", files, dependencies, compileOptions, linkOptions)},
-		{"artifact bytes", buildIdentity(ModeDebug, "zig=0.16.0", otherFiles, dependencies, compileOptions, linkOptions)},
-		{"artifact names", buildIdentity(ModeDebug, "zig=0.16.0", renamedFiles, dependencies, compileOptions, linkOptions)},
-		{"dependencies", buildIdentity(ModeDebug, "zig=0.16.0", files, []compiler.RuntimeDependency{compiler.RuntimeLibuv}, compileOptions, linkOptions)},
-		{"compile options", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, []string{"-O0"}, linkOptions)},
-		{"link options", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, []string{"-luser32"})},
+		{"mode", buildIdentity(ModeRelease, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)},
+		{"backend", buildIdentity(ModeDebug, "zig=0.15.1", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)},
+		{"artifact bytes", buildIdentity(ModeDebug, "zig=0.16.0", otherFiles, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)},
+		{"artifact names", buildIdentity(ModeDebug, "zig=0.16.0", renamedFiles, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)},
+		{"dependencies", buildIdentity(ModeDebug, "zig=0.16.0", files, []compiler.RuntimeDependency{compiler.RuntimeLibuv}, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)},
+		{"compile options", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, []string{"-O0"}, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)},
+		{"link options", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, []string{"-luser32"}, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)},
+		{"target profile", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, "x86_64-linux-gnu", packInputs{}, nil)},
+		{"pack manifest presence", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{ManifestDigest: "manifest-a", PayloadHashes: []string{"a"}}, nil)},
+		{"manifest digest", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{ManifestDigest: "manifest-b", PayloadHashes: []string{"a"}}, nil)},
+		{"selected payload hash", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{ManifestDigest: "manifest-a", PayloadHashes: []string{"b"}}, nil)},
+		{"environment override hash", buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, []string{"override-hash"})},
 	} {
 		if testCase.identity == base {
 			t.Fatalf("identity ignores %s", testCase.name)
@@ -172,7 +178,7 @@ func TestBuildIdentityRespondsToEveryField(t *testing.T) {
 // for a republished debug file could never be exercised.
 func TestBuildIdentityCarriesNoHostPath(t *testing.T) {
 	files, dependencies, compileOptions, linkOptions := identityInputs()
-	identity := buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions)
+	identity := buildIdentity(ModeDebug, "zig=0.16.0", files, dependencies, compileOptions, linkOptions, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
 	if !fullSHA256.MatchString(identity) {
 		t.Fatalf("identity %q is not a bare digest", identity)
 	}
@@ -216,13 +222,13 @@ func TestIdentityStagingDirIsStableAndCleared(t *testing.T) {
 // running one field's content into the next.
 func TestBuildIdentitySeparatesAdjacentFields(t *testing.T) {
 	empty := map[string]string{}
-	first := buildIdentity(ModeDebug, "zig", empty, nil, []string{"ab", "c"}, nil)
-	second := buildIdentity(ModeDebug, "zig", empty, nil, []string{"a", "bc"}, nil)
+	first := buildIdentity(ModeDebug, "zig", empty, nil, []string{"ab", "c"}, nil, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
+	second := buildIdentity(ModeDebug, "zig", empty, nil, []string{"a", "bc"}, nil, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
 	if first == second {
 		t.Fatal("adjacent option fields are not length-delimited")
 	}
-	third := buildIdentity(ModeDebug, "zig", map[string]string{"a": "b"}, nil, nil, nil)
-	fourth := buildIdentity(ModeDebug, "zig", map[string]string{"ab": ""}, nil, nil, nil)
+	third := buildIdentity(ModeDebug, "zig", map[string]string{"a": "b"}, nil, nil, nil, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
+	fourth := buildIdentity(ModeDebug, "zig", map[string]string{"ab": ""}, nil, nil, nil, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
 	if third == fourth {
 		t.Fatal("artifact name and content are not length-delimited")
 	}

@@ -12,10 +12,13 @@ package driver
 
 import (
 	"debug/pe"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"hexal/compiler"
@@ -24,20 +27,85 @@ import (
 	"hexal/internal/version"
 )
 
+// withTestBackend fills the required compiler, target, and checked-in runtime
+// directory into one test's build options. Every tagged driver test that runs
+// a real build goes through it, so the qualified configuration lives in one
+// place.
+func withTestBackend(t *testing.T, options BuildOptions) BuildOptions {
+	t.Helper()
+	options.CompilerPath = requireBackend(t).Exe
+	options.Target = compilerTypes.TargetX86_64WindowsGNU
+	options.RuntimeDir = repoRuntimeDir(t)
+	return options
+}
+
+// doctorOptionsForTest selects the qualified configuration for doctor.
+func doctorOptionsForTest(t *testing.T) DoctorOptions {
+	t.Helper()
+	return DoctorOptions{
+		CompilerPath: requireBackend(t).Exe,
+		Target:       compilerTypes.TargetX86_64WindowsGNU,
+		RuntimeDir:   repoRuntimeDir(t),
+	}
+}
+
+// repoRuntimeDir is the checked-in runtime-pack root, derived from this test
+// file's own location rather than from the working directory.
+func repoRuntimeDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot locate the repository root from the test source")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "..", "lib")
+}
+
+var (
+	testBackendOnce sync.Once
+	testBackend     *backend.Backend
+	testBackendErr  error
+)
+
+// requireBackend resolves and caches the pinned backend once per test binary:
+// resolving it spawns the compiler several times, and every helper and build
+// needs the same executable.
 func requireBackend(t *testing.T) *backend.Backend {
 	t.Helper()
-	exe, err := exec.LookPath("zig")
-	if err != nil {
-		t.Fatalf("qualification gate needs zig on PATH: %v", err)
+	testBackendOnce.Do(func() {
+		exe, err := exec.LookPath("zig")
+		if err != nil {
+			testBackendErr = fmt.Errorf("qualification gate needs zig on PATH: %v", err)
+			return
+		}
+		selected, err := backend.NewBackend(exe)
+		if err != nil {
+			testBackendErr = fmt.Errorf("qualification gate needs a usable backend: %v", err)
+			return
+		}
+		if err := selected.CheckPinned(backendPkgPinnedVersion()); err != nil {
+			testBackendErr = fmt.Errorf("qualification gate needs the pinned backend: %v", err)
+			return
+		}
+		testBackend = selected
+	})
+	if testBackendErr != nil {
+		t.Fatal(testBackendErr)
 	}
-	selected, err := backend.NewBackend(exe)
-	if err != nil {
-		t.Fatalf("qualification gate needs a usable backend: %v", err)
+	return testBackend
+}
+
+// TestDependencyFreeBuildIgnoresRuntimeDir proves a program selecting no
+// runtime dependency never resolves or reads lib/.
+func TestDependencyFreeBuildIgnoresRuntimeDir(t *testing.T) {
+	dir := t.TempDir()
+	writeSource(t, dir, "main.hex", "value: Int32 := 1\n")
+	options := withTestBackend(t, BuildOptions{Root: dir})
+	// Point the runtime root at a path that does not exist: a dependency-free
+	// build must never look there.
+	options.RuntimeDir = filepath.Join(t.TempDir(), "absent")
+	if _, err := Build(options); err != nil {
+		t.Fatalf("dependency-free build must not read lib/: %v", err)
 	}
-	if err := selected.CheckPinned(backendPkgPinnedVersion()); err != nil {
-		t.Fatalf("qualification gate needs the pinned backend: %v", err)
-	}
-	return selected
 }
 
 // TestBuildProducesRunnableExecutable is the end-to-end check: source in,
@@ -48,7 +116,7 @@ func TestBuildProducesRunnableExecutable(t *testing.T) {
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
 
-	result, err := Build(BuildOptions{Root: dir})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -72,7 +140,7 @@ func TestBuildHasNoMimallocDLLImport(t *testing.T) {
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "values: Array<Int32, 2> := [1, 2]\nprint(values[0])\n")
 
-	result, err := Build(BuildOptions{Root: dir})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -101,7 +169,7 @@ func TestBuildCompilesRuntimeComponents(t *testing.T) {
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "values: Array<Int32, 2> := [1, 2]\nprint(values[0])\n")
 
-	result, err := Build(BuildOptions{Root: dir})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -123,7 +191,7 @@ func TestBuildResolvesImports(t *testing.T) {
 	writeSource(t, dir, "util.hex", "fun double(value: Int32): Int32 do\n    return value * 2\nend\nexport\n    double\nend\n")
 	writeSource(t, dir, "main.hex", "import\n    Util from \"./util\"\nend\nprint(Util.double(21))\n")
 
-	result, err := Build(BuildOptions{Root: dir})
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
@@ -269,7 +337,7 @@ func assertStagingRemoved(t *testing.T, root string) {
 // toolchain problem.
 func TestDoctorPassesOnThisHost(t *testing.T) {
 	requireBackend(t)
-	report, problems := Doctor()
+	report, problems := Doctor(doctorOptionsForTest(t))
 	if len(report) == 0 || report[0] != "Hexal: "+version.String() {
 		t.Errorf("doctor report %q lacks the leading Hexal version line", report)
 	}

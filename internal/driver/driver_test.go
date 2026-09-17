@@ -184,17 +184,15 @@ func TestHexalFailureMessageKeepsOrdinaryDiagnosticsStable(t *testing.T) {
 }
 
 // TestDoctorReportsVersionWithoutBackend pins that the Hexal version is
-// available even when backend discovery fails: emptying PATH guarantees no
+// available even when backend selection fails: no compiler path guarantees no
 // backend resolves, and the report still opens with the version line.
 func TestDoctorReportsVersionWithoutBackend(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-
-	report, problems := Doctor()
+	report, problems := Doctor(DoctorOptions{})
 	if len(report) == 0 || report[0] != "Hexal: "+version.String() {
 		t.Fatalf("doctor report %q lacks the leading Hexal version line", report)
 	}
 	if len(problems) == 0 {
-		t.Fatal("doctor reported no problem with no backend on PATH")
+		t.Fatal("doctor reported no problem with no target and no compiler")
 	}
 }
 
