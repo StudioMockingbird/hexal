@@ -10,8 +10,8 @@ package c23validation
 // generated code, which a debug-only pass would never catch.
 //
 // It is deliberately additive to the existing harness rather than woven into
-// it: the tiered runner above compares three toolchains against each other at
-// one flag set, and this compares one toolchain against itself at two.
+// it: the tiered runner above checks one flag set for compile/run/trap, while
+// this compares the same Clang against itself at two option sets.
 
 import (
 	"bytes"
@@ -70,8 +70,8 @@ func buildOnlyInMode(t *testing.T, tc toolchain, result compiler.CompilationResu
 
 // buildAndRunInMode builds one artifact set with the driver's exact option
 // set for mode and runs it, returning everything a fixture is allowed to
-// observe. The zig toolchain is the one the driver itself uses, so its
-// options mean what the driver means by them.
+// observe. Clang is the compiler the driver itself uses, so its options mean
+// what the driver means by them.
 func buildAndRunInMode(t *testing.T, tc toolchain, result compiler.CompilationResult, buildRoot string, mode driver.BuildMode) modeRun {
 	t.Helper()
 	return runInMode(t, buildOnlyInMode(t, tc, result, buildRoot, mode))
@@ -85,7 +85,7 @@ func buildAndRunInMode(t *testing.T, tc toolchain, result compiler.CompilationRe
 func buildModeArtifacts(tc toolchain, result compiler.CompilationResult, compileFlags, linkFlags []string, buildRoot, artifactHash, mode string) buildResult {
 	var native *dependencyBuild
 	if len(result.Dependencies) > 0 {
-		native = buildDependencies(tc, result.Dependencies, buildRoot)
+		native = buildDependencies(result.Dependencies, buildRoot)
 		if native.err != nil {
 			return buildResult{err: native.err}
 		}
@@ -108,10 +108,13 @@ func buildModeArtifacts(tc toolchain, result compiler.CompilationResult, compile
 			return buildResult{err: err}
 		}
 	}
-	exe := filepath.Join(dir, "hexal.exe")
-	args := append([]string{}, tc.Command[1:]...)
-	args = append(args, compileFlags...)
-	args = append(args, "-I", dir)
+	// The generated tree already contains a hexal/ directory of artifacts, so
+	// the executable is named distinctly; a Linux ELF has no extension.
+	exe := filepath.Join(dir, "hexal-program")
+	args := append([]string{}, compileFlags...)
+	// Generated C relies on POSIX 2008 declarations a strict -std=c23 glibc
+	// compile hides behind _POSIX_C_SOURCE (see c23_harness_test.go).
+	args = append(args, "-D_POSIX_C_SOURCE=200809L", "-I", dir)
 	if native != nil {
 		args = append(args, native.includeOptions...)
 	}
@@ -121,7 +124,7 @@ func buildModeArtifacts(tc toolchain, result compiler.CompilationResult, compile
 		}
 	}
 	if native != nil {
-		args = append(args, native.objects...)
+		args = append(args, native.archives...)
 		args = append(args, native.linkOptions...)
 	}
 	args = append(args, linkFlags...)
@@ -141,9 +144,9 @@ func buildModeArtifacts(tc toolchain, result compiler.CompilationResult, compile
 
 // runInMode runs one built program under the same hard timeout every other
 // binary in this suite gets, capturing the streams separately and the exit
-// status. Stdout is normalized the way the tiered runner normalizes it: a C
-// runtime in text mode on Windows translates '\n' through a pipe, and a
-// fixture asserts the bytes the program wrote.
+// status. Stdout is normalized the way the tiered runner normalizes it, to
+// collapse any platform CRLF translation, so a fixture asserts the bytes the
+// program wrote.
 func runInMode(t *testing.T, path string) modeRun {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), runProcessTimeout)
@@ -210,7 +213,7 @@ func compileOnlyCompareModes(t *testing.T, tc toolchain, result compiler.Compila
 // generated C.
 func TestReleaseLaneFixtures(t *testing.T) {
 	buildRoot := t.TempDir()
-	_, _, zig := discoverAllToolchains(t)
+	clang := clangToolchain(t)
 	for _, f := range fixtureCatalog {
 		if !f.appliesToHost() {
 			continue
@@ -218,10 +221,10 @@ func TestReleaseLaneFixtures(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			result := f.resolve(t)
 			if f.expectation == nil {
-				compileOnlyCompareModes(t, zig, result, buildRoot)
+				compileOnlyCompareModes(t, clang, result, buildRoot)
 				return
 			}
-			compareModes(t, zig, result, buildRoot)
+			compareModes(t, clang, result, buildRoot)
 		})
 	}
 }
@@ -236,12 +239,12 @@ func TestReleaseLaneFixtures(t *testing.T) {
 // the count does not complete sequentially in a reasonable time.
 func TestReleaseLaneSnippetCatalog(t *testing.T) {
 	buildRoot := t.TempDir()
-	discoverAllToolchains(t)
+	clangToolchain(t)
 	for _, snippet := range allSnippets(t) {
 		t.Run(snippet.ID, func(t *testing.T) {
 			t.Parallel()
-			_, _, zig := discoverAllToolchains(t)
-			compileOnlyCompareModes(t, zig, assertCompilesSources(t, snippet.Sources, snippet.Entrypoint), buildRoot)
+			clang := clangToolchain(t)
+			compileOnlyCompareModes(t, clang, assertCompilesSources(t, snippet.Sources, snippet.Entrypoint), buildRoot)
 		})
 	}
 }
@@ -256,12 +259,12 @@ var representativeModePrograms = map[string]map[string]string{
 }
 
 // TestReleaseExecutablesAreSmallerAndUndebuggable checks the two properties a
-// release build exists for, over the representative set. RSDS is the CodeView
-// record naming an external debug file; a stripped image carries neither it
-// nor the file name.
+// release build exists for, over the representative set. A debug build emits
+// DWARF sections (the ELF section table names .debug_info); a stripped
+// release build carries none.
 func TestReleaseExecutablesAreSmallerAndUndebuggable(t *testing.T) {
 	buildRoot := t.TempDir()
-	_, _, zig := discoverAllToolchains(t)
+	clang := clangToolchain(t)
 	names := make([]string, 0, len(representativeModePrograms))
 	for name := range representativeModePrograms {
 		names = append(names, name)
@@ -270,19 +273,26 @@ func TestReleaseExecutablesAreSmallerAndUndebuggable(t *testing.T) {
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			result := assertCompilesSources(t, representativeModePrograms[name], "app.hex")
-			debug := buildAndRunInMode(t, zig, result, buildRoot, driver.ModeDebug)
-			release := buildAndRunInMode(t, zig, result, buildRoot, driver.ModeRelease)
+			debug := buildAndRunInMode(t, clang, result, buildRoot, driver.ModeDebug)
+			release := buildAndRunInMode(t, clang, result, buildRoot, driver.ModeRelease)
 
 			debugSize := fileSize(t, debug.exe)
 			releaseSize := fileSize(t, release.exe)
 			if releaseSize >= debugSize {
 				t.Errorf("release is %d bytes, not smaller than debug's %d", releaseSize, debugSize)
 			}
+			debugRaw, err := os.ReadFile(debug.exe)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(debugRaw, []byte(".debug_info")) {
+				t.Error("debug executable carries no DWARF debug information")
+			}
 			raw, err := os.ReadFile(release.exe)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if bytes.Contains(raw, []byte("RSDS")) || bytes.Contains(raw, []byte(".pdb")) {
+			if bytes.Contains(raw, []byte(".debug_info")) {
 				t.Error("release executable carries debug information")
 			}
 			t.Logf("%s: debug %d bytes, release %d bytes (%.1f%% of debug)", name, debugSize, releaseSize, 100*float64(releaseSize)/float64(debugSize))
@@ -295,7 +305,7 @@ func TestReleaseExecutablesAreSmallerAndUndebuggable(t *testing.T) {
 // it; the fixture computes values where a contracted form would differ.
 func TestFloatingOutputIsModeIndependent(t *testing.T) {
 	buildRoot := t.TempDir()
-	_, _, zig := discoverAllToolchains(t)
+	clang := clangToolchain(t)
 	const program = "fun demo(a: Float64, b: Float64, c: Float64): Float64 do\n" +
 		"    return (a * b) + c\n" +
 		"end\n" +
@@ -303,8 +313,8 @@ func TestFloatingOutputIsModeIndependent(t *testing.T) {
 		"print(demo(1.0 / 3.0, 3.0, -1.0))\n" +
 		"print(1.0 / 3.0)\n"
 	result := assertCompilesSources(t, map[string]string{"app.hex": program}, "app.hex")
-	debug := buildAndRunInMode(t, zig, result, buildRoot, driver.ModeDebug)
-	release := buildAndRunInMode(t, zig, result, buildRoot, driver.ModeRelease)
+	debug := buildAndRunInMode(t, clang, result, buildRoot, driver.ModeDebug)
+	release := buildAndRunInMode(t, clang, result, buildRoot, driver.ModeRelease)
 	if debug.stdout != release.stdout {
 		t.Fatalf("floating output depends on the mode:\ndebug   %q\nrelease %q", debug.stdout, release.stdout)
 	}

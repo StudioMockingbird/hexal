@@ -54,14 +54,15 @@ func TestAutomaticHeaderImportBuildRuns(t *testing.T) {
 		t.Fatalf("output = %q, want %q", got, "42")
 	}
 	// A frontend inspection command ran, and the generated module compile
-	// received the user include root.
-	var sawClang bool
+	// received the user include root. The typed AST dump is the inspection's
+	// second step and appears in no other recorded command.
+	var sawInspection bool
 	for _, command := range result.Commands {
-		if filepath.Base(command.Tool) == "clang"+exeSuffix() {
-			sawClang = true
+		if strings.Contains(strings.Join(command.Arguments, " "), "-ast-dump=json") {
+			sawInspection = true
 		}
 	}
-	if !sawClang {
+	if !sawInspection {
 		t.Fatal("no standalone Clang inspection command was recorded")
 	}
 	// No binding file is written into the project.
@@ -194,11 +195,44 @@ func TestAutomaticEqualRequestsPrepareOnce(t *testing.T) {
 	// Exactly one Clang inspection ran for the equal requests.
 	inspections := 0
 	for _, command := range result.Commands {
-		if filepath.Base(command.Tool) == "clang"+exeSuffix() {
+		if strings.Contains(strings.Join(command.Arguments, " "), "-ast-dump=json") {
 			inspections++
 		}
 	}
 	if inspections != 1 {
 		t.Fatalf("equal requests prepared %d bindings, want 1", inspections)
+	}
+}
+
+// TestAutomaticObjectMacrosImportAsConstants proves object-like value macros in
+// an imported header are exposed as typed constants with no handwritten
+// binding: a literal and a bitwise flag expression.
+func TestAutomaticObjectMacrosImportAsConstants(t *testing.T) {
+	requireBackend(t)
+	dir := t.TempDir()
+	native := filepath.Join(dir, "native")
+	if err := os.MkdirAll(native, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSource(t, dir, "native/macros.h", "#ifndef MACROS_H\n#define MACROS_H\n#include <stdint.h>\n#define MAX_TOUCH_POINTS 10\n#define DEFAULT_FLAGS (1 | 4)\nint32_t macro_add(int32_t left, int32_t right);\n#endif\n")
+	writeSource(t, dir, "native/macros.c", "#include \"macros.h\"\nint32_t macro_add(int32_t left, int32_t right) { return left + right; }\n")
+	writeSource(t, dir, "main.hex", "import\n    M from c \"macros.h\"\nend\n"+
+		"mut total: Int32 := 0\n"+
+		"unsafe do\n    total = M.macro_add(M.MAX_TOUCH_POINTS, M.DEFAULT_FLAGS)\nend\n"+
+		"print(total)\n")
+	result, err := Build(withTestBackend(t, BuildOptions{
+		Root:         dir,
+		CSources:     []string{"native/macros.c"},
+		CIncludeDirs: []string{native},
+	}))
+	if err != nil {
+		t.Fatalf("object-macro automatic build failed: %v", err)
+	}
+	combined, err := exec.Command(result.Executable).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running %s failed: %v", result.Executable, err)
+	}
+	if got := string(combined); got != "15" {
+		t.Fatalf("output = %q, want %q", got, "15")
 	}
 }

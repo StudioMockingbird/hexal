@@ -69,21 +69,26 @@ func TestProjectCommitNotPageMultipleRejected(t *testing.T) {
 	}
 }
 
-// The qualified Windows target validates; any other non-empty identity
-// fails before lexing with exactly one Configuration Error diagnostic and
-// no artifacts, even when the source itself would also fail.
+// Both core targets validate; any other non-empty identity fails before
+// lexing with exactly one Configuration Error diagnostic and no artifacts,
+// even when the source itself would also fail.
 func TestProjectQualifiedTargetValidates(t *testing.T) {
-	if err := validateProject(Project{Target: compilerTypes.TargetX86_64WindowsGNU}); err != nil {
-		t.Fatalf("qualified target rejected: %v", err)
+	for _, target := range []compilerTypes.TargetProfileID{
+		compilerTypes.TargetX86_64WindowsGNU,
+		compilerTypes.TargetX86_64LinuxGNU,
+	} {
+		if err := validateProject(Project{Target: target}); err != nil {
+			t.Fatalf("qualified target %q rejected: %v", target, err)
+		}
 	}
 }
 
 func TestProjectUnknownTargetRejected(t *testing.T) {
-	err := validateProject(Project{Target: "x86_64-linux-gnu"})
+	err := validateProject(Project{Target: "x86_64-linux-musl"})
 	if err == nil {
 		t.Fatal("unqualified target accepted")
 	}
-	if !strings.Contains(err.Error(), "unknown target profile x86_64-linux-gnu") {
+	if !strings.Contains(err.Error(), "unknown target profile x86_64-linux-musl") {
 		t.Fatalf("diagnostic %q does not name the unknown identity", err.Error())
 	}
 }

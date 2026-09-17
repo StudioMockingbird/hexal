@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"hexal/internal/backend"
 )
 
 // writeCLIFile writes one fixture file under root, creating its directory.
@@ -43,13 +45,14 @@ func writeAdderProject(t *testing.T, root string) {
 }
 
 func TestCLIForeignSourceBuild(t *testing.T) {
+	selected := cliBackend(t)
 	root := t.TempDir()
 	writeAdderProject(t, root)
-	output := filepath.Join(root, "adder.exe")
+	output := filepath.Join(root, "adder")
 	err := run([]string{
 		"build",
-		"-cc", cliBackendPath(t),
-		"-target", "x86_64-windows-gnu-ucrt",
+		"-cc", selected.Exe,
+		"-target", "x86_64-linux-gnu",
 		"-root", root,
 		"-entry", "main.hex",
 		"-out", output,
@@ -69,29 +72,33 @@ func TestCLIForeignSourceBuild(t *testing.T) {
 }
 
 func TestCLIForeignArchiveBuild(t *testing.T) {
-	requireCLIBackend(t)
+	selected := cliBackend(t)
 	root := t.TempDir()
 	writeAdderProject(t, root)
 
-	// Compile the C source to an object and archive it with the pinned backend
-	// before the CLI build, so the archive is a genuinely precompiled input.
+	// Compile the C source to an object and archive it with the same selected
+	// Clang and the platform archiver before the CLI build, so the archive is
+	// a genuinely precompiled input.
 	staging := t.TempDir()
 	object := filepath.Join(staging, "adder.o")
 	archive := filepath.Join(staging, "adder.a")
-	compile := exec.Command(cliBackendPath(t), "cc", "-std=c17", "-target", "x86_64-windows-gnu", "-I", filepath.Join(root, "native"), "-c", filepath.Join(root, "native", "adder.c"), "-o", object)
-	if out, err := compile.CombinedOutput(); err != nil {
-		t.Fatalf("probe compile failed: %v\n%s", err, out)
+	compile, err := selected.CompileOneDialect("x86_64-linux-gnu", "c17", []string{"-I", filepath.Join(root, "native")}, filepath.Join(root, "native", "adder.c"), object)
+	if err != nil || compile.ExitCode != 0 {
+		t.Fatalf("probe compile failed: %v\n%s", err, compile.Stderr)
 	}
-	archiveCommand := exec.Command(cliBackendPath(t), "ar", "rcs", archive, object)
-	if out, err := archiveCommand.CombinedOutput(); err != nil {
+	archiver, err := exec.LookPath("ar")
+	if err != nil {
+		t.Fatalf("toolchain-dependent CLI test needs ar on PATH: %v", err)
+	}
+	if out, err := exec.Command(archiver, "rcs", archive, object).CombinedOutput(); err != nil {
 		t.Fatalf("probe archive failed: %v\n%s", err, out)
 	}
 
-	output := filepath.Join(root, "adder.exe")
-	err := run([]string{
+	output := filepath.Join(root, "adder")
+	err = run([]string{
 		"build",
-		"-cc", cliBackendPath(t),
-		"-target", "x86_64-windows-gnu-ucrt",
+		"-cc", selected.Exe,
+		"-target", "x86_64-linux-gnu",
 		"-root", root,
 		"-entry", "main.hex",
 		"-out", output,
@@ -110,17 +117,25 @@ func TestCLIForeignArchiveBuild(t *testing.T) {
 	}
 }
 
-// cliBackendPath locates the pinned Zig executable for the archive fixture.
-func cliBackendPath(t *testing.T) string {
+// cliBackend resolves the installed Clang for the tagged CLI tests. The
+// HEXAL_CLANG override names one exact executable; otherwise `clang` is
+// resolved from PATH. Clang 18 or newer is required.
+func cliBackend(t *testing.T) *backend.Backend {
 	t.Helper()
-	exe, err := exec.LookPath("zig")
-	if err != nil {
-		t.Fatalf("toolchain-dependent CLI test needs zig on PATH: %v", err)
+	exe := os.Getenv("HEXAL_CLANG")
+	if exe == "" {
+		found, err := exec.LookPath("clang")
+		if err != nil {
+			t.Fatalf("toolchain-dependent CLI test needs clang on PATH or HEXAL_CLANG set: %v", err)
+		}
+		exe = found
 	}
-	return exe
-}
-
-func requireCLIBackend(t *testing.T) {
-	t.Helper()
-	cliBackendPath(t)
+	selected, err := backend.NewBackend(exe)
+	if err != nil {
+		t.Fatalf("toolchain-dependent CLI test needs a usable Clang at %s: %v", exe, err)
+	}
+	if selected.Major < 18 {
+		t.Fatalf("toolchain-dependent CLI test needs Clang 18 or newer; %s reports %q", exe, selected.Version)
+	}
+	return selected
 }

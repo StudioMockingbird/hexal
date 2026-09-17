@@ -9,23 +9,17 @@ gets deleted.
 
 ## Open TODOs
 
-### Under review
+### In progress
 
 | Work | Spec |
 | --- | --- |
-| Review the consolidated installed-Clang Linux backend, checked-in embedded runtime pack, zero-file C-import, packaging, and Clang-only validation contract before it replaces RFC 0214 and RFC 0215 | [0217](specs/0217-clang-linux-backend-packaging-and-validation.md) |
+| Decide whether foreign constants may hold pointer, string-view, or record types so an object-like macro whose value is one of those (e.g. a record-valued compound literal) can import automatically; everything else in RFC 0217 is implemented and gated | [0217](specs/0217-clang-linux-backend-packaging-and-validation.md) |
 | After the WSL/Linux path lands, review and simplify the Windows backend, packaging, runtime-pack, and qualification path without removing the Windows compiler target | [0217](specs/0217-clang-linux-backend-packaging-and-validation.md), deferred follow-up requiring its own specification before implementation |
 
 ### Implementation-ready
 
 | Work | Spec |
 | --- | --- |
-| Qualify installed Clang on WSL, restore `hexal build <filepath>`, embed the `x86_64-linux-gnu` runtime pack, and make compiler builds produce only `bin/hexal` | [0214](specs/0214-installed-clang-wsl-backend.md), amending [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
-| Remove GCC and Zig from compiler-development and external-validation requirements after the Clang migration | [0215](specs/0215-single-clang-external-validation.md), blocked on [0214](specs/0214-installed-clang-wsl-backend.md) |
-| Remove RFC 0213's retained vendored-source path (`materializeDependencies`, `compileNativeDependencies`, `PlanDependencies`, and the `modules` import) and migrate the external libuv/bridge probes and the `compiler/tests/c23validation` harness to the checked-in pack | [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
-| Run RFC 0213's foreign-target-object probe from `hexal doctor`'s exhaustive set | [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
-| Emit RFC 0213's exact `C backend <path> reports Zig <actual>; target ... requires Zig 0.16.0` diagnostic for a non-Zig executable that reports no `lib_dir` | [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
-| Add an explicit test for RFC 0213 `-cc` relative-path resolution against the invocation working directory | [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 
 ## Deferred ideas
@@ -51,16 +45,15 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
 
 - **Program paths and secure entropy ([0178](specs/0178-libuv-os-services.md))**
   have executable argument-independent fixtures that compile, run, and pass
-  UBSan under Zig, and `TestProgramAndEntropyMeasurements` records generated
-  size, build-and-link time, runtime allocation statistics, and per-run latency
-  for both the program and entropy components. POSIX runtime branches remain
-  generated-text assertions over host-neutral output until a POSIX target
-  profile is qualified, which the RFC explicitly allows.
+  UBSan under the qualified Linux/Clang gate, and
+  `TestProgramAndEntropyMeasurements` records generated size, build-and-link
+  time, runtime allocation statistics, and per-run latency for both the
+  program and entropy components.
 - **Program entry and exit ([0182](specs/0182-program-entry-and-exit.md))**
   has executable argument, non-owning-free, and status fixtures that compile,
-  run, and pass UBSan under Zig, and its argument-snapshot runtime allocation
-  and status behavior is measured with RFC 0178's program component. POSIX
-  runtime branches remain text-only until a POSIX target profile is qualified.
+  run, and pass UBSan under the qualified Linux/Clang gate, and its
+  argument-snapshot runtime allocation and status behavior is measured with
+  RFC 0178's program component.
 - **Networking (closed RFC 0172) serializes contending TCP callers by
   rejection, not by a FIFO wait queue.** A second concurrent read, write, or
   accept on one connection or listener while the first is still in flight
@@ -121,34 +114,24 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   capacity is not representable` / `list capacity is not representable`
   (require holding close to 2^63 entries). `print`'s output forms are still
   not exhaustive over every printable type.
-- **UBSan (`-fsanitize=undefined -fno-sanitize-recover=all`) now runs every
-  runnable fixture in `compiler/tests/c23validation` on every toolchain able
-  to link and execute a sanitizer-instrumented binary at all** (`go test
-  -tags c23 -run TestC23SuiteUBSan`), asserting the fixture's own expectation
-  still holds and that no undefined behavior was reported. GCC is not
-  currently a capable toolchain in this environment: the installed mingw-w64
-  distribution ships no `libubsan`, so it is logged and skipped rather than
-  failing the run, matching the RFC's own "unsupported local toolchains skip
-  explicitly" allowance -- Clang and Zig both link and run, satisfying the
-  "at least one executing UBSan toolchain" release-gate requirement. The
-  function-type-mismatch check (`-fsanitize=function`) is disabled everywhere:
-  Hexal's Task entry points and libuv work-queue callbacks are intentionally
-  type-erased (stored generically, cast back to their real signature before
-  calling), the exact pattern that check exists to flag, and enabling it
-  fails the link on Windows with an unresolved
-  `__ubsan_handle_function_type_mismatch` symbol before any fixture can run.
-  A checked-in ignorelist (`compiler/tests/c23validation/testdata/ubsan-ignorelist.txt`)
-  additionally excludes reports attributed to the Windows SDK's own
-  `winnt.h`, whose `GetCurrentFiber`/`NtCurrentTeb` implementation computes a
-  member offset through a null-pointer cast -- a real member access UBSan's
-  `null` check flags, but the universally relied-upon, hardware-correct way
-  to read the current fiber's Thread Information Block, not a Hexal defect;
-  every other undefined-behavior category, including all of Hexal's own
-  generated C, is still checked with no exclusion. ASan remains separately
-  deferred under RFC 0185 because the installed Windows Zig backend cannot
-  link its runtime and Task fibers lack sanitizer switch annotations. TSan
-  is out of scope entirely; user-space fibers need their own feasibility
-  decision.
+- **UBSan (`-fsanitize=undefined -fno-sanitize-recover=all`) runs every
+  runnable fixture in `compiler/tests/c23validation` under the one required
+  Clang** (`go test -tags c23 -run TestC23SuiteUBSan`), asserting the fixture's
+  own expectation still holds and that no undefined behavior was reported. The
+  release gate fails if the selected Clang cannot link and execute the
+  sanitizer-instrumented probe; there is no GCC or Zig capability probe, skip,
+  marker, or alternate report path. The function-type-mismatch check
+  (`-fsanitize=function`) stays disabled: Hexal's Task entry points and libuv
+  work-queue callbacks are intentionally type-erased (stored generically, cast
+  back to their real signature before calling), the exact pattern that check
+  exists to flag. A checked-in ignorelist
+  (`compiler/tests/c23validation/testdata/ubsan-ignorelist.txt`) excludes
+  reports attributed to platform SDK headers -- the file currently names the
+  Windows SDK's own `winnt.h`, inert on Linux; every other undefined-behavior
+  category, including all of Hexal's own generated C, is still checked. ASan
+  remains separately deferred under RFC 0185 because Task fibers lack sanitizer
+  switch annotations. TSan is out of scope entirely; user-space fibers need
+  their own feasibility decision.
 - **Equality, print, and union widening/truthiness are now demand-driven; the
   four `-Wno-unused-*` suppressions in `compiler/tests/c23validation`'s Tier 1
   build stay in place, but for a different, disclosed reason than the one
@@ -180,38 +163,28 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   codegen change with no connection to this gap), so each remains, with its
   rationale in `c23_harness_test.go` corrected to name the real cause.
 - **The fixture and snippet catalog now also compiles, links, and runs under
-  the one profile the compiler-owned registry currently qualifies
-  (`x86_64-windows-gnu-ucrt`), not only the host-neutral `Project{}` every other
-  tagged test used.** `Project{}` keeps both platform branches and lets the
-  C compiler's own target macros select one at C-compile time; an explicit
-  profile instead has the Hexal compiler itself omit the inactive branch
-  (`TestExplicitProfileOmitsPosixBranches`,
-  `compiler/tests/integration/target_test.go`) -- a materially different
-  code path through every runtime component with concurrency or IO code
-  that, before `TestC23SuiteQualifiedProfile`
-  (`compiler/tests/c23validation/target_qualification_test.go`), had real
-  but far narrower real-toolchain execution coverage than the host-neutral
-  path: only `internal/driver`'s own hand-written qualification gate
-  (`TestBuildProducesRunnableExecutable` and its neighbors). Separately,
-  RFC 0052's own qualification text calls for one foreign target-object
-  link fixture proving the pinned backend can consume an object it did not
-  produce alongside Hexal-generated ones; a prepared probe source
-  (`internal/driver/testdata/mode-probe.c`) existed but was never wired
-  into a test, so `TestForeignTargetObjectLinksWithHexalObjects`
-  (`internal/driver/target_qualification_c23_test.go`) now compiles it,
-  links it with a full Hexal build's own objects, and runs the result.
-  Neither test extends the driver's own build API to accept an
+  the qualified `x86_64-linux-gnu` profile**, not only the host-neutral
+  `Project{}` every other tagged test uses. `Project{}` keeps both platform
+  branches and lets the C compiler's own target macros select one at
+  C-compile time; an explicit profile instead has the Hexal compiler select
+  the platform (`TestExplicitLinuxProfileSelectsPosixEntrypoint` and
+  `TestExplicitProfileOmitsPosixBranches`,
+  `compiler/tests/integration/target_test.go`) -- a materially different code
+  path through every runtime component with concurrency or IO code that,
+  before `TestC23SuiteQualifiedProfile`
+  (`compiler/tests/c23validation/target_qualification_test.go`), had real but
+  far narrower real-toolchain execution coverage. Separately, RFC 0052's own
+  qualification text calls for one foreign target-object link fixture proving
+  the selected backend can consume an object it did not produce alongside
+  Hexal-generated ones; `TestForeignTargetObjectLinksWithHexalObjects`
+  (`internal/driver/target_qualification_c23_test.go`) now compiles a prepared
+  probe source, links it with a full Hexal build's own objects, and runs the
+  result. Neither test extends the driver's build API to accept an
   externally-supplied object; that general capability remains owned by RFC
-  0039/0192, separately blocked. Both tests compile under the same
-  mode-agnostic flags (`-std=c23 -Wall -Wextra -Werror`) the rest of this
-  package always has; they do not additionally vary the qualified profile
-  across the debug/release distinction the now-closed build-modes RFC
-  added, so a defect specific to release-mode codegen combined with the
-  qualified (branch-pruned) profile specifically -- as opposed to either
-  dimension alone, both independently covered -- would not yet be caught.
+  0039/0192, separately blocked.
 - **Compiling real generated C surfaced multiple generator defects across the
   snippet catalog.** Every failure reproduced so far is now fixed and
-  re-verified compiling clean under all three toolchains, most recently (RFC
+  re-verified compiling clean under the Clang gate, most recently (RFC
   0131, closed 2026-08-27) handle-valued Array/View element storage,
   handle-aware nested equality and for-in binders, generic specialization
   prototype ordering, flow-narrowed union returns and `try` operands, and the
@@ -220,14 +193,14 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   catalog now runs to completion and passes: `go test -count=1 -timeout=10m
   -parallel=8 -tags c23 -run TestC23SnippetCatalogCompiles
   ./compiler/tests/c23validation` finishes in 151s with 140/140 snippets
-  passing under all three toolchains — before RFC 0140 (closed 2026-08-27)
+  passing under the Clang gate — before RFC 0140 (closed 2026-08-27)
   fixed a redundant-toolchain-discovery-per-snippet cost and parallelized the
   loop (plus two related correctness bugs the fix required: a compile-cache
   data race and a cache-entry-outliving-its-`t.TempDir()` bug, both latent
   and not triggered by today's catalog, per the archived spec), this same
   sweep ran past 50 minutes without asserting a single failure and never
   completed. Earlier defects fixed and verified
-  compiling and running clean under all three toolchains include `hexal/list.h` and
+  compiling and running clean under the Clang gate include `hexal/list.h` and
   `hexal/array.h` omitting `hexal/string.h` for a String element (and
   `hexal/view.h`'s equivalent forward-declaration, needed instead of a full
   include because `hexal/string.h` itself unconditionally needs
@@ -238,7 +211,7 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   value instead of by pointer wherever it is not a bare local (object
   members, union payloads); `Atomic<T>.new`'s constructor casting its
   argument to the `_Atomic` type inside a plain-typed return (tolerated by
-  gcc, rejected by Clang and zig cc); a redundant `const` doubling when
+  one C compiler, rejected by another); a redundant `const` doubling when
   `hex_dict_find` returns a value type that is itself already a pointer
   (`Dict<K, String>`); and every `if`/`while` condition that is itself a bare
   comparison or logical expression being wrapped in one redundant extra pair

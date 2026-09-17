@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -88,7 +87,8 @@ type ModeOptions struct {
 // on the mode or on a future baseline CPU choice.
 var modeOptionTable = map[BuildMode]ModeOptions{
 	ModeDebug: {
-		Compile: []string{"-O0", "-g", "-ffp-contract=off", "-fno-sanitize-recover=undefined"},
+		Compile: []string{"-O0", "-g", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all"},
+		Link:    []string{"-fsanitize=undefined", "-fno-sanitize-recover=all"},
 	},
 	ModeRelease: {
 		Compile: []string{"-O2", "-g0", "-ffp-contract=off", "-fno-sanitize=undefined", "-ffunction-sections", "-fdata-sections"},
@@ -133,11 +133,11 @@ func resolveMode(mode BuildMode) (BuildMode, error) {
 	return mode, nil
 }
 
-// backendIdentity renders the backend half of a build identity through the
-// pinned lock record, so an identity names the exact toolchain that produced
-// it.
+// backendIdentity renders the backend half of a build identity from the
+// selected installed Clang's banner line, so an identity names the exact
+// compiler that produced it.
 func backendIdentity(selected *backend.Backend) string {
-	return selected.Identity(backend.PinnedZigWindows())
+	return selected.Identity()
 }
 
 // buildIdentity is the lowercase full SHA-256 of a length-delimited stream
@@ -238,61 +238,9 @@ func identityStagingDir(outDir, identity string) (string, error) {
 }
 
 // versionedBasename is the identity-carrying stem a debug build links under,
-// so the backend names the debug information file after it and the published
-// executable records that exact name internally.
+// so the backend names its debug information after it and a repeated identical
+// build records the same internal path.
 func versionedBasename(output, identity string) string {
 	stem := strings.TrimSuffix(filepath.Base(output), exeSuffix())
 	return stem + "." + identity
-}
-
-// publishVersionedPDB publishes one staged link's debug information at its
-// immutable sibling path beside the executable. The versioned name is derived
-// from the build identity, so a file already published under that name must
-// carry identical bytes: disagreement means two different builds claimed one
-// identity and fails the build before the executable is published.
-//
-// Publication happens before the executable, which is the commit point, so an
-// interrupted build can leave one unreferenced debug file but can never leave
-// a published executable whose debug information is missing or wrong, and can
-// never damage the previously published executable.
-//
-// Already-published files are retained rather than collected: a concurrent
-// build may still reference one, and removing them safely needs an output
-// lock or an explicit clean lifecycle this driver does not have. No mutable
-// convenience copy under a fixed name is ever written, because it could
-// disagree with the executable a concurrent or interrupted build selected.
-func publishVersionedPDB(stagedPDB, publishedPDB string) error {
-	if _, err := os.Stat(publishedPDB); err == nil {
-		staged, err := fileDigest(stagedPDB)
-		if err != nil {
-			return fmt.Errorf("cannot read debug information %q: %v", stagedPDB, err)
-		}
-		already, err := fileDigest(publishedPDB)
-		if err != nil {
-			return fmt.Errorf("cannot read debug information %q: %v", publishedPDB, err)
-		}
-		if staged == already {
-			return nil
-		}
-		return fmt.Errorf("published debug information %q differs from this build's; one build identity must produce identical debug information", publishedPDB)
-	}
-	if err := replaceFile(stagedPDB, publishedPDB); err != nil {
-		return fmt.Errorf("cannot publish debug information %q: %v", publishedPDB, err)
-	}
-	return nil
-}
-
-// fileDigest is the SHA-256 of one file, streamed rather than read whole: the
-// debug information of a large program is large.
-func fileDigest(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
 }

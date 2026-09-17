@@ -3,12 +3,11 @@
 package c23validation
 
 // C23 harness: the compile/run/trap execution engine shared by every fixture
-// in catalog_test.go. It runs generated C under all three discovered
-// toolchains, caches each distinct generated artifact set per
-// toolchain/target/flags so the suite invokes each compiler once per
-// distinct output, and bounds every process it runs with a hard timeout as a
-// general safety boundary so a wedged binary fails fast instead of blocking
-// the whole run.
+// in catalog_test.go. It runs generated C under the one discovered Clang,
+// caches each distinct generated artifact set per toolchain/flags so the
+// suite invokes the compiler once per distinct output, and bounds every
+// process it runs with a hard timeout as a general safety boundary so a
+// wedged binary fails fast instead of blocking the whole run.
 
 import (
 	"bytes"
@@ -20,7 +19,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -48,12 +46,11 @@ func assertCompiles(t *testing.T, source string) compiler.CompilationResult {
 const runProcessTimeout = 10 * time.Second
 
 // buildProcessTimeout bounds one compiler invocation (compiling and linking
-// one artifact set under one toolchain), distinct from runProcessTimeout
-// above: that one bounds running the already-built binary. A hung gcc,
-// clang, zig, or linker process would otherwise block its exec.Command call
-// forever, and the only thing that would eventually stop it is go test's
-// own outer -timeout, which discards every already-passing result along
-// with it.
+// one artifact set), distinct from runProcessTimeout above: that one bounds
+// running the already-built binary. A hung clang or linker process would
+// otherwise block its exec.Command call forever, and the only thing that
+// would eventually stop it is go test's own outer -timeout, which discards
+// every already-passing result along with it.
 const buildProcessTimeout = 2 * time.Minute
 
 // runProcess runs path with a hard timeout, returning stdout and stderr
@@ -228,7 +225,7 @@ func buildGeneratedCFlags(t *testing.T, tc toolchain, result compiler.Compilatio
 func doBuild(tc toolchain, files map[string]string, dependencies []compiler.RuntimeDependency, flags []string, buildRoot, artifactHash, subtestName string) buildResult {
 	var native *dependencyBuild
 	if len(dependencies) > 0 {
-		native = buildDependencies(tc, dependencies, buildRoot)
+		native = buildDependencies(dependencies, buildRoot)
 		if native.err != nil {
 			return buildResult{err: native.err}
 		}
@@ -246,10 +243,14 @@ func doBuild(tc toolchain, files map[string]string, dependencies []compiler.Runt
 			return buildResult{err: err}
 		}
 	}
-	exe := filepath.Join(dir, "hexal.exe")
-	args := append([]string{}, tc.Command[1:]...)
-	args = append(args, flags...)
-	args = append(args, "-I", dir)
+	// The generated tree already contains a hexal/ directory of artifacts, so
+	// the executable is named distinctly; a Linux ELF has no extension.
+	exe := filepath.Join(dir, "hexal-program")
+	args := append([]string{}, flags...)
+	// Generated C relies on POSIX 2008 declarations (pthread read/write locks,
+	// clock_gettime, getaddrinfo) that a strict -std=c23 glibc compile hides
+	// behind _POSIX_C_SOURCE.
+	args = append(args, "-D_POSIX_C_SOURCE=200809L", "-I", dir)
 	if native != nil {
 		args = append(args, native.includeOptions...)
 	}
@@ -263,13 +264,14 @@ func doBuild(tc toolchain, files map[string]string, dependencies []compiler.Runt
 			args = append(args, filepath.Join(dir, name))
 		}
 	}
-	// The scheduler runtime needs a real thread library on POSIX targets;
-	// Windows link libraries arrive with the dependency plan above.
-	if runtime.GOOS != "windows" && strings.Contains(strings.Join(names, " "), "concurrency.c") {
+	// The scheduler runtime needs a real thread library; the checked-in
+	// libuv pack also links it, but a program selecting only a thread-using
+	// generated unit without that pack must still link.
+	if strings.Contains(strings.Join(names, " "), "concurrency.c") {
 		args = append(args, "-lpthread")
 	}
 	if native != nil {
-		args = append(args, native.objects...)
+		args = append(args, native.archives...)
 		args = append(args, native.linkOptions...)
 	}
 	args = append(args, "-o", exe)
@@ -287,77 +289,47 @@ func doBuild(tc toolchain, files map[string]string, dependencies []compiler.Runt
 }
 
 // compileGeneratedC (Tier 1) writes every generated artifact and compiles
-// every .c translation unit with -std=c23 -Wall -Wextra -Werror under every
-// discovered toolchain: any warning or error fails the test. A program
-// accepted by one toolchain and rejected by another is a real divergence and
-// fails the fixture rather than being resolved by preferring one compiler's
-// judgment.
+// every .c translation unit with -std=c23 -Wall -Wextra -Werror under the
+// one discovered Clang: any warning or error fails the test.
 func compileGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot string) {
 	t.Helper()
-	gcc, clang, zig := discoverAllToolchains(t)
-	for _, tc := range []toolchain{gcc, clang, zig} {
-		t.Run(tc.Name, func(t *testing.T) {
-			buildGeneratedC(t, tc, result, buildRoot)
-		})
-	}
+	buildGeneratedC(t, clangToolchain(t), result, buildRoot)
 }
 
-// runGeneratedC (Tier 2) compiles under every toolchain, runs the resulting
-// binary, and returns its normalized stdout for the caller to assert
-// exactly. Stdout is normalized here because a C runtime in text mode on
-// Windows translates '\n' to '\r\n' on the way through a pipe; a fixture
-// asserts the bytes the program wrote, not the platform's line-ending
-// habits. Stderr must be empty and the process must exit zero, or the
-// fixture fails -- a run that produced correct stdout while also writing to
-// stderr or trapping is not a passing Tier 2 result.
+// runGeneratedC (Tier 2) compiles under Clang, runs the resulting binary,
+// and returns its normalized stdout for the caller to assert exactly. Stdout
+// is normalized here only to collapse any platform CRLF translation; a
+// fixture asserts the bytes the program wrote, not the platform's line-ending
+// habits. Stderr must be empty and the process must exit zero, or the fixture
+// fails -- a run that produced correct stdout while also writing to stderr or
+// trapping is not a passing Tier 2 result.
 func runGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot string) string {
 	t.Helper()
-	gcc, clang, zig := discoverAllToolchains(t)
-	var normalized string
-	first := true
-	for _, tc := range []toolchain{gcc, clang, zig} {
-		t.Run(tc.Name, func(t *testing.T) {
-			exe := buildGeneratedC(t, tc, result, buildRoot)
-			stdout, stderr, exitedZero := runProcess(t, exe)
-			if !exitedZero {
-				t.Fatalf("generated program exited non-zero; stdout=%q stderr=%q", stdout, stderr)
-			}
-			if stderr != "" {
-				t.Fatalf("generated program wrote to stderr: %q", stderr)
-			}
-			out := strings.ReplaceAll(stdout, "\r\n", "\n")
-			if first {
-				normalized = out
-				first = false
-				return
-			}
-			if out != normalized {
-				t.Fatalf("output diverges across toolchains: %s produced %q, an earlier toolchain produced %q", tc.Name, out, normalized)
-			}
-		})
+	exe := buildGeneratedC(t, clangToolchain(t), result, buildRoot)
+	stdout, stderr, exitedZero := runProcess(t, exe)
+	if !exitedZero {
+		t.Fatalf("generated program exited non-zero; stdout=%q stderr=%q", stdout, stderr)
 	}
-	return normalized
+	if stderr != "" {
+		t.Fatalf("generated program wrote to stderr: %q", stderr)
+	}
+	return strings.ReplaceAll(stdout, "\r\n", "\n")
 }
 
-// trapGeneratedC (Tier 3) compiles under every toolchain and runs a program
-// that must terminate by a runtime trap: a successful exit fails the test,
-// and stderr must contain requiredSubstring, the fixture's exact expected
-// "[Runtime Error] ..." text. Stdout up to the trap point is not
-// constrained by this helper; callers with output expectations before the
-// trap assert it themselves.
+// trapGeneratedC (Tier 3) compiles under Clang and runs a program that must
+// terminate by a runtime trap: a successful exit fails the test, and stderr
+// must contain requiredSubstring, the fixture's exact expected
+// "[Runtime Error] ..." text. Stdout up to the trap point is not constrained
+// by this helper; callers with output expectations before the trap assert it
+// themselves.
 func trapGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot, requiredSubstring string) {
 	t.Helper()
-	gcc, clang, zig := discoverAllToolchains(t)
-	for _, tc := range []toolchain{gcc, clang, zig} {
-		t.Run(tc.Name, func(t *testing.T) {
-			exe := buildGeneratedC(t, tc, result, buildRoot)
-			_, stderr, exitedZero := runProcess(t, exe)
-			if exitedZero {
-				t.Fatalf("program must trap but exited successfully")
-			}
-			if !strings.Contains(stderr, requiredSubstring) {
-				t.Fatalf("program's stderr = %q, want it to contain %q", stderr, requiredSubstring)
-			}
-		})
+	exe := buildGeneratedC(t, clangToolchain(t), result, buildRoot)
+	_, stderr, exitedZero := runProcess(t, exe)
+	if exitedZero {
+		t.Fatalf("program must trap but exited successfully")
+	}
+	if !strings.Contains(stderr, requiredSubstring) {
+		t.Fatalf("program's stderr = %q, want it to contain %q", stderr, requiredSubstring)
 	}
 }

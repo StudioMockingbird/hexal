@@ -4,7 +4,7 @@ package driver
 
 // End-to-end coverage: compile and link explicitly supplied C sources,
 // precompiled objects, static archives, and named system libraries through the
-// public Build API and the pinned backend. Tagged like the rest of this
+// public Build API and the installed Clang. Tagged like the rest of this
 // repository's toolchain-dependent suites.
 
 import (
@@ -136,10 +136,7 @@ func TestForeignObjectAndArchiveLink(t *testing.T) {
 				options.Objects = []string{object}
 			case "archive":
 				archive := filepath.Join(staging, "adder.a")
-				archived, err := selected.ArchiveObjects([]string{object}, archive)
-				if err != nil || archived.ExitCode != 0 {
-					t.Fatalf("probe archive failed: %v\n%s", err, archived.Stderr)
-				}
+				archiveObjects(t, archive, object)
 				options.Archives = []string{archive}
 			}
 			result, err := Build(withTestBackend(t, options))
@@ -163,7 +160,7 @@ func TestForeignSystemLibraryTranslation(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
-	result, err := Build(withTestBackend(t, BuildOptions{Root: dir, SystemLibraries: []string{"user32", "ws2_32"}}))
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir, SystemLibraries: []string{"m", "pthread"}}))
 	if err != nil {
 		t.Fatalf("build with system libraries failed: %v", err)
 	}
@@ -173,10 +170,10 @@ func TestForeignSystemLibraryTranslation(t *testing.T) {
 			linkArguments = strings.Join(command.Arguments, " ")
 		}
 	}
-	if !strings.Contains(linkArguments, "-luser32") || !strings.Contains(linkArguments, "-lws2_32") {
+	if !strings.Contains(linkArguments, "-lm") || !strings.Contains(linkArguments, "-lpthread") {
 		t.Fatalf("link command lacks translated system libraries: %q", linkArguments)
 	}
-	if strings.Contains(linkArguments, "user32.lib") {
+	if strings.Contains(linkArguments, "libm.so") {
 		t.Fatalf("the driver synthesized a platform filename: %q", linkArguments)
 	}
 }
@@ -392,6 +389,21 @@ func writeCLIFileForDriver(t *testing.T, root, name, content string) {
 	}
 }
 
+// archiveObjects builds one static archive with the installed archiver. The
+// driver links checked-in archives but never creates one, so a fixture that
+// needs a user archive uses the platform ar directly.
+func archiveObjects(t *testing.T, archive string, objects ...string) {
+	t.Helper()
+	archiver, err := exec.LookPath("ar")
+	if err != nil {
+		t.Fatalf("creating a static archive needs ar on PATH: %v", err)
+	}
+	arguments := append([]string{"rcs", archive}, objects...)
+	if out, err := exec.Command(archiver, arguments...).CombinedOutput(); err != nil {
+		t.Fatalf("creating archive %s failed: %v\n%s", archive, err, out)
+	}
+}
+
 // TestForeignMacroControlledLayout proves one -c-define reaches both sides of
 // the binding, so a macro-controlled record has one consistent layout.
 func TestForeignMacroControlledLayout(t *testing.T) {
@@ -442,16 +454,14 @@ func TestForeignLinkGroupOrder(t *testing.T) {
 	native := adderFixture(t, dir)
 	staging := t.TempDir()
 	object := filepath.Join(staging, "stub.o")
+	stubSource := filepath.Join(staging, "stub.c")
 	writeCLIFileForDriver(t, staging, "stub.c", "int hexal_stub(void) { return 1; }\n")
-	compile := exec.Command(selected.Exe, "cc", "-std=c17", "-target", qualifiedTriple, "-c", filepath.Join(staging, "stub.c"), "-o", object)
-	if out, err := compile.CombinedOutput(); err != nil {
-		t.Fatalf("stub compile failed: %v\n%s", err, out)
+	compile, err := selected.CompileOneDialect(qualifiedTriple, "c17", nil, stubSource, object)
+	if err != nil || compile.ExitCode != 0 {
+		t.Fatalf("stub compile failed: %v\n%s", err, compile.Stderr)
 	}
 	archive := filepath.Join(staging, "stub.a")
-	archived := exec.Command(selected.Exe, "ar", "rcs", archive, object)
-	if out, err := archived.CombinedOutput(); err != nil {
-		t.Fatalf("stub archive failed: %v\n%s", err, out)
-	}
+	archiveObjects(t, archive, object)
 
 	result, err := Build(withTestBackend(t, BuildOptions{
 		Root:            dir,
@@ -459,7 +469,7 @@ func TestForeignLinkGroupOrder(t *testing.T) {
 		CIncludeDirs:    []string{native},
 		Objects:         []string{object},
 		Archives:        []string{archive},
-		SystemLibraries: []string{"user32", "user32"},
+		SystemLibraries: []string{"m", "m"},
 	}))
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
@@ -481,7 +491,7 @@ func TestForeignLinkGroupOrder(t *testing.T) {
 	foreign := position("foreign")
 	precompiled := position("stub.o")
 	archivedAt := position("stub.a")
-	firstLibrary := position("-luser32")
+	firstLibrary := position("-lm")
 	if foreign < 0 || precompiled < 0 || archivedAt < 0 || firstLibrary < 0 {
 		t.Fatalf("link command lacks an input: foreign=%d object=%d archive=%d library=%d\n%v", foreign, precompiled, archivedAt, firstLibrary, arguments)
 	}
@@ -490,7 +500,7 @@ func TestForeignLinkGroupOrder(t *testing.T) {
 	}
 	// A repeated system library survives: the user's own arguments are last,
 	// immediately before the output option.
-	if length := len(arguments); length < 4 || arguments[length-3] != "-luser32" || arguments[length-4] != "-luser32" {
+	if length := len(arguments); length < 4 || arguments[length-3] != "-lm" || arguments[length-4] != "-lm" {
 		t.Fatalf("the repeated user system library did not survive at the end: %v", arguments)
 	}
 }
@@ -503,19 +513,20 @@ func TestForeignLinkFailurePreservesExecutable(t *testing.T) {
 	native := adderFixture(t, dir)
 	staging := t.TempDir()
 	object := filepath.Join(staging, "stub.o")
+	stubSource := filepath.Join(staging, "stub.c")
 	writeCLIFileForDriver(t, staging, "stub.c", "int hexal_stub(void) { return 1; }\n")
-	compile := exec.Command(selected.Exe, "cc", "-std=c17", "-target", qualifiedTriple, "-c", filepath.Join(staging, "stub.c"), "-o", object)
-	if out, err := compile.CombinedOutput(); err != nil {
-		t.Fatalf("stub compile failed: %v\n%s", err, out)
+	compile, err := selected.CompileOneDialect(qualifiedTriple, "c17", nil, stubSource, object)
+	if err != nil || compile.ExitCode != 0 {
+		t.Fatalf("stub compile failed: %v\n%s", err, compile.Stderr)
 	}
 
-	output := filepath.Join(dir, "adder.exe")
+	output := filepath.Join(dir, "adder")
 	const previous = "previously published executable bytes"
 	if err := os.WriteFile(output, []byte(previous), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := Build(withTestBackend(t, BuildOptions{
+	_, err = Build(withTestBackend(t, BuildOptions{
 		Root:         dir,
 		Output:       output,
 		CIncludeDirs: []string{native},

@@ -171,35 +171,15 @@ hex_t_Error hex_io_error(size_t line, size_t column, const hex_string *file, con
     };
 }
 
-#ifdef _WIN32
-
-static hex_io_open hex_io_open_handle(HANDLE handle, uint8_t access) {
-    if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
-        return (hex_io_open){.status = HEX_IO_ERROR, .stream = {0}, .code = (long long)GetLastError()};
-    }
-    return (hex_io_open){.status = HEX_IO_OK, .stream = {.desc = (intptr_t)handle, .access = access, .owned = false}, .code = 0};
-}
-
-hex_io_open hex_io_stdin(void) {
-    return hex_io_open_handle(GetStdHandle(HEX_IO_STDIN_ID), HEX_IO_ACCESS_READ);
-}
-
-hex_io_open hex_io_stdout(void) {
-    return hex_io_open_handle(GetStdHandle(HEX_IO_STDOUT_ID), HEX_IO_ACCESS_WRITE);
-}
-
-hex_io_open hex_io_stderr(void) {
-    return hex_io_open_handle(GetStdHandle(HEX_IO_STDERR_ID), HEX_IO_ACCESS_WRITE);
-}
-
-intptr_t hex_io_stdout_desc(void) {
-    return (intptr_t)GetStdHandle(HEX_IO_STDOUT_ID);
-}
-
 // The descriptor read path: capability gate first, then the caller-ceiling
 // reservation through the List component's checked helper, then one platform
 // call. A capability mismatch never allocates.
-
+//
+// The type-specific forward declarations and event job records are platform
+// independent: both the Windows and POSIX branch below implement the
+// transfer bodies, and both dispatch through these jobs when the event bridge
+// is selected. They live before the platform split so neither branch can
+// reference a job it cannot see.
 static hex_io_transfer hex_io_read_transfer(hex_io stream, uint8_t *target, size_t request);
 static hex_io_transfer hex_io_write_transfer(hex_io stream, const uint8_t *data, size_t request);
 static hex_io_position hex_io_seek_move(hex_io stream, int64_t offset, int whence);
@@ -284,6 +264,31 @@ static void hex_io_close_failure(void *raw) {
     job->result = (hex_io_status_only){.status = HEX_IO_ERROR, .code = ENOMEM};
 #endif
 }{{end}}
+
+#ifdef _WIN32
+
+static hex_io_open hex_io_open_handle(HANDLE handle, uint8_t access) {
+    if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
+        return (hex_io_open){.status = HEX_IO_ERROR, .stream = {0}, .code = (long long)GetLastError()};
+    }
+    return (hex_io_open){.status = HEX_IO_OK, .stream = {.desc = (intptr_t)handle, .access = access, .owned = false}, .code = 0};
+}
+
+hex_io_open hex_io_stdin(void) {
+    return hex_io_open_handle(GetStdHandle(HEX_IO_STDIN_ID), HEX_IO_ACCESS_READ);
+}
+
+hex_io_open hex_io_stdout(void) {
+    return hex_io_open_handle(GetStdHandle(HEX_IO_STDOUT_ID), HEX_IO_ACCESS_WRITE);
+}
+
+hex_io_open hex_io_stderr(void) {
+    return hex_io_open_handle(GetStdHandle(HEX_IO_STDERR_ID), HEX_IO_ACCESS_WRITE);
+}
+
+intptr_t hex_io_stdout_desc(void) {
+    return (intptr_t)GetStdHandle(HEX_IO_STDOUT_ID);
+}
 
 hex_io_transfer hex_io_read(hex_io stream, hex_list_UInt8 *into, size_t max) {
     if ((stream.access & HEX_IO_ACCESS_READ) == 0) {

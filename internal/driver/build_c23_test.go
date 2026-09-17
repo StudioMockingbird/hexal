@@ -11,12 +11,11 @@ package driver
 // Run with: go test -tags c23 ./internal/driver/
 
 import (
-	"debug/pe"
+	"debug/elf"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -27,15 +26,14 @@ import (
 	"hexal/internal/version"
 )
 
-// withTestBackend fills the required compiler, target, and checked-in runtime
-// directory into one test's build options. Every tagged driver test that runs
-// a real build goes through it, so the qualified configuration lives in one
-// place.
+// withTestBackend fills the required compiler and target into one test's build
+// options. Every tagged driver test that runs a real build goes through it, so
+// the qualified configuration lives in one place. The runtime pack is embedded
+// in the compiler, so there is no runtime directory to select.
 func withTestBackend(t *testing.T, options BuildOptions) BuildOptions {
 	t.Helper()
 	options.CompilerPath = requireBackend(t).Exe
-	options.Target = compilerTypes.TargetX86_64WindowsGNU
-	options.RuntimeDir = repoRuntimeDir(t)
+	options.Target = compilerTypes.TargetX86_64LinuxGNU
 	return options
 }
 
@@ -44,20 +42,8 @@ func doctorOptionsForTest(t *testing.T) DoctorOptions {
 	t.Helper()
 	return DoctorOptions{
 		CompilerPath: requireBackend(t).Exe,
-		Target:       compilerTypes.TargetX86_64WindowsGNU,
-		RuntimeDir:   repoRuntimeDir(t),
+		Target:       compilerTypes.TargetX86_64LinuxGNU,
 	}
-}
-
-// repoRuntimeDir is the checked-in runtime-pack root, derived from this test
-// file's own location rather than from the working directory.
-func repoRuntimeDir(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate the repository root from the test source")
-	}
-	return filepath.Join(filepath.Dir(file), "..", "..", "lib")
 }
 
 var (
@@ -66,24 +52,25 @@ var (
 	testBackendErr  error
 )
 
-// requireBackend resolves and caches the pinned backend once per test binary:
-// resolving it spawns the compiler several times, and every helper and build
-// needs the same executable.
+// requireBackend resolves and caches the installed Clang once per test binary:
+// resolution spawns the compiler, and every helper and build needs the same
+// executable. It never skips a missing or too-old Clang; the exact reason is
+// reported so an unqualified host cannot pass silently.
 func requireBackend(t *testing.T) *backend.Backend {
 	t.Helper()
 	testBackendOnce.Do(func() {
-		exe, err := exec.LookPath("zig")
+		exe, err := resolveTestClang()
 		if err != nil {
-			testBackendErr = fmt.Errorf("qualification gate needs zig on PATH: %v", err)
+			testBackendErr = err
 			return
 		}
 		selected, err := backend.NewBackend(exe)
 		if err != nil {
-			testBackendErr = fmt.Errorf("qualification gate needs a usable backend: %v", err)
+			testBackendErr = fmt.Errorf("qualification gate needs a usable Clang backend at %s: %v", exe, err)
 			return
 		}
-		if err := selected.CheckPinned(backendPkgPinnedVersion()); err != nil {
-			testBackendErr = fmt.Errorf("qualification gate needs the pinned backend: %v", err)
+		if selected.Major < clangMinimumMajor {
+			testBackendErr = fmt.Errorf("qualification gate needs Clang %d or newer; %s reports %q", clangMinimumMajor, exe, selected.Version)
 			return
 		}
 		testBackend = selected
@@ -91,20 +78,85 @@ func requireBackend(t *testing.T) *backend.Backend {
 	if testBackendErr != nil {
 		t.Fatal(testBackendErr)
 	}
-	return testBackend
+	// Return a private copy: a build pins Backend.Directory to its own staging
+	// tree, and one test's staging path must never leak into another's
+	// invocation.
+	selected := *testBackend
+	return &selected
 }
 
-// TestDependencyFreeBuildIgnoresRuntimeDir proves a program selecting no
-// runtime dependency never resolves or reads lib/.
-func TestDependencyFreeBuildIgnoresRuntimeDir(t *testing.T) {
+// resolveTestClang locates the installed Clang for the tagged gate. The
+// HEXAL_CLANG override names one exact executable; otherwise `clang` is
+// resolved from PATH. This discovery policy is test-only: production `build`
+// and `doctor` still require an explicit `-cc`.
+func resolveTestClang() (string, error) {
+	if override := os.Getenv("HEXAL_CLANG"); override != "" {
+		absolute, err := filepath.Abs(override)
+		if err != nil {
+			return "", fmt.Errorf("HEXAL_CLANG %q cannot be resolved: %v", override, err)
+		}
+		if !executableFile(absolute) {
+			return "", fmt.Errorf("HEXAL_CLANG %q is not an executable file", override)
+		}
+		return absolute, nil
+	}
+	exe, err := exec.LookPath("clang")
+	if err != nil {
+		return "", fmt.Errorf("qualification gate needs clang on PATH or HEXAL_CLANG set: %v", err)
+	}
+	return exe, nil
+}
+
+// materializeTestPack materializes exactly the demanded embedded-pack entries
+// for target beneath staging and returns their include roots, archives, and the
+// loaded pack inputs (whose SystemLibraries feed the link). Tests that compile
+// or link generated and fixture C by hand use it instead of the retired
+// source-build dependency machinery.
+func materializeTestPack(t *testing.T, staging string, target compilerTypes.TargetProfileID, dependencies []compiler.RuntimeDependency) (includeDirs, archives []string, pack packInputs) {
+	t.Helper()
+	fsys, err := runtimePackFS(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, loaded, err := loadRuntimeManifest(fsys, target, dependencies)
+	if err != nil {
+		t.Fatal(err)
+	}
+	includeDirs, archives, err = materializePack(staging, fsys, loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return includeDirs, archives, loaded
+}
+
+// includeDirOptions renders materialized include roots as -I arguments.
+func includeDirOptions(includeDirs []string) []string {
+	options := make([]string, 0, len(includeDirs))
+	for _, directory := range includeDirs {
+		options = append(options, "-I"+directory)
+	}
+	return options
+}
+
+// TestDependencyFreeBuildSelectsNoPackInput proves a program selecting no
+// runtime dependency neither links a checked-in archive nor a pack system
+// library.
+func TestDependencyFreeBuildSelectsNoPackInput(t *testing.T) {
+	requireBackend(t)
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "value: Int32 := 1\n")
-	options := withTestBackend(t, BuildOptions{Root: dir})
-	// Point the runtime root at a path that does not exist: a dependency-free
-	// build must never look there.
-	options.RuntimeDir = filepath.Join(t.TempDir(), "absent")
-	if _, err := Build(options); err != nil {
-		t.Fatalf("dependency-free build must not read lib/: %v", err)
+
+	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
+	if err != nil {
+		t.Fatalf("dependency-free build failed: %v", err)
+	}
+	for _, command := range result.Commands {
+		joined := strings.Join(command.Arguments, " ")
+		for _, marker := range []string{"libuv.a", "mimalloc.a", "-lpthread", "-ldl", "-lrt"} {
+			if strings.Contains(joined, marker) {
+				t.Fatalf("%s command names a runtime-pack input %q:\n%v", command.Stage, marker, command.Arguments)
+			}
+		}
 	}
 }
 
@@ -135,7 +187,10 @@ func TestBuildProducesRunnableExecutable(t *testing.T) {
 	assertStagingRemoved(t, dir)
 }
 
-func TestBuildHasNoMimallocDLLImport(t *testing.T) {
+// TestBuildHasNoMimallocSharedLibraryImport proves the demanded mimalloc pack
+// is linked statically: the executable's dynamic dependencies name no
+// mimalloc shared object.
+func TestBuildHasNoMimallocSharedLibraryImport(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "values: Array<Int32, 2> := [1, 2]\nprint(values[0])\n")
@@ -144,7 +199,7 @@ func TestBuildHasNoMimallocDLLImport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
-	image, err := pe.Open(result.Executable)
+	image, err := elf.Open(result.Executable)
 	if err != nil {
 		t.Fatalf("open executable: %v", err)
 	}
@@ -217,7 +272,7 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compileResult := compiler.Compile(sources, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	compileResult := compiler.Compile(sources, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("hexal compilation failed: %v", compileResult.Stderr)
 	}
@@ -230,35 +285,34 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, compileResult.Dependencies)
+	selected.Directory = staging
+
 	var result BuildResult
-	native, err := materializeDependencies(staging, compileResult.Dependencies)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := compileNativeDependencies(selected, staging, native, &result); err != nil {
-		t.Fatalf("native dependency compilation failed: %v", err)
+	compileOptions := append(append([]string{}, Options(ModeDebug).Compile...), includeDirOptions(includes)...)
+	if err := compileTranslationUnitsWithOptions(selected, staging, cFiles, compileOptions, nil, &result); err != nil {
+		t.Fatalf("c compilation failed: %v", err)
 	}
 	const driverC = "int hexal_driver_probe(void) { return 7; }\n"
 	probeSource := filepath.Join(staging, "driver_probe.c")
 	if err := os.WriteFile(probeSource, []byte(driverC), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, staging, cFiles, native.compileOptions, nil, &result); err != nil {
-		t.Fatalf("c compilation failed: %v", err)
-	}
 	probeObject := filepath.Join(staging, "driver_probe.o")
 	probe, err := selected.CompileOne(qualifiedTriple, []string{"-I", staging}, probeSource, probeObject)
 	if err != nil || probe.ExitCode != 0 {
 		t.Fatalf("driver c object failed to compile: %v\n%s", err, probe.Stderr)
 	}
-	objects := append(cFilesToObjects(staging, cFiles), native.linkObjects...)
+	objects := cFilesToObjects(staging, cFiles)
+	objects = append(objects, archives...)
 	objects = append(objects, probeObject)
-	output := filepath.Join(dir, "build", "main"+exeSuffix())
+	output := filepath.Join(dir, "build", "main")
 	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stagedExe := filepath.Join(staging, "main.staged"+exeSuffix())
-	if err := linkObjectsWithOptions(selected, staging, objects, nil, stagedExe, &result); err != nil {
+	stagedExe := filepath.Join(staging, "main.staged")
+	linkOptions := append(append([]string{}, Options(ModeDebug).Link...), packSystemLibraryOptions(pack)...)
+	if err := linkObjectsWithOptions(selected, staging, objects, linkOptions, stagedExe, &result); err != nil {
 		t.Fatalf("link with driver object failed: %v", err)
 	}
 	if err := publishExecutable(stagedExe, output); err != nil {
@@ -280,7 +334,7 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 func TestGeneratedArtifactsContainNoAbsolutePaths(t *testing.T) {
 	requireBackend(t)
 	sources := map[string]string{"app.hex": "print(\"ok\")\n"}
-	result := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	result := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if len(result.Stderr) > 0 {
 		t.Fatalf("hexal compilation failed: %v", result.Stderr)
 	}

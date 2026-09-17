@@ -21,7 +21,7 @@ import (
 	"hexal/internal/driver"
 )
 
-const measurementTarget = compilerTypes.TargetX86_64WindowsGNU
+const measurementTarget = compilerTypes.TargetX86_64LinuxGNU
 
 func generatedSize(t *testing.T, sources map[string]string, entrypoint string) int {
 	t.Helper()
@@ -81,7 +81,12 @@ func TestProgramAndEntropyMeasurements(t *testing.T) {
 				t.Fatal(err)
 			}
 			started := time.Now()
-			result, err := driver.Build(driver.BuildOptions{Root: root, Entrypoint: "app.hex"})
+			result, err := driver.Build(driver.BuildOptions{
+				Root:         root,
+				Entrypoint:   "app.hex",
+				CompilerPath: clangToolchain(t).Command[0],
+				Target:       measurementTarget,
+			})
 			if err != nil {
 				t.Fatalf("measurement build failed: %v", err)
 			}

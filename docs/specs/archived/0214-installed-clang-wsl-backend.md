@@ -1,7 +1,7 @@
 # RFC 0214: Installed Clang Backend on WSL
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Discarded; consolidated into RFC 0217 before implementation
 - Created: 2026-09-17
 - Updated: 2026-09-17
 - Scope: revise RFC 0213's first backend and target from Zig on Windows to

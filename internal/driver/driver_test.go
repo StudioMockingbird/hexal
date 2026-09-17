@@ -3,11 +3,11 @@ package driver
 import (
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
 	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
 	"hexal/internal/version"
 )
 
@@ -134,14 +134,6 @@ func TestDiscoverRejectsSourceSymlinks(t *testing.T) {
 	}
 }
 
-// TestIsJunctionRejectsNothingRegular guards the junction detector against
-// false positives: an ordinary directory is never a junction.
-func TestIsJunctionRejectsNothingRegular(t *testing.T) {
-	if isJunction(t.TempDir()) {
-		t.Fatal("regular directory reported as a junction")
-	}
-}
-
 // TestBuildRecordsHexalVersionOnce pins the project-level attribution: the
 // result carries the toolchain version even when the build fails before any
 // command runs, and command records never repeat it.
@@ -222,57 +214,48 @@ func TestMaterializeRequiresCArtifacts(t *testing.T) {
 	}
 }
 
-func TestMaterializeMimallocDependencyFromEmbeddedSnapshot(t *testing.T) {
+// TestMaterializeEmbeddedPack proves the checked-in pack is demand-driven: a
+// mimalloc-only build materializes exactly the mimalloc include tree and
+// archive, verified against their manifest digests, and nothing else.
+func TestMaterializeEmbeddedPack(t *testing.T) {
 	staging := t.TempDir()
-	dependency, err := materializeDependencies(staging, []compiler.RuntimeDependency{compiler.RuntimeMimalloc})
+	fsys, err := runtimePackFS(compilerTypes.TargetX86_64LinuxGNU)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(dependency.sources) != 1 || len(dependency.objects) != 1 {
-		t.Fatalf("dependency = %#v, want one source and object", dependency)
+	_, pack, err := loadRuntimeManifest(fsys, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeMimalloc})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, path := range []string{
-		filepath.Join(staging, "dependencies", "mimalloc", "include", "mimalloc.h"),
-		filepath.Join(staging, "dependencies", "mimalloc", "src", "static.c"),
-	} {
-		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("materialized dependency missing %q: %v", path, err)
-		}
+	includeDirs, archives, err := materializePack(staging, fsys, pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(includeDirs) != 1 || len(archives) != 1 {
+		t.Fatalf("materialized %v include dirs and %v archives, want one each", includeDirs, archives)
+	}
+	if _, err := os.Stat(filepath.Join(includeDirs[0], "mimalloc.h")); err != nil {
+		t.Fatalf("materialized mimalloc header missing: %v", err)
+	}
+	if _, err := os.Stat(archives[0]); err != nil {
+		t.Fatalf("materialized mimalloc archive missing: %v", err)
 	}
 }
 
-func TestNativeCompileOptionsUseReleaseFlagsPerExternalLibrary(t *testing.T) {
-	base := []string{"-I", "staging/include"}
-	for _, testCase := range []struct {
-		name   string
-		source string
-		want   []string
-	}{
-		{
-			name:   "mimalloc",
-			source: filepath.Join("staging", "dependencies", "mimalloc", "src", "static.c"),
-			want:   []string{"-O2", "-DMI_BUILD_RELEASE", "-DMI_WIN_INIT_USE_RAW_DLLMAIN", "-I", "staging/include"},
-		},
-		{
-			name:   "libuv",
-			source: filepath.Join("staging", "dependencies", "libuv", "src", "timer.c"),
-			want:   []string{"-O2", "-I", "staging/include"},
-		},
-		{
-			name:   "generated source",
-			source: filepath.Join("staging", "hexal", "runtime.c"),
-			want:   []string{"-I", "staging/include"},
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			got := nativeCompileOptions(testCase.source, base)
-			if !reflect.DeepEqual(got, testCase.want) {
-				t.Fatalf("native compile options = %v, want %v", got, testCase.want)
-			}
-			if !reflect.DeepEqual(base, []string{"-I", "staging/include"}) {
-				t.Fatalf("native compile options mutated base slice: %v", base)
-			}
-		})
+// TestDependencyFreePackReadsNothing pins that a program selecting no runtime
+// dependency opens no manifest and materializes nothing: the demanded list is
+// empty, so no pack file is touched.
+func TestDependencyFreePackReadsNothing(t *testing.T) {
+	fsys, err := runtimePackFS(compilerTypes.TargetX86_64LinuxGNU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pack, err := loadRuntimeManifest(fsys, compilerTypes.TargetX86_64LinuxGNU, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pack.demanded) != 0 || len(pack.PayloadHashes) != 0 {
+		t.Fatalf("dependency-free load demanded %v", pack.demanded)
 	}
 }
 

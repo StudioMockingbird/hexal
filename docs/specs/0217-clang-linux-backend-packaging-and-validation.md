@@ -1,8 +1,8 @@
 # RFC 0217: Clang Linux Backend, Packaging, and Validation
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; replacement candidate for RFC 0214 and RFC 0215;
-  implementation not authorized until the replacement is approved
+- Status: Approved; supersedes RFC 0214 and RFC 0215; implementation in
+  progress and not complete (see `docs/status.md`)
 - Created: 2026-09-17
 - Scope: add an installed-Clang Linux build path beside the Windows compiler
   target, package the checked-in Linux runtime pack inside `bin/hexal`, preserve

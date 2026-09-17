@@ -7,14 +7,17 @@ type runtimeSourceModel struct {
 }
 
 // libuvSelected reports whether any reachable operation links libuv. The
-// scheduler substrate, the monotonic clock, File, and the core-library path
-// and entropy queries link it. std/program.arguments alone does not: it reads
-// the process invocation through the C runtime.
+// scheduler substrate, the monotonic clock, File, Terminal, and the
+// core-library path and entropy queries link it. std/program.arguments alone
+// does not: it reads the process invocation through the C runtime.
 func libuvSelected(merged *programEmission) bool {
 	if merged.timeState != nil && merged.timeState.instant || merged.fileState != nil && merged.fileState.used {
 		return true
 	}
 	if merged.networkState != nil && merged.networkState.used {
+		return true
+	}
+	if merged.terminalState != nil && merged.terminalState.used {
 		return true
 	}
 	if merged.corelibState != nil && (merged.corelibState.paths || merged.corelibState.entropy) {

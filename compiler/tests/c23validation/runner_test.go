@@ -72,7 +72,7 @@ func TestC23Suite(t *testing.T) {
 // automatically" -- without hand-listing each one in fixtureCatalog. A new
 // snippet becomes a compile fixture with no edit here. Snippets run in
 // parallel (bounded by -parallel, default GOMAXPROCS, not by the snippet
-// count): discoverAllToolchains and the compile cache are both safe for
+// count): clangToolchain and the compile cache are both safe for
 // this (see toolchain_test.go and c23_harness_test.go), and this is the
 // only one of the two top-level tests in this package that needs it -- 140
 // snippets do not complete sequentially in a reasonable time.

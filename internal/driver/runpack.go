@@ -1,9 +1,11 @@
 package driver
 
-// Checked-in runtime-pack resolution and verification. A normal build resolves
-// the pack only when the program selects a runtime dependency, validates the
-// demanded entries, and never hashes payload bytes. Doctor performs the full
-// hash and completeness verification.
+// Embedded runtime-pack resolution, verification, and demand-driven
+// materialization. The driver opens the pack only when the program selects a
+// runtime dependency, validates the demanded entries against their listed
+// digests, and materializes only those entries into the private build staging
+// directory. Nothing is read from a source checkout or a user directory, and
+// there is no adjacent-pack fallback or -runtime-dir override.
 
 import (
 	"bytes"
@@ -20,6 +22,7 @@ import (
 	"hexal/compiler"
 	compilerTypes "hexal/compiler/types"
 	"hexal/internal/backend"
+	"hexal/lib"
 )
 
 // runtimeManifest is the closed v1 manifest of one checked-in runtime pack.
@@ -51,33 +54,19 @@ type packInputs struct {
 	// PayloadHashes are the listed hashes of the selected dependencies'
 	// archive, include-root, and license files, for the build identity.
 	PayloadHashes []string
+	// demanded is the manifest-ordered dependency list to materialize.
+	demanded []runtimeDependency
 }
 
-// resolveRuntimeRoot selects the runtime-pack root: the explicit override, or
-// the lib/ directory beside the physical running executable. It never searches
-// the working tree, parents, or system paths.
-func resolveRuntimeRoot(override string) (string, error) {
-	if override != "" {
-		absolute, err := filepath.Abs(override)
-		if err != nil {
-			return "", fmt.Errorf("cannot resolve -runtime-dir %q: %v", override, err)
-		}
-		return filepath.Clean(absolute), nil
-	}
-	executable, err := os.Executable()
+// runtimePackFS is the private filesystem seam tests replace. Production uses
+// the checked-in pack embedded in the compiler binary, rooted at the selected
+// target profile's directory.
+func runtimePackFS(target compilerTypes.TargetProfileID) (fs.FS, error) {
+	sub, err := fs.Sub(lib.RuntimePacks(), string(target))
 	if err != nil {
-		return "", fmt.Errorf("cannot locate the running executable: %v", err)
+		return nil, fmt.Errorf("embedded runtime pack for %s is missing or corrupt; rebuild bin/hexal", target)
 	}
-	if resolved, err := filepath.EvalSymlinks(executable); err == nil {
-		executable = resolved
-	}
-	return filepath.Join(filepath.Dir(executable), "lib"), nil
-}
-
-// packDirectory is the manifest directory for one profile under a runtime
-// root.
-func packDirectory(root string, profile zigProfile) string {
-	return filepath.Join(root, profile.packDir)
+	return sub, nil
 }
 
 // packSystemLibraryOptions renders the demanded runtime system libraries as
@@ -90,20 +79,14 @@ func packSystemLibraryOptions(pack packInputs) []string {
 	return options
 }
 
-// loadRuntimeManifest reads, strictly decodes, and validates the pack manifest
-// for the selected profile, then requires every demanded dependency's paths to
-// exist. It returns the manifest, its exact bytes' digest, and the demanded
-// inputs.
-func loadRuntimeManifest(root string, target compilerTypes.TargetProfileID, required []compiler.RuntimeDependency) (runtimeManifest, packInputs, error) {
-	profile, err := resolveZigProfile(target)
-	if err != nil {
-		return runtimeManifest{}, packInputs{}, err
-	}
-	directory := packDirectory(root, profile)
-	manifestPath := filepath.Join(directory, "manifest.json")
-	raw, readErr := os.ReadFile(manifestPath)
+// loadRuntimeManifest reads and strictly validates the embedded manifest for
+// the selected profile, then verifies every demanded dependency's embedded
+// bytes against their listed digests. It returns the manifest, its exact
+// bytes' digest, and the demanded inputs. It writes nothing.
+func loadRuntimeManifest(fsys fs.FS, target compilerTypes.TargetProfileID, required []compiler.RuntimeDependency) (runtimeManifest, packInputs, error) {
+	raw, readErr := fs.ReadFile(fsys, "manifest.json")
 	if readErr != nil {
-		return runtimeManifest{}, packInputs{}, fmt.Errorf("runtime pack for %s is missing; install the checked-in pack or pass -runtime-dir <path>", target)
+		return runtimeManifest{}, packInputs{}, fmt.Errorf("embedded runtime pack for %s is missing or corrupt; rebuild bin/hexal", target)
 	}
 	manifest, err := decodeRuntimeManifest(raw)
 	if err != nil {
@@ -123,31 +106,72 @@ func loadRuntimeManifest(root string, target compilerTypes.TargetProfileID, requ
 		if !selected[dependency.Name] {
 			continue
 		}
-		includeDir, pathErr := safeManifestPath(directory, dependency.IncludeRoot)
-		if pathErr != nil {
-			return runtimeManifest{}, packInputs{}, pathErr
-		}
-		if info, statErr := os.Stat(includeDir); statErr != nil || !info.IsDir() {
-			return runtimeManifest{}, packInputs{}, fmt.Errorf("runtime pack file %s is missing", dependency.IncludeRoot)
-		}
-		archive, pathErr := safeManifestPath(directory, dependency.Archive)
-		if pathErr != nil {
-			return runtimeManifest{}, packInputs{}, pathErr
-		}
-		if info, statErr := os.Stat(archive); statErr != nil || !info.Mode().IsRegular() {
-			return runtimeManifest{}, packInputs{}, fmt.Errorf("runtime pack file %s is missing", dependency.Archive)
-		}
-		if _, pathErr := safeManifestPath(directory, dependency.LicenseFile); pathErr != nil {
-			return runtimeManifest{}, packInputs{}, pathErr
-		}
-		inputs.IncludeDirs = append(inputs.IncludeDirs, includeDir)
-		inputs.Archives = append(inputs.Archives, archive)
-		inputs.SystemLibraries = append(inputs.SystemLibraries, dependency.SystemLibraries...)
 		for _, file := range selectedHashes(manifest, dependency) {
+			content, readErr := fs.ReadFile(fsys, file)
+			if readErr != nil {
+				return runtimeManifest{}, packInputs{}, fmt.Errorf("embedded runtime pack file %s is missing; rebuild bin/hexal", file)
+			}
+			sum := sha256.Sum256(content)
+			if got := hex.EncodeToString(sum[:]); got != manifest.Files[file] {
+				return runtimeManifest{}, packInputs{}, fmt.Errorf("embedded runtime pack file %s failed SHA-256 verification; rebuild bin/hexal", file)
+			}
 			inputs.PayloadHashes = append(inputs.PayloadHashes, manifest.Files[file])
 		}
+		inputs.SystemLibraries = append(inputs.SystemLibraries, dependency.SystemLibraries...)
+		inputs.demanded = append(inputs.demanded, dependency)
 	}
 	return manifest, inputs, nil
+}
+
+// materializePack writes exactly the demanded dependencies' include trees and
+// archives beneath the private staging directory and returns their staging
+// paths in manifest dependency order. It never writes a license or an
+// undemanded entry.
+func materializePack(staging string, fsys fs.FS, pack packInputs) ([]string, []string, error) {
+	includeDirs := make([]string, 0, len(pack.demanded))
+	archives := make([]string, 0, len(pack.demanded))
+	for _, dependency := range pack.demanded {
+		includeDir := filepath.Join(staging, "dependencies", dependency.Name, "include")
+		if err := materializeTree(fsys, dependency.IncludeRoot, includeDir); err != nil {
+			return nil, nil, err
+		}
+		archive := filepath.Join(staging, "dependencies", dependency.Name, filepath.Base(dependency.Archive))
+		if err := materializeFile(fsys, dependency.Archive, archive); err != nil {
+			return nil, nil, err
+		}
+		includeDirs = append(includeDirs, includeDir)
+		archives = append(archives, archive)
+	}
+	return includeDirs, archives, nil
+}
+
+// materializeTree copies one embedded directory tree under destination.
+func materializeTree(fsys fs.FS, root, destination string) error {
+	return fs.WalkDir(fsys, root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(filepath.FromSlash(root), filepath.FromSlash(path))
+		if err != nil {
+			return err
+		}
+		return materializeFile(fsys, path, filepath.Join(destination, relative))
+	})
+}
+
+// materializeFile copies one embedded file to destination, creating parents.
+func materializeFile(fsys fs.FS, path, destination string) error {
+	content, err := fs.ReadFile(fsys, path)
+	if err != nil {
+		return fmt.Errorf("embedded runtime pack file %s is missing; rebuild bin/hexal", path)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(destination, content, 0o644)
 }
 
 // selectedHashes returns the manifest file keys belonging to one dependency's
@@ -272,6 +296,9 @@ func validateRuntimeManifest(manifest runtimeManifest, target compilerTypes.Targ
 		}
 		seenNames[dependency.Name] = true
 		for _, path := range []string{dependency.IncludeRoot, dependency.Archive, dependency.LicenseFile} {
+			if !validPackPath(path) {
+				return fmt.Errorf("runtime pack path %s escapes the target directory", path)
+			}
 			if seenPaths[path] {
 				return fmt.Errorf("runtime pack repeats path %s", path)
 			}
@@ -283,11 +310,36 @@ func validateRuntimeManifest(manifest runtimeManifest, target compilerTypes.Targ
 		}
 	}
 	for path, digest := range manifest.Files {
+		if !validPackPath(path) {
+			return fmt.Errorf("runtime pack path %s escapes the target directory", path)
+		}
 		if !validManifestHash(digest) {
 			return fmt.Errorf("runtime pack file %s has a malformed hash", path)
 		}
 	}
 	return nil
+}
+
+// validPackPath reports whether one embedded manifest path is a rooted,
+// slash-separated path with no ".", "..", backslash, or absolute form. The
+// embedded filesystem rejects a leading slash or a drive letter, so this is a
+// defense against a manifest that names one.
+func validPackPath(path string) bool {
+	if path == "" || strings.Contains(path, "\\") || strings.HasPrefix(path, "/") {
+		return false
+	}
+	if len(path) >= 2 && path[1] == ':' {
+		return false
+	}
+	if filepath.IsAbs(path) || filepath.VolumeName(path) != "" {
+		return false
+	}
+	for _, component := range strings.Split(path, "/") {
+		if component == "" || component == "." || component == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // validManifestHash reports whether digest is exactly 64 lowercase hex
@@ -305,61 +357,15 @@ func validManifestHash(digest string) bool {
 	return true
 }
 
-// safeManifestPath resolves one manifest path under directory, rejecting
-// absolute, drive-qualified, UNC, empty, ".", "..", and backslash forms, any
-// path that normalizes outside directory, and every symlink or reparse-point
-// component.
-func safeManifestPath(directory, relative string) (string, error) {
-	if relative == "" || strings.Contains(relative, "\\") || strings.HasPrefix(relative, "/") ||
-		filepath.IsAbs(relative) || filepath.VolumeName(relative) != "" {
-		return "", fmt.Errorf("runtime pack path %s escapes the target directory", relative)
-	}
-	for _, component := range strings.Split(relative, "/") {
-		if component == "" || component == "." || component == ".." {
-			return "", fmt.Errorf("runtime pack path %s escapes the target directory", relative)
-		}
-	}
-	target := filepath.Join(directory, filepath.FromSlash(relative))
-	absoluteDirectory, err := filepath.Abs(directory)
-	if err != nil {
-		return "", err
-	}
-	absoluteTarget, err := filepath.Abs(target)
-	if err != nil {
-		return "", err
-	}
-	if absoluteTarget != absoluteDirectory && !strings.HasPrefix(absoluteTarget, absoluteDirectory+string(os.PathSeparator)) {
-		return "", fmt.Errorf("runtime pack path %s escapes the target directory", relative)
-	}
-	// Every component must be an ordinary directory or file, never a symlink
-	// or junction.
-	current := absoluteDirectory
-	for _, component := range strings.Split(relative, "/") {
-		current = filepath.Join(current, component)
-		info, statErr := os.Lstat(current)
-		if statErr != nil {
-			continue
-		}
-		if info.Mode()&os.ModeSymlink != 0 || isJunction(current) {
-			return "", fmt.Errorf("runtime pack path %s escapes the target directory", relative)
-		}
-	}
-	return absoluteTarget, nil
-}
-
 // verifyRuntimePack hashes every listed file, rejects an unlisted regular
 // payload file, and reports the first mismatch. Doctor uses it; a normal build
-// never does.
-func verifyRuntimePack(directory string, manifest runtimeManifest) error {
+// never hashes undemanded bytes.
+func verifyRuntimePack(fsys fs.FS, manifest runtimeManifest) error {
 	listed := make(map[string]bool, len(manifest.Files))
 	for path, digest := range manifest.Files {
 		listed[path] = true
-		absolute, err := safeManifestPath(directory, path)
+		content, err := fs.ReadFile(fsys, path)
 		if err != nil {
-			return err
-		}
-		content, readErr := os.ReadFile(absolute)
-		if readErr != nil {
 			return fmt.Errorf("runtime pack file %s is missing", path)
 		}
 		sum := sha256.Sum256(content)
@@ -367,21 +373,16 @@ func verifyRuntimePack(directory string, manifest runtimeManifest) error {
 			return fmt.Errorf("runtime pack file %s failed SHA-256 verification; restore the checked-in pack", path)
 		}
 	}
-	return filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil || entry.IsDir() {
+	return fs.WalkDir(fsys, ".", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
 			return walkErr
 		}
-		relative, err := filepath.Rel(directory, path)
-		if err != nil {
-			return err
-		}
-		key := filepath.ToSlash(relative)
-		if key == "manifest.json" {
+		if entry.IsDir() {
 			return nil
 		}
-		if !listed[key] {
-			return fmt.Errorf("runtime pack file %s is not listed in the manifest", key)
+		if path == "manifest.json" || listed[path] {
+			return nil
 		}
-		return nil
+		return fmt.Errorf("runtime pack file %s is not listed in the manifest", path)
 	})
 }

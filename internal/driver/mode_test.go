@@ -15,6 +15,13 @@ import (
 // Pure-Go mode tests. Anything that spawns the real backend lives in
 // build_c23_test.go behind the `c23` build tag.
 
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestParseModeResolvesDefaultAndBothModes(t *testing.T) {
 	for _, testCase := range []struct {
 		value string
@@ -74,12 +81,13 @@ func TestBuildRejectsUnknownModeAtConfiguration(t *testing.T) {
 // here, never a drive-by.
 func TestModeOptionsAreExact(t *testing.T) {
 	debug := Options(ModeDebug)
-	wantDebugCompile := []string{"-O0", "-g", "-ffp-contract=off", "-fno-sanitize-recover=undefined"}
+	wantDebugCompile := []string{"-O0", "-g", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all"}
 	if !reflect.DeepEqual(debug.Compile, wantDebugCompile) {
 		t.Fatalf("debug compile options = %v, want %v", debug.Compile, wantDebugCompile)
 	}
-	if len(debug.Link) != 0 {
-		t.Fatalf("debug link options = %v, want none", debug.Link)
+	wantDebugLink := []string{"-fsanitize=undefined", "-fno-sanitize-recover=all"}
+	if !reflect.DeepEqual(debug.Link, wantDebugLink) {
+		t.Fatalf("debug link options = %v, want %v", debug.Link, wantDebugLink)
 	}
 
 	release := Options(ModeRelease)
@@ -241,123 +249,40 @@ func TestVersionedBasenameCarriesTheIdentity(t *testing.T) {
 	}
 }
 
-func writeFile(t *testing.T, path, content string) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
+// The mode option table is the single source of a mode's backend flags. Debug
+// enables the UBSan backstop and its non-recovering policy at both compile and
+// link; release drops the backstop and garbage-collects unused sections.
+func TestModeOptionTableMatchesTheContract(t *testing.T) {
+	debug := Options(ModeDebug)
+	debugJoined := strings.Join(append(append([]string{}, debug.Compile...), debug.Link...), " ")
+	for _, want := range []string{"-O0", "-g", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all"} {
+		if !strings.Contains(debugJoined, want) {
+			t.Errorf("debug options lack %s: %v", want, debugJoined)
+		}
+	}
+	if strings.Contains(debugJoined, "-fno-sanitize=undefined") {
+		t.Errorf("debug options disable the sanitizer: %v", debugJoined)
+	}
+
+	release := Options(ModeRelease)
+	releaseJoined := strings.Join(append(append([]string{}, release.Compile...), release.Link...), " ")
+	for _, absent := range []string{"-fsanitize=undefined", "-fno-sanitize-recover"} {
+		if strings.Contains(releaseJoined, absent) {
+			t.Errorf("release options carry %s: %v", absent, releaseJoined)
+		}
+	}
+	for _, want := range []string{"-O2", "-g0", "-ffp-contract=off", "-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections"} {
+		if !strings.Contains(releaseJoined, want) {
+			t.Errorf("release options lack %s: %v", want, releaseJoined)
+		}
 	}
 }
 
-func TestPublishVersionedPDBPublishesAndRepublishesIdentically(t *testing.T) {
-	dir := t.TempDir()
-	staged := filepath.Join(dir, "staged.pdb")
-	published := filepath.Join(dir, "main.abc123.pdb")
-	writeFile(t, staged, "debug-information")
-
-	if err := publishVersionedPDB(staged, published); err != nil {
-		t.Fatalf("first publication failed: %v", err)
-	}
-	raw, err := os.ReadFile(published)
-	if err != nil {
-		t.Fatalf("published file unreadable: %v", err)
-	}
-	if string(raw) != "debug-information" {
-		t.Fatalf("published %q", raw)
-	}
-
-	// A rebuild of the same program reaches the same identity and must accept
-	// the already-published file rather than rewriting it.
-	writeFile(t, staged, "debug-information")
-	if err := publishVersionedPDB(staged, published); err != nil {
-		t.Fatalf("republishing identical debug information failed: %v", err)
-	}
-}
-
-// Two different builds claiming one identity is a defect in the identity, and
-// must fail before the executable is published rather than leave an
-// executable pointing at debug information that does not describe it.
-func TestPublishVersionedPDBRejectsDisagreement(t *testing.T) {
-	dir := t.TempDir()
-	staged := filepath.Join(dir, "staged.pdb")
-	published := filepath.Join(dir, "main.abc123.pdb")
-	writeFile(t, published, "one build")
-	writeFile(t, staged, "a different build")
-
-	err := publishVersionedPDB(staged, published)
-	if err == nil {
-		t.Fatal("disagreeing debug information was accepted")
-	}
-	if !strings.Contains(err.Error(), "identical debug information") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	raw, readErr := os.ReadFile(published)
-	if readErr != nil || string(raw) != "one build" {
-		t.Fatalf("published debug information was modified: %q %v", raw, readErr)
-	}
-}
-
-// The recorded expansions are the evidence behind the option table: the
-// settings each mode promises must be what the pinned backend actually
-// selects, and the settings it promises to omit must be absent.
-func TestRecordedModeExpansionsMatchTheOptionTable(t *testing.T) {
-	for _, testCase := range []struct {
-		mode    BuildMode
-		file    string
-		present []string
-		absent  []string
-	}{
-		{
-			mode: ModeDebug,
-			file: "testdata/zig-cc-expansion-debug.txt",
-			present: []string{
-				`"-O0"`,
-				`"-ffp-contract=off"`,
-				`"-gcodeview"`,
-				`"-debug-info-kind=`,
-				`"-fsanitize=alignment,array-bounds,bool,builtin,enum,float-cast-overflow,integer-divide-by-zero,nonnull-attribute,null,pointer-overflow,return,returns-nonnull-attribute,shift-base,shift-exponent,signed-integer-overflow,unreachable,vla-bound"`,
-				`"-target-cpu" "x86-64"`,
-			},
-			// A recoverable report would let a program continue past
-			// undefined behavior the generated C is required never to have.
-			absent: []string{`"-fsanitize-recover=`, `"-ffunction-sections"`, `"-fdata-sections"`},
-		},
-		{
-			mode: ModeRelease,
-			file: "testdata/zig-cc-expansion-release.txt",
-			present: []string{
-				`"-O2"`,
-				`"-ffp-contract=off"`,
-				`"-ffunction-sections"`,
-				`"-fdata-sections"`,
-				`"-target-cpu" "x86-64"`,
-			},
-			// No debug information is emitted at all, and the backstop the
-			// contract says can never fire is not paid for.
-			absent: []string{`"-debug-info-kind=`, `"-fsanitize=`, `"-fsanitize-recover=`},
-		},
-	} {
-		t.Run(string(testCase.mode), func(t *testing.T) {
-			raw, err := os.ReadFile(testCase.file)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// The recorded expansion wraps long command lines; joining it into
-			// one line lets an argument pair be matched as it was written.
-			expansion := strings.Join(strings.Fields(string(raw)), " ")
-			// Only settings are asserted, never the options themselves: the
-			// compiler driver consumes an option such as -g0 or
-			// -fno-sanitize-recover=undefined and expresses it by what the
-			// expansion below does and does not select.
-			for _, want := range testCase.present {
-				if !strings.Contains(expansion, want) {
-					t.Errorf("recorded expansion lacks %s", want)
-				}
-			}
-			for _, unwanted := range testCase.absent {
-				if strings.Contains(expansion, unwanted) {
-					t.Errorf("recorded expansion carries %s", unwanted)
-				}
-			}
-		})
+// Foreign C compilation never inherits the generated C sanitizer backstop.
+func TestForeignCompileOptionsDropSanitizers(t *testing.T) {
+	for _, option := range ForeignCompileOptions(ModeDebug) {
+		if strings.Contains(option, "sanitize") {
+			t.Fatalf("foreign options carry sanitizer option %q", option)
+		}
 	}
 }

@@ -67,7 +67,8 @@ func TestRunRejectsInvalidVersion(t *testing.T) {
 }
 
 // A malformed foreign option fails at configuration before the backend is
-// resolved, so these run without a toolchain.
+// resolved, so these run without a toolchain. A project entrypoint is supplied
+// because the CLI refuses a no-file build without -entry.
 func TestBuildRejectsInvalidForeignConfiguration(t *testing.T) {
 	for _, testCase := range []struct {
 		args []string
@@ -83,7 +84,7 @@ func TestBuildRejectsInvalidForeignConfiguration(t *testing.T) {
 		{[]string{"-c-define=1BAD"}, "invalid C define"},
 		{[]string{"-c-env=NOEQUALS"}, "-c-env requires NAME=VALUE"},
 	} {
-		err := build(testCase.args)
+		err := build(append([]string{"-entry", "main.hex"}, testCase.args...))
 		if err == nil || !strings.Contains(err.Error(), testCase.want) {
 			t.Errorf("build(%v) = %v, want containing %q", testCase.args, err, testCase.want)
 		}
@@ -118,28 +119,77 @@ func TestBuildRejectsRawToolArguments(t *testing.T) {
 
 func TestHelpListsForeignOptions(t *testing.T) {
 	help := usageText()
-	for _, option := range []string{"-cc", "-target", "-runtime-dir", "-c-source", "-c-include", "-c-define", "-c-env", "-c-standard", "-object", "-archive", "-system-library"} {
+	for _, option := range []string{"-cc", "-target", "-c-source", "-c-include", "-c-define", "-c-env", "-c-standard", "-object", "-archive", "-system-library"} {
 		if !strings.Contains(help, option) {
 			t.Errorf("help does not list %s", option)
 		}
 	}
+	if strings.Contains(help, "-runtime-dir") {
+		t.Errorf("help still lists the removed -runtime-dir option")
+	}
 }
 
-// A missing or unqualified target and a missing compiler both fail at
-// configuration before any external command runs.
+// A missing or unqualified target and a missing compiler fail at
+// configuration before any external command runs. A project entrypoint is
+// supplied so the CLI does not stop at its own -entry requirement first.
 func TestBuildRequiresCompilerAndTarget(t *testing.T) {
 	for _, testCase := range []struct {
 		args []string
 		want string
 	}{
-		{[]string{}, "target profile  is not qualified"},
-		{[]string{"-cc", "whatever"}, "target profile  is not qualified"},
-		{[]string{"-target", "x86_64-windows-gnu-ucrt"}, "C backend is required; pass -cc <path>"},
-		{[]string{"-target", "x86_64-windows-gnu"}, "target profile x86_64-windows-gnu is not qualified"},
+		{[]string{"-entry", "main.hex"}, "target profile  is not qualified for native builds in this release"},
+		{[]string{"-entry", "main.hex", "-cc", "whatever"}, "target profile  is not qualified for native builds in this release"},
+		{[]string{"-entry", "main.hex", "-target", "x86_64-windows-gnu-ucrt"}, "target profile x86_64-windows-gnu-ucrt is not qualified for native builds in this release"},
+		{[]string{"-entry", "main.hex", "-target", "x86_64-windows-gnu"}, "target profile x86_64-windows-gnu is not qualified for native builds in this release"},
+		{[]string{"-entry", "main.hex", "-target", "x86_64-linux-gnu"}, "C backend is required; pass -cc <path>"},
 	} {
 		err := build(testCase.args)
 		if err == nil || !strings.Contains(err.Error(), testCase.want) {
 			t.Errorf("build(%v) = %v, want containing %q", testCase.args, err, testCase.want)
+		}
+	}
+}
+
+// A project build with no filepath requires -entry; a filepath supplies both
+// root and entrypoint and cannot be combined with them.
+func TestBuildEntrypointAndFilepathRules(t *testing.T) {
+	if err := build(nil); err == nil || !strings.Contains(err.Error(), "project build requires -entry when no filepath is given") {
+		t.Fatalf("build(nil) = %v, want the project-build requirement", err)
+	}
+	if err := build([]string{"a.hex", "b.hex"}); err == nil || !strings.Contains(err.Error(), "build accepts at most one source filepath") {
+		t.Fatalf("two filepaths = %v, want the at-most-one diagnostic", err)
+	}
+	if err := build([]string{"a.hex", "-root", "dir"}); err == nil || !strings.Contains(err.Error(), "build filepath cannot be combined with -root or -entry") {
+		t.Fatalf("filepath plus -root = %v, want the combination diagnostic", err)
+	}
+	if err := build([]string{"missing.hex"}); err == nil || !strings.Contains(err.Error(), "build filepath must name a regular .hex file") {
+		t.Fatalf("missing filepath = %v, want the regular-file diagnostic", err)
+	}
+	if err := build([]string{"main.nothex"}); err == nil || !strings.Contains(err.Error(), "build filepath must name a regular .hex file") {
+		t.Fatalf("non-.hex filepath = %v, want the regular-file diagnostic", err)
+	}
+}
+
+// The positional filepath is recognized before or after named options, while
+// every named option's value stays with its option.
+func TestSplitPositionalRecognizesFilepathEitherSide(t *testing.T) {
+	before, _ := splitPositional([]string{"app.hex", "-cc", "/usr/bin/clang", "-target", "x86_64-linux-gnu"})
+	if len(before) != 1 || before[0] != "app.hex" {
+		t.Fatalf("leading filepath = %v", before)
+	}
+	after, named := splitPositional([]string{"-cc", "/usr/bin/clang", "app.hex", "-target", "x86_64-linux-gnu"})
+	if len(after) != 1 || after[0] != "app.hex" {
+		t.Fatalf("trailing filepath = %v", after)
+	}
+	for _, option := range []string{"/usr/bin/clang", "x86_64-linux-gnu"} {
+		found := false
+		for _, value := range named {
+			if value == option {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("named option %q was lost: %v", option, named)
 		}
 	}
 }
@@ -154,7 +204,7 @@ func TestDoctorRequiresCompilerAndTarget(t *testing.T) {
 func TestBuildRejectsNonExecutableCompilerPath(t *testing.T) {
 	directory := t.TempDir()
 	for _, path := range []string{filepath.Join(directory, "missing.exe"), directory} {
-		err := build([]string{"-cc", path, "-target", "x86_64-windows-gnu-ucrt"})
+		err := build([]string{"-entry", "main.hex", "-cc", path, "-target", "x86_64-linux-gnu"})
 		if err == nil || !strings.Contains(err.Error(), "is not an executable file") {
 			t.Errorf("build(-cc %q) = %v, want a non-executable diagnostic", path, err)
 		}

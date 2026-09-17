@@ -3,7 +3,7 @@
 package driver
 
 // The one foreign target-object link fixture the qualified profile's own
-// Runtime and linkage section requires: proof that the pinned backend can
+// Runtime and linkage section requires: proof that the installed Clang can
 // consume an ordinary target object it did not produce, alongside the
 // objects it compiled from Hexal-generated C, without checking a
 // platform-specific binary into the repository (testdata/mode-probe.c is
@@ -27,7 +27,7 @@ func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
 	selected := requireBackend(t)
 	dir := t.TempDir()
 
-	compileResult := compiler.Compile(map[string]string{"main.hex": "print(1)\n"}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	compileResult := compiler.Compile(map[string]string{"main.hex": "print(1)\n"}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)
 	}
@@ -36,22 +36,16 @@ func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
-	native, err := materializeDependencies(dir, compileResult.Dependencies)
-	if err != nil {
-		t.Fatalf("materializeDependencies: %v", err)
-	}
+	includes, archives, pack := materializeTestPack(t, dir, compilerTypes.TargetX86_64LinuxGNU, compileResult.Dependencies)
 	selected.Directory = dir
 	options := Options(ModeDebug)
-	compileOptions := append(append([]string{}, options.Compile...), native.compileOptions...)
-	linkOptions := append(append([]string{}, options.Link...), native.linkOptions...)
+	compileOptions := append(append([]string{}, options.Compile...), includeDirOptions(includes)...)
+	linkOptions := append(append([]string{}, options.Link...), packSystemLibraryOptions(pack)...)
 	var result BuildResult
-	if err := compileNativeDependencies(selected, dir, native, &result); err != nil {
-		t.Fatalf("compiling native dependencies failed: %v", err)
-	}
 	if err := compileTranslationUnitsWithOptions(selected, dir, cFiles, compileOptions, nil, &result); err != nil {
 		t.Fatalf("compiling Hexal-generated C failed: %v", err)
 	}
-	objects := append(cFilesToObjects(dir, cFiles), native.linkObjects...)
+	objects := append(cFilesToObjects(dir, cFiles), archives...)
 
 	probeSource, err := filepath.Abs(filepath.Join("testdata", "mode-probe.c"))
 	if err != nil {
@@ -67,7 +61,7 @@ func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
 	}
 	objects = append(objects, probeObject)
 
-	binary := filepath.Join(dir, "combined"+exeSuffix())
+	binary := filepath.Join(dir, "combined")
 	if err := linkObjectsWithOptions(selected, dir, objects, linkOptions, binary, &result); err != nil {
 		t.Fatalf("linking Hexal objects with the foreign object failed: %v", err)
 	}

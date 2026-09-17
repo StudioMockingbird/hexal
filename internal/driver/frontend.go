@@ -1,26 +1,28 @@
 package driver
 
-// Automatic C header binding generation. The driver asks a
-// separately installed, version-qualified Clang frontend for a header's typed
-// JSON AST and normalizes the supported declarations into Hexal source. The
-// core compiler is untouched: it consumes prepared source strings and never
-// reads a header, starts a process, or parses C.
+// Automatic C header binding generation. The driver asks the selected,
+// version-qualified Clang for a header's typed JSON AST and normalizes the
+// supported declarations into Hexal source. The core compiler is untouched: it
+// consumes prepared source strings and never reads a header, starts a process,
+// or parses C.
 //
-// Inspection is a two-command pipeline. The pinned Zig backend preprocesses a
-// one-line staging translation unit under the selected target, ordered include
-// roots, definitions, and effective environment, retaining line markers. The
-// standalone Clang frontend then parses that preprocessed text in C23 mode
-// under the same target and emits the typed JSON AST; it receives no include
-// roots or definitions because preprocessing already consumed them.
+// Inspection is a two-command pipeline over the one selected Clang executable.
+// Clang preprocesses a one-line staging translation unit under the selected
+// target, ordered include roots, definitions, and effective environment,
+// retaining line markers. The same executable then parses that preprocessed
+// text in C23 mode under the same target and emits the typed JSON AST; it
+// receives no include roots or definitions because preprocessing already
+// consumed them.
 
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -37,39 +39,6 @@ const (
 	clangMinimumMajor   = 18
 )
 
-// clangFrontend is one version-qualified standalone Clang executable.
-type clangFrontend struct {
-	Exe     string
-	Version string
-	Major   int
-}
-
-var clangVersionPattern = regexp.MustCompile(`clang version (\d+)\.`)
-
-// resolveClang locates a supported standalone Clang on PATH. It is a
-// Configuration Error before staging when Clang is absent or older than 18.
-func resolveClang() (clangFrontend, *BuildError) {
-	exe, err := exec.LookPath("clang")
-	if err != nil {
-		return clangFrontend{}, configurationFailure("automatic C imports require clang 18 or newer on PATH")
-	}
-	command := exec.Command(exe, "--version")
-	var stdout bytes.Buffer
-	command.Stdout = &stdout
-	if err := command.Run(); err != nil {
-		return clangFrontend{}, configurationFailure("automatic C imports require clang 18 or newer on PATH")
-	}
-	match := clangVersionPattern.FindStringSubmatch(stdout.String())
-	if match == nil {
-		return clangFrontend{}, configurationFailure("automatic C imports require clang 18 or newer on PATH")
-	}
-	major, err := strconv.Atoi(match[1])
-	if err != nil || major < clangMinimumMajor {
-		return clangFrontend{}, configurationFailure("automatic C imports require clang 18 or newer on PATH")
-	}
-	return clangFrontend{Exe: exe, Version: strings.TrimSpace(stdout.String()), Major: major}, nil
-}
-
 // preparedBinding is one normalized binding module: its reserved logical key
 // and its normalized Hexal source.
 type preparedBinding struct {
@@ -80,10 +49,10 @@ type preparedBinding struct {
 }
 
 // inspectRequest prepares one C-header request: it preprocesses the requested
-// include and normalizes the frontend's typed AST into Hexal source. The
+// include and normalizes the selected Clang's typed AST into Hexal source. The
 // whole inspection shares one 30-second deadline and one 64 MiB bound on each
 // command's output.
-func inspectRequest(selected *backend.Backend, clang clangFrontend, staging string, request compiler.CImportRequest, options headerOptions, result *BuildResult) (preparedBinding, *BuildError) {
+func inspectRequest(selected *backend.Backend, staging string, request compiler.CImportRequest, options headerOptions, result *BuildResult) (preparedBinding, *BuildError) {
 	ctx, cancel := context.WithTimeout(context.Background(), inspectionTimeout)
 	defer cancel()
 
@@ -103,9 +72,10 @@ func inspectRequest(selected *backend.Backend, clang clangFrontend, staging stri
 	}
 	preprocessed := filepath.Join(inspectDir, "inspect.i")
 
-	// Zig preprocesses with the target-relevant interface configuration. It is
-	// the only stage that consumes the include roots and definitions.
-	preprocessArgs := []string{"cc", "-std=c23", "-target", qualifiedTriple}
+	// Clang preprocesses with the target-relevant interface configuration. It
+	// is the only stage that consumes the include roots and definitions.
+	preprocessArgs := []string{"--target=" + qualifiedTriple, "-std=c23"}
+	preprocessArgs = append(preprocessArgs, linuxFeatureDefines...)
 	preprocessArgs = append(preprocessArgs, options.compileOptions...)
 	preprocessArgs = append(preprocessArgs, "-E", stagingSource, "-o", preprocessed)
 	preprocess, failure := runBounded(selected, staging, ctx, result, StageCompile, preprocessArgs)
@@ -113,23 +83,34 @@ func inspectRequest(selected *backend.Backend, clang clangFrontend, staging stri
 		return preparedBinding{}, failure
 	}
 	if preprocess.ExitCode != 0 {
-		return preparedBinding{}, &BuildError{Stage: StageCompile, Message: "C header preprocessing failed; a header C23 rejects needs a compatibility wrapper header", Command: lastCommand(result)}
+		return preparedBinding{}, &BuildError{Stage: StageCompile, Message: fmt.Sprintf("C header %s is not accepted as C23; import a compatibility wrapper header", request.Header), Command: lastCommand(result)}
 	}
 
-	// Clang parses the preprocessed text: no include roots or definitions, and
-	// the same target and C23 mode.
-	clangArgs := []string{"-target", qualifiedTriple, "-x", "c", "-std=c23", "-Xclang", "-ast-dump=json", "-fsyntax-only", preprocessed}
-	ast, failure := runExternalBounded(clang.Exe, staging, selected.Environment, selected.EnvironmentOverrides, ctx, result, StageCompile, clangArgs)
+	// The same Clang parses the preprocessed text: no include roots or
+	// definitions, and the same target and C23 mode.
+	clangArgs := []string{"--target=" + qualifiedTriple, "-x", "c", "-std=c23", "-Xclang", "-ast-dump=json", "-fsyntax-only", preprocessed}
+	ast, failure := runExternalBounded(selected.Exe, staging, selected.Environment, selected.EnvironmentOverrides, ctx, result, StageCompile, clangArgs)
 	if failure != nil {
 		return preparedBinding{}, failure
 	}
 	if ast.ExitCode != 0 {
-		return preparedBinding{}, &BuildError{Stage: StageCompile, Message: "C header frontend inspection failed; a header C23 rejects needs a compatibility wrapper header", Command: lastCommand(result)}
+		return preparedBinding{}, &BuildError{Stage: StageCompile, Message: fmt.Sprintf("C header %s is not accepted as C23; import a compatibility wrapper header", request.Header), Command: lastCommand(result)}
 	}
 	preprocessedText, err := os.ReadFile(preprocessed)
 	if err != nil {
 		return preparedBinding{}, filesystemFailure(fmt.Sprintf("cannot read preprocessed header text: %v", err))
 	}
+
+	// Clang's own preprocessor output supplies the object-like macro
+	// inventory. Candidates are then type-checked under the same header,
+	// target, includes, definitions, and environment; only those Clang proves
+	// are value expressions are exposed, and the generated C still names the
+	// macro, so Clang performs the real expansion and constant evaluation.
+	macroTypes, macroFailure := objectMacroTypes(selected, staging, stagingSource, request, options, ctx, result)
+	if macroFailure != nil {
+		return preparedBinding{}, macroFailure
+	}
+	options.macroTypes = macroTypes
 
 	source, failure := normalizeHeader(ast.Stdout, newLineIndex(string(preprocessedText)), request, options)
 	if failure != nil {
@@ -143,13 +124,190 @@ func inspectRequest(selected *backend.Backend, clang clangFrontend, staging stri
 	}, nil
 }
 
+// objectMacroTypes returns the type Clang proved for every object-like macro
+// defined in the requested header. It runs Clang's preprocessor with -dD to
+// recover the macro definitions, filters to object-like macros whose
+// definition originates in the requested header, then asks Clang to type a
+// probe expression for each candidate. Macros that are not value expressions
+// are simply absent from the result and are omitted by the normalizer.
+func objectMacroTypes(selected *backend.Backend, staging, stagingSource string, request compiler.CImportRequest, options headerOptions, ctx context.Context, result *BuildResult) (map[string]string, *BuildError) {
+	inventoryArgs := []string{"--target=" + qualifiedTriple, "-std=c23"}
+	inventoryArgs = append(inventoryArgs, linuxFeatureDefines...)
+	inventoryArgs = append(inventoryArgs, options.compileOptions...)
+	inventoryArgs = append(inventoryArgs, "-E", "-dD", stagingSource)
+	inventory, failure := runBounded(selected, staging, ctx, result, StageCompile, inventoryArgs)
+	if failure != nil {
+		return nil, failure
+	}
+	if inventory.ExitCode != 0 {
+		// The preprocessing pass already validated the header; a failure here
+		// is not attributable, so no macro is imported and no later stage runs.
+		return nil, nil
+	}
+	macros := objectMacroInventory(inventory.Stdout, request.Header)
+	if len(macros) == 0 {
+		return nil, nil
+	}
+
+	// One batch probe is the common case. If any candidate is not an
+	// expression the batch fails to compile, so each candidate is probed
+	// alone; Clang's verdict, not a heuristic, decides.
+	types, batchFailure := probeMacroBatch(selected, staging, request, options, macros, ctx, result)
+	if batchFailure != nil {
+		return nil, batchFailure
+	}
+	if types != nil {
+		return types, nil
+	}
+	isolated := make(map[string]string)
+	for _, name := range macros {
+		single, singleFailure := probeMacroBatch(selected, staging, request, options, []string{name}, ctx, result)
+		if singleFailure != nil {
+			return nil, singleFailure
+		}
+		if qualType, ok := single[name]; ok {
+			isolated[name] = qualType
+		}
+	}
+	return isolated, nil
+}
+
+// objectMacroInventory lists the object-like macro names defined in the
+// requested header, in deterministic order. Function-like macros (a '('
+// immediately after the name), empty-bodied macros, builtin origins, and
+// underscore-prefixed names are excluded.
+func objectMacroInventory(text, header string) []string {
+	base := macroHeaderBase(header)
+	current := ""
+	seen := make(map[string]bool)
+	names := make([]string, 0)
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "# ") {
+			if file := macroMarkerFile(line); file != "" {
+				current = file
+			}
+			continue
+		}
+		if !strings.HasPrefix(line, "#define") {
+			continue
+		}
+		fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "#define")))
+		if len(fields) < 2 {
+			continue
+		}
+		name := fields[0]
+		if strings.Contains(name, "(") || strings.HasPrefix(name, "_") {
+			continue
+		}
+		if base != "" && macroHeaderBase(current) != base {
+			continue
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// macroMarkerFile extracts the file named by one `# <line> "<file>"` marker.
+func macroMarkerFile(line string) string {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return ""
+	}
+	return strings.Trim(fields[2], "\"")
+}
+
+// macroHeaderBase returns the final path component of a header spelling.
+func macroHeaderBase(path string) string {
+	if index := strings.LastIndexAny(path, `/\`); index >= 0 {
+		return path[index+1:]
+	}
+	return path
+}
+
+// probeMacroBatch type-checks one probe declaration per macro in a single
+// Clang invocation and returns the proved qualType for each. A batch that
+// fails to compile returns (nil, nil): that is Clang saying at least one
+// candidate is not a value expression, not a harness error. A nil map and a
+// non-nil error is a harness failure.
+func probeMacroBatch(selected *backend.Backend, staging string, request compiler.CImportRequest, options headerOptions, macros []string, ctx context.Context, result *BuildResult) (map[string]string, *BuildError) {
+	include := "#include \"" + request.Header + "\"\n"
+	if request.System {
+		include = "#include <" + request.Header + ">\n"
+	}
+	var source strings.Builder
+	source.WriteString(include)
+	for index, name := range macros {
+		fmt.Fprintf(&source, "__typeof__(%s) hex_macro_probe_%d;\n", name, index)
+	}
+	path := filepath.Join(staging, "hexalc", "macros.c")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, filesystemFailure(fmt.Sprintf("cannot create macro probe directory: %v", err))
+	}
+	if err := os.WriteFile(path, []byte(source.String()), 0o644); err != nil {
+		return nil, filesystemFailure(fmt.Sprintf("cannot write macro probe source: %v", err))
+	}
+	args := []string{"--target=" + qualifiedTriple, "-std=c23"}
+	args = append(args, linuxFeatureDefines...)
+	args = append(args, options.compileOptions...)
+	args = append(args, "-Xclang", "-ast-dump=json", "-fsyntax-only", path)
+	ast, failure := runExternalBounded(selected.Exe, staging, selected.Environment, selected.EnvironmentOverrides, ctx, result, StageCompile, args)
+	if failure != nil {
+		return nil, failure
+	}
+	if ast.ExitCode != 0 {
+		return nil, nil
+	}
+	var document struct {
+		Inner []struct {
+			Kind string `json:"kind"`
+			Name string `json:"name"`
+			Type struct {
+				QualType          string `json:"qualType"`
+				DesugaredQualType string `json:"desugaredQualType"`
+			} `json:"type"`
+		} `json:"inner"`
+	}
+	if err := json.Unmarshal([]byte(ast.Stdout), &document); err != nil {
+		return nil, nil
+	}
+	types := make(map[string]string, len(macros))
+	for _, node := range document.Inner {
+		if node.Kind != "VarDecl" {
+			continue
+		}
+		// A __typeof__ declaration prints the typeof sugar in qualType; the
+		// desugared spelling is the type the macro expression actually has.
+		qualType := node.Type.DesugaredQualType
+		if qualType == "" {
+			qualType = node.Type.QualType
+		}
+		if qualType == "" {
+			continue
+		}
+		for index, name := range macros {
+			if node.Name == fmt.Sprintf("hex_macro_probe_%d", index) {
+				types[name] = qualType
+			}
+		}
+	}
+	return types, nil
+}
+
 // headerOptions carries the interface configuration every interface consumer
 // shares: the ordered include roots and definitions rendered as backend
-// arguments, and the Hexal target profile identity the prepared binding key is
-// derived from.
+// arguments, the Hexal target profile identity the prepared binding key is
+// derived from, and the object-like macro types Clang proved (name to C
+// qualType) for the requested header.
 type headerOptions struct {
 	compileOptions []string
 	target         string
+	macroTypes     map[string]string
 }
 
 // freshInspectionDir creates one private directory for transient header

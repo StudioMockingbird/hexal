@@ -3,6 +3,8 @@
 package driver
 
 import (
+	"bufio"
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,42 +19,48 @@ import (
 func TestLibuvDependencyProbe(t *testing.T) {
 	selected := requireBackend(t)
 	staging := t.TempDir()
-	dependency, err := materializeDependencies(staging, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
+	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
+	if len(includes) != 1 || len(archives) != 1 {
+		t.Fatalf("materialized %v include dirs and %v archives, want one each", includes, archives)
+	}
+	if _, err := os.Stat(filepath.Join(includes[0], "uv.h")); err != nil {
+		t.Fatalf("libuv header was not materialized: %v", err)
+	}
+	info, err := os.Stat(archives[0])
 	if err != nil {
+		t.Fatalf("libuv static archive was not materialized: %v", err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("libuv static archive is empty")
+	}
+	// The archive is genuine: a program that calls into it compiles, links,
+	// and runs through the selected Clang.
+	fixture := filepath.Join(staging, "libuv_version_probe.c")
+	const source = "#include <stdio.h>\n#include <uv.h>\nint main(void) {\n    if (uv_version() == 0) return 1;\n    printf(\"%u\\n\", uv_version());\n    return 0;\n}\n"
+	if err := os.WriteFile(fixture, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	selected.Directory = staging
 	var result BuildResult
-	if err := compileNativeDependencies(selected, staging, dependency, &result); err != nil {
-		if len(result.Commands) > 0 {
-			t.Fatalf("%v\ncommand: %v\nstderr: %s", err, result.Commands[len(result.Commands)-1].Arguments, result.Commands[len(result.Commands)-1].Stderr)
-		}
-		t.Fatal(err)
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, &result); err != nil {
+		failWithLastCommand(t, &result, err)
 	}
-	if len(dependency.sources) != len(libuvWindowsSources) {
-		t.Fatalf("sources = %d, want %d", len(dependency.sources), len(libuvWindowsSources))
+	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
+	objects = append(objects, archives...)
+	output := filepath.Join(staging, "libuv_version_probe")
+	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
+		failWithLastCommand(t, &result, err)
 	}
-	if _, err := os.Stat(dependency.objects[0]); err != nil {
-		t.Fatal(err)
-	}
-	if dependency.libuvArchive == "" || len(dependency.linkObjects) != 1 || dependency.linkObjects[0] != dependency.libuvArchive {
-		t.Fatalf("libuv link artifact = %v, archive = %q", dependency.linkObjects, dependency.libuvArchive)
-	}
-	if _, err := os.Stat(dependency.libuvArchive); err != nil {
-		t.Fatalf("libuv static archive was not created: %v", err)
+	run, err := exec.Command(output).CombinedOutput()
+	if err != nil || len(run) == 0 {
+		t.Fatalf("libuv version probe output = %q, error = %v", run, err)
 	}
 }
 
 func TestLibuvTypedNetworkProbe(t *testing.T) {
 	selected := requireBackend(t)
 	staging := t.TempDir()
-	native, err := materializeDependencies(staging, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result BuildResult
-	if err := compileNativeDependencies(selected, staging, native, &result); err != nil {
-		failWithLastCommand(t, &result, err)
-	}
+	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
 	fixture := filepath.Join(staging, "typed_network_probe.c")
 	const source = `#include <stdio.h>
 #include <stdlib.h>
@@ -192,17 +200,19 @@ int main(void) {
 	if err := os.WriteFile(fixture, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, nil, &result); err != nil {
+	selected.Directory = staging
+	var result BuildResult
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
-	objects = append(objects, native.linkObjects...)
-	output := filepath.Join(staging, "typed_network_probe"+exeSuffix())
-	if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+	objects = append(objects, archives...)
+	output := filepath.Join(staging, "typed_network_probe")
+	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
-	if err != nil || string(run) != "ok\r\n" {
+	if err != nil || string(run) != "ok\n" {
 		t.Fatalf("output = %q, error = %v", run, err)
 	}
 }
@@ -210,19 +220,9 @@ int main(void) {
 func TestLibuvIdleConnectionProbe(t *testing.T) {
 	selected := requireBackend(t)
 	staging := t.TempDir()
-	native, err := materializeDependencies(staging, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result BuildResult
-	if err := compileNativeDependencies(selected, staging, native, &result); err != nil {
-		failWithLastCommand(t, &result, err)
-	}
+	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
 	fixture := filepath.Join(staging, "idle_connection_probe.c")
-	const source = `#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <tlhelp32.h>
-#include <stdio.h>
+	const source = `#include <stdio.h>
 #include <uv.h>
 
 enum { idle_count = 1000 };
@@ -261,16 +261,14 @@ static void start_next_client(const struct sockaddr *address) {
 }
 
 static int process_thread_count(void) {
-    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) return -1;
-    THREADENTRY32 entry = { .dwSize = sizeof(entry) };
-    int count = 0;
-    if (Thread32First(snapshot, &entry)) {
-        do {
-            if (entry.th32OwnerProcessID == GetCurrentProcessId()) count++;
-        } while (Thread32Next(snapshot, &entry));
+    FILE *file = fopen("/proc/self/status", "r");
+    if (file == nullptr) return -1;
+    char line[256];
+    int count = -1;
+    while (fgets(line, sizeof(line), file) != nullptr) {
+        if (sscanf(line, "Threads: %d", &count) == 1) break;
     }
-    CloseHandle(snapshot);
+    fclose(file);
     return count;
 }
 
@@ -324,7 +322,7 @@ int main(void) {
     uv_run(&loop, UV_RUN_DEFAULT);
     if (uv_loop_close(&loop) != 0) return 14;
     if (failed || accepted != idle_count || connected != idle_count || after < 0 || after - before > 4) {
-        fprintf(stderr, "failed=%d accepted=%d connected=%d before=%d after=%d\\n", failed, accepted, connected, before, after);
+        fprintf(stderr, "failed=%d accepted=%d connected=%d before=%d after=%d\n", failed, accepted, connected, before, after);
         return 13;
     }
     puts("ok");
@@ -334,17 +332,19 @@ int main(void) {
 	if err := os.WriteFile(fixture, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, nil, &result); err != nil {
+	selected.Directory = staging
+	var result BuildResult
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
-	objects = append(objects, native.linkObjects...)
-	output := filepath.Join(staging, "idle_connection_probe"+exeSuffix())
-	if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+	objects = append(objects, archives...)
+	output := filepath.Join(staging, "idle_connection_probe")
+	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
-	if err != nil || string(run) != "ok\r\n" {
+	if err != nil || string(run) != "ok\n" {
 		t.Fatalf("output = %q, error = %v", run, err)
 	}
 }
@@ -352,14 +352,7 @@ int main(void) {
 func TestLibuvCancellationProbe(t *testing.T) {
 	selected := requireBackend(t)
 	staging := t.TempDir()
-	native, err := materializeDependencies(staging, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result BuildResult
-	if err := compileNativeDependencies(selected, staging, native, &result); err != nil {
-		failWithLastCommand(t, &result, err)
-	}
+	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
 	fixture := filepath.Join(staging, "cancellation_probe.c")
 	const source = `#include <stdatomic.h>
 #include <stdio.h>
@@ -464,20 +457,23 @@ int main(void) {
 	if err := os.WriteFile(fixture, []byte(source), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, nil, &result); err != nil {
+	selected.Directory = staging
+	var result BuildResult
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
-	objects = append(objects, native.linkObjects...)
-	output := filepath.Join(staging, "cancellation_probe"+exeSuffix())
-	if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+	objects = append(objects, archives...)
+	output := filepath.Join(staging, "cancellation_probe")
+	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
-	if err != nil || string(run) != "ok\r\n" {
+	if err != nil || string(run) != "ok\n" {
 		t.Fatalf("output = %q, error = %v", run, err)
 	}
 }
+
 func TestLibuvEventRuntimeProbe(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
@@ -496,6 +492,14 @@ func TestLibuvEventRuntimeProbe(t *testing.T) {
 	}
 }
 
+// TestLibuvSchedulerContentionProbe proves a ready Task is dispatched while
+// blocking native reads hold outstanding work requests. Six blocking reads far
+// exceed the default libuv worker pool, so the scheduler must still run the
+// ready Task. The loop's worker pool is enlarged for the child because the
+// ready Task's own output also travels through it and an entirely saturated
+// pool would hide the very result this asserts. The blocked reads are released
+// once the result is observed, because the runtime completes its shutdown only
+// after outstanding work returns.
 func TestLibuvSchedulerContentionProbe(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
@@ -512,6 +516,7 @@ fun blocked(): Int32 | Error do
     return 0
 end
 fun ready(): Int32 do
+    print("ready 7\n")
     return 7
 end
 fun run(): Int32 | Error do
@@ -543,20 +548,61 @@ value: Int32 | Error := run()
 	defer writer.Close()
 	command := exec.Command(result.Executable)
 	command.Stdin = reader
+	// The pool is enlarged past the blocked-read count so the ready Task's
+	// output can be observed while every read request is in flight.
+	command.Env = append(os.Environ(), "UV_THREADPOOL_SIZE=8")
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
 	finished := make(chan error, 1)
 	go func() { finished <- command.Wait() }()
+	// The ready Task must publish its result while the six blocking reads
+	// hold every libuv work request. The write itself runs on the loop thread,
+	// so it is observable even with the worker pool saturated.
+	ready := make(chan string, 1)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			if strings.HasPrefix(scanner.Text(), "ready ") {
+				ready <- scanner.Text()
+				return
+			}
+		}
+		ready <- ""
+	}()
+	select {
+	case line := <-ready:
+		if line != "ready 7" {
+			_ = command.Process.Kill()
+			<-finished
+			t.Fatalf("ready Task did not run while libuv work requests were blocked: %q (stderr %q)", line, stderr.String())
+		}
+	case err := <-finished:
+		t.Fatalf("contention fixture exited before the ready Task reported: %v (stderr %q)", err, stderr.String())
+	case <-time.After(5 * time.Second):
+		_ = command.Process.Kill()
+		<-finished
+		t.Fatalf("ready Task did not run while libuv work requests were blocked (stderr %q)", stderr.String())
+	}
+	// The blocked reads deliberately keep the runtime from completing its
+	// shutdown; releasing them now that the ready Task's result is observed
+	// lets the process exit.
+	_ = writer.Close()
 	select {
 	case err := <-finished:
 		if err != nil {
-			t.Fatalf("contention fixture failed: %v", err)
+			t.Fatalf("contention fixture failed after the blocked reads were released: %v (stderr %q)", err, stderr.String())
 		}
 	case <-time.After(5 * time.Second):
 		_ = command.Process.Kill()
 		<-finished
-		t.Fatal("ready Task did not run while libuv work requests were blocked")
+		t.Fatal("contention fixture did not exit after the blocked reads were released")
 	}
 }
 
@@ -564,7 +610,7 @@ func TestLibuvEventFoundationProbe(t *testing.T) {
 	selected := requireBackend(t)
 	compileResult := compiler.Compile(map[string]string{
 		"main.hex": "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n",
-	}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)
 	}
@@ -572,21 +618,12 @@ func TestLibuvEventFoundationProbe(t *testing.T) {
 	if _, err := materialize(staging, compileResult.Files); err != nil {
 		t.Fatal(err)
 	}
-	native, err := materializeDependencies(staging, compileResult.Dependencies)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var result BuildResult
-	if err := compileNativeDependencies(selected, staging, native, &result); err != nil {
-		failWithLastCommand(t, &result, err)
-	}
+	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, compileResult.Dependencies)
 	fixture := filepath.Join(staging, "event_foundation_probe.c")
 	const source = `#include "hexal/event.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdatomic.h>
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <uv.h>
 
 typedef struct probe_wait {
@@ -643,8 +680,6 @@ static void run_slow(void *context) {
 }
 
 int main(void) {
-    WSADATA data;
-    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return 10;
     probe_state state = {0};
     if (uv_mutex_init(&state.wait.mutex) != 0 || uv_cond_init(&state.wait.cond) != 0) return 11;
     current_task.args = &state;
@@ -679,7 +714,6 @@ int main(void) {
     uv_mutex_destroy(&slow.wait.mutex);
     uv_cond_destroy(&state.wait.cond);
     uv_mutex_destroy(&state.wait.mutex);
-    WSACleanup();
     puts("ok");
     return 0;
 }
@@ -688,17 +722,19 @@ int main(void) {
 		t.Fatal(err)
 	}
 	eventSource := filepath.Join(staging, "hexal", "event.c")
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource, fixture}, native.compileOptions, nil, &result); err != nil {
+	selected.Directory = staging
+	var result BuildResult
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource, fixture}, includeDirOptions(includes), nil, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(eventSource, ".c") + ".o", strings.TrimSuffix(fixture, ".c") + ".o"}
-	objects = append(objects, native.linkObjects...)
-	output := filepath.Join(staging, "event_foundation_probe"+exeSuffix())
-	if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+	objects = append(objects, archives...)
+	output := filepath.Join(staging, "event_foundation_probe")
+	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
-	if err != nil || string(run) != "ok\r\n" {
+	if err != nil || string(run) != "ok\n" {
 		t.Fatalf("output = %q, error = %v", run, err)
 	}
 }

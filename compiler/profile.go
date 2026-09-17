@@ -24,7 +24,8 @@ type targetProfile struct {
 }
 
 // targetProfiles is the registry of qualified targets, keyed by public
-// identity. It currently holds exactly the one qualified profile.
+// identity. It holds the Windows C-generation target and the Linux profile of
+// the one qualified native driver.
 var targetProfiles = map[compilerTypes.TargetProfileID]targetProfile{
 	compilerTypes.TargetX86_64WindowsGNU: {
 		identity:      compilerTypes.TargetX86_64WindowsGNU,
@@ -35,6 +36,19 @@ var targetProfiles = map[compilerTypes.TargetProfileID]targetProfile{
 		sizeWidth:     64,
 		windowsTarget: true,
 		threading:     "windows",
+		tls:           true,
+		fibers:        true,
+		nativeIO:      true,
+	},
+	compilerTypes.TargetX86_64LinuxGNU: {
+		identity:      compilerTypes.TargetX86_64LinuxGNU,
+		os:            "linux",
+		architecture:  "x86_64",
+		littleEndian:  true,
+		pointerWidth:  64,
+		sizeWidth:     64,
+		windowsTarget: false,
+		threading:     "posix",
 		tls:           true,
 		fibers:        true,
 		nativeIO:      true,

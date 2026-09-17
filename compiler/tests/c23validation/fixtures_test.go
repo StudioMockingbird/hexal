@@ -472,13 +472,16 @@ var fixtureCatalog = []fixture{
 	{
 		// join's generated wrapper releases the target task immediately
 		// after a successful join, so joining the same handle twice is a
-		// use-after-free, not this trap. detach on a task that has not yet
-		// run (spawn returns before the cooperative scheduler ever switches
-		// to it) claims it without releasing, so a join right after
-		// deterministically finds the claim already taken.
+		// use-after-free, not this trap. The worker blocks on an empty
+		// channel that is never sent to, so it cannot reach completion on
+		// another scheduler thread before the root's detach; that keeps
+		// detach's claim the only terminal claim and makes the join's trap
+		// deterministic. A worker that could finish first would be released
+		// by detach, and the join would touch freed memory instead -- the
+		// race this blocking receive removes from the fixture.
 		name:        "join-already-joined-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun worker(): Bool do\n    return true\nend\nfun run(): Bool | Error do\n    t: Task<Bool> := try spawn worker()\n    t.detach()\n    t.join()\n    return true\nend\nout: Bool | Error := run()\n"},
+		sources:     map[string]string{"app.hex": "fun worker(ch: Channel<Int32>): Bool do\n    step: Int32 | EoS := ch.receive()\n    return true\nend\nfun run(): Bool | Error do\n    h: Heap := Heap()\n    ch: Channel<Int32> := try Channel<Int32>(h, 1)\n    t: Task<Bool> := try spawn worker(ch)\n    t.detach()\n    t.join()\n    return true\nend\nout: Bool | Error := run()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] Task already joined or detached"},
 	},
 	{
@@ -528,13 +531,16 @@ var fixtureCatalog = []fixture{
 		// Runs on a spawned Task's bounded fiber stack so the guard page is
 		// reached (after far fewer than 2_000_000_000 frames) long before
 		// the loop condition would ever end it on its own; the conditional
-		// base case keeps GCC/Clang's infinite-recursion analysis from
-		// rejecting the function outright, and the trailing "+ 1" after the
-		// recursive call keeps every frame live, so no optimization level
-		// turns this into a tail call.
+		// base case keeps Clang's infinite-recursion analysis from
+		// rejecting the function outright. The yield after the recursive
+		// call is load-bearing: it is an opaque side effect whose per-frame
+		// ordering a loop cannot reproduce, so neither tail-call
+		// elimination nor the accumulator rewrite that would otherwise turn
+		// `return recurse(n + 1) + 1` into a constant-stack loop fires at
+		// -O2, and both modes reach the guard page.
 		name:       "task-stack-overflow-traps",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "fun recurse(n: Int32): Int32 do\n    if n < 2000000000 then\n        return recurse(n + 1) + 1\n    end\n    return n\nend\n" +
+		sources: map[string]string{"app.hex": "fun recurse(n: Int32): Int32 do\n    if n < 2000000000 then\n        next: Int32 := recurse(n + 1)\n        Task.yield()\n        return next + 1\n    end\n    return n\nend\n" +
 			"fun worker(): Int32 do\n    return recurse(0)\nend\n" +
 			"fun run(): Int32 | Error do\n    t: Task<Int32> := try spawn worker()\n    return t.join()\nend\n" +
 			"fun demo(): Int32 do\n    outcome: Int32 | Error := run()\n    value: Int32 := match outcome is\n    | Int32 then\n        outcome\n    | Error then\n        -1\n    end\n    return value\nend\nprint(demo())\n"},
@@ -1369,13 +1375,13 @@ var fixtureCatalog = []fixture{
 	},
 
 	// Handwritten C interoperability. Every foreign ABI fact is
-	// target-dependent, so each fixture selects the qualified Windows
-	// profile. They use standard headers only: the harness owns no include
+	// target-dependent, so each fixture selects the qualified Linux profile
+	// (LP64). They use standard headers only: the harness owns no include
 	// path or extra C source, and the C library supplies the implementation.
 	{
 		name:       "foreign-scalars-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
 		sources: map[string]string{"app.hex": "extern c from <stdlib.h> do\n" +
 			"    fun c_abs as \"abs\"(value: Int32 as \"int\"): Int32 as \"int\"\n" +
 			"end\n" +
@@ -1393,7 +1399,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-opaque-and-record-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
 		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
 			"    type File as \"FILE\" is opaque\n" +
 			"end\n" +
@@ -1422,7 +1428,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-constants-globals-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
 		sources: map[string]string{"app.hex": "extern c from <limits.h> do\n" +
 			"    constant int_max as \"INT_MAX\": Int32\n" +
 			"end\n" +
@@ -1444,7 +1450,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-buffer-bridge-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
 		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
 			"    type File as \"FILE\" is opaque\n" +
 			"    fun c_fgets as \"fgets\"(buffer: Ptr<mut Byte> | Nil as \"char *\", count: Int32 as \"int\", stream: Ptr<mut File> | Nil as \"FILE *\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
@@ -1464,7 +1470,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "foreign-call-runs",
 		entrypoint:  "app.hex",
-		project:     compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		project:     compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
 		sources:     map[string]string{"app.hex": "extern c from <stdlib.h> do\n    fun c_abs as \"abs\"(value: Int32 as \"int\"): Int32 as \"int\"\nend\nfun demo(): Int32 do\n    unsafe do\n        return c_abs(-7)\n    end\nend\nprint(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "7"},
 	},
@@ -1473,7 +1479,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-header-only-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
 		sources: map[string]string{"app.hex": "extern c from <stdckdint.h> do\n" +
 			"    fun c_check_add as \"ckd_add\"(result: Ptr<mut Int32>, left: Int32 as \"int\", right: Int32 as \"int\"): Bool\n" +
 			"end\n" +
@@ -1489,7 +1495,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-record-by-value-runs",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
 		sources: map[string]string{"app.hex": "extern c from <stdlib.h> do\n" +
 			"    type DivT as \"div_t\" is struct\n" +
 			"        mut quot: Int32,\n" +
@@ -1512,7 +1518,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-library-shaped-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU},
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
 		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
 			"    type File as \"FILE\" is opaque\n" +
 			"    constant eof as \"EOF\": Int32\n" +

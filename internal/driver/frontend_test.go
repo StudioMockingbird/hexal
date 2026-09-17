@@ -6,7 +6,9 @@ package driver
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -54,13 +56,28 @@ func TestInspectionDeadlineFailsClosed(t *testing.T) {
 	}
 }
 
-func TestResolveClangRequiresClang18(t *testing.T) {
-	// An empty search path must fail with the exact configuration diagnostic.
-	t.Setenv("PATH", t.TempDir())
-	if _, failure := resolveClang(); failure == nil || failure.Message != "automatic C imports require clang 18 or newer on PATH" {
-		t.Fatalf("missing clang = %v, want the exact configuration error", failure)
+func TestResolveBackendRequiresAnExecutablePath(t *testing.T) {
+	if _, err := resolveBackend(""); err == nil || err.Error() != "C backend is required; pass -cc <path>" {
+		t.Fatalf("empty path = %v, want the exact required diagnostic", err)
 	}
-	if _, failure := resolveClang(); failure != nil && !strings.Contains(failure.Message, "clang 18 or newer") {
-		t.Fatalf("unexpected clang diagnostic %q", failure.Message)
+	if _, err := resolveBackend(filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "is not an executable file") {
+		t.Fatalf("missing path = %v, want a non-executable diagnostic", err)
+	}
+	if _, err := resolveBackend(t.TempDir()); err == nil || !strings.Contains(err.Error(), "is not an executable file") {
+		t.Fatalf("directory path = %v, want a non-executable diagnostic", err)
+	}
+}
+
+// A relative -cc path resolves once against the invocation working directory,
+// which the diagnostic names as an absolute path.
+func TestResolveBackendResolvesRelativePathsAgainstTheWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "probe-tool"), []byte("#!/bin/sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	_, err := resolveBackend("probe-tool")
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(dir, "probe-tool")) {
+		t.Fatalf("relative path = %v, want it resolved against the working directory", err)
 	}
 }

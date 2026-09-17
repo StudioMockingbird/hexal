@@ -1,7 +1,7 @@
 # RFC 0215: Single-Clang External Validation
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; blocked on RFC 0214
+- Status: Discarded; consolidated into RFC 0217 before implementation
 - Created: 2026-09-17
 - Scope: remove GCC and Zig as compiler-development and external-test
   dependencies after Clang becomes Hexal's sole qualified backend

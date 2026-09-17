@@ -5,44 +5,35 @@ import (
 	"strings"
 )
 
-// RequiredHeaders is the exact C header inventory generated C selects,
-// derived from compiler/generator/packages on 2026-09-11. A guard test fails
-// when production templates begin using a header absent here, which routes
-// the new header through qualification instead of silently assuming it.
+// RequiredHeaders is the exact C header inventory generated C selects for the
+// Linux target, derived from compiler/generator/packages. A guard test fails
+// when production templates begin using a header absent here, which routes the
+// new header through qualification instead of silently assuming it.
 var RequiredHeaders = []string{
 	"errno.h", "inttypes.h", "limits.h", "math.h", "stdatomic.h",
 	"stdckdint.h", "stddef.h", "stdint.h", "stdio.h", "stdlib.h",
-	"string.h", "windows.h", "process.h", "pthread.h", "ucontext.h",
-	"signal.h", "sys/mman.h", "unistd.h", "fcntl.h",
+	"string.h", "pthread.h", "ucontext.h", "signal.h", "sys/mman.h",
+	"unistd.h", "fcntl.h",
 }
 
-// RequiredFacilities names the non-header C23 facilities generated code
-// relies on: checked arithmetic, atomics, typeof, nullptr, attributes, and
-// static assertions, plus the native Windows threading and IO paths.
+// RequiredFacilities names the non-header C23 facilities generated code relies
+// on: checked arithmetic, atomics, typeof, nullptr, attributes, and static
+// assertions, plus the POSIX threading and IO paths.
 var RequiredFacilities = []string{
 	"checked-arithmetic", "atomics", "typeof", "nullptr",
-	"attributes", "static-assert", "windows-threads", "windows-io",
+	"attributes", "static-assert", "posix-threads", "posix-io",
 }
 
-// QualificationProbe returns a C23 translation unit exercising every
-// required header and facility. Qualification compiles, links, and runs it
-// through the pinned backend; the trivial `int main` probe proves nothing
-// about the facility set. The driver runs this as its full probe.
+// QualificationProbe returns a C23 translation unit exercising every required
+// header and facility. Qualification compiles, links, and runs it through the
+// selected backend; the trivial `int main` probe proves nothing about the
+// facility set. The driver runs this as its full probe.
 func QualificationProbe() string {
 	includes := make([]string, 0, len(RequiredHeaders))
 	for _, header := range RequiredHeaders {
-		// windows.h and process.h exist only on Windows targets; pthread and
-		// POSIX headers only elsewhere. The probe targets the qualified
-		// Windows profile, so it includes exactly that profile's headers.
-		switch header {
-		case "pthread.h", "ucontext.h", "signal.h", "sys/mman.h", "unistd.h", "fcntl.h":
-			continue
-		}
 		includes = append(includes, "#include <"+header+">")
 	}
 	return strings.Join(includes, "\n") + `
-#include <windows.h>
-
 static_assert(sizeof(int32_t) == 4, "exact-width integers");
 static_assert(nullptr == 0, "nullptr");
 
@@ -62,43 +53,34 @@ int main(void) {
 	probe_counter++;
 	if (probe_add(20, 22) != answer) {
 		return 1;
-	 }
-	DWORD threads = 1;
-	(void)threads;
+	}
+	pthread_t thread = pthread_self();
+	(void)thread;
 	printf("%d\n", answer);
 	return 0;
 }
 `
 }
 
-// CompileOne compiles one translation unit to an object file: zig cc
-// -std=c23 -target <triple> plus caller-supplied options. stdout, stderr,
-// and the exit status return separated in the result.
-func (backend *Backend) CompileOne(triple string, options []string, source, object string) (Result, error) {
-	return backend.CompileOneDialect(triple, "c23", options, source, object)
+// CompileOne compiles one generated translation unit to an object file:
+// clang --target <triple> -std=c23 plus caller-supplied options.
+func (backend *Backend) CompileOne(target string, options []string, source, object string) (Result, error) {
+	return backend.CompileOneDialect(target, "c23", options, source, object)
 }
 
 // CompileOneDialect compiles one translation unit using the source dialect
-// required by that unit. Generated Hexal sources use C23; vendored native
-// dependencies retain the dialect qualified by their own release.
-func (backend *Backend) CompileOneDialect(triple, dialect string, options []string, source, object string) (Result, error) {
-	args := append([]string{"cc", "-std=" + dialect, "-target", triple}, options...)
+// required by that unit. Generated Hexal sources use C23; foreign sources
+// retain the dialect selected by -c-standard.
+func (backend *Backend) CompileOneDialect(target, dialect string, options []string, source, object string) (Result, error) {
+	args := append([]string{"--target=" + target, "-std=" + dialect}, options...)
 	args = append(args, "-c", source, "-o", object)
 	return backend.Run(args...)
 }
 
-// ArchiveObjects creates one static archive through the selected backend's
-// bundled archiver. The archive is target-independent after its input objects
-// have been compiled for the requested target.
-func (backend *Backend) ArchiveObjects(objects []string, archive string) (Result, error) {
-	args := append([]string{"ar", "rcs", archive}, objects...)
-	return backend.Run(args...)
-}
-
-// LinkObjects links objects into an executable through the backend, which
-// owns linker selection internally. Extra options append after the objects.
-func (backend *Backend) LinkObjects(triple string, objects []string, executable string, options []string) (Result, error) {
-	args := append([]string{"cc", "-std=c23", "-target", triple}, objects...)
+// LinkObjects links objects into an executable through the same selected
+// Clang executable. Extra options append after the objects.
+func (backend *Backend) LinkObjects(target string, objects []string, executable string, options []string) (Result, error) {
+	args := append([]string{"--target=" + target, "-std=c23"}, objects...)
 	args = append(args, options...)
 	args = append(args, "-o", executable)
 	return backend.Run(args...)

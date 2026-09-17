@@ -26,7 +26,7 @@ import (
 const defaultForeignDialect = "c17"
 
 // foreignDialects is the accepted -c-standard set. The driver passes the
-// spelling through to Zig and fails if Zig rejects it.
+// spelling through to the selected Clang and fails if Clang rejects it.
 var foreignDialects = map[string]bool{
 	"c89": true, "c99": true, "c11": true, "c17": true, "c23": true,
 	"gnu89": true, "gnu99": true, "gnu11": true, "gnu17": true, "gnu23": true,

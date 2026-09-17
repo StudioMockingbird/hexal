@@ -1,34 +1,39 @@
+// Package backend drives one installed Clang executable: it reads the
+// compiler's identity, invokes direct compile and link commands for the
+// qualified target, and captures separated streams and the exact argument
+// vector. It wraps no compiler family, plugin, or Zig distribution: this
+// release qualifies exactly one backend, installed Clang, selected by explicit
+// path.
+//
+// The backend never searches PATH, downloads during a build, or probes the
+// host for target facts. Callers supply an explicit path; this package
+// verifies and invokes.
 package backend
 
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 )
 
-// Backend is one verified Zig distribution: an executable plus its required
-// lib/ tree. It carries no PATH search, no download, and no host probing
-// beyond asking the executable for its own identity.
+// Backend is one installed Clang compiler. Exe is the resolved absolute path
+// of the executable; Directory is the working directory every invocation runs
+// in, empty for the caller's own. Pinning the directory is not a convenience:
+// the compiler records its working directory in the debug information it
+// emits, so a caller that needs reproducible debug information must pin it to
+// a path derived from the build's inputs.
 type Backend struct {
-	Exe           string
-	Version       string
-	LibDir        string
-	ClangVersion  string
-	LinkerDefault string
-	// Directory is the working directory every invocation runs in, empty for
-	// the caller's own. It is not a convenience: the compiler records its
-	// working directory in the debug information it emits, so a caller that
-	// needs reproducible debug information must pin it to a path derived from
-	// the build's inputs rather than from wherever the user happened to stand.
+	Exe     string
+	Version string
+	Major   int
+	// Directory is the working directory every invocation runs in.
 	Directory string
 	// Environment is the complete child environment for every build
 	// invocation the driver makes: the launching process environment with the
 	// explicit overrides already merged, deterministically ordered. Nil means
-	// inherit the parent environment unchanged, which is what identity
-	// discovery uses before any override is known.
+	// inherit the parent environment unchanged.
 	Environment []string
 	// EnvironmentOverrides names the explicit `-c-env` overrides in
 	// occurrence order, for secret-safe command records. It never carries a
@@ -36,80 +41,51 @@ type Backend struct {
 	EnvironmentOverrides []string
 }
 
-var libDirPattern = regexp.MustCompile(`\.lib_dir\s*=\s*"((?:[^"\\]|\\.)*)"`)
-var clangVersionPattern = regexp.MustCompile(`(?m)^(?:zig\s*:\s*)?clang version (\S+)`)
+// clangVersionPattern extracts the major version from a Clang version banner.
+var clangVersionPattern = regexp.MustCompile(`clang version (\d+)\.`)
 
-// NewBackend opens the Zig distribution rooted at exe and reads its
-// identity: exact version, lib_dir from `zig env`, and the bundled Clang
-// version from `zig cc -v`. Callers supply the path; nothing here searches
-// for it. Discovery inherits the launching process environment: overrides
-// apply to a build's compilation and linking, not to selecting or
-// version-qualifying the backend executable.
+// NewBackend opens the installed Clang at exe and reads its identity from
+// `<exe> --version`. Callers supply the path; nothing here searches for it.
+// An executable whose banner does not name Clang fails closed: the driver
+// renders the one external "not Clang 18 or newer" diagnostic from that
+// failure, so the exact reason is not exposed here.
 func NewBackend(exe string) (*Backend, error) {
-	version, err := output(exe, "", nil, "version")
+	version, err := output(exe, "", nil, "--version")
 	if err != nil {
-		return nil, fmt.Errorf("zig version failed for %q: %w", exe, err)
+		return nil, fmt.Errorf("cannot read compiler version: %w", err)
 	}
-	backend := &Backend{Exe: exe, Version: strings.TrimSpace(version.Stdout)}
-	env, err := output(exe, "", nil, "env")
-	if err == nil {
-		if match := libDirPattern.FindStringSubmatch(env.Stdout); match != nil {
-			backend.LibDir = strings.ReplaceAll(match[1], `\\`, `\`)
+	banner := firstNonemptyLine(version.Stdout)
+	if banner == "" {
+		return nil, fmt.Errorf("compiler reported no version")
+	}
+	match := clangVersionPattern.FindStringSubmatch(banner)
+	if match == nil {
+		return nil, fmt.Errorf("compiler is not Clang")
+	}
+	major := 0
+	for _, character := range match[1] {
+		major = major*10 + int(character-'0')
+	}
+	return &Backend{Exe: exe, Version: banner, Major: major}, nil
+}
+
+// firstNonemptyLine returns the first nonempty line of text, trimmed, or the
+// empty string. The complete trimmed first nonempty version-banner line enters
+// build identity; installation paths and later banner lines do not.
+func firstNonemptyLine(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
 		}
 	}
-	ccVersion, err := output(exe, "", nil, "cc", "-v")
-	if err == nil {
-		combined := ccVersion.Stdout + ccVersion.Stderr
-		if match := clangVersionPattern.FindStringSubmatch(combined); match != nil {
-			backend.ClangVersion = match[1]
-		}
-	}
-	return backend, nil
+	return ""
 }
 
-// Validate checks the structural integrity the driver needs before any
-// build: a reported version, a readable lib_dir inside the distribution. It
-// does not enforce the release pin; the driver owns that policy.
-func (backend *Backend) Validate() error {
-	if backend == nil {
-		return fmt.Errorf("no backend selected")
-	}
-	if backend.Version == "" {
-		return fmt.Errorf("backend %q reported no version", backend.Exe)
-	}
-	if backend.LibDir == "" {
-		return fmt.Errorf("backend %q reported no lib_dir; the distribution may be incomplete", backend.Exe)
-	}
-	info, err := os.Stat(backend.LibDir)
-	if err != nil || !info.IsDir() {
-		return fmt.Errorf("backend lib_dir %q is not a readable directory; the distribution is incomplete and cannot be relocated away from its lib/ tree", backend.LibDir)
-	}
-	return nil
-}
-
-// CheckPinned enforces the release pin: only the exact pinned version
-// satisfies it. A newer version does not; bumping is a deliberate
-// re-qualification recorded in the lock record, never an incidental upgrade.
-func (backend *Backend) CheckPinned(pinned string) error {
-	if err := backend.Validate(); err != nil {
-		return err
-	}
-	if backend.Version != pinned {
-		return fmt.Errorf("backend is Zig %s, but this release pins %s", backend.Version, pinned)
-	}
-	return nil
-}
-
-// Identity renders the backend half of the build identity: pinned version,
-// archive filename and digest, and the bundled Clang version. Absolute
-// installation paths never participate.
-func (backend *Backend) Identity(record LockRecord) string {
-	return strings.Join([]string{
-		"zig=" + backend.Version,
-		"archive=" + record.Filename,
-		"digest=" + record.SHA256,
-		"clang=" + backend.ClangVersion,
-	}, "\n")
+// Identity renders the backend half of the build identity: the complete
+// trimmed first version-banner line. Absolute installation paths never
+// participate.
+func (backend *Backend) Identity() string {
+	return "clang=" + backend.Version
 }
 
 // Result is one completed child-process invocation with separated streams

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
 )
 
 // testIndex maps preprocessed line 2 onward to adder.h starting at line 1.
@@ -18,11 +19,95 @@ func testIndex() *lineIndex {
 
 func normalizeTest(t *testing.T, ast string, request compiler.CImportRequest) string {
 	t.Helper()
-	source, failure := normalizeHeader(ast, testIndex(), request, headerOptions{})
+	return normalizeTestTarget(t, ast, request, "")
+}
+
+func normalizeTestTarget(t *testing.T, ast string, request compiler.CImportRequest, target string) string {
+	t.Helper()
+	source, failure := normalizeHeader(ast, testIndex(), request, headerOptions{target: target})
 	if failure != nil {
 		t.Fatalf("normalizeHeader failed: %v", failure)
 	}
 	return source
+}
+
+func normalizeTestMacros(t *testing.T, ast string, request compiler.CImportRequest, macros map[string]string) string {
+	t.Helper()
+	source, failure := normalizeHeader(ast, testIndex(), request, headerOptions{macroTypes: macros})
+	if failure != nil {
+		t.Fatalf("normalizeHeader failed: %v", failure)
+	}
+	return source
+}
+
+// Object-like macros Clang proved are scalar value expressions are emitted as
+// foreign constants; enum-typed and transparent-alias macros qualify, while
+// composite and array macros are omitted whole.
+func TestNormalizeObjectLikeMacroConstants(t *testing.T) {
+	ast := `{"kind":"TranslationUnitDecl","inner":[{"kind":"EnumDecl","loc":{"line":2},"name":"Flags","inner":[{"kind":"EnumConstantDecl","loc":{"line":3},"name":"FLAG_VISIBLE"}]}]}`
+	macros := map[string]string{
+		"MAX_TOUCH_POINTS": "int",
+		"DEFAULT_FLAGS":    "Flags",
+		"LIGHTGRAY":        "struct Color",
+		"BANNER":           "char[8]",
+	}
+	source := normalizeTestMacros(t, ast, compiler.CImportRequest{Header: "x.h"}, macros)
+	if !strings.Contains(source, `constant MAX_TOUCH_POINTS as "MAX_TOUCH_POINTS": Int32`) {
+		t.Fatalf("scalar macro not imported:\n%s", source)
+	}
+	if !strings.Contains(source, `constant DEFAULT_FLAGS as "DEFAULT_FLAGS": Flags`) {
+		t.Fatalf("enum-typed macro not imported:\n%s", source)
+	}
+	if strings.Contains(source, "LIGHTGRAY") || strings.Contains(source, "BANNER") {
+		t.Fatalf("unsupported macro types must be omitted whole:\n%s", source)
+	}
+}
+
+// The macro inventory keeps only object-like, non-empty, non-underscore macros
+// whose definition originates in the requested header, in deterministic order.
+func TestObjectMacroInventoryFiltersAndOrders(t *testing.T) {
+	text := "# 1 \"x.h\"\n" +
+		"#define MAX 10\n" +
+		"#define FUNC(x) (x)\n" +
+		"#define _PRIVATE 1\n" +
+		"#define EMPTY\n" +
+		"# 1 \"other.h\"\n" +
+		"#define OTHER 3\n" +
+		"# 1 \"x.h\"\n" +
+		"#define ALPHA 1\n"
+	got := objectMacroInventory(text, "x.h")
+	want := []string{"ALPHA", "MAX"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("inventory = %v, want %v", got, want)
+	}
+}
+
+// long and unsigned long follow the selected target's C data model: 64-bit
+// under LP64 (x86_64-linux-gnu) and 32-bit under LLP64
+// (x86_64-windows-gnu-ucrt), in record members, parameters, and results. size_t
+// is Size on both.
+func TestNormalizeLongMappingFollowsTheTargetDataModel(t *testing.T) {
+	ast := `{"kind":"TranslationUnitDecl","inner":[` +
+		`{"kind":"RecordDecl","loc":{"line":2},"name":"Ledges","tagUsed":"struct","completeDefinition":true,"inner":[` +
+		`{"kind":"FieldDecl","loc":{"line":3},"name":"count","type":{"qualType":"long"}},` +
+		`{"kind":"FieldDecl","loc":{"line":4},"name":"total","type":{"qualType":"unsigned long"}},` +
+		`{"kind":"FieldDecl","loc":{"line":5},"name":"bytes","type":{"qualType":"size_t"}}]},` +
+		`{"kind":"FunctionDecl","loc":{"line":6},"name":"resize","type":{"qualType":"unsigned long (long, size_t)"},"inner":[` +
+		`{"kind":"ParmVarDecl","loc":{"line":6},"name":"limit","type":{"qualType":"long"}},` +
+		`{"kind":"ParmVarDecl","loc":{"line":6},"name":"n","type":{"qualType":"size_t"}}]}` +
+		`]}`
+	linux := normalizeTestTarget(t, ast, compiler.CImportRequest{Header: "x.h"}, string(compilerTypes.TargetX86_64LinuxGNU))
+	for _, want := range []string{"mut count: Int64,", "mut total: UInt64,", "mut bytes: Size,", "limit: Int64", "): UInt64"} {
+		if !strings.Contains(linux, want) {
+			t.Fatalf("LP64 binding lacks %q:\n%s", want, linux)
+		}
+	}
+	windows := normalizeTestTarget(t, ast, compiler.CImportRequest{Header: "x.h"}, string(compilerTypes.TargetX86_64WindowsGNU))
+	for _, want := range []string{"mut count: Int32,", "mut total: UInt32,", "mut bytes: Size,", "limit: Int32", "): UInt32"} {
+		if !strings.Contains(windows, want) {
+			t.Fatalf("LLP64 binding lacks %q:\n%s", want, windows)
+		}
+	}
 }
 
 func TestLineIndexResolvesOrigin(t *testing.T) {

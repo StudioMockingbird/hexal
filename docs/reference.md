@@ -551,6 +551,11 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 - `Alias from c <header>` imports a prepared binding module resolved from the reserved logical key
   `hexalc/h<sha256(target NUL header-form NUL header-payload)>.hex`. The leading `h` keeps the digest
   a legal identifier. System and quoted forms are distinct identities, as are different targets.
+- An automatic import also exposes every object-like macro the selected Clang proves is a value
+  expression of a supported scalar type as a foreign constant named after the macro; the generated
+  C names the macro, so Clang performs the expansion and constant evaluation. Function-like macros,
+  macros with no value expression, and macros whose type is not a supported scalar are omitted with
+  the binding or wrapper guidance.
 - The compiler verifies that the prepared module declares the requested header; an absent or
   mismatched entry reports `prepared C binding missing for <header>`. The `hexalc` prefix is reserved
   and rejected for user source.
@@ -1545,11 +1550,10 @@ Sleep is not a Task method; it is the `std/time` module function `sleep(duration
   point in one cooperative M:N scheduler over libuv worker threads. A native operation that parks its
   caller on the runtime event bridge (see IO) does not satisfy this explicit-yield rule; a `while true` loop
   containing only such an operation still requires its own `Task.yield()`.
-- The qualified target is Windows x64, using the qualified libuv thread,
-  mutex, condition, detach, and available-parallelism facilities. POSIX x86-64
-  source branches exist but are unqualified until their target profiles pass
-  the external generated-C and runtime gates; an existing source branch is not
-  a support claim. Root is
+- The qualified native target is Linux x86-64 built by installed Clang 18 or newer, using the
+  qualified libuv thread, mutex, condition, detach, and available-parallelism facilities. Windows
+  x86-64 remains a core C-generation target with no native driver in this release; its checked-in
+  runtime pack is not delivered and its generated C is checked by pure-Go tests only. Root is
   pinned to worker zero; root return does not join tasks. Stacks
   reserve 1 MiB by default with an 8 KiB initial commit, both `Project` build-time settings; the
   initial commit is a Windows-only knob, and the usable region is the reserve less one guard page.
@@ -2281,11 +2285,14 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   no filesystem operations.
 - `project.Target` selects one compiler-owned target profile identity. Empty selects no profile:
   generated runtime components keep both platform paths, chosen at C-compile time, and output
-  is host-neutral. The one qualified identity is `x86_64-windows-gnu-ucrt` (x86-64 Windows,
-  MinGW-w64 ABI over dynamic UCRT); any other non-empty identity fails before lexing, including
-  the older ambiguous `x86_64-windows-gnu` spelling, and callers cannot supply individual
-  ABI facts. An explicit profile emits only the selected platform implementation; inactive
-  branches and headers are absent.
+  is host-neutral. Two identities are qualified: `x86_64-linux-gnu` (x86-64 Linux, glibc, LP64)
+  and `x86_64-windows-gnu-ucrt` (x86-64 Windows, MinGW-w64 ABI over dynamic UCRT). Any other
+  non-empty identity fails before lexing, including the older ambiguous `x86_64-windows-gnu`
+  spelling, and callers cannot supply individual ABI facts. An explicit target selects its
+  platform's entrypoint widening and runtime path; a Windows-only branch that remains in the
+  text stays guarded by `#if defined(_WIN32)`. `x86_64-linux-gnu` is the target of the one
+  qualified native driver; `x86_64-windows-gnu-ucrt` remains a core C-generation target with no
+  native driver in this release.
 - The result's `Files` map is the sole generated-artifact surface: `CompilationResult` has no
   `MainC`/`MainH` or other mirrored root-file fields, and `Files` is non-nil on every result.
 - `CompilationResult.Stats` is one project-level summary per compilation call. It aggregates only

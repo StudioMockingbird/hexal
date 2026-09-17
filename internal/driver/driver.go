@@ -7,6 +7,7 @@ package driver
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -103,16 +104,14 @@ type BuildOptions struct {
 	Root       string    // source root; defaults to the working directory
 	Entrypoint string    // logical key; defaults to main.hex
 	OutDir     string    // intermediate root; defaults to <root>/build
-	Output     string    // executable path; defaults to <outdir>/<entrypoint>.exe
+	Output     string    // executable path; defaults to <outdir>/<entrypoint>
 	Mode       BuildMode // backend option set; defaults to debug
-	// CompilerPath is the exact installed Zig executable. It is required: the
-	// driver never searches PATH for a compiler.
+	// CompilerPath is the exact installed Clang executable. It is required:
+	// the driver never searches PATH for a compiler.
 	CompilerPath string
-	// Target is the exact Hexal target-profile identity. It is required.
+	// Target is the exact Hexal target-profile identity. It is required, and
+	// this release qualifies only x86_64-linux-gnu for native builds.
 	Target compilerTypes.TargetProfileID
-	// RuntimeDir overrides the checked-in runtime-pack root. Empty selects the
-	// pack directory beside the running executable.
-	RuntimeDir string
 	// CSources are foreign C translation units compiled separately and linked.
 	CSources []string
 	// CIncludeDirs are header search directories added to generated module and
@@ -148,12 +147,6 @@ func hexalFailureMessage(diagnostics []string) string {
 	}
 	return "compilation failed"
 }
-
-// qualifiedTriple is Zig's toolchain target spelling for the qualified
-// profile, named explicitly rather than relying on the backend default. It is
-// the driver profile record's spelling; the Hexal identity carries the CRT
-// suffix while Zig's does not.
-const qualifiedTriple = zigTargetSpelling
 
 // stagingBaseName is the intermediate directory under the output root. Only
 // this exact directory is skipped during source discovery; a different
@@ -195,20 +188,20 @@ func Build(options BuildOptions) (BuildResult, error) {
 		return result, foreignFailure
 	}
 
-	// The target profile and the exact installed compiler are selected before
-	// source discovery. An unqualified profile or an unacceptable compiler
-	// fails here, not after compilation.
-	profile, profileErr := resolveZigProfile(options.Target)
+	// The host, target profile, and exact installed compiler are selected
+	// before source discovery. An unqualified host or profile, or an
+	// unacceptable compiler, fails here, not after compilation.
+	if err := checkHost(); err != nil {
+		return result, configurationFailure(err.Error())
+	}
+	profile, profileErr := resolveProfile(options.Target)
 	if profileErr != nil {
 		return result, configurationFailure(profileErr.Error())
 	}
-	backend, backendErr := resolveBackend(options.CompilerPath, profile)
+	_ = profile
+	backend, backendErr := resolveBackend(options.CompilerPath)
 	if backendErr != nil {
 		return result, configurationFailure(backendErr.Error())
-	}
-
-	if err := checkHost(); err != nil {
-		return result, configurationFailure(err.Error())
 	}
 	// Every generated-C, foreign-C, and link invocation runs under the one
 	// normalized effective environment; identity discovery above already ran
@@ -237,10 +230,6 @@ func Build(options BuildOptions) (BuildResult, error) {
 		return result, &BuildError{Stage: StageHexal, Message: "C import discovery failed"}
 	}
 	if len(requests) > 0 {
-		clang, clangFailure := resolveClang()
-		if clangFailure != nil {
-			return result, clangFailure
-		}
 		inspection, inspectionErr := freshInspectionDir(outDir)
 		if inspectionErr != nil {
 			return result, filesystemFailure(inspectionErr.Error())
@@ -258,7 +247,7 @@ func Build(options BuildOptions) (BuildResult, error) {
 				// binding.
 				continue
 			}
-			binding, bindingFailure := inspectRequest(backend, clang, inspection, request, headerOpts, &result)
+			binding, bindingFailure := inspectRequest(backend, inspection, request, headerOpts, &result)
 			if bindingFailure != nil {
 				return result, bindingFailure
 			}
@@ -282,22 +271,21 @@ func Build(options BuildOptions) (BuildResult, error) {
 	selected := Options(mode)
 
 	// Resolve the demanded runtime pack only when the program selects a
-	// runtime dependency. A dependency-free build never reads lib/.
+	// runtime dependency. A dependency-free build never opens the embedded
+	// pack.
 	var pack packInputs
+	var packFS fs.FS
 	if len(compileResult.Dependencies) > 0 {
-		runtimeRoot, rootErr := resolveRuntimeRoot(options.RuntimeDir)
-		if rootErr != nil {
-			return result, filesystemFailure(rootErr.Error())
+		resolvedFS, fsErr := runtimePackFS(options.Target)
+		if fsErr != nil {
+			return result, configurationFailure(fsErr.Error())
 		}
-		_, loaded, packErr := loadRuntimeManifest(runtimeRoot, options.Target, compileResult.Dependencies)
+		packFS = resolvedFS
+		_, loaded, packErr := loadRuntimeManifest(packFS, options.Target, compileResult.Dependencies)
 		if packErr != nil {
 			return result, configurationFailure(packErr.Error())
 		}
 		pack = loaded
-	}
-	packIncludes := make([]string, 0, len(pack.IncludeDirs))
-	for _, directory := range pack.IncludeDirs {
-		packIncludes = append(packIncludes, "-I"+directory)
 	}
 
 	// The identity is derived before anything touches the filesystem, because
@@ -332,6 +320,22 @@ func Build(options BuildOptions) (BuildResult, error) {
 	// it emits, so it is pinned to the identity-named tree for the same reason
 	// that tree is named after the identity at all.
 	backend.Directory = staging
+
+	// The demanded runtime pack is materialized under staging only after the
+	// identity names that tree: build identity hashes the manifest digest and
+	// payload hashes, never a host path.
+	packIncludes := make([]string, 0, len(pack.demanded))
+	if len(pack.demanded) > 0 {
+		includeDirs, archives, materializeErr := materializePack(staging, packFS, pack)
+		if materializeErr != nil {
+			return result, filesystemFailure(materializeErr.Error())
+		}
+		pack.IncludeDirs = includeDirs
+		pack.Archives = archives
+		for _, directory := range includeDirs {
+			packIncludes = append(packIncludes, "-I"+directory)
+		}
+	}
 
 	cFiles, err := materialize(staging, compileResult.Files)
 	if err != nil {
@@ -387,15 +391,6 @@ func Build(options BuildOptions) (BuildResult, error) {
 	if err := linkObjectsWithOptions(backend, staging, objects, linkOptions, stagedExe, &result); err != nil {
 		return result, err
 	}
-	if mode == ModeDebug {
-		stagedPDB := strings.TrimSuffix(stagedExe, exeSuffix()) + ".pdb"
-		if _, statErr := os.Stat(stagedPDB); statErr == nil {
-			publishedPDB := filepath.Join(filepath.Dir(output), filepath.Base(stagedPDB))
-			if err := publishVersionedPDB(stagedPDB, publishedPDB); err != nil {
-				return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
-			}
-		}
-	}
 	if err := publishExecutable(stagedExe, output); err != nil {
 		return result, &BuildError{Stage: StageFilesystem, Message: err.Error()}
 	}
@@ -403,21 +398,21 @@ func Build(options BuildOptions) (BuildResult, error) {
 	return result, nil
 }
 
-// checkHost rejects every host outside the qualified v1 scope before any
-// tool runs. Cross-compilation is out of v1, so the host running the build
-// is the only host a build may target.
+// checkHost rejects every host outside the qualified scope before any tool
+// runs. This release links and runs its results, so the host running the
+// build is the only host a build may target: x86-64 Linux.
 func checkHost() error {
-	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
-		return fmt.Errorf("host %s/%s is not qualified; v1 builds x86-64 Windows", runtime.GOOS, runtime.GOARCH)
+	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
+		return fmt.Errorf("host %s/%s is not qualified; this release builds x86-64 Linux from installed Clang", runtime.GOOS, runtime.GOARCH)
 	}
 	return nil
 }
 
 // resolveBackend validates the explicitly selected compiler before source
 // discovery. There is no PATH search: an absent, missing, non-executable, or
-// wrong-version compiler fails with a stable diagnostic. The exact version is
-// the one the backend lock record pins; a newer version does not satisfy it.
-func resolveBackend(compilerPath string, profile zigProfile) (*backend.Backend, error) {
+// non-Clang compiler fails with a stable diagnostic. Any Clang 18 or newer is
+// accepted; the complete version banner enters the build identity.
+func resolveBackend(compilerPath string) (*backend.Backend, error) {
 	if compilerPath == "" {
 		return nil, fmt.Errorf("C backend is required; pass -cc <path>")
 	}
@@ -430,48 +425,21 @@ func resolveBackend(compilerPath string, profile zigProfile) (*backend.Backend, 
 		return nil, fmt.Errorf("C backend path %s is not an executable file", resolved)
 	}
 	selected, err := backend.NewBackend(resolved)
-	if err != nil {
-		return nil, fmt.Errorf("C backend %s is unusable: %v", resolved, err)
-	}
-	if err := selected.Validate(); err != nil {
-		return nil, fmt.Errorf("C backend %s is unusable: %v", resolved, err)
-	}
-	pinned := backend.PinnedZigWindows().Version
-	if selected.Version != pinned {
-		return nil, fmt.Errorf("C backend %s reports Zig %s; target %s requires Zig %s", resolved, selected.Version, profile.profile, pinned)
-	}
-	if err := verifyZigTarget(selected, profile); err != nil {
-		return nil, err
+	if err != nil || selected.Major < clangMinimumMajor {
+		return nil, fmt.Errorf("C backend %s is not Clang 18 or newer", resolved)
 	}
 	return selected, nil
 }
 
 // executableFile reports whether path is a regular file this host can execute.
-// The qualified host is Windows, where an executable is a regular file whose
-// extension is .exe; another host never reaches a qualified build.
+// The qualified host is Linux, where an executable is a regular file with an
+// execute bit.
 func executableFile(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		return false
 	}
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(filepath.Ext(path), ".exe")
-	}
 	return info.Mode()&0o111 != 0
-}
-
-// verifyZigTarget proves the selected compiler accepts the profile's Zig
-// target spelling. Preprocessing an empty translation unit is the cheapest
-// proof that the spelling is known to this Zig.
-func verifyZigTarget(selected *backend.Backend, profile zigProfile) error {
-	invocation, err := selected.Run("cc", "-target", profile.zigTarget, "-E", "-x", "c", "-")
-	if err != nil {
-		return fmt.Errorf("C backend %s failed to run: %v", selected.Exe, err)
-	}
-	if invocation.ExitCode != 0 {
-		return fmt.Errorf("C backend %s does not accept target %s", selected.Exe, profile.zigTarget)
-	}
-	return nil
 }
 
 // stagingPath resolves the intermediate directory discovery skips: exactly
@@ -518,12 +486,6 @@ func discover(root, staging string) (map[string]string, error) {
 		if path != root {
 			if info.Mode()&os.ModeSymlink != 0 {
 				return fmt.Errorf("source %q is a symlink; links are not followed", path)
-			}
-			// Every entry is probed, not just directories: the walker
-			// reports a junction as a non-directory without the symlink
-			// bit, so gating on IsDir would let one through silently.
-			if isJunction(path) {
-				return fmt.Errorf("source %q is a junction; junctions are not followed", path)
 			}
 		}
 		if info.IsDir() {
@@ -612,6 +574,13 @@ func cFilesToObjects(staging string, cFiles []string) []string {
 	return objects
 }
 
+// linuxFeatureDefines selects the POSIX feature-test level generated C needs
+// under strict C23 on glibc: without it, pthread_rwlock_t and struct addrinfo
+// are hidden by <pthread.h> and <netdb.h>, and the generated POSIX branches do
+// not compile. It is a build selection, not a generated-C rule: the emitted
+// source stays standard C23.
+var linuxFeatureDefines = []string{"-D_POSIX_C_SOURCE=200809L"}
+
 // compileTranslationUnitsWithOptions compiles every generated .c in
 // deterministic logical-key order: one backend invocation per translation
 // unit, each its own C-compilation stage record with separated streams. The
@@ -624,7 +593,8 @@ func cFilesToObjects(staging string, cFiles []string) []string {
 func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string, cFiles, options, moduleOptions []string, result *BuildResult) error {
 	for _, source := range cFiles {
 		object := strings.TrimSuffix(source, ".c") + ".o"
-		compileOptions := append([]string{"-I", staging}, options...)
+		compileOptions := append([]string{"-I", staging}, linuxFeatureDefines...)
+		compileOptions = append(compileOptions, options...)
 		if isModuleTranslationUnit(staging, source) {
 			compileOptions = append(compileOptions, moduleOptions...)
 		}

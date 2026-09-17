@@ -2,20 +2,18 @@
 
 package c23validation
 
-// Track 6's qualification gate: the fixture catalog compiled, linked, and
-// run through the one profile the compiler-owned registry currently
-// qualifies (compilerTypes.TargetX86_64WindowsGNU), never the host-neutral
+// The qualification gate: the fixture catalog compiled, linked, and run
+// through the one profile the compiler-owned registry qualifies for a native
+// build (compilerTypes.TargetX86_64LinuxGNU), never the host-neutral
 // Project{} every other test in this package uses. Project{} keeps both
 // platform branches and lets the C compiler's own target macros select one
 // at C-compile time (see TestHostNeutralRetainsBothBranches in
 // compiler/tests/integration); an explicit profile instead has the Hexal
 // compiler itself omit the inactive branch (TestExplicitProfileOmitsPosixBranches,
 // same package), a materially different code path through every runtime
-// component with concurrency or IO code. Without this test, that path's
-// only real-toolchain execution coverage was internal/driver's own
-// hand-written qualification gate (TestBuildProducesRunnableExecutable and
-// its neighbors) -- real, but far narrower than the full fixture and
-// snippet catalog this package otherwise runs against Project{}.
+// component with concurrency or IO code. This is the one qualified
+// compile/link/run gate; Windows compiler-target cases stay pure-Go
+// generated-C assertions in the integration suite, not linked here.
 
 import (
 	"testing"
@@ -25,9 +23,10 @@ import (
 	"hexal/workbench/snippets"
 )
 
-// qualifiedProject is Track 6's one target: the compiler-owned registry's
-// only current entry (compiler/profile.go's targetProfiles).
-var qualifiedProject = compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU}
+// qualifiedProject is the compiler-owned registry's one current entry
+// (compiler/profile.go's targetProfiles), the only target this release's
+// native driver qualifies.
+var qualifiedProject = compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU}
 
 // resolveQualified is fixture.resolve, but compiled against qualifiedProject
 // instead of the host-neutral Project{} every other fixture use in this

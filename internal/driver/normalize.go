@@ -101,7 +101,7 @@ func normalizeHeader(text string, index *lineIndex, request compiler.CImportRequ
 	if root.Kind != kindTranslationUnit {
 		return "", &BuildError{Stage: StageCompile, Message: "C header frontend inspection produced no translation unit"}
 	}
-	importer := newImporter(request, index)
+	importer := newImporter(request, index, options.target, options.macroTypes)
 	importer.collect(root.Inner)
 	return importer.emit(), nil
 }
@@ -136,6 +136,15 @@ type importer struct {
 	// incompleteRecords marks the Hexal names of opaque records: a transparent
 	// alias to one is not a value type, so it resolves inline instead.
 	incompleteRecords map[string]bool
+	// target is the selected Hexal target-profile identity. It selects the C
+	// data model fundamental spellings resolve under: LP64 (long is 64-bit) on
+	// x86_64-linux-gnu, LLP64 (long is 32-bit) on x86_64-windows-gnu-ucrt.
+	target string
+	// macroTypes maps one object-like macro defined in the requested header to
+	// the C qualType Clang proved for it. A macro whose type maps to a
+	// supported scalar is emitted as a foreign constant; every other macro is
+	// omitted whole, exactly like an unsupported declaration.
+	macroTypes map[string]string
 }
 
 type typedefRecord struct {
@@ -216,7 +225,7 @@ type globalRecord struct {
 	line     int
 }
 
-func newImporter(request compiler.CImportRequest, index *lineIndex) *importer {
+func newImporter(request compiler.CImportRequest, index *lineIndex, target string, macroTypes map[string]string) *importer {
 	return &importer{
 		request:           request,
 		byCName:           make(map[string]string),
@@ -228,6 +237,8 @@ func newImporter(request compiler.CImportRequest, index *lineIndex) *importer {
 		typeNames:         make(map[string]bool),
 		typeUnsupported:   make(map[string]bool),
 		incompleteRecords: make(map[string]bool),
+		target:            target,
+		macroTypes:        macroTypes,
 	}
 }
 
@@ -468,8 +479,16 @@ var exactWidthTypedef = map[string]string{
 }
 
 // fundamentalSpelling maps one C fundamental type spelling to its Hexal
-// scalar. `long` is 32-bit on the LLP64 Windows profile.
-func fundamentalSpelling(base string) (string, bool) {
+// scalar under the selected target's C data model. `long` is 32-bit under
+// LLP64 (x86_64-windows-gnu-ucrt) and 64-bit under LP64 (x86_64-linux-gnu).
+// An empty target is unreachable in production, where an automatic import
+// requires a qualified profile; it keeps the historical LLP64 mapping so
+// pure-Go normalization tests stay stable.
+func (importer *importer) fundamentalSpelling(base string) (string, bool) {
+	longType, ulongType := "Int32", "UInt32"
+	if importer.target == string(compilerTypes.TargetX86_64LinuxGNU) {
+		longType, ulongType = "Int64", "UInt64"
+	}
 	switch base {
 	case "_Bool", "bool":
 		return "Bool", true
@@ -486,9 +505,9 @@ func fundamentalSpelling(base string) (string, bool) {
 	case "unsigned", "unsigned int":
 		return "UInt32", true
 	case "long", "long int", "signed long", "signed long int":
-		return "Int32", true
+		return longType, true
 	case "unsigned long", "unsigned long int":
-		return "UInt32", true
+		return ulongType, true
 	case "long long", "long long int", "signed long long", "signed long long int":
 		return "Int64", true
 	case "unsigned long long", "unsigned long long int":
@@ -596,7 +615,7 @@ func (importer *importer) resolveBase(base string) (string, bool) {
 	if hexal, exact := exactWidthTypedef[base]; exact {
 		return hexal, true
 	}
-	if hexal, scalar := fundamentalSpelling(base); scalar {
+	if hexal, scalar := importer.fundamentalSpelling(base); scalar {
 		if base == "void" {
 			return "", false
 		}
@@ -670,6 +689,68 @@ func (importer *importer) ownSpelling(hexal string) string {
 	return ""
 }
 
+// macroRecord is one object-like macro emitted as a foreign constant.
+type macroRecord struct {
+	cName   string
+	hexName string
+	hexal   string
+}
+
+// macroConstants resolves every object-like macro Clang typed to a supported
+// scalar. A macro whose type resolves to a pointer, array, composite, or
+// unrepresentable type is omitted whole, and so are macros that collide with
+// no available Hexal name. Names are assigned here, after declarations, and
+// the result is sorted for deterministic output.
+func (importer *importer) macroConstants() []macroRecord {
+	names := make([]string, 0, len(importer.macroTypes))
+	for name := range importer.macroTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	constants := make([]macroRecord, 0, len(names))
+	for _, name := range names {
+		hexal, _, ok := importer.resolveType(importer.macroTypes[name])
+		if !ok || !importer.scalarConstantType(hexal) {
+			continue
+		}
+		constants = append(constants, macroRecord{cName: name, hexName: importer.assignName(name), hexal: hexal})
+	}
+	return constants
+}
+
+// scalarHexalType reports whether one Hexal type name is a builtin scalar a
+// foreign constant may name.
+func scalarHexalType(name string) bool {
+	switch name {
+	case "Bool", "Int8", "Int16", "Int32", "Int64",
+		"UInt8", "UInt16", "UInt32", "UInt64",
+		"Byte", "Float32", "Float64", "Size":
+		return true
+	default:
+		return false
+	}
+}
+
+// scalarConstantType reports whether one resolved Hexal type is a scalar a
+// foreign constant may name. A builtin scalar qualifies directly; a transparent
+// alias (an enum or a scalar typedef) qualifies when the C spelling it resolves
+// to is a scalar C type. The checker accepts only integer, floating, rune, and
+// bool foreign constants, so a pointer, array, or record is omitted.
+func (importer *importer) scalarConstantType(hexal string) bool {
+	if scalarHexalType(hexal) {
+		return true
+	}
+	return scalarCSpelling[importer.typeCSpelling[hexal]]
+}
+
+// scalarCSpelling is the set of C spellings a scalar foreign constant may
+// carry.
+var scalarCSpelling = map[string]bool{
+	"bool": true, "int8_t": true, "int16_t": true, "int32_t": true, "int64_t": true,
+	"uint8_t": true, "uint16_t": true, "uint32_t": true, "uint64_t": true,
+	"float": true, "double": true, "size_t": true,
+}
+
 // emit renders the binding module.
 func (importer *importer) emit() string {
 	importer.coalesceRedeclarations()
@@ -727,6 +808,10 @@ func (importer *importer) emit() string {
 			fmt.Fprintf(&body, "    constant %s as %q: %s\n", enumerator.hexName, enumerator.cName, typeName)
 			exported = append(exported, enumerator.hexName)
 		}
+	}
+	for _, macro := range importer.macroConstants() {
+		fmt.Fprintf(&body, "    constant %s as %q: %s\n", macro.hexName, macro.cName, macro.hexal)
+		exported = append(exported, macro.hexName)
 	}
 	for _, function := range importer.functions {
 		if !function.ok {
@@ -917,6 +1002,19 @@ func (importer *importer) resolveDeclarations() {
 			}
 			hexal, _, ok := importer.resolveType(record.underlying)
 			if !ok {
+				record.ok = false
+				if !importer.typeUnsupported[record.cName] {
+					importer.typeUnsupported[record.cName] = true
+					changed = true
+				}
+				continue
+			}
+			if hexal == record.hexName {
+				// A typedef whose underlying spelling resolves back to its own
+				// name has no representable target: an anonymous-struct tag the
+				// binding model declares no record for. Omit it whole, the same
+				// disposition as any other unsupported declaration, rather than
+				// emitting a self-referential alias.
 				record.ok = false
 				if !importer.typeUnsupported[record.cName] {
 					importer.typeUnsupported[record.cName] = true

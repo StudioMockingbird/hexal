@@ -3,9 +3,8 @@
 package driver
 
 // Mode tests that spawn the real C toolchain: the exact arguments each mode
-// sends to the backend, the debug-information publication protocol, and the
-// observable properties each mode promises. Tagged `c23` like every other
-// toolchain-dependent suite here.
+// sends to the backend and the observable properties each mode promises.
+// Tagged `c23` like every other toolchain-dependent suite here.
 //
 // Run with: go test -tags c23 ./internal/driver/
 
@@ -97,7 +96,7 @@ func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 						t.Fatalf("generated compile lacks the %s option run %v:\n%v", mode, options.Compile, command.Arguments)
 					}
 					for _, argument := range command.Arguments {
-						if strings.Contains(argument, "mimalloc_v3.5.1") {
+						if strings.Contains(argument, "mimalloc") {
 							packIncludes++
 						}
 					}
@@ -139,8 +138,8 @@ func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 func TestGeneratedCIsByteIdenticalAcrossModes(t *testing.T) {
 	requireBackend(t)
 	sources := map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n"}
-	first := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
-	second := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	first := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
+	second := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if len(first.Files) != len(second.Files) || len(first.Files) == 0 {
 		t.Fatalf("artifact counts %d and %d", len(first.Files), len(second.Files))
 	}
@@ -151,8 +150,8 @@ func TestGeneratedCIsByteIdenticalAcrossModes(t *testing.T) {
 	}
 	// The identity encoder is what a mode change is allowed to move, and it
 	// must move for the same artifacts.
-	debug := buildIdentity(ModeDebug, "zig", first.Files, first.Dependencies, nil, nil, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
-	release := buildIdentity(ModeRelease, "zig", first.Files, first.Dependencies, nil, nil, compilerTypes.TargetX86_64WindowsGNU, packInputs{}, nil)
+	debug := buildIdentity(ModeDebug, "clang=test", first.Files, first.Dependencies, nil, nil, compilerTypes.TargetX86_64LinuxGNU, packInputs{}, nil)
+	release := buildIdentity(ModeRelease, "clang=test", first.Files, first.Dependencies, nil, nil, compilerTypes.TargetX86_64LinuxGNU, packInputs{}, nil)
 	if debug == release {
 		t.Fatal("the build identity does not distinguish the modes")
 	}
@@ -202,9 +201,8 @@ func TestModesProduceIdenticalProgramBehavior(t *testing.T) {
 }
 
 // TestReleaseIsSmallerAndCarriesNoDebugInformation checks the two properties
-// a release build is chosen for. RSDS is the CodeView record a linker writes
-// into an image that names an external debug file; a stripped image has
-// neither it nor the file name.
+// a release build is chosen for. DWARF debug information shows up as a
+// `.debug_info` section; a stripped image has none.
 func TestReleaseIsSmallerAndCarriesNoDebugInformation(t *testing.T) {
 	requireBackend(t)
 	sizes := map[BuildMode]int64{}
@@ -221,7 +219,7 @@ func TestReleaseIsSmallerAndCarriesNoDebugInformation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		carriesDebugInformation := bytes.Contains(raw, []byte("RSDS")) || bytes.Contains(raw, []byte(".pdb"))
+		carriesDebugInformation := bytes.Contains(raw, []byte(".debug_info"))
 		if mode == ModeRelease && carriesDebugInformation {
 			t.Error("release executable carries debug information")
 		}
@@ -261,137 +259,6 @@ func TestReleaseRemovesUnreferencedCode(t *testing.T) {
 	}
 	if present[ModeRelease] {
 		t.Fatal("release kept an unreferenced helper; section collection did not run")
-	}
-}
-
-// publishedPDBs lists the versioned debug files beside one executable.
-func publishedPDBs(t *testing.T, executable string) []string {
-	t.Helper()
-	matches, err := filepath.Glob(strings.TrimSuffix(executable, exeSuffix()) + ".*.pdb")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return matches
-}
-
-// TestDebugPublishesOneImmutableVersionedPDB walks the whole publication
-// protocol: the name is derived from the identity and recorded inside the
-// executable, a rebuild of the same program republishes the same bytes under
-// the same name, no mutable convenience copy appears, and release publishes
-// nothing.
-func TestDebugPublishesOneImmutableVersionedPDB(t *testing.T) {
-	requireBackend(t)
-	dir := t.TempDir()
-	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
-
-	result := buildInMode(t, dir, ModeDebug)
-	published := publishedPDBs(t, result.Executable)
-	if len(published) != 1 {
-		t.Fatalf("debug published %d versioned debug files, want 1: %v", len(published), published)
-	}
-	name := filepath.Base(published[0])
-	if !strings.HasPrefix(name, "main.") || len(name) != len("main.")+64+len(".pdb") {
-		t.Fatalf("published name %q does not carry a full build identity", name)
-	}
-	// A mutable convenience copy could disagree with the executable a
-	// concurrent or interrupted build selected, so none is ever written.
-	if _, err := os.Stat(filepath.Join(filepath.Dir(result.Executable), "main.pdb")); err == nil {
-		t.Fatal("a mutable main.pdb convenience copy was written")
-	}
-	image, err := os.ReadFile(result.Executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(image, []byte(name)) {
-		t.Fatalf("executable does not name its debug information %q internally", name)
-	}
-	digest, err := fileDigest(published[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Same program, same identity: the already-published file is accepted as
-	// it stands and its bytes do not move.
-	rebuilt := buildInMode(t, dir, ModeDebug)
-	again := publishedPDBs(t, rebuilt.Executable)
-	if len(again) != 1 || again[0] != published[0] {
-		t.Fatalf("rebuild published %v, want exactly %v", again, published)
-	}
-	rebuiltDigest, err := fileDigest(again[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rebuiltDigest != digest {
-		t.Fatal("rebuilding the same program changed its published debug information")
-	}
-
-	// Release publishes no new debug file and deletes no retained one.
-	releaseResult, err := Build(withTestBackend(t, BuildOptions{Root: dir, Mode: ModeRelease}))
-	if err != nil {
-		t.Fatalf("release build failed: %v", err)
-	}
-	afterRelease := publishedPDBs(t, releaseResult.Executable)
-	if len(afterRelease) != 1 || afterRelease[0] != published[0] {
-		t.Fatalf("release changed the published debug files: %v", afterRelease)
-	}
-}
-
-// TestChangedProgramRetainsOldVersionedPDB pins the v1 retention rule: a
-// concurrent build may still reference an older file, so nothing is collected
-// here.
-func TestChangedProgramRetainsOldVersionedPDB(t *testing.T) {
-	requireBackend(t)
-	dir := t.TempDir()
-	writeSource(t, dir, "main.hex", "print(\"first\")\n")
-	first := buildInMode(t, dir, ModeDebug)
-	before := publishedPDBs(t, first.Executable)
-	if len(before) != 1 {
-		t.Fatalf("first build published %v", before)
-	}
-
-	writeSource(t, dir, "main.hex", "print(\"second\")\n")
-	second := buildInMode(t, dir, ModeDebug)
-	after := publishedPDBs(t, second.Executable)
-	if len(after) != 2 {
-		t.Fatalf("published files after a source change = %v, want the old one retained beside the new", after)
-	}
-}
-
-// TestDisagreeingPDBFailsBeforePublishingTheExecutable is the failure half of
-// the protocol: the previously published executable survives untouched, since
-// the executable publication is the commit point and is never reached.
-func TestDisagreeingPDBFailsBeforePublishingTheExecutable(t *testing.T) {
-	requireBackend(t)
-	dir := t.TempDir()
-	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
-	first := buildInMode(t, dir, ModeDebug)
-	published := publishedPDBs(t, first.Executable)
-	if len(published) != 1 {
-		t.Fatalf("first build published %v", published)
-	}
-	executableBefore, err := fileDigest(first.Executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Replace the published debug information with different bytes under the
-	// same identity. The rebuild reaches the same identity and must refuse.
-	if err := os.WriteFile(published[0], []byte("not this build's debug information"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err = Build(withTestBackend(t, BuildOptions{Root: dir, Mode: ModeDebug}))
-	if err == nil {
-		t.Fatal("a build whose debug information disagrees with the published file succeeded")
-	}
-	if !strings.Contains(err.Error(), "identical debug information") {
-		t.Fatalf("unexpected failure: %v", err)
-	}
-	executableAfter, err := fileDigest(first.Executable)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if executableAfter != executableBefore {
-		t.Fatal("a failed build replaced the previously published executable")
 	}
 }
 

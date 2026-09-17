@@ -27,7 +27,7 @@ func TestEventRuntimeInitializationFailure(t *testing.T) {
 	selected := requireBackend(t)
 	compileResult := compiler.Compile(map[string]string{
 		"main.hex": "import\n    Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n",
-	}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)
 	}
@@ -44,14 +44,10 @@ func TestEventRuntimeInitializationFailure(t *testing.T) {
 			if _, err := materialize(staging, compileResult.Files); err != nil {
 				t.Fatal(err)
 			}
-			native, err := materializeDependencies(staging, compileResult.Dependencies)
-			if err != nil {
-				t.Fatal(err)
-			}
+			includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, compileResult.Dependencies)
+			packOptions := includeDirOptions(includes)
+			selected.Directory = staging
 			var result BuildResult
-			if err := compileNativeDependencies(selected, staging, native, &result); err != nil {
-				failWithLastCommand(t, &result, err)
-			}
 			fixture := filepath.Join(staging, "init_failure_probe.c")
 			source := `#include "hexal/event.h"
 #include <stdio.h>
@@ -79,17 +75,17 @@ int main(void) {
 				t.Fatal(err)
 			}
 			eventSource := filepath.Join(staging, "hexal", "event.c")
-			eventOptions := append([]string{testCase.rename}, native.compileOptions...)
+			eventOptions := append([]string{testCase.rename}, packOptions...)
 			if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource}, eventOptions, nil, &result); err != nil {
 				failWithLastCommand(t, &result, err)
 			}
-			if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, native.compileOptions, nil, &result); err != nil {
+			if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, packOptions, nil, &result); err != nil {
 				failWithLastCommand(t, &result, err)
 			}
 			objects := []string{strings.TrimSuffix(eventSource, ".c") + ".o", strings.TrimSuffix(fixture, ".c") + ".o"}
-			objects = append(objects, native.linkObjects...)
-			output := filepath.Join(staging, "init_failure_probe"+exeSuffix())
-			if err := linkObjectsWithOptions(selected, staging, objects, native.linkOptions, output, &result); err != nil {
+			objects = append(objects, archives...)
+			output := filepath.Join(staging, "init_failure_probe")
+			if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 				failWithLastCommand(t, &result, err)
 			}
 			command := exec.Command(output)
