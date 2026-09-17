@@ -455,6 +455,10 @@ func checkArgumentsWithRest(callee string, expected []compilerTypes.TypeUse, wri
 				fmt.Sprintf("%s argument %d requires %s; got %s", callee, index+1, want.Type.Name, checked.typ.Name)))
 			continue
 		}
+		if diagnostic := restEscapeDiagnostic(checked.source, checked.token); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+			continue
+		}
 		if diagnostic := atomicCopyDiagnostic(checked.source, token); diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
 			continue

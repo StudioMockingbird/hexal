@@ -169,6 +169,9 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 			},
 			Addressable: receiver.source.Addressable,
 			Writable:    writable,
+			// An element of a rest-backed Slice is a place inside the
+			// invocation-owned region; its address must not escape.
+			RestRegionPlace: receiver.source.RestBacked,
 		},
 		typ:   element,
 		token: expression.OpenBracket,

@@ -3,6 +3,7 @@ package checker
 import (
 	"go/constant"
 
+	"hexal/compiler/lexer"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -621,6 +622,28 @@ type Operand struct {
 	Negative    bool
 	FloatBits   uint64
 	Object      *ObjectValue
+	// RestBacked marks a Slice operand that is a non-owning descriptor over a
+	// rest invocation's backing region, or a fixed alias or derived Slice of
+	// one. The checker restricts which positions may receive it so the region
+	// cannot outlive the invocation.
+	RestBacked bool
+	// RestRegionPlace marks a place (an element of a rest-backed Slice) whose
+	// address lies inside a rest invocation's backing region. Taking its
+	// address would expose that region, so the checker rejects it. The place's
+	// value is an ordinary element and is not itself rest-backed.
+	RestRegionPlace bool
+}
+
+// restEscapeDiagnostic rejects any use that would let a rest invocation's
+// backing region outlive the invocation through operand. It is the shared
+// rejection for every prohibited position; the message never exposes the
+// generated backing array.
+func restEscapeDiagnostic(operand Operand, token lexer.Token) *compilerTypes.Diagnostic {
+	if !operand.RestBacked {
+		return nil
+	}
+	diagnostic := typeErrorAt(token, "rest-backed Slice cannot escape its function invocation")
+	return &diagnostic
 }
 
 func constantOperand(typ compilerTypes.Type, value constant.Value, literal string) Operand {

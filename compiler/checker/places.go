@@ -134,6 +134,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 				Node:        node,
 				Addressable: true,
 				Writable:    binding.mutable,
+				RestBacked:  binding.restBacked,
 			},
 			typ:         placeType,
 			use:         binding.use,
@@ -493,6 +494,10 @@ func checkAddress(expression parser.AddressExpression, ctx checkContext) checked
 	}
 	if place.typ.Slice != nil {
 		diagnostic := typeErrorAt(place.token, "@ cannot take the address of a Slice binding")
+		return checkedExpression{token: place.token, diagnostic: &diagnostic}
+	}
+	if place.source.RestRegionPlace {
+		diagnostic := typeErrorAt(place.token, "rest-backed Slice cannot escape its function invocation")
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
 	if place.typ.Atomic != nil {

@@ -102,6 +102,9 @@ func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpressi
 		Element:     element,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: sliceType, Name: name, Node: node}
+	// A Slice derived from a rest-backed receiver stays rest-backed: its
+	// backing region is the same invocation-owned region.
+	source.RestBacked = receiver.source.RestBacked
 	return checkedExpression{source: source, typ: sliceType, token: callee.Property}
 }
 

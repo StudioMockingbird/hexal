@@ -749,6 +749,9 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (S
 		return checked, compilerTypes.Diagnostics{typeErrorAt(value.token,
 			fmt.Sprintf("%s returns %s; got %s", ctx.names.owner, ctx.names.result.Name, value.typ.Name))}
 	}
+	if diagnostic := restEscapeDiagnostic(value.source, value.token); diagnostic != nil {
+		return checked, compilerTypes.Diagnostics{*diagnostic}
+	}
 	if value.typ != (compilerTypes.Type{}) {
 		if diagnostic := atomicCopyDiagnostic(value.source, statement.Keyword); diagnostic != nil {
 			return checked, compilerTypes.Diagnostics{*diagnostic}

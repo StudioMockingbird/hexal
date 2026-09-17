@@ -93,6 +93,12 @@ func checkSpawnExpression(expression parser.SpawnExpression, ctx checkContext) c
 	if checked.source.Node.Kind != CallExpression || checked.source.Node.Operand == nil || checked.source.Node.Operand.Kind != FunctionReferenceExpression {
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "spawn requires a direct call to a named function"))}
 	}
+	if checked.source.Node.Rest {
+		// The task argument frame and entry adapter are not yet keyed by rest
+		// count, so a spawned rest call would build an invalid frame. Reject it
+		// rather than emit that C.
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "rest parameters are not supported in spawn yet"))}
+	}
 	// Spawn arguments are copied into the task frame and then into the entry
 	// function, so each argument must be eligible in both positions.
 	for _, argument := range checked.source.Node.Arguments {

@@ -296,6 +296,11 @@ type binding struct {
 	kind       bindingKind
 	parameter  bool // fixed function parameter: readable, never assignable
 	loopBinder bool // a for-in binder: fresh and immutable
+	// restBacked marks a binding whose Slice value is a non-owning descriptor
+	// over a rest invocation's backing region (or a fixed alias or derived
+	// Slice of one). Reading it yields a rest-backed operand whose uses the
+	// checker restricts so the region cannot escape the invocation.
+	restBacked bool
 	id         BindingID
 	// collectionRoot identifies the shared List or Dict state for copied
 	// handles. A fresh collection uses its own binding ID as the root.

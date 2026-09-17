@@ -381,7 +381,7 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 			"`:=` requires an initializer whose type does not depend on context; annotate the binding instead"))
 	}
 
-	initializer := checkInitializer(declaration.Initializer, declaredUse, declaration.Name, ctx)
+	initializer := checkInitializerRest(declaration.Initializer, declaredUse, declaration.Name, ctx, true)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
@@ -408,6 +408,16 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 		use:     declaredUse,
 		mutable: declaration.Mutable,
 		id:      ctx.names.newBindingID(),
+	}
+	if initializer.source.RestBacked {
+		// A rest-backed descriptor may only be re-bound to a fixed local
+		// alias; the alias inherits the provenance so its own uses stay
+		// restricted.
+		if declaration.Mutable {
+			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "rest-backed Slice requires a fixed local alias"))
+		} else {
+			declaredBinding.restBacked = true
+		}
 	}
 	if isTrackedCollection(declaredType) {
 		declaredBinding.collectionRoot = collectionRootForOperand(initializer.source, ctx.names, declaredBinding.id)
@@ -499,6 +509,11 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	initializer := checkInitializer(assignment.Initializer, targetUse, nameToken, ctx)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
+	}
+	if len(diagnostics) == 0 {
+		if diagnostic := restEscapeDiagnostic(initializer.source, initializer.token); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
 	}
 	if len(diagnostics) == 0 {
 		if diagnostic := atomicCopyDiagnostic(initializer.source, nameToken); diagnostic != nil {

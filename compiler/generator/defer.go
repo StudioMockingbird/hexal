@@ -234,7 +234,8 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		if node.Owner == nil || len(arguments) < 1 {
 			return "", unknownExpressionDiagnostic("deferred method call without a captured receiver")
 		}
-		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
+		methodArguments := renderRestSliceArgument(&node, arguments[1:])
+		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(append([]string{arguments[0]}, methodArguments...), ", ") + ")", nil
 	case checker.CallExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic("deferred call without a checked callee")
@@ -243,14 +244,16 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			if node.Operand.Name == "" {
 				return "", unknownExpressionDiagnostic("deferred call without a checked function callee")
 			}
-			return privateCName(functionNameKind, node.Operand.Name, moduleOwner(node.Operand.Module, state.owner)) + "(" + strings.Join(arguments, ", ") + ")", nil
+			callArguments := renderRestSliceArgument(&node, arguments)
+			return privateCName(functionNameKind, node.Operand.Name, moduleOwner(node.Operand.Module, state.owner)) + "(" + strings.Join(callArguments, ", ") + ")", nil
 		}
 		// A Fun<>-valued callee was captured at registration; the call is the
 		// captured function value applied to the captured arguments.
 		if len(arguments) < 1 {
 			return "", unknownExpressionDiagnostic("deferred call without a captured callee")
 		}
-		return arguments[0] + "(" + strings.Join(arguments[1:], ", ") + ")", nil
+		callArguments := renderRestSliceArgument(&node, arguments[1:])
+		return arguments[0] + "(" + strings.Join(callArguments, ", ") + ")", nil
 	case checker.HeapFreeExpression:
 		if len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred heap free without captured arguments")

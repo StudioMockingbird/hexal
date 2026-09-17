@@ -202,7 +202,7 @@ func bindParametersAndCheckBody(parameters []FunctionParameter, statements []par
 			continue
 		}
 		parameters[index].Binding = body.newBindingID()
-		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
+		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, restBacked: parameters[index].Rest, id: parameters[index].Binding}
 	}
 	checkedStatements, bodyDiagnostics := checkBody(statements, checkContext{names: body, typeEnvironment: typeEnvironment})
 	diagnostics = append(diagnostics, bodyDiagnostics...)
@@ -216,14 +216,6 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	seen := make(map[string]bool, len(written))
 	for _, parameter := range written {
-		if parameter.Rest {
-			// Activation gate: parsing, checking, and direct/method lowering are
-			// implemented, but rest-backed provenance (the escape analysis) is
-			// not yet enforced, so a rest slice could escape and dangle. Reject
-			// here until that phase lands; every layer below already handles Rest.
-			diagnostics = append(diagnostics, typeErrorAt(parameter.Ellipsis, "rest parameters are not supported yet"))
-			continue
-		}
 		parameterName := parameter.Name.Lexeme
 		if compilerTypes.IsProtectedTypeName(parameterName) || typeEnvironment.Contains(parameterName) {
 			diagnostics = append(diagnostics, typeErrorAt(parameter.Name, "value "+parameterName+" is already declared as a type"))

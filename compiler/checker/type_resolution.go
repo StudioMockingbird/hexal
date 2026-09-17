@@ -235,11 +235,6 @@ func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnviro
 	parameters := make([]compilerTypes.Type, 0, len(expression.Parameters))
 	rest := len(expression.RestFlags) > 0 && expression.RestFlags[len(expression.RestFlags)-1]
 	for index, parameter := range expression.Parameters {
-		if index < len(expression.RestFlags) && expression.RestFlags[index] {
-			// Activation gate, matching checkParameters: rest resolves and
-			// lowers below, but the escape analysis is not yet enforced.
-			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.RestTokens[index], "rest parameters are not supported yet"))
-		}
 		resolvedUse, diagnostic := resolveTypeUse(parameter, expression.Keyword, typeEnvironment, generics)
 		if diagnostic != nil {
 			return compilerTypes.TypeUse{}, diagnostic

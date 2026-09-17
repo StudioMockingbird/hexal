@@ -56,6 +56,14 @@ type checkedExpression struct {
 // Numeric literals use the expected primitive type as context; operation trees
 // carry that context only into untyped literals.
 func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.TypeUse, fallback lexer.Token, ctx checkContext) initializerValue {
+	return checkInitializerRest(initializer, expectedUse, fallback, ctx, false)
+}
+
+// checkInitializerRest is checkInitializer with an explicit allowance for a
+// rest-backed Slice value. Only a fixed local alias, a non-retaining
+// compiler-owned formatting operation, and iteration may consume one; every
+// other destination rejects it here.
+func checkInitializerRest(initializer parser.Expression, expectedUse compilerTypes.TypeUse, fallback lexer.Token, ctx checkContext, allowRestBacked bool) initializerValue {
 	// Initializers are the boundary where exact constants can be retained. A
 	// later mutable read still becomes an expression through valueFromPlace.
 	checked := checkExpression(initializer, expressionContext{expected: expectedUse, foldConstants: true}, ctx)
@@ -72,6 +80,11 @@ func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.T
 	}
 	if checked.token.Line == 0 {
 		checked.token = fallback
+	}
+	if !allowRestBacked && checked.source.RestBacked && len(initializerDiagnostics(checked)) == 0 {
+		diagnostic := typeErrorAt(checked.token, "rest-backed Slice cannot escape its function invocation")
+		checked.diagnostics = append(checked.diagnostics, diagnostic)
+		checked.diagnostic = &checked.diagnostics[0]
 	}
 	return checked
 }
@@ -176,6 +189,10 @@ func checkObjectConstructorFields(call parser.CallExpression, typeName lexer.Tok
 		}
 		if !assignable(memberType, checked.typ) {
 			diagnostics = append(diagnostics, typeMismatchDiagnostic(memberType, checked.typ, checked.token))
+			continue
+		}
+		if diagnostic := restEscapeDiagnostic(checked.source, checked.token); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
 			continue
 		}
 		values = append(values, ObjectMemberValue{Member: member, Source: checked.source})
