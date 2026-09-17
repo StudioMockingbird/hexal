@@ -77,8 +77,8 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			return checkedExpression{token: expression.Name, diagnostic: diagnosticAt(typeErrorAt(expression.Name, "cannot infer generic parameter for "+expression.Name.Lexeme))}
 		}
 		if binding.kind == foreignConstantBinding {
-			// A foreign constant is a typed, non-addressable scalar expression.
-			// It lowers to its C identifier and needs no unsafe region.
+			// A foreign constant is a typed, non-addressable C expression. It
+			// lowers to its C identifier and needs no unsafe region.
 			return checkedExpression{
 				source: Operand{
 					Kind: VariableOperand,

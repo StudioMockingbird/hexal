@@ -9,13 +9,6 @@ gets deleted.
 
 ## Open TODOs
 
-### In progress
-
-| Work | Spec |
-| --- | --- |
-| Decide whether foreign constants may hold pointer, string-view, or record types so an object-like macro whose value is one of those (e.g. a record-valued compound literal) can import automatically; everything else in RFC 0217 is implemented and gated | [0217](specs/0217-clang-linux-backend-packaging-and-validation.md) |
-| After the WSL/Linux path lands, review and simplify the Windows backend, packaging, runtime-pack, and qualification path without removing the Windows compiler target | [0217](specs/0217-clang-linux-backend-packaging-and-validation.md), deferred follow-up requiring its own specification before implementation |
-
 ### Implementation-ready
 
 | Work | Spec |

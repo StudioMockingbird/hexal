@@ -45,8 +45,9 @@ type ForeignFunctionDeclaration struct {
 }
 
 // ForeignConstantDeclaration is one checked foreign constant: a typed,
-// non-addressable scalar expression whose C spelling is an enumerator or
-// object-like macro identifier. It is readable without unsafe.
+// non-addressable C expression whose spelling is an enumerator or object-like
+// macro identifier. Its type is a scalar, a data pointer, or a complete
+// foreign record, and it is readable without unsafe.
 type ForeignConstantDeclaration struct {
 	Name         string
 	CName        string
@@ -325,9 +326,11 @@ func checkForeignConstantDeclaration(declaration parser.ExternConstant, header F
 		*diagnostics = append(*diagnostics, *diagnostic)
 		return
 	}
-	// A foreign constant is a scalar expression; a pointer or composite would
-	// not be a side-effect-free C constant expression.
-	if !compilerTypes.IsInteger(use.Type) && !compilerTypes.IsFloat(use.Type) && !compilerTypes.IsRune(use.Type) && !isBool(use.Type) {
+	// A foreign constant names a side-effect-free C expression: a scalar, a
+	// data pointer, or a complete foreign record qualifies. A function
+	// pointer, an opaque record, or an aggregate without a value
+	// representation does not.
+	if !foreignConstantTypeAllowed(use.Type) {
 		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, use.Type.Name+" has no supported C ABI mapping for target "+string(target)))
 		return
 	}
@@ -342,6 +345,37 @@ func checkForeignConstantDeclaration(declaration parser.ExternConstant, header F
 		SourceLine:   declaration.Name.Line,
 		SourceColumn: declaration.Name.Column,
 	})
+}
+
+// foreignConstantTypeAllowed reports whether one resolved type may be a
+// foreign constant's type. A foreign constant lowers to its exact C symbol and
+// is read without unsafe, so the value must be a side-effect-free C
+// expression: a scalar (integer, float, rune, or bool), a data pointer, or a
+// complete foreign record. A function pointer and an opaque (incomplete)
+// foreign record are rejected.
+func foreignConstantTypeAllowed(typ compilerTypes.Type) bool {
+	if compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ) || compilerTypes.IsRune(typ) || isBool(typ) {
+		return true
+	}
+	if compilerTypes.IsForeignRecord(typ) {
+		return !compilerTypes.ForeignRecordIncomplete(typ)
+	}
+	return isDataPointer(typ)
+}
+
+// isDataPointer reports whether typ is a pointer to a value, possibly wrapped
+// in a nullable form. A function pointer is not a data pointer.
+func isDataPointer(typ compilerTypes.Type) bool {
+	if typ.Signature != nil {
+		return false
+	}
+	if typ.Element != nil {
+		return true
+	}
+	if typ.NullableBase != nil {
+		return isDataPointer(*typ.NullableBase)
+	}
+	return false
 }
 
 // checkForeignGlobalDeclaration resolves one foreign global's type.

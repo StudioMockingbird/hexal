@@ -81,8 +81,9 @@ type ExternFunction struct {
 
 func (ExternFunction) externDeclarationNode() {}
 
-// ExternConstant declares one foreign constant: a typed, non-addressable
-// scalar expression whose C spelling is an enumerator or object-like macro.
+// ExternConstant declares one foreign constant: a typed, non-addressable C
+// expression whose spelling is an enumerator or object-like macro. Its type is
+// a scalar, a data pointer, or a complete foreign record.
 type ExternConstant struct {
 	Keyword lexer.Token
 	Name    lexer.Token

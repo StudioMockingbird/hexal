@@ -236,3 +236,45 @@ func TestAutomaticObjectMacrosImportAsConstants(t *testing.T) {
 		t.Fatalf("output = %q, want %q", got, "15")
 	}
 }
+
+// TestAutomaticRecordAndStringMacrosImportAsConstants proves a record-valued
+// compound-literal macro and a string-literal macro import as typed constants
+// and are usable by value and as a pointer.
+func TestAutomaticRecordAndStringMacrosImportAsConstants(t *testing.T) {
+	requireBackend(t)
+	dir := t.TempDir()
+	native := filepath.Join(dir, "native")
+	if err := os.MkdirAll(native, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeSource(t, dir, "native/widget.h", "#ifndef WIDGET_H\n#define WIDGET_H\n#include <stdint.h>\n"+
+		"typedef struct widget_color { uint8_t r; uint8_t g; uint8_t b; uint8_t a; } widget_color;\n"+
+		"#define WIDGET_MAX 10\n"+
+		"#define WIDGET_LIGHT ((widget_color){200, 200, 200, 255})\n"+
+		"#define WIDGET_NAME \"widget\"\n"+
+		"int32_t widget_sum(widget_color color);\n"+
+		"int32_t widget_len(const char *name);\n"+
+		"#endif\n")
+	writeSource(t, dir, "native/widget.c", "#include \"widget.h\"\n#include <string.h>\n"+
+		"int32_t widget_sum(widget_color color) { return (int32_t)color.r + color.g + color.b + color.a; }\n"+
+		"int32_t widget_len(const char *name) { return (int32_t)strlen(name); }\n")
+	writeSource(t, dir, "main.hex", "import\n    W from c \"widget.h\"\nend\n"+
+		"mut total: Int32 := 0\n"+
+		"unsafe do\n    total = W.widget_sum(W.WIDGET_LIGHT) + W.WIDGET_MAX + W.widget_len(W.WIDGET_NAME)\nend\n"+
+		"print(total)\n")
+	result, err := Build(withTestBackend(t, BuildOptions{
+		Root:         dir,
+		CSources:     []string{"native/widget.c"},
+		CIncludeDirs: []string{native},
+	}))
+	if err != nil {
+		t.Fatalf("record/string macro automatic build failed: %v", err)
+	}
+	combined, err := exec.Command(result.Executable).CombinedOutput()
+	if err != nil {
+		t.Fatalf("running %s failed: %v", result.Executable, err)
+	}
+	if got := string(combined); got != "871" {
+		t.Fatalf("output = %q, want %q", got, "871")
+	}
+}

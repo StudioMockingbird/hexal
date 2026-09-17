@@ -552,10 +552,11 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
   `hexalc/h<sha256(target NUL header-form NUL header-payload)>.hex`. The leading `h` keeps the digest
   a legal identifier. System and quoted forms are distinct identities, as are different targets.
 - An automatic import also exposes every object-like macro the selected Clang proves is a value
-  expression of a supported scalar type as a foreign constant named after the macro; the generated
-  C names the macro, so Clang performs the expansion and constant evaluation. Function-like macros,
-  macros with no value expression, and macros whose type is not a supported scalar are omitted with
-  the binding or wrapper guidance.
+  expression of a supported foreign-constant type (a scalar, a data pointer, or a complete foreign
+  record) as a foreign constant named after the macro; the generated C names the macro, so Clang
+  performs the expansion and constant evaluation. Function-like macros, macros with no value
+  expression, and macros whose type is not a supported foreign-constant type are omitted with the
+  binding or wrapper guidance.
 - The compiler verifies that the prepared module declares the requested header; an absent or
   mismatched entry reports `prepared C binding missing for <header>`. The `hexalc` prefix is reserved
   and rejected for user source.
@@ -575,7 +576,7 @@ Foreign declaration model:
 | `type X [as "C name"] is opaque` | Incomplete C type. May appear only behind a pointer. |
 | `type X [as "C name"] is struct ... end` | Complete foreign record. Each field is `mut` unless C-qualifies it const. |
 | `fun name [as "C symbol"](params) [: Type [as "C type"]]` | Foreign function; no body, generics, or methods. |
-| `constant name [as "C symbol"]: Type` | Typed, non-addressable scalar whose C spelling is an enumerator or object-like macro. |
+| `constant name [as "C symbol"]: Type` | Typed, non-addressable scalar, data pointer, or complete foreign record whose C spelling is an enumerator or object-like macro. |
 | `global [mut] name [as "C symbol"]: Type` | Foreign object; `mut` permits writes. |
 
 ABI type set on a qualified target:

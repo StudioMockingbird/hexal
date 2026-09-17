@@ -142,8 +142,9 @@ type importer struct {
 	target string
 	// macroTypes maps one object-like macro defined in the requested header to
 	// the C qualType Clang proved for it. A macro whose type maps to a
-	// supported scalar is emitted as a foreign constant; every other macro is
-	// omitted whole, exactly like an unsupported declaration.
+	// supported foreign constant (a scalar, a data pointer, or a complete
+	// foreign record) is emitted; every other macro is omitted whole, exactly
+	// like an unsupported declaration.
 	macroTypes map[string]string
 }
 
@@ -697,10 +698,10 @@ type macroRecord struct {
 }
 
 // macroConstants resolves every object-like macro Clang typed to a supported
-// scalar. A macro whose type resolves to a pointer, array, composite, or
-// unrepresentable type is omitted whole, and so are macros that collide with
-// no available Hexal name. Names are assigned here, after declarations, and
-// the result is sorted for deterministic output.
+// foreign-constant type. A macro whose type resolves to a pointer, a complete
+// foreign record, or a scalar is emitted; a function pointer, an opaque
+// record, or an unrepresentable type is omitted whole. Names are assigned
+// here, after declarations, and the result is sorted for deterministic output.
 func (importer *importer) macroConstants() []macroRecord {
 	names := make([]string, 0, len(importer.macroTypes))
 	for name := range importer.macroTypes {
@@ -709,8 +710,16 @@ func (importer *importer) macroConstants() []macroRecord {
 	sort.Strings(names)
 	constants := make([]macroRecord, 0, len(names))
 	for _, name := range names {
-		hexal, _, ok := importer.resolveType(importer.macroTypes[name])
-		if !ok || !importer.scalarConstantType(hexal) {
+		qualType := importer.macroTypes[name]
+		hexal, _, ok := importer.resolveType(qualType)
+		if !ok {
+			// A C string literal has array type char[N]; it decays to a
+			// read-only byte pointer.
+			if stringArrayType(qualType) {
+				hexal, ok = "Ptr<Byte> | Nil", true
+			}
+		}
+		if !ok || !importer.foreignConstantType(hexal) {
 			continue
 		}
 		constants = append(constants, macroRecord{cName: name, hexName: importer.assignName(name), hexal: hexal})
@@ -731,24 +740,39 @@ func scalarHexalType(name string) bool {
 	}
 }
 
-// scalarConstantType reports whether one resolved Hexal type is a scalar a
-// foreign constant may name. A builtin scalar qualifies directly; a transparent
-// alias (an enum or a scalar typedef) qualifies when the C spelling it resolves
-// to is a scalar C type. The checker accepts only integer, floating, rune, and
-// bool foreign constants, so a pointer, array, or record is omitted.
-func (importer *importer) scalarConstantType(hexal string) bool {
-	if scalarHexalType(hexal) {
-		return true
-	}
-	return scalarCSpelling[importer.typeCSpelling[hexal]]
-}
-
 // scalarCSpelling is the set of C spellings a scalar foreign constant may
 // carry.
 var scalarCSpelling = map[string]bool{
 	"bool": true, "int8_t": true, "int16_t": true, "int32_t": true, "int64_t": true,
 	"uint8_t": true, "uint16_t": true, "uint32_t": true, "uint64_t": true,
 	"float": true, "double": true, "size_t": true,
+}
+
+// foreignConstantType reports whether one resolved Hexal type may be a foreign
+// constant's type, matching the checker's accepted set: a builtin scalar, a
+// scalar transparent alias (an enum or scalar typedef), a data pointer, or a
+// complete foreign record. An opaque record and a function pointer are
+// rejected.
+func (importer *importer) foreignConstantType(hexal string) bool {
+	if scalarHexalType(hexal) || scalarCSpelling[importer.typeCSpelling[hexal]] {
+		return true
+	}
+	if strings.HasPrefix(hexal, "Ptr<") && strings.HasSuffix(hexal, "> | Nil") {
+		return true
+	}
+	return importer.recordNames[hexal] && !importer.incompleteRecords[hexal]
+}
+
+// stringArrayType reports whether one C type spelling is a char array, the
+// type of a C string literal.
+func stringArrayType(qualType string) bool {
+	trimmed := strings.TrimSpace(qualType)
+	trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "const "))
+	if !strings.HasPrefix(trimmed, "char") {
+		return false
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "char"))
+	return strings.HasPrefix(rest, "[") && strings.HasSuffix(rest, "]")
 }
 
 // emit renders the binding module.
@@ -765,40 +789,43 @@ func (importer *importer) emit() string {
 	}
 	fmt.Fprintf(&body, "extern c from %s do\n", include)
 
-	// Required type dependencies precede their users: records (each field's
-	// record first), then typedefs (each referenced type first), then the
-	// declarations that use them.
-	for _, record := range importer.orderedRecords() {
-		if !record.complete {
-			fmt.Fprintf(&body, "    type %s as %q is opaque\n", record.hexName, record.spelling)
-			exported = append(exported, record.hexName)
-			continue
-		}
-		fmt.Fprintf(&body, "    type %s as %q is struct\n", record.hexName, record.spelling)
-		for _, field := range record.fields {
-			qualifier := ""
-			if field.mutable {
-				qualifier = "mut "
+	// Records, typedefs, and named enum types are emitted in one dependency
+	// order, so a record field that names a typedef or enum is emitted after
+	// that type and a typedef that names a record is emitted after it. The
+	// constants that use those types follow.
+	for _, decl := range importer.orderedTypeDecls() {
+		switch {
+		case decl.record != nil:
+			record := decl.record
+			if !record.complete {
+				fmt.Fprintf(&body, "    type %s as %q is opaque\n", record.hexName, record.spelling)
+				exported = append(exported, record.hexName)
+				continue
 			}
-			// A record field records no independent C type spelling: the
-			// extern-member `as` names the C field, and the field's C
-			// representation follows from its Hexal type.
-			fmt.Fprintf(&body, "        %s%s: %s,\n", qualifier, field.hexName, field.hexal)
+			fmt.Fprintf(&body, "    type %s as %q is struct\n", record.hexName, record.spelling)
+			for _, field := range record.fields {
+				qualifier := ""
+				if field.mutable {
+					qualifier = "mut "
+				}
+				// A record field records no independent C type spelling: the
+				// extern-member `as` names the C field, and the field's C
+				// representation follows from its Hexal type.
+				fmt.Fprintf(&body, "        %s%s: %s,\n", qualifier, field.hexName, field.hexal)
+			}
+			body.WriteString("    end\n")
+			exported = append(exported, record.hexName)
+		case decl.typedef != nil:
+			fmt.Fprintf(&body, "    type %s is %s\n", decl.typedef.hexName, decl.typedef.hexal)
+			exported = append(exported, decl.typedef.hexName)
+		case decl.enum != nil:
+			fmt.Fprintf(&body, "    type %s is Int32\n", decl.enum.hexName)
+			exported = append(exported, decl.enum.hexName)
 		}
-		body.WriteString("    end\n")
-		exported = append(exported, record.hexName)
-	}
-	for _, record := range importer.orderedTypedefs() {
-		fmt.Fprintf(&body, "    type %s is %s\n", record.hexName, record.hexal)
-		exported = append(exported, record.hexName)
 	}
 	for _, enum := range importer.enums {
 		if !enum.ok {
 			continue
-		}
-		if enum.cName != "" {
-			fmt.Fprintf(&body, "    type %s is Int32\n", enum.hexName)
-			exported = append(exported, enum.hexName)
 		}
 		for _, enumerator := range enum.enumerators {
 			typeName := "Int32"
@@ -1113,41 +1140,53 @@ func (importer *importer) parameterName(cName string, index int) string {
 	return importer.escape(cName)
 }
 
-// orderedRecords returns the emitted records ordered so that every record a
-// field names appears first.
-func (importer *importer) orderedRecords() []*recordRecord {
-	items := make([]*recordRecord, 0, len(importer.records))
-	for _, record := range importer.records {
-		if record.ok {
-			items = append(items, record)
-		}
-	}
-	return topoSort(items,
-		func(record *recordRecord) string { return record.hexName },
-		func(record *recordRecord) []string {
-			dependencies := make([]string, 0)
-			for _, field := range record.fields {
-				dependencies = append(dependencies, importer.referencedNames(field.hexal)...)
-			}
-			return dependencies
-		})
+// typeDecl is one emitted type declaration: a record, a typedef, or a named
+// enum type. It exists only so records, typedefs, and enum types can be
+// emitted in one dependency order.
+type typeDecl struct {
+	record  *recordRecord
+	typedef *typedefRecord
+	enum    *enumRecord
+	name    string
+	deps    []string
 }
 
-// orderedTypedefs returns the emitted typedefs deduplicated by Hexal name and
-// ordered so that every type a typedef names appears first.
-func (importer *importer) orderedTypedefs() []*typedefRecord {
+// orderedTypeDecls returns records, typedefs, and named enum types in one
+// dependency order: every type a declaration names appears first. A record
+// field may name a typedef or enum, and a typedef may name a record, so the
+// three families cannot be emitted in separate passes without breaking the
+// declaration-before-use rule.
+func (importer *importer) orderedTypeDecls() []typeDecl {
 	seen := make(map[string]bool)
-	items := make([]*typedefRecord, 0, len(importer.typedefs))
+	items := make([]typeDecl, 0, len(importer.records)+len(importer.typedefs)+len(importer.enums))
+	for _, record := range importer.records {
+		if !record.ok || seen[record.hexName] {
+			continue
+		}
+		seen[record.hexName] = true
+		dependencies := make([]string, 0)
+		for _, field := range record.fields {
+			dependencies = append(dependencies, importer.referencedNames(field.hexal)...)
+		}
+		items = append(items, typeDecl{record: record, name: record.hexName, deps: dependencies})
+	}
 	for _, record := range importer.typedefs {
 		if !record.ok || record.inline || importer.coalesced[record.cName] || seen[record.hexName] {
 			continue
 		}
 		seen[record.hexName] = true
-		items = append(items, record)
+		items = append(items, typeDecl{typedef: record, name: record.hexName, deps: importer.referencedNames(record.hexal)})
+	}
+	for _, enum := range importer.enums {
+		if !enum.ok || enum.cName == "" || seen[enum.hexName] {
+			continue
+		}
+		seen[enum.hexName] = true
+		items = append(items, typeDecl{enum: enum, name: enum.hexName})
 	}
 	return topoSort(items,
-		func(record *typedefRecord) string { return record.hexName },
-		func(record *typedefRecord) []string { return importer.referencedNames(record.hexal) })
+		func(item typeDecl) string { return item.name },
+		func(item typeDecl) []string { return item.deps })
 }
 
 // referencedNames reports every Hexal type name mentioned in one resolved type

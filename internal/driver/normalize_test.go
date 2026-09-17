@@ -40,26 +40,39 @@ func normalizeTestMacros(t *testing.T, ast string, request compiler.CImportReque
 	return source
 }
 
-// Object-like macros Clang proved are scalar value expressions are emitted as
-// foreign constants; enum-typed and transparent-alias macros qualify, while
-// composite and array macros are omitted whole.
+// Object-like macros Clang proved are value expressions are emitted as foreign
+// constants: scalars, enum and transparent-alias macros, data pointers,
+// string views, and complete foreign records qualify, while opaque records and
+// function pointers are omitted whole.
 func TestNormalizeObjectLikeMacroConstants(t *testing.T) {
-	ast := `{"kind":"TranslationUnitDecl","inner":[{"kind":"EnumDecl","loc":{"line":2},"name":"Flags","inner":[{"kind":"EnumConstantDecl","loc":{"line":3},"name":"FLAG_VISIBLE"}]}]}`
+	ast := `{"kind":"TranslationUnitDecl","inner":[` +
+		`{"kind":"EnumDecl","loc":{"line":2},"name":"Flags","inner":[` +
+		`{"kind":"EnumConstantDecl","loc":{"line":3},"name":"FLAG_VISIBLE"}]},` +
+		`{"kind":"RecordDecl","loc":{"line":4},"name":"Color","tagUsed":"struct","completeDefinition":true,"inner":[` +
+		`{"kind":"FieldDecl","loc":{"line":5},"name":"r","type":{"qualType":"uint8_t"}}]},` +
+		`{"kind":"RecordDecl","loc":{"line":6},"name":"Opaque","tagUsed":"struct"}` +
+		`]}`
 	macros := map[string]string{
 		"MAX_TOUCH_POINTS": "int",
 		"DEFAULT_FLAGS":    "Flags",
 		"LIGHTGRAY":        "struct Color",
-		"BANNER":           "char[8]",
+		"BANNER":           "const char[8]",
+		"HANDLE":           "struct Opaque",
+		"CALLBACK":         "int (*)(void)",
 	}
 	source := normalizeTestMacros(t, ast, compiler.CImportRequest{Header: "x.h"}, macros)
-	if !strings.Contains(source, `constant MAX_TOUCH_POINTS as "MAX_TOUCH_POINTS": Int32`) {
-		t.Fatalf("scalar macro not imported:\n%s", source)
+	for _, want := range []string{
+		`constant MAX_TOUCH_POINTS as "MAX_TOUCH_POINTS": Int32`,
+		`constant DEFAULT_FLAGS as "DEFAULT_FLAGS": Flags`,
+		`constant LIGHTGRAY as "LIGHTGRAY": Color`,
+		`constant BANNER as "BANNER": Ptr<Byte> | Nil`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("macro constant missing %q:\n%s", want, source)
+		}
 	}
-	if !strings.Contains(source, `constant DEFAULT_FLAGS as "DEFAULT_FLAGS": Flags`) {
-		t.Fatalf("enum-typed macro not imported:\n%s", source)
-	}
-	if strings.Contains(source, "LIGHTGRAY") || strings.Contains(source, "BANNER") {
-		t.Fatalf("unsupported macro types must be omitted whole:\n%s", source)
+	if strings.Contains(source, "HANDLE") || strings.Contains(source, "CALLBACK") {
+		t.Fatalf("an opaque record or function pointer macro must be omitted:\n%s", source)
 	}
 }
 
