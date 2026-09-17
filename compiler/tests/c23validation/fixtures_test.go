@@ -1512,6 +1512,25 @@ var fixtureCatalog = []fixture{
 			"print(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "3"},
 	},
+	// Typed rest parameters: zero, one, and many elements, a generic rest
+	// function, an indirect call through Fun<(T...)>, a deferred rest call, and
+	// two spawned rest calls with different rest counts. Prints 23 (the summed
+	// value), then 2 (the deferred call's captured element count), then 3 (the
+	// second spawn's element count), concatenated with no separators.
+	{
+		name:       "rest-parameters-run",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		sources: map[string]string{"app.hex": "fun sum(rest: Int32...): Int32 do\n    mut total: Int32 := 0\n    for value in rest do\n        total = total + value\n    end\n    return total\nend\n" +
+			"fun first<T>(value: T, rest: T...): T do\n    return value\nend\n" +
+			"fun log(rest: Int32...) do\n    print(rest.length())\nend\n" +
+			"fun classify(rest: Int32...): Size | Error do\n    return rest.length()\nend\n" +
+			"fun demo(): Size | Error do\n    two: Task<Size | Error> := try spawn classify(1, 2)\n    firstTwo: Size | Error := two.join()\n    if firstTwo is Error then\n        return firstTwo\n    end\n    three: Task<Size | Error> := try spawn classify(4, 5, 6)\n    return three.join()\nend\n" +
+			"fun run() do\n    defer log(4, 5)\n    empty: Int32 := sum()\n    one: Int32 := sum(5)\n    many: Int32 := sum(1, 2, 3)\n    generic: Int32 := first(9, 8, 7)\n    f: Fun<(Int32...): Int32> := sum\n    print(empty + one + many + generic + f(1, 2))\nend\n" +
+			"run()\n" +
+			"outcome: Size | Error := demo()\nif outcome is Error then\n    print(\"spawn-error\")\nelse\n    print(outcome)\nend\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "2323"},
+	},
 	// A library-shaped surface without the library: the same shape a real
 	// graphics binding has (opaque handle, open and close calls, a buffer
 	// call, a constant, and a readable foreign global) over standard headers.

@@ -942,10 +942,10 @@ func routeSpawnSites(merged *generatedConcurrencyState) map[string][]spawnSite {
 	routed := make(map[string][]spawnSite)
 	seen := make(map[string]bool)
 	for _, site := range merged.spawns {
-		if site.module == "" || seen[site.function] {
+		if site.module == "" || seen[site.key()] {
 			continue
 		}
-		seen[site.function] = true
+		seen[site.key()] = true
 		routed[site.module] = append(routed[site.module], site)
 	}
 	return routed

@@ -1,7 +1,7 @@
 # RFC 0216: Typed Rest Parameters
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; not scheduled
+- Status: Implemented
 - Created: 2026-09-17
 - Updated: 2026-09-17
 - Scope: homogeneous typed rest parameters for Hexal functions, methods,
