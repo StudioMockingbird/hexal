@@ -41,9 +41,10 @@ Linux host.
 Clang is installed separately by compiler developers and Linux end users.
 Hexal does not download, bundle, update, or build Clang, LLVM, a linker, libc,
 an SDK, or a sysroot. GCC and Zig are not required, discovered, invoked, or
-retained as optional external-validation lanes. Zig may remain an end-user
-dependency of the existing Windows build path. This RFC does not clean up or
-migrate that path; a later Windows-focused specification owns it.
+retained as optional external-validation lanes. This revision qualifies no
+native Windows build path: Windows remains a core C-generation target, while a
+later Windows-focused specification owns native Clang/MinGW-w64/UCRT
+qualification.
 
 The compiler build embeds the checked-in Linux libuv and mimalloc pack in the
 single `bin/hexal` executable. A user build extracts only the dependencies the
@@ -66,8 +67,8 @@ the ABI shape itself is unsupported.
 
 ## Goals
 
-1. One concrete Clang path for Linux builds and external validation, without
-   removing the existing Windows compiler target.
+1. One concrete Clang path for Linux builds and external validation, while
+   retaining Windows as a core compiler target but not a native driver target.
 2. One repository-local compiler executable containing its native runtime
    inputs, licenses, workbench, and commands.
 3. Checked-in, hash-verified libuv and mimalloc archives are the only native
@@ -84,7 +85,8 @@ the ABI shape itself is unsupported.
 ## Non-goals
 
 - A new GCC backend or a general compiler-plugin interface.
-- Cleanup, replacement, or requalification of the existing Windows backend.
+- Native Windows backend requalification; a later RFC must qualify installed
+  Clang with an explicit MinGW-w64/UCRT toolchain and sysroot.
 - New macOS, AArch64, musl, or cross-compilation targets.
 - Downloading or rebuilding native dependencies during compiler setup, tests,
   or a user build.
@@ -125,18 +127,25 @@ hexal doctor -cc /usr/bin/clang -target x86_64-linux-gnu
   `--target=x86_64-linux-gnu`.
 - Generated Hexal translation units use `-std=c23`. Foreign sources retain the
   existing explicit `-c-standard` selection, defaulting to C17.
-- No backend interface, family switch, plugin registry, or generic
-  compiler-family record is introduced.
+- No backend interface, plugin registry, family switch, or generic
+  compiler-family record is introduced. The driver recognizes exactly one
+  qualified target/host pair and rejects every other pair before command
+  construction.
 
 The driver requires a native `linux/amd64` host because this first lifecycle
 links and runs its results. `hexal doctor` proves glibc, linker, startup-object,
 header, and executable compatibility by compiling, linking, and running probes;
-it does not infer compatibility from distribution names.
+it does not infer compatibility from distribution names. Native Windows hosts
+and Windows-target driver requests are not qualified in this revision.
 
 ## Target profile
 
 `x86_64-linux-gnu` is added as a second nonempty qualified
-`compiler.Project.Target` identity. Its facts are:
+`compiler.Project.Target` identity. The current compiler consumes that identity
+directly when selecting POSIX rather than Windows generation; it does not yet
+consume a generic target-facts record. The table below is the ABI contract that
+target-aware import normalization, generation, the runtime pack, and
+qualification must agree on, not a requirement to add unused fields:
 
 ```text
 OS:                 Linux
@@ -150,14 +159,16 @@ libc:               glibc 2.31 or newer
 ```
 
 `x86_64-windows-gnu-ucrt` remains a compiler target with its existing LLP64,
-Windows, threading, fiber, IO, and C-ABI facts. Its checked-in runtime pack also
-remains intact. The zero `Project{}` remains host-neutral and continues to emit
-both guarded platform branches where it does today.
+Windows, threading, fiber, IO, and C-ABI facts. It remains usable through the
+string-in/string-out compiler API and pure-Go generated-C tests. The driver no
+longer embeds, selects, validates, or links a Windows runtime pack. The zero
+`Project{}` remains host-neutral and continues to emit both guarded platform
+branches where it does today.
 
 This RFC qualifies the new installed-Clang build and packaging path for Linux.
-The existing native Windows build remains as it is. A later Windows-focused
-specification may simplify it or qualify Clang/MinGW, but cannot remove the
-Windows compiler target as an incidental Linux cleanup.
+It cannot remove the Windows compiler target as an incidental Linux cleanup.
+It deliberately retires the native Zig-powered Windows driver until a focused
+RFC qualifies Clang/MinGW-w64/UCRT and a Windows runtime pack.
 
 This target change intentionally changes target-qualified generated C where
 the generator currently selects Windows versus POSIX declarations,
@@ -391,6 +402,10 @@ Release and repository builds use this immutable embedded filesystem. There is
 no adjacent-pack fallback and no `-runtime-dir` option in `BuildOptions`,
 `doctor`, CLI help, or diagnostics. Tests inject an internal `fs.FS` seam.
 
+The complete Linux pack bytes and the `//go:embed` declaration land in the same
+change. A repository state in which ordinary `go build ./...` fails because an
+embed target is absent is never an intermediate or accepted result.
+
 If a program has no runtime dependency, the driver does not open the embedded
 manifest or materialize any pack entry. Otherwise it:
 
@@ -510,15 +525,21 @@ The external suite retains all behavioral tiers:
 The complete workbench snippet catalog retains compile coverage. Linux
 equivalents are added for Windows-only process fixtures rather than deleting
 the Windows source cases. Linux foreign fixtures select `x86_64-linux-gnu` and
-exercise LP64; Windows target fixtures remain for LLP64. No fixture, runtime
-expectation, warning category, timeout, sanitizer category, or catalog entry is
-removed merely to make the migration pass.
+exercise LP64. In the Clang-only Linux gate, Windows-target cases are pure-Go
+compiler/generated-C assertions for LLP64 and Windows branch selection; they
+are not linked or executed on Linux. The one qualified compile/link/run gate
+moves to `x86_64-linux-gnu`. There is no native-Windows external gate in this
+revision. No fixture, runtime expectation, warning category, timeout, sanitizer
+category, or catalog entry is removed merely to make the migration pass; a
+Windows-only runtime expectation that has no Linux equivalent is recorded
+honestly as a coverage gap.
 
-Remove all active GCC/Zig toolchain specifications, discovery, environment
+Remove all GCC/Zig machinery: toolchain specifications, discovery, environment
 variables, command prefixes, caches, per-toolchain subtests, output-divergence
 state, sanitizer capability branches, Zig UBSan markers, GCC-only warning
-handling, and Zig mode baselines. Do not turn this cleanup into permission to
-emit Clang extensions: generated artifacts remain readable standard C23.
+handling, Zig mode baselines, and the Zig-powered native Windows driver. Do not
+turn this cleanup into permission to emit Clang extensions: generated artifacts
+remain readable standard C23.
 
 ## Qualification and doctor
 
@@ -555,7 +576,7 @@ Stable configuration diagnostics are:
 C backend is required; pass -cc <path>
 C backend path <path> is not an executable file
 C backend <path> is not Clang 18 or newer
-target profile <target> is not qualified
+target profile <target> is not qualified for native builds in this release
 embedded runtime pack for x86_64-linux-gnu is missing or corrupt; rebuild bin/hexal
 build accepts at most one source filepath
 build filepath cannot be combined with -root or -entry
@@ -572,9 +593,8 @@ record or diagnostic.
 
 Implementation removes or replaces:
 
-- Zig backend code that is proven unused after the Windows-backend decision;
-  if Windows remains Zig-powered, its exact version, target, invocation, and
-  pack code stay explicitly Windows-owned and are never used by Linux;
+- the Zig backend, version pin, target verification, native-Windows driver,
+  Windows runtime-pack delivery, and their external-process qualification;
 - `internal/driver`'s assumption that every target uses one Zig profile,
   independent Clang lookup for Linux C imports, and `RuntimeDir` flow;
 - retained vendored-source materialization and native dependency compilation
@@ -588,17 +608,29 @@ Implementation removes or replaces:
 - active `docs/status.md` text describing Zig/GCC/Windows validation.
 
 Code that exists solely to defend against an adjacent-pack contract is deleted.
-Windows target facts, target tests, pack bytes, and their build record remain.
-Backend-specific Windows code depends on the open Windows-backend decision.
+Windows target facts and pure-Go target tests remain.
+`exeSuffix`, PDB publication, junction replacement, atomic executable
+replacement, and their build-tagged files are removed when they exist only for
+the retired driver; shared filesystem operations gain Linux peers where the
+Linux driver still needs them. Linux must not pass through a Windows artifact
+rule accidentally. Checked-in Windows pack bytes are removed from active pack
+delivery and are not embedded in `bin/hexal`.
 
 ## Implementation plan
+
+### Phase 0: approve the replacement
+
+1. Approve RFC 0217 as the replacement work order, mark RFC 0214 and RFC 0215
+   discarded, and archive them unchanged.
+2. Confirm the implementation checkout contains this RFC, the matching status
+   update, and the pinned dependency revisions before creating pack artifacts.
 
 ### Phase 1: Linux target and direct Clang
 
 1. Add the Linux LP64 profile beside the Windows LLP64 profile in core and
    driver registries.
 2. Add one concrete installed-Clang Linux record and direct command
-   construction.
+   construction; reject every other driver target/host pair.
 3. Migrate artifact suffixes, host checks, system libraries, facility probes,
    entrypoint generation, and target-qualified tests.
 4. Keep the core compiler API unchanged.
@@ -636,9 +668,11 @@ Backend-specific Windows code depends on the open Windows-backend decision.
 
 1. Collapse external toolchain resolution and compile/run/trap loops to Clang.
 2. Add Linux equivalents and target-qualified fixtures without deleting the
-   Windows compiler-target cases.
+   Windows compiler-target cases. Keep Windows cases text-only in the Linux
+   Clang gate; do not attempt to link or execute them.
 3. Run mode comparison and mandatory UBSan through Clang.
-4. Remove GCC/Zig branches, baselines, comments, variables, and status text.
+4. Remove GCC/Zig branches, baselines, comments, variables, status text, and
+   native-Windows driver machinery.
 
 ### Phase 6: conformance and documentation
 
@@ -657,8 +691,9 @@ Backend-specific Windows code depends on the open Windows-backend decision.
 
 - `x86_64-linux-gnu` and `x86_64-windows-gnu-ucrt` are both accepted core
   compiler targets; arbitrary strings are rejected. The Linux driver path
-  accepts the Linux target, while Windows driver behavior follows the settled
-  Windows-backend decision.
+  accepts the Linux target. Native Windows hosts and Windows-target driver
+  requests fail with `target profile x86_64-windows-gnu-ucrt is not qualified
+  for native builds in this release` before any external command runs.
 - Host-neutral `Project{}` compiler output and the workbench snippet manifest
   remain byte-identical; target-qualified Linux output selects only POSIX/Linux
   branches and is reviewed explicitly.
@@ -697,7 +732,8 @@ Backend-specific Windows code depends on the open Windows-backend decision.
 - Mimalloc-only, libuv-only, and combined programs materialize and link exactly
   their demanded checked-in artifacts and Linux libraries.
 - Linux user builds never compile native dependencies from source and never
-  select the Windows pack; Windows pack selection remains target-specific.
+  select the Windows pack. The driver has no active Windows pack selection or
+  materialization path.
 - Embedded-pack validation rejects missing, unexpected, duplicate, absolute,
   escaping, ABI-mismatched, target-mismatched, or digest-mismatched content.
 - `-runtime-dir` is absent from public options, CLI help, parsing, doctor, and
@@ -711,7 +747,9 @@ Backend-specific Windows code depends on the open Windows-backend decision.
   is not; both modes preserve fixture behavior.
 - Ordinary Go tests and vet require no external compiler.
 - Tagged validation requires only Clang 18 or newer and contains no GCC/Zig
-  discovery, invocation, conditional behavior, or optional lane.
+  discovery, invocation, conditional behavior, or optional lane in the Linux
+  gate. Windows compiler-target assertions in that gate are pure Go and never
+  attempt to link or execute a Windows binary on Linux.
 - Every prior applicable fixture and snippet retains compile coverage; every
   runnable success/trap expectation retains runtime coverage; Windows-only
   process cases have Linux replacements.
@@ -737,10 +775,9 @@ Dependency-free programs pay no extraction, linking, or runtime cost.
 
 ## Deferred Windows cleanup
 
-This RFC deliberately solves WSL/Linux first. The Windows compiler target,
-Zig-powered native build path, checked-in Windows runtime pack, and their
-target-specific tests remain unchanged except where shared code must dispatch
-between the existing Windows path and the new Linux path.
+This RFC deliberately solves WSL/Linux first. The Windows compiler target and
+its pure-Go target-specific tests remain. The Zig-powered native build path,
+Windows runtime-pack delivery, and Windows external-process gate do not.
 
 A later Windows-specific specification must review whether to retain Zig or
 qualify Clang with an explicit MinGW-w64/UCRT sysroot, then clean obsolete
@@ -749,7 +786,9 @@ support.
 
 ## Open questions
 
-None.
+None. The native-driver disposition is settled: Linux/amd64 plus installed
+Clang is the sole qualified build host and backend for this revision. Windows
+remains a core generated-C target only.
 
 After the merged RFC is approved, RFC 0214 and RFC 0215 may be marked
 `Discarded; consolidated into RFC 0217 before implementation` and archived in
