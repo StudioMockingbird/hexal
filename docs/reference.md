@@ -8,7 +8,7 @@ Compiler behavior that disagrees with this file is a conformance bug.
 The grammar defines source shape only. Semantic rules in the remainder of this file may reject a
 grammatically valid form.
 
-Six lexical/parser rules are not expressible in EBNF:
+Eight lexical/parser rules are not expressible in EBNF:
 
 - Tokens use maximal munch. Inside nested type-argument lists only, one `>>` token may close two
   levels; in expression position it is always one shift token.
@@ -36,12 +36,21 @@ Six lexical/parser rules are not expressible in EBNF:
   angle-bracketed literal is a C header literal only in those two positions. Everywhere else a
   quoted literal is an ordinary string, and a quoted literal directly after `from` is the module
   path.
+- `extern`, `from`, `c`, `opaque`, `constant`, and `global` are contextual: each is the shown
+  terminal only in the C-interop positions, and an ordinary identifier everywhere else. `opaque` in
+  particular is not a reserved word, so `type X is opaque` is ambiguous between the opaque form and
+  an alias to a type named `opaque`; the parser resolves it in favor of the opaque form.
+- In a `method-declaration`, the receiver is the written `type-expression` and the method name is
+  the final `.` component. A dotted receiver such as `Geometry.Point.rotate` is one qualified
+  chain, so the parser peels the final `. identifier` back out of the receiver as the method name;
+  `Ptr<Point>.length` peels the same way.
 
 ```ebnf
 program = lexical-separation , [ import-block ] , { extern-block }
           , { top-level-item } , [ export-block ] ;
-lexical-separation = ? whitespace and comments are discarded between tokens,
-                       except where same-line is required ? ;
+lexical-separation = ? whitespace (whitespace), line comments (line-comment), and
+                       multiline comments (multiline-comment) are discarded between
+                       tokens, except where same-line is required ? ;
 same-line = ? no line break occurs before the next token ? ;
 
 top-level-item = declaration-item | static-module-value | statement ;
@@ -97,8 +106,7 @@ c-identifier-literal = ? quoted ordinary C identifier ? ;
 export-block = "export" , export-entry , { "," , export-entry } , "end" ;
 export-entry = identifier , [ "." , identifier ] ;
 static-module-value = "static" , [ "mut" ] , identifier
-                      , ( ":=" , expression
-                        | ":" , type-expression , ":=" , expression ) ;
+                      , ( ":" , type-expression , ":=" | ":=" ) , expression ;
 declaration-item = type-declaration | function-declaration
                    | method-declaration ;
 type-declaration = "type" , identifier , [ generic-parameter-list ]
@@ -114,15 +122,11 @@ parameter = identifier , ":" , type-expression , [ "..." ] ;
 generic-parameter-list = "<" , identifier , { "," , identifier } , ">" ;
 
 statement = non-control-statement | return-statement
-            | if-statement | while-statement | for-statement
-            | local-function-declaration ;
+            | if-statement | while-statement | for-statement ;
 non-control-statement = declaration | assignment | call-statement
                         | try-statement
                         | "break" | "continue"
                         | defer-statement | errdefer-statement ;
-local-function-declaration = "fun" , identifier
-                             , [ generic-parameter-list ]
-                             , signature , "do" , block , "end" ;
 block = { statement } ;
 declaration = [ "mut" ] , identifier
               , ( ":" , type-expression , ":=" | ":=" ) , expression ;
@@ -167,8 +171,7 @@ primary-type-expression = named-type | generic-type | array-type
                           | pointer-type | slice-type | function-type-expression
                           | "(" , type-expression , ")" ;
 named-type = identifier - special-form-type-constructor
-             | identifier - special-form-type-constructor , "." , identifier
-               , { "." , identifier } ;
+             , { "." , identifier } ;
 generic-type = generic-type-name , type-argument-list ;
 generic-type-name = identifier - special-form-type-constructor ;
 special-form-type-constructor = "Array" | "Ptr" | "Slice" | "Fun" ;
@@ -180,11 +183,9 @@ array-type = "Array" , "<" , type-expression
 positive-decimal-literal = nonzero-decimal-digit
                            , { decimal-digit | "_" , decimal-digit } ;
 pointer-type = "Ptr" , "<" , [ "mut" ] , type-expression , ">" ;
-pointer-constructor = "Ptr" ;
 slice-type = "Slice" , "<" , [ "mut" ] , type-expression , ">" ;
 function-type-expression = "Fun" , "<" , "(" , [ function-type-parameter-list ] , ")"
                            , [ ":" , type-expression ] , ">" ;
-type-list = type-expression , { "," , type-expression } ;
 function-type-parameter-list = function-type-parameter ,
                                { "," , function-type-parameter } ;
 function-type-parameter = type-expression , [ "..." ] ;
@@ -238,8 +239,7 @@ interpolation-text = ? decoded literal text between the string's start or
                        closing quote ? ;
 anonymous-function-literal = "fun" , [ generic-parameter-list ]
                              , signature , "do" , block , "end" ;
-array-literal = "[" , [ expression-list , [ "," ] ] , "]" ;
-expression-list = expression , { "," , expression } ;
+array-literal = "[" , [ expression , { "," , expression } , [ "," ] ] , "]" ;
 
 match-expression = "match" , match-scrutinee , [ "is" ]
                    , match-arm , { match-arm } , "end" ;
@@ -248,9 +248,8 @@ match-scrutinee = ? expression ending before the first unparenthesized
                     "is" type-mode marker or match-arm "|" ? ;
 match-arm-expression = ? expression ending before the next unparenthesized
                          match-arm "|" or the matching "end" ? ;
-match-pattern = "else" | "true" | "false" | dotted-match-pattern
+match-pattern = "else" | "true" | "false"
                 | qualified-variant-pattern | primary-type-expression ;
-dotted-match-pattern = identifier , "." , identifier ;
 qualified-variant-pattern = identifier , type-argument-list
                             , "." , identifier ;
 
