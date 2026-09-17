@@ -13,6 +13,7 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
+| Finish RFC 0216 validation: exact diagnostic tests for a mismatched rest element and an invalid rest element type; committed conflict/zero-element generic-inference and cross-module export tests; effectful/non-scalar/null-safety emitted-C assertions; generic function-literal rest inference; generator preflight rejection of a forged rest tree | [0216](specs/0216-typed-rest-parameters.md) |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 | Reconcile RFC 0217's host-neutral output invariant with the implementation: `Project{}` generated artifacts and the snippet SHA manifest changed in 14 entries; either restore the pre-RFC artifacts or explicitly amend the spec/reference and retain a reviewed new baseline | [0217](specs/archived/0217-clang-linux-backend-packaging-and-validation.md) |
 
