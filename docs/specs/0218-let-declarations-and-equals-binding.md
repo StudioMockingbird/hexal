@@ -1,8 +1,9 @@
 # RFC 0218: `let` Declarations and `=` Binding
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; not scheduled
+- Status: Implementation-ready; not scheduled
 - Created: 2026-09-18
+- Updated: 2026-09-18
 - Scope: replace the `:=` value-binding operator with a mandatory `let`
   declaration introducer plus `=`, so a declaration and an assignment are
   distinguished by a keyword rather than by an operator
@@ -226,14 +227,17 @@ compiles before and after. No runtime, ABI, or component change results.
 - Any change to semantics, generated C, or the runtime ABI.
 - Keeping `:=` as a deprecated alias.
 
-## Open questions
+## Decisions
 
-1. `mut` placement: `let mut x` (proposed, Rust-style) versus `mut let x`
-   (preserves the current leading-`mut` order). Proposal: `let mut x`.
-2. Module values: `static let x` (proposed) versus `let static x`. Proposal:
-   `static let x`.
-3. Whether to keep `:=` as a deprecated alias for one release. Proposal: no;
-   `:=` is a hard error with the migration diagnostic.
+The three surface choices are settled and are the ones the grammar and
+diagnostics above specify:
+
+1. `mut` placement is `let mut x`, not `mut let x`. `mut` modifies the binding,
+   so it follows the introducer that creates the binding.
+2. Module values are `static let x`, not `let static x`. `static` keeps its
+   role as the module-scope marker; `let` remains the introducer.
+3. `:=` is a hard error, not a deprecated alias. Its one diagnostic names the
+   replacement directly, so the language has exactly one declaration spelling.
 
 ## Consequences
 
