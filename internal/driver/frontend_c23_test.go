@@ -2,7 +2,7 @@
 
 package driver
 
-// RFC 0193 end to end through the public driver API: header discovery,
+// Automatic header binding end to end through the public driver API: header discovery,
 // preprocessing, Clang JSON-AST inspection, normalization, and the ordinary
 // compiler path. Tagged like the rest of this repository's toolchain-dependent
 // suites.

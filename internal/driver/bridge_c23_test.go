@@ -26,7 +26,7 @@ import (
 func TestEventRuntimeInitializationFailure(t *testing.T) {
 	selected := requireBackend(t)
 	compileResult := compiler.Compile(map[string]string{
-		"main.hex": "fun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n",
+		"main.hex": "import\n    Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n",
 	}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)
@@ -128,16 +128,21 @@ int main(void) {
 // duplicated, or cross-wired wake deadlocks, crashes, or changes the total.
 func TestEventBridgeParkRace(t *testing.T) {
 	requireBackend(t)
-	source := `fun churn(h: Heap, index: Int32): Int32 | Error do
+	source := `import
+    Fs from std.fs,
+    Time from std.time
+end
+
+fun churn(h: Heap, index: Int32): Int32 | Error do
     name := String.interpolate(h, "race-{{index}}.txt")
     defer name.free(h)
     mut round: Int32 := 0
     while round < 20 do
-        out := try File.open(name, FileMode.Write())
+        out := try Fs.open(name, Fs.FileMode.Write())
         wrote := try out.write("x".bytes())
         try out.flush()
         try out.close()
-        Task.sleep(Duration.nanoseconds(1))
+        Time.sleep(Time.nanoseconds(1))
         round = round + 1
     end
     return index

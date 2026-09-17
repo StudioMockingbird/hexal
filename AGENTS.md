@@ -170,6 +170,43 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   defense it justified leaves dead caution behind. Name the swept code in the
   spec, or state explicitly that none exists.
 
+## Target Profiles
+
+Hexal target profiles are compiler-owned keys. A listed profile is a target
+commitment, not a claim that the compiler, runtime pack, toolchain, and C23
+qualification already support it. `x32_64` means `x86_64`.
+
+POSIX is an operating-system family rather than one target triple. Linux is
+the initial POSIX target; the libc is part of the profile because it changes
+the ABI, headers, linker inputs, and runtime-pack requirements.
+
+| Family | Hexal target profile | Toolchain target triple | System ABI |
+| --- | --- | --- | --- |
+| Windows | `x86_64-windows-gnu-ucrt` | `x86_64-w64-windows-gnu` (Zig: `x86_64-windows-gnu`) | MinGW-w64 + UCRT |
+| Windows | `aarch64-windows-gnu-ucrt` | `aarch64-w64-windows-gnu` (Zig: `aarch64-windows-gnu`) | MinGW-w64 + UCRT |
+| POSIX/Linux | `x86_64-linux-gnu` | `x86_64-linux-gnu` | glibc |
+| POSIX/Linux | `aarch64-linux-gnu` | `aarch64-linux-gnu` | glibc |
+| POSIX/Linux | `x86_64-linux-musl` | `x86_64-linux-musl` | musl |
+| POSIX/Linux | `aarch64-linux-musl` | `aarch64-linux-musl` | musl |
+| POSIX/Linux | `riscv64-linux-gnu-rv64gc` | `riscv64-unknown-linux-gnu` | glibc + RV64GC/LP64D |
+| POSIX/Linux | `riscv64-linux-musl-rv64gc` | `riscv64-unknown-linux-musl` | musl + RV64GC/LP64D |
+| macOS | `x86_64-macos` | `x86_64-apple-darwin` | Apple libc + system SDK |
+| macOS | `aarch64-macos` | `aarch64-apple-darwin` | Apple libc + system SDK |
+
+Every target-specific runtime pack and prebuilt native dependency is keyed by
+the exact Hexal target profile. macOS profiles also require an explicit
+deployment target and SDK qualification; those values are part of the build
+record, not an implied universal default.
+
+The initial RISC-V profiles fix the `rv64gc` instruction set and `lp64d` ABI;
+the compiler must not inherit these choices from the host toolchain.
+
+The matrix covers the major desktop and server targets. If POSIX is intended
+to include non-Linux Unix systems, the main future omission is FreeBSD:
+`x86_64-unknown-freebsd` and `aarch64-unknown-freebsd`. Android and iOS are
+separate mobile targets, not implied by the profiles above, and should be
+added only with their own SDK/sysroot, runtime pack, and C23 qualification.
+
 ## Documentation
 
 Keep these two canonical documents updated once per feature, after behavior

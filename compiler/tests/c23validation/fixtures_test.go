@@ -123,7 +123,7 @@ var fixtureCatalog = []fixture{
 			"args := Prog.arguments()\n" +
 			"if args is Error then\n    return 1\nend\n" +
 			"args[0].free(h)\n"},
-		expectation: &processExpectation{zeroExit: false, requiredStderrSubstring: "cannot free a non-owning String"},
+		expectation: &processExpectation{zeroExit: false, requiredStderrSubstring: "[Runtime Error] cannot free a non-owning String"},
 	},
 	{
 		name:       "program-path-query-runs",

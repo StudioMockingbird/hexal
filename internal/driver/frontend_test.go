@@ -1,6 +1,6 @@
 package driver
 
-// Pure-Go tests for RFC 0193's frontend seam: the bounded output buffer, the
+// Pure-Go tests for the frontend seam: the bounded output buffer, the
 // inspection budget diagnostic, and Clang qualification. They invoke no
 // external frontend except where a test explicitly changes PATH.
 

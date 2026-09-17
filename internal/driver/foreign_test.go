@@ -1,6 +1,6 @@
 package driver
 
-// Pure-Go tests for RFC 0192's configuration model: environment parsing,
+// Pure-Go tests for the driver's configuration model: environment parsing,
 // validation, ordering, and rooted path resolution. They invoke no external
 // tool, so they run in the ordinary suite.
 

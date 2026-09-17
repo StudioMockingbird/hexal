@@ -1,8 +1,8 @@
 package driver
 
-// RFC 0193: automatic C header binding generation. The driver asks a
+// Automatic C header binding generation. The driver asks a
 // separately installed, version-qualified Clang frontend for a header's typed
-// JSON AST and normalizes the supported declarations into RFC 0039 source. The
+// JSON AST and normalizes the supported declarations into Hexal source. The
 // core compiler is untouched: it consumes prepared source strings and never
 // reads a header, starts a process, or parses C.
 //
@@ -71,7 +71,7 @@ func resolveClang() (clangFrontend, *BuildError) {
 }
 
 // preparedBinding is one normalized binding module: its reserved logical key
-// and its RFC 0039 source.
+// and its normalized Hexal source.
 type preparedBinding struct {
 	Key    string
 	Header string
@@ -80,7 +80,7 @@ type preparedBinding struct {
 }
 
 // inspectRequest prepares one C-header request: it preprocesses the requested
-// include and normalizes the frontend's typed AST into RFC 0039 source. The
+// include and normalizes the frontend's typed AST into Hexal source. The
 // whole inspection shares one 30-second deadline and one 64 MiB bound on each
 // command's output.
 func inspectRequest(selected *backend.Backend, clang clangFrontend, staging string, request compiler.CImportRequest, options headerOptions, result *BuildResult) (preparedBinding, *BuildError) {

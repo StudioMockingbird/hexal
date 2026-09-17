@@ -481,7 +481,7 @@ int main(void) {
 func TestLibuvEventRuntimeProbe(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
-	writeSource(t, dir, "main.hex", "fun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n")
+	writeSource(t, dir, "main.hex", "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n")
 	result, err := Build(BuildOptions{Root: dir})
 	if err != nil {
 		if len(result.Commands) > 0 {
@@ -499,8 +499,12 @@ func TestLibuvEventRuntimeProbe(t *testing.T) {
 func TestLibuvSchedulerContentionProbe(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
-	source := `fun blocked(): Int32 | Error do
-    input: IO := try IO.stdin()
+	source := `import
+  Io from std.io
+end
+
+fun blocked(): Int32 | Error do
+    input: Io.IO := try Io.stdin()
     h: Heap := Heap()
     buffer: List<Byte> := List<Byte>(h)
     defer buffer.free(h)
@@ -559,7 +563,7 @@ value: Int32 | Error := run()
 func TestLibuvEventFoundationProbe(t *testing.T) {
 	selected := requireBackend(t)
 	compileResult := compiler.Compile(map[string]string{
-		"main.hex": "fun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: IO := try IO.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n",
+		"main.hex": "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n",
 	}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)

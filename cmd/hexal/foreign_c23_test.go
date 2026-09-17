@@ -2,7 +2,7 @@
 
 package main
 
-// RFC 0192 through the public CLI: one source-based library and one
+// Foreign C inputs through the public CLI: one source-based library and one
 // precompiled archive, built and run by `hexal build` itself. Tagged `c23`
 // like every other toolchain-dependent suite.
 

@@ -49,6 +49,7 @@ var trapLedger = map[string]trapDisposition{
 	"array index out of bounds":                     {dispositionExecutable, "array-index-out-of-bounds-traps"},
 	"array slice bounds out of range":               {dispositionExecutable, "array-slice-bounds-traps"},
 	"cannot free a String literal":                  {dispositionExecutable, "free-string-literal-traps"},
+	"cannot free a non-owning String":               {dispositionExecutable, "program-arguments-nonowning-free-traps"},
 	"dictionary key not found":                      {dispositionExecutable, "missing-dict-get-traps / dict-repeated-removal-traps"},
 	"invalid UTF-8 in string":                       {dispositionExecutable, "invalid-utf8-traps"},
 	"invalid allocation alignment":                  {dispositionExecutable, "aligned-allocation-zero-alignment-traps / aligned-allocation-non-power-of-two-traps"},

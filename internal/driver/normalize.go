@@ -1,7 +1,7 @@
 package driver
 
-// RFC 0193 selection and normalization: decode the Clang JSON AST into
-// driver-private records, select the declarations RFC 0039 can represent,
+// Selection and normalization: decode the Clang JSON AST into driver-private
+// records, select the declarations the foreign binding model can represent,
 // order their type dependencies, and emit one ordinary `extern c` binding
 // module. Nothing here is exposed through a compiler API: the result is an
 // ordinary Hexal source string the unchanged compiler parses, checks, and
@@ -91,8 +91,8 @@ func (location astLocation) originFile() string {
 	return ""
 }
 
-// normalizeHeader decodes one frontend JSON AST and produces the RFC 0039
-// binding module. A malformed document fails closed.
+// normalizeHeader decodes one frontend JSON AST and produces the binding
+// module. A malformed document fails closed.
 func normalizeHeader(text string, index *lineIndex, request compiler.CImportRequest, options headerOptions) (string, *BuildError) {
 	var root astNode
 	if err := json.Unmarshal([]byte(text), &root); err != nil {
@@ -145,7 +145,7 @@ type typedefRecord struct {
 	hexal      string
 	ok         bool
 	line       int
-	// inline marks a typedef RFC 0039 cannot express as a transparent alias
+	// inline marks a typedef the foreign binding model cannot express as a transparent alias
 	// (a nullable pointer spelling): its name resolves to the underlying Hexal
 	// type at every use site and no declaration is emitted.
 	inline bool
@@ -377,8 +377,8 @@ func isBuiltinOrigin(file string) bool {
 	return strings.HasPrefix(file, "<")
 }
 
-// assignName assigns the Hexal name for one exact C name under RFC 0039's
-// deterministic rules: a legal, non-protected, unambiguous name is kept;
+// assignName assigns the Hexal name for one exact C name under deterministic
+// rules: a legal, non-protected, unambiguous name is kept;
 // otherwise the name is escaped with the compiler-owned prefix, and an escaped
 // base that still collides receives a numeric suffix. Every exact name is
 // reserved before any escaped name.
@@ -699,7 +699,7 @@ func (importer *importer) emit() string {
 			if field.mutable {
 				qualifier = "mut "
 			}
-			// A record field records no independent C type spelling: RFC 0039's
+			// A record field records no independent C type spelling: the
 			// extern-member `as` names the C field, and the field's C
 			// representation follows from its Hexal type.
 			fmt.Fprintf(&body, "        %s%s: %s,\n", qualifier, field.hexName, field.hexal)
@@ -927,7 +927,7 @@ func (importer *importer) resolveDeclarations() {
 			record.hexal = hexal
 			record.ok = true
 			if strings.Contains(hexal, "|") || importer.incompleteRecords[hexal] {
-				// RFC 0039 has no transparent alias for a nullable pointer or
+				// The binding model has no transparent alias for a nullable pointer or
 				// an opaque record value: resolve the name inline and emit no
 				// declaration.
 				if !record.inline || importer.byCName[record.cName] != hexal {

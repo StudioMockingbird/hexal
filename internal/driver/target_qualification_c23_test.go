@@ -11,7 +11,7 @@ package driver
 // function is never called from Hexal source -- there is no C-interop
 // syntax to call it with yet -- so this proves only the backend's linker
 // accepts a foreign object in the same link, not language-level
-// interoperability; RFC 0039 owns that.
+// interoperability; the foreign binding tests cover that separately.
 
 import (
 	"os"

@@ -51,13 +51,18 @@ func runRuntimeFixture(t *testing.T, fixture runtimeFixture) {
 	}
 }
 
-const fileFixtureSource = `fun write_x(target: File): Size | Error do
+const fileFixtureSource = `import
+    Fs from std.fs,
+    Io from std.io
+end
+
+fun write_x(target: Fs.File): Size | Error do
     return target.write("x".bytes())
 end
 
 fun read_all(h: Heap, path: String): Size do
-    file := File.open(path, FileMode.Read())
-    if file is File then
+    file := Fs.open(path, Fs.FileMode.Read())
+    if file is Fs.File then
         buffer: List<Byte> := List<Byte>(h)
         defer buffer.free(h)
         got := file.read(buffer, 4096)
@@ -70,20 +75,20 @@ fun read_all(h: Heap, path: String): Size do
 end
 
 fun run(h: Heap): Nil | Error do
-    out := try File.open("notes.txt", FileMode.Write())
+    out := try Fs.open("notes.txt", Fs.FileMode.Write())
     wrote := try out.write("hello file\n".bytes())
     empty := try out.write("".bytes())
     try out.flush()
     try out.close()
     print("wrote ", wrote, " ", empty, "\n")
 
-    truncated := try File.open("notes.txt", FileMode.Write())
+    truncated := try Fs.open("notes.txt", Fs.FileMode.Write())
     again := try truncated.write("0123456789".bytes())
     try truncated.close()
     print("truncated ", read_all(h, "notes.txt"), "\n")
 
-    input := try File.open("notes.txt", FileMode.ReadWrite())
-    copy: File := input
+    input := try Fs.open("notes.txt", Fs.FileMode.ReadWrite())
+    copy: Fs.File := input
     buffer: List<Byte> := List<Byte>(h)
     defer buffer.free(h)
     first := input.read(buffer, 4)
@@ -96,7 +101,7 @@ fun run(h: Heap): Nil | Error do
             end
         end
     end
-    at := try input.seek(Seek.Current(offset = 1))
+    at := try input.seek(Io.Seek.Current(offset = 1))
     tail := input.read(buffer, 100)
     drained := input.read(buffer, 100)
     if tail is Size then
@@ -104,35 +109,35 @@ fun run(h: Heap): Nil | Error do
             print("seek ", at, " tail ", tail, " eos\n")
         end
     end
-    back := try input.seek(Seek.Start(position = 0))
-    fromEnd := try input.seek(Seek.End(offset = -2))
+    back := try input.seek(Io.Seek.Start(position = 0))
+    fromEnd := try input.seek(Io.Seek.End(offset = -2))
     print("positions ", back, " ", fromEnd, "\n")
     try input.close()
 
-    appender := try File.open("notes.txt", FileMode.Append())
+    appender := try Fs.open("notes.txt", Fs.FileMode.Append())
     appended := try appender.write("AB".bytes())
     try appender.close()
     print("appended ", read_all(h, "notes.txt"), "\n")
 
-    created := try File.open("fresh.txt", FileMode.CreateNew())
+    created := try Fs.open("fresh.txt", Fs.FileMode.CreateNew())
     try created.close()
-    exists := File.open("fresh.txt", FileMode.CreateNew())
+    exists := Fs.open("fresh.txt", Fs.FileMode.CreateNew())
     if exists is Error then
         print(exists.header(), ": ", exists.message, "\n")
     end
-    missing := File.open("absent.txt", FileMode.Read())
+    missing := Fs.open("absent.txt", Fs.FileMode.Read())
     if missing is Error then
         print(missing.header(), "\n")
     end
-    missingRW := File.open("absent.txt", FileMode.ReadWrite())
+    missingRW := Fs.open("absent.txt", Fs.FileMode.ReadWrite())
     if missingRW is Error then
         print(missingRW.header(), "\n")
     end
-    nul := File.open("bad\0name.txt", FileMode.Write())
+    nul := Fs.open("bad\0name.txt", Fs.FileMode.Write())
     if nul is Error then
         print(nul.header(), ": ", nul.message, "\n")
     end
-    reader := try File.open("notes.txt", FileMode.Read())
+    reader := try Fs.open("notes.txt", Fs.FileMode.Read())
     denied := write_x(reader)
     if denied is Error then
         print(denied.header(), ": ", denied.message, "\n")
@@ -184,10 +189,14 @@ j: Int32 | Error := join_one()
 
 func TestRuntimeTimeAndSleep(t *testing.T) {
 	requireBackend(t)
-	source := `fun sleeper(ms: UInt64): Int32 do
-    start := Instant.now()
-    Task.sleep(Duration.milliseconds(ms))
-    if start.elapsed() >= Duration.milliseconds(ms) then
+	source := `import
+    Time from std.time
+end
+
+fun sleeper(ms: UInt64): Int32 do
+    start := Time.now()
+    Time.sleep(Time.milliseconds(ms))
+    if start.elapsed() >= Time.milliseconds(ms) then
         return 1
     end
     return 0
@@ -211,14 +220,14 @@ fun run(): Int32 | Error do
     return a.join() + b.join() + worked
 end
 
-zero := Instant.now()
-Task.sleep(Duration.nanoseconds(0))
-tiny := Instant.now()
-Task.sleep(Duration.nanoseconds(1))
-print(tiny.elapsed() >= Duration.nanoseconds(1), "\n")
-d := Duration.seconds(2) + Duration.milliseconds(500)
-print(d.as_seconds(), " ", d.as_milliseconds(), " ", (d - Duration.seconds(1)).as_microseconds(), "\n")
-print(Duration.nanoseconds(18446744073709551615).as_nanoseconds(), "\n")
+zero := Time.now()
+Time.sleep(Time.nanoseconds(0))
+tiny := Time.now()
+Time.sleep(Time.nanoseconds(1))
+print(tiny.elapsed() >= Time.nanoseconds(1), "\n")
+d := Time.seconds(2) + Time.milliseconds(500)
+print(d.as_seconds(), " ", d.as_milliseconds(), " ", (d - Time.seconds(1)).as_microseconds(), "\n")
+print(Time.nanoseconds(18446744073709551615).as_nanoseconds(), "\n")
 result := run()
 if result is Int32 then
     print(result, "\n")
@@ -230,10 +239,10 @@ end
 func TestRuntimeTimeTraps(t *testing.T) {
 	requireBackend(t)
 	for _, fixture := range []runtimeFixture{
-		{name: "construct-overflow", source: "print(Duration.seconds(18446744074).as_seconds())\n", stderr: "[Runtime Error] duration overflow\n"},
-		{name: "add-overflow", source: "print((Duration.nanoseconds(18446744073709551615) + Duration.nanoseconds(1)).as_seconds())\n", stderr: "[Runtime Error] duration overflow\n"},
-		{name: "underflow", source: "print((Duration.seconds(1) - Duration.seconds(2)).as_seconds())\n", stderr: "[Runtime Error] duration underflow\n"},
-		{name: "sleep-too-large", source: "Task.sleep(Duration.nanoseconds(9223372036854775808))\nprint(\"unreachable\")\n", stderr: "[Runtime Error] sleep duration too large\n"},
+		{name: "construct-overflow", source: "import\n  Time from std.time\nend\nprint(Time.seconds(18446744074).as_seconds())\n", stderr: "[Runtime Error] duration overflow\n"},
+		{name: "add-overflow", source: "import\n  Time from std.time\nend\nprint((Time.nanoseconds(18446744073709551615) + Time.nanoseconds(1)).as_seconds())\n", stderr: "[Runtime Error] duration overflow\n"},
+		{name: "underflow", source: "import\n  Time from std.time\nend\nprint((Time.seconds(1) - Time.seconds(2)).as_seconds())\n", stderr: "[Runtime Error] duration underflow\n"},
+		{name: "sleep-too-large", source: "import\n  Time from std.time\nend\nTime.sleep(Time.nanoseconds(9223372036854775808))\nprint(\"unreachable\")\n", stderr: "[Runtime Error] sleep duration too large\n"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			runRuntimeFixture(t, fixture)

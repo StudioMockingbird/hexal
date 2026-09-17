@@ -95,9 +95,9 @@ type BuildResult struct {
 	Commands     []CommandResult
 }
 
-// BuildOptions carries what ADR 0055's Configuration section resolves from
+// BuildOptions carries what the command-line configuration resolves from
 // flags and conventions. There is no project manifest in v1. The `C*`,
-// `Objects`, and `SystemLibraries` fields are RFC 0192's explicit foreign
+// `Objects`, and `SystemLibraries` fields are explicit foreign
 // build inputs; they are driver configuration and never enter
 // compiler.Project or compiler.Compile.
 type BuildOptions struct {
@@ -211,9 +211,9 @@ func Build(options BuildOptions) (BuildResult, error) {
 		outDir = filepath.Join(root, "build")
 	}
 
-	// RFC 0193: prepare one binding source for every reachable C-header
-	// import, then compile the copied source map. The original map is never
-	// mutated and no binding file is written.
+	// Prepare one binding source for every reachable C-header import, then
+	// compile the copied source map. The original map is never mutated and no
+	// binding file is written.
 	compiledSources := sources
 	requests, discoverErr := compiler.DiscoverCImports(sources, entrypoint)
 	if discoverErr != nil {
@@ -548,7 +548,7 @@ func cFilesToObjects(staging string, cFiles []string) []string {
 // deterministic logical-key order: one backend invocation per translation
 // unit, each its own C-compilation stage record with separated streams. The
 // caller supplies the complete option list, mode options included. moduleOptions
-// carries the RFC 0192 user include and define arguments and reaches only
+// carries the user include and define arguments and reaches only
 // generated module translation units (`modules/*.c`): compiler-owned runtime
 // components and bundled dependencies never see user options, and the
 // compiler-owned staging include root precedes them so user input cannot

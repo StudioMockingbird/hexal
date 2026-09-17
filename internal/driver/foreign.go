@@ -1,6 +1,6 @@
 package driver
 
-// RFC 0192: command-line foreign C build inputs. The driver accepts explicitly
+// Command-line foreign C build inputs. The driver accepts explicitly
 // supplied C sources, include directories, preprocessor definitions, an
 // environment override map, a foreign dialect, precompiled objects, static
 // archives, and named system libraries. It normalizes and validates them, then

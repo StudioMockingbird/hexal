@@ -2,7 +2,7 @@
 
 package driver
 
-// RFC 0192 end-to-end: compile and link explicitly supplied C sources,
+// End-to-end coverage: compile and link explicitly supplied C sources,
 // precompiled objects, static archives, and named system libraries through the
 // public Build API and the pinned backend. Tagged like the rest of this
 // repository's toolchain-dependent suites.
@@ -36,7 +36,7 @@ func adderFixture(t *testing.T, root string) string {
 	return native
 }
 
-// TestForeignSourceBuildRuns is RFC 0192's minimal end-to-end: one C source,
+// TestForeignSourceBuildRuns is the minimal end-to-end case: one C source,
 // one header reachable through -c-include, and a handwritten binding. The
 // executable writes exactly 42.
 func TestForeignSourceBuildRuns(t *testing.T) {

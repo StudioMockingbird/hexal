@@ -1,6 +1,6 @@
 package driver
 
-// Pure-Go tests for RFC 0193's selection and normalization: the line-marker
+// Pure-Go tests for selection and normalization: the line-marker
 // index, the decoded-AST selection rules, and the deterministic emitted
 // binding text. They invoke no external frontend.
 
