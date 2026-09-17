@@ -353,8 +353,10 @@ hex-digit = decimal-digit | "a" | "b" | "c" | "d" | "e" | "f"
 
 - A source file contains ordered type, function, method, and executable declarations/statements.
   Executable statements occur only in the root program and lower to automatic locals in `main`.
-- Hexal has no native globals, global constants, `global`, or `static`. State is local, allocated,
-  or passed explicitly.
+- Hexal has no native globals or global constants, and no `global` storage of its own. A `static`
+  module value (see Modules) is program-lifetime storage private to its module; the `global`
+  spelling appears only in an `extern c` declaration for a C object. State is otherwise local,
+  allocated, or passed explicitly.
 - Functions and methods are file-scope declarations. Nested functions and closures do not exist;
   functions cannot capture root or lexical locals.
 - `return` is valid only inside a function or method body. The root program has no declared result.
