@@ -24,26 +24,26 @@ Hello, world!
 
 ## Compile
 
-From the repository root, provide the installed Zig compiler and the checked-in
-runtime pack:
+From the repository root, use the rebuilt compiler and an installed Clang 18+
+compiler. The runtime pack is embedded in `bin/hexal`:
 
-```powershell
-hexal build `
-  -root default `
-  -entry main.hex `
-  -out default/hello.exe `
-  -cc C:\path\to\zig.exe `
-  -target x86_64-windows-gnu-ucrt `
-  -runtime-dir lib `
-  -c-source main.c `
+```text
+go build -o bin/hexal ./cmd/hexal
+bin/hexal build default/main.hex \
+  -out default/hello \
+  -cc /usr/bin/clang \
+  -target x86_64-linux-gnu \
+  -c-source main.c \
   -c-include .
 ```
 
 Then run it:
 
-```powershell
-default\hello.exe
+```text
+default/hello
 ```
 
 `-c-source main.c` compiles and links the implementation. `-c-include .`
-allows both the C source and generated C to find `main.h`.
+allows both the C source and generated C to find `main.h`. Because the
+positional filepath selects `default` as the source root, these foreign-input
+paths resolve relative to `default`.
