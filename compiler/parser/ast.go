@@ -321,10 +321,13 @@ type MethodDeclaration struct {
 func (MethodDeclaration) topLevelItemNode() {}
 
 // Parameter is one annotated function or method parameter. Annotations are
-// mandatory, so there is no inferred form.
+// mandatory, so there is no inferred form. Rest marks a final `T...` rest
+// parameter; Ellipsis carries its token for diagnostics.
 type Parameter struct {
-	Name lexer.Token
-	Type TypeExpression
+	Name     lexer.Token
+	Type     TypeExpression
+	Rest     bool
+	Ellipsis lexer.Token
 }
 
 // ReturnStatement leaves a function body, with or without a value. A bare

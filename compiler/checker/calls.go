@@ -110,9 +110,8 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 		diagnostic := typeErrorAt(callee.Name, calleeType.Name+" may be Nil; narrow it before calling it")
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
-	if len(call.Arguments) != len(signature.Parameters) {
-		diagnostic := typeErrorAt(callee.Name,
-			fmt.Sprintf("%s expects %d arguments; got %d", name, len(signature.Parameters), len(call.Arguments)))
+	if !aritySatisfied(signature, len(call.Arguments)) {
+		diagnostic := typeErrorAt(callee.Name, arityDiagnostic(name, signature, len(call.Arguments)))
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
 
@@ -123,7 +122,7 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 			parameterUses[index] = compilerTypes.NewTypeUse(parameter)
 		}
 	}
-	arguments, diagnostics := checkArguments(name, parameterUses, call.Arguments, callee.Name, ctx)
+	arguments, diagnostics := checkArgumentsWithRest(name, parameterUses, call.Arguments, signature.Rest, callee.Name, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Name, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -154,6 +153,7 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 		OperandType: calleeType,
 		ResultType:  resultType,
 	}
+	applyRestMetadata(&node, signature, ctx.typeEnvironment)
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node},
 		typ:    resultType,
@@ -193,16 +193,15 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 		diagnostic := unknownAt(property, "exported function record without a signature")
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
-	if len(call.Arguments) != len(signature.Parameters) {
-		diagnostic := typeErrorAt(property,
-			fmt.Sprintf("%s expects %d arguments; got %d", function.Name, len(signature.Parameters), len(call.Arguments)))
+	if !aritySatisfied(signature, len(call.Arguments)) {
+		diagnostic := typeErrorAt(property, arityDiagnostic(function.Name, signature, len(call.Arguments)))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(function.Parameters))
 	for _, parameter := range function.Parameters {
 		parameterUses = append(parameterUses, parameter.TypeUse)
 	}
-	arguments, diagnostics := checkArguments(function.Name, parameterUses, call.Arguments, property, ctx)
+	arguments, diagnostics := checkArgumentsWithRest(function.Name, parameterUses, call.Arguments, signature.Rest, property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -218,6 +217,7 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 		OperandType: function.Type,
 		ResultType:  resultType,
 	}
+	applyRestMetadata(&node, signature, ctx.typeEnvironment)
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: function.Name, Node: node},
 		typ:    resultType,
@@ -323,16 +323,15 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 		diagnostic := unknownAt(property, "specialized function record without a signature")
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
-	if len(call.Arguments) != len(signature.Parameters) {
-		diagnostic := typeErrorAt(property,
-			fmt.Sprintf("%s expects %d arguments; got %d", specialized.Name, len(signature.Parameters), len(call.Arguments)))
+	if !aritySatisfied(signature, len(call.Arguments)) {
+		diagnostic := typeErrorAt(property, arityDiagnostic(specialized.Name, signature, len(call.Arguments)))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(specialized.Parameters))
 	for _, parameter := range specialized.Parameters {
 		parameterUses = append(parameterUses, parameter.TypeUse)
 	}
-	argumentsOperands, diagnostics := checkArguments(specialized.Name, parameterUses, call.Arguments, property, ctx)
+	argumentsOperands, diagnostics := checkArgumentsWithRest(specialized.Name, parameterUses, call.Arguments, signature.Rest, property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -348,6 +347,7 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 		OperandType: specialized.Type,
 		ResultType:  resultType,
 	}
+	applyRestMetadata(&node, signature, ctx.typeEnvironment)
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: specialized.Name, Node: node},
 		typ:    resultType,
@@ -392,16 +392,15 @@ func checkIndirectCall(call parser.CallExpression, ctx checkContext) checkedExpr
 		diagnostic := typeErrorAt(call.OpenParen, "a call's callee must be a function name or a method selection")
 		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
 	}
-	if len(call.Arguments) != len(signature.Parameters) {
-		diagnostic := typeErrorAt(call.OpenParen,
-			fmt.Sprintf("the called function expects %d arguments; got %d", len(signature.Parameters), len(call.Arguments)))
+	if !aritySatisfied(signature, len(call.Arguments)) {
+		diagnostic := typeErrorAt(call.OpenParen, arityDiagnostic("the called function", signature, len(call.Arguments)))
 		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, len(signature.Parameters))
 	for index, parameter := range signature.Parameters {
 		parameterUses[index] = compilerTypes.NewTypeUse(parameter)
 	}
-	arguments, diagnostics := checkArguments("the called function", parameterUses, call.Arguments, call.OpenParen, ctx)
+	arguments, diagnostics := checkArgumentsWithRest("the called function", parameterUses, call.Arguments, signature.Rest, call.OpenParen, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: call.OpenParen, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -417,6 +416,7 @@ func checkIndirectCall(call parser.CallExpression, ctx checkContext) checkedExpr
 		OperandType: funType,
 		ResultType:  resultType,
 	}
+	applyRestMetadata(&node, signature, ctx.typeEnvironment)
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Node: node},
 		typ:    resultType,
@@ -428,10 +428,23 @@ func checkIndirectCall(call parser.CallExpression, ctx checkContext) checkedExpr
 // position, so contextual literals and Ptr<mut T>-to-Ptr weakening both apply.
 // Callee is only used to spell diagnostics.
 func checkArguments(callee string, expected []compilerTypes.TypeUse, written []parser.Expression, token lexer.Token, ctx checkContext) ([]Operand, compilerTypes.Diagnostics) {
+	return checkArgumentsWithRest(callee, expected, written, false, token, ctx)
+}
+
+// checkArgumentsWithRest checks a written argument list against an expected
+// parameter-use list. When rest is true the final expected entry is the rest
+// element type T and every argument at or past the fixed boundary is checked
+// in expected T context; otherwise arity is exact and every argument maps to
+// its own parameter.
+func checkArgumentsWithRest(callee string, expected []compilerTypes.TypeUse, written []parser.Expression, rest bool, token lexer.Token, ctx checkContext) ([]Operand, compilerTypes.Diagnostics) {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	arguments := make([]Operand, 0, len(written))
 	for index, argument := range written {
-		want := expected[index]
+		expectedIndex := index
+		if rest && index >= len(expected) {
+			expectedIndex = len(expected) - 1
+		}
+		want := expected[expectedIndex]
 		checked := checkInitializer(argument, want, token, ctx)
 		if argumentDiagnostics := initializerDiagnostics(checked); len(argumentDiagnostics) > 0 {
 			diagnostics = append(diagnostics, argumentDiagnostics...)
@@ -449,6 +462,86 @@ func checkArguments(callee string, expected []compilerTypes.TypeUse, written []p
 		arguments = append(arguments, checked.source)
 	}
 	return arguments, diagnostics
+}
+
+// restBoundary returns the rest signature's fixed-parameter count. It is only
+// meaningful when signature.Rest is true.
+func restFixedCount(signature *compilerTypes.FunSignature) int {
+	return len(signature.Parameters) - 1
+}
+
+// applyRestMetadata records a call's rest boundary on its checked node when its
+// callee signature is rest. environment constructs the read-only Slice<T> the
+// call boundary passes.
+func applyRestMetadata(node *Expression, signature *compilerTypes.FunSignature, environment *compilerTypes.Environment) {
+	if signature == nil || !signature.Rest {
+		return
+	}
+	node.Rest = true
+	node.RestStart = restFixedCount(signature)
+	node.RestElement = signature.Parameters[node.RestStart]
+	node.RestSlice = environment.SliceType(node.RestElement, false)
+}
+
+// applyParameterRestMetadata records a method call's rest boundary from its
+// resolved parameter list, whose final entry already carries the Slice<T> the
+// C signature uses.
+func applyParameterRestMetadata(node *Expression, parameters []FunctionParameter) {
+	fixed, rest := parameterRestFixed(parameters)
+	if !rest {
+		return
+	}
+	node.Rest = true
+	node.RestStart = fixed
+	node.RestElement = parameters[fixed].RestElement
+	node.RestSlice = parameters[fixed].Type
+}
+
+// aritySatisfied reports whether got arguments satisfy signature's arity: an
+// exact match for an ordinary signature, or at least the fixed count for a
+// rest signature.
+func aritySatisfied(signature *compilerTypes.FunSignature, got int) bool {
+	if signature.Rest {
+		return got >= restFixedCount(signature)
+	}
+	return got == len(signature.Parameters)
+}
+
+// arityDiagnostic renders the one arity error for a failed call.
+func arityDiagnostic(name string, signature *compilerTypes.FunSignature, got int) string {
+	if signature.Rest {
+		return fmt.Sprintf("%s expects at least %d arguments; got %d", name, restFixedCount(signature), got)
+	}
+	return fmt.Sprintf("%s expects %d arguments; got %d", name, len(signature.Parameters), got)
+}
+
+// parameterRestFixed returns a resolved parameter list's fixed count and
+// whether its final parameter is a rest parameter.
+func parameterRestFixed(parameters []FunctionParameter) (int, bool) {
+	if len(parameters) > 0 && parameters[len(parameters)-1].Rest {
+		return len(parameters) - 1, true
+	}
+	return len(parameters), false
+}
+
+// parameterAritySatisfied reports whether got arguments satisfy a resolved
+// parameter list's arity.
+func parameterAritySatisfied(parameters []FunctionParameter, got int) bool {
+	fixed, rest := parameterRestFixed(parameters)
+	if rest {
+		return got >= fixed
+	}
+	return got == fixed
+}
+
+// parameterArityDiagnostic renders the arity error for a resolved parameter
+// list.
+func parameterArityDiagnostic(name string, parameters []FunctionParameter, got int) string {
+	fixed, rest := parameterRestFixed(parameters)
+	if rest {
+		return fmt.Sprintf("%s expects at least %d arguments; got %d", name, fixed, got)
+	}
+	return fmt.Sprintf("%s expects %d arguments; got %d", name, fixed, got)
 }
 
 // checkBareConstructorCall recognizes and checks a bare Type(...) call: one of

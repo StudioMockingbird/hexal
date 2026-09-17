@@ -107,6 +107,12 @@ type FunctionTypeExpression struct {
 	Keyword    lexer.Token
 	Parameters []TypeExpression
 	Return     TypeExpression
+	// RestFlags and RestTokens are parallel to Parameters: RestFlags[i] is true
+	// when parameter i is written `T...`, and RestTokens[i] carries that
+	// ellipsis for diagnostics. A rest flag is valid only on the final
+	// parameter.
+	RestFlags  []bool
+	RestTokens []lexer.Token
 }
 
 func (FunctionTypeExpression) typeExpressionNode() {}
@@ -334,13 +340,28 @@ func (parser *Parser) functionTypeExpression(keyword lexer.Token) (FunctionTypeE
 		return FunctionTypeExpression{}, err
 	}
 	parameters := make([]TypeExpression, 0)
+	restFlags := make([]bool, 0)
+	restTokens := make([]lexer.Token, 0)
 	if !parser.check(lexer.RightParen) {
+		sawRest := false
 		for {
+			if sawRest {
+				return FunctionTypeExpression{}, parser.errorAtCurrent("rest parameter must be final")
+			}
 			parameter, err := parser.typeExpression()
 			if err != nil {
 				return FunctionTypeExpression{}, err
 			}
+			rest := false
+			var ellipsis lexer.Token
+			if parser.check(lexer.Ellipsis) {
+				ellipsis = parser.advance()
+				rest = true
+			}
 			parameters = append(parameters, parameter)
+			restFlags = append(restFlags, rest)
+			restTokens = append(restTokens, ellipsis)
+			sawRest = rest
 			if !parser.check(lexer.Comma) {
 				break
 			}
@@ -362,7 +383,7 @@ func (parser *Parser) functionTypeExpression(keyword lexer.Token) (FunctionTypeE
 	if _, err := parser.consumeGenericClose("'>' to close a Fun type"); err != nil {
 		return FunctionTypeExpression{}, err
 	}
-	return FunctionTypeExpression{Keyword: keyword, Parameters: parameters, Return: returnType}, nil
+	return FunctionTypeExpression{Keyword: keyword, Parameters: parameters, Return: returnType, RestFlags: restFlags, RestTokens: restTokens}, nil
 }
 
 // typeDefinition is the grammar used after `type Name is`, dispatching on the

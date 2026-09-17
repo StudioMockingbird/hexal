@@ -475,6 +475,16 @@ type Expression struct {
 	// fields were actually written, for evaluation sequencing.
 	EvaluationOrder []int
 	Element         compilerTypes.Type
+	// Rest, RestStart, RestElement, and RestSlice together describe a rest
+	// call's final argument group on a CallExpression or MethodCallExpression:
+	// RestStart is the number of fixed leading arguments, the remaining
+	// arguments are RestElement values, and RestSlice is the read-only
+	// Slice<RestElement> packed at the call boundary. Rest is false for every
+	// ordinary call and every non-call kind.
+	Rest        bool
+	RestStart   int
+	RestElement compilerTypes.Type
+	RestSlice   compilerTypes.Type
 	// ViewRoots is the ordered binding chain an address-taking expression
 	// borrows from, outermost root first. Only address nodes record roots;
 	// Slice-producing expressions record none.

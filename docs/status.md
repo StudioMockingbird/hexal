@@ -13,6 +13,7 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
+| Implement homogeneous typed rest parameters with explicit call arguments, invocation-owned `Slice<T>` backing, non-escaping rest provenance, and ordinary `defer`/`spawn` behavior | [0216](specs/0216-typed-rest-parameters.md) |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 | Reconcile RFC 0217's host-neutral output invariant with the implementation: `Project{}` generated artifacts and the snippet SHA manifest changed in 14 entries; either restore the pre-RFC artifacts or explicitly amend the spec/reference and retain a reviewed new baseline | [0217](specs/archived/0217-clang-linux-backend-packaging-and-validation.md) |
 

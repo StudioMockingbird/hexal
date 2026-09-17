@@ -1317,7 +1317,11 @@ func validateCallExpression(node checker.Expression, expected *compilerTypes.Typ
 	if signature == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
 		return unknownExpressionDiagnostic("call callee is not a checked Fun type")
 	}
-	if len(signature.Parameters) != len(node.Arguments) {
+	if node.Rest {
+		if len(node.Arguments) < node.RestStart {
+			return unknownExpressionDiagnostic("call argument count is below its rest boundary")
+		}
+	} else if len(signature.Parameters) != len(node.Arguments) {
 		return unknownExpressionDiagnostic("call argument count does not match its checked signature")
 	}
 	if signature.Result == nil {
@@ -1339,7 +1343,13 @@ func validateCallExpression(node checker.Expression, expected *compilerTypes.Typ
 		return err
 	}
 	for index, argument := range node.Arguments {
-		if !generatedAssignable(signature.Parameters[index], argument.Type) {
+		var expectedType compilerTypes.Type
+		if node.Rest && index >= node.RestStart {
+			expectedType = node.RestElement
+		} else {
+			expectedType = signature.Parameters[index]
+		}
+		if !generatedAssignable(expectedType, argument.Type) {
 			return unknownExpressionDiagnostic("call argument type does not match its checked parameter")
 		}
 		if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -1364,7 +1374,7 @@ func validateMethodCallExpression(node checker.Expression, expected *compilerTyp
 		if !ok || declared.Object != node.Owner {
 			return unknownExpressionDiagnostic("method call does not name a declared checked method")
 		}
-		if !compilerTypes.Equal(node.OperandType, declared.SelfType) || len(node.Arguments) != len(declared.Parameters) {
+		if !compilerTypes.Equal(node.OperandType, declared.SelfType) || !restCallArityOK(node, len(declared.Parameters)) {
 			return unknownExpressionDiagnostic("method call does not match its checked signature")
 		}
 		if declared.Result == nil {
@@ -1393,7 +1403,13 @@ func validateMethodCallExpression(node checker.Expression, expected *compilerTyp
 		return nil
 	}
 	for index, argument := range node.Arguments {
-		if !generatedAssignable(declared.Parameters[index].Type, argument.Type) {
+		var parameterType compilerTypes.Type
+		if node.Rest && index >= node.RestStart {
+			parameterType = node.RestElement
+		} else {
+			parameterType = declared.Parameters[index].Type
+		}
+		if !generatedAssignable(parameterType, argument.Type) {
 			return unknownExpressionDiagnostic("method call argument type does not match its checked parameter")
 		}
 		if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -1401,6 +1417,15 @@ func validateMethodCallExpression(node checker.Expression, expected *compilerTyp
 		}
 	}
 	return nil
+}
+
+// restCallArityOK reports whether a checked call's argument count satisfies its
+// resolved signature arity, honoring a rest boundary when present.
+func restCallArityOK(node checker.Expression, parameterCount int) bool {
+	if node.Rest {
+		return len(node.Arguments) >= node.RestStart
+	}
+	return len(node.Arguments) == parameterCount
 }
 
 // methodReceiverType recovers the actual checked type of an adapted receiver.

@@ -233,13 +233,26 @@ func typeExpressionToken(expression parser.TypeExpression, fallback lexer.Token)
 func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(expression.Parameters))
 	parameters := make([]compilerTypes.Type, 0, len(expression.Parameters))
-	for _, parameter := range expression.Parameters {
+	rest := len(expression.RestFlags) > 0 && expression.RestFlags[len(expression.RestFlags)-1]
+	for index, parameter := range expression.Parameters {
+		if index < len(expression.RestFlags) && expression.RestFlags[index] {
+			// Activation gate, matching checkParameters: rest resolves and
+			// lowers below, but the escape analysis is not yet enforced.
+			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.RestTokens[index], "rest parameters are not supported yet"))
+		}
 		resolvedUse, diagnostic := resolveTypeUse(parameter, expression.Keyword, typeEnvironment, generics)
 		if diagnostic != nil {
 			return compilerTypes.TypeUse{}, diagnostic
 		}
 		if diagnostic := valueTypeDiagnostic(parameter, expression.Keyword, resolvedUse.Type); diagnostic != nil {
 			return compilerTypes.TypeUse{}, diagnostic
+		}
+		if rest && index == len(expression.Parameters)-1 {
+			restUse, restDiagnostic := resolveRestElement(parameter, expression.Keyword, resolvedUse, expression.RestTokens[index], typeEnvironment)
+			if restDiagnostic != nil {
+				return compilerTypes.TypeUse{}, restDiagnostic
+			}
+			resolvedUse = restUse
 		}
 		parameterUses = append(parameterUses, resolvedUse)
 		parameters = append(parameters, resolvedUse.Type)
@@ -261,9 +274,19 @@ func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnviro
 		result = &resolved
 		resultUse = &resolvedUse
 	}
-	functionType := typeEnvironment.FunType(parameters, result)
+	functionType := typeEnvironment.FunTypeRest(parameters, result, rest)
 	if functionType.Signature == nil {
 		return compilerTypes.TypeUse{}, diagnosticAt(unknownAt(expression.Keyword, "could not construct a Fun type"))
 	}
 	return compilerTypes.FunctionTypeUse(functionType, parameterUses, resultUse), nil
+}
+
+// resolveRestElement validates that a final `T...` function-type parameter's
+// element type is a valid read-only Slice element and returns its use
+// unchanged. The canonical Fun signature stores the element type T.
+func resolveRestElement(written parser.TypeExpression, fallback lexer.Token, resolvedUse compilerTypes.TypeUse, ellipsis lexer.Token, typeEnvironment *compilerTypes.Environment) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
+	if typeEnvironment.SliceType(resolvedUse.Type, false) == (compilerTypes.Type{}) {
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(ellipsis, resolvedUse.Type.Name+" is not a valid rest element type"))
+	}
+	return resolvedUse, nil
 }

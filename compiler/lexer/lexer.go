@@ -230,6 +230,10 @@ const (
 	// ColonEqual is one token, not Colon followed by Equal, so `x : = 5`
 	// stays a syntax error.
 	ColonEqual
+	// Ellipsis is the one token `...`, recognized by longest match so `.`
+	// member selection is unchanged. It marks a final rest parameter or a
+	// final rest function-type parameter.
+	Ellipsis
 	EOF
 )
 
@@ -329,6 +333,8 @@ func (kind TokenKind) String() string {
 		return "type"
 	case Dot:
 		return "."
+	case Ellipsis:
+		return "..."
 	case LeftBrace:
 		return "{"
 	case RightBrace:
@@ -859,6 +865,13 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		index++
 		column++
 	case ch == '.':
+		// Longest match: `...` is one Ellipsis token, `.` remains Dot.
+		if index+2 < len(source) && source[index+1] == '.' && source[index+2] == '.' {
+			tokens = append(tokens, Token{Kind: Ellipsis, Lexeme: "...", Line: line, Column: column})
+			index += 3
+			column += 3
+			break
+		}
 		tokens = append(tokens, Token{Kind: Dot, Lexeme: ".", Line: line, Column: column})
 		index++
 		column++

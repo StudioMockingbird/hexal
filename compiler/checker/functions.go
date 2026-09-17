@@ -30,12 +30,17 @@ type FunctionDeclaration struct {
 func (FunctionDeclaration) statementNode() {}
 
 // FunctionParameter is one resolved parameter. Parameters are fixed bindings,
-// so no mutability field exists.
+// so no mutability field exists. Rest marks a final `T...` rest parameter: the
+// parameter's Type is the read-only Slice<T> the body and the C signature use,
+// while RestElement records the element type T the call boundary checks
+// against.
 type FunctionParameter struct {
 	Name         string
 	Binding      BindingID
 	Type         compilerTypes.Type
 	TypeUse      compilerTypes.TypeUse
+	Rest         bool
+	RestElement  compilerTypes.Type
 	SourceLine   int
 	SourceColumn int
 	// CName is the exact C spelling a foreign signature records for this
@@ -160,16 +165,22 @@ type functionSignature struct {
 // differ only in how their own name, if any, is bound around the call.
 func checkFunctionSignature(written []parser.Parameter, resultExpr parser.TypeExpression, fallback lexer.Token, generics *genericTable, typeEnvironment *compilerTypes.Environment) (functionSignature, compilerTypes.Diagnostics) {
 	parameters, diagnostics := checkParameters(written, typeEnvironment, generics)
+	rest := len(parameters) > 0 && parameters[len(parameters)-1].Rest
 	parameterTypes := make([]compilerTypes.Type, 0, len(parameters))
 	for _, parameter := range parameters {
 		parameterTypes = append(parameterTypes, parameter.Type)
+	}
+	if rest {
+		// The canonical Fun signature stores the rest element type T, not the
+		// Slice<T> the parameter is bound as.
+		parameterTypes[len(parameterTypes)-1] = parameters[len(parameters)-1].RestElement
 	}
 	result, resultUse, resultDiagnostics := checkResultType(resultExpr, fallback, typeEnvironment, generics)
 	diagnostics = append(diagnostics, resultDiagnostics...)
 	if len(diagnostics) > 0 {
 		return functionSignature{}, diagnostics
 	}
-	functionType := typeEnvironment.FunType(parameterTypes, result)
+	functionType := typeEnvironment.FunTypeRest(parameterTypes, result, rest)
 	if functionType.Signature == nil {
 		return functionSignature{}, compilerTypes.Diagnostics{unknownAt(fallback, "could not construct the function type for "+fallback.Lexeme)}
 	}
@@ -205,6 +216,14 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	seen := make(map[string]bool, len(written))
 	for _, parameter := range written {
+		if parameter.Rest {
+			// Activation gate: parsing, checking, and direct/method lowering are
+			// implemented, but rest-backed provenance (the escape analysis) is
+			// not yet enforced, so a rest slice could escape and dangle. Reject
+			// here until that phase lands; every layer below already handles Rest.
+			diagnostics = append(diagnostics, typeErrorAt(parameter.Ellipsis, "rest parameters are not supported yet"))
+			continue
+		}
 		parameterName := parameter.Name.Lexeme
 		if compilerTypes.IsProtectedTypeName(parameterName) || typeEnvironment.Contains(parameterName) {
 			diagnostics = append(diagnostics, typeErrorAt(parameter.Name, "value "+parameterName+" is already declared as a type"))
@@ -233,6 +252,25 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 			continue
 		}
 		seen[parameterName] = true
+		if parameter.Rest {
+			// A rest element must also be a valid read-only Slice element; the
+			// parameter itself is bound as that Slice.
+			sliceType := typeEnvironment.SliceType(resolved, false)
+			if sliceType == (compilerTypes.Type{}) {
+				diagnostics = append(diagnostics, typeErrorAt(parameter.Name, resolved.Name+" is not a valid rest element type"))
+				continue
+			}
+			parameters = append(parameters, FunctionParameter{
+				Name:         parameterName,
+				Type:         sliceType,
+				TypeUse:      resolvedUse,
+				Rest:         true,
+				RestElement:  resolved,
+				SourceLine:   parameter.Name.Line,
+				SourceColumn: parameter.Name.Column,
+			})
+			continue
+		}
 		parameters = append(parameters, FunctionParameter{
 			Name:         parameterName,
 			Type:         resolved,

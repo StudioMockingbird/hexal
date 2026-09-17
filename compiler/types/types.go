@@ -106,6 +106,14 @@ type FunSignature struct {
 	Name       string
 	Parameters []Type
 	Result     *Type // nil when the function has no result
+	// Rest marks a homogeneous rest parameter. When true, the final entry of
+	// Parameters is the element type T of a `T...` parameter rather than an
+	// ordinary T parameter, so this signature is called with m fixed arguments
+	// followed by zero or more T elements.
+	Rest bool
+	// RestSlice is the read-only Slice<T> the C ABI passes for a rest
+	// signature. It is the zero Type when Rest is false.
+	RestSlice Type
 }
 
 // ObjectMember is one member of a nominal object type or ADT payload field.
@@ -687,9 +695,21 @@ func NullableBase(typ Type) (Type, bool) {
 func IsNullable(typ Type) bool { return typ.NullableBase != nil }
 
 // FunType constructs or retrieves the canonical function type for one
-// ordered parameter list and optional result.
+// ordered parameter list and optional result. It is the non-rest form; a
+// signature whose final parameter is `T...` is built with FunTypeRest.
 func (environment *Environment) FunType(parameters []Type, result *Type) Type {
+	return environment.FunTypeRest(parameters, result, false)
+}
+
+// FunTypeRest constructs or retrieves the canonical function type for one
+// ordered parameter list and optional result, with rest marking a final `T...`
+// parameter. Rest is part of the type's identity: Fun<(T...)> and
+// Fun<(Slice<T>)> are distinct and not assignable to one another.
+func (environment *Environment) FunTypeRest(parameters []Type, result *Type, rest bool) Type {
 	if environment == nil {
+		return Type{}
+	}
+	if rest && len(parameters) == 0 {
 		return Type{}
 	}
 	state := canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}
@@ -703,19 +723,25 @@ func (environment *Environment) FunType(parameters []Type, result *Type) Type {
 			return Type{}
 		}
 	}
-	canonicalKey := funKey(parameters, result)
+	canonicalKey := funKey(parameters, result, rest)
 	if cached, ok := environment.arena.funTypes[canonicalKey]; ok {
 		return cached
 	}
-	name := funName(parameters, result)
+	name := funName(parameters, result, rest)
 	identity := newTypeIdentity()
 	identity.signature = canonicalKey
+	var restSlice Type
+	if rest {
+		restSlice = environment.SliceType(parameters[len(parameters)-1], false)
+	}
 	typ := Type{
 		Name: name,
 		Signature: &FunSignature{
 			Name:       name,
 			Parameters: append([]Type(nil), parameters...),
 			Result:     result,
+			Rest:       rest,
+			RestSlice:  restSlice,
 		},
 		CanonicalKey: canonicalKey,
 		identity:     identity,
@@ -724,12 +750,15 @@ func (environment *Environment) FunType(parameters []Type, result *Type) Type {
 	return typ
 }
 
-func funKey(parameters []Type, result *Type) string {
+func funKey(parameters []Type, result *Type, rest bool) string {
 	var builder strings.Builder
 	builder.WriteString("fun:")
 	for _, parameter := range parameters {
 		builder.WriteString(parameter.CanonicalKey)
 		builder.WriteString(",")
+	}
+	if rest {
+		builder.WriteString(";rest")
 	}
 	if result != nil {
 		builder.WriteString(":")
@@ -738,14 +767,18 @@ func funKey(parameters []Type, result *Type) string {
 	return builder.String()
 }
 
-func funName(parameters []Type, result *Type) string {
+func funName(parameters []Type, result *Type, rest bool) string {
 	var builder strings.Builder
 	builder.WriteString("Fun<(")
+	last := len(parameters) - 1
 	for index, parameter := range parameters {
 		if index > 0 {
 			builder.WriteString(", ")
 		}
 		builder.WriteString(parameter.Name)
+		if rest && index == last {
+			builder.WriteString("...")
+		}
 	}
 	builder.WriteString(")")
 	if result != nil {
@@ -1154,7 +1187,7 @@ func isCanonicalFun(environment *Environment, typ Type, state *canonicalTypeStat
 	if typ.Signature == nil {
 		return false
 	}
-	if typ.identity.signature != funKey(typ.Signature.Parameters, typ.Signature.Result) {
+	if typ.identity.signature != funKey(typ.Signature.Parameters, typ.Signature.Result, typ.Signature.Rest) {
 		return false
 	}
 	for _, parameter := range typ.Signature.Parameters {

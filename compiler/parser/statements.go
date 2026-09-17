@@ -231,12 +231,17 @@ func (parser *Parser) signature() ([]Parameter, TypeExpression, error) {
 	}
 	parameters := make([]Parameter, 0)
 	if !parser.check(lexer.RightParen) {
+		sawRest := false
 		for {
+			if sawRest {
+				return nil, nil, parser.errorAtCurrent("rest parameter must be final")
+			}
 			parameter, err := parser.parameter()
 			if err != nil {
 				return nil, nil, err
 			}
 			parameters = append(parameters, parameter)
+			sawRest = parameter.Rest
 			if !parser.check(lexer.Comma) {
 				break
 			}
@@ -270,7 +275,12 @@ func (parser *Parser) parameter() (Parameter, error) {
 	if err != nil {
 		return Parameter{}, err
 	}
-	return Parameter{Name: name, Type: typeExpression}, nil
+	parameter := Parameter{Name: name, Type: typeExpression}
+	if parser.check(lexer.Ellipsis) {
+		parameter.Ellipsis = parser.advance()
+		parameter.Rest = true
+	}
+	return parameter, nil
 }
 
 // body parses a function or method body up to its closing `end`. Control-flow

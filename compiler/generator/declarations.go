@@ -215,7 +215,13 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 		if !validateGeneratedType(parameter.Type, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("unsupported checked function parameter type")
 		}
-		if !compilerTypes.Equal(signature.Parameters[index], parameter.Type) {
+		expected := signature.Parameters[index]
+		if signature.Rest && index == len(signature.Parameters)-1 {
+			// The rest parameter's C ABI type is the Slice<T> the body and the
+			// signature use, not the element type T the canonical Fun stores.
+			expected = signature.RestSlice
+		}
+		if !compilerTypes.Equal(expected, parameter.Type) {
 			return unknownExpressionDiagnostic("function parameter does not match its checked type")
 		}
 		name, nameErr := state.allocateBinding(parameter.Binding, parameter.Name, parameter.Type, false)

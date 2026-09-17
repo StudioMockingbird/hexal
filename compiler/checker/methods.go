@@ -126,15 +126,15 @@ func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpres
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	signature := funType.Signature
-	if len(call.Arguments) != len(signature.Parameters) {
-		diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s expects %d arguments; got %d", member.Name, len(signature.Parameters), len(call.Arguments)))
+	if !aritySatisfied(signature, len(call.Arguments)) {
+		diagnostic := typeErrorAt(callee.Property, arityDiagnostic(member.Name, signature, len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, len(signature.Parameters))
 	for index, parameter := range signature.Parameters {
 		parameterUses[index] = compilerTypes.NewTypeUse(parameter)
 	}
-	arguments, diagnostics := checkArguments(member.Name, parameterUses, call.Arguments, callee.Property, ctx)
+	arguments, diagnostics := checkArgumentsWithRest(member.Name, parameterUses, call.Arguments, signature.Rest, callee.Property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -689,9 +689,8 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
 
-	if len(call.Arguments) != len(method.Parameters) {
-		diagnostic := typeErrorAt(callee.Property,
-			fmt.Sprintf("%s expects %d arguments; got %d", name, len(method.Parameters), len(call.Arguments)))
+	if !parameterAritySatisfied(method.Parameters, len(call.Arguments)) {
+		diagnostic := typeErrorAt(callee.Property, parameterArityDiagnostic(name, method.Parameters, len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	expected := make([]compilerTypes.TypeUse, 0, len(method.Parameters))
@@ -702,7 +701,8 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		}
 		expected = append(expected, use)
 	}
-	arguments, diagnostics := checkArguments(name, expected, call.Arguments, callee.Property, ctx)
+	_, methodRest := parameterRestFixed(method.Parameters)
+	arguments, diagnostics := checkArgumentsWithRest(name, expected, call.Arguments, methodRest, callee.Property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -720,6 +720,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		OperandType: method.SelfType,
 		ResultType:  resultType,
 	}
+	applyParameterRestMetadata(&node, method.Parameters)
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node},
 		typ:    resultType,
@@ -751,9 +752,8 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
-	if len(call.Arguments) != len(method.Parameters) {
-		diagnostic := typeErrorAt(callee.Property,
-			fmt.Sprintf("%s expects %d arguments; got %d", name, len(method.Parameters), len(call.Arguments)))
+	if !parameterAritySatisfied(method.Parameters, len(call.Arguments)) {
+		diagnostic := typeErrorAt(callee.Property, parameterArityDiagnostic(name, method.Parameters, len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	expected := make([]compilerTypes.TypeUse, 0, len(method.Parameters))
@@ -764,7 +764,8 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 		}
 		expected = append(expected, use)
 	}
-	arguments, diagnostics := checkArguments(name, expected, call.Arguments, callee.Property, ctx)
+	_, methodRest := parameterRestFixed(method.Parameters)
+	arguments, diagnostics := checkArgumentsWithRest(name, expected, call.Arguments, methodRest, callee.Property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}

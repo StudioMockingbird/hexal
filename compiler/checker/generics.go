@@ -936,14 +936,14 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 // builds the checked call node.
 func buildConcreteCall(call parser.CallExpression, specialized FunctionDeclaration, ctx checkContext, token lexer.Token) checkedExpression {
 	signature := specialized.Type.Signature
-	if len(call.Arguments) != len(signature.Parameters) {
-		return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, fmt.Sprintf("%s expects %d arguments; got %d", specialized.Name, len(signature.Parameters), len(call.Arguments))))}
+	if !aritySatisfied(signature, len(call.Arguments)) {
+		return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, arityDiagnostic(specialized.Name, signature, len(call.Arguments))))}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(specialized.Parameters))
 	for _, parameter := range specialized.Parameters {
 		parameterUses = append(parameterUses, parameter.TypeUse)
 	}
-	arguments, diagnostics := checkArguments(specialized.Name, parameterUses, call.Arguments, token, ctx)
+	arguments, diagnostics := checkArgumentsWithRest(specialized.Name, parameterUses, call.Arguments, signature.Rest, token, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: token, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -959,6 +959,7 @@ func buildConcreteCall(call parser.CallExpression, specialized FunctionDeclarati
 		OperandType: specialized.Type,
 		ResultType:  resultType,
 	}
+	applyRestMetadata(&node, signature, ctx.typeEnvironment)
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: specialized.Name, Node: node},
 		typ:    resultType,
@@ -1075,8 +1076,8 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 // buildConcreteMethodCall checks a call against a specialized method and
 // builds the checked method-call node.
 func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyExpression, specialized MethodDeclaration, receiver checkedExpression, ctx checkContext) checkedExpression {
-	if len(call.Arguments) != len(specialized.Parameters) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("%s expects %d arguments; got %d", specialized.Name, len(specialized.Parameters), len(call.Arguments))))}
+	if !parameterAritySatisfied(specialized.Parameters, len(call.Arguments)) {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, parameterArityDiagnostic(specialized.Name, specialized.Parameters, len(call.Arguments))))}
 	}
 	adapted, diagnostic := adaptReceiver(receiver, specialized, callee, ctx.typeEnvironment, ctx.names.flow)
 	if diagnostic != nil {
@@ -1086,7 +1087,8 @@ func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyE
 	for _, parameter := range specialized.Parameters {
 		expected = append(expected, parameter.TypeUse)
 	}
-	arguments, diagnostics := checkArguments(specialized.Name, expected, call.Arguments, callee.Property, ctx)
+	_, methodRest := parameterRestFixed(specialized.Parameters)
+	arguments, diagnostics := checkArgumentsWithRest(specialized.Name, expected, call.Arguments, methodRest, callee.Property, ctx)
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
@@ -1103,6 +1105,7 @@ func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyE
 		OperandType: specialized.SelfType,
 		ResultType:  resultType,
 	}
+	applyParameterRestMetadata(&node, specialized.Parameters)
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: specialized.Name, Node: node},
 		typ:    resultType,

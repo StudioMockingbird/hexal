@@ -917,6 +917,9 @@ func (parser *Parser) callArguments(callee Expression) (CallExpression, error) {
 			if err != nil {
 				return CallExpression{}, err
 			}
+			if parser.check(lexer.Ellipsis) {
+				return CallExpression{}, parser.errorAtCurrent("spread arguments are not supported; pass explicit values")
+			}
 			arguments = append(arguments, argument)
 			labels = append(labels, label)
 			if !parser.check(lexer.Comma) {

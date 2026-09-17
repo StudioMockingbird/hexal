@@ -318,6 +318,32 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 	return nil
 }
 
+// renderRestSliceArgument packs a rest call's trailing arguments into the one
+// read-only Slice<T> the callee's C signature takes. Zero elements pass the
+// canonical empty Slice; one or more pass a compound-literal array. Every
+// element expression has already been evaluated, once and in source order,
+// into its own temporary by the sequencing pass when it may observe, so the
+// initializer list itself introduces no source-visible evaluation.
+func renderRestSliceArgument(node *checker.Expression, arguments []string) []string {
+	if !node.Rest {
+		return arguments
+	}
+	fixed := node.RestStart
+	if fixed > len(arguments) {
+		fixed = len(arguments)
+	}
+	rest := arguments[fixed:]
+	data := "nullptr"
+	if len(rest) > 0 {
+		data = "(" + typeSpelling(node.RestElement) + "[]){" + strings.Join(rest, ", ") + "}"
+	}
+	literal := "(" + typeSpelling(node.RestSlice) + "){.data = " + data + ", .length = " + strconv.Itoa(len(rest)) + "}"
+	packed := make([]string, 0, fixed+1)
+	packed = append(packed, arguments[:fixed]...)
+	packed = append(packed, literal)
+	return packed
+}
+
 func renderCallStatement(statement checker.CallStatement, state *expressionValidation) (string, error) {
 	if statement.Call.Kind == checker.ObjectOperand {
 		// Error.new(...) checks to an ObjectOperand rather than a Node-carrying
@@ -779,6 +805,12 @@ func funDeclaration(typ compilerTypes.Type, name string, mutable bool) string {
 	}
 	parameters := make([]string, len(typ.Signature.Parameters))
 	for index, parameter := range typ.Signature.Parameters {
+		if typ.Signature.Rest && index == len(typ.Signature.Parameters)-1 {
+			// A rest signature's final C parameter is the Slice<T> the ABI
+			// passes, not the element type T.
+			parameters[index] = typeSpelling(typ.Signature.RestSlice)
+			continue
+		}
 		parameters[index] = typeSpelling(parameter)
 	}
 	return result + " (" + inner + ")(" + parameterList(parameters) + ")"
@@ -913,6 +945,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			}
 			arguments[index] = rendered
 		}
+		arguments = renderRestSliceArgument(&node, arguments)
 		call := callee + "(" + strings.Join(arguments, ", ") + ")"
 		if node.Operand.Kind == checker.ForeignFunctionReferenceExpression && node.Operand.ForeignResult != "" &&
 			node.ResultType != (compilerTypes.Type{}) && typeSpelling(node.ResultType) != node.Operand.ForeignResult {
@@ -948,6 +981,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			}
 			arguments[index] = rendered
 		}
+		arguments = renderRestSliceArgument(&node, arguments)
 		allArguments := append([]string{receiver}, arguments...)
 		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(allArguments, ", ") + ")", nil
 	case checker.AddressOfExpression:
