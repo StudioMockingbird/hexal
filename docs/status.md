@@ -9,6 +9,13 @@ gets deleted.
 
 ## Open TODOs
 
+### Under review
+
+| Work | Spec |
+| --- | --- |
+| Review the consolidated installed-Clang Linux backend, checked-in embedded runtime pack, zero-file C-import, packaging, and Clang-only validation contract before it replaces RFC 0214 and RFC 0215 | [0217](specs/0217-clang-linux-backend-packaging-and-validation.md) |
+| After the WSL/Linux path lands, review and simplify the Windows backend, packaging, runtime-pack, and qualification path without removing the Windows compiler target | [0217](specs/0217-clang-linux-backend-packaging-and-validation.md), deferred follow-up requiring its own specification before implementation |
+
 ### Implementation-ready
 
 | Work | Spec |
