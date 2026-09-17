@@ -272,6 +272,9 @@ func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Ty
 	if !ok || signature.Signature == nil {
 		return spawnSite{}, unknownExpressionDiagnostic("spawn target is not a checked function: " + node.Operand.Name)
 	}
+	if node.Rest != signature.Signature.Rest {
+		return spawnSite{}, unknownExpressionDiagnostic("spawn rest metadata does not match its checked signature")
+	}
 	module := node.Operand.Module
 	if module == "" {
 		module = localModule

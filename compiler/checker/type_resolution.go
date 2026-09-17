@@ -280,7 +280,8 @@ func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnviro
 // element type is a valid read-only Slice element and returns its use
 // unchanged. The canonical Fun signature stores the element type T.
 func resolveRestElement(written parser.TypeExpression, fallback lexer.Token, resolvedUse compilerTypes.TypeUse, ellipsis lexer.Token, typeEnvironment *compilerTypes.Environment) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
-	if typeEnvironment.SliceType(resolvedUse.Type, false) == (compilerTypes.Type{}) {
+	if typeEnvironment.SliceType(resolvedUse.Type, false) == (compilerTypes.Type{}) ||
+		!compilerTypes.Eligible(resolvedUse.Type, compilerTypes.PositionFunctionParam) {
 		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(ellipsis, resolvedUse.Type.Name+" is not a valid rest element type"))
 	}
 	return resolvedUse, nil

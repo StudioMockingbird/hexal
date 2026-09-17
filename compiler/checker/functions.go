@@ -231,27 +231,18 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 			continue
 		}
 		resolved := resolvedUse.Type
-		if diagnostic := valueTypeDiagnostic(parameter.Type, parameter.Name, resolved); diagnostic != nil {
-			diagnostics = append(diagnostics, *diagnostic)
-			continue
-		}
-		// Parameters copy their values at every call, so they go through
-		// the shared position model like every other copy-requiring
-		// position.
-		if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionParam) {
-			diagnostics = append(diagnostics, typeErrorAt(parameter.Name,
-				"function parameter "+resolved.Name+" is not shallow-copyable"))
-			continue
-		}
-		seen[parameterName] = true
 		if parameter.Rest {
-			// A rest element must also be a valid read-only Slice element; the
-			// parameter itself is bound as that Slice.
+			// A rest element must be a valid read-only Slice element and
+			// shallow-copyable in function-parameter position; the parameter
+			// itself is bound as the Slice<T> the body and the C signature use.
+			// The rest-element diagnostic owns an incomplete or otherwise
+			// unusable element rather than the generic value-position one.
 			sliceType := typeEnvironment.SliceType(resolved, false)
-			if sliceType == (compilerTypes.Type{}) {
+			if sliceType == (compilerTypes.Type{}) || !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionParam) {
 				diagnostics = append(diagnostics, typeErrorAt(parameter.Name, resolved.Name+" is not a valid rest element type"))
 				continue
 			}
+			seen[parameterName] = true
 			parameters = append(parameters, FunctionParameter{
 				Name:         parameterName,
 				Type:         sliceType,
@@ -261,6 +252,19 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 				SourceLine:   parameter.Name.Line,
 				SourceColumn: parameter.Name.Column,
 			})
+			continue
+		}
+		if diagnostic := valueTypeDiagnostic(parameter.Type, parameter.Name, resolved); diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+			continue
+		}
+		seen[parameterName] = true
+		// Parameters copy their values at every call, so they go through
+		// the shared position model like every other copy-requiring
+		// position.
+		if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionParam) {
+			diagnostics = append(diagnostics, typeErrorAt(parameter.Name,
+				"function parameter "+resolved.Name+" is not shallow-copyable"))
 			continue
 		}
 		parameters = append(parameters, FunctionParameter{

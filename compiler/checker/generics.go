@@ -1210,7 +1210,8 @@ func specializeFromExpectedType(open *openGenericFunction, expected compilerType
 	}
 	generics.frame = previousFrame
 	signature := expected.Signature
-	if signature == nil || len(signature.Parameters) != len(expectedTypes) || (signature.Result == nil) != !hasResult {
+	literalRest := len(open.Declaration.Parameters) > 0 && open.Declaration.Parameters[len(open.Declaration.Parameters)-1].Rest
+	if signature == nil || len(signature.Parameters) != len(expectedTypes) || (signature.Result == nil) != !hasResult || signature.Rest != literalRest {
 		return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("cannot infer generic parameter for %s", open.Name)))
 	}
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)

@@ -1318,6 +1318,18 @@ func validateCallExpression(node checker.Expression, expected *compilerTypes.Typ
 		return unknownExpressionDiagnostic("call callee is not a checked Fun type")
 	}
 	if node.Rest {
+		// The checked call's rest metadata must agree with the callee's
+		// canonical signature; a forged boundary, element type, or Slice would
+		// otherwise lower a frame or argument list that does not match.
+		if !signature.Rest || node.RestStart != len(signature.Parameters)-1 ||
+			!compilerTypes.Equal(node.RestElement, signature.Parameters[node.RestStart]) ||
+			!compilerTypes.Equal(node.RestSlice, signature.RestSlice) {
+			return unknownExpressionDiagnostic("rest call metadata does not match its checked signature")
+		}
+	} else if signature.Rest {
+		return unknownExpressionDiagnostic("rest call omitted its checked rest boundary")
+	}
+	if node.Rest {
 		if len(node.Arguments) < node.RestStart {
 			return unknownExpressionDiagnostic("call argument count is below its rest boundary")
 		}
@@ -1376,6 +1388,13 @@ func validateMethodCallExpression(node checker.Expression, expected *compilerTyp
 		}
 		if !compilerTypes.Equal(node.OperandType, declared.SelfType) || !restCallArityOK(node, len(declared.Parameters)) {
 			return unknownExpressionDiagnostic("method call does not match its checked signature")
+		}
+		declaredRest := len(declared.Parameters) > 0 && declared.Parameters[len(declared.Parameters)-1].Rest
+		if node.Rest != declaredRest {
+			return unknownExpressionDiagnostic("method call rest metadata does not match its checked signature")
+		}
+		if node.Rest && (node.RestStart != len(declared.Parameters)-1 || !compilerTypes.Equal(node.RestElement, declared.Parameters[node.RestStart].RestElement)) {
+			return unknownExpressionDiagnostic("method call rest metadata does not match its checked signature")
 		}
 		if declared.Result == nil {
 			if node.ResultType != (compilerTypes.Type{}) || (expected != nil) {

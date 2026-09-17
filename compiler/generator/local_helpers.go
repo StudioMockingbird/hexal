@@ -154,7 +154,11 @@ func writeLocalHelperDefinitions(ctx definitionContext, helpers []localHelper) e
 			if !validateGeneratedType(parameter.Type, ctx.typeState, false) {
 				return unknownExpressionDiagnostic("unsupported local function helper parameter type")
 			}
-			if !compilerTypes.Equal(signature.Parameters[index], parameter.Type) {
+			expected := signature.Parameters[index]
+			if signature.Rest && index == len(signature.Parameters)-1 {
+				expected = signature.RestSlice
+			}
+			if !compilerTypes.Equal(expected, parameter.Type) {
 				return unknownExpressionDiagnostic("local function helper parameter does not match its checked type")
 			}
 			name, nameErr := state.allocateBinding(parameter.Binding, parameter.Name, parameter.Type, false)

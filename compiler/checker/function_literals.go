@@ -95,7 +95,7 @@ func openGenericLiteral(expression parser.AnonymousFunctionLiteral, ctx checkCon
 		HasSyntaxErrors: expression.HasSyntaxErrors,
 	}
 	open := &openGenericFunction{
-		Name:        "function literal",
+		Name:        "function_literal",
 		Parameters:  append([]lexer.Token(nil), expression.TypeParameters...),
 		Declaration: synthesized,
 		local:       true,
