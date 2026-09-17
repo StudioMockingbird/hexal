@@ -13,7 +13,12 @@ gets deleted.
 
 | Work | Spec |
 | --- | --- |
-| Select an installed C compiler and consume target-qualified static libuv/mimalloc runtime packs | [0213](specs/0213-external-c-backend-and-runtime-packs.md) |
+| Qualify installed Clang on WSL, restore `hexal build <filepath>`, embed the `x86_64-linux-gnu` runtime pack, and make compiler builds produce only `bin/hexal` | [0214](specs/0214-installed-clang-wsl-backend.md), amending [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
+| Remove GCC and Zig from compiler-development and external-validation requirements after the Clang migration | [0215](specs/0215-single-clang-external-validation.md), blocked on [0214](specs/0214-installed-clang-wsl-backend.md) |
+| Remove RFC 0213's retained vendored-source path (`materializeDependencies`, `compileNativeDependencies`, `PlanDependencies`, and the `modules` import) and migrate the external libuv/bridge probes and the `compiler/tests/c23validation` harness to the checked-in pack | [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
+| Run RFC 0213's foreign-target-object probe from `hexal doctor`'s exhaustive set | [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
+| Emit RFC 0213's exact `C backend <path> reports Zig <actual>; target ... requires Zig 0.16.0` diagnostic for a non-Zig executable that reports no `lib_dir` | [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
+| Add an explicit test for RFC 0213 `-cc` relative-path resolution against the invocation working directory | [0213](specs/archived/0213-external-c-backend-and-runtime-packs.md) |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 
 ## Deferred ideas
@@ -169,7 +174,7 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   rationale in `c23_harness_test.go` corrected to name the real cause.
 - **The fixture and snippet catalog now also compiles, links, and runs under
   the one profile the compiler-owned registry currently qualifies
-  (`x86_64-windows-gnu`), not only the host-neutral `Project{}` every other
+  (`x86_64-windows-gnu-ucrt`), not only the host-neutral `Project{}` every other
   tagged test used.** `Project{}` keeps both platform branches and lets the
   C compiler's own target macros select one at C-compile time; an explicit
   profile instead has the Hexal compiler itself omit the inactive branch
