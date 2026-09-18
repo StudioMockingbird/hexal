@@ -3,7 +3,7 @@
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Implementation-ready; not scheduled
 - Created: 2026-09-18
-- Updated: 2026-09-18
+- Updated: 2026-09-19
 - Scope: replace the `:=` value-binding operator with a mandatory `let`
   declaration introducer plus `=`, so a declaration and an assignment are
   distinguished by a keyword rather than by an operator
@@ -21,9 +21,8 @@ A value binding is introduced by `let`:
 
 ```hexal
 let count: Int32 = 0
-let name = "hexal"
-let mut total = 0
-static let limit = 10
+let name: String = "hexal"
+let mut total: Int32 = 0
 ```
 
 `=` alone assigns to an existing writable place, exactly as today:
@@ -54,19 +53,10 @@ only way to introduce a value binding.
 Grammar productions that change:
 
 ```ebnf
-declaration = "let" , [ "mut" ] , identifier
-              , ( ":" , type-expression , "=" | "=" ) , expression ;
+Declaration = "let" [ "mut" ] identifier
+              ( ":" TypeExpression "=" | "=" ) Expression .
 
-static-module-value = "static" , "let" , [ "mut" ] , identifier
-                      , ( ":" , type-expression , "=" | "=" ) , expression ;
-
-assignment = assignment-target , "=" , expression ;   (* unchanged *)
-
-statement = non-control-statement | return-statement
-            | if-statement | while-statement | for-statement ;
-non-control-statement = declaration | assignment | call-statement
-                        | try-statement | "break" | "continue"
-                        | defer-statement | errdefer-statement ;
+Assignment = AssignmentTarget "=" Expression .
 ```
 
 - `let` is added to `reserved-word`.
@@ -79,10 +69,8 @@ Examples:
 
 ```hexal
 let typed: Int32 = 13
-let inferred = 13
+let inferred = Heap()
 let mut counter: Int32 = 0
-static let port: Int32 = 8080
-static let mut requests = 0
 ```
 
 ## Declaration semantics
@@ -96,10 +84,9 @@ static let mut requests = 0
   just as `name: T :=` is today.
 - `mut` appears only immediately after `let`: `let mut name = ...` declares a
   replaceable binding; `let name = ...` declares a fixed binding.
-- Visibility, shadowing, protected-name rules, source-order type visibility,
-  and module-value restrictions are unchanged.
-- A `static let` keeps the module-value contract: program-lifetime storage
-  private to its module unless exported, with the closed static-initializer set.
+- Visibility, shadowing, protected-name rules, source-order type visibility, and
+  storage semantics are unchanged by this RFC. RFC 0219 separately classifies
+  ordinary top-level `let` declarations by entry/imported module role.
 
 ## Assignment semantics
 
@@ -123,8 +110,17 @@ x = 5        (* rejected: unknown variable x; use 'let x = 5' to declare *)
 | `let` binding has no initializer | Syntax Error: `expected '=' in a 'let' declaration` |
 | `let name = initializer` with a contextual initializer | Type Error: `` `let` requires an initializer whose type does not depend on context; annotate the binding instead `` |
 | `:=` used as a declaration operator | Syntax Error: `':=' is not a declaration operator; use 'let name = value'` |
+| `let name := initializer` | Syntax Error: `expected a type after ':' in a 'let' declaration` |
 | `mut` outside `let mut` in a declaration | Syntax Error: `'mut' appears only immediately after 'let' in a declaration` |
 | Assignment to a fixed binding or undeclared name | existing diagnostics, unchanged |
+
+The `:=` diagnostic is token-sequence based. Source adjacency is irrelevant:
+`name:=value` and `name : = value` receive the same diagnostic. The same
+diagnostic applies to the typed former declaration `name: T := value`. In a
+declaration already introduced by `let`, `:` begins a type annotation, so
+`let name:=value` and `let name : = value` instead receive the missing-type
+diagnostic above. `let name mut = value` receives the malformed-`mut`
+diagnostic above.
 
 ## C23 lowering
 
@@ -144,56 +140,69 @@ compiles before and after. No runtime, ABI, or component change results.
 ### Phase 2: parser
 
 1. Add `let` as a reserved word and a keyword token.
-2. Parse `declaration = "let" , [ "mut" ] , identifier , ( ":" T "=" | "=" ) , expression`.
-3. Parse `static-module-value` with the same `let ... =` shape.
-4. Replace the recovery and rejection diagnostics above; remove every message
-   that names `:=`.
+2. Parse `Declaration = "let" [ "mut" ] identifier ( ":" TypeExpression "=" | "=" ) Expression`.
+3. Replace the recovery and rejection diagnostics above; retain `:=` only in
+   the required rejection diagnostic and its negative tests.
+4. Replace `parser.Declaration.Operator` with `Keyword`, storing the source
+   `let` token. The checker uses that token as the diagnostic anchor for
+   contextual inferred initializers; the `=` token has no semantic role.
 
 ### Phase 3: checker
 
 1. Reword the contextual-inference diagnostic from `` `:=` `` to `` `let` ``;
    the rule itself is unchanged.
-2. Confirm no semantic path inspected the `:=` token; none should.
+2. Confirm no semantic path inspects `=` or the former `:=` token; none should.
 
 ### Phase 4: sources, catalog, and tests
 
-1. Rewrite every `.hex` source that uses `:=`: workbench snippets, integration
-   fixtures, and any doctest-like source in specs still considered active.
-2. Update every diagnostic assertion that names `:=`.
-3. Recompute the snippet SHA manifest only if generated C changed; it must not,
-   so a moved hash is a defect to investigate before rebuilding.
+1. Rewrite every positive `.hex` source that uses `:=`: workbench snippets,
+   integration fixtures, packages, standard-library sources, driver fixtures,
+   and doctest-like source in active specs. Archived specs are immutable and are
+   not rewritten.
+2. Update diagnostic assertions that treat `:=` as valid. Retain only the
+   negative sources and assertions required by the diagnostics above.
+3. Compile the positive fixture corpus immediately before and after its
+   syntax-only rewrite and compare every `CompilationResult.Files` entry. The
+   snippet SHA manifest must not move. Any difference is a defect to investigate;
+   do not rebuild the manifest for RFC 0218.
 
 ### Phase 5: documentation
 
 1. Update `docs/reference.md`: the grammar productions above, the
-   declaration-operator prose, the `static` module-value spelling, and every
-   `:=` example.
-2. Record the change on `docs/status.md` while the spec is active; archive the
+   declaration-operator prose and every `:=` example. RFC 0219 owns removal of
+   the separate `static` production and keyword.
+2. Apply the same productions to the checked root `GRAMMAR.ebnf`. The reference
+   remains the sole normative contract; the root grammar is its checked mirror.
+3. Record the change on `docs/status.md` while the spec is active; archive the
    spec when every Validation item passes.
 
 ## Required implementation sweep
 
 - lexer token kinds, names, scanning, and tests;
-- parser declaration, module-value, recovery, and every `:=` diagnostic;
+- parser declaration, recovery, and every `:=` diagnostic;
 - checker contextual-inference diagnostic and any `:=` mention;
 - all `.hex` sources in `workbench/snippets`, `compiler/tests/integration`,
   `compiler/tests/c23validation`, `internal/driver`, `packages/`, and `stdlib/`
   that use `:=` as a declaration;
 - generated-C text assertions that embed a source string;
-- `docs/reference.md` grammar and prose.
+- `docs/reference.md` grammar and prose, plus the checked root `GRAMMAR.ebnf`
+  mirror.
 
 ## Reference synchronization
 
 `docs/reference.md` is the sole normative source. This spec changes the
-`declaration` and `static-module-value` productions, adds `let` to
-`reserved-word`, restates the declaration-operator rule, and replaces every
-`:=` example. No semantic rule changes.
+`declaration` production, adds `let` to `reserved-word`, restates the
+declaration-operator rule, and replaces every `:=` example. RFC 0219 separately
+removes the `static-module-value` production. No semantic rule changes here.
 
 ## Validation (exhaustive)
 
-1. `let name: T = expr`, `let name = expr`, `let mut name = expr`, and
-   `static let [mut] name [: T] = expr` each parse and check.
-2. `name := expr` reports `':=' is not a declaration operator; use 'let name = value'`.
+1. `let name: T = expr`, `let name = expr`, and `let mut name = expr` each parse
+   and check in every position where the corresponding ordinary pre-RFC
+   declaration was valid. Former `static` declarations remain RFC 0219's scope.
+2. `name := expr`, `name : = expr`, and `name: T := expr` report `':=' is not a
+   declaration operator; use 'let name = value'`. `let name := expr` and its
+   spaced form report `expected a type after ':' in a 'let' declaration`.
 3. `name: T = expr` with no `let` reports `declarations require 'let'`.
 4. `let name: T` with no initializer reports `expected '=' in a 'let' declaration`.
 5. `let name = <contextual>` is rejected with the `` `let` `` inference
@@ -202,54 +211,24 @@ compiles before and after. No runtime, ABI, or component change results.
    declares; `let name = expr` followed by `name = expr` is accepted when the
    binding is `mut` and rejected when it is fixed.
 7. `mut` before `let` (`mut let x = 1`) is rejected; `let mut x = 1` is accepted.
+   `let x mut = 1` reports `'mut' appears only immediately after 'let' in a
+   declaration`.
 8. `let` cannot be used as an identifier; a program that used `let` as a name now
    fails as a reserved-word use.
 9. Parameters, members, ADT payloads, results, `for` binders, `self`, named
    constructor arguments, and `extern` declarations are unchanged and still
    parse.
-10. Generated C is byte-identical for every program that compiles before and
-    after the change; the snippet SHA manifest does not move. If it moves, the
-    change altered semantics and is wrong.
+10. Every rewritten positive regression program has byte-identical
+    `CompilationResult.Files` before and after the source rewrite; the snippet
+    SHA manifest does not move. If it moves, the change altered output and is
+    wrong.
 11. `go test ./...`, `go vet ./...`, `go vet -tags c23 ./...`, and the complete
     tagged C23 suite pass with only Clang installed.
 12. The workbench snippet catalog, integration fixtures, and tagged fixtures
     that use declarations all still compile, run, and produce their exact
     expected output after the rewrite.
-13. `gofmt -l` is clean on every changed Go file, and no test asserts `:=`.
-
-## Open questions
-
-These questions are intentionally unresolved. They must be answered before
-implementation begins; implementation must not infer behavior from the
-surrounding rules.
-
-1. What token, if any, does `Declaration.Operator` store after `:=` is
-   removed: the `let` token, the `=` token, a synthetic token, or no token?
-   The same decision applies to `ModuleValueDeclaration.Operator`.
-2. When `:` and `=` are lexed independently, is `x : = value` equivalent to
-   the deprecated `x := value` spelling, or does whitespace change the
-   diagnostic?
-3. What exact diagnostic applies to typed deprecated syntax such as
-   `x: Int32 := value`?
-4. What exact diagnostic applies to `let x:=value` and `let x : = value`?
-5. What exact diagnostics apply to the invalid static forms `static x = 1`,
-   `static mut x = 1`, and `static mut let x = 1`?
-6. What exact diagnostic applies to malformed `mut` placement such as
-   `let x mut = 1`?
-7. Does the required `:=` rejection depend on adjacent source characters or
-   only on the token sequence `:` followed by `=`?
-8. Does “no test asserts `:=`” mean no test may assert it as a valid
-   declaration operator, while still permitting the required negative tests
-   for its diagnostic?
-9. How is generated-C byte identity established after all source fixtures are
-   rewritten: an unchanged snippet manifest, a saved pre-change compilation
-   result, or a comparison of every `CompilationResult.Files` entry?
-10. Which source locations are included in the rewrite sweep: active specs,
-    documentation examples, archived specs, generated-C assertions, and
-    negative tests containing `:=`?
-11. Should the canonical grammar update be made directly in `GRAMMAR.ebnf`,
-    in `docs/reference.md`, or in both, now that `GRAMMAR.ebnf` uses the
-    `golang.org/x/exp/ebnf` dialect?
+13. `gofmt -l` is clean on every changed Go file. No positive source or
+    assertion accepts `:=`; negative diagnostic coverage remains.
 
 ## Non-goals
 
@@ -268,8 +247,8 @@ diagnostics above specify:
 
 1. `mut` placement is `let mut x`, not `mut let x`. `mut` modifies the binding,
    so it follows the introducer that creates the binding.
-2. Module values are `static let x`, not `let static x`. `static` keeps its
-   role as the module-scope marker; `let` remains the introducer.
+2. RFC 0218 adds no separate module-value spelling. RFC 0219 owns top-level
+   binding classification and removal of `static`.
 3. `:=` is a hard error, not a deprecated alias. Its one diagnostic names the
    replacement directly, so the language has exactly one declaration spelling.
 
