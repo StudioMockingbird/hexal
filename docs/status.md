@@ -16,6 +16,7 @@ gets deleted.
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
 | Reconcile RFC 0217's host-neutral output invariant with the implementation: `Project{}` generated artifacts and the snippet SHA manifest changed in 14 entries; either restore the pre-RFC artifacts or explicitly amend the spec/reference and retain a reviewed new baseline | [0217](specs/archived/0217-clang-linux-backend-packaging-and-validation.md) |
 | Replace the `:=` declaration operator with a mandatory `let` introducer and `=`, so a declaration is keyword-introduced and `=` alone assigns | [0218](specs/0218-let-declarations-and-equals-binding.md) |
+| Define module-scope value lifetime through declaration scope, make `export` the visibility boundary, and remove the `static` keyword | [0219](specs/0219-module-scope-values-and-exported-storage.md) |
 
 ## Deferred ideas
 

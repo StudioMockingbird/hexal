@@ -217,6 +217,40 @@ compiles before and after. No runtime, ABI, or component change results.
     expected output after the rewrite.
 13. `gofmt -l` is clean on every changed Go file, and no test asserts `:=`.
 
+## Open questions
+
+These questions are intentionally unresolved. They must be answered before
+implementation begins; implementation must not infer behavior from the
+surrounding rules.
+
+1. What token, if any, does `Declaration.Operator` store after `:=` is
+   removed: the `let` token, the `=` token, a synthetic token, or no token?
+   The same decision applies to `ModuleValueDeclaration.Operator`.
+2. When `:` and `=` are lexed independently, is `x : = value` equivalent to
+   the deprecated `x := value` spelling, or does whitespace change the
+   diagnostic?
+3. What exact diagnostic applies to typed deprecated syntax such as
+   `x: Int32 := value`?
+4. What exact diagnostic applies to `let x:=value` and `let x : = value`?
+5. What exact diagnostics apply to the invalid static forms `static x = 1`,
+   `static mut x = 1`, and `static mut let x = 1`?
+6. What exact diagnostic applies to malformed `mut` placement such as
+   `let x mut = 1`?
+7. Does the required `:=` rejection depend on adjacent source characters or
+   only on the token sequence `:` followed by `=`?
+8. Does “no test asserts `:=`” mean no test may assert it as a valid
+   declaration operator, while still permitting the required negative tests
+   for its diagnostic?
+9. How is generated-C byte identity established after all source fixtures are
+   rewritten: an unchanged snippet manifest, a saved pre-change compilation
+   result, or a comparison of every `CompilationResult.Files` entry?
+10. Which source locations are included in the rewrite sweep: active specs,
+    documentation examples, archived specs, generated-C assertions, and
+    negative tests containing `:=`?
+11. Should the canonical grammar update be made directly in `GRAMMAR.ebnf`,
+    in `docs/reference.md`, or in both, now that `GRAMMAR.ebnf` uses the
+    `golang.org/x/exp/ebnf` dialect?
+
 ## Non-goals
 
 - Introducing `var`, `const`, `let ... else`, destructuring, or multiple
